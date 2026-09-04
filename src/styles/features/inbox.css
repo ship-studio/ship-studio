@@ -1,4 +1,4 @@
-/* Inbox — what the routines found (prototype).
+/* Inbox — what the workflows found (prototype).
    Two-pane reading layout: list on the left, report on the right. Unlike the
    dashboard column this fills the window, because reading is the whole job. */
 
@@ -193,7 +193,7 @@
   flex-wrap: wrap;
 }
 
-.inbox-item-routine {
+.inbox-item-workflow {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

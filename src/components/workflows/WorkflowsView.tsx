@@ -1,16 +1,16 @@
 /**
- * Routines — the standing-instructions page.
+ * Workflows — the standing-instructions page.
  *
  * Laid out on the home screen's geometry: the same centred `dashboard-column`,
  * the same `dashboard-panel` section card, and the same
  * `dashboard-section-header` title/actions row the project list uses. Moving
- * between Home, Routines and Inbox should not move anything.
+ * between Home, Workflows and Inbox should not move anything.
  *
- * Reads from `lib/routinesStore`, which is backed by real files on disk. A
- * routine that appears here may have been written by the form below *or* by
+ * Reads from `lib/workflowsStore`, which is backed by real files on disk. A
+ * workflow that appears here may have been written by the form below *or* by
  * the user's own agent through the bundled skill — the store reloads on both.
  *
- * @module components/routines/RoutinesView
+ * @module components/workflows/WorkflowsView
  */
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
@@ -21,8 +21,8 @@ import { EmptyState } from '../primitives/EmptyState';
 import { Spinner } from '../primitives/Spinner';
 import { DashboardHeader } from '../dashboard/DashboardHeader';
 import { DashboardSearch } from '../dashboard/DashboardSearch';
-import { RoutineRow } from './RoutineRow';
-import { RoutineEditorModal, type RoutineProjectOption } from './RoutineEditorModal';
+import { WorkflowRow } from './WorkflowRow';
+import { WorkflowEditorModal, type WorkflowProjectOption } from './WorkflowEditorModal';
 import { RunHistoryModal } from './RunHistoryModal';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
@@ -32,35 +32,35 @@ import {
   formatTokens,
   summarizeWeek,
   type ProgressLine,
-  type Routine,
-  type RoutineDraft,
-} from '../../lib/routines';
+  type Workflow,
+  type WorkflowDraft,
+} from '../../lib/workflows';
 import {
-  deleteRoutine,
+  deleteWorkflow,
   getSnapshot,
   loadProgress,
-  runRoutineNow,
-  saveRoutine,
+  runWorkflowNow,
+  saveWorkflow,
   setAutoRun,
   subscribe,
-} from '../../lib/routinesStore';
+} from '../../lib/workflowsStore';
 
-/** Stable empty array so a routine with no activity doesn't re-render on every tick. */
+/** Stable empty array so a workflow with no activity doesn't re-render on every tick. */
 const EMPTY_PROGRESS: ProgressLine[] = [];
 
-interface RoutinesViewProps {
-  /** Preselected project for a new routine, when opened from a workspace. */
+interface WorkflowsViewProps {
+  /** Preselected project for a new workflow, when opened from a workspace. */
   currentProjectPath?: string | null;
 }
 
-export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
-  const { routines, progress, loaded, error } = useSyncExternalStore(subscribe, getSnapshot);
+export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
+  const { workflows, progress, loaded, error } = useSyncExternalStore(subscribe, getSnapshot);
   const { showToast } = useOptionalToast();
   const { dashboardHeaderHidden, hideDashboardHeader } = useDashboardVisibility();
 
-  const [editing, setEditing] = useState<Routine | 'new' | null>(null);
-  const [historyFor, setHistoryFor] = useState<Routine | null>(null);
-  const [projects, setProjects] = useState<RoutineProjectOption[]>([]);
+  const [editing, setEditing] = useState<Workflow | 'new' | null>(null);
+  const [historyFor, setHistoryFor] = useState<Workflow | null>(null);
+  const [projects, setProjects] = useState<WorkflowProjectOption[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // The project list is only needed to answer "which project does this run
@@ -72,7 +72,7 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
         if (active) setProjects(list);
       })
       .catch((err: unknown) => {
-        logger.warn('[Routines] Could not load projects', { error: String(err) });
+        logger.warn('[Workflows] Could not load projects', { error: String(err) });
       });
     return () => {
       active = false;
@@ -81,7 +81,7 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
 
   // Re-render once a second while something is running so its elapsed time
   // moves. Idle, this does nothing at all.
-  const anyRunning = routines.some((routine) => routine.isRunning);
+  const anyRunning = workflows.some((workflow) => workflow.isRunning);
   const [, setTick] = useState(0);
   usePolling(
     () => {
@@ -92,31 +92,31 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
   );
 
   // Hold the switch column only if something in the list actually has one.
-  const anyArmable = routines.some((routine) => routine.trigger.kind !== 'manual');
-  const armedCount = routines.filter(
-    (routine) => routine.autoRun && routine.trigger.kind !== 'manual'
+  const anyArmable = workflows.some((workflow) => workflow.trigger.kind !== 'manual');
+  const armedCount = workflows.filter(
+    (workflow) => workflow.autoRun && workflow.trigger.kind !== 'manual'
   ).length;
-  const week = summarizeWeek(routines);
+  const week = summarizeWeek(workflows);
 
   const handleToggleAutoRun = useCallback(
-    (routine: Routine, autoRun: boolean) => {
-      setAutoRun(routine, autoRun)
-        .then(() => showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${routine.name}`, 'info'))
+    (workflow: Workflow, autoRun: boolean) => {
+      setAutoRun(workflow, autoRun)
+        .then(() => showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${workflow.name}`, 'info'))
         .catch((err: unknown) => showToast(String(err), 'error'));
     },
     [showToast]
   );
 
   const handleRunNow = useCallback(
-    (routine: Routine) => {
-      showToast(`Running ${routine.name}…`, 'info');
-      runRoutineNow(routine)
+    (workflow: Workflow) => {
+      showToast(`Running ${workflow.name}…`, 'info');
+      runWorkflowNow(workflow)
         .then((run) => {
           if (run.findings === 0) {
-            showToast(`${routine.name}: nothing to report`, 'success');
+            showToast(`${workflow.name}: nothing to report`, 'success');
           } else {
             const plural = run.findings === 1 ? 'finding' : 'findings';
-            showToast(`${routine.name}: ${run.findings} ${plural} — see your Inbox`, 'success');
+            showToast(`${workflow.name}: ${run.findings} ${plural} — see your Inbox`, 'success');
           }
         })
         .catch((err: unknown) => showToast(String(err), 'error'));
@@ -124,19 +124,19 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
     [showToast]
   );
 
-  // Opening a routine mid-run has missed every event so far, so pull the
+  // Opening a workflow mid-run has missed every event so far, so pull the
   // backend's buffer once; the live stream continues from there.
-  const handleToggleExpanded = useCallback((routine: Routine) => {
+  const handleToggleExpanded = useCallback((workflow: Workflow) => {
     setExpandedId((current) => {
-      if (current === routine.id) return null;
-      void loadProgress(routine.id);
-      return routine.id;
+      if (current === workflow.id) return null;
+      void loadProgress(workflow.id);
+      return workflow.id;
     });
   }, []);
 
   const handleSave = useCallback(
-    async (projectPath: string, slug: string | null, draft: RoutineDraft) => {
-      const saved = await saveRoutine(projectPath, slug, draft);
+    async (projectPath: string, slug: string | null, draft: WorkflowDraft) => {
+      const saved = await saveWorkflow(projectPath, slug, draft);
       setEditing(null);
       showToast(`Saved ${saved.name}`, 'success');
     },
@@ -144,10 +144,10 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
   );
 
   const handleDelete = useCallback(
-    async (routine: Routine) => {
-      await deleteRoutine(routine.projectPath, routine.slug);
+    async (workflow: Workflow) => {
+      await deleteWorkflow(workflow.projectPath, workflow.slug);
       setEditing(null);
-      showToast(`Deleted ${routine.name}`, 'info');
+      showToast(`Deleted ${workflow.name}`, 'info');
     },
     [showToast]
   );
@@ -166,10 +166,10 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
             <div className="dashboard-section-header">
               <div className="dashboard-section-heading">
                 <div className="dashboard-section-heading-title">
-                  <span className="dashboard-section-title text-style-h4">Routines</span>
-                  {routines.length > 0 && (
+                  <span className="dashboard-section-title text-style-h4">Workflows</span>
+                  {workflows.length > 0 && (
                     <span className="dashboard-section-count text-style-h4 font-weight-heading">
-                      {routines.length}
+                      {workflows.length}
                     </span>
                   )}
                 </div>
@@ -182,26 +182,26 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
                     leftIcon={<PlusIcon size={14} />}
                     onClick={() => setEditing('new')}
                   >
-                    New routine
+                    New workflow
                   </Button>
                 </div>
-                {routines.length > 0 && (
-                  <div className="dashboard-section-actions-right routines-summary">
-                    <span className="routines-summary-item">
+                {workflows.length > 0 && (
+                  <div className="dashboard-section-actions-right workflows-summary">
+                    <span className="workflows-summary-item">
                       <strong>{armedCount}</strong> on auto-run
                     </span>
-                    <span className="routines-summary-sep" aria-hidden>
+                    <span className="workflows-summary-sep" aria-hidden>
                       ·
                     </span>
-                    <span className="routines-summary-item">
+                    <span className="workflows-summary-item">
                       <strong>{week.runs}</strong> runs this week
                     </span>
                     {week.tokens !== null && (
                       <>
-                        <span className="routines-summary-sep" aria-hidden>
+                        <span className="workflows-summary-sep" aria-hidden>
                           ·
                         </span>
-                        <span className="routines-summary-item">
+                        <span className="workflows-summary-item">
                           <strong>{formatTokens(week.tokens)}</strong> tokens
                         </span>
                       </>
@@ -212,34 +212,34 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
             </div>
 
             {!loaded ? (
-              <div className="routines-loading">
+              <div className="workflows-loading">
                 <Spinner size="lg" />
               </div>
             ) : error ? (
               <EmptyState
                 icon={<ZapIcon size={28} />}
-                title="Could not read your routines"
+                title="Could not read your workflows"
                 description={error}
               />
-            ) : routines.length === 0 ? (
+            ) : workflows.length === 0 ? (
               <EmptyState
                 icon={<ZapIcon size={28} />}
-                title="No routines yet"
-                description="A routine is an instruction and a project. Press Run whenever you want it, or put it on a schedule that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox. You can also just ask your agent to make you one."
+                title="No workflows yet"
+                description="A workflow is an instruction and a project. Press Run whenever you want it, or put it on a schedule that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox. You can also just ask your agent to make you one."
                 action={
                   <Button variant="primary" onClick={() => setEditing('new')}>
-                    Create your first routine
+                    Create your first workflow
                   </Button>
                 }
               />
             ) : (
-              <div className="routines-list">
-                {routines.map((routine) => (
-                  <RoutineRow
-                    key={routine.id}
-                    routine={routine}
-                    progress={progress[routine.id] ?? EMPTY_PROGRESS}
-                    isExpanded={expandedId === routine.id}
+              <div className="workflows-list">
+                {workflows.map((workflow) => (
+                  <WorkflowRow
+                    key={workflow.id}
+                    workflow={workflow}
+                    progress={progress[workflow.id] ?? EMPTY_PROGRESS}
+                    isExpanded={expandedId === workflow.id}
                     reserveToggleSlot={anyArmable}
                     onToggleExpanded={handleToggleExpanded}
                     onEdit={setEditing}
@@ -252,11 +252,11 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
             )}
           </section>
 
-          <p className="routines-page-footer">
-            Routines run your own agent CLI inside your project folder, on the plan you already pay
+          <p className="workflows-page-footer">
+            Workflows run your own agent CLI inside your project folder, on the plan you already pay
             for. Nothing runs while Ship Studio is closed. Each one is a markdown file under{' '}
-            <code>.shipstudio/routines/</code> — commit them, review them in a PR, or ask your agent
-            to write you one.
+            <code>.shipstudio/workflows/</code> — commit them, review them in a PR, or ask your
+            agent to write you one.
           </p>
 
           <div className="dashboard-bottom-spacer" aria-hidden />
@@ -264,9 +264,9 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
       </div>
 
       {editing !== null && (
-        <RoutineEditorModal
+        <WorkflowEditorModal
           key={editing === 'new' ? 'new' : editing.id}
-          routine={editing}
+          workflow={editing}
           projects={projects}
           defaultProjectPath={currentProjectPath}
           onClose={() => setEditing(null)}
@@ -277,7 +277,7 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
       {historyFor !== null && (
         <RunHistoryModal
           key={historyFor.id}
-          routine={routines.find((r) => r.id === historyFor.id) ?? historyFor}
+          workflow={workflows.find((r) => r.id === historyFor.id) ?? historyFor}
           onClose={() => setHistoryFor(null)}
         />
       )}

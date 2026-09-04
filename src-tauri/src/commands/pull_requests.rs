@@ -119,7 +119,7 @@ fn is_push_rejection(stderr: &str) -> bool {
         || lower.contains("tip of your current branch is behind")
 }
 
-/// gh's by-design refusals for `pr create`, classified `Expected` so routine
+/// gh's by-design refusals for `pr create`, classified `Expected` so workflow
 /// states stay out of telemetry.
 ///
 /// "no commits between" and "a pull request already exists" keep gh's raw text
@@ -239,12 +239,12 @@ pub async fn create_pull_request(
 
     // Output contains the PR URL
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    // Fire any `on pr` routines. Spawned rather than awaited: the PR is
+    // Fire any `on pr` workflows. Spawned rather than awaited: the PR is
     // created, and the user should not wait on an agent to be told so.
-    crate::routine_scheduler::spawn_event(
+    crate::workflow_scheduler::spawn_event(
         &app,
         &validated_path.to_string_lossy(),
-        crate::commands::routines::RoutineEvent::PrOpened,
+        crate::commands::workflows::WorkflowEvent::PrOpened,
     );
     Ok(url)
 }

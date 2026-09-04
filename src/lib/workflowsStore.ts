@@ -1,53 +1,53 @@
 /**
- * Routines & Inbox — the frontend store.
+ * Workflows & Inbox — the frontend store.
  *
  * A `useSyncExternalStore` source over the Tauri commands in
- * `src-tauri/src/commands/routines/`, shaped like `sessionRegistry` so
+ * `src-tauri/src/commands/workflows/`, shaped like `sessionRegistry` so
  * components read it the same way they read session state.
  *
- * The backend is the authority. Anything that changes routines or the inbox —
- * a manual Run, the scheduler's tick, a routine file the user's *agent* just
- * wrote — emits `routines:changed`, and this store reloads. That matters
+ * The backend is the authority. Anything that changes workflows or the inbox —
+ * a manual Run, the scheduler's tick, a workflow file the user's *agent* just
+ * wrote — emits `workflows:changed`, and this store reloads. That matters
  * because the agent-authored path means files appear without the UI ever
  * having been touched.
  *
- * @module lib/routinesStore
+ * @module lib/workflowsStore
  */
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { logger } from './logger';
-import type { InboxItem, ProgressLine, Routine, RoutineDraft, RoutineRun } from './routines';
+import type { InboxItem, ProgressLine, Workflow, WorkflowDraft, WorkflowRun } from './workflows';
 
 /** Emitted by the backend whenever runs or the inbox change. */
-const CHANGED_EVENT = 'routines:changed';
+const CHANGED_EVENT = 'workflows:changed';
 
-/** Emitted per activity line while a routine runs. */
-const PROGRESS_EVENT = 'routines:progress';
+/** Emitted per activity line while a workflow runs. */
+const PROGRESS_EVENT = 'workflows:progress';
 
-/** Activity lines kept per routine in the UI. The backend keeps more. */
+/** Activity lines kept per workflow in the UI. The backend keeps more. */
 const MAX_PROGRESS_LINES = 120;
 
 /**
- * Poll interval while the app is showing routines. The event covers everything
- * Ship Studio does itself; this catches the case the event cannot — a routine
+ * Poll interval while the app is showing workflows. The event covers everything
+ * Ship Studio does itself; this catches the case the event cannot — a workflow
  * file written directly on disk, which is exactly what happens when the user's
  * agent creates one through the bundled skill.
  */
 const POLL_MS = 15_000;
 
-interface RoutinesState {
-  routines: Routine[];
+interface WorkflowsState {
+  workflows: Workflow[];
   inbox: InboxItem[];
-  /** Live activity per routine id, oldest first. */
+  /** Live activity per workflow id, oldest first. */
   progress: Record<string, ProgressLine[]>;
   /** False until the first load resolves, so the UI can tell empty from unknown. */
   loaded: boolean;
   error: string | null;
 }
 
-let state: RoutinesState = {
-  routines: [],
+let state: WorkflowsState = {
+  workflows: [],
   inbox: [],
   progress: {},
   loaded: false,
@@ -60,7 +60,7 @@ let unlistenProgress: UnlistenFn | null = null;
 let pollTimer: number | null = null;
 let inFlight: Promise<void> | null = null;
 
-function emit(next: RoutinesState): void {
+function emit(next: WorkflowsState): void {
   state = next;
   for (const listener of listeners) listener();
 }
@@ -76,7 +76,7 @@ export function subscribe(listener: () => void): () => void {
 }
 
 /** Current state. Referentially stable until a mutation. */
-export function getSnapshot(): RoutinesState {
+export function getSnapshot(): WorkflowsState {
   return state;
 }
 
@@ -96,7 +96,7 @@ function start(): void {
         unlisten = fn;
       })
       .catch((err: unknown) => {
-        logger.warn('[Routines] Could not subscribe to change events', { error: String(err) });
+        logger.warn('[Workflows] Could not subscribe to change events', { error: String(err) });
       });
   }
   if (unlistenProgress === null) {
@@ -109,29 +109,29 @@ function start(): void {
         unlistenProgress = fn;
       })
       .catch((err: unknown) => {
-        logger.warn('[Routines] Could not subscribe to progress events', { error: String(err) });
+        logger.warn('[Workflows] Could not subscribe to progress events', { error: String(err) });
       });
   }
 }
 
 function appendProgress(line: ProgressLine): void {
-  const existing = state.progress[line.routineId] ?? [];
+  const existing = state.progress[line.workflowId] ?? [];
   const next = [...existing, line].slice(-MAX_PROGRESS_LINES);
-  emit({ ...state, progress: { ...state.progress, [line.routineId]: next } });
+  emit({ ...state, progress: { ...state.progress, [line.workflowId]: next } });
 }
 
 /**
- * Pull the backend's buffer for one routine.
+ * Pull the backend's buffer for one workflow.
  *
  * A window opened mid-run has missed every event, so it asks once and follows
  * the stream from there.
  */
-export async function loadProgress(routineId: string): Promise<void> {
+export async function loadProgress(workflowId: string): Promise<void> {
   try {
-    const lines = await invoke<ProgressLine[]>('routine_progress', { routineId });
-    emit({ ...state, progress: { ...state.progress, [routineId]: lines } });
+    const lines = await invoke<ProgressLine[]>('workflow_progress', { workflowId });
+    emit({ ...state, progress: { ...state.progress, [workflowId]: lines } });
   } catch (err) {
-    logger.warn('[Routines] Could not load progress', { error: String(err) });
+    logger.warn('[Workflows] Could not load progress', { error: String(err) });
   }
 }
 
@@ -147,7 +147,7 @@ function stop(): void {
 }
 
 /**
- * Reload routines and inbox from disk.
+ * Reload workflows and inbox from disk.
  *
  * Concurrent calls share one round trip: the event and the poll routinely land
  * together, and two overlapping loads can otherwise resolve out of order and
@@ -157,13 +157,13 @@ export async function refresh(): Promise<void> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {
-      const [routines, inbox] = await Promise.all([
-        invoke<Routine[]>('list_all_routines'),
+      const [workflows, inbox] = await Promise.all([
+        invoke<Workflow[]>('list_all_workflows'),
         invoke<InboxItem[]>('list_inbox_items'),
       ]);
-      emit({ ...state, routines, inbox, loaded: true, error: null });
+      emit({ ...state, workflows, inbox, loaded: true, error: null });
     } catch (err) {
-      logger.error('[Routines] Failed to load', { error: String(err) });
+      logger.error('[Workflows] Failed to load', { error: String(err) });
       emit({ ...state, loaded: true, error: String(err) });
     } finally {
       inFlight = null;
@@ -172,80 +172,80 @@ export async function refresh(): Promise<void> {
   return inFlight;
 }
 
-/* ------------------------------------------------------------- routines */
+/* ------------------------------------------------------------- workflows */
 
 /**
- * Arm or disarm a routine's trigger.
+ * Arm or disarm a workflow's trigger.
  *
- * `autoRun` lives in the routine's own file, so this is a save like any other
+ * `autoRun` lives in the workflow's own file, so this is a save like any other
  * — the switch in the list writes the same `auto-run:` line the editor does.
  */
-export async function setAutoRun(routine: Routine, autoRun: boolean): Promise<void> {
-  await saveRoutine(routine.projectPath, routine.slug, { ...toDraft(routine), autoRun });
+export async function setAutoRun(workflow: Workflow, autoRun: boolean): Promise<void> {
+  await saveWorkflow(workflow.projectPath, workflow.slug, { ...toDraft(workflow), autoRun });
 }
 
-/** The editable half of a routine. */
-export function toDraft(routine: Routine): RoutineDraft {
+/** The editable half of a workflow. */
+export function toDraft(workflow: Workflow): WorkflowDraft {
   return {
-    name: routine.name,
-    icon: routine.icon,
-    description: routine.description,
-    agentId: routine.agentId,
-    trigger: routine.trigger,
-    permission: routine.permission,
-    prompt: routine.prompt,
-    severityFloor: routine.severityFloor,
-    autoRun: routine.autoRun,
+    name: workflow.name,
+    icon: workflow.icon,
+    description: workflow.description,
+    agentId: workflow.agentId,
+    trigger: workflow.trigger,
+    permission: workflow.permission,
+    prompt: workflow.prompt,
+    severityFloor: workflow.severityFloor,
+    autoRun: workflow.autoRun,
   };
 }
 
 /**
- * Create or update a routine file.
+ * Create or update a workflow file.
  *
  * `slug` is null to create (the backend derives one from the name and
  * de-duplicates it) and set to edit in place.
  */
-export async function saveRoutine(
+export async function saveWorkflow(
   projectPath: string,
   slug: string | null,
-  draft: RoutineDraft
-): Promise<Routine> {
-  const saved = await invoke<Routine>('save_routine_file', { projectPath, slug, draft });
+  draft: WorkflowDraft
+): Promise<Workflow> {
+  const saved = await invoke<Workflow>('save_workflow_file', { projectPath, slug, draft });
   await refresh();
   return saved;
 }
 
-/** Delete a routine file. Findings it already filed stay in the inbox. */
-export async function deleteRoutine(projectPath: string, slug: string): Promise<void> {
-  await invoke('delete_routine_file', { projectPath, slug });
+/** Delete a workflow file. Findings it already filed stay in the inbox. */
+export async function deleteWorkflow(projectPath: string, slug: string): Promise<void> {
+  await invoke('delete_workflow_file', { projectPath, slug });
   await refresh();
 }
 
 /**
- * Run a routine now.
+ * Run a workflow now.
  *
  * Resolves when the agent has finished and its findings are filed, which can be
  * minutes — callers should reflect `isRunning` from the store rather than
  * blocking on this promise for their spinner.
  */
-export async function runRoutineNow(routine: Routine): Promise<RoutineRun> {
-  const optimistic = state.routines.map((r) =>
-    r.id === routine.id ? { ...r, isRunning: true } : r
+export async function runWorkflowNow(workflow: Workflow): Promise<WorkflowRun> {
+  const optimistic = state.workflows.map((r) =>
+    r.id === workflow.id ? { ...r, isRunning: true } : r
   );
-  emit({ ...state, routines: optimistic });
+  emit({ ...state, workflows: optimistic });
   try {
-    return await invoke<RoutineRun>('run_routine', {
-      projectPath: routine.projectPath,
-      slug: routine.slug,
+    return await invoke<WorkflowRun>('run_workflow', {
+      projectPath: workflow.projectPath,
+      slug: workflow.slug,
     });
   } finally {
     await refresh();
   }
 }
 
-/** Run history for one routine, newest first. */
-export function listRuns(routineId: string): Promise<RoutineRun[]> {
-  return invoke<RoutineRun[]>('list_routine_runs', { routineId });
+/** Run history for one workflow, newest first. */
+export function listRuns(workflowId: string): Promise<WorkflowRun[]> {
+  return invoke<WorkflowRun[]>('list_workflow_runs', { workflowId });
 }
 
 /* ---------------------------------------------------------------- inbox */
@@ -272,6 +272,6 @@ export async function deleteItem(id: string): Promise<void> {
 }
 
 /** Unread, non-archived count — drives the sidebar badge. */
-export function unreadCount(snapshot: RoutinesState = state): number {
+export function unreadCount(snapshot: WorkflowsState = state): number {
   return snapshot.inbox.filter((item) => !item.read && !item.archived).length;
 }

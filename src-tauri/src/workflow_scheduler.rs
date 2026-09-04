@@ -1,8 +1,8 @@
-//! The in-app routine scheduler.
+//! The in-app workflow scheduler.
 //!
-//! One tokio task, ticking once a minute over every armed routine in every
+//! One tokio task, ticking once a minute over every armed workflow in every
 //! known project. This is Tier A of the two-tier model described in
-//! `docs/routines-inbox.md`: it fires only while Ship Studio is running, and
+//! `docs/workflows-inbox.md`: it fires only while Ship Studio is running, and
 //! the UI says so in those words rather than implying a clock the app cannot
 //! keep.
 //!
@@ -10,18 +10,18 @@
 //!
 //! - **It never catches up.** An interval means "at least this long since it
 //!   last looked", so closing the app for a week produces one run on reopen,
-//!   not a week of backlog. A daily routine that was due while the app was
+//!   not a week of backlog. A daily workflow that was due while the app was
 //!   closed is simply late, and runs on the next tick.
-//! - **It runs at most one routine per tick.** Routines spend the user's own
-//!   agent subscription. Five armed routines coming due in the same minute
+//! - **It runs at most one workflow per tick.** Workflows spend the user's own
+//!   agent subscription. Five armed workflows coming due in the same minute
 //!   must not fire five agents at once and eat someone's quota before they've
 //!   noticed the feature exists.
 //! - **It skips a project that already has a run in flight.** Two agents
 //!   reading and reasoning about the same working tree at once is confusing at
 //!   best; if either has `can-edit`, it's a corruption risk.
 
-use crate::commands::routines::{
-    next_due_at, projects_with_routines, read_project_routines, Routine,
+use crate::commands::workflows::{
+    next_due_at, projects_with_workflows, read_project_workflows, Workflow,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -32,7 +32,7 @@ use tracing::{debug, info, warn};
 /// trigger grammar can express, and the scan itself is a handful of `readdir`s.
 const TICK: Duration = Duration::from_secs(60);
 
-/// Give the app a moment to finish starting before the first scan, so a routine
+/// Give the app a moment to finish starting before the first scan, so a workflow
 /// due at launch doesn't compete with window creation and project loading.
 const STARTUP_GRACE: Duration = Duration::from_secs(45);
 
@@ -40,73 +40,73 @@ const STARTUP_GRACE: Duration = Duration::from_secs(45);
 pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(STARTUP_GRACE).await;
-        info!("routine scheduler started");
+        info!("workflow scheduler started");
         loop {
             if let Err(err) = tick(&app).await {
                 // A failing tick must never kill the loop — the next one may
                 // well succeed (a project mounted, a CLI reinstalled).
-                warn!(error = %err, "routine scheduler tick failed");
+                warn!(error = %err, "workflow scheduler tick failed");
             }
             tokio::time::sleep(TICK).await;
         }
     });
 }
 
-/// The armed, time-triggered routine that is most overdue, if any.
-fn most_overdue(now: i64) -> Option<Routine> {
-    let state = crate::commands::routines::load_state();
-    let mut best: Option<(i64, Routine)> = None;
+/// The armed, time-triggered workflow that is most overdue, if any.
+fn most_overdue(now: i64) -> Option<Workflow> {
+    let state = crate::commands::workflows::load_state();
+    let mut best: Option<(i64, Workflow)> = None;
 
-    for project in projects_with_routines() {
-        for routine in read_project_routines(&project) {
-            if !routine.auto_run || !routine.trigger.is_armable() {
+    for project in projects_with_workflows() {
+        for workflow in read_project_workflows(&project) {
+            if !workflow.auto_run || !workflow.trigger.is_armable() {
                 continue;
             }
-            let last = state.last_run_at.get(&routine.id).copied();
-            let Some(due) = next_due_at(routine.trigger, last, now) else {
+            let last = state.last_run_at.get(&workflow.id).copied();
+            let Some(due) = next_due_at(workflow.trigger, last, now) else {
                 continue;
             };
             if due > now {
                 continue;
             }
             // Most overdue first, so a backlog drains oldest-first rather than
-            // letting one routine's cadence starve another's.
+            // letting one workflow's cadence starve another's.
             if best.as_ref().is_none_or(|(best_due, _)| due < *best_due) {
-                best = Some((due, routine));
+                best = Some((due, workflow));
             }
         }
     }
-    best.map(|(_, routine)| routine)
+    best.map(|(_, workflow)| workflow)
 }
 
 async fn tick(app: &AppHandle) -> Result<(), crate::errors::CommandError> {
-    let running = crate::commands::routines::running_routine_ids().await?;
+    let running = crate::commands::workflows::running_workflow_ids().await?;
     if !running.is_empty() {
-        debug!(?running, "routine already in flight — skipping this tick");
+        debug!(?running, "workflow already in flight — skipping this tick");
         return Ok(());
     }
 
-    let now = crate::commands::routines::now_ms();
-    let Some(routine) = most_overdue(now) else {
+    let now = crate::commands::workflows::now_ms();
+    let Some(workflow) = most_overdue(now) else {
         return Ok(());
     };
 
-    info!(routine = %routine.name, "routine came due");
+    info!(workflow = %workflow.name, "workflow came due");
     // A failure is already recorded against the run and surfaced in the
-    // routine's history and status dot; the loop keeps going.
-    if let Err(err) = crate::commands::routines::run_routine(
+    // workflow's history and status dot; the loop keeps going.
+    if let Err(err) = crate::commands::workflows::run_workflow(
         app.clone(),
-        routine.project_path.clone(),
-        routine.slug.clone(),
+        workflow.project_path.clone(),
+        workflow.slug.clone(),
     )
     .await
     {
-        warn!(routine = %routine.name, error = %err, "scheduled run failed");
+        warn!(workflow = %workflow.name, error = %err, "scheduled run failed");
     }
     Ok(())
 }
 
-/// Run every armed routine whose trigger is `event`, for one project.
+/// Run every armed workflow whose trigger is `event`, for one project.
 ///
 /// Called when Ship Studio observes the thing itself — a push completing, a PR
 /// opening — so these fire during work, which is exactly when the app is open
@@ -114,43 +114,43 @@ async fn tick(app: &AppHandle) -> Result<(), crate::errors::CommandError> {
 pub async fn fire_event(
     app: &AppHandle,
     project_path: &str,
-    event: crate::commands::routines::RoutineEvent,
+    event: crate::commands::workflows::WorkflowEvent,
 ) {
     let project = PathBuf::from(project_path);
-    let matching: Vec<Routine> = read_project_routines(&project)
+    let matching: Vec<Workflow> = read_project_workflows(&project)
         .into_iter()
-        .filter(|routine| {
-            routine.auto_run
+        .filter(|workflow| {
+            workflow.auto_run
                 && matches!(
-                    routine.trigger,
-                    crate::commands::routines::RoutineTrigger::Event { event: e } if e == event
+                    workflow.trigger,
+                    crate::commands::workflows::WorkflowTrigger::Event { event: e } if e == event
                 )
         })
         .collect();
 
-    for routine in matching {
-        info!(routine = %routine.name, ?event, "event-triggered routine firing");
-        if let Err(err) = crate::commands::routines::run_routine(
+    for workflow in matching {
+        info!(workflow = %workflow.name, ?event, "event-triggered workflow firing");
+        if let Err(err) = crate::commands::workflows::run_workflow(
             app.clone(),
-            routine.project_path.clone(),
-            routine.slug.clone(),
+            workflow.project_path.clone(),
+            workflow.slug.clone(),
         )
         .await
         {
-            warn!(routine = %routine.name, error = %err, "event-triggered run failed");
+            warn!(workflow = %workflow.name, error = %err, "event-triggered run failed");
         }
     }
 }
 
-/// Fire matching event routines without making the caller wait.
+/// Fire matching event workflows without making the caller wait.
 ///
-/// The events that trigger routines are all the tail of an action the user is
+/// The events that trigger workflows are all the tail of an action the user is
 /// waiting on — a branch published, a PR opened. Awaiting an agent run there
 /// would turn a two-second operation into a two-minute one.
 pub fn spawn_event(
     app: &AppHandle,
     project_path: &str,
-    event: crate::commands::routines::RoutineEvent,
+    event: crate::commands::workflows::WorkflowEvent,
 ) {
     let app = app.clone();
     let project_path = project_path.to_string();
@@ -159,10 +159,10 @@ pub fn spawn_event(
     });
 }
 
-/// Fire every `on push` routine for a project that just pushed.
+/// Fire every `on push` workflow for a project that just pushed.
 #[tauri::command]
 #[tracing::instrument(skip(app))]
-pub async fn fire_push_routines(
+pub async fn fire_push_workflows(
     app: AppHandle,
     project_path: String,
 ) -> Result<(), crate::errors::CommandError> {
@@ -170,7 +170,7 @@ pub async fn fire_push_routines(
     fire_event(
         &app,
         &validated.to_string_lossy(),
-        crate::commands::routines::RoutineEvent::Push,
+        crate::commands::workflows::WorkflowEvent::Push,
     )
     .await;
     Ok(())

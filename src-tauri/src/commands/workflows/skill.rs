@@ -1,14 +1,14 @@
-//! The bundled `shipstudio-routines` agent skill.
+//! The bundled `shipstudio-workflows` agent skill.
 //!
 //! This is the discovery mechanism for the whole feature, and it is the reason
-//! the routine file format is plain markdown rather than an API.
+//! the workflow file format is plain markdown rather than an API.
 //!
 //! Nobody browses a new tab. But everyone using Ship Studio is already talking
 //! to an agent all day, and they routinely say things like "check the bundle
 //! size before every release" or "I keep forgetting to look at dependency
 //! advisories". A skill turns those sentences into the moment the feature
 //! introduces itself — in the tool they're already in, at the moment it's
-//! relevant, in their own words. The agent then writes the routine file itself.
+//! relevant, in their own words. The agent then writes the workflow file itself.
 //!
 //! Ship Studio writes the skill into each installed agent's user-scope skills
 //! directory (`~/.claude/skills/`, `~/.codex/skills/`) on startup. The write is
@@ -24,7 +24,7 @@ use tracing::{debug, warn};
 /// Bump when SKILL.md changes so installed copies are refreshed.
 const SKILL_VERSION: &str = "1";
 
-const SKILL_DIR_NAME: &str = "shipstudio-routines";
+const SKILL_DIR_NAME: &str = "shipstudio-workflows";
 
 /// The skill body.
 ///
@@ -32,46 +32,46 @@ const SKILL_DIR_NAME: &str = "shipstudio-routines";
 ///
 /// 1. **Offer.** The `description` decides when the agent loads this at all,
 ///    so it names the phrasings people actually use ("every time", "before
-///    each release", "keep an eye on") rather than the word "routine", which
+///    each release", "keep an eye on") rather than the word "workflow", which
 ///    is the one word a user who hasn't discovered the feature will never say.
 /// 2. **Author.** Once loaded, the format spec is complete enough that the
 ///    agent can write a valid file without asking Ship Studio anything.
 fn skill_markdown() -> String {
     format!(
         r#"---
-name: shipstudio-routines
+name: shipstudio-workflows
 description: >-
-  Create and manage Ship Studio routines — saved instructions that run on a
+  Create and manage Ship Studio workflows — saved instructions that run on a
   schedule or on demand in this project and file what they find to the user's
   Ship Studio inbox. Use this whenever the user says they want something
   checked regularly or repeatedly ("every time", "each week", "before every
   release", "keep an eye on", "remind me to check", "I keep forgetting to"),
-  asks to automate a review or audit, or mentions routines, scheduled checks,
+  asks to automate a review or audit, or mentions workflows, scheduled checks,
   or the Ship Studio inbox.
 metadata:
   shipstudio-skill-version: "{SKILL_VERSION}"
 ---
 
-# Ship Studio routines
+# Ship Studio workflows
 
-A **routine** is a saved instruction that Ship Studio runs against this project
+A **workflow** is a saved instruction that Ship Studio runs against this project
 with a headless agent CLI, on demand or on a schedule. Whatever it reports goes
 to the user's Ship Studio inbox.
 
-A routine is one markdown file in `.shipstudio/routines/<slug>.md` in the
+A workflow is one markdown file in `.shipstudio/workflows/<slug>.md` in the
 project root. There is no API and no service: writing the file *is* creating
-the routine, and Ship Studio picks it up immediately.
+the workflow, and Ship Studio picks it up immediately.
 
 ## When to offer one
 
 If the user describes wanting something checked more than once — on a cadence,
 before a recurring event, or "every time X happens" — offer to save it as a
-routine. Keep the offer to one sentence, and only make it once per topic.
+workflow. Keep the offer to one sentence, and only make it once per topic.
 
-> That's a good candidate for a Ship Studio routine — I can save it so it runs
+> That's a good candidate for a Ship Studio workflow — I can save it so it runs
 > every morning and files anything it finds to your inbox. Want me to?
 
-Do **not** offer a routine for one-off work, for something the user is asking
+Do **not** offer a workflow for one-off work, for something the user is asking
 you to do right now, or a second time after they have declined.
 
 ## The file format
@@ -95,7 +95,7 @@ published fix, say what upgrading costs. Ignore dev-only packages.
 
 | Key              | Values                                                                                                | Default     |
 |------------------|-------------------------------------------------------------------------------------------------------|-------------|
-| `name`           | Any short phrase. Shown in the routines list.                                                           | filename    |
+| `name`           | Any short phrase. Shown in the workflows list.                                                           | filename    |
 | `icon`           | A single emoji shown beside the name, Notion-style. One glyph only.                                     | none        |
 | `description`    | One line, shown under the name.                                                                         | empty       |
 | `agent`          | `claude-code` or `codex`. Omit to use whichever agent the user has set as their default.                | user default|
@@ -105,39 +105,39 @@ published fix, say what upgrading costs. Ignore dev-only packages.
 | `auto-run`       | `true` / `false` — whether the trigger is armed                                                         | `true`      |
 
 Intervals must be between 5 minutes and 7 days. An unrecognised trigger falls
-back to `manual`, so the routine still works — it just won't be scheduled.
+back to `manual`, so the workflow still works — it just won't be scheduled.
 
 ### The body is the instruction
 
 Everything after the frontmatter is the prompt handed to the agent on each run.
 Write it as a direct instruction. Ship Studio automatically prepends what
-changed since the routine last ran, the findings it has already filed, and the
+changed since the workflow last ran, the findings it has already filed, and the
 reporting format — so do **not** write any of that into the body yourself.
 
-## Writing a good routine
+## Writing a good workflow
 
-- **Say what not to report.** The main way a routine fails is by being noisy.
+- **Say what not to report.** The main way a workflow fails is by being noisy.
   "Ignore dev-only packages", "only flag things on the critical path".
 - **Be specific about the evidence.** "Include the exact file and line" gets a
   finding the user can act on; "check for problems" gets an essay.
 - **Prefer `read-only`.** It is enforced by the agent CLI (Claude Code runs in
-  plan mode, Codex in a read-only sandbox), so a routine genuinely cannot edit
+  plan mode, Codex in a read-only sandbox), so a workflow genuinely cannot edit
   the tree while nobody is watching. Only use `can-edit` if the user explicitly
   asks for unattended changes.
 - **Give it an `icon`.** One emoji that says what it watches (🔒 security, 📦
-  dependencies, 🎨 design). It becomes the routine's mark in the list.
+  dependencies, 🎨 design). It becomes the workflow's mark in the list.
 - **Start on `manual`** unless the user named a cadence. They can arm it with
-  one switch in the Routines tab once they've seen what it produces.
+  one switch in the Workflows tab once they've seen what it produces.
 
 ## Doing it
 
-1. Write the file to `.shipstudio/routines/<slug>.md` (kebab-case slug from the
+1. Write the file to `.shipstudio/workflows/<slug>.md` (kebab-case slug from the
    name). Create the directory if it doesn't exist.
-2. Tell the user it's saved, and that it's in **Routines** in Ship Studio's
+2. Tell the user it's saved, and that it's in **Workflows** in Ship Studio's
    sidebar where they can press Run to try it immediately.
 
-To change a routine, edit its file. To delete one, delete its file. To see what
-already exists, list `.shipstudio/routines/`.
+To change a workflow, edit its file. To delete one, delete its file. To see what
+already exists, list `.shipstudio/workflows/`.
 "#
     )
 }
@@ -164,7 +164,7 @@ fn skill_dirs() -> Vec<(&'static str, PathBuf)> {
 /// Whether the skill is installed for each agent that supports skills.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RoutinesSkillStatus {
+pub struct WorkflowsSkillStatus {
     pub agent_id: String,
     pub installed: bool,
     pub path: String,
@@ -179,16 +179,16 @@ pub struct RoutinesSkillStatus {
 /// nothing: if `~/.claude` doesn't exist the agent isn't installed, and
 /// scattering directories into someone's home for tools they don't use is not
 /// ours to do. It writes the `skills/` subdirectory only.
-pub fn install_routines_skill() -> Vec<RoutinesSkillStatus> {
+pub fn install_workflows_skill() -> Vec<WorkflowsSkillStatus> {
     let body = skill_markdown();
     skill_dirs()
         .into_iter()
         .map(|(agent_id, dir)| {
             let installed = write_skill_if_agent_present(&dir, &body).unwrap_or_else(|err| {
-                warn!(agent = agent_id, error = %err, "could not install the routines skill");
+                warn!(agent = agent_id, error = %err, "could not install the workflows skill");
                 false
             });
-            RoutinesSkillStatus {
+            WorkflowsSkillStatus {
                 agent_id: agent_id.to_string(),
                 installed,
                 path: dir.join("SKILL.md").to_string_lossy().to_string(),
@@ -198,7 +198,7 @@ pub fn install_routines_skill() -> Vec<RoutinesSkillStatus> {
 }
 
 fn write_skill_if_agent_present(dir: &std::path::Path, body: &str) -> std::io::Result<bool> {
-    // dir is <home>/<config>/skills/shipstudio-routines — the agent's own
+    // dir is <home>/<config>/skills/shipstudio-workflows — the agent's own
     // config dir is two levels up and must already exist.
     let agent_config_dir = dir.parent().and_then(|p| p.parent());
     match agent_config_dir {
@@ -215,15 +215,15 @@ fn write_skill_if_agent_present(dir: &std::path::Path, body: &str) -> std::io::R
     }
     std::fs::create_dir_all(dir)?;
     std::fs::write(&file, body)?;
-    debug!(?file, "installed the routines skill");
+    debug!(?file, "installed the workflows skill");
     Ok(true)
 }
 
 /// Install (or refresh) the skill and report where it landed.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn ensure_routines_skill() -> Result<Vec<RoutinesSkillStatus>, CommandError> {
-    Ok(install_routines_skill())
+pub async fn ensure_workflows_skill() -> Result<Vec<WorkflowsSkillStatus>, CommandError> {
+    Ok(install_workflows_skill())
 }
 
 #[cfg(test)]
@@ -234,7 +234,7 @@ mod tests {
     fn the_description_names_phrasings_a_user_actually_says() {
         let md = skill_markdown();
         // The description is the whole trigger surface. A user who hasn't
-        // discovered the feature will never type "routine", so if these go
+        // discovered the feature will never type "workflow", so if these go
         // missing the skill silently stops being discovery and becomes docs.
         for phrase in [
             "every time",
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn every_documented_trigger_phrase_actually_parses() {
         // The skill is the agent's only spec. A phrase documented here that the
-        // parser rejects would produce silently-manual routines.
+        // parser rejects would produce silently-manual workflows.
         for phrase in [
             "manual",
             "every 30m",
@@ -281,7 +281,7 @@ mod tests {
             "on pr",
         ] {
             assert!(
-                super::super::RoutineTrigger::parse(phrase).is_some(),
+                super::super::WorkflowTrigger::parse(phrase).is_some(),
                 "the skill documents \"{phrase}\" but the parser rejects it"
             );
         }
@@ -290,26 +290,26 @@ mod tests {
     #[test]
     fn the_example_file_in_the_skill_parses_into_what_it_claims() {
         let example = "---\nname: Dependency drift\nicon: 📦\ndescription: Daily advisory check plus a read on which majors are worth taking.\ntrigger: daily at 09:00\npermission: read-only\nseverity-floor: warning\nauto-run: true\n---\n\nCheck the installed dependencies.\n";
-        let routine = super::super::files::parse_routine(
+        let workflow = super::super::files::parse_workflow(
             std::path::Path::new("/tmp/p"),
-            std::path::Path::new("/tmp/p/.shipstudio/routines/dependency-drift.md"),
+            std::path::Path::new("/tmp/p/.shipstudio/workflows/dependency-drift.md"),
             example,
         );
-        assert_eq!(routine.name, "Dependency drift");
-        assert_eq!(routine.icon.as_deref(), Some("📦"));
+        assert_eq!(workflow.name, "Dependency drift");
+        assert_eq!(workflow.icon.as_deref(), Some("📦"));
         assert_eq!(
-            routine.trigger,
-            super::super::RoutineTrigger::Daily {
+            workflow.trigger,
+            super::super::WorkflowTrigger::Daily {
                 at_hour: 9,
                 at_minute: 0
             }
         );
         assert_eq!(
-            routine.permission,
-            super::super::RoutinePermission::ReadOnly
+            workflow.permission,
+            super::super::WorkflowPermission::ReadOnly
         );
-        assert_eq!(routine.severity_floor, super::super::Severity::Warning);
-        assert!(routine.auto_run);
+        assert_eq!(workflow.severity_floor, super::super::Severity::Warning);
+        assert!(workflow.auto_run);
     }
 
     #[test]

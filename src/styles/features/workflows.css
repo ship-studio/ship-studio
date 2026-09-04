@@ -1,4 +1,4 @@
-/* Routines — the standing-instructions page (prototype).
+/* Workflows — the standing-instructions page (prototype).
    Layout mirrors the dashboard's 900px centred column so the two views feel
    like the same app. */
 
@@ -6,7 +6,7 @@
    Section metadata, right-aligned on the controls row rather than a second
    panel holding one line of text. */
 
-.routines-summary {
+.workflows-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -16,18 +16,18 @@
   line-height: var(--line-height-compact);
 }
 
-.routines-summary-item strong {
+.workflows-summary-item strong {
   color: var(--text-secondary);
   font-weight: var(--font-weight-label);
 }
 
-.routines-summary-sep {
+.workflows-summary-sep {
   color: var(--text-faint);
 }
 
 /* ---- list ---- */
 
-.routines-list {
+.workflows-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
@@ -35,13 +35,13 @@
 
 /* Inside the section card the rows are already on --surface-panel, so they use
    the recessed well instead of stacking panel-on-panel. */
-.routines-list .routine-row {
+.workflows-list .workflow-row {
   background: var(--surface-recessed);
 }
 
 /* The row is a column now: the summary line, then the live activity that can
    expand under it. */
-.routine-row {
+.workflow-row {
   display: flex;
   flex-direction: column;
   padding: var(--spacing-md);
@@ -53,11 +53,11 @@
     background var(--transition-interaction);
 }
 
-.routine-row:hover {
+.workflow-row:hover {
   border-color: var(--border-default);
 }
 
-.routine-row-main-line {
+.workflow-row-main-line {
   display: flex;
   align-items: center;
   gap: var(--spacing-lg);
@@ -66,17 +66,17 @@
 
 /* Chevrons point down when closed and up when open, matching the app's other
    disclosure controls. */
-.routine-row-expand {
+.workflow-row-expand {
   transition: transform var(--transition-interaction);
 }
 
-.routine-row-expand.is-open {
+.workflow-row-expand.is-open {
   transform: rotate(180deg);
 }
 
 /* The one-line peek is a button so the whole strip opens the panel — a 4px
    chevron should not be the only way in. */
-.routine-row-activity-peek {
+.workflow-row-activity-peek {
   display: flex;
   align-items: center;
   width: 100%;
@@ -89,11 +89,11 @@
   cursor: pointer;
 }
 
-.routine-row-activity-peek:hover {
+.workflow-row-activity-peek:hover {
   background: var(--surface-control-hover);
 }
 
-.routine-row-activity-text {
+.workflow-row-activity-text {
   min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
@@ -104,7 +104,7 @@
   white-space: nowrap;
 }
 
-.routine-row-activity {
+.workflow-row-activity {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3xs);
@@ -117,7 +117,7 @@
   border-radius: var(--radius-control);
 }
 
-.routine-row-activity-line {
+.workflow-row-activity-line {
   color: var(--text-secondary);
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
@@ -125,7 +125,7 @@
   overflow-wrap: anywhere;
 }
 
-.routine-row-main {
+.workflow-row-main {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-sm);
@@ -139,10 +139,10 @@
   color: inherit;
 }
 
-/* One slot for whatever identifies the routine: its emoji, the green loader
+/* One slot for whatever identifies the workflow: its emoji, the green loader
    while it runs, or a status dot. Fixed size so names stay in one column
    however the mark changes. */
-.routine-row-mark {
+.workflow-row-mark {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -152,12 +152,12 @@
   flex-shrink: 0;
 }
 
-.routine-row-icon {
+.workflow-row-icon {
   font-size: var(--font-size-body-lg);
   line-height: 1;
 }
 
-.routine-row-dot {
+.workflow-row-dot {
   width: 8px;
   height: 8px;
   margin-top: var(--spacing-2xs);
@@ -166,20 +166,20 @@
   background: var(--text-faint);
 }
 
-.routine-row-dot[data-state='ok'] {
+.workflow-row-dot[data-state='ok'] {
   background: var(--accent-success);
 }
 
-.routine-row-dot[data-state='failed'] {
+.workflow-row-dot[data-state='failed'] {
   background: var(--accent-error);
 }
 
-.routine-row-dot[data-state='running'] {
+.workflow-row-dot[data-state='running'] {
   background: var(--accent-active);
-  animation: routine-pulse 1.4s ease-in-out infinite;
+  animation: workflow-pulse 1.4s ease-in-out infinite;
 }
 
-@keyframes routine-pulse {
+@keyframes workflow-pulse {
   0%,
   100% {
     opacity: 1;
@@ -189,21 +189,21 @@
   }
 }
 
-.routine-row-body {
+.workflow-row-body {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xs);
   min-width: 0;
 }
 
-.routine-row-title-line {
+.workflow-row-title-line {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
   min-width: 0;
 }
 
-.routine-row-name {
+.workflow-row-name {
   color: var(--text-primary);
   font-size: var(--font-size-body-lg);
   font-weight: var(--font-weight-label);
@@ -213,7 +213,7 @@
 }
 
 /* Shares the app's badge recipe — see .branch-card-badge. */
-.routine-badge {
+.workflow-badge {
   padding: var(--spacing-2xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
   background: var(--surface-control);
@@ -223,12 +223,12 @@
   white-space: nowrap;
 }
 
-.routine-badge--edit {
+.workflow-badge--edit {
   background: rgba(var(--accent-warning-rgb), 0.1);
   color: var(--accent-warning);
 }
 
-.routine-row-description {
+.workflow-row-description {
   color: var(--text-secondary);
   font-size: var(--font-size-body-md);
   overflow: hidden;
@@ -236,7 +236,7 @@
   white-space: nowrap;
 }
 
-.routine-row-meta {
+.workflow-row-meta {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
@@ -248,38 +248,38 @@
 
 /* Only the project name gives way — the agent and trigger are short and are
    the two facts that make the row legible at a glance. */
-.routine-row-meta-item {
+.workflow-row-meta-item {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.routine-row-agent,
-.routine-row-meta-item:last-child {
+.workflow-row-agent,
+.workflow-row-meta-item:last-child {
   flex-shrink: 0;
 }
 
-.routine-row-agent {
+.workflow-row-agent {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2xs);
 }
 
-.routine-row-meta-sep {
+.workflow-row-meta-sep {
   color: var(--text-faint);
 }
 
 /* Status and actions sit on one line, vertically centred against the whole row.
    Stacking them made the right column taller than the left and left a band of
    dead space under the description. */
-.routine-row-side {
+.workflow-row-side {
   display: flex;
   align-items: center;
   gap: var(--spacing-lg);
   flex-shrink: 0;
 }
 
-.routine-row-status {
+.workflow-row-status {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -287,7 +287,7 @@
   text-align: right;
 }
 
-.routine-row-last {
+.workflow-row-last {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2xs);
@@ -296,51 +296,51 @@
   white-space: nowrap;
 }
 
-/* Amber is reserved for something the user has to act on. A routine that
+/* Amber is reserved for something the user has to act on. A workflow that
    simply found something is doing its job — the count carries that. */
-.routine-row-last[data-state='failed'] {
+.workflow-row-last[data-state='failed'] {
   color: var(--accent-error);
 }
 
-.routine-row-next {
+.workflow-row-next {
   color: var(--text-muted);
   font-size: var(--font-size-body-md);
   white-space: nowrap;
 }
 
-.routine-row-actions {
+.workflow-row-actions {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
 }
 
 /* Matches the switch's track width so Run lines up on every row. */
-.routine-row-toggle-slot {
+.workflow-row-toggle-slot {
   width: 36px;
   flex-shrink: 0;
 }
 
 /* Run and the auto-run switch stay visible — pressing Run is the point of the
    feature, and the switch communicates state. Only history hides until hover. */
-.routine-row-history {
+.workflow-row-history {
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition-interaction);
 }
 
-.routine-row:hover .routine-row-history,
-.routine-row:focus-within .routine-row-history {
+.workflow-row:hover .workflow-row-history,
+.workflow-row:focus-within .workflow-row-history {
   opacity: 1;
   pointer-events: auto;
 }
 
-.routines-page-footer code {
+.workflows-page-footer code {
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
 }
 
-.routines-page-footer {
+.workflows-page-footer {
   margin: 0 0 var(--dashboard-section-gap);
   color: var(--text-muted);
   font-size: var(--font-size-body-md);
@@ -348,10 +348,10 @@
   max-width: 74ch;
 }
 
-/* The first load has no way to tell "no routines" from "not read yet", so it
+/* The first load has no way to tell "no workflows" from "not read yet", so it
    shows neither — an empty state that flashes before real content is a lie
    about the user's data. */
-.routines-loading {
+.workflows-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -360,7 +360,7 @@
 
 /* ---- editor modal ---- */
 
-.routine-editor-modal {
+.workflow-editor-modal {
   width: min(680px, 92vw);
   /* The body scrolls, not the dialog — otherwise the footer actions scroll
      away and the form below the fold reads as the end of the dialog. */
@@ -368,7 +368,7 @@
   overflow: hidden;
 }
 
-.routine-editor {
+.workflow-editor {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xl);
@@ -383,19 +383,19 @@
 /* The name is the title of the thing, so it reads as one — an icon and a large
    field on one line, rather than a labelled input the size of every other
    control in the dialog. */
-.routine-name-row {
+.workflow-name-row {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   min-width: 0;
 }
 
-.routine-name-field {
+.workflow-name-field {
   flex: 1;
   min-width: 0;
 }
 
-.routine-name-input {
+.workflow-name-input {
   height: auto;
   padding: var(--spacing-sm) var(--spacing-md);
   font-size: var(--font-size-h3);
@@ -403,7 +403,7 @@
   line-height: var(--line-height-heading);
 }
 
-.routine-icon-trigger {
+.workflow-icon-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -423,47 +423,47 @@
     border-color var(--transition-interaction);
 }
 
-.routine-icon-trigger:hover {
+.workflow-icon-trigger:hover {
   background: var(--surface-control-hover);
   border-color: var(--text-muted);
 }
 
 /* Once an emoji is chosen it carries its own colour; the placeholder glyph
    stays muted so it reads as "not set yet". */
-.routine-icon-trigger.has-icon {
+.workflow-icon-trigger.has-icon {
   color: var(--text-primary);
 }
 
-.routine-icon-menu {
+.workflow-icon-menu {
   max-width: 320px;
 }
 
-.routine-icon-panel {
+.workflow-icon-panel {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
   padding: var(--spacing-2xs);
 }
 
-.routine-icon-group {
+.workflow-icon-group {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xs);
 }
 
-.routine-icon-group-label {
+.workflow-icon-group-label {
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-compact);
 }
 
-.routine-icon-grid {
+.workflow-icon-grid {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   gap: var(--spacing-3xs);
 }
 
-.routine-icon-option {
+.workflow-icon-option {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -477,16 +477,16 @@
   cursor: pointer;
 }
 
-.routine-icon-option:hover {
+.workflow-icon-option:hover {
   background: var(--surface-control-hover);
 }
 
-.routine-icon-option.is-selected {
+.workflow-icon-option.is-selected {
   background: var(--surface-selected);
   border-color: var(--border-default);
 }
 
-.routine-icon-custom {
+.workflow-icon-custom {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
@@ -494,7 +494,7 @@
   border-top: var(--border-width-default) solid var(--border-subtle);
 }
 
-.routine-icon-custom-input {
+.workflow-icon-custom-input {
   flex: 1;
   min-width: 0;
   padding: var(--spacing-2xs) var(--spacing-sm);
@@ -507,20 +507,20 @@
   outline: none;
 }
 
-.routine-icon-custom-input:focus-visible {
+.workflow-icon-custom-input:focus-visible {
   border-color: var(--accent-focus);
 }
 
-/* The form is two named regions — what the routine says, and how it runs —
+/* The form is two named regions — what the workflow says, and how it runs —
    rather than eight fields of equal weight. */
-.routine-section {
+.workflow-section {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
   min-width: 0;
 }
 
-.routine-section-title {
+.workflow-section-title {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--font-size-badge);
@@ -530,45 +530,45 @@
 }
 
 /* Configuration reads as secondary to the instruction above it. */
-.routine-section--config {
+.workflow-section--config {
   padding: var(--spacing-lg);
   background: var(--surface-recessed);
   border: var(--border-width-default) solid var(--border-subtle);
   border-radius: var(--radius-card);
 }
 
-.routine-editor-context {
+.workflow-editor-context {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-compact);
 }
 
-.routine-editor-context strong {
+.workflow-editor-context strong {
   color: var(--text-primary);
   font-weight: var(--font-weight-label);
 }
 
-.routine-field {
+.workflow-field {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
   min-width: 0;
 }
 
-.routine-field-pair {
+.workflow-field-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--spacing-md);
 }
 
-.routine-field-label {
+.workflow-field-label {
   color: var(--text-secondary);
 }
 
 /* SegmentedControl is inline-flex, but a column flex parent stretches it to
    full width and leaves an empty rail past the last option. */
-.routine-field > .segmented-control {
+.workflow-field > .segmented-control {
   align-self: flex-start;
   max-width: 100%;
 }
@@ -577,14 +577,14 @@
    the control sits in a two-up grid beside a full-width dropdown (a hugging
    control there leaves the row visibly ragged) and for the trigger rails,
    whose segments read as a single spectrum. */
-.routine-field > .segmented-control.routine-segments-fill,
-.routine-trigger-detail > .segmented-control.routine-segments-fill {
+.workflow-field > .segmented-control.workflow-segments-fill,
+.workflow-trigger-detail > .segmented-control.workflow-segments-fill {
   display: flex;
   align-self: stretch;
   width: 100%;
 }
 
-.routine-segments-fill > .button {
+.workflow-segments-fill > .button {
   flex: 1 1 0;
   min-width: 0;
 }
@@ -592,27 +592,27 @@
 /* The equal-width segments put every label under shrink pressure, and a
    flexible SVG answers that by collapsing to a sliver — the Claude glyph
    crushed to a dot. Only the text may give. */
-.routine-segments-fill > .button > svg {
+.workflow-segments-fill > .button > svg {
   flex-shrink: 0;
 }
 
-.routine-field-hint {
+.workflow-field-hint {
   color: var(--text-muted);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-help);
   max-width: 74ch;
 }
 
-/* Template blanks left in the prompt — the routine would run and report
+/* Template blanks left in the prompt — the workflow would run and report
    nothing useful, so the form says so before you create it. */
-.routine-field-warning {
+.workflow-field-warning {
   color: var(--accent-warning);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-help);
   max-width: 74ch;
 }
 
-.routine-field-warning code {
+.workflow-field-warning code {
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
   padding: 0 var(--spacing-2xs);
@@ -622,7 +622,7 @@
 
 /* The conditions a background schedule cannot escape. Stated as a list because
    each line is a separate thing that can be false. */
-.routine-conditions {
+.workflow-conditions {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xs);
@@ -634,7 +634,7 @@
   max-width: 74ch;
 }
 
-.routine-conditions code {
+.workflow-conditions code {
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
@@ -643,7 +643,7 @@
 /* Everything that follows from the trigger choice — where it runs, what that
    means, its conditions, and the arm switch — grouped so the block breathes
    without loosening the 4px label-to-control gap every other field uses. */
-.routine-trigger-detail {
+.workflow-trigger-detail {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
@@ -651,11 +651,11 @@
   min-width: 0;
 }
 
-.routine-host-field {
+.workflow-host-field {
   gap: var(--spacing-xs);
 }
 
-.routine-note {
+.workflow-note {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-xs);
@@ -665,29 +665,29 @@
   color: var(--text-muted);
 }
 
-.routine-note-text {
+.workflow-note-text {
   color: var(--text-secondary);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-help);
   max-width: 74ch;
 }
 
-.routine-note-text strong {
+.workflow-note-text strong {
   color: var(--text-primary);
   font-weight: var(--font-weight-label);
 }
 
-.routine-scope-trigger {
+.workflow-scope-trigger {
   justify-content: space-between;
 }
 
-.routine-scope-label {
+.workflow-scope-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.routine-prompt {
+.workflow-prompt {
   width: 100%;
   padding: var(--spacing-sm);
   background: var(--surface-recessed);
@@ -700,12 +700,12 @@
   resize: vertical;
 }
 
-.routine-prompt:focus-visible {
+.workflow-prompt:focus-visible {
   outline: var(--focus-ring-width) solid var(--accent-focus);
   outline-offset: var(--focus-ring-offset);
 }
 
-.routine-command {
+.workflow-command {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
@@ -715,14 +715,14 @@
   border-radius: var(--radius-card);
 }
 
-.routine-command-header {
+.workflow-command-header {
   display: flex;
   align-items: center;
   gap: var(--spacing-2xs);
   color: var(--text-muted);
 }
 
-.routine-command-body {
+.workflow-command-body {
   margin: 0;
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
@@ -734,24 +734,24 @@
 
 /* Step position sits at the leading edge of the footer, opposite the actions,
    so a two-step flow says where you are without a second header row. */
-.routine-editor-step {
+.workflow-editor-step {
   margin-right: auto;
 }
 
-/* Where the routine lands on disk, under the command it runs — the two facts
+/* Where the workflow lands on disk, under the command it runs — the two facts
    that make "there is no hidden orchestration" checkable rather than claimed. */
-.routine-command-note {
+.workflow-command-note {
   margin: var(--spacing-xs) 0 0;
   line-height: var(--line-height-help);
 }
 
-.routine-command-note code {
+.workflow-command-note code {
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
 }
 
-.routine-editor-actions {
+.workflow-editor-actions {
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -761,19 +761,19 @@
   border-top: var(--border-width-default) solid var(--border-default);
 }
 
-.routine-editor-back {
+.workflow-editor-back {
   margin-right: auto;
 }
 
 /* ---- template picker ---- */
 
-.routine-template-modal {
+.workflow-template-modal {
   width: min(720px, 92vw);
   max-height: 86vh;
   overflow: hidden;
 }
 
-.routine-templates {
+.workflow-templates {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
@@ -783,7 +783,7 @@
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
 }
 
-.routine-templates-lede {
+.workflow-templates-lede {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--font-size-body-lg);
@@ -791,14 +791,14 @@
   max-width: 64ch;
 }
 
-/* A flat option list — see RoutineTemplatePicker for why this isn't a grid. */
-.routine-template-list {
+/* A flat option list — see WorkflowTemplatePicker for why this isn't a grid. */
+.workflow-template-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xs);
 }
 
-.routine-template-option {
+.workflow-template-option {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xs);
@@ -815,7 +815,7 @@
     border-color var(--transition-interaction);
 }
 
-.routine-template-option:hover {
+.workflow-template-option:hover {
   background: var(--surface-control-hover);
 }
 
@@ -823,19 +823,19 @@
    .run-history-item: a filled surface and the ordinary border. An accent ring
    here shouted louder than anything else on the screen, and the inline check
    already says which one is chosen. */
-.routine-template-option.is-selected {
+.workflow-template-option.is-selected {
   background: var(--surface-selected);
   border-color: var(--border-default);
 }
 
-.routine-template-option-head {
+.workflow-template-option-head {
   display: flex;
   align-items: baseline;
   gap: var(--spacing-xs);
   min-width: 0;
 }
 
-.routine-template-option-name {
+.workflow-template-option-name {
   color: var(--text-primary);
   font-size: var(--font-size-body-lg);
   font-weight: var(--font-weight-label);
@@ -844,7 +844,7 @@
   white-space: nowrap;
 }
 
-.routine-template-option-check {
+.workflow-template-option-check {
   flex-shrink: 0;
   color: var(--accent-active);
   /* Baseline alignment puts an icon's box on the text baseline; nudge it back
@@ -854,9 +854,9 @@
 
 /* Cadence and category are pushed to the trailing edge so the names form a
    single scannable column down the left. Plain muted text with a middot, the
-   same treatment .routine-row-meta gives the identical facts in the list — a
+   same treatment .workflow-row-meta gives the identical facts in the list — a
    badge would be a component the app doesn't otherwise have. */
-.routine-template-option-tags {
+.workflow-template-option-tags {
   display: flex;
   align-items: baseline;
   gap: var(--spacing-xs);
@@ -868,11 +868,11 @@
   white-space: nowrap;
 }
 
-.routine-template-tag-sep {
+.workflow-template-tag-sep {
   color: var(--text-faint);
 }
 
-.routine-template-option-description {
+.workflow-template-option-description {
   color: var(--text-secondary);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-help);
@@ -1002,11 +1002,11 @@
   color: var(--text-secondary);
 }
 
-/* ---- development-only prototype preview (?routinesPreview=1) ----
+/* ---- development-only prototype preview (?workflowsPreview=1) ----
    Mirrors the primitive lab's overlay geometry so the prototype can be
    reviewed in a browser without booting a project. */
 
-.dev-routines-preview {
+.dev-workflows-preview {
   position: fixed;
   inset: var(--spacing-lg);
   /* Below the modal tier: the harness is a fullscreen stand-in for the app
@@ -1025,7 +1025,7 @@
   font-family: var(--font-ui);
 }
 
-.dev-routines-preview__header {
+.dev-workflows-preview__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1035,21 +1035,21 @@
   background: var(--surface-panel);
 }
 
-.dev-routines-preview__eyebrow {
+.dev-workflows-preview__eyebrow {
   margin: 0;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--tracking-control);
 }
 
-.dev-routines-preview__body {
+.dev-workflows-preview__body {
   display: flex;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.dev-routines-preview__body > * {
+.dev-workflows-preview__body > * {
   flex: 1;
   min-width: 0;
 }

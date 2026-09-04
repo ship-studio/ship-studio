@@ -7,11 +7,11 @@
  * on the first successful paste — bounded, so a project that never gets a
  * terminal doesn't leave a timer running for the rest of the session.
  *
- * @module hooks/useRoutineHandoff
+ * @module hooks/useWorkflowHandoff
  */
 
 import { useEffect } from 'react';
-import { consumeHandoff, peekHandoff } from '../lib/routineHandoff';
+import { consumeHandoff, peekHandoff } from '../lib/workflowHandoff';
 import { logger } from '../lib/logger';
 
 const RETRY_MS = 700;
@@ -34,7 +34,7 @@ export const HANDOFF_DELIVERED_MESSAGE =
  *   landed — false while no terminal is mounted yet.
  * @param onDelivered Optional notice for the user, e.g. a toast.
  */
-export function useRoutineHandoff(
+export function useWorkflowHandoff(
   projectPath: string | null,
   send: (prompt: string) => boolean,
   onDelivered?: () => void
@@ -58,7 +58,7 @@ export function useRoutineHandoff(
         return;
       }
       if (Date.now() > deadline) {
-        logger.warn('[Routines] Gave up delivering a fix handoff', { projectPath });
+        logger.warn('[Workflows] Gave up delivering a fix handoff', { projectPath });
         return;
       }
       timer = window.setTimeout(attempt, RETRY_MS);

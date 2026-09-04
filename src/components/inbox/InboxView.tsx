@@ -1,7 +1,7 @@
 /**
- * Inbox — what the routines found.
+ * Inbox — what the workflows found.
  *
- * Same placement as Home and Routines: the centred `dashboard-column` and the
+ * Same placement as Home and Workflows: the centred `dashboard-column` and the
  * `dashboard-panel` section card, with the reader living inside the card. The
  * two-pane layout is the only thing that differs, because reading a report is
  * the job.
@@ -25,8 +25,8 @@ import { DashboardSearch } from '../dashboard/DashboardSearch';
 import { InboxDetail } from './InboxDetail';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
-import { formatAge, type InboxItem, type Severity } from '../../lib/routines';
-import { queueHandoff } from '../../lib/routineHandoff';
+import { formatAge, type InboxItem, type Severity } from '../../lib/workflows';
+import { queueHandoff } from '../../lib/workflowHandoff';
 import type { Project } from '../../lib/project';
 import {
   getSnapshot,
@@ -35,7 +35,7 @@ import {
   setItemArchived,
   setItemRead,
   subscribe,
-} from '../../lib/routinesStore';
+} from '../../lib/workflowsStore';
 
 type InboxFilter = 'unread' | 'all' | 'archived';
 
@@ -112,7 +112,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
 
   /**
    * Queue the prompt, then open the project. The queue survives the navigation
-   * and is delivered by `useRoutineHandoff` once a terminal actually exists —
+   * and is delivered by `useWorkflowHandoff` once a terminal actually exists —
    * opening a project is several seconds of mounting and spawning.
    */
   const handleFix = useCallback(
@@ -130,7 +130,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
       <div className="dashboard-scroll-container">
         <div className="dashboard-column">
           {!dashboardHeaderHidden && (
-            <DashboardHeader title="What did your routines find?" onHide={hideDashboardHeader} />
+            <DashboardHeader title="What did your workflows find?" onHide={hideDashboardHeader} />
           )}
 
           <DashboardSearch />
@@ -211,7 +211,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
                   title={filter === 'unread' ? 'You are all caught up' : 'Nothing here'}
                   description={
                     filter === 'unread'
-                      ? 'Your routines have not found anything new.'
+                      ? 'Your workflows have not found anything new.'
                       : 'No findings match this filter.'
                   }
                 />
@@ -241,7 +241,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
                         <span className="inbox-item-summary">{item.summary}</span>
                         <span className="inbox-item-meta">
                           <span className="inbox-chip">{item.projectName}</span>
-                          <span className="inbox-item-routine">{item.routineName}</span>
+                          <span className="inbox-item-workflow">{item.workflowName}</span>
                           {item.occurrences > 1 && (
                             <span className="inbox-item-repeat">seen {item.occurrences}×</span>
                           )}

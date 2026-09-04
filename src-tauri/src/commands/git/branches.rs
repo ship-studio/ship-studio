@@ -701,12 +701,12 @@ pub async fn push_branch(
     }
 
     info!("Branch published successfully");
-    // Fire any `on push` routines for this project. Spawned rather than
+    // Fire any `on push` workflows for this project. Spawned rather than
     // awaited: publishing a branch must not sit behind an agent run.
-    crate::routine_scheduler::spawn_event(
+    crate::workflow_scheduler::spawn_event(
         &app,
         &validated_path.to_string_lossy(),
-        crate::commands::routines::RoutineEvent::Push,
+        crate::commands::workflows::WorkflowEvent::Push,
     );
     Ok(())
 }

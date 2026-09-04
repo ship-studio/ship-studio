@@ -43,7 +43,7 @@ import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { HomeSidebar } from './components/workspace/HomeSidebar';
 import { StandingWorkView } from './components/workspace/StandingWorkView';
-import { HANDOFF_DELIVERED_MESSAGE, useRoutineHandoff } from './hooks/useRoutineHandoff';
+import { HANDOFF_DELIVERED_MESSAGE, useWorkflowHandoff } from './hooks/useWorkflowHandoff';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
@@ -69,7 +69,7 @@ import {
   useSetPaletteContext,
 } from './components/CommandPalette/paletteContext';
 import { useAppCommands } from './commands/useAppCommands';
-import { useRoutineCommands } from './commands/useRoutineCommands';
+import { useWorkflowCommands } from './commands/useWorkflowCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { ToastList } from './components/primitives/ToastList';
 import { TooltipProvider } from './components/primitives/Tooltip';
@@ -78,10 +78,10 @@ import { logger } from './lib/logger';
 import { asCommandError, formatCommandError } from './lib/errors';
 import { trackEvent, trackPageview } from './lib/analytics';
 import {
-  getSnapshot as getRoutinesSnapshot,
-  subscribe as subscribeRoutines,
+  getSnapshot as getWorkflowsSnapshot,
+  subscribe as subscribeWorkflows,
   unreadCount,
-} from './lib/routinesStore';
+} from './lib/workflowsStore';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
@@ -151,8 +151,8 @@ function AppContents({ initialProjectPath }: AppProps) {
         currentProjectName: currentProject?.name ?? null,
         currentProjectPath: currentProject?.path ?? null,
       });
-    } else if (view === 'projects' || view === 'routines' || view === 'inbox') {
-      // Routines and the Inbox are home-level screens; left in 'other' their
+    } else if (view === 'projects' || view === 'workflows' || view === 'inbox') {
+      // Workflows and the Inbox are home-level screens; left in 'other' their
       // ⌘K armed a palette that couldn't render (see CommandPaletteHost).
       setPaletteContext({ kind: 'home', currentProjectName: null, currentProjectPath: null });
     } else {
@@ -555,7 +555,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     showToast,
   });
 
-  useRoutineCommands({ setView, showToast });
+  useWorkflowCommands({ setView, showToast });
 
   const handoffDelivered = useCallback(
     () => showToast(HANDOFF_DELIVERED_MESSAGE, 'success'),
@@ -563,8 +563,8 @@ function AppContents({ initialProjectPath }: AppProps) {
   );
 
   // Deliver a queued "Fix with agent" prompt once the opened project actually
-  // has a terminal to type into — see hooks/useRoutineHandoff.
-  useRoutineHandoff(currentProject?.path ?? null, sendToClaude, handoffDelivered);
+  // has a terminal to type into — see hooks/useWorkflowHandoff.
+  useWorkflowHandoff(currentProject?.path ?? null, sendToClaude, handoffDelivered);
 
   // Close an active session from the sidebar (dashboard, collapsed rail, or
   // workspace). Ordering and the auto-open sentinel are load-bearing — see
@@ -975,14 +975,14 @@ function AppContents({ initialProjectPath }: AppProps) {
   );
 
   // Shared configuration for the home-level
-  // sidebar, used by the Projects, Routines, and Inbox screens.
-  const routinesSnapshot = useSyncExternalStore(subscribeRoutines, getRoutinesSnapshot);
-  const inboxUnread = unreadCount(routinesSnapshot);
+  // sidebar, used by the Projects, Workflows, and Inbox screens.
+  const workflowsSnapshot = useSyncExternalStore(subscribeWorkflows, getWorkflowsSnapshot);
+  const inboxUnread = unreadCount(workflowsSnapshot);
 
   const homeSidebarProps = useMemo(
     () => ({
       onGoHome: () => setView('projects'),
-      onGoRoutines: () => setView('routines'),
+      onGoWorkflows: () => setView('workflows'),
       onGoInbox: () => setView('inbox'),
       inboxUnreadCount: inboxUnread,
       onOpenProjectPicker: openProjectPicker,
@@ -1197,8 +1197,8 @@ function AppContents({ initialProjectPath }: AppProps) {
     );
   }
 
-  // Routines and the Inbox: two home-level screens sharing the home sidebar.
-  if (view === 'routines' || view === 'inbox') {
+  // Workflows and the Inbox: two home-level screens sharing the home sidebar.
+  if (view === 'workflows' || view === 'inbox') {
     return (
       <>
         <StandingWorkView

@@ -1,11 +1,11 @@
 /**
- * Routines & Inbox — types and formatting.
+ * Workflows & Inbox — types and formatting.
  *
- * Every type here mirrors a Rust type in `src-tauri/src/commands/routines/`,
+ * Every type here mirrors a Rust type in `src-tauri/src/commands/workflows/`,
  * field for field, so backend payloads deserialize without a translation
- * layer. The store that talks to those commands is `./routinesStore`.
+ * layer. The store that talks to those commands is `./workflowsStore`.
  *
- * @module lib/routines
+ * @module lib/workflows
  */
 
 import { CLAUDE_CODE, CODEX, OPENCODE, type AgentConfig } from './agent';
@@ -15,39 +15,39 @@ import { CLAUDE_CODE, CODEX, OPENCODE, type AgentConfig } from './agent';
 /** How severe a finding is. Drives colour, sort order, and delivery floor. */
 export type Severity = 'critical' | 'warning' | 'info';
 
-/** Outcome of a single routine run. */
+/** Outcome of a single workflow run. */
 export type RunStatus = 'ok' | 'findings' | 'failed' | 'running';
 
-/** What a routine's agent is allowed to do while it runs. */
-export type RoutinePermission = 'read-only' | 'can-edit';
+/** What a workflow's agent is allowed to do while it runs. */
+export type WorkflowPermission = 'read-only' | 'can-edit';
 
 /**
  * Non-time triggers, all of which Ship Studio already observes. These are the
  * best fit for the model: they fire during work, which is exactly when the app
  * is open.
  */
-export type RoutineEvent = 'push' | 'pr-opened';
+export type WorkflowEvent = 'push' | 'pr-opened';
 
 /**
- * What sets a routine off.
+ * What sets a workflow off.
  *
  * Pressing Run is the default and always works. Everything else is an opt-in on
  * top of it, and everything else fires **only while Ship Studio is running** —
- * a routine is the user's own agent CLI on the user's own machine, so there is
+ * a workflow is the user's own agent CLI on the user's own machine, so there is
  * no server to keep a clock. {@link describeTriggerReality} is the single place
  * that sentence is written, and every trigger control shows it.
  */
-export type RoutineTrigger =
+export type WorkflowTrigger =
   | { kind: 'manual' }
   | { kind: 'interval'; everyMinutes: number }
   | { kind: 'daily'; atHour: number; atMinute: number }
   | { kind: 'weekly'; weekday: number; atHour: number; atMinute: number }
-  | { kind: 'event'; event: RoutineEvent };
+  | { kind: 'event'; event: WorkflowEvent };
 
-/** One recorded execution of a routine. */
-export interface RoutineRun {
+/** One recorded execution of a workflow. */
+export interface WorkflowRun {
   id: string;
-  routineId: string;
+  workflowId: string;
   startedAt: number;
   durationMs: number;
   status: RunStatus;
@@ -70,58 +70,58 @@ export interface RoutineRun {
 
 /**
  * A standing instruction. On disk this is one markdown file with frontmatter
- * under `<project>/.shipstudio/routines/`.
+ * under `<project>/.shipstudio/workflows/`.
  */
-export interface Routine {
+export interface Workflow {
   /** `<projectPath>::<slug>`. */
   id: string;
-  /** Filename stem, and the routine's identity within its project. */
+  /** Filename stem, and the workflow's identity within its project. */
   slug: string;
   name: string;
-  /** A single emoji standing in for the routine. Null falls back to a dot. */
+  /** A single emoji standing in for the workflow. Null falls back to a dot. */
   icon: string | null;
   description: string;
   /** Null means "whatever the user's default agent is". */
   agentId: string | null;
   projectPath: string;
   projectName: string;
-  trigger: RoutineTrigger;
-  permission: RoutinePermission;
-  /** The user-authored body of the routine file. */
+  trigger: WorkflowTrigger;
+  permission: WorkflowPermission;
+  /** The user-authored body of the workflow file. */
   prompt: string;
   /** Findings below this level are dropped rather than filed. */
   severityFloor: Severity;
   /**
-   * Whether the trigger is armed. Irrelevant for a manual routine, which is
+   * Whether the trigger is armed. Irrelevant for a manual workflow, which is
    * always runnable from its Run button — pressing Run is the whole trigger.
    */
   autoRun: boolean;
-  /** Absolute path of the markdown file this routine lives in. */
+  /** Absolute path of the markdown file this workflow lives in. */
   filePath: string;
   /** When the trigger next comes due. Null for manual, event, and disarmed. */
   nextRunAt: number | null;
   isRunning: boolean;
   /** When the in-flight run started, for elapsed time. Null when idle. */
   runningSince: number | null;
-  runs: RoutineRun[];
+  runs: WorkflowRun[];
 }
 
 /** Everything a save may change. Identity fields are not editable. */
-export interface RoutineDraft {
+export interface WorkflowDraft {
   name: string;
   icon: string | null;
   description: string;
   agentId: string | null;
-  trigger: RoutineTrigger;
-  permission: RoutinePermission;
+  trigger: WorkflowTrigger;
+  permission: WorkflowPermission;
   prompt: string;
   severityFloor: Severity;
   autoRun: boolean;
 }
 
-/** One line of live activity from a running routine. */
+/** One line of live activity from a running workflow. */
 export interface ProgressLine {
-  routineId: string;
+  workflowId: string;
   at: number;
   text: string;
 }
@@ -133,11 +133,11 @@ export interface FindingLocation {
   note?: string;
 }
 
-/** One report filed by a routine run. */
+/** One report filed by a workflow run. */
 export interface InboxItem {
   id: string;
-  routineId: string;
-  routineName: string;
+  workflowId: string;
+  workflowName: string;
   projectName: string;
   projectPath: string;
   severity: Severity;
@@ -159,22 +159,22 @@ export interface InboxItem {
   runId: string;
 }
 
-/** A starter routine offered when creating a new one. */
-export interface RoutineTemplate {
+/** A starter workflow offered when creating a new one. */
+export interface WorkflowTemplate {
   id: string;
   name: string;
-  /** Seeded onto the routine so a new one arrives already recognisable. */
+  /** Seeded onto the workflow so a new one arrives already recognisable. */
   icon: string;
   description: string;
   category: 'Quality' | 'Security' | 'Maintenance' | 'Research';
-  trigger: RoutineTrigger;
-  permission: RoutinePermission;
+  trigger: WorkflowTrigger;
+  permission: WorkflowPermission;
   prompt: string;
 }
 
 /* -------------------------------------------------------------- formatting */
 
-const EVENT_LABELS: Record<RoutineEvent, string> = {
+const EVENT_LABELS: Record<WorkflowEvent, string> = {
   push: 'After every push',
   'pr-opened': 'When a PR opens',
 };
@@ -186,7 +186,7 @@ function pad(value: number): string {
 }
 
 /** Human label for a trigger, e.g. "Every 30 min" or "Daily at 10:00". */
-export function formatTrigger(trigger: RoutineTrigger): string {
+export function formatTrigger(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case 'manual':
       return 'Manual';
@@ -207,12 +207,12 @@ export function formatTrigger(trigger: RoutineTrigger): string {
 
 /**
  * The frontmatter phrase for a trigger — the exact string written to the
- * routine file, and the one documented in the agent skill.
+ * workflow file, and the one documented in the agent skill.
  *
- * Mirrors `RoutineTrigger::to_phrase` in Rust. Shown in the editor so what you
+ * Mirrors `WorkflowTrigger::to_phrase` in Rust. Shown in the editor so what you
  * configured and what an agent would write are visibly the same thing.
  */
-export function triggerPhrase(trigger: RoutineTrigger): string {
+export function triggerPhrase(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case 'manual':
       return 'manual';
@@ -230,7 +230,7 @@ export function triggerPhrase(trigger: RoutineTrigger): string {
 }
 
 /** Whether a trigger is a clock/interval one at all (vs manual or an event). */
-export function isTimeTrigger(trigger: RoutineTrigger): boolean {
+export function isTimeTrigger(trigger: WorkflowTrigger): boolean {
   return trigger.kind === 'interval' || trigger.kind === 'daily' || trigger.kind === 'weekly';
 }
 
@@ -238,24 +238,24 @@ export function isTimeTrigger(trigger: RoutineTrigger): boolean {
  * The list-row schedule line: what fires it, and — the part that actually
  * matters — the fact that it only fires while the app is open.
  *
- * A disarmed routine must not advertise a cadence it is not keeping.
+ * A disarmed workflow must not advertise a cadence it is not keeping.
  */
-export function describeSchedule(routine: Pick<Routine, 'trigger' | 'autoRun'>): string {
-  const { trigger } = routine;
+export function describeSchedule(workflow: Pick<Workflow, 'trigger' | 'autoRun'>): string {
+  const { trigger } = workflow;
   if (trigger.kind === 'manual') return 'Manual — runs when you press Run';
-  if (!routine.autoRun) return `${formatTrigger(trigger)} — auto-run off`;
+  if (!workflow.autoRun) return `${formatTrigger(trigger)} — auto-run off`;
   return `${formatTrigger(trigger)}, while Ship Studio is open`;
 }
 
 /**
  * The honest sentence about when a trigger can actually fire.
  *
- * Routines are the user's own agent CLI on the user's own machine. There is no
+ * Workflows are the user's own agent CLI on the user's own machine. There is no
  * Ship Studio server, so nothing fires while the app is closed, and every one
  * of these sentences says so plainly rather than implying a clock we don't
  * keep.
  */
-export function describeTriggerReality(trigger: RoutineTrigger): string {
+export function describeTriggerReality(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case 'manual':
       return 'Runs only when you press Run. Nothing happens on its own.';
@@ -270,7 +270,7 @@ export function describeTriggerReality(trigger: RoutineTrigger): string {
 }
 
 /**
- * How long until the routine is eligible to run again, e.g. "in 12 min".
+ * How long until the workflow is eligible to run again, e.g. "in 12 min".
  *
  * "Due", not "next": the gap elapsing makes it eligible, and it runs at the
  * first check while the app is open. Null when nothing is armed.
@@ -340,19 +340,21 @@ export function formatTokens(tokens: number | null): string {
   return `${(tokens / 1000).toFixed(1)}k`;
 }
 
-/** Rolling seven-day rollup for the Routines summary strip. */
-export function summarizeWeek(routines: Routine[]): {
+/** Rolling seven-day rollup for the Workflows summary strip. */
+export function summarizeWeek(workflows: Workflow[]): {
   runs: number;
   findings: number;
   tokens: number | null;
 } {
   const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const runs = routines.flatMap((routine) => routine.runs.filter((run) => run.startedAt >= since));
+  const runs = workflows.flatMap((workflow) =>
+    workflow.runs.filter((run) => run.startedAt >= since)
+  );
   const counted = runs.filter((run) => run.tokens !== null);
   return {
     runs: runs.length,
     findings: runs.reduce((total, run) => total + run.findings, 0),
-    // All-null (e.g. every routine is on Codex) means we genuinely don't know,
+    // All-null (e.g. every workflow is on Codex) means we genuinely don't know,
     // which must not render as a confident "0".
     tokens:
       counted.length === 0 ? null : counted.reduce((total, run) => total + (run.tokens ?? 0), 0),
@@ -361,40 +363,40 @@ export function summarizeWeek(routines: Routine[]): {
 
 const AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE];
 
-/** Agent config for a routine, falling back to Claude Code. */
-export function agentForRoutine(agentId: string | null): AgentConfig {
+/** Agent config for a workflow, falling back to Claude Code. */
+export function agentForWorkflow(agentId: string | null): AgentConfig {
   return AGENTS.find((agent) => agent.id === agentId) ?? CLAUDE_CODE;
 }
 
 /**
  * The literal command a run executes.
  *
- * Shown verbatim in the routine editor. The point of the feature is that
+ * Shown verbatim in the workflow editor. The point of the feature is that
  * there's no hidden orchestration, so the user should be able to read the
  * command, paste it into their own terminal, and get the same thing. It must
  * therefore stay in lockstep with `invoke_agent` in
- * `src-tauri/src/commands/routines/runs.rs` — a preview that drifts from what
+ * `src-tauri/src/commands/workflows/runs.rs` — a preview that drifts from what
  * actually runs is worse than no preview at all.
  */
-export function buildCommandPreview(routine: Pick<Routine, 'agentId' | 'permission'>): string {
-  const agent = agentForRoutine(routine.agentId);
+export function buildCommandPreview(workflow: Pick<Workflow, 'agentId' | 'permission'>): string {
+  const agent = agentForWorkflow(workflow.agentId);
   if (agent.id === 'codex') {
-    const sandbox = routine.permission === 'read-only' ? 'read-only' : 'workspace-write';
+    const sandbox = workflow.permission === 'read-only' ? 'read-only' : 'workspace-write';
     return [
       `${agent.binaryName} exec --skip-git-repo-check --color never \\`,
       `  --sandbox ${sandbox} \\`,
       `  --output-last-message <tmp> -  < <prompt>`,
     ].join('\n');
   }
-  const mode = routine.permission === 'read-only' ? 'plan' : 'acceptEdits';
+  const mode = workflow.permission === 'read-only' ? 'plan' : 'acceptEdits';
   return [
     `${agent.binaryName} --print --output-format json \\`,
     `  --permission-mode ${mode}  < <prompt>`,
   ].join('\n');
 }
 
-/** Starter routines offered in the "New routine" flow. */
-export const ROUTINE_TEMPLATES: RoutineTemplate[] = [
+/** Starter workflows offered in the "New workflow" flow. */
+export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   {
     id: 'tpl-security',
     icon: '🔒',
@@ -470,7 +472,7 @@ If no preview is running, report nothing and stop. Do not start a server yoursel
   {
     id: 'tpl-blank',
     icon: '✨',
-    name: 'Blank routine',
+    name: 'Blank workflow',
     description: 'Start from an empty prompt.',
     category: 'Quality',
     trigger: { kind: 'manual' },

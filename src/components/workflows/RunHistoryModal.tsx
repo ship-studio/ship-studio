@@ -1,11 +1,11 @@
 /**
- * Run history for one routine, with the agent's reply.
+ * Run history for one workflow, with the agent's reply.
  *
  * Showing the raw reply is the point: there is no hidden orchestration, and a
- * user who wants to know why a routine filed something should be able to read
+ * user who wants to know why a workflow filed something should be able to read
  * exactly what came back rather than take the inbox item on trust.
  *
- * @module components/routines/RunHistoryModal
+ * @module components/workflows/RunHistoryModal
  */
 
 import { useState } from 'react';
@@ -14,41 +14,41 @@ import {
   formatAgo,
   formatDuration,
   formatTokens,
-  type Routine,
-  type RoutineRun,
-} from '../../lib/routines';
+  type Workflow,
+  type WorkflowRun,
+} from '../../lib/workflows';
 
 interface RunHistoryModalProps {
-  /** Mounted only while open, and keyed by routine, so selection seeds once. */
-  routine: Routine;
+  /** Mounted only while open, and keyed by workflow, so selection seeds once. */
+  workflow: Workflow;
   onClose: () => void;
 }
 
-const STATUS_LABEL: Record<RoutineRun['status'], string> = {
+const STATUS_LABEL: Record<WorkflowRun['status'], string> = {
   ok: 'Clean',
   findings: 'Findings',
   failed: 'Failed',
   running: 'Running',
 };
 
-export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(routine.runs[0]?.id ?? null);
+export function RunHistoryModal({ workflow, onClose }: RunHistoryModalProps) {
+  const [selectedId, setSelectedId] = useState<string | null>(workflow.runs[0]?.id ?? null);
 
-  const selected = routine.runs.find((run) => run.id === selectedId) ?? routine.runs[0] ?? null;
+  const selected = workflow.runs.find((run) => run.id === selectedId) ?? workflow.runs[0] ?? null;
 
   return (
     <ModalFrame
       isOpen
       onClose={onClose}
-      title={`${routine.name} — run history`}
+      title={`${workflow.name} — run history`}
       className="run-history-modal"
     >
       <div className="run-history">
         <div className="run-history-list" role="list">
-          {routine.runs.length === 0 && (
-            <p className="run-history-empty text-style-hint">This routine has not run yet.</p>
+          {workflow.runs.length === 0 && (
+            <p className="run-history-empty text-style-hint">This workflow has not run yet.</p>
           )}
-          {routine.runs.map((run) => (
+          {workflow.runs.map((run) => (
             <button
               key={run.id}
               type="button"
@@ -86,8 +86,8 @@ export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {
       </div>
 
       <p className="run-history-note text-style-hint">
-        The last 20 runs per routine are kept on this machine, in{' '}
-        <code>~/ShipStudio/.shipstudio/routines-state.json</code>. Nothing is uploaded anywhere.
+        The last 20 runs per workflow are kept on this machine, in{' '}
+        <code>~/ShipStudio/.shipstudio/workflows-state.json</code>. Nothing is uploaded anywhere.
       </p>
     </ModalFrame>
   );

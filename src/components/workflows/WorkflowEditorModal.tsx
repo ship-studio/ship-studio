@@ -1,13 +1,13 @@
 /**
- * Create or edit a routine.
+ * Create or edit a workflow.
  *
- * Two steps for a new routine (pick a starting point, then fill it in) and one
+ * Two steps for a new workflow (pick a starting point, then fill it in) and one
  * for an existing one. Saving writes the markdown file — this form and the
- * agent-authored path (see the bundled `shipstudio-routines` skill) produce
+ * agent-authored path (see the bundled `shipstudio-workflows` skill) produce
  * exactly the same artifact, which is why the editor shows the frontmatter
  * phrase for the trigger and the literal command a run executes.
  *
- * @module components/routines/RoutineEditorModal
+ * @module components/workflows/WorkflowEditorModal
  */
 
 import { useMemo, useState } from 'react';
@@ -26,46 +26,46 @@ import { MenuButton } from '../primitives/MenuButton';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { TextField } from '../primitives/TextField';
 import { SegmentedControl } from '../primitives/SegmentedControl';
-import { RoutineTemplatePicker } from './RoutineTemplatePicker';
-import { RoutineIconPicker } from './RoutineIconPicker';
+import { WorkflowTemplatePicker } from './WorkflowTemplatePicker';
+import { WorkflowIconPicker } from './WorkflowIconPicker';
 import {
   buildCommandPreview,
   describeTriggerReality,
   formatTrigger,
   triggerPhrase,
-  type Routine,
-  type RoutineDraft,
-  type RoutinePermission,
-  type RoutineTemplate,
-  type RoutineTrigger,
+  type Workflow,
+  type WorkflowDraft,
+  type WorkflowPermission,
+  type WorkflowTemplate,
+  type WorkflowTrigger,
   type Severity,
-} from '../../lib/routines';
+} from '../../lib/workflows';
 
-/** A project the routine can be attached to. */
-export interface RoutineProjectOption {
+/** A project the workflow can be attached to. */
+export interface WorkflowProjectOption {
   name: string;
   path: string;
 }
 
-interface RoutineEditorModalProps {
+interface WorkflowEditorModalProps {
   /**
-   * An existing routine, or the string `'new'` to start the create flow. The
-   * parent mounts this only while open and keys it by routine, so the draft
+   * An existing workflow, or the string `'new'` to start the create flow. The
+   * parent mounts this only while open and keys it by workflow, so the draft
    * state below can be seeded once instead of re-synced in an effect.
    */
-  routine: Routine | 'new';
-  /** Projects the routine can run against. Empty while they're still loading. */
-  projects: RoutineProjectOption[];
-  /** Preselected project for a new routine, e.g. the workspace you're in. */
+  workflow: Workflow | 'new';
+  /** Projects the workflow can run against. Empty while they're still loading. */
+  projects: WorkflowProjectOption[];
+  /** Preselected project for a new workflow, e.g. the workspace you're in. */
   defaultProjectPath?: string | null;
   onClose: () => void;
-  onSave: (projectPath: string, slug: string | null, draft: RoutineDraft) => Promise<void>;
-  onDelete?: (routine: Routine) => Promise<void>;
+  onSave: (projectPath: string, slug: string | null, draft: WorkflowDraft) => Promise<void>;
+  onDelete?: (workflow: Workflow) => Promise<void>;
 }
 
 type TriggerPreset = 'manual' | '15m' | '30m' | '1h' | 'daily' | 'weekly' | 'push' | 'pr-opened';
 
-const TRIGGER_PRESETS: Record<TriggerPreset, RoutineTrigger> = {
+const TRIGGER_PRESETS: Record<TriggerPreset, WorkflowTrigger> = {
   manual: { kind: 'manual' },
   '15m': { kind: 'interval', everyMinutes: 15 },
   '30m': { kind: 'interval', everyMinutes: 30 },
@@ -78,7 +78,7 @@ const TRIGGER_PRESETS: Record<TriggerPreset, RoutineTrigger> = {
 
 /**
  * The coarse choice, which is the one that actually changes the mental model:
- * you press it, it repeats, or something in your workflow sets it off. The
+ * you press it, it repeats, or something you do in the repo sets it off. The
  * specific cadence is a detail *within* a shape, so it gets its own control —
  * eight peer segments in one rail read as eight equally-weighted decisions and
  * crammed to the point of illegibility.
@@ -94,7 +94,7 @@ function shapeFor(preset: TriggerPreset): TriggerShape {
   return EVENT_PRESETS.includes(preset) ? 'event' : 'repeating';
 }
 
-function presetFor(trigger: RoutineTrigger): TriggerPreset {
+function presetFor(trigger: WorkflowTrigger): TriggerPreset {
   switch (trigger.kind) {
     case 'manual':
       return 'manual';
@@ -129,24 +129,24 @@ interface Draft {
   agentId: string;
   projectPath: string;
   trigger: TriggerPreset;
-  permission: RoutinePermission;
+  permission: WorkflowPermission;
   prompt: string;
   severityFloor: Severity;
   autoRun: boolean;
 }
 
-function draftFrom(routine: Routine): Draft {
+function draftFrom(workflow: Workflow): Draft {
   return {
-    name: routine.name,
-    icon: routine.icon,
-    description: routine.description,
-    agentId: routine.agentId ?? DEFAULT_AGENT,
-    projectPath: routine.projectPath,
-    trigger: presetFor(routine.trigger),
-    permission: routine.permission,
-    prompt: routine.prompt,
-    severityFloor: routine.severityFloor,
-    autoRun: routine.autoRun,
+    name: workflow.name,
+    icon: workflow.icon,
+    description: workflow.description,
+    agentId: workflow.agentId ?? DEFAULT_AGENT,
+    projectPath: workflow.projectPath,
+    trigger: presetFor(workflow.trigger),
+    permission: workflow.permission,
+    prompt: workflow.prompt,
+    severityFloor: workflow.severityFloor,
+    autoRun: workflow.autoRun,
   };
 }
 
@@ -157,7 +157,7 @@ function blankDraft(projectPath: string): Draft {
     description: '',
     agentId: DEFAULT_AGENT,
     projectPath,
-    // Manual is the default. Putting a routine on a timer is a deliberate,
+    // Manual is the default. Putting a workflow on a timer is a deliberate,
     // separate decision with a cost attached — it spends the user's own
     // agent subscription every time it fires.
     trigger: 'manual',
@@ -168,22 +168,22 @@ function blankDraft(projectPath: string): Draft {
   };
 }
 
-export function RoutineEditorModal({
-  routine,
+export function WorkflowEditorModal({
+  workflow,
   projects,
   defaultProjectPath,
   onClose,
   onSave,
   onDelete,
-}: RoutineEditorModalProps) {
-  const isNew = routine === 'new';
+}: WorkflowEditorModalProps) {
+  const isNew = workflow === 'new';
   const initialProject =
-    (isNew ? (defaultProjectPath ?? projects[0]?.path) : routine.projectPath) ?? '';
+    (isNew ? (defaultProjectPath ?? projects[0]?.path) : workflow.projectPath) ?? '';
 
   const [step, setStep] = useState<'template' | 'form'>(isNew ? 'template' : 'form');
-  const [template, setTemplate] = useState<RoutineTemplate | null>(null);
+  const [template, setTemplate] = useState<WorkflowTemplate | null>(null);
   const [draft, setDraft] = useState<Draft>(() =>
-    isNew ? blankDraft(initialProject) : draftFrom(routine)
+    isNew ? blankDraft(initialProject) : draftFrom(workflow)
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -208,7 +208,7 @@ export function RoutineEditorModal({
     [agentId, draft.permission]
   );
 
-  const selectTemplate = (next: RoutineTemplate) => {
+  const selectTemplate = (next: WorkflowTemplate) => {
     const isBlank = next.id === 'tpl-blank';
     setTemplate(next);
     setDraft({
@@ -223,7 +223,7 @@ export function RoutineEditorModal({
   };
 
   /**
-   * Templates ship angle-bracket blanks (`<competitor 1>`). Creating a routine
+   * Templates ship angle-bracket blanks (`<competitor 1>`). Creating a workflow
    * that still contains them produces a run that does nothing useful, so the
    * form says so instead of letting it through silently.
    */
@@ -237,7 +237,7 @@ export function RoutineEditorModal({
     setSaving(true);
     setSaveError(null);
     try {
-      await onSave(draft.projectPath, isNew ? null : routine.slug, {
+      await onSave(draft.projectPath, isNew ? null : workflow.slug, {
         name: draft.name.trim(),
         icon: draft.icon,
         description: draft.description.trim(),
@@ -262,13 +262,13 @@ export function RoutineEditorModal({
       <ModalFrame
         isOpen
         onClose={onClose}
-        title="New routine"
-        className="routine-editor-modal routine-template-modal"
+        title="New workflow"
+        className="workflow-editor-modal workflow-template-modal"
       >
-        <RoutineTemplatePicker selectedId={template?.id ?? null} onSelect={selectTemplate} />
+        <WorkflowTemplatePicker selectedId={template?.id ?? null} onSelect={selectTemplate} />
 
-        <div className="routine-editor-actions">
-          <span className="routine-editor-step text-style-hint">Step 1 of 2</span>
+        <div className="workflow-editor-actions">
+          <span className="workflow-editor-step text-style-hint">Step 1 of 2</span>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -296,36 +296,36 @@ export function RoutineEditorModal({
     <ModalFrame
       isOpen
       onClose={onClose}
-      title={isNew ? 'New routine' : draft.name || 'Routine'}
-      className="routine-editor-modal"
+      title={isNew ? 'New workflow' : draft.name || 'Workflow'}
+      className="workflow-editor-modal"
     >
-      <div className="routine-editor">
-        {/* What it does — the instruction is the routine. Everything below it
+      <div className="workflow-editor">
+        {/* What it does — the instruction is the workflow. Everything below it
             is configuration with a sensible default. */}
-        <section className="routine-section">
-          <h4 className="routine-section-title">What it does</h4>
+        <section className="workflow-section">
+          <h4 className="workflow-section-title">What it does</h4>
 
-          <div className="routine-name-row">
-            <RoutineIconPicker
+          <div className="workflow-name-row">
+            <WorkflowIconPicker
               value={draft.icon}
               name={draft.name}
               onChange={(icon) => setDraft({ ...draft, icon })}
             />
-            <div className="routine-field routine-name-field">
+            <div className="workflow-field workflow-name-field">
               <TextField
-                className="routine-name-input"
+                className="workflow-name-input"
                 value={draft.name}
-                placeholder="Name this routine"
-                aria-label="Routine name"
+                placeholder="Name this workflow"
+                aria-label="Workflow name"
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
               />
             </div>
           </div>
 
-          <label className="routine-field">
-            <span className="routine-field-label text-style-label">Instructions</span>
+          <label className="workflow-field">
+            <span className="workflow-field-label text-style-label">Instructions</span>
             <textarea
-              className="routine-prompt"
+              className="workflow-prompt"
               rows={7}
               value={draft.prompt}
               spellCheck={false}
@@ -333,7 +333,7 @@ export function RoutineEditorModal({
               onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
             />
             {placeholders.length > 0 ? (
-              <span className="routine-field-warning">
+              <span className="workflow-field-warning">
                 Replace{' '}
                 {placeholders.slice(0, 3).map((token, index) => (
                   <span key={token}>
@@ -342,11 +342,11 @@ export function RoutineEditorModal({
                   </span>
                 ))}
                 {placeholders.length > 3 && ` and ${placeholders.length - 3} more`} before this
-                routine will be any use.
+                workflow will be any use.
               </span>
             ) : (
-              <span className="routine-field-hint">
-                Ship Studio prepends what changed since the last run, the findings this routine
+              <span className="workflow-field-hint">
+                Ship Studio prepends what changed since the last run, the findings this workflow
                 already filed, and how to report new ones. Everything else is yours.
               </span>
             )}
@@ -354,14 +354,14 @@ export function RoutineEditorModal({
         </section>
 
         {/* How it runs — configuration, deliberately secondary. */}
-        <section className="routine-section routine-section--config">
-          <h4 className="routine-section-title">How it runs</h4>
+        <section className="workflow-section workflow-section--config">
+          <h4 className="workflow-section-title">How it runs</h4>
 
-          <div className="routine-field-pair">
-            <div className="routine-field">
-              <span className="routine-field-label text-style-label">Runs against</span>
+          <div className="workflow-field-pair">
+            <div className="workflow-field">
+              <span className="workflow-field-label text-style-label">Runs against</span>
               <Dropdown
-                menuClassName="routine-project-menu"
+                menuClassName="workflow-project-menu"
                 search={
                   projects.length > SEARCH_THRESHOLD
                     ? {
@@ -378,11 +378,11 @@ export function RoutineEditorModal({
                   <MenuButton
                     variant="secondary"
                     width="fill"
-                    className="routine-scope-trigger"
+                    className="workflow-scope-trigger"
                     expanded={props['aria-expanded']}
                     {...props}
                   >
-                    <span className="routine-scope-label">{projectLabel}</span>
+                    <span className="workflow-scope-label">{projectLabel}</span>
                     <ChevronIcon
                       size={10}
                       className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
@@ -412,12 +412,12 @@ export function RoutineEditorModal({
               </Dropdown>
             </div>
 
-            <div className="routine-field">
-              <span className="routine-field-label text-style-label">Agent</span>
+            <div className="workflow-field">
+              <span className="workflow-field-label text-style-label">Agent</span>
               <SegmentedControl
                 aria-label="Agent"
                 size="default"
-                className="routine-segments-fill"
+                className="workflow-segments-fill"
                 value={draft.agentId}
                 onValueChange={(value) => setDraft({ ...draft, agentId: value })}
                 options={AGENT_OPTIONS.map((option) => ({
@@ -434,12 +434,12 @@ export function RoutineEditorModal({
             </div>
           </div>
 
-          <div className="routine-field">
-            <span className="routine-field-label text-style-label">When it runs</span>
+          <div className="workflow-field">
+            <span className="workflow-field-label text-style-label">When it runs</span>
             <SegmentedControl
               aria-label="When it runs"
               size="default"
-              className="routine-segments-fill"
+              className="workflow-segments-fill"
               value={triggerShape}
               onValueChange={selectShape}
               options={[
@@ -449,12 +449,12 @@ export function RoutineEditorModal({
               ]}
             />
 
-            <div className="routine-trigger-detail">
+            <div className="workflow-trigger-detail">
               {triggerShape === 'repeating' && (
                 <SegmentedControl
                   aria-label="How often"
                   size="default"
-                  className="routine-segments-fill"
+                  className="workflow-segments-fill"
                   value={draft.trigger}
                   onValueChange={(value) => setDraft({ ...draft, trigger: value })}
                   options={[
@@ -471,7 +471,7 @@ export function RoutineEditorModal({
                 <SegmentedControl
                   aria-label="Which event"
                   size="default"
-                  className="routine-segments-fill"
+                  className="workflow-segments-fill"
                   value={draft.trigger}
                   onValueChange={(value) => setDraft({ ...draft, trigger: value })}
                   options={[
@@ -481,9 +481,9 @@ export function RoutineEditorModal({
                 />
               )}
 
-              <div className="routine-note">
+              <div className="workflow-note">
                 <InfoIcon size={12} />
-                <span className="routine-note-text">
+                <span className="workflow-note-text">
                   <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger)}
                 </span>
               </div>
@@ -498,7 +498,7 @@ export function RoutineEditorModal({
                   <span className="settings-form-checkbox-copy">
                     <span className="settings-form-checkbox-title">Arm this trigger</span>
                     <span className="settings-form-checkbox-description">
-                      Leave it off to keep the routine on the list and run it by hand. You can flip
+                      Leave it off to keep the workflow on the list and run it by hand. You can flip
                       this from the row without opening the editor.
                     </span>
                   </span>
@@ -507,12 +507,12 @@ export function RoutineEditorModal({
             </div>
           </div>
 
-          <div className="routine-field">
-            <span className="routine-field-label text-style-label">Permission</span>
+          <div className="workflow-field">
+            <span className="workflow-field-label text-style-label">Permission</span>
             <SegmentedControl
               aria-label="Permission"
               size="default"
-              className="routine-segments-fill"
+              className="workflow-segments-fill"
               value={draft.permission}
               onValueChange={(value) => setDraft({ ...draft, permission: value })}
               options={[
@@ -520,19 +520,19 @@ export function RoutineEditorModal({
                 { value: 'can-edit', label: 'Can edit files' },
               ]}
             />
-            <span className="routine-field-hint">
+            <span className="workflow-field-hint">
               {draft.permission === 'read-only'
                 ? 'Enforced by the agent itself — Claude Code runs in plan mode, Codex in a read-only sandbox. It reads the repository and reports; it cannot change anything.'
                 : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
             </span>
           </div>
 
-          <div className="routine-field">
-            <span className="routine-field-label text-style-label">File in my Inbox</span>
+          <div className="workflow-field">
+            <span className="workflow-field-label text-style-label">File in my Inbox</span>
             <SegmentedControl
               aria-label="Severity floor"
               size="default"
-              className="routine-segments-fill"
+              className="workflow-segments-fill"
               value={draft.severityFloor}
               onValueChange={(value) => setDraft({ ...draft, severityFloor: value })}
               options={[
@@ -541,37 +541,37 @@ export function RoutineEditorModal({
                 { value: 'critical', label: 'Critical only' },
               ]}
             />
-            <span className="routine-field-hint">
+            <span className="workflow-field-hint">
               {draft.severityFloor === 'info'
-                ? 'Every finding is filed. Start here, and raise the floor if this routine turns out to be chatty.'
+                ? 'Every finding is filed. Start here, and raise the floor if this workflow turns out to be chatty.'
                 : draft.severityFloor === 'warning'
                   ? 'Findings the agent rates as informational are dropped rather than filed.'
                   : 'Only critical findings reach your Inbox. Everything else is dropped, not held back.'}
             </span>
           </div>
 
-          <div className="routine-command">
-            <div className="routine-command-header">
+          <div className="workflow-command">
+            <div className="workflow-command-header">
               <TerminalIcon size={12} />
               <span className="text-style-label">What actually runs</span>
             </div>
-            <pre className="routine-command-body">{commandPreview}</pre>
-            <p className="routine-command-note text-style-hint">
-              Saved as <code>.shipstudio/routines/</code> in the project, with{' '}
+            <pre className="workflow-command-body">{commandPreview}</pre>
+            <p className="workflow-command-note text-style-hint">
+              Saved as <code>.shipstudio/workflows/</code> in the project, with{' '}
               <code>trigger: {triggerPhrase(trigger)}</code>. Your agent can read and write these
               files too — ask it to make you one.
             </p>
           </div>
         </section>
 
-        {saveError && <p className="routine-field-warning">{saveError}</p>}
+        {saveError && <p className="workflow-field-warning">{saveError}</p>}
       </div>
 
-      <div className="routine-editor-actions">
+      <div className="workflow-editor-actions">
         {isNew ? (
           <Button
             variant="ghost"
-            className="routine-editor-back"
+            className="workflow-editor-back"
             onClick={() => setStep('template')}
           >
             Back
@@ -580,9 +580,9 @@ export function RoutineEditorModal({
           onDelete && (
             <Button
               variant="ghost"
-              className="routine-editor-back"
+              className="workflow-editor-back"
               leftIcon={<TrashIcon size={12} />}
-              onClick={() => void onDelete(routine)}
+              onClick={() => void onDelete(workflow)}
             >
               Delete
             </Button>
@@ -592,7 +592,7 @@ export function RoutineEditorModal({
           Cancel
         </Button>
         <Button variant="primary" disabled={!canSave} onClick={() => void commit()}>
-          {saving ? 'Saving…' : isNew ? 'Create routine' : 'Save changes'}
+          {saving ? 'Saving…' : isNew ? 'Create workflow' : 'Save changes'}
         </Button>
       </div>
     </ModalFrame>

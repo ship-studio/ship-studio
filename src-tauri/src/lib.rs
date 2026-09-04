@@ -19,12 +19,12 @@ pub mod errors;
 pub mod external_command;
 pub mod logging;
 pub mod proxy;
-pub mod routine_scheduler;
 pub mod state;
 pub mod static_server;
 pub mod types;
 pub mod utils;
 pub mod webview_scripts;
+pub mod workflow_scheduler;
 
 use tauri::Manager;
 
@@ -125,15 +125,15 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
-            // Teach the user's own agent about routines, and start the tick
+            // Teach the user's own agent about workflows, and start the tick
             // that fires the armed ones. The skill install is the discovery
-            // path for the whole feature (see commands::routines::skill); it
+            // path for the whole feature (see commands::workflows::skill); it
             // is idempotent and skips agents that aren't installed.
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    commands::routines::install_routines_skill();
-                    routine_scheduler::spawn(handle);
+                    commands::workflows::install_workflows_skill();
+                    workflow_scheduler::spawn(handle);
                 });
             }
 
@@ -405,22 +405,22 @@ pub fn run() {
             commands::git::restore_backup,
             // Projects
             commands::projects::list_projects,
-            // Routines & Inbox
-            commands::routines::list_all_routines,
-            commands::routines::list_project_routines,
-            commands::routines::save_routine_file,
-            commands::routines::delete_routine_file,
-            commands::routines::run_routine,
-            commands::routines::running_routine_ids,
-            commands::routines::list_inbox_items,
-            commands::routines::list_routine_runs,
-            commands::routines::routine_progress,
-            commands::routines::set_inbox_item_read,
-            commands::routines::set_inbox_item_archived,
-            commands::routines::delete_inbox_item,
-            commands::routines::mark_all_inbox_read,
-            commands::routines::ensure_routines_skill,
-            routine_scheduler::fire_push_routines,
+            // Workflows & Inbox
+            commands::workflows::list_all_workflows,
+            commands::workflows::list_project_workflows,
+            commands::workflows::save_workflow_file,
+            commands::workflows::delete_workflow_file,
+            commands::workflows::run_workflow,
+            commands::workflows::running_workflow_ids,
+            commands::workflows::list_inbox_items,
+            commands::workflows::list_workflow_runs,
+            commands::workflows::workflow_progress,
+            commands::workflows::set_inbox_item_read,
+            commands::workflows::set_inbox_item_archived,
+            commands::workflows::delete_inbox_item,
+            commands::workflows::mark_all_inbox_read,
+            commands::workflows::ensure_workflows_skill,
+            workflow_scheduler::fire_push_workflows,
             commands::projects::get_dashboard_projects,
             commands::projects::list_pages,
             commands::projects::open_in_finder,

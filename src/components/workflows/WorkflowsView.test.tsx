@@ -1,10 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RoutinesView } from './RoutinesView';
+import { WorkflowsView } from './WorkflowsView';
 import { listProjects } from '../../lib/project';
-import type { Routine } from '../../lib/routines';
-import * as store from '../../lib/routinesStore';
+import type { Workflow } from '../../lib/workflows';
+import * as store from '../../lib/workflowsStore';
 
 vi.mock('../../lib/project', () => ({
   listProjects: vi.fn(),
@@ -23,17 +23,17 @@ vi.mock('../../contexts/ToastContext', () => ({
   useOptionalToast: () => ({ showToast }),
 }));
 
-vi.mock('../../lib/routinesStore', () => ({
+vi.mock('../../lib/workflowsStore', () => ({
   subscribe: vi.fn(() => () => undefined),
   getSnapshot: vi.fn(),
   loadProgress: vi.fn(),
-  runRoutineNow: vi.fn(),
-  saveRoutine: vi.fn(),
+  runWorkflowNow: vi.fn(),
+  saveWorkflow: vi.fn(),
   setAutoRun: vi.fn(),
-  deleteRoutine: vi.fn(),
+  deleteWorkflow: vi.fn(),
 }));
 
-function routine(overrides: Partial<Routine> = {}): Routine {
+function workflow(overrides: Partial<Workflow> = {}): Workflow {
   return {
     id: '/p/demo::security-sweep',
     slug: 'security-sweep',
@@ -48,7 +48,7 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     prompt: 'Review the diff.',
     severityFloor: 'info',
     autoRun: true,
-    filePath: '/p/demo/.shipstudio/routines/security-sweep.md',
+    filePath: '/p/demo/.shipstudio/workflows/security-sweep.md',
     nextRunAt: Date.now() + 12 * 60_000,
     isRunning: false,
     runningSince: null,
@@ -58,15 +58,15 @@ function routine(overrides: Partial<Routine> = {}): Routine {
 }
 
 function snapshot(
-  routines: Routine[],
+  workflows: Workflow[],
   extra: {
     loaded?: boolean;
     error?: string | null;
-    progress?: Record<string, { routineId: string; at: number; text: string }[]>;
+    progress?: Record<string, { workflowId: string; at: number; text: string }[]>;
   } = {}
 ) {
   vi.mocked(store.getSnapshot).mockReturnValue({
-    routines,
+    workflows,
     inbox: [],
     progress: extra.progress ?? {},
     loaded: extra.loaded ?? true,
@@ -74,7 +74,7 @@ function snapshot(
   });
 }
 
-describe('RoutinesView', () => {
+describe('WorkflowsView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(listProjects).mockResolvedValue([{ name: 'demo', path: '/p/demo' }]);
@@ -82,54 +82,54 @@ describe('RoutinesView', () => {
 
   it('shows neither content nor an empty state before the first load resolves', () => {
     // An empty state that flashes before real data is a lie about the user's
-    // routines — "you have none" and "we haven't looked yet" are different.
+    // workflows — "you have none" and "we haven't looked yet" are different.
     snapshot([], { loaded: false });
-    render(<RoutinesView />);
-    expect(screen.queryByText('No routines yet')).not.toBeInTheDocument();
+    render(<WorkflowsView />);
+    expect(screen.queryByText('No workflows yet')).not.toBeInTheDocument();
   });
 
   it('offers the agent-authored path in the empty state', () => {
     snapshot([]);
-    render(<RoutinesView />);
-    expect(screen.getByText('No routines yet')).toBeInTheDocument();
+    render(<WorkflowsView />);
+    expect(screen.getByText('No workflows yet')).toBeInTheDocument();
     expect(screen.getByText(/ask your agent to make you one/i)).toBeInTheDocument();
   });
 
-  it('surfaces a read failure instead of pretending there are no routines', () => {
+  it('surfaces a read failure instead of pretending there are no workflows', () => {
     snapshot([], { error: 'permission denied' });
-    render(<RoutinesView />);
-    expect(screen.getByText('Could not read your routines')).toBeInTheDocument();
+    render(<WorkflowsView />);
+    expect(screen.getByText('Could not read your workflows')).toBeInTheDocument();
     expect(screen.getByText('permission denied')).toBeInTheDocument();
-    expect(screen.queryByText('No routines yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('No workflows yet')).not.toBeInTheDocument();
   });
 
-  it('renders a routine with its project, agent and honest schedule line', () => {
-    snapshot([routine()]);
-    render(<RoutinesView />);
+  it('renders a workflow with its project, agent and honest schedule line', () => {
+    snapshot([workflow()]);
+    render(<WorkflowsView />);
     expect(screen.getByText('Security sweep')).toBeInTheDocument();
     expect(screen.getByText('demo')).toBeInTheDocument();
     expect(screen.getByText('Claude Code')).toBeInTheDocument();
     expect(screen.getByText('Every 30 min, while Ship Studio is open')).toBeInTheDocument();
   });
 
-  it('does not advertise a cadence a disarmed routine is not keeping', () => {
-    snapshot([routine({ autoRun: false, nextRunAt: null })]);
-    render(<RoutinesView />);
+  it('does not advertise a cadence a disarmed workflow is not keeping', () => {
+    snapshot([workflow({ autoRun: false, nextRunAt: null })]);
+    render(<WorkflowsView />);
     expect(screen.getByText('Every 30 min — auto-run off')).toBeInTheDocument();
     expect(screen.queryByText(/^Due /)).not.toBeInTheDocument();
   });
 
   it('omits the token total when no run reported usage', () => {
     // Codex reports none. A confident "0 tokens" would be a fabrication.
-    snapshot([routine({ runs: [] })]);
-    render(<RoutinesView />);
+    snapshot([workflow({ runs: [] })]);
+    render(<WorkflowsView />);
     expect(screen.queryByText(/tokens/)).not.toBeInTheDocument();
   });
 
   it('reports a clean run as success rather than as nothing happening', async () => {
-    vi.mocked(store.runRoutineNow).mockResolvedValue({
+    vi.mocked(store.runWorkflowNow).mockResolvedValue({
       id: 'run-1',
-      routineId: '/p/demo::security-sweep',
+      workflowId: '/p/demo::security-sweep',
       startedAt: Date.now(),
       durationMs: 1000,
       status: 'ok',
@@ -138,8 +138,8 @@ describe('RoutinesView', () => {
       error: null,
       transcript: '',
     });
-    snapshot([routine()]);
-    render(<RoutinesView />);
+    snapshot([workflow()]);
+    render(<WorkflowsView />);
 
     await userEvent.click(screen.getByRole('button', { name: /^Run$/ }));
     await waitFor(() => {
@@ -148,9 +148,9 @@ describe('RoutinesView', () => {
   });
 
   it('points at the Inbox when a run finds something', async () => {
-    vi.mocked(store.runRoutineNow).mockResolvedValue({
+    vi.mocked(store.runWorkflowNow).mockResolvedValue({
       id: 'run-1',
-      routineId: '/p/demo::security-sweep',
+      workflowId: '/p/demo::security-sweep',
       startedAt: Date.now(),
       durationMs: 1000,
       status: 'findings',
@@ -159,8 +159,8 @@ describe('RoutinesView', () => {
       error: null,
       transcript: '',
     });
-    snapshot([routine()]);
-    render(<RoutinesView />);
+    snapshot([workflow()]);
+    render(<WorkflowsView />);
 
     await userEvent.click(screen.getByRole('button', { name: /^Run$/ }));
     await waitFor(() => {
@@ -172,9 +172,9 @@ describe('RoutinesView', () => {
   });
 
   it('surfaces a run failure as a toast rather than swallowing it', async () => {
-    vi.mocked(store.runRoutineNow).mockRejectedValue(new Error('Claude Code is not installed'));
-    snapshot([routine()]);
-    render(<RoutinesView />);
+    vi.mocked(store.runWorkflowNow).mockRejectedValue(new Error('Claude Code is not installed'));
+    snapshot([workflow()]);
+    render(<WorkflowsView />);
 
     await userEvent.click(screen.getByRole('button', { name: /^Run$/ }));
     await waitFor(() => {
@@ -185,84 +185,84 @@ describe('RoutinesView', () => {
     });
   });
 
-  it('disables Run while a routine is already in flight', () => {
-    snapshot([routine({ isRunning: true })]);
-    render(<RoutinesView />);
+  it('disables Run while a workflow is already in flight', () => {
+    snapshot([workflow({ isRunning: true })]);
+    render(<WorkflowsView />);
     expect(screen.getByRole('button', { name: /Running/ })).toBeDisabled();
   });
 
   it('shows elapsed time for a run rather than a silent spinner', () => {
     // A run is 30s-2min. "Running" alone reads as "is this thing broken?".
-    snapshot([routine({ isRunning: true, runningSince: Date.now() - 72_000 })]);
-    render(<RoutinesView />);
+    snapshot([workflow({ isRunning: true, runningSince: Date.now() - 72_000 })]);
+    render(<WorkflowsView />);
     expect(screen.getByText(/Running · 1m 12s/)).toBeInTheDocument();
   });
 
   it('falls back to a bare label when the start time is unknown', () => {
-    snapshot([routine({ isRunning: true, runningSince: null })]);
-    const { container } = render(<RoutinesView />);
+    snapshot([workflow({ isRunning: true, runningSince: null })]);
+    const { container } = render(<WorkflowsView />);
     // Scoped to the status line: the Run button also reads "Running".
-    expect(container.querySelector('.routine-row-last')?.textContent).toBe('Running');
+    expect(container.querySelector('.workflow-row-last')?.textContent).toBe('Running');
   });
 
-  it('hides the empty switch column when every routine is manual', () => {
-    snapshot([routine({ trigger: { kind: 'manual' }, nextRunAt: null })]);
-    const { container } = render(<RoutinesView />);
-    expect(container.querySelector('.routine-row-toggle-slot')).toBeNull();
+  it('hides the empty switch column when every workflow is manual', () => {
+    snapshot([workflow({ trigger: { kind: 'manual' }, nextRunAt: null })]);
+    const { container } = render(<WorkflowsView />);
+    expect(container.querySelector('.workflow-row-toggle-slot')).toBeNull();
   });
 
   it('keeps the switch column when the list is mixed', () => {
     // Alignment only matters when some row actually has a switch.
     snapshot([
-      routine({ id: 'a', trigger: { kind: 'manual' }, nextRunAt: null }),
-      routine({ id: 'b', trigger: { kind: 'interval', everyMinutes: 30 } }),
+      workflow({ id: 'a', trigger: { kind: 'manual' }, nextRunAt: null }),
+      workflow({ id: 'b', trigger: { kind: 'interval', everyMinutes: 30 } }),
     ]);
-    const { container } = render(<RoutinesView />);
-    expect(container.querySelector('.routine-row-toggle-slot')).not.toBeNull();
+    const { container } = render(<WorkflowsView />);
+    expect(container.querySelector('.workflow-row-toggle-slot')).not.toBeNull();
   });
 
-  it('shows the latest activity line while a routine runs', () => {
+  it('shows the latest activity line while a workflow runs', () => {
     // A spinner says "running". This says "doing something sensible", which is
     // the question people actually have the first few times.
-    snapshot([routine({ isRunning: true, runningSince: Date.now() - 5000 })], {
+    snapshot([workflow({ isRunning: true, runningSince: Date.now() - 5000 })], {
       progress: {
         '/p/demo::security-sweep': [
-          { routineId: '/p/demo::security-sweep', at: 1, text: 'Starting Claude Code' },
-          { routineId: '/p/demo::security-sweep', at: 2, text: 'Reading …/src/api/checkout.js' },
+          { workflowId: '/p/demo::security-sweep', at: 1, text: 'Starting Claude Code' },
+          { workflowId: '/p/demo::security-sweep', at: 2, text: 'Reading …/src/api/checkout.js' },
         ],
       },
     });
-    render(<RoutinesView />);
+    render(<WorkflowsView />);
     // Only the newest line shows until it's expanded.
     expect(screen.getByText('Reading …/src/api/checkout.js')).toBeInTheDocument();
     expect(screen.queryByText('Starting Claude Code')).not.toBeInTheDocument();
   });
 
   it('expands to the full activity log on request', async () => {
-    snapshot([routine({ isRunning: true })], {
+    snapshot([workflow({ isRunning: true })], {
       progress: {
         '/p/demo::security-sweep': [
-          { routineId: '/p/demo::security-sweep', at: 1, text: 'Starting Claude Code' },
-          { routineId: '/p/demo::security-sweep', at: 2, text: '$ git diff --stat' },
+          { workflowId: '/p/demo::security-sweep', at: 1, text: 'Starting Claude Code' },
+          { workflowId: '/p/demo::security-sweep', at: 2, text: '$ git diff --stat' },
         ],
       },
     });
-    render(<RoutinesView />);
+    render(<WorkflowsView />);
 
     await userEvent.click(screen.getByRole('button', { name: /Show what it is doing/ }));
     expect(screen.getByText('Starting Claude Code')).toBeInTheDocument();
     expect(screen.getByText('$ git diff --stat')).toBeInTheDocument();
   });
 
-  it('shows no activity affordance for a routine that has not run', () => {
-    snapshot([routine()]);
-    render(<RoutinesView />);
+  it('shows no activity affordance for a workflow that has not run', () => {
+    snapshot([workflow()]);
+    render(<WorkflowsView />);
     expect(screen.queryByRole('button', { name: /Show what it is doing/ })).not.toBeInTheDocument();
   });
 
-  it('shows no auto-run switch for a manual routine', () => {
-    snapshot([routine({ trigger: { kind: 'manual' }, nextRunAt: null })]);
-    render(<RoutinesView />);
+  it('shows no auto-run switch for a manual workflow', () => {
+    snapshot([workflow({ trigger: { kind: 'manual' }, nextRunAt: null })]);
+    render(<WorkflowsView />);
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     expect(screen.getByText('Manual — runs when you press Run')).toBeInTheDocument();
   });

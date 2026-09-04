@@ -1,6 +1,6 @@
 /**
  * DashboardHeader — the presentation-only hero shared by the home-level screens
- * (Home, Routines, Inbox). The mark and its pulse stay identical; only the
+ * (Home, Workflows, Inbox). The mark and its pulse stay identical; only the
  * headline changes per view.
  *
  * @module components/DashboardHeader

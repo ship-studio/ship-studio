@@ -1,4 +1,4 @@
-//! Routine files: `<project>/.shipstudio/routines/<slug>.md`.
+//! Workflow files: `<project>/.shipstudio/workflows/<slug>.md`.
 //!
 //! The format is markdown with a small YAML-ish frontmatter block. It is
 //! deliberately *not* real YAML: the parser accepts a flat list of
@@ -11,7 +11,7 @@
 //! Ship Studio version adding a key doesn't have its value silently dropped by
 //! an older one round-tripping the file.
 
-use super::{RoutinePermission, RoutineTrigger, Severity};
+use super::{Severity, WorkflowPermission, WorkflowTrigger};
 use crate::errors::CommandError;
 use crate::utils::{classify_fs_error, validate_project_path};
 use serde::{Deserialize, Serialize};
@@ -20,26 +20,26 @@ use std::path::{Path, PathBuf};
 
 /// A standing instruction, as the frontend sees it.
 ///
-/// Mirrors `Routine` in `src/lib/routines.ts`. `runs` and `nextRunAt` are not
+/// Mirrors `Workflow` in `src/lib/workflows.ts`. `runs` and `nextRunAt` are not
 /// stored in the file — they come from the state store and the scheduler — so
 /// they are filled in by [`super::state`] rather than here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Routine {
+pub struct Workflow {
     /// Stable identity: `<projectPath>::<slug>`. Unique across projects, which
     /// the home-level list needs since two projects may both have `security.md`.
     pub id: String,
     pub slug: String,
     pub name: String,
-    /// A single emoji standing in for the routine, Notion-style. None means the
+    /// A single emoji standing in for the workflow, Notion-style. None means the
     /// row falls back to a status dot.
     pub icon: Option<String>,
     pub description: String,
     pub agent_id: Option<String>,
     pub project_path: String,
     pub project_name: String,
-    pub trigger: RoutineTrigger,
-    pub permission: RoutinePermission,
+    pub trigger: WorkflowTrigger,
+    pub permission: WorkflowPermission,
     pub prompt: String,
     pub severity_floor: Severity,
     pub auto_run: bool,
@@ -49,17 +49,17 @@ pub struct Routine {
     pub extra: BTreeMap<String, String>,
 }
 
-/// Everything a caller may change about a routine. Split from [`Routine`] so
+/// Everything a caller may change about a workflow. Split from [`Workflow`] so
 /// the identity fields (`id`, `slug`, `projectPath`) can't be edited by a save.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RoutineDraft {
+pub struct WorkflowDraft {
     pub name: String,
     pub icon: Option<String>,
     pub description: String,
     pub agent_id: Option<String>,
-    pub trigger: RoutineTrigger,
-    pub permission: RoutinePermission,
+    pub trigger: WorkflowTrigger,
+    pub permission: WorkflowPermission,
     pub prompt: String,
     pub severity_floor: Severity,
     pub auto_run: bool,
@@ -82,7 +82,7 @@ pub fn slugify(raw: &str) -> String {
         out.pop();
     }
     if out.is_empty() {
-        "untitled-routine".to_string()
+        "untitled-workflow".to_string()
     } else {
         // Long slugs make unwieldy filenames without adding identity.
         out.chars().take(64).collect()
@@ -109,9 +109,9 @@ fn sanitize_icon(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// `<project>/.shipstudio/routines`.
-pub fn routines_dir(project: &Path) -> PathBuf {
-    project.join(".shipstudio").join("routines")
+/// `<project>/.shipstudio/workflows`.
+pub fn workflows_dir(project: &Path) -> PathBuf {
+    project.join(".shipstudio").join("workflows")
 }
 
 fn project_name_of(project: &Path) -> String {
@@ -123,7 +123,7 @@ fn project_name_of(project: &Path) -> String {
 
 /// Split `---\nkey: value\n---\nbody` into its frontmatter lines and body.
 ///
-/// A file with no frontmatter is treated as all body: the routine still works,
+/// A file with no frontmatter is treated as all body: the workflow still works,
 /// it just gets defaults. Being lenient here matters because the agent-authored
 /// path (see [`super::skill`]) is the common one and a rejected file is a
 /// silent dead end for the user.
@@ -176,13 +176,13 @@ fn parse_bool(raw: Option<&String>, default: bool) -> bool {
     }
 }
 
-/// Parse one routine file. Never fails on content — only the caller's I/O can.
-pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routine {
+/// Parse one workflow file. Never fails on content — only the caller's I/O can.
+pub fn parse_workflow(project: &Path, file_path: &Path, contents: &str) -> Workflow {
     let (front, body) = split_frontmatter(contents);
     let slug = file_path
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "untitled-routine".to_string());
+        .unwrap_or_else(|| "untitled-workflow".to_string());
     let project_path = project.to_string_lossy().to_string();
 
     let name = front
@@ -198,7 +198,7 @@ pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routin
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
-    Routine {
+    Workflow {
         id: format!("{project_path}::{slug}"),
         name,
         icon: front.get("icon").and_then(|raw| sanitize_icon(raw)),
@@ -209,14 +209,14 @@ pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routin
             .map(|a| a.to_ascii_lowercase()),
         trigger: front
             .get("trigger")
-            .and_then(|t| RoutineTrigger::parse(t))
-            .unwrap_or(RoutineTrigger::Manual),
+            .and_then(|t| WorkflowTrigger::parse(t))
+            .unwrap_or(WorkflowTrigger::Manual),
         permission: front
             .get("permission")
-            .and_then(|p| RoutinePermission::parse(p))
+            .and_then(|p| WorkflowPermission::parse(p))
             // Read-only is the default because an unattended agent that can
             // edit is a decision, never an accident of an omitted key.
-            .unwrap_or(RoutinePermission::ReadOnly),
+            .unwrap_or(WorkflowPermission::ReadOnly),
         prompt: body,
         severity_floor: front
             .get("severity-floor")
@@ -231,44 +231,44 @@ pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routin
     }
 }
 
-/// Render a routine back to its file form.
-pub fn serialize_routine(routine: &Routine) -> String {
+/// Render a workflow back to its file form.
+pub fn serialize_workflow(workflow: &Workflow) -> String {
     let mut out = String::from("---\n");
-    out.push_str(&format!("name: {}\n", routine.name));
-    if let Some(icon) = &routine.icon {
+    out.push_str(&format!("name: {}\n", workflow.name));
+    if let Some(icon) = &workflow.icon {
         out.push_str(&format!("icon: {icon}\n"));
     }
-    if !routine.description.is_empty() {
-        out.push_str(&format!("description: {}\n", routine.description));
+    if !workflow.description.is_empty() {
+        out.push_str(&format!("description: {}\n", workflow.description));
     }
-    if let Some(agent) = &routine.agent_id {
+    if let Some(agent) = &workflow.agent_id {
         out.push_str(&format!("agent: {agent}\n"));
     }
-    out.push_str(&format!("trigger: {}\n", routine.trigger.to_phrase()));
-    out.push_str(&format!("permission: {}\n", routine.permission.as_str()));
+    out.push_str(&format!("trigger: {}\n", workflow.trigger.to_phrase()));
+    out.push_str(&format!("permission: {}\n", workflow.permission.as_str()));
     out.push_str(&format!(
         "severity-floor: {}\n",
-        routine.severity_floor.as_str()
+        workflow.severity_floor.as_str()
     ));
-    if routine.trigger.is_armable() {
-        out.push_str(&format!("auto-run: {}\n", routine.auto_run));
+    if workflow.trigger.is_armable() {
+        out.push_str(&format!("auto-run: {}\n", workflow.auto_run));
     }
-    for (key, value) in &routine.extra {
+    for (key, value) in &workflow.extra {
         out.push_str(&format!("{key}: {value}\n"));
     }
     out.push_str("---\n\n");
-    out.push_str(routine.prompt.trim());
+    out.push_str(workflow.prompt.trim());
     out.push('\n');
     out
 }
 
-/// Read every routine defined in one project. Missing directory means none.
-pub fn read_project_routines(project: &Path) -> Vec<Routine> {
-    let dir = routines_dir(project);
+/// Read every workflow defined in one project. Missing directory means none.
+pub fn read_project_workflows(project: &Path) -> Vec<Workflow> {
+    let dir = workflows_dir(project);
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
-    let mut routines: Vec<Routine> = entries
+    let mut workflows: Vec<Workflow> = entries
         .flatten()
         .filter(|entry| {
             entry
@@ -279,26 +279,26 @@ pub fn read_project_routines(project: &Path) -> Vec<Routine> {
         .filter_map(|entry| {
             let path = entry.path();
             let contents = std::fs::read_to_string(&path).ok()?;
-            Some(parse_routine(project, &path, &contents))
+            Some(parse_workflow(project, &path, &contents))
         })
         .collect();
-    routines.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    routines
+    workflows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    workflows
 }
 
-/// Every project Ship Studio knows about that has a routines folder: the
+/// Every project Ship Studio knows about that has a workflows folder: the
 /// projects root plus registered external folders.
 ///
 /// Lives here rather than in the scheduler because both the scheduler and the
-/// home-level list need exactly this set, and a routine that the list shows but
+/// home-level list need exactly this set, and a workflow that the list shows but
 /// the scheduler can't see (or vice versa) would be a bug nobody could explain.
-pub fn projects_with_routines() -> Vec<PathBuf> {
+pub fn projects_with_workflows() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Ok(root) = crate::utils::projects_root() {
         if let Ok(entries) = std::fs::read_dir(&root) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() && routines_dir(&path).is_dir() {
+                if path.is_dir() && workflows_dir(&path).is_dir() {
                     paths.push(path);
                 }
             }
@@ -307,7 +307,7 @@ pub fn projects_with_routines() -> Vec<PathBuf> {
     if let Ok(config) = crate::commands::external_projects::load_config() {
         for project in config.projects {
             let path = PathBuf::from(&project.path);
-            if routines_dir(&path).is_dir() {
+            if workflows_dir(&path).is_dir() {
                 paths.push(path);
             }
         }
@@ -317,91 +317,91 @@ pub fn projects_with_routines() -> Vec<PathBuf> {
     paths
 }
 
-/// A routine plus the scheduling and history state that doesn't live in its
-/// file. This is what the Routines list renders.
+/// A workflow plus the scheduling and history state that doesn't live in its
+/// file. This is what the Workflows list renders.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RoutineView {
+pub struct WorkflowView {
     #[serde(flatten)]
-    pub routine: Routine,
-    /// When the trigger next comes due. Null for manual and event routines,
+    pub workflow: Workflow,
+    /// When the trigger next comes due. Null for manual and event workflows,
     /// and for an armed trigger whose auto-run is off.
     pub next_run_at: Option<i64>,
     pub is_running: bool,
     /// When the in-flight run started, so the row can show elapsed time
     /// instead of an unmoving spinner. Null when nothing is running.
     pub running_since: Option<i64>,
-    pub runs: Vec<super::state::RoutineRun>,
+    pub runs: Vec<super::state::WorkflowRun>,
 }
 
-/// Every routine in every known project, with its schedule and history.
+/// Every workflow in every known project, with its schedule and history.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn list_all_routines() -> Result<Vec<RoutineView>, CommandError> {
+pub async fn list_all_workflows() -> Result<Vec<WorkflowView>, CommandError> {
     let state = super::state::load_state();
     let running = super::runs::running_since_map();
     let now = super::state::now_ms();
 
-    let mut views: Vec<RoutineView> = Vec::new();
-    for project in projects_with_routines() {
-        for routine in read_project_routines(&project) {
-            let last_run_at = state.last_run_at.get(&routine.id).copied();
-            let next_run_at = if routine.auto_run {
-                super::runs::next_due_at(routine.trigger, last_run_at, now)
+    let mut views: Vec<WorkflowView> = Vec::new();
+    for project in projects_with_workflows() {
+        for workflow in read_project_workflows(&project) {
+            let last_run_at = state.last_run_at.get(&workflow.id).copied();
+            let next_run_at = if workflow.auto_run {
+                super::runs::next_due_at(workflow.trigger, last_run_at, now)
             } else {
                 None
             };
             let mut runs: Vec<_> = state
                 .runs
                 .iter()
-                .filter(|run| run.routine_id == routine.id)
+                .filter(|run| run.workflow_id == workflow.id)
                 .cloned()
                 .collect();
             runs.sort_by(|a, b| b.started_at.cmp(&a.started_at));
-            views.push(RoutineView {
-                running_since: running.get(&routine.id).copied(),
-                is_running: running.contains_key(&routine.id),
+            views.push(WorkflowView {
+                running_since: running.get(&workflow.id).copied(),
+                is_running: running.contains_key(&workflow.id),
                 next_run_at,
                 runs,
-                routine,
+                workflow,
             });
         }
     }
     views.sort_by(|a, b| {
-        a.routine
+        a.workflow
             .name
             .to_lowercase()
-            .cmp(&b.routine.name.to_lowercase())
+            .cmp(&b.workflow.name.to_lowercase())
     });
     Ok(views)
 }
 
-/// List the routines defined in one project.
+/// List the workflows defined in one project.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
-pub async fn list_project_routines(project_path: String) -> Result<Vec<Routine>, CommandError> {
+pub async fn list_project_workflows(project_path: String) -> Result<Vec<Workflow>, CommandError> {
     let project = validate_project_path(&project_path)?;
-    Ok(read_project_routines(&project))
+    Ok(read_project_workflows(&project))
 }
 
-/// Create or overwrite a routine file.
+/// Create or overwrite a workflow file.
 ///
 /// `slug` is `None` for a create (one is derived from the name, de-duplicated
 /// against what's already there) and `Some` for an edit. Renaming an existing
-/// routine deliberately does *not* rename its file: the filename is the
-/// routine's identity, and moving it would orphan its run history and every
+/// workflow deliberately does *not* rename its file: the filename is the
+/// workflow's identity, and moving it would orphan its run history and every
 /// finding already filed against it.
 #[tauri::command]
 #[tracing::instrument(skip(draft), fields(project = %project_path))]
-pub async fn save_routine_file(
+pub async fn save_workflow_file(
     project_path: String,
     slug: Option<String>,
-    draft: RoutineDraft,
-) -> Result<Routine, CommandError> {
+    draft: WorkflowDraft,
+) -> Result<Workflow, CommandError> {
     let project = validate_project_path(&project_path)?;
-    let dir = routines_dir(&project);
+    let dir = workflows_dir(&project);
     std::fs::create_dir_all(&dir)
-        .map_err(|e| classify_fs_error("create the routines folder", &dir, &e))?;
+        .map_err(|e| classify_fs_error("create the workflows folder", &dir, &e))?;
 
     let slug = match slug {
         Some(existing) => slugify(&existing),
@@ -421,10 +421,10 @@ pub async fn save_routine_file(
     // Preserve unknown frontmatter keys across an edit.
     let extra = std::fs::read_to_string(&file_path)
         .ok()
-        .map(|c| parse_routine(&project, &file_path, &c).extra)
+        .map(|c| parse_workflow(&project, &file_path, &c).extra)
         .unwrap_or_default();
 
-    let routine = Routine {
+    let workflow = Workflow {
         id: format!("{}::{slug}", project.to_string_lossy()),
         name: draft.name.trim().to_string(),
         icon: draft.icon.as_deref().and_then(sanitize_icon),
@@ -442,80 +442,84 @@ pub async fn save_routine_file(
         extra,
     };
 
-    std::fs::write(&file_path, serialize_routine(&routine))
-        .map_err(|e| classify_fs_error("write the routine file", &file_path, &e))?;
-    Ok(routine)
+    std::fs::write(&file_path, serialize_workflow(&workflow))
+        .map_err(|e| classify_fs_error("write the workflow file", &file_path, &e))?;
+    Ok(workflow)
 }
 
-/// Delete a routine file. Findings it already filed stay in the inbox — they
+/// Delete a workflow file. Findings it already filed stay in the inbox — they
 /// describe real problems that don't stop existing because the watcher did.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path, slug = %slug))]
-pub async fn delete_routine_file(project_path: String, slug: String) -> Result<(), CommandError> {
+pub async fn delete_workflow_file(project_path: String, slug: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     // Re-slugify rather than trusting the argument: `slug` reaches the
     // filesystem, and `../../etc/passwd` must not survive the trip.
-    let file_path = routines_dir(&project).join(format!("{}.md", slugify(&slug)));
+    let file_path = workflows_dir(&project).join(format!("{}.md", slugify(&slug)));
     match std::fs::remove_file(&file_path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(classify_fs_error("delete the routine file", &file_path, &e)),
+        Err(e) => Err(classify_fs_error(
+            "delete the workflow file",
+            &file_path,
+            &e,
+        )),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::RoutineEvent;
+    use super::super::WorkflowEvent;
     use super::*;
 
-    fn parse(contents: &str) -> Routine {
-        parse_routine(
+    fn parse(contents: &str) -> Workflow {
+        parse_workflow(
             Path::new("/tmp/demo"),
-            Path::new("/tmp/demo/.shipstudio/routines/security-sweep.md"),
+            Path::new("/tmp/demo/.shipstudio/workflows/security-sweep.md"),
             contents,
         )
     }
 
     #[test]
     fn parses_a_full_file() {
-        let routine = parse(
+        let workflow = parse(
             "---\nname: Security sweep\ndescription: Looks for secrets.\nagent: claude-code\ntrigger: every 30m\npermission: read-only\nseverity-floor: warning\nnotify: true\nauto-run: false\n---\n\nReview the diff.\n",
         );
-        assert_eq!(routine.name, "Security sweep");
-        assert_eq!(routine.description, "Looks for secrets.");
-        assert_eq!(routine.agent_id.as_deref(), Some("claude-code"));
+        assert_eq!(workflow.name, "Security sweep");
+        assert_eq!(workflow.description, "Looks for secrets.");
+        assert_eq!(workflow.agent_id.as_deref(), Some("claude-code"));
         assert_eq!(
-            routine.trigger,
-            RoutineTrigger::Interval { every_minutes: 30 }
+            workflow.trigger,
+            WorkflowTrigger::Interval { every_minutes: 30 }
         );
-        assert_eq!(routine.severity_floor, Severity::Warning);
-        assert!(!routine.auto_run);
-        assert_eq!(routine.prompt, "Review the diff.");
-        assert_eq!(routine.id, "/tmp/demo::security-sweep");
-        assert_eq!(routine.project_name, "demo");
+        assert_eq!(workflow.severity_floor, Severity::Warning);
+        assert!(!workflow.auto_run);
+        assert_eq!(workflow.prompt, "Review the diff.");
+        assert_eq!(workflow.id, "/tmp/demo::security-sweep");
+        assert_eq!(workflow.project_name, "demo");
     }
 
     #[test]
-    fn a_bare_markdown_file_is_still_a_routine() {
-        let routine = parse("Just tell me about broken links.\n");
-        assert_eq!(routine.prompt, "Just tell me about broken links.");
-        assert_eq!(routine.trigger, RoutineTrigger::Manual);
-        assert_eq!(routine.permission, RoutinePermission::ReadOnly);
+    fn a_bare_markdown_file_is_still_a_workflow() {
+        let workflow = parse("Just tell me about broken links.\n");
+        assert_eq!(workflow.prompt, "Just tell me about broken links.");
+        assert_eq!(workflow.trigger, WorkflowTrigger::Manual);
+        assert_eq!(workflow.permission, WorkflowPermission::ReadOnly);
         // Named from the filename rather than left blank.
-        assert_eq!(routine.name, "security sweep");
+        assert_eq!(workflow.name, "security sweep");
     }
 
     #[test]
-    fn an_unparseable_trigger_costs_the_schedule_not_the_routine() {
-        let routine = parse("---\nname: X\ntrigger: whenever i feel like it\n---\n\nBody.\n");
-        assert_eq!(routine.trigger, RoutineTrigger::Manual);
-        assert_eq!(routine.prompt, "Body.");
+    fn an_unparseable_trigger_costs_the_schedule_not_the_workflow() {
+        let workflow = parse("---\nname: X\ntrigger: whenever i feel like it\n---\n\nBody.\n");
+        assert_eq!(workflow.trigger, WorkflowTrigger::Manual);
+        assert_eq!(workflow.prompt, "Body.");
     }
 
     #[test]
     fn permission_defaults_to_read_only_when_omitted() {
-        let routine = parse("---\nname: X\n---\n\nBody.\n");
-        assert_eq!(routine.permission, RoutinePermission::ReadOnly);
+        let workflow = parse("---\nname: X\n---\n\nBody.\n");
+        assert_eq!(workflow.permission, WorkflowPermission::ReadOnly);
     }
 
     #[test]
@@ -523,7 +527,7 @@ mod tests {
         let original = parse(
             "---\nname: Security sweep\ndescription: Looks for secrets.\ntrigger: daily at 09:00\npermission: can-edit\nseverity-floor: critical\nnotify: false\nauto-run: true\n---\n\nReview the diff.\n",
         );
-        let reparsed = parse(&serialize_routine(&original));
+        let reparsed = parse(&serialize_workflow(&original));
         assert_eq!(reparsed.name, original.name);
         assert_eq!(reparsed.description, original.description);
         assert_eq!(reparsed.trigger, original.trigger);
@@ -537,59 +541,59 @@ mod tests {
     fn unknown_keys_survive_a_round_trip() {
         let original = parse("---\nname: X\nfuture-key: keep me\n---\n\nBody.\n");
         assert_eq!(original.extra.get("future-key").unwrap(), "keep me");
-        let text = serialize_routine(&original);
+        let text = serialize_workflow(&original);
         assert!(text.contains("future-key: keep me"));
     }
 
     #[test]
     fn crlf_files_parse() {
-        let routine = parse("---\r\nname: Windows\r\ntrigger: on push\r\n---\r\n\r\nBody.\r\n");
-        assert_eq!(routine.name, "Windows");
+        let workflow = parse("---\r\nname: Windows\r\ntrigger: on push\r\n---\r\n\r\nBody.\r\n");
+        assert_eq!(workflow.name, "Windows");
         assert_eq!(
-            routine.trigger,
-            RoutineTrigger::Event {
-                event: RoutineEvent::Push
+            workflow.trigger,
+            WorkflowTrigger::Event {
+                event: WorkflowEvent::Push
             }
         );
-        assert_eq!(routine.prompt, "Body.");
+        assert_eq!(workflow.prompt, "Body.");
     }
 
     #[test]
     fn an_icon_round_trips() {
-        let routine = parse("---\nname: X\nicon: 🔒\n---\n\nBody.\n");
-        assert_eq!(routine.icon.as_deref(), Some("🔒"));
-        assert!(serialize_routine(&routine).contains("icon: 🔒"));
+        let workflow = parse("---\nname: X\nicon: 🔒\n---\n\nBody.\n");
+        assert_eq!(workflow.icon.as_deref(), Some("🔒"));
+        assert!(serialize_workflow(&workflow).contains("icon: 🔒"));
     }
 
     #[test]
     fn a_multi_codepoint_emoji_survives() {
         // Skin tones and ZWJ sequences are several chars but one glyph.
         for emoji in ["👨‍💻", "👋🏽", "🇬🇧", "⚠️"] {
-            let routine = parse(&format!("---\nname: X\nicon: {emoji}\n---\n\nBody.\n"));
-            assert_eq!(routine.icon.as_deref(), Some(emoji), "dropped {emoji}");
+            let workflow = parse(&format!("---\nname: X\nicon: {emoji}\n---\n\nBody.\n"));
+            assert_eq!(workflow.icon.as_deref(), Some(emoji), "dropped {emoji}");
         }
     }
 
     #[test]
     fn a_sentence_in_the_icon_field_is_dropped_not_truncated() {
         // An agent writing prose here would otherwise blow out every row.
-        let routine = parse("---\nname: X\nicon: a security review routine\n---\n\nBody.\n");
-        assert_eq!(routine.icon, None);
+        let workflow = parse("---\nname: X\nicon: a security review workflow\n---\n\nBody.\n");
+        assert_eq!(workflow.icon, None);
     }
 
     #[test]
     fn an_absent_icon_stays_absent_in_the_file() {
-        let routine = parse("---\nname: X\n---\n\nBody.\n");
-        assert_eq!(routine.icon, None);
-        assert!(!serialize_routine(&routine).contains("icon:"));
+        let workflow = parse("---\nname: X\n---\n\nBody.\n");
+        assert_eq!(workflow.icon, None);
+        assert!(!serialize_workflow(&workflow).contains("icon:"));
     }
 
     #[test]
     fn slugify_is_filename_safe() {
         assert_eq!(slugify("Security sweep!"), "security-sweep");
         assert_eq!(slugify("  ../../etc/passwd  "), "etc-passwd");
-        assert_eq!(slugify("///"), "untitled-routine");
-        assert_eq!(slugify(""), "untitled-routine");
+        assert_eq!(slugify("///"), "untitled-workflow");
+        assert_eq!(slugify(""), "untitled-workflow");
         assert!(!slugify(&"x".repeat(200)).contains('/'));
         assert_eq!(slugify(&"x".repeat(200)).len(), 64);
     }

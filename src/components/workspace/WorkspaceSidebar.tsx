@@ -102,9 +102,9 @@ interface Props {
    * Which top-level destination is showing, so the
    * nav row can mark it current. Defaults to Home when omitted.
    */
-  activeNav?: 'home' | 'routines' | 'inbox';
-  /** Open the Routines page. Hides the nav button when omitted. */
-  onGoRoutines?: () => void;
+  activeNav?: 'home' | 'workflows' | 'inbox';
+  /** Open the Workflows page. Hides the nav button when omitted. */
+  onGoWorkflows?: () => void;
   /** Open the Inbox. Hides the nav button when omitted. */
   onGoInbox?: () => void;
   /** Unread findings, rendered as a badge on the Inbox button. */
@@ -287,7 +287,7 @@ function projectDotState(
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   isHomeActive,
   activeNav,
-  onGoRoutines,
+  onGoWorkflows,
   onGoInbox,
   inboxUnreadCount = 0,
   onGoHome,
@@ -323,7 +323,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSwitchAccount,
 }: Props) {
   const appSettingsModal = useModal('settings');
-  // 219, not 214: the top row gained Routines and Inbox beside Home, and at the
+  // 219, not 214: the top row gained Workflows and Inbox beside Home, and at the
   // old default the last one sat hard against the resize edge.
   const [sidebarWidth, setSidebarWidth] = useState(219);
   const { activeAccount, accounts } = useActiveAccount(currentProjectPath);
@@ -862,16 +862,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               title="Home"
               aria-label="Home"
             />
-            {onGoRoutines && (
+            {onGoWorkflows && (
               <IconButton
                 variant="ghost"
-                className={`workspace-sidebar-home ${activeNav === 'routines' ? 'is-active' : ''}`}
+                className={`workspace-sidebar-home ${activeNav === 'workflows' ? 'is-active' : ''}`}
                 icon={<ZapIcon size={12} />}
-                onClick={onGoRoutines}
-                disabled={activeNav === 'routines'}
-                aria-current={activeNav === 'routines' ? 'page' : undefined}
-                title="Routines"
-                aria-label="Routines"
+                onClick={onGoWorkflows}
+                disabled={activeNav === 'workflows'}
+                aria-current={activeNav === 'workflows' ? 'page' : undefined}
+                title="Workflows"
+                aria-label="Workflows"
               />
             )}
             {onGoInbox && (

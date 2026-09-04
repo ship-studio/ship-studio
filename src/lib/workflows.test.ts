@@ -10,22 +10,22 @@ import {
   formatTokens,
   formatTrigger,
   isTimeTrigger,
-  ROUTINE_TEMPLATES,
+  WORKFLOW_TEMPLATES,
   summarizeWeek,
   triggerPhrase,
-  type Routine,
-  type RoutineRun,
-  type RoutineTrigger,
-} from './routines';
+  type Workflow,
+  type WorkflowRun,
+  type WorkflowTrigger,
+} from './workflows';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-function run(overrides: Partial<RoutineRun> = {}): RoutineRun {
+function run(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   return {
     id: 'run-1',
-    routineId: 'r1',
+    workflowId: 'r1',
     startedAt: Date.now(),
     durationMs: 1000,
     status: 'ok',
@@ -37,7 +37,7 @@ function run(overrides: Partial<RoutineRun> = {}): RoutineRun {
   };
 }
 
-function routine(overrides: Partial<Routine> = {}): Routine {
+function workflow(overrides: Partial<Workflow> = {}): Workflow {
   return {
     id: '/p::r',
     slug: 'r',
@@ -52,7 +52,7 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     prompt: 'do a thing',
     severityFloor: 'info',
     autoRun: true,
-    filePath: '/p/.shipstudio/routines/r.md',
+    filePath: '/p/.shipstudio/workflows/r.md',
     nextRunAt: null,
     isRunning: false,
     runningSince: null,
@@ -76,7 +76,7 @@ describe('formatTrigger', () => {
 });
 
 describe('triggerPhrase', () => {
-  // These strings are written into the routine file and documented in the
+  // These strings are written into the workflow file and documented in the
   // bundled agent skill, so they are a contract with the Rust parser.
   it('produces the frontmatter grammar', () => {
     expect(triggerPhrase({ kind: 'manual' })).toBe('manual');
@@ -92,15 +92,15 @@ describe('triggerPhrase', () => {
 });
 
 describe('describeSchedule', () => {
-  it('never advertises a cadence a disarmed routine is not keeping', () => {
-    const trigger: RoutineTrigger = { kind: 'interval', everyMinutes: 30 };
+  it('never advertises a cadence a disarmed workflow is not keeping', () => {
+    const trigger: WorkflowTrigger = { kind: 'interval', everyMinutes: 30 };
     expect(describeSchedule({ trigger, autoRun: false })).toBe('Every 30 min — auto-run off');
     expect(describeSchedule({ trigger, autoRun: true })).toBe(
       'Every 30 min, while Ship Studio is open'
     );
   });
 
-  it('describes a manual routine by its button, not a schedule', () => {
+  it('describes a manual workflow by its button, not a schedule', () => {
     expect(describeSchedule({ trigger: { kind: 'manual' }, autoRun: true })).toBe(
       'Manual — runs when you press Run'
     );
@@ -109,7 +109,7 @@ describe('describeSchedule', () => {
 
 describe('describeTriggerReality', () => {
   it('never promises a run while the app is closed', () => {
-    const triggers: RoutineTrigger[] = [
+    const triggers: WorkflowTrigger[] = [
       { kind: 'manual' },
       { kind: 'interval', everyMinutes: 30 },
       { kind: 'daily', atHour: 9, atMinute: 0 },
@@ -177,7 +177,7 @@ describe('summarizeWeek', () => {
   it('counts only the last seven days', () => {
     const now = Date.now();
     const summary = summarizeWeek([
-      routine({
+      workflow({
         runs: [
           run({ startedAt: now - 2 * DAY, findings: 2, tokens: 1000 }),
           run({ startedAt: now - 10 * DAY, findings: 5, tokens: 9999 }),
@@ -192,7 +192,7 @@ describe('summarizeWeek', () => {
   it('reports unknown token usage as null rather than zero', () => {
     const now = Date.now();
     const summary = summarizeWeek([
-      routine({ runs: [run({ startedAt: now - HOUR, tokens: null })] }),
+      workflow({ runs: [run({ startedAt: now - HOUR, tokens: null })] }),
     ]);
     expect(summary.runs).toBe(1);
     expect(summary.tokens).toBeNull();
@@ -201,7 +201,7 @@ describe('summarizeWeek', () => {
   it('sums only the runs that reported usage', () => {
     const now = Date.now();
     const summary = summarizeWeek([
-      routine({
+      workflow({
         runs: [
           run({ id: 'a', startedAt: now - HOUR, tokens: 500 }),
           run({ id: 'b', startedAt: now - HOUR, tokens: null }),
@@ -247,9 +247,9 @@ describe('buildCommandPreview', () => {
   });
 });
 
-describe('ROUTINE_TEMPLATES', () => {
+describe('WORKFLOW_TEMPLATES', () => {
   it('has unique ids and a blank option', () => {
-    const ids = ROUTINE_TEMPLATES.map((t) => t.id);
+    const ids = WORKFLOW_TEMPLATES.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain('tpl-blank');
   });
@@ -257,13 +257,13 @@ describe('ROUTINE_TEMPLATES', () => {
   it('ships every template read-only', () => {
     // A starter that can edit files unattended is not a starting point, it's a
     // trap. Opting into can-edit must be a deliberate act in the editor.
-    for (const template of ROUTINE_TEMPLATES) {
+    for (const template of WORKFLOW_TEMPLATES) {
       expect(template.permission).toBe('read-only');
     }
   });
 
   it('gives every non-blank template a prompt and a description', () => {
-    for (const template of ROUTINE_TEMPLATES.filter((t) => t.id !== 'tpl-blank')) {
+    for (const template of WORKFLOW_TEMPLATES.filter((t) => t.id !== 'tpl-blank')) {
       expect(template.prompt.trim().length).toBeGreaterThan(0);
       expect(template.description.trim().length).toBeGreaterThan(0);
     }

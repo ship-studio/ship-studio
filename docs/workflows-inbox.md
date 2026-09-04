@@ -1,6 +1,6 @@
-# Routines & Inbox
+# Workflows & Inbox
 
-A **routine** is a standing instruction: a prompt, a project, and something that
+A **workflow** is a standing instruction: a prompt, a project, and something that
 sets it off. Running one invokes the user's own agent CLI headless in the
 project directory. What it finds is filed to the **Inbox**.
 
@@ -15,15 +15,15 @@ So the feature reduces to four boring pieces, three of which already existed:
 
 | Piece      | What it is                            | Lives in                                        |
 | ---------- | ------------------------------------- | ----------------------------------------------- |
-| A routine  | a markdown file with frontmatter      | `<project>/.shipstudio/routines/<slug>.md`      |
-| A run      | `claude --print` / `codex exec`       | `src-tauri/src/commands/routines/runs.rs`       |
-| A schedule | a tokio tick over armed routines      | `src-tauri/src/routine_scheduler.rs`            |
+| A workflow  | a markdown file with frontmatter      | `<project>/.shipstudio/workflows/<slug>.md`      |
+| A run      | `claude --print` / `codex exec`       | `src-tauri/src/commands/workflows/runs.rs`       |
+| A schedule | a tokio tick over armed workflows      | `src-tauri/src/workflow_scheduler.rs`            |
 | A report   | the last fenced JSON block in a reply | `parse_findings` in `runs.rs`                   |
 
 There is no Ship Studio server, no copy of your code anywhere else, and no
 inference we bill for. Tokens go to the plan you already pay for.
 
-## 1. A routine is a file
+## 1. A workflow is a file
 
 ```markdown
 ---
@@ -49,20 +49,20 @@ deliberate — the primary authoring path is an agent writing this file by hand
 `trigger: daily at 09:00` is written correctly first time far more reliably than
 a three-key sub-map. The grammar is `manual`, `every <n>m|h`, `daily at HH:MM`,
 `weekly on <weekday> at HH:MM`, `on push`, `on pr`. An unrecognised phrase falls
-back to `manual` — one typo costs the schedule, not the routine.
+back to `manual` — one typo costs the schedule, not the workflow.
 
 Unknown keys round-trip untouched, so an older Ship Studio editing a file
 written by a newer one doesn't silently drop its values.
 
-**Definitions live in the repo. Results do not.** Routine files are source: read
+**Definitions live in the repo. Results do not.** Workflow files are source: read
 them, edit them, review them in a PR, commit them. Run history and findings are
 per-machine churn that would appear in `git status` within a day of real use, so
-they go to `~/ShipStudio/.shipstudio/routines-state.json`, next to `folders.json`
+they go to `~/ShipStudio/.shipstudio/workflows-state.json`, next to `folders.json`
 and `attached-libraries.json`.
 
 ## 2. A run is the agent CLI, headless
 
-`run_routine` builds a prompt (the routine body, plus what changed since the
+`run_workflow` builds a prompt (the workflow body, plus what changed since the
 last run, plus the fingerprints already filed) and shells out.
 
 ### Read-only is enforced, not requested
@@ -75,8 +75,8 @@ CLIs, not assumed:
 | Claude Code | `--permission-mode plan`  | `--permission-mode acceptEdits` |
 | Codex       | `--sandbox read-only`     | `--sandbox workspace-write`  |
 
-Plan mode still allows `Read`, `Grep`, `Glob` and `Bash`, so the routine does its
-analysis — but the CLI itself refuses `Write` and `Edit`. A routine instructed to
+Plan mode still allows `Read`, `Grep`, `Glob` and `Bash`, so the workflow does its
+analysis — but the CLI itself refuses `Write` and `Edit`. A workflow instructed to
 create a file replies that it can't, and no file appears. Codex's sandbox gives
 the same guarantee one layer down.
 
@@ -116,29 +116,29 @@ needs **no write permission**, so it composes with the read-only enforcement
 above instead of fighting it.
 
 `{"findings": []}` is a normal outcome and the prompt says so twice. The failure
-mode that kills an inbox is a routine that files "no issues found" every thirty
+mode that kills an inbox is a workflow that files "no issues found" every thirty
 minutes.
 
 ### Dedup
 
-A finding's identity is `hash(routine_id + agent_fingerprint_or_normalized_title)`.
+A finding's identity is `hash(workflow_id + agent_fingerprint_or_normalized_title)`.
 A repeat bumps `occurrences` and refreshes the timestamp rather than filing a
-second copy — a 30-minute routine would otherwise produce 48 identical items a
+second copy — a 30-minute workflow would otherwise produce 48 identical items a
 day. **Archiving is sticky**: once you've said you don't want to hear about
 something, a recurrence must not un-archive it.
 
 ## 4. Scheduling, honestly
 
-Routines are your agent CLI on your machine. There is no server, so **nothing
+Workflows are your agent CLI on your machine. There is no server, so **nothing
 fires while Ship Studio is closed**, and every sentence in the UI says so.
 
-One tokio tick, once a minute, over every armed routine in every known project:
+One tokio tick, once a minute, over every armed workflow in every known project:
 
 - **It never catches up.** An interval means "at least this long since it last
   looked". Close the app for a week and you get one run on reopen, not a week of
-  backlog. A daily routine due while the app was closed is simply late.
-- **At most one routine per tick.** Runs spend your own subscription. Five armed
-  routines coming due in the same minute must not fire five agents at once.
+  backlog. A daily workflow due while the app was closed is simply late.
+- **At most one workflow per tick.** Runs spend your own subscription. Five armed
+  workflows coming due in the same minute must not fire five agents at once.
 - **It skips anything already in flight.** Two agents reasoning about the same
   working tree is confusing at best, and a corruption risk if either can edit.
 
@@ -173,16 +173,16 @@ Nobody browses a new tab. But everyone using Ship Studio is already talking to a
 agent all day, and they routinely say things like "check the bundle size before
 every release" or "I keep forgetting to look at dependency advisories".
 
-Ship Studio installs a `shipstudio-routines` skill into each installed agent's
+Ship Studio installs a `shipstudio-workflows` skill into each installed agent's
 user-scope skills directory (`~/.claude/skills/`, `~/.codex/skills/`) at launch.
 The skill's `description` — which is what decides whether the agent loads it at
 all — names the phrasings people actually use ("every time", "each week", "before
 every release", "keep an eye on", "I keep forgetting to"), not the word
-"routine", which is the one word someone who hasn't found the feature will never
+"workflow", which is the one word someone who hasn't found the feature will never
 say.
 
 Once loaded, the skill documents the file format completely enough that the agent
-writes the routine itself. No API, no MCP tool, no Ship Studio call. The
+writes the workflow itself. No API, no MCP tool, no Ship Studio call. The
 frontend store polls as well as listening for backend events, precisely so a file
 that appears on disk without the UI being touched still shows up.
 
@@ -199,7 +199,7 @@ with their repo.
 
 So Claude runs with `--output-format stream-json` and each event is translated
 into one human line — `Reading …/src/api/checkout.js`, `$ git diff --stat`, or
-the agent's own narration — kept in a small ring buffer per routine and pushed
+the agent's own narration — kept in a small ring buffer per workflow and pushed
 to open windows as it happens. The row shows the newest line; the rest is behind
 a chevron. Deliberately not the full transcript: run history already has that.
 
@@ -212,8 +212,8 @@ action is **Fix in \<project\>**, which opens the finding's workspace and types
 That crosses a navigation boundary (the Inbox is home-level, the terminal only
 exists inside a workspace) and the trip is asynchronous — opening a project
 mounts a workspace, spawns a PTY and boots an agent. So the prompt goes through
-a one-slot queue (`lib/routineHandoff.ts`) with a TTL, peeked-then-consumed by
-`useRoutineHandoff` once a terminal actually accepts it.
+a one-slot queue (`lib/workflowHandoff.ts`) with a TTL, peeked-then-consumed by
+`useWorkflowHandoff` once a terminal actually accepts it.
 
 The action bar is pinned to the foot of the reader rather than sitting at the end
 of the report: a long finding would otherwise push the entire point of the
@@ -226,8 +226,8 @@ cost ~73k tokens in an end-to-end test — mostly system prompt and cache, but i
 is not free and it is not small.
 
 That shapes several decisions: manual is the default trigger; intervals are
-floored at 5 minutes; the scheduler runs one routine per tick; there is
-deliberately **no "Run all routines" command** in the palette; and the token
+floored at 5 minutes; the scheduler runs one workflow per tick; there is
+deliberately **no "Run all workflows" command** in the palette; and the token
 column shows an em dash rather than a zero when the CLI reports nothing (Codex
 `exec` reports no usage, and a confident "0" would read as a free run).
 
@@ -240,32 +240,32 @@ is worse than useless on a figure whose whole job is watching a quota.
 ## Testing
 
 ```bash
-cd src-tauri && cargo test routines           # 38 unit tests
-pnpm vitest run src/lib/routines.test.ts src/lib/routineHandoff.test.ts
-pnpm vitest run src/components/routines src/components/inbox
+cd src-tauri && cargo test workflows           # 38 unit tests
+pnpm vitest run src/lib/workflows.test.ts src/lib/workflowHandoff.test.ts
+pnpm vitest run src/components/workflows src/components/inbox
 ```
 
 There is also a real end-to-end test that runs an actual agent against a real
 git repo. It is `#[ignore]`d because it spends quota and needs a signed-in CLI:
 
 ```bash
-cd src-tauri && cargo test e2e_runs_a_routine_against_the_real_agent -- --ignored --nocapture
+cd src-tauri && cargo test e2e_runs_a_workflow_against_the_real_agent -- --ignored --nocapture
 ```
 
-It asserts the run completes **and** that a read-only routine wrote nothing.
+It asserts the run completes **and** that a read-only workflow wrote nothing.
 
-It sets `SHIPSTUDIO_ROUTINES_STATE` to a path inside its own tempdir. Without
+It sets `SHIPSTUDIO_WORKFLOWS_STATE` to a path inside its own tempdir. Without
 that it files the throwaway project's findings into the developer's real inbox,
 where they appear as items from a project that no longer exists — which is
 exactly what happened the first two times it ran.
 
 ## Open questions
 
-- **Working-tree contention.** A routine shelling into a repo you're actively
+- **Working-tree contention.** A workflow shelling into a repo you're actively
   editing reads a tree mid-change. Read-only makes this survivable (a stale read,
   not a corrupt write), and the in-flight guard stops two runs colliding. A
   `git worktree` per run is the eventual answer.
-- **Quota.** Nothing stops someone arming a dozen 15-minute routines and burning
+- **Quota.** Nothing stops someone arming a dozen 15-minute workflows and burning
   a month's allowance in a week. There is no budget, cap, or projection yet.
 - **Fingerprint drift.** Dedup leans on the agent producing a stable fingerprint,
   with a normalised title as fallback. A model that rewords a finding *and* omits

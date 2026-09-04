@@ -34,7 +34,6 @@ pub mod pty;
 pub mod pty_session;
 pub mod publishing;
 pub mod pull_requests;
-pub mod routines;
 pub mod settings;
 pub mod setup;
 pub mod shopify;
@@ -44,6 +43,7 @@ pub mod static_server;
 pub mod support;
 pub mod templates;
 pub mod window;
+pub mod workflows;
 
 // Re-export all commands for easy access in lib.rs
 pub use accounts::*;
@@ -74,7 +74,6 @@ pub use pty::*;
 pub use pty_session::*;
 pub use publishing::*;
 pub use pull_requests::*;
-pub use routines::*;
 pub use settings::*;
 pub use setup::*;
 pub use shopify::*;
@@ -84,3 +83,4 @@ pub use static_server::*;
 pub use support::*;
 pub use templates::*;
 pub use window::*;
+pub use workflows::*;

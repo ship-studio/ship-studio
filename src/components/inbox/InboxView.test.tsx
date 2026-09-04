@@ -2,9 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InboxView } from './InboxView';
-import type { InboxItem } from '../../lib/routines';
-import { peekHandoff, clearHandoff } from '../../lib/routineHandoff';
-import * as store from '../../lib/routinesStore';
+import type { InboxItem } from '../../lib/workflows';
+import { peekHandoff, clearHandoff } from '../../lib/workflowHandoff';
+import * as store from '../../lib/workflowsStore';
 
 vi.mock('../../hooks/useDashboardVisibility', () => ({
   useDashboardVisibility: () => ({ dashboardHeaderHidden: true, hideDashboardHeader: vi.fn() }),
@@ -19,7 +19,7 @@ vi.mock('../../contexts/ToastContext', () => ({
   useOptionalToast: () => ({ showToast }),
 }));
 
-vi.mock('../../lib/routinesStore', () => ({
+vi.mock('../../lib/workflowsStore', () => ({
   subscribe: vi.fn(() => () => undefined),
   getSnapshot: vi.fn(),
   deleteItem: vi.fn().mockResolvedValue(undefined),
@@ -31,8 +31,8 @@ vi.mock('../../lib/routinesStore', () => ({
 function item(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
     id: 'finding-1',
-    routineId: '/p/demo::security-sweep',
-    routineName: 'Security sweep',
+    workflowId: '/p/demo::security-sweep',
+    workflowName: 'Security sweep',
     projectName: 'demo',
     projectPath: '/p/demo',
     severity: 'critical',
@@ -54,7 +54,7 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
 
 function snapshot(inbox: InboxItem[]) {
   vi.mocked(store.getSnapshot).mockReturnValue({
-    routines: [],
+    workflows: [],
     inbox,
     progress: {},
     loaded: true,

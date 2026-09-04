@@ -1,6 +1,6 @@
 /**
  * The workspace sidebar as it appears on the home-level screens (Projects,
- * Routines, Inbox), where there is no active project and no terminal tabs.
+ * Workflows, Inbox), where there is no active project and no terminal tabs.
  *
  * Extracted so the home screens share one configuration of `WorkspaceSidebar`
  * instead of each repeating its twenty inert props.
@@ -17,9 +17,9 @@ const noop = () => {};
 
 interface HomeSidebarProps {
   /** Which home destination is showing, so the nav row can mark it current. */
-  activeNav: 'home' | 'routines' | 'inbox';
+  activeNav: 'home' | 'workflows' | 'inbox';
   onGoHome: () => void;
-  onGoRoutines: () => void;
+  onGoWorkflows: () => void;
   onGoInbox: () => void;
   inboxUnreadCount: number;
   isSidebarHidden: boolean;
@@ -36,7 +36,7 @@ interface HomeSidebarProps {
 export function HomeSidebar({
   activeNav,
   onGoHome,
-  onGoRoutines,
+  onGoWorkflows,
   onGoInbox,
   inboxUnreadCount,
   isSidebarHidden,
@@ -55,7 +55,7 @@ export function HomeSidebar({
       isHomeActive={activeNav === 'home'}
       activeNav={activeNav}
       onGoHome={onGoHome}
-      onGoRoutines={onGoRoutines}
+      onGoWorkflows={onGoWorkflows}
       onGoInbox={onGoInbox}
       inboxUnreadCount={inboxUnreadCount}
       onOpenProjectPicker={onOpenProjectPicker}

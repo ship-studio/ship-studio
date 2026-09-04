@@ -1,27 +1,27 @@
 /**
- * The emoji that stands in for a routine, Notion-style.
+ * The emoji that stands in for a workflow, Notion-style.
  *
  * A curated grid rather than a full emoji keyboard: the useful set for
- * "what does this routine watch" is small and picking from it is faster than
+ * "what does this workflow watch" is small and picking from it is faster than
  * searching 3,000 glyphs. The field below the grid accepts anything, so the
  * curation is a shortcut, not a ceiling — paste any emoji (or press ⌃⌘Space)
  * and it takes it.
  *
- * @module components/routines/RoutineIconPicker
+ * @module components/workflows/WorkflowIconPicker
  */
 
 import { useState } from 'react';
 import { Dropdown } from '../primitives/Dropdown';
 import { Button } from '../primitives/Button';
 
-interface RoutineIconPickerProps {
+interface WorkflowIconPickerProps {
   value: string | null;
   /** Used to derive the placeholder glyph before one is chosen. */
   name: string;
   onChange: (icon: string | null) => void;
 }
 
-/** Grouped by what a routine tends to be *about*. */
+/** Grouped by what a workflow tends to be *about*. */
 const EMOJI_GROUPS: { label: string; emoji: string[] }[] = [
   {
     label: 'Watching',
@@ -41,23 +41,23 @@ const EMOJI_GROUPS: { label: string; emoji: string[] }[] = [
   },
 ];
 
-export function RoutineIconPicker({ value, name, onChange }: RoutineIconPickerProps) {
+export function WorkflowIconPicker({ value, name, onChange }: WorkflowIconPickerProps) {
   const [custom, setCustom] = useState('');
 
-  // Before a routine is named there is nothing to derive from, so the button
+  // Before a workflow is named there is nothing to derive from, so the button
   // shows a neutral prompt rather than a letter that will change under you.
   const fallback = name.trim() ? name.trim().charAt(0).toUpperCase() : '🙂';
 
   return (
     <Dropdown
-      menuClassName="routine-icon-menu"
+      menuClassName="workflow-icon-menu"
       onOpenChange={(open) => {
         if (!open) setCustom('');
       }}
       trigger={(props) => (
         <button
           type="button"
-          className={`routine-icon-trigger${value ? ' has-icon' : ''}`}
+          className={`workflow-icon-trigger${value ? ' has-icon' : ''}`}
           title="Pick an icon"
           aria-label={value ? `Icon: ${value}. Change it` : 'Pick an icon'}
           {...props}
@@ -66,16 +66,16 @@ export function RoutineIconPicker({ value, name, onChange }: RoutineIconPickerPr
         </button>
       )}
     >
-      <div className="routine-icon-panel">
+      <div className="workflow-icon-panel">
         {EMOJI_GROUPS.map((group) => (
-          <div key={group.label} className="routine-icon-group">
-            <span className="routine-icon-group-label">{group.label}</span>
-            <div className="routine-icon-grid">
+          <div key={group.label} className="workflow-icon-group">
+            <span className="workflow-icon-group-label">{group.label}</span>
+            <div className="workflow-icon-grid">
               {group.emoji.map((emoji) => (
                 <button
                   key={emoji}
                   type="button"
-                  className={`routine-icon-option${value === emoji ? ' is-selected' : ''}`}
+                  className={`workflow-icon-option${value === emoji ? ' is-selected' : ''}`}
                   aria-label={emoji}
                   aria-pressed={value === emoji}
                   onClick={() => onChange(emoji)}
@@ -87,10 +87,10 @@ export function RoutineIconPicker({ value, name, onChange }: RoutineIconPickerPr
           </div>
         ))}
 
-        <div className="routine-icon-custom">
+        <div className="workflow-icon-custom">
           <input
             type="text"
-            className="routine-icon-custom-input"
+            className="workflow-icon-custom-input"
             value={custom}
             placeholder="Or paste any emoji"
             aria-label="Custom emoji"

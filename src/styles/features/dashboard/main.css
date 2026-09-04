@@ -84,7 +84,7 @@
 /* Dashboard Layout.
  *
  * `.dashboard-column` is the same content column for home-level screens that
- * are not the project list (Routines, Inbox). Grouped rather than duplicated so
+ * are not the project list (Workflows, Inbox). Grouped rather than duplicated so
  * the three views cannot drift apart. */
 .project-list.dashboard,
 .dashboard-column {

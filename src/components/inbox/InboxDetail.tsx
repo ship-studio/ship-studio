@@ -20,7 +20,7 @@ import { CodeIcon, CopyIcon, ResetIcon, TerminalIcon, TrashIcon } from '@/compon
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
-import { formatAgo, type InboxItem, type Severity } from '../../lib/routines';
+import { formatAgo, type InboxItem, type Severity } from '../../lib/workflows';
 
 interface InboxDetailProps {
   item: InboxItem;
@@ -63,7 +63,7 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
             <h2 className="inbox-detail-title">{item.title}</h2>
             <div className="inbox-detail-meta">
               <span className="inbox-chip">{item.projectName}</span>
-              <span>{item.routineName}</span>
+              <span>{item.workflowName}</span>
               <span aria-hidden>·</span>
               <span>{formatAgo(item.createdAt)}</span>
               {item.occurrences > 1 && (

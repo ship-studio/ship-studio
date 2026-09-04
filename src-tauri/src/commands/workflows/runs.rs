@@ -1,4 +1,4 @@
-//! Running a routine.
+//! Running a workflow.
 //!
 //! One run is one headless agent invocation in the project directory, plus the
 //! parsing of what it reported. Nothing is spawned, hosted, or proxied by Ship
@@ -10,8 +10,8 @@
 //! installed CLIs rather than assumed:
 //!
 //! - Claude Code `--permission-mode plan` — Read/Grep/Glob/Bash still work, so
-//!   the routine can do its analysis, but `Write`/`Edit` are refused by the CLI
-//!   itself. A routine told to create a file replies that it can't, and no file
+//!   the workflow can do its analysis, but `Write`/`Edit` are refused by the CLI
+//!   itself. A workflow told to create a file replies that it can't, and no file
 //!   appears.
 //! - Codex `--sandbox read-only` — same guarantee at the sandbox layer
 //!   ("I can't create files in this read-only workspace").
@@ -29,12 +29,12 @@
 //! needs no write permission, so it composes with the read-only enforcement
 //! above instead of fighting it.
 
-use super::files::{parse_routine, routines_dir, slugify, Routine};
+use super::files::{parse_workflow, slugify, workflows_dir, Workflow};
 use super::state::{
-    mutate_state, now_ms, prune_runs, trim_transcript, FindingLocation, InboxItem, RoutineRun,
-    RunStatus,
+    mutate_state, now_ms, prune_runs, trim_transcript, FindingLocation, InboxItem, RunStatus,
+    WorkflowRun,
 };
-use super::{RoutinePermission, RoutineTrigger, Severity};
+use super::{Severity, WorkflowPermission, WorkflowTrigger};
 use crate::agent::{get_active_agent, get_agent_by_id, AgentConfig};
 use crate::commands::claude::find_validated_binary;
 use crate::errors::CommandError;
@@ -47,7 +47,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 use tracing::{info, warn};
 
-/// A routine gets longer than a PR description does — it may read a lot of the
+/// A workflow gets longer than a PR description does — it may read a lot of the
 /// tree — but not unbounded: a hung CLI must not hold a slot forever.
 const RUN_TIMEOUT_SECS: u64 = 600;
 
@@ -55,45 +55,45 @@ const RUN_TIMEOUT_SECS: u64 = 600;
 const GIT_TIMEOUT_SECS: u64 = 30;
 
 /// Emitted whenever runs or the inbox change, so open windows refresh.
-pub const ROUTINES_CHANGED_EVENT: &str = "routines:changed";
+pub const WORKFLOWS_CHANGED_EVENT: &str = "workflows:changed";
 
-/// Routine ids with a run in flight, and when each started. Pressing Run twice,
-/// or a tick landing on a routine you just started by hand, must not spawn a
+/// Workflow ids with a run in flight, and when each started. Pressing Run twice,
+/// or a tick landing on a workflow you just started by hand, must not spawn a
 /// second agent against the same working tree.
 ///
 /// The start time lives here rather than in a pending run record so the list
-/// can show elapsed time for a run *any* window started — a routine that has
+/// can show elapsed time for a run *any* window started — a workflow that has
 /// been working for two minutes should say so rather than spin silently.
 static IN_FLIGHT: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
 
-fn claim(routine_id: &str, started_at: i64) -> bool {
+fn claim(workflow_id: &str, started_at: i64) -> bool {
     let mut guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     let map = guard.get_or_insert_with(HashMap::new);
-    if map.contains_key(routine_id) {
+    if map.contains_key(workflow_id) {
         return false;
     }
-    map.insert(routine_id.to_string(), started_at);
+    map.insert(workflow_id.to_string(), started_at);
     true
 }
 
-fn release(routine_id: &str) {
+fn release(workflow_id: &str) {
     let mut guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(map) = guard.as_mut() {
-        map.remove(routine_id);
+        map.remove(workflow_id);
     }
 }
 
-/// When each in-flight run started, by routine id.
+/// When each in-flight run started, by workflow id.
 pub fn running_since_map() -> HashMap<String, i64> {
     let guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     guard.clone().unwrap_or_default()
 }
 
-/// Routine ids currently executing, so the UI can show them as running even in
+/// Workflow ids currently executing, so the UI can show them as running even in
 /// a window that didn't start them.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn running_routine_ids() -> Result<Vec<String>, CommandError> {
+pub async fn running_workflow_ids() -> Result<Vec<String>, CommandError> {
     let guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     Ok(guard
         .as_ref()
@@ -143,7 +143,7 @@ struct Report {
 /// Scans for fenced blocks from the end: the report is the *last* thing the
 /// model is told to write, and a reply that reasons in prose first may well
 /// contain an earlier example block. A reply with no parseable block is not an
-/// error — it means the routine had nothing to say, which is the common case
+/// error — it means the workflow had nothing to say, which is the common case
 /// and must not look like a failure.
 pub fn parse_findings(reply: &str) -> Option<Vec<ReportedFindingPublic>> {
     let candidates = fenced_blocks(reply);
@@ -198,7 +198,7 @@ impl From<ReportedFinding> for ReportedFindingPublic {
                 .severity
                 .as_deref()
                 .and_then(Severity::parse)
-                // An omitted severity is a warning, not a critical: a routine
+                // An omitted severity is a warning, not a critical: a workflow
                 // that forgets the field must not be able to shout.
                 .unwrap_or(Severity::Warning),
             body: f
@@ -270,14 +270,14 @@ fn normalized_title(title: &str) -> String {
 ///
 /// Prefers the agent's own fingerprint (it knows that "the same auth bug"
 /// survived a refactor that changed the line number), and falls back to the
-/// normalised title. Always namespaced by routine, so two routines reporting
+/// normalised title. Always namespaced by workflow, so two workflows reporting
 /// the same problem still both get to say so.
-pub fn fingerprint_for(routine_id: &str, finding: &ReportedFindingPublic) -> String {
+pub fn fingerprint_for(workflow_id: &str, finding: &ReportedFindingPublic) -> String {
     let basis = finding
         .fingerprint
         .clone()
         .unwrap_or_else(|| normalized_title(&finding.title));
-    stable_hash(&format!("{routine_id}\u{0}{basis}"))
+    stable_hash(&format!("{workflow_id}\u{0}{basis}"))
 }
 
 /* -------------------------------------------------------------- the prompt */
@@ -286,22 +286,22 @@ fn severity_menu() -> &'static str {
     "critical | warning | info"
 }
 
-/// The instructions wrapped around the user's own routine body.
+/// The instructions wrapped around the user's own workflow body.
 ///
 /// Deliberately explicit about *not* reporting: the failure mode that kills an
-/// inbox is a routine that files "no issues found" every 30 minutes, and a
+/// inbox is a workflow that files "no issues found" every 30 minutes, and a
 /// model asked to report will report unless told plainly that silence is a
 /// valid, expected answer.
-fn build_prompt(routine: &Routine, context: &str, already_filed: &[(String, String)]) -> String {
+fn build_prompt(workflow: &Workflow, context: &str, already_filed: &[(String, String)]) -> String {
     let mut p = String::new();
     p.push_str(&format!(
-        "You are running as a Ship Studio routine named \"{}\" in the project \"{}\".\n\
+        "You are running as a Ship Studio workflow named \"{}\" in the project \"{}\".\n\
          You are unattended: nobody is watching this run, and your reply is filed straight to the user's inbox.\n\n",
-        routine.name, routine.project_name
+        workflow.name, workflow.project_name
     ));
 
     p.push_str("## The instruction\n\n");
-    p.push_str(routine.prompt.trim());
+    p.push_str(workflow.prompt.trim());
     p.push_str("\n\n");
 
     if !context.trim().is_empty() {
@@ -348,7 +348,7 @@ fn build_prompt(routine: &Routine, context: &str, already_filed: &[(String, Stri
     p
 }
 
-/// Cheap, bounded git context: what moved since this routine last looked.
+/// Cheap, bounded git context: what moved since this workflow last looked.
 async fn gather_context(project: &Path, since_commit: Option<&str>) -> String {
     let mut out = String::new();
 
@@ -357,7 +357,7 @@ async fn gather_context(project: &Path, since_commit: Option<&str>) -> String {
         if let Some(stat) = git(project, &["diff", "--stat", &range]).await {
             if !stat.trim().is_empty() {
                 out.push_str(&format!(
-                    "Changed since this routine last ran ({range}):\n{}\n\n",
+                    "Changed since this workflow last ran ({range}):\n{}\n\n",
                     stat.trim()
                 ));
             }
@@ -451,7 +451,7 @@ async fn run_streaming(
                     }
                     // The child stopped reading — its exit status is the story.
                     Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
-                    Err(e) => warn!(error = %e, "failed writing to routine agent stdin"),
+                    Err(e) => warn!(error = %e, "failed writing to workflow agent stdin"),
                 }
             }
         };
@@ -500,15 +500,15 @@ async fn run_streaming(
 /// Build and run the agent, returning its final message.
 async fn invoke_agent(
     app: Option<&AppHandle>,
-    routine_id: &str,
+    workflow_id: &str,
     agent: &AgentConfig,
     project: &Path,
     prompt: &str,
-    permission: RoutinePermission,
+    permission: WorkflowPermission,
 ) -> Result<AgentReply, CommandError> {
     let binary = find_validated_binary(agent.binary_name, agent.version_flag).ok_or_else(|| {
         CommandError::expected(format!(
-            "{} isn't installed, or isn't on Ship Studio's PATH. Install it, then run this routine again.",
+            "{} isn't installed, or isn't on Ship Studio's PATH. Install it, then run this workflow again.",
             agent.display_name
         ))
     })?;
@@ -518,8 +518,8 @@ async fn invoke_agent(
             let mode = match permission {
                 // Verified: plan mode still allows Read/Grep/Glob/Bash, so the
                 // analysis happens, but the CLI itself refuses Write and Edit.
-                RoutinePermission::ReadOnly => "plan",
-                RoutinePermission::CanEdit => "acceptEdits",
+                WorkflowPermission::ReadOnly => "plan",
+                WorkflowPermission::CanEdit => "acceptEdits",
             };
             let mut cmd = create_command(&binary);
             // stream-json (not plain json) so each tool call is visible while
@@ -542,7 +542,7 @@ async fn invoke_agent(
                 RUN_TIMEOUT_SECS,
                 |line| {
                     if let Some(text) = super::progress::describe_claude_event(line) {
-                        super::progress::push(app, routine_id, text);
+                        super::progress::push(app, workflow_id, text);
                     }
                 },
             )
@@ -553,11 +553,11 @@ async fn invoke_agent(
         }
         "codex" => {
             let sandbox = match permission {
-                RoutinePermission::ReadOnly => "read-only",
-                RoutinePermission::CanEdit => "workspace-write",
+                WorkflowPermission::ReadOnly => "read-only",
+                WorkflowPermission::CanEdit => "workspace-write",
             };
             let output_file = std::env::temp_dir().join(format!(
-                "shipstudio-routine-{}-{}.txt",
+                "shipstudio-workflow-{}-{}.txt",
                 std::process::id(),
                 now_ms()
             ));
@@ -586,7 +586,7 @@ async fn invoke_agent(
                     // non-empty output lines.
                     let trimmed = line.trim();
                     if !trimmed.is_empty() && !trimmed.starts_with('{') {
-                        super::progress::push(app, routine_id, truncate_line(trimmed));
+                        super::progress::push(app, workflow_id, truncate_line(trimmed));
                     }
                 },
             )
@@ -598,12 +598,12 @@ async fn invoke_agent(
             Ok(AgentReply {
                 text: message.unwrap_or_else(|| String::from_utf8_lossy(&output.stdout).to_string()),
                 // Codex exec reports no usage totals. Showing a guessed number
-                // would be worse than showing none — see RoutineRun::tokens.
+                // would be worse than showing none — see WorkflowRun::tokens.
                 tokens: None,
             })
         }
         _ => Err(CommandError::expected(format!(
-            "{} can't run a routine yet — it has no headless mode. Pick Claude Code or Codex for this routine.",
+            "{} can't run a workflow yet — it has no headless mode. Pick Claude Code or Codex for this workflow.",
             agent.display_name
         ))),
     }
@@ -628,7 +628,7 @@ fn check_status(
     // failure that repeats what we sent, which buries the real error.
     let detail = detail.replace(prompt, "…");
     // Reuse the shared taxonomy so a usage-limit or expired-login during a
-    // routine reads the same as it does during PR generation, and stays out of
+    // workflow reads the same as it does during PR generation, and stays out of
     // telemetry as an environment state rather than an app bug.
     if let Some(err) = crate::commands::ai::classify_agent_cli_failure(agent.display_name, &detail)
     {
@@ -709,41 +709,41 @@ fn parse_claude_stream(stdout: &str) -> AgentReply {
 
 /* ------------------------------------------------------------------- run */
 
-/// Run one routine now and file whatever it reports.
+/// Run one workflow now and file whatever it reports.
 #[tauri::command]
 #[tracing::instrument(skip(app), fields(project = %project_path, slug = %slug))]
-pub async fn run_routine(
+pub async fn run_workflow(
     app: AppHandle,
     project_path: String,
     slug: String,
-) -> Result<RoutineRun, CommandError> {
+) -> Result<WorkflowRun, CommandError> {
     let project = validate_project_path(&project_path)?;
     let slug = slugify(&slug);
-    let file_path = routines_dir(&project).join(format!("{slug}.md"));
+    let file_path = workflows_dir(&project).join(format!("{slug}.md"));
     let contents = std::fs::read_to_string(&file_path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            CommandError::expected("That routine's file is gone — it may have been deleted or renamed outside Ship Studio.")
+            CommandError::expected("That workflow's file is gone — it may have been deleted or renamed outside Ship Studio.")
         } else {
-            crate::utils::classify_fs_error("read the routine file", &file_path, &e)
+            crate::utils::classify_fs_error("read the workflow file", &file_path, &e)
         }
     })?;
-    let routine = parse_routine(&project, &file_path, &contents);
+    let workflow = parse_workflow(&project, &file_path, &contents);
 
-    if routine.prompt.trim().is_empty() {
+    if workflow.prompt.trim().is_empty() {
         return Err(CommandError::expected(
-            "This routine has no instruction in it yet, so there is nothing to run. Open it and say what you want checked.",
+            "This workflow has no instruction in it yet, so there is nothing to run. Open it and say what you want checked.",
         ));
     }
 
-    if !claim(&routine.id, now_ms()) {
+    if !claim(&workflow.id, now_ms()) {
         return Err(CommandError::expected(format!(
             "\"{}\" is already running.",
-            routine.name
+            workflow.name
         )));
     }
-    let outcome = execute(Some(&app), &project, &routine).await;
-    release(&routine.id);
-    let _ = app.emit(ROUTINES_CHANGED_EVENT, ());
+    let outcome = execute(Some(&app), &project, &workflow).await;
+    release(&workflow.id);
+    let _ = app.emit(WORKFLOWS_CHANGED_EVENT, ());
     outcome
 }
 
@@ -752,56 +752,60 @@ pub async fn run_routine(
 async fn execute(
     app: Option<&AppHandle>,
     project: &Path,
-    routine: &Routine,
-) -> Result<RoutineRun, CommandError> {
-    let agent = routine
+    workflow: &Workflow,
+) -> Result<WorkflowRun, CommandError> {
+    let agent = workflow
         .agent_id
         .as_deref()
         .map(get_agent_by_id)
         .unwrap_or_else(get_active_agent);
 
     let started_at = now_ms();
-    let run_id = format!("run-{}-{started_at}", routine.slug);
+    let run_id = format!("run-{}-{started_at}", workflow.slug);
 
     let state = super::state::load_state();
-    let since_commit = state.last_run_commit.get(&routine.id).cloned();
+    let since_commit = state.last_run_commit.get(&workflow.id).cloned();
     let already_filed: Vec<(String, String)> = state
         .inbox
         .iter()
-        .filter(|item| item.routine_id == routine.id && !item.archived)
+        .filter(|item| item.workflow_id == workflow.id && !item.archived)
         .map(|item| (item.fingerprint.clone(), item.title.clone()))
         .collect();
 
     let context = gather_context(project, since_commit.as_deref()).await;
-    let prompt = build_prompt(routine, &context, &already_filed);
+    let prompt = build_prompt(workflow, &context, &already_filed);
 
     info!(
-        routine = %routine.name,
+        workflow = %workflow.name,
         agent = agent.id,
-        permission = ?routine.permission,
-        "running routine"
+        permission = ?workflow.permission,
+        "running workflow"
     );
 
     // Start this run's activity log clean so the panel shows this run rather
     // than a confusing mix with the last one.
-    super::progress::reset(&routine.id);
-    super::progress::push(app, &routine.id, format!("Starting {}", agent.display_name));
+    super::progress::reset(&workflow.id);
+    super::progress::push(
+        app,
+        &workflow.id,
+        format!("Starting {}", agent.display_name),
+    );
 
     let reply = invoke_agent(
         app,
-        &routine.id,
+        &workflow.id,
         agent,
         project,
         &prompt,
-        routine.permission,
+        workflow.permission,
     )
     .await;
     let duration_ms = now_ms() - started_at;
     let head = head_commit(project).await;
 
-    let mut run = RoutineRun {
+    let mut run = WorkflowRun {
         id: run_id.clone(),
-        routine_id: routine.id.clone(),
+        workflow_id: workflow.id.clone(),
         started_at,
         duration_ms,
         status: RunStatus::Ok,
@@ -813,11 +817,11 @@ async fn execute(
 
     match reply {
         Err(err) => {
-            warn!(routine = %routine.name, error = %err, "routine run failed");
+            warn!(workflow = %workflow.name, error = %err, "workflow run failed");
             run.status = RunStatus::Failed;
             run.error = Some(err.to_string());
             run.transcript = err.to_string();
-            record_run(&run, routine, None)?;
+            record_run(&run, workflow, None)?;
             // The run is recorded as failed and shown in history; the caller
             // still gets the error so the click that started it can say why.
             return Err(err);
@@ -828,7 +832,7 @@ async fn execute(
             let findings = parse_findings(&text).unwrap_or_default();
             let kept: Vec<_> = findings
                 .into_iter()
-                .filter(|f| f.severity.rank() <= routine.severity_floor.rank())
+                .filter(|f| f.severity.rank() <= workflow.severity_floor.rank())
                 .collect();
             run.findings = kept.len();
             run.status = if kept.is_empty() {
@@ -836,7 +840,7 @@ async fn execute(
             } else {
                 RunStatus::Findings
             };
-            record_run(&run, routine, Some((kept, head)))?;
+            record_run(&run, workflow, Some((kept, head)))?;
         }
     }
 
@@ -847,28 +851,30 @@ type RunPayload = (Vec<ReportedFindingPublic>, Option<String>);
 
 /// Persist the run and merge its findings into the inbox.
 fn record_run(
-    run: &RoutineRun,
-    routine: &Routine,
+    run: &WorkflowRun,
+    workflow: &Workflow,
     payload: Option<RunPayload>,
 ) -> Result<(), CommandError> {
     mutate_state(|state| {
         state.runs.insert(0, run.clone());
-        prune_runs(state, &routine.id);
-        state.last_run_at.insert(routine.id.clone(), run.started_at);
+        prune_runs(state, &workflow.id);
+        state
+            .last_run_at
+            .insert(workflow.id.clone(), run.started_at);
 
         let Some((findings, head)) = payload else {
             return;
         };
         if let Some(head) = head {
-            state.last_run_commit.insert(routine.id.clone(), head);
+            state.last_run_commit.insert(workflow.id.clone(), head);
         }
 
         for finding in findings {
-            let fingerprint = fingerprint_for(&routine.id, &finding);
+            let fingerprint = fingerprint_for(&workflow.id, &finding);
             if let Some(existing) = state
                 .inbox
                 .iter_mut()
-                .find(|i| i.fingerprint == fingerprint && i.routine_id == routine.id)
+                .find(|i| i.fingerprint == fingerprint && i.workflow_id == workflow.id)
             {
                 // A recurrence, not a new problem. Archiving stays sticky —
                 // the user already said they don't want to hear about this,
@@ -888,16 +894,16 @@ fn record_run(
             }
             let suggested_prompt = finding.suggested_prompt.clone().unwrap_or_else(|| {
                 format!(
-                    "In this project, fix the following issue reported by the \"{}\" routine:\n\n{}\n\n{}",
-                    routine.name, finding.title, finding.summary
+                    "In this project, fix the following issue reported by the \"{}\" workflow:\n\n{}\n\n{}",
+                    workflow.name, finding.title, finding.summary
                 )
             });
             state.inbox.push(InboxItem {
                 id: format!("finding-{fingerprint}"),
-                routine_id: routine.id.clone(),
-                routine_name: routine.name.clone(),
-                project_name: routine.project_name.clone(),
-                project_path: routine.project_path.clone(),
+                workflow_id: workflow.id.clone(),
+                workflow_name: workflow.name.clone(),
+                project_name: workflow.project_name.clone(),
+                project_path: workflow.project_path.clone(),
                 severity: finding.severity,
                 title: finding.title,
                 summary: finding.summary,
@@ -921,17 +927,17 @@ fn record_run(
 /// An interval is measured from the last run, not from a wall clock: "every 30
 /// minutes" means "at least 30 minutes since it last looked", which is the only
 /// reading that stays true across an app restart.
-pub fn next_due_at(trigger: RoutineTrigger, last_run_at: Option<i64>, now: i64) -> Option<i64> {
+pub fn next_due_at(trigger: WorkflowTrigger, last_run_at: Option<i64>, now: i64) -> Option<i64> {
     match trigger {
-        RoutineTrigger::Manual | RoutineTrigger::Event { .. } => None,
-        RoutineTrigger::Interval { every_minutes } => {
+        WorkflowTrigger::Manual | WorkflowTrigger::Event { .. } => None,
+        WorkflowTrigger::Interval { every_minutes } => {
             let gap = every_minutes as i64 * 60_000;
             Some(last_run_at.map_or(now, |last| last + gap))
         }
-        RoutineTrigger::Daily { at_hour, at_minute } => {
+        WorkflowTrigger::Daily { at_hour, at_minute } => {
             Some(next_clock(now, at_hour, at_minute, None))
         }
-        RoutineTrigger::Weekly {
+        WorkflowTrigger::Weekly {
             weekday,
             at_hour,
             at_minute,
@@ -1054,9 +1060,9 @@ mod tests {
     }
 
     #[test]
-    fn fingerprints_are_namespaced_per_routine() {
-        let a = fingerprint_for("routine-a", &finding("Same problem", Some("x")));
-        let b = fingerprint_for("routine-b", &finding("Same problem", Some("x")));
+    fn fingerprints_are_namespaced_per_workflow() {
+        let a = fingerprint_for("workflow-a", &finding("Same problem", Some("x")));
+        let b = fingerprint_for("workflow-b", &finding("Same problem", Some("x")));
         assert_ne!(a, b);
     }
 
@@ -1064,7 +1070,7 @@ mod tests {
     fn intervals_are_measured_from_the_last_run() {
         let now = 1_000_000_000;
         let due = next_due_at(
-            RoutineTrigger::Interval { every_minutes: 30 },
+            WorkflowTrigger::Interval { every_minutes: 30 },
             Some(now - 60_000),
             now,
         );
@@ -1075,18 +1081,18 @@ mod tests {
     fn an_interval_that_has_never_run_is_due_immediately() {
         let now = 1_000_000_000;
         assert_eq!(
-            next_due_at(RoutineTrigger::Interval { every_minutes: 30 }, None, now),
+            next_due_at(WorkflowTrigger::Interval { every_minutes: 30 }, None, now),
             Some(now)
         );
     }
 
     #[test]
     fn manual_and_event_triggers_are_never_due() {
-        assert_eq!(next_due_at(RoutineTrigger::Manual, None, 0), None);
+        assert_eq!(next_due_at(WorkflowTrigger::Manual, None, 0), None);
         assert_eq!(
             next_due_at(
-                RoutineTrigger::Event {
-                    event: super::super::RoutineEvent::Push
+                WorkflowTrigger::Event {
+                    event: super::super::WorkflowEvent::Push
                 },
                 None,
                 0
@@ -1099,7 +1105,7 @@ mod tests {
     fn daily_is_always_in_the_future() {
         let now = now_ms();
         let due = next_due_at(
-            RoutineTrigger::Daily {
+            WorkflowTrigger::Daily {
                 at_hour: 9,
                 at_minute: 0,
             },
@@ -1116,7 +1122,7 @@ mod tests {
         let now = now_ms();
         for weekday in 0..7 {
             let due = next_due_at(
-                RoutineTrigger::Weekly {
+                WorkflowTrigger::Weekly {
                     weekday,
                     at_hour: 9,
                     at_minute: 0,
@@ -1131,15 +1137,15 @@ mod tests {
     }
 
     /// End-to-end against the real agent CLI, in a real git repo, with a
-    /// routine file in the format the bundled skill documents.
+    /// workflow file in the format the bundled skill documents.
     ///
     /// Ignored by default: it spends the developer's own agent quota and needs
     /// a signed-in CLI. Run it deliberately with
-    /// `cargo test e2e_runs_a_routine_against_the_real_agent -- --ignored --nocapture`.
+    /// `cargo test e2e_runs_a_workflow_against_the_real_agent -- --ignored --nocapture`.
     #[tokio::test]
     #[ignore = "spends real agent quota; run deliberately"]
-    async fn e2e_runs_a_routine_against_the_real_agent() {
-        use super::super::files::parse_routine;
+    async fn e2e_runs_a_workflow_against_the_real_agent() {
+        use super::super::files::parse_workflow;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path();
@@ -1150,7 +1156,7 @@ mod tests {
         unsafe {
             std::env::set_var(
                 super::super::state::STATE_PATH_ENV,
-                dir.path().join("routines-state.json"),
+                dir.path().join("workflows-state.json"),
             );
         }
         std::fs::create_dir_all(project.join("src/api")).unwrap();
@@ -1160,9 +1166,9 @@ mod tests {
         )
         .unwrap();
 
-        let routines = project.join(".shipstudio/routines");
-        std::fs::create_dir_all(&routines).unwrap();
-        let file = routines.join("security-sweep.md");
+        let workflows = project.join(".shipstudio/workflows");
+        std::fs::create_dir_all(&workflows).unwrap();
+        let file = workflows.join("security-sweep.md");
         std::fs::write(
             &file,
             "---\nname: Security sweep\ntrigger: manual\npermission: read-only\nseverity-floor: info\n---\n\nReview this repository for auth checks missing from a route that needs one. Include the exact file and line.\n",
@@ -1170,11 +1176,11 @@ mod tests {
         .unwrap();
 
         let contents = std::fs::read_to_string(&file).unwrap();
-        let routine = parse_routine(project, &file, &contents);
-        assert_eq!(routine.name, "Security sweep");
-        assert_eq!(routine.permission, RoutinePermission::ReadOnly);
+        let workflow = parse_workflow(project, &file, &contents);
+        assert_eq!(workflow.name, "Security sweep");
+        assert_eq!(workflow.permission, WorkflowPermission::ReadOnly);
 
-        let run = execute(None, project, &routine)
+        let run = execute(None, project, &workflow)
             .await
             .expect("run should succeed");
         println!(
@@ -1191,15 +1197,15 @@ mod tests {
         // Read-only must have been enforced, not merely requested.
         assert!(
             !project.join("PWNED.txt").exists(),
-            "a read-only routine must not have written anything"
+            "a read-only workflow must not have written anything"
         );
     }
 
     #[test]
-    fn a_second_claim_on_the_same_routine_is_refused() {
+    fn a_second_claim_on_the_same_workflow_is_refused() {
         // Two agents against one working tree is confusing at best, and a
         // corruption risk when either can edit.
-        let id = "claim-test-routine";
+        let id = "claim-test-workflow";
         assert!(claim(id, 1000));
         assert!(!claim(id, 2000), "a second claim must be refused");
         release(id);
@@ -1210,14 +1216,14 @@ mod tests {
     }
 
     #[test]
-    fn claiming_one_routine_does_not_block_another() {
-        assert!(claim("routine-x", 1));
-        assert!(claim("routine-y", 2));
+    fn claiming_one_workflow_does_not_block_another() {
+        assert!(claim("workflow-x", 1));
+        assert!(claim("workflow-y", 2));
         let map = running_since_map();
-        assert_eq!(map.get("routine-x"), Some(&1));
-        assert_eq!(map.get("routine-y"), Some(&2));
-        release("routine-x");
-        release("routine-y");
+        assert_eq!(map.get("workflow-x"), Some(&1));
+        assert_eq!(map.get("workflow-y"), Some(&2));
+        release("workflow-x");
+        release("workflow-y");
     }
 
     #[test]

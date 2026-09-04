@@ -1,38 +1,38 @@
 /**
- * Palette commands for Routines and the Inbox.
+ * Palette commands for Workflows and the Inbox.
  *
- * There is deliberately no "Run all routines" command. Every run spends the
+ * There is deliberately no "Run all workflows" command. Every run spends the
  * user's own agent subscription, and a single keystroke that fans out N
  * concurrent agents across every project is the fastest way to burn someone's
  * quota on something they didn't picture. Running one is a per-row decision.
  *
- * @module commands/useRoutineCommands
+ * @module commands/useWorkflowCommands
  */
 
 import { useSyncExternalStore } from 'react';
 import { BellIcon, CheckIcon, PlusIcon, ZapIcon } from '@/components/icons';
 import { useCommands } from './useCommands';
-import { getSnapshot, markAllRead, subscribe, unreadCount } from '../lib/routinesStore';
+import { getSnapshot, markAllRead, subscribe, unreadCount } from '../lib/workflowsStore';
 import type { AppView } from '../lib/types';
 
-interface UseRoutineCommandsParams {
+interface UseWorkflowCommandsParams {
   setView: (view: AppView) => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-export function useRoutineCommands({ setView, showToast }: UseRoutineCommandsParams) {
+export function useWorkflowCommands({ setView, showToast }: UseWorkflowCommandsParams) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
   const unread = unreadCount(snapshot);
 
   useCommands(
     () => [
       {
-        id: 'routines.open',
-        title: 'Routines',
+        id: 'workflows.open',
+        title: 'Workflows',
         icon: <ZapIcon size={14} />,
         category: 'navigation',
         keywords: ['schedule', 'automation', 'cron', 'recurring', 'checks'],
-        run: () => setView('routines'),
+        run: () => setView('workflows'),
       },
       {
         id: 'inbox.open',
@@ -43,12 +43,12 @@ export function useRoutineCommands({ setView, showToast }: UseRoutineCommandsPar
         run: () => setView('inbox'),
       },
       {
-        id: 'routines.create',
-        title: 'New routine…',
+        id: 'workflows.create',
+        title: 'New workflow…',
         icon: <PlusIcon size={14} />,
         category: 'navigation',
         keywords: ['schedule', 'automation', 'recurring'],
-        run: () => setView('routines'),
+        run: () => setView('workflows'),
       },
       {
         id: 'inbox.markAllRead',

@@ -180,12 +180,12 @@ const OS_SKIP_SELECTOR = [
   // tree into a viewport, which can leave visible file rows outside the
   // clickable hit-test area in WKWebView.
   '.code-tab-sidebar-content',
-  // PROTOTYPE (routines/inbox): the two inbox panes are grid tracks with an
+  // PROTOTYPE (workflows/inbox): the two inbox panes are grid tracks with an
   // explicit 0 minimum. OverlayScrollbars relocates their children into a
   // viewport that is sized wider than the host track, so rows paint past the
   // divider instead of eliding. Same reason .workspace-sidebar-scroll opts out.
   '.inbox-list',
-  '.routine-row-activity',
+  '.workflow-row-activity',
   '.inbox-detail-pane',
 ].join(', ');
 

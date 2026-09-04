@@ -1,13 +1,13 @@
-//! Live activity from a running routine.
+//! Live activity from a running workflow.
 //!
-//! A routine run is 30 seconds to a couple of minutes of nothing. A spinner
+//! A workflow run is 30 seconds to a couple of minutes of nothing. A spinner
 //! answers "is it running"; it does not answer "is it doing anything sensible",
 //! which is the question people actually have the first few times they trust an
 //! unattended agent with their repo.
 //!
 //! So each run streams a short human line per step — `Reading src/lib/auth.ts`,
 //! `git diff --stat`, or the agent's own narration — kept in a small ring
-//! buffer per routine and pushed to open windows as it happens.
+//! buffer per workflow and pushed to open windows as it happens.
 //!
 //! Deliberately *not* the full transcript: the run history already has that.
 //! This is the one-line "what's happening now" plus enough scrollback to see
@@ -18,71 +18,71 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
-/// Lines kept per routine. Enough to see the shape of a run, small enough that
+/// Lines kept per workflow. Enough to see the shape of a run, small enough that
 /// a long one can't grow without bound.
 const MAX_LINES: usize = 120;
 
 /// Emitted per activity line so open windows can follow along.
-pub const ROUTINE_PROGRESS_EVENT: &str = "routines:progress";
+pub const WORKFLOW_PROGRESS_EVENT: &str = "workflows:progress";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressLine {
-    pub routine_id: String,
+    pub workflow_id: String,
     pub at: i64,
     pub text: String,
 }
 
 static PROGRESS: Mutex<Option<HashMap<String, VecDeque<ProgressLine>>>> = Mutex::new(None);
 
-/// Drop anything recorded for a routine. Called as a run starts, so the panel
+/// Drop anything recorded for a workflow. Called as a run starts, so the panel
 /// shows this run rather than a confusing mix with the last one.
-pub fn reset(routine_id: &str) {
+pub fn reset(workflow_id: &str) {
     let mut guard = PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
     guard
         .get_or_insert_with(HashMap::new)
-        .insert(routine_id.to_string(), VecDeque::new());
+        .insert(workflow_id.to_string(), VecDeque::new());
 }
 
 /// Record one activity line and push it to open windows.
-pub fn push(app: Option<&AppHandle>, routine_id: &str, text: impl Into<String>) {
+pub fn push(app: Option<&AppHandle>, workflow_id: &str, text: impl Into<String>) {
     let text = text.into();
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return;
     }
     let line = ProgressLine {
-        routine_id: routine_id.to_string(),
+        workflow_id: workflow_id.to_string(),
         at: super::state::now_ms(),
         text: trimmed.to_string(),
     };
     {
         let mut guard = PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
         let map = guard.get_or_insert_with(HashMap::new);
-        let buffer = map.entry(routine_id.to_string()).or_default();
+        let buffer = map.entry(workflow_id.to_string()).or_default();
         buffer.push_back(line.clone());
         while buffer.len() > MAX_LINES {
             buffer.pop_front();
         }
     }
     if let Some(app) = app {
-        let _ = app.emit(ROUTINE_PROGRESS_EVENT, &line);
+        let _ = app.emit(WORKFLOW_PROGRESS_EVENT, &line);
     }
 }
 
-/// What has been recorded for a routine, oldest first.
+/// What has been recorded for a workflow, oldest first.
 ///
 /// A window opened mid-run has missed every event, so it asks for the buffer
 /// once and follows events from there.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn routine_progress(
-    routine_id: String,
+pub async fn workflow_progress(
+    workflow_id: String,
 ) -> Result<Vec<ProgressLine>, crate::errors::CommandError> {
     let guard = PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
     Ok(guard
         .as_ref()
-        .and_then(|map| map.get(&routine_id))
+        .and_then(|map| map.get(&workflow_id))
         .map(|buffer| buffer.iter().cloned().collect())
         .unwrap_or_default())
 }
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn the_buffer_is_capped_and_resettable() {
-        let id = "progress-test-routine";
+        let id = "progress-test-workflow";
         reset(id);
         for i in 0..(MAX_LINES + 40) {
             push(None, id, format!("line {i}"));

@@ -1267,7 +1267,7 @@
 
 /* Project picker styles removed — replaced by the command palette (⌘O). */
 
-/* PROTOTYPE (routines/inbox): the Inbox nav button carries an unread badge.
+/* PROTOTYPE (workflows/inbox): the Inbox nav button carries an unread badge.
    The wrapper exists only to anchor the badge to the icon button. */
 .workspace-sidebar-inbox {
   position: relative;

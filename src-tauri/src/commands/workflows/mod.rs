@@ -1,6 +1,6 @@
-//! # Routines
+//! # Workflows
 //!
-//! A routine is a standing instruction: a prompt, a project, and something that
+//! A workflow is a standing instruction: a prompt, a project, and something that
 //! sets it off. Running one is a headless agent invocation in the project
 //! directory; what it finds is filed to the Inbox.
 //!
@@ -9,14 +9,14 @@
 //!
 //! | Piece      | What it is                          | Lives in                     |
 //! |------------|-------------------------------------|------------------------------|
-//! | A routine  | a markdown file with frontmatter    | `<project>/.shipstudio/routines/` |
+//! | A workflow  | a markdown file with frontmatter    | `<project>/.shipstudio/workflows/` |
 //! | A run      | `claude -p` / `codex exec`          | [`crate::commands::ai::run_agent_headless`] |
-//! | A schedule | a tick over armed routines          | [`crate::routine_scheduler`] |
+//! | A schedule | a tick over armed workflows          | [`crate::workflow_scheduler`] |
 //! | A report   | a fenced JSON block in the reply    | [`runs::parse_findings`]     |
 //!
 //! ## Why the definition is a file and the results are not
 //!
-//! Routine files live *in the repo*, under `.shipstudio/routines/`. They are
+//! Workflow files live *in the repo*, under `.shipstudio/workflows/`. They are
 //! meant to be read, edited, reviewed and committed like any other source file
 //! — and, crucially, **written by the agent itself** (see [`skill`]), which is
 //! only possible because the format is plain markdown a model can author
@@ -24,7 +24,7 @@
 //!
 //! Run history and findings deliberately do **not** live in the repo. They are
 //! per-machine, high-churn, and would show up in `git status` and pull requests
-//! within a day of use. They go to `~/ShipStudio/.shipstudio/routines-state.json`,
+//! within a day of use. They go to `~/ShipStudio/.shipstudio/workflows-state.json`,
 //! alongside the other workspace-level config (`folders.json`,
 //! `attached-libraries.json`).
 
@@ -79,27 +79,27 @@ impl Severity {
     }
 }
 
-/// What a routine's agent may do while it runs.
+/// What a workflow's agent may do while it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum RoutinePermission {
+pub enum WorkflowPermission {
     ReadOnly,
     CanEdit,
 }
 
-impl RoutinePermission {
+impl WorkflowPermission {
     fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
-            "read-only" | "readonly" | "read" => Some(RoutinePermission::ReadOnly),
-            "can-edit" | "canedit" | "edit" | "write" => Some(RoutinePermission::CanEdit),
+            "read-only" | "readonly" | "read" => Some(WorkflowPermission::ReadOnly),
+            "can-edit" | "canedit" | "edit" | "write" => Some(WorkflowPermission::CanEdit),
             _ => None,
         }
     }
 
     fn as_str(self) -> &'static str {
         match self {
-            RoutinePermission::ReadOnly => "read-only",
-            RoutinePermission::CanEdit => "can-edit",
+            WorkflowPermission::ReadOnly => "read-only",
+            WorkflowPermission::CanEdit => "can-edit",
         }
     }
 }
@@ -107,19 +107,19 @@ impl RoutinePermission {
 /// Non-time triggers, all of which the app already observes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum RoutineEvent {
+pub enum WorkflowEvent {
     Push,
     PrOpened,
 }
 
-/// What sets a routine off.
+/// What sets a workflow off.
 ///
-/// Mirrors `RoutineTrigger` in `src/lib/routines.ts` exactly — the tag is
+/// Mirrors `WorkflowTrigger` in `src/lib/workflows.ts` exactly — the tag is
 /// `kind` and the payload fields are camelCase, so the union deserializes on
 /// the frontend without a translation layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum RoutineTrigger {
+pub enum WorkflowTrigger {
     Manual,
     #[serde(rename_all = "camelCase")]
     Interval {
@@ -138,7 +138,7 @@ pub enum RoutineTrigger {
         at_minute: u32,
     },
     Event {
-        event: RoutineEvent,
+        event: WorkflowEvent,
     },
 }
 
@@ -152,7 +152,7 @@ const WEEKDAYS: [&str; 7] = [
     "saturday",
 ];
 
-impl RoutineTrigger {
+impl WorkflowTrigger {
     /// Parse the frontmatter `trigger:` phrase.
     ///
     /// The grammar is deliberately a human sentence rather than a nested
@@ -160,30 +160,30 @@ impl RoutineTrigger {
     /// primary authoring path — see [`skill`]) gets `trigger: daily at 09:00`
     /// right on the first try far more reliably than a three-key sub-map. An
     /// unrecognised phrase falls back to `manual` rather than failing the whole
-    /// file, so one typo costs the schedule, not the routine.
+    /// file, so one typo costs the schedule, not the workflow.
     pub fn parse(raw: &str) -> Option<Self> {
         let s = raw.trim().to_ascii_lowercase();
         if s.is_empty() || s == "manual" || s == "none" {
-            return Some(RoutineTrigger::Manual);
+            return Some(WorkflowTrigger::Manual);
         }
         if let Some(rest) = s.strip_prefix("on ") {
             return match rest.trim() {
-                "push" => Some(RoutineTrigger::Event {
-                    event: RoutineEvent::Push,
+                "push" => Some(WorkflowTrigger::Event {
+                    event: WorkflowEvent::Push,
                 }),
-                "pr" | "pr-opened" | "pull request" => Some(RoutineTrigger::Event {
-                    event: RoutineEvent::PrOpened,
+                "pr" | "pr-opened" | "pull request" => Some(WorkflowTrigger::Event {
+                    event: WorkflowEvent::PrOpened,
                 }),
                 _ => None,
             };
         }
         if let Some(rest) = s.strip_prefix("every ") {
             return parse_duration_minutes(rest.trim())
-                .map(|every_minutes| RoutineTrigger::Interval { every_minutes });
+                .map(|every_minutes| WorkflowTrigger::Interval { every_minutes });
         }
         if let Some(rest) = s.strip_prefix("daily at ") {
             let (at_hour, at_minute) = parse_clock(rest.trim())?;
-            return Some(RoutineTrigger::Daily { at_hour, at_minute });
+            return Some(WorkflowTrigger::Daily { at_hour, at_minute });
         }
         if let Some(rest) = s.strip_prefix("weekly on ") {
             let (day_part, time_part) = rest.split_once(" at ")?;
@@ -192,7 +192,7 @@ impl RoutineTrigger {
                 .position(|d| *d == day_part.trim())
                 .map(|i| i as u32)?;
             let (at_hour, at_minute) = parse_clock(time_part.trim())?;
-            return Some(RoutineTrigger::Weekly {
+            return Some(WorkflowTrigger::Weekly {
                 weekday,
                 at_hour,
                 at_minute,
@@ -201,21 +201,21 @@ impl RoutineTrigger {
         None
     }
 
-    /// The canonical phrase, round-tripping [`RoutineTrigger::parse`].
+    /// The canonical phrase, round-tripping [`WorkflowTrigger::parse`].
     pub fn to_phrase(self) -> String {
         match self {
-            RoutineTrigger::Manual => "manual".to_string(),
-            RoutineTrigger::Interval { every_minutes } => {
+            WorkflowTrigger::Manual => "manual".to_string(),
+            WorkflowTrigger::Interval { every_minutes } => {
                 if every_minutes % 60 == 0 && every_minutes >= 60 {
                     format!("every {}h", every_minutes / 60)
                 } else {
                     format!("every {every_minutes}m")
                 }
             }
-            RoutineTrigger::Daily { at_hour, at_minute } => {
+            WorkflowTrigger::Daily { at_hour, at_minute } => {
                 format!("daily at {at_hour:02}:{at_minute:02}")
             }
-            RoutineTrigger::Weekly {
+            WorkflowTrigger::Weekly {
                 weekday,
                 at_hour,
                 at_minute,
@@ -223,17 +223,17 @@ impl RoutineTrigger {
                 "weekly on {} at {at_hour:02}:{at_minute:02}",
                 WEEKDAYS[(weekday as usize).min(6)]
             ),
-            RoutineTrigger::Event { event } => match event {
-                RoutineEvent::Push => "on push".to_string(),
-                RoutineEvent::PrOpened => "on pr".to_string(),
+            WorkflowTrigger::Event { event } => match event {
+                WorkflowEvent::Push => "on push".to_string(),
+                WorkflowEvent::PrOpened => "on pr".to_string(),
             },
         }
     }
 
-    /// Whether arming this trigger means anything. A manual routine has no
+    /// Whether arming this trigger means anything. A manual workflow has no
     /// timer to arm — pressing Run is the whole trigger.
     pub fn is_armable(self) -> bool {
-        !matches!(self, RoutineTrigger::Manual)
+        !matches!(self, WorkflowTrigger::Manual)
     }
 }
 
@@ -278,29 +278,29 @@ mod tests {
     #[test]
     fn trigger_phrases_round_trip() {
         let cases = [
-            RoutineTrigger::Manual,
-            RoutineTrigger::Interval { every_minutes: 30 },
-            RoutineTrigger::Interval { every_minutes: 120 },
-            RoutineTrigger::Daily {
+            WorkflowTrigger::Manual,
+            WorkflowTrigger::Interval { every_minutes: 30 },
+            WorkflowTrigger::Interval { every_minutes: 120 },
+            WorkflowTrigger::Daily {
                 at_hour: 9,
                 at_minute: 0,
             },
-            RoutineTrigger::Weekly {
+            WorkflowTrigger::Weekly {
                 weekday: 1,
                 at_hour: 18,
                 at_minute: 30,
             },
-            RoutineTrigger::Event {
-                event: RoutineEvent::Push,
+            WorkflowTrigger::Event {
+                event: WorkflowEvent::Push,
             },
-            RoutineTrigger::Event {
-                event: RoutineEvent::PrOpened,
+            WorkflowTrigger::Event {
+                event: WorkflowEvent::PrOpened,
             },
         ];
         for case in cases {
             let phrase = case.to_phrase();
             assert_eq!(
-                RoutineTrigger::parse(&phrase),
+                WorkflowTrigger::parse(&phrase),
                 Some(case),
                 "round trip failed for {phrase}"
             );
@@ -310,45 +310,45 @@ mod tests {
     #[test]
     fn trigger_accepts_the_phrasings_an_agent_would_write() {
         assert_eq!(
-            RoutineTrigger::parse("Every 30 m"),
-            Some(RoutineTrigger::Interval { every_minutes: 30 }),
+            WorkflowTrigger::parse("Every 30 m"),
+            Some(WorkflowTrigger::Interval { every_minutes: 30 }),
             "a stray space before the unit must not cost the schedule"
         );
         assert_eq!(
-            RoutineTrigger::parse("every 2h"),
-            Some(RoutineTrigger::Interval { every_minutes: 120 })
+            WorkflowTrigger::parse("every 2h"),
+            Some(WorkflowTrigger::Interval { every_minutes: 120 })
         );
         assert_eq!(
-            RoutineTrigger::parse("Daily at 9:00"),
-            Some(RoutineTrigger::Daily {
+            WorkflowTrigger::parse("Daily at 9:00"),
+            Some(WorkflowTrigger::Daily {
                 at_hour: 9,
                 at_minute: 0
             })
         );
         assert_eq!(
-            RoutineTrigger::parse("weekly on friday at 17:30"),
-            Some(RoutineTrigger::Weekly {
+            WorkflowTrigger::parse("weekly on friday at 17:30"),
+            Some(WorkflowTrigger::Weekly {
                 weekday: 5,
                 at_hour: 17,
                 at_minute: 30
             })
         );
         assert_eq!(
-            RoutineTrigger::parse("on pull request"),
-            Some(RoutineTrigger::Event {
-                event: RoutineEvent::PrOpened
+            WorkflowTrigger::parse("on pull request"),
+            Some(WorkflowTrigger::Event {
+                event: WorkflowEvent::PrOpened
             })
         );
-        assert_eq!(RoutineTrigger::parse(""), Some(RoutineTrigger::Manual));
+        assert_eq!(WorkflowTrigger::parse(""), Some(WorkflowTrigger::Manual));
     }
 
     #[test]
     fn interval_bounds_reject_quota_burning_and_nonsense() {
-        assert_eq!(RoutineTrigger::parse("every 1m"), None);
-        assert_eq!(RoutineTrigger::parse("every 4m"), None);
-        assert!(RoutineTrigger::parse("every 5m").is_some());
-        assert_eq!(RoutineTrigger::parse("every 200h"), None);
-        assert_eq!(RoutineTrigger::parse("every banana"), None);
+        assert_eq!(WorkflowTrigger::parse("every 1m"), None);
+        assert_eq!(WorkflowTrigger::parse("every 4m"), None);
+        assert!(WorkflowTrigger::parse("every 5m").is_some());
+        assert_eq!(WorkflowTrigger::parse("every 200h"), None);
+        assert_eq!(WorkflowTrigger::parse("every banana"), None);
     }
 
     #[test]
@@ -357,21 +357,21 @@ mod tests {
         assert_eq!(Severity::parse(" warn "), Some(Severity::Warning));
         assert_eq!(Severity::parse("nope"), None);
         assert_eq!(
-            RoutinePermission::parse("readonly"),
-            Some(RoutinePermission::ReadOnly)
+            WorkflowPermission::parse("readonly"),
+            Some(WorkflowPermission::ReadOnly)
         );
         assert_eq!(
-            RoutinePermission::parse("can_edit"),
-            Some(RoutinePermission::CanEdit)
+            WorkflowPermission::parse("can_edit"),
+            Some(WorkflowPermission::CanEdit)
         );
     }
 
     #[test]
     fn trigger_serializes_as_the_frontend_union() {
-        let json = serde_json::to_string(&RoutineTrigger::Interval { every_minutes: 30 }).unwrap();
+        let json = serde_json::to_string(&WorkflowTrigger::Interval { every_minutes: 30 }).unwrap();
         assert_eq!(json, r#"{"kind":"interval","everyMinutes":30}"#);
-        let json = serde_json::to_string(&RoutineTrigger::Event {
-            event: RoutineEvent::PrOpened,
+        let json = serde_json::to_string(&WorkflowTrigger::Event {
+            event: WorkflowEvent::PrOpened,
         })
         .unwrap();
         assert_eq!(json, r#"{"kind":"event","event":"pr-opened"}"#);

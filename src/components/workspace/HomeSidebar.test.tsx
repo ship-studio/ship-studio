@@ -20,7 +20,7 @@ function renderSidebar(ui: React.ReactElement) {
 
 const props = {
   onGoHome: vi.fn(),
-  onGoRoutines: vi.fn(),
+  onGoWorkflows: vi.fn(),
   onGoInbox: vi.fn(),
   inboxUnreadCount: 0,
   isSidebarHidden: false,
@@ -35,9 +35,9 @@ const props = {
 };
 
 describe('HomeSidebar', () => {
-  it('renders the Routines and Inbox destinations', () => {
+  it('renders the Workflows and Inbox destinations', () => {
     renderSidebar(<HomeSidebar {...props} activeNav="home" />);
-    expect(screen.getByRole('button', { name: 'Routines' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Workflows' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Inbox' })).toBeInTheDocument();
   });
 
@@ -47,9 +47,9 @@ describe('HomeSidebar', () => {
   });
 
   it('marks the current destination and disables its button', () => {
-    renderSidebar(<HomeSidebar {...props} activeNav="routines" />);
-    const routines = screen.getByRole('button', { name: 'Routines' });
-    expect(routines).toBeDisabled();
-    expect(routines).toHaveAttribute('aria-current', 'page');
+    renderSidebar(<HomeSidebar {...props} activeNav="workflows" />);
+    const workflows = screen.getByRole('button', { name: 'Workflows' });
+    expect(workflows).toBeDisabled();
+    expect(workflows).toHaveAttribute('aria-current', 'page');
   });
 });

@@ -11,7 +11,7 @@
  * a workspace, spawns a PTY, and starts an agent, and only then is there
  * anything to paste into.
  *
- * @module lib/routineHandoff
+ * @module lib/workflowHandoff
  */
 
 import { logger } from './logger';
@@ -35,7 +35,7 @@ let pending: PendingHandoff | null = null;
 /** Queue a prompt to be typed into `projectPath`'s terminal once it exists. */
 export function queueHandoff(projectPath: string, prompt: string): void {
   pending = { projectPath, prompt, queuedAt: Date.now() };
-  logger.info('[Routines] Queued a fix handoff', { projectPath });
+  logger.info('[Workflows] Queued a fix handoff', { projectPath });
 }
 
 /**

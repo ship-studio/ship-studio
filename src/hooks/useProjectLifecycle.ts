@@ -218,7 +218,7 @@ export function useProjectLifecycle({
   const navigationVersionRef = useRef(0);
 
   // Send prompt to the agent terminal. Returns false when there is no terminal
-  // yet — the routine handoff retries on that.
+  // yet — the workflow handoff retries on that.
   const sendToClaude = useCallback(
     (prompt: string): boolean => pasteToActiveTerminal(prompt),
     [pasteToActiveTerminal]
