@@ -19,6 +19,11 @@ vi.mock('../../contexts/ToastContext', () => ({
   useOptionalToast: () => ({ showToast }),
 }));
 
+const openUrl = vi.fn<(url: string) => Promise<void>>();
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: (url: string) => openUrl(url),
+}));
+
 vi.mock('../../lib/workflowsStore', () => ({
   subscribe: vi.fn(() => () => undefined),
   getSnapshot: vi.fn(),
@@ -239,5 +244,32 @@ describe('InboxView', () => {
     const list = within(screen.getByRole('listbox', { name: 'Findings' }));
     expect(list.getAllByRole('option')).toHaveLength(1);
     expect(list.queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('opens a link in a report in the browser, not in the app window', async () => {
+    // A link here navigates the Tauri webview itself, which replaces Ship
+    // Studio with a web page and offers no way back — and this body is written
+    // by an agent that has just read a repository, so the URL may have come
+    // from the repository rather than from the agent.
+    const user = userEvent.setup();
+    snapshot([item({ bodyMd: 'See [the advisory](https://example.com/advisory).' })]);
+    render(<InboxView />);
+
+    await user.click(screen.getByRole('link', { name: 'the advisory' }));
+    expect(openUrl).toHaveBeenCalledWith('https://example.com/advisory');
+  });
+
+  it('refuses to hand a non-web scheme to the opener', async () => {
+    const user = userEvent.setup();
+    // DOMPurify drops javascript: before this ever renders; file: survives
+    // sanitizing in some configurations and has no business being opened.
+    snapshot([item({ bodyMd: 'See [a file](file:///etc/passwd).' })]);
+    render(<InboxView />);
+
+    const link = screen.queryByRole('link', { name: 'a file' });
+    if (link) {
+      await user.click(link);
+    }
+    expect(openUrl).not.toHaveBeenCalled();
   });
 });

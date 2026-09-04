@@ -13,9 +13,10 @@
  * @module components/inbox/InboxDetail
  */
 
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   CodeIcon,
   CopyIcon,
@@ -59,6 +60,28 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
     [item.bodyMd]
   );
 
+  /**
+   * Send links in the report to the system browser.
+   *
+   * Without this a link navigates the Tauri webview itself, so clicking a
+   * reference in a finding replaces Ship Studio with a web page and there is no
+   * back button to return from. That is bad enough for a link to MDN; this
+   * body is written by an agent that has just read a repository, so the link
+   * may well have come from something in that repository rather than from the
+   * agent's own knowledge. DOMPurify has already dropped `javascript:` and
+   * anything else off its scheme allowlist — this decides where what survives
+   * is allowed to open.
+   */
+  const handleBodyClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as HTMLElement).closest('a');
+    const href = anchor?.getAttribute('href');
+    if (!href) return;
+    event.preventDefault();
+    if (/^(https?|mailto):/i.test(href)) {
+      void openUrl(href);
+    }
+  }, []);
+
   return (
     <>
       <div className="inbox-detail-scroll">
@@ -100,8 +123,13 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
           )}
 
           {/* Report bodies are agent-authored markdown, sanitized before render —
-              the same path ArticleView uses for support articles. */}
-          <div className="inbox-detail-body" dangerouslySetInnerHTML={{ __html: html }} />
+              the same path ArticleView uses for support articles — and their
+              links open in the browser rather than replacing the app. */}
+          <div
+            className="inbox-detail-body"
+            onClick={handleBodyClick}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
 
           <section className="inbox-handoff">
             <div className="inbox-handoff-header">

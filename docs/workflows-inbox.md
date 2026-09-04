@@ -316,6 +316,12 @@ exactly what happened the first two times it ran.
   a month's allowance in a week. There is no budget, cap, or projection yet. No
   *template* ships a cadence faster than weekly, and a test enforces that, but
   the editor will happily let you pick every 15 minutes.
+- **Links in a report open in the browser, not the app.** A finding's body is
+  agent-authored markdown rendered as HTML (sanitized through DOMPurify, the
+  same path support articles use). A plain anchor would navigate the Tauri
+  webview itself and replace Ship Studio with a web page, with nothing to go
+  back with — so clicks are intercepted and handed to the system browser, and
+  only `http`, `https` and `mailto` are handed anywhere at all.
 - **Prompt injection from the repository.** A run's prompt includes recent
   commit messages and `git status`, which anyone who can land a commit can
   write. Under `read-only` — the default, enforced by the CLI — the worst case
