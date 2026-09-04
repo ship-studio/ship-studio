@@ -16,6 +16,7 @@ import {
   agentForRoutine,
   formatAgo,
   formatCountdown,
+  formatElapsed,
   describeSchedule,
   type Routine,
 } from '../../lib/routines';
@@ -34,9 +35,15 @@ function AgentGlyph({ agentId }: { agentId: string | null }) {
   return <GenericAgentIcon size={12} />;
 }
 
-/** "1 finding 18m ago" / "Running now" / "Never run". */
+/** "1 finding 18m ago" / "Running · 1m 12s" / "Never run". */
 function lastRunLabel(routine: Routine): string {
-  if (routine.isRunning) return 'Running now';
+  if (routine.isRunning) {
+    // A routine run is 30s–2min of silence. Elapsed time is the difference
+    // between "it's working" and "is this thing broken?".
+    return routine.runningSince === null
+      ? 'Running'
+      : `Running · ${formatElapsed(routine.runningSince)}`;
+  }
   const run = routine.runs[0];
   if (!run) return 'Never run';
   if (run.status === 'failed') return `Failed ${formatAgo(run.startedAt)}`;

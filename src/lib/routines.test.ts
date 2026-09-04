@@ -54,6 +54,7 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     filePath: '/p/.shipstudio/routines/r.md',
     nextRunAt: null,
     isRunning: false,
+    runningSince: null,
     runs: [],
     ...overrides,
   };

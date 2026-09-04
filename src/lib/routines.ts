@@ -96,6 +96,8 @@ export interface Routine {
   /** When the trigger next comes due. Null for manual, event, and disarmed. */
   nextRunAt: number | null;
   isRunning: boolean;
+  /** When the in-flight run started, for elapsed time. Null when idle. */
+  runningSince: number | null;
   runs: RoutineRun[];
 }
 
@@ -293,6 +295,16 @@ export function formatAgo(timestamp: number, now = Date.now()): string {
   return age === 'now' ? 'just now' : `${age} ago`;
 }
 
+/**
+ * How long an in-flight run has been going, e.g. "1m 12s".
+ *
+ * `now` defaults inside the function rather than being read in a component's
+ * render — the purity lint (rightly) rejects `Date.now()` in render.
+ */
+export function formatElapsed(since: number, now = Date.now()): string {
+  return formatDuration(Math.max(0, now - since));
+}
+
 /** Run duration as "1.4s" / "48s" / "2m 10s". */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -426,13 +438,13 @@ For each finding, give me the concrete inputs that produce the wrong output. If 
   {
     id: 'tpl-links',
     name: 'Broken links & images',
-    description: 'Crawls the running preview and reports anything that 404s.',
+    description: 'Crawls the running preview. Needs the project open with its dev server up.',
     category: 'Quality',
-    trigger: { kind: 'daily', atHour: 18, atMinute: 0 },
+    trigger: { kind: 'manual' },
     permission: 'read-only',
-    prompt: `Crawl every page of the running dev server. Report links that 404, images that fail to load, and any page that throws in the console on first paint.
+    prompt: `Crawl the pages of this project's running dev-server preview. Report links that 404, images that fail to load, and any page that throws in the console on first paint.
 
-Use the Ship Studio preview bridge rather than starting your own browser.`,
+If no preview is running, report nothing and stop. Do not start a server yourself.`,
   },
   {
     id: 'tpl-blank',

@@ -299,6 +299,9 @@ pub struct RoutineView {
     /// and for an armed trigger whose auto-run is off.
     pub next_run_at: Option<i64>,
     pub is_running: bool,
+    /// When the in-flight run started, so the row can show elapsed time
+    /// instead of an unmoving spinner. Null when nothing is running.
+    pub running_since: Option<i64>,
     pub runs: Vec<super::state::RoutineRun>,
 }
 
@@ -307,7 +310,7 @@ pub struct RoutineView {
 #[tracing::instrument]
 pub async fn list_all_routines() -> Result<Vec<RoutineView>, CommandError> {
     let state = super::state::load_state();
-    let running = super::runs::running_routine_ids().await.unwrap_or_default();
+    let running = super::runs::running_since_map();
     let now = super::state::now_ms();
 
     let mut views: Vec<RoutineView> = Vec::new();
@@ -327,7 +330,8 @@ pub async fn list_all_routines() -> Result<Vec<RoutineView>, CommandError> {
                 .collect();
             runs.sort_by(|a, b| b.started_at.cmp(&a.started_at));
             views.push(RoutineView {
-                is_running: running.contains(&routine.id),
+                running_since: running.get(&routine.id).copied(),
+                is_running: running.contains_key(&routine.id),
                 next_run_at,
                 runs,
                 routine,

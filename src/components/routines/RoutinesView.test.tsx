@@ -49,6 +49,7 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     filePath: '/p/demo/.shipstudio/routines/security-sweep.md',
     nextRunAt: Date.now() + 12 * 60_000,
     isRunning: false,
+    runningSince: null,
     runs: [],
     ...overrides,
   };
@@ -178,7 +179,20 @@ describe('RoutinesView', () => {
     snapshot([routine({ isRunning: true })]);
     render(<RoutinesView />);
     expect(screen.getByRole('button', { name: /Running/ })).toBeDisabled();
-    expect(screen.getByText('Running now')).toBeInTheDocument();
+  });
+
+  it('shows elapsed time for a run rather than a silent spinner', () => {
+    // A run is 30s-2min. "Running" alone reads as "is this thing broken?".
+    snapshot([routine({ isRunning: true, runningSince: Date.now() - 72_000 })]);
+    render(<RoutinesView />);
+    expect(screen.getByText(/Running · 1m 12s/)).toBeInTheDocument();
+  });
+
+  it('falls back to a bare label when the start time is unknown', () => {
+    snapshot([routine({ isRunning: true, runningSince: null })]);
+    const { container } = render(<RoutinesView />);
+    // Scoped to the status line: the Run button also reads "Running".
+    expect(container.querySelector('.routine-row-last')?.textContent).toBe('Running');
   });
 
   it('shows no auto-run switch for a manual routine', () => {

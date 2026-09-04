@@ -41,7 +41,7 @@ use crate::errors::CommandError;
 use crate::external_command::{run_with_timeout, run_with_timeout_stdin};
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
@@ -57,23 +57,36 @@ const GIT_TIMEOUT_SECS: u64 = 30;
 /// Emitted whenever runs or the inbox change, so open windows refresh.
 pub const ROUTINES_CHANGED_EVENT: &str = "routines:changed";
 
-/// Routine ids with a run in flight. Pressing Run twice, or a tick landing on
-/// a routine you just started by hand, must not spawn a second agent against
-/// the same working tree.
-static IN_FLIGHT: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// Routine ids with a run in flight, and when each started. Pressing Run twice,
+/// or a tick landing on a routine you just started by hand, must not spawn a
+/// second agent against the same working tree.
+///
+/// The start time lives here rather than in a pending run record so the list
+/// can show elapsed time for a run *any* window started — a routine that has
+/// been working for two minutes should say so rather than spin silently.
+static IN_FLIGHT: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
 
-fn claim(routine_id: &str) -> bool {
+fn claim(routine_id: &str, started_at: i64) -> bool {
     let mut guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-    guard
-        .get_or_insert_with(HashSet::new)
-        .insert(routine_id.to_string())
+    let map = guard.get_or_insert_with(HashMap::new);
+    if map.contains_key(routine_id) {
+        return false;
+    }
+    map.insert(routine_id.to_string(), started_at);
+    true
 }
 
 fn release(routine_id: &str) {
     let mut guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(set) = guard.as_mut() {
-        set.remove(routine_id);
+    if let Some(map) = guard.as_mut() {
+        map.remove(routine_id);
     }
+}
+
+/// When each in-flight run started, by routine id.
+pub fn running_since_map() -> HashMap<String, i64> {
+    let guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+    guard.clone().unwrap_or_default()
 }
 
 /// Routine ids currently executing, so the UI can show them as running even in
@@ -84,7 +97,7 @@ pub async fn running_routine_ids() -> Result<Vec<String>, CommandError> {
     let guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     Ok(guard
         .as_ref()
-        .map(|s| s.iter().cloned().collect())
+        .map(|m| m.keys().cloned().collect())
         .unwrap_or_default())
 }
 
@@ -593,7 +606,7 @@ pub async fn run_routine(
         ));
     }
 
-    if !claim(&routine.id) {
+    if !claim(&routine.id, now_ms()) {
         return Err(CommandError::expected(format!(
             "\"{}\" is already running.",
             routine.name
@@ -1024,6 +1037,31 @@ mod tests {
             !project.join("PWNED.txt").exists(),
             "a read-only routine must not have written anything"
         );
+    }
+
+    #[test]
+    fn a_second_claim_on_the_same_routine_is_refused() {
+        // Two agents against one working tree is confusing at best, and a
+        // corruption risk when either can edit.
+        let id = "claim-test-routine";
+        assert!(claim(id, 1000));
+        assert!(!claim(id, 2000), "a second claim must be refused");
+        release(id);
+        assert!(claim(id, 3000), "releasing frees the slot again");
+        assert_eq!(running_since_map().get(id), Some(&3000));
+        release(id);
+        assert!(running_since_map().get(id).is_none());
+    }
+
+    #[test]
+    fn claiming_one_routine_does_not_block_another() {
+        assert!(claim("routine-x", 1));
+        assert!(claim("routine-y", 2));
+        let map = running_since_map();
+        assert_eq!(map.get("routine-x"), Some(&1));
+        assert_eq!(map.get("routine-y"), Some(&2));
+        release("routine-x");
+        release("routine-y");
     }
 
     #[test]

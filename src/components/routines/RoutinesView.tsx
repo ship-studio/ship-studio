@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { usePolling } from '../../hooks/usePolling';
 import { PlusIcon, ZapIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { EmptyState } from '../primitives/EmptyState';
@@ -66,6 +67,18 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
       active = false;
     };
   }, []);
+
+  // Re-render once a second while something is running so its elapsed time
+  // moves. Idle, this does nothing at all.
+  const anyRunning = routines.some((routine) => routine.isRunning);
+  const [, setTick] = useState(0);
+  usePolling(
+    () => {
+      setTick((value) => value + 1);
+      return Promise.resolve();
+    },
+    { intervalMs: 1000, enabled: anyRunning }
+  );
 
   const armedCount = routines.filter(
     (routine) => routine.autoRun && routine.trigger.kind !== 'manual'
@@ -213,11 +226,10 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
           </section>
 
           <p className="routines-page-footer">
-            Routines run the agent CLI installed on this Mac, inside your project folder — there is
-            no Ship Studio server and no copy of your code anywhere else. Nothing runs while the app
-            is closed. Each routine is a markdown file under <code>.shipstudio/routines/</code>, so
-            you can commit them, review them in a PR, or ask your agent to write one for you. Tokens
-            are billed to the agent plan you already pay for.
+            Routines run your own agent CLI inside your project folder, on the plan you already pay
+            for. Nothing runs while Ship Studio is closed. Each one is a markdown file under{' '}
+            <code>.shipstudio/routines/</code> — commit them, review them in a PR, or ask your agent
+            to write you one.
           </p>
 
           <div className="dashboard-bottom-spacer" aria-hidden />
