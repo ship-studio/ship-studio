@@ -130,9 +130,9 @@ back as corrupt and take the lot with it.
 A file that is present but unparseable is moved aside as `.json.corrupt` before
 anything replaces it. "The Inbox came up empty" then leaves something a person
 can look at, instead of being a silent, total loss. (This earned its keep
-immediately: renaming the feature changed `routineId` to `workflowId`, and the
-quarantine is what turned a vanished inbox into a file that could be migrated
-back.)
+within the hour it was written: a field rename made every existing item
+unparseable, and the quarantined copy is what turned a vanished inbox into a
+file that could be migrated back.)
 
 The inbox is capped at 500 findings, dropping archived first, then read, then —
 only if it somehow comes to it — the oldest unread. Run history was already

@@ -107,6 +107,18 @@ published fix, say what upgrading costs. Ignore dev-only packages.
 Intervals must be between 5 minutes and 7 days. An unrecognised trigger falls
 back to `manual`, so the workflow still works — it just won't be scheduled.
 
+### Say what a schedule actually promises
+
+Scheduled workflows run **only while Ship Studio is open**. There is no server
+and no background daemon: a `daily at 09:00` workflow runs at the first check
+after 09:00 that the app is running for, and if the app was closed all morning
+it simply runs late, once — never once per missed day. `on push` and `on pr`
+fire when Ship Studio itself performs those actions.
+
+Tell the user this when you set a schedule up. "It'll run every morning" is the
+one sentence here that can turn out to be false, and they will find out on the
+morning they were relying on it.
+
 ### The body is the instruction
 
 Everything after the frontmatter is the prompt handed to the agent on each run.
@@ -134,7 +146,8 @@ reporting format — so do **not** write any of that into the body yourself.
 1. Write the file to `.shipstudio/workflows/<slug>.md` (kebab-case slug from the
    name). Create the directory if it doesn't exist.
 2. Tell the user it's saved, and that it's in **Workflows** in Ship Studio's
-   sidebar where they can press Run to try it immediately.
+   sidebar where they can press Run to try it immediately. Suggest they do —
+   a workflow nobody has watched run once is a schedule nobody trusts.
 
 To change a workflow, edit its file. To delete one, delete its file. To see what
 already exists, list `.shipstudio/workflows/`.
@@ -229,6 +242,18 @@ pub async fn ensure_workflows_skill() -> Result<Vec<WorkflowsSkillStatus>, Comma
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_skill_tells_the_agent_a_schedule_only_runs_while_the_app_is_open() {
+        // The agent is the discovery path, so it is also the place a false
+        // promise would be made. Every other surface says this plainly.
+        let body = skill_markdown();
+        assert!(
+            body.contains("only while Ship Studio is open"),
+            "the skill must not let an agent promise a clock the app cannot keep"
+        );
+        assert!(body.contains("runs late, once"));
+    }
 
     #[test]
     fn the_description_names_phrasings_a_user_actually_says() {

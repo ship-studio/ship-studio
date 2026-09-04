@@ -57,25 +57,39 @@ pub fn spawn(app: AppHandle) {
 /// The armed, time-triggered workflow that is most overdue, if any.
 fn most_overdue(now: i64) -> Option<Workflow> {
     let state = crate::commands::workflows::load_state();
-    let mut best: Option<(i64, Workflow)> = None;
+    let candidates = projects_with_workflows()
+        .into_iter()
+        .flat_map(|project| read_project_workflows(&project));
+    pick_due(candidates, &state.last_run_at, now)
+}
 
-    for project in projects_with_workflows() {
-        for workflow in read_project_workflows(&project) {
-            if !workflow.auto_run || !workflow.trigger.is_armable() {
-                continue;
-            }
-            let last = state.last_run_at.get(&workflow.id).copied();
-            // `due_at`, not `next_due_at`: the next occurrence of a daily
-            // trigger is always in the future, so asking that question here
-            // means daily and weekly workflows never run at all.
-            let Some(due) = due_at(workflow.trigger, last, workflow.updated_at, now) else {
-                continue;
-            };
-            // Most overdue first, so a backlog drains oldest-first rather than
-            // letting one workflow's cadence starve another's.
-            if best.as_ref().is_none_or(|(best_due, _)| due < *best_due) {
-                best = Some((due, workflow));
-            }
+/// Choose what to run from a set of candidates.
+///
+/// Split out from the filesystem scan so the choice itself can be tested: the
+/// bug this guards against — asking "when is the next occurrence?" instead of
+/// "did one pass?", which made every daily and weekly workflow unrunnable —
+/// lived here, in nine lines that read fine and did nothing.
+fn pick_due(
+    workflows: impl IntoIterator<Item = Workflow>,
+    last_run_at: &std::collections::BTreeMap<String, i64>,
+    now: i64,
+) -> Option<Workflow> {
+    let mut best: Option<(i64, Workflow)> = None;
+    for workflow in workflows {
+        if !workflow.auto_run || !workflow.trigger.is_armable() {
+            continue;
+        }
+        let last = last_run_at.get(&workflow.id).copied();
+        // `due_at`, not `next_due_at`: the next occurrence of a daily trigger
+        // is always in the future, so asking that question here means daily
+        // and weekly workflows never run at all.
+        let Some(due) = due_at(workflow.trigger, last, workflow.updated_at, now) else {
+            continue;
+        };
+        // Most overdue first, so a backlog drains oldest-first rather than
+        // letting one workflow's cadence starve another's.
+        if best.as_ref().is_none_or(|(best_due, _)| due < *best_due) {
+            best = Some((due, workflow));
         }
     }
     best.map(|(_, workflow)| workflow)
@@ -178,4 +192,127 @@ pub async fn fire_push_workflows(
     )
     .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::workflows::{Severity, WorkflowPermission, WorkflowTrigger};
+    use std::collections::BTreeMap;
+
+    fn workflow(slug: &str, trigger: WorkflowTrigger, auto_run: bool, updated_at: i64) -> Workflow {
+        Workflow {
+            id: format!("/p::{slug}"),
+            slug: slug.to_string(),
+            name: slug.to_string(),
+            icon: None,
+            description: String::new(),
+            agent_id: None,
+            project_path: "/p".to_string(),
+            project_name: "p".to_string(),
+            trigger,
+            permission: WorkflowPermission::ReadOnly,
+            prompt: "look at something".to_string(),
+            severity_floor: Severity::Info,
+            auto_run,
+            file_path: format!("/p/.shipstudio/workflows/{slug}.md"),
+            updated_at: Some(updated_at),
+            extra: Default::default(),
+        }
+    }
+
+    /// Local 09:00 today, so these mean the same thing in any timezone.
+    fn nine_am_today() -> i64 {
+        use chrono::{Local, TimeZone};
+        let day = Local::now().date_naive();
+        Local
+            .from_local_datetime(&day.and_hms_opt(9, 0, 0).unwrap())
+            .single()
+            .map(|dt| dt.timestamp_millis())
+            // Spring-forward night: 10:00 exists on every day of the year.
+            .unwrap_or_else(|| {
+                Local
+                    .from_local_datetime(&day.and_hms_opt(10, 0, 0).unwrap())
+                    .single()
+                    .unwrap()
+                    .timestamp_millis()
+            })
+    }
+
+    const DAILY: WorkflowTrigger = WorkflowTrigger::Daily {
+        at_hour: 9,
+        at_minute: 0,
+    };
+
+    #[test]
+    fn a_daily_workflow_gets_picked_up_once_its_hour_has_passed() {
+        // The regression. This scheduler shipped for weeks selecting nothing
+        // here, because it asked for the *next* occurrence and skipped anything
+        // in the future — which a next occurrence always is.
+        let nine = nine_am_today();
+        let armed_yesterday = nine - 86_400_000;
+        let workflows = vec![workflow("daily-audit", DAILY, true, armed_yesterday)];
+        let picked = pick_due(workflows, &BTreeMap::new(), nine + 60_000);
+        assert_eq!(picked.map(|w| w.slug), Some("daily-audit".to_string()));
+    }
+
+    #[test]
+    fn nothing_is_picked_before_the_hour_arrives() {
+        let nine = nine_am_today();
+        let workflows = vec![workflow("daily-audit", DAILY, true, nine - 86_400_000)];
+        assert!(pick_due(workflows, &BTreeMap::new(), nine - 60_000).is_none());
+    }
+
+    #[test]
+    fn a_disarmed_or_manual_workflow_is_never_picked() {
+        let nine = nine_am_today();
+        let yesterday = nine - 86_400_000;
+        let workflows = vec![
+            workflow("disarmed", DAILY, false, yesterday),
+            workflow("manual", WorkflowTrigger::Manual, true, yesterday),
+            workflow(
+                "on-push",
+                WorkflowTrigger::Event {
+                    event: crate::commands::workflows::WorkflowEvent::Push,
+                },
+                true,
+                yesterday,
+            ),
+        ];
+        assert!(pick_due(workflows, &BTreeMap::new(), nine + 60_000).is_none());
+    }
+
+    #[test]
+    fn the_most_overdue_workflow_wins_the_tick() {
+        // One run per tick, so which one it is decides whether a slow cadence
+        // can be starved by a fast one.
+        let now = 1_700_000_000_000;
+        let workflows = vec![
+            workflow(
+                "recent",
+                WorkflowTrigger::Interval { every_minutes: 30 },
+                true,
+                now - 40 * 60_000,
+            ),
+            workflow(
+                "ancient",
+                WorkflowTrigger::Interval { every_minutes: 30 },
+                true,
+                now - 10 * 60 * 60_000,
+            ),
+        ];
+        assert_eq!(
+            pick_due(workflows, &BTreeMap::new(), now).map(|w| w.slug),
+            Some("ancient".to_string())
+        );
+    }
+
+    #[test]
+    fn a_workflow_that_already_ran_this_hour_is_left_alone() {
+        let nine = nine_am_today();
+        let mut last_run = BTreeMap::new();
+        last_run.insert("/p::daily-audit".to_string(), nine + 30_000);
+        let workflows = vec![workflow("daily-audit", DAILY, true, nine - 86_400_000)];
+        assert!(pick_due(workflows, &last_run, nine + 3_600_000).is_none());
+    }
 }

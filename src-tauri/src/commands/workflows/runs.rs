@@ -1552,8 +1552,7 @@ mod tests {
         // Nothing may be written into the project itself: definitions live in
         // the repo, results do not.
         assert!(
-            !project.join(".shipstudio/workflows-state.json").exists()
-                && !project.join(".shipstudio/routines-state.json").exists(),
+            !project.join(".shipstudio/workflows-state.json").exists(),
             "run output must never land in the user's repo"
         );
     }
