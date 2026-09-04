@@ -29,11 +29,13 @@
 //! `attached-libraries.json`).
 
 mod files;
+mod progress;
 mod runs;
 mod skill;
 mod state;
 
 pub use files::*;
+pub use progress::*;
 pub use runs::*;
 pub use skill::*;
 pub use state::*;

@@ -28,15 +28,25 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { listProjects } from '../../lib/project';
 import { logger } from '../../lib/logger';
-import { formatTokens, summarizeWeek, type Routine, type RoutineDraft } from '../../lib/routines';
+import {
+  formatTokens,
+  summarizeWeek,
+  type ProgressLine,
+  type Routine,
+  type RoutineDraft,
+} from '../../lib/routines';
 import {
   deleteRoutine,
   getSnapshot,
+  loadProgress,
   runRoutineNow,
   saveRoutine,
   setAutoRun,
   subscribe,
 } from '../../lib/routinesStore';
+
+/** Stable empty array so a routine with no activity doesn't re-render on every tick. */
+const EMPTY_PROGRESS: ProgressLine[] = [];
 
 interface RoutinesViewProps {
   /** Preselected project for a new routine, when opened from a workspace. */
@@ -44,13 +54,14 @@ interface RoutinesViewProps {
 }
 
 export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
-  const { routines, loaded, error } = useSyncExternalStore(subscribe, getSnapshot);
+  const { routines, progress, loaded, error } = useSyncExternalStore(subscribe, getSnapshot);
   const { showToast } = useOptionalToast();
   const { dashboardHeaderHidden, hideDashboardHeader } = useDashboardVisibility();
 
   const [editing, setEditing] = useState<Routine | 'new' | null>(null);
   const [historyFor, setHistoryFor] = useState<Routine | null>(null);
   const [projects, setProjects] = useState<RoutineProjectOption[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // The project list is only needed to answer "which project does this run
   // against", so it loads once rather than on every store change.
@@ -110,6 +121,16 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
     },
     [showToast]
   );
+
+  // Opening a routine mid-run has missed every event so far, so pull the
+  // backend's buffer once; the live stream continues from there.
+  const handleToggleExpanded = useCallback((routine: Routine) => {
+    setExpandedId((current) => {
+      if (current === routine.id) return null;
+      void loadProgress(routine.id);
+      return routine.id;
+    });
+  }, []);
 
   const handleSave = useCallback(
     async (projectPath: string, slug: string | null, draft: RoutineDraft) => {
@@ -215,6 +236,9 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
                   <RoutineRow
                     key={routine.id}
                     routine={routine}
+                    progress={progress[routine.id] ?? EMPTY_PROGRESS}
+                    isExpanded={expandedId === routine.id}
+                    onToggleExpanded={handleToggleExpanded}
                     onEdit={setEditing}
                     onRunNow={handleRunNow}
                     onToggleAutoRun={handleToggleAutoRun}

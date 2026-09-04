@@ -185,6 +185,7 @@ const OS_SKIP_SELECTOR = [
   // viewport that is sized wider than the host track, so rows paint past the
   // divider instead of eliding. Same reason .workspace-sidebar-scroll opts out.
   '.inbox-list',
+  '.routine-row-activity',
   '.inbox-detail-pane',
 ].join(', ');
 

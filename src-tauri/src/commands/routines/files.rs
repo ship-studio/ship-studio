@@ -31,6 +31,9 @@ pub struct Routine {
     pub id: String,
     pub slug: String,
     pub name: String,
+    /// A single emoji standing in for the routine, Notion-style. None means the
+    /// row falls back to a status dot.
+    pub icon: Option<String>,
     pub description: String,
     pub agent_id: Option<String>,
     pub project_path: String,
@@ -52,6 +55,7 @@ pub struct Routine {
 #[serde(rename_all = "camelCase")]
 pub struct RoutineDraft {
     pub name: String,
+    pub icon: Option<String>,
     pub description: String,
     pub agent_id: Option<String>,
     pub trigger: RoutineTrigger,
@@ -83,6 +87,26 @@ pub fn slugify(raw: &str) -> String {
         // Long slugs make unwieldy filenames without adding identity.
         out.chars().take(64).collect()
     }
+}
+
+/// Keep only a short, single-glyph icon.
+///
+/// The value reaches the UI as a text node, so the risk isn't injection so much
+/// as layout: an agent that writes `icon: a long sentence` would blow out every
+/// row. One grapheme cluster's worth of chars is the contract, and anything
+/// longer is dropped rather than truncated into a mystery fragment.
+fn sanitize_icon(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // A single emoji can be several chars (ZWJ sequences, skin tones, flags).
+    // Eight is comfortably above the longest common cluster and well below
+    // anything that would disturb the row.
+    if trimmed.chars().count() > 8 || trimmed.chars().any(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(trimmed.to_string())
 }
 
 /// `<project>/.shipstudio/routines`.
@@ -136,6 +160,7 @@ fn split_frontmatter(contents: &str) -> (BTreeMap<String, String>, String) {
 
 const KNOWN_KEYS: &[&str] = &[
     "name",
+    "icon",
     "description",
     "agent",
     "trigger",
@@ -176,6 +201,7 @@ pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routin
     Routine {
         id: format!("{project_path}::{slug}"),
         name,
+        icon: front.get("icon").and_then(|raw| sanitize_icon(raw)),
         description: front.get("description").cloned().unwrap_or_default(),
         agent_id: front
             .get("agent")
@@ -209,6 +235,9 @@ pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routin
 pub fn serialize_routine(routine: &Routine) -> String {
     let mut out = String::from("---\n");
     out.push_str(&format!("name: {}\n", routine.name));
+    if let Some(icon) = &routine.icon {
+        out.push_str(&format!("icon: {icon}\n"));
+    }
     if !routine.description.is_empty() {
         out.push_str(&format!("description: {}\n", routine.description));
     }
@@ -398,6 +427,7 @@ pub async fn save_routine_file(
     let routine = Routine {
         id: format!("{}::{slug}", project.to_string_lossy()),
         name: draft.name.trim().to_string(),
+        icon: draft.icon.as_deref().and_then(sanitize_icon),
         description: draft.description.trim().to_string(),
         agent_id: draft.agent_id,
         trigger: draft.trigger,
@@ -522,6 +552,36 @@ mod tests {
             }
         );
         assert_eq!(routine.prompt, "Body.");
+    }
+
+    #[test]
+    fn an_icon_round_trips() {
+        let routine = parse("---\nname: X\nicon: 🔒\n---\n\nBody.\n");
+        assert_eq!(routine.icon.as_deref(), Some("🔒"));
+        assert!(serialize_routine(&routine).contains("icon: 🔒"));
+    }
+
+    #[test]
+    fn a_multi_codepoint_emoji_survives() {
+        // Skin tones and ZWJ sequences are several chars but one glyph.
+        for emoji in ["👨‍💻", "👋🏽", "🇬🇧", "⚠️"] {
+            let routine = parse(&format!("---\nname: X\nicon: {emoji}\n---\n\nBody.\n"));
+            assert_eq!(routine.icon.as_deref(), Some(emoji), "dropped {emoji}");
+        }
+    }
+
+    #[test]
+    fn a_sentence_in_the_icon_field_is_dropped_not_truncated() {
+        // An agent writing prose here would otherwise blow out every row.
+        let routine = parse("---\nname: X\nicon: a security review routine\n---\n\nBody.\n");
+        assert_eq!(routine.icon, None);
+    }
+
+    #[test]
+    fn an_absent_icon_stays_absent_in_the_file() {
+        let routine = parse("---\nname: X\n---\n\nBody.\n");
+        assert_eq!(routine.icon, None);
+        assert!(!serialize_routine(&routine).contains("icon:"));
     }
 
     #[test]

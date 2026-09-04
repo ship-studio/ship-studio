@@ -213,3 +213,22 @@
 .workspace-tab.icon-only {
   padding: 0 8px;
 }
+
+/* A single follow-up on a toast — "Open", "Undo". Sits between the message and
+   the dismiss control, and always dismisses the toast when taken. */
+.toast-action {
+  flex-shrink: 0;
+  padding: var(--spacing-3xs) var(--spacing-xs);
+  background: none;
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: var(--surface-control-hover);
+}

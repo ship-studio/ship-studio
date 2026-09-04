@@ -28,6 +28,7 @@ inference we bill for. Tokens go to the plan you already pay for.
 ```markdown
 ---
 name: Dependency drift
+icon: 📦
 description: Daily advisory check plus a read on which majors are worth taking.
 trigger: daily at 09:00
 permission: read-only
@@ -189,7 +190,20 @@ The install is idempotent and version-stamped, and skips agents whose config
 directory doesn't exist — scattering folders into someone's home for tools they
 don't use is not ours to do.
 
-## 6. The inbox closes the loop
+## 6. Watching a run
+
+A run is 30 seconds to a couple of minutes of nothing. A spinner answers "is it
+running"; it does not answer "is it doing anything sensible", which is the
+question people actually have the first few times they trust an unattended agent
+with their repo.
+
+So Claude runs with `--output-format stream-json` and each event is translated
+into one human line — `Reading …/src/api/checkout.js`, `$ git diff --stat`, or
+the agent's own narration — kept in a small ring buffer per routine and pushed
+to open windows as it happens. The row shows the newest line; the rest is behind
+a chevron. Deliberately not the full transcript: run history already has that.
+
+## 7. The inbox closes the loop
 
 A finding is not a notification; it's the head of a work session. The primary
 action is **Fix in \<project\>**, which opens the finding's workspace and types
@@ -205,7 +219,7 @@ The action bar is pinned to the foot of the reader rather than sitting at the en
 of the report: a long finding would otherwise push the entire point of the
 feature below the fold.
 
-## 7. Cost
+## 8. Cost
 
 Every run spends the user's own agent subscription. A trivial three-file repo
 cost ~73k tokens in an end-to-end test — mostly system prompt and cache, but it

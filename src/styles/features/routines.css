@@ -39,10 +39,11 @@
   background: var(--surface-recessed);
 }
 
+/* The row is a column now: the summary line, then the live activity that can
+   expand under it. */
 .routine-row {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
+  flex-direction: column;
   padding: var(--spacing-md);
   background: var(--surface-panel);
   border: var(--border-width-default) solid var(--border-subtle);
@@ -54,6 +55,74 @@
 
 .routine-row:hover {
   border-color: var(--border-default);
+}
+
+.routine-row-main-line {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  min-width: 0;
+}
+
+/* Chevrons point down when closed and up when open, matching the app's other
+   disclosure controls. */
+.routine-row-expand {
+  transition: transform var(--transition-interaction);
+}
+
+.routine-row-expand.is-open {
+  transform: rotate(180deg);
+}
+
+/* The one-line peek is a button so the whole strip opens the panel — a 4px
+   chevron should not be the only way in. */
+.routine-row-activity-peek {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-2xs) var(--spacing-sm);
+  background: var(--surface-recessed);
+  border: none;
+  border-radius: var(--radius-control);
+  text-align: left;
+  cursor: pointer;
+}
+
+.routine-row-activity-peek:hover {
+  background: var(--surface-control-hover);
+}
+
+.routine-row-activity-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-row-activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  max-height: 220px;
+  margin: var(--spacing-sm) 0 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  overflow-y: auto;
+  list-style: none;
+  background: var(--surface-recessed);
+  border-radius: var(--radius-control);
+}
+
+.routine-row-activity-line {
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  overflow-wrap: anywhere;
 }
 
 .routine-row-main {
@@ -68,6 +137,24 @@
   text-align: left;
   cursor: pointer;
   color: inherit;
+}
+
+/* One slot for whatever identifies the routine: its emoji, the green loader
+   while it runs, or a status dot. Fixed size so names stay in one column
+   however the mark changes. */
+.routine-row-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: var(--spacing-3xs);
+  flex-shrink: 0;
+}
+
+.routine-row-icon {
+  font-size: var(--font-size-body-lg);
+  line-height: 1;
 }
 
 .routine-row-dot {
@@ -289,6 +376,139 @@
   min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-lg);
+}
+
+/* ---- name row ---- */
+
+/* The name is the title of the thing, so it reads as one — an icon and a large
+   field on one line, rather than a labelled input the size of every other
+   control in the dialog. */
+.routine-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.routine-name-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.routine-name-input {
+  height: auto;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+}
+
+.routine-icon-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0;
+  font-size: var(--font-size-h3);
+  line-height: 1;
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition:
+    background var(--transition-interaction),
+    border-color var(--transition-interaction);
+}
+
+.routine-icon-trigger:hover {
+  background: var(--surface-control-hover);
+  border-color: var(--text-muted);
+}
+
+/* Once an emoji is chosen it carries its own colour; the placeholder glyph
+   stays muted so it reads as "not set yet". */
+.routine-icon-trigger.has-icon {
+  color: var(--text-primary);
+}
+
+.routine-icon-menu {
+  max-width: 320px;
+}
+
+.routine-icon-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xs);
+}
+
+.routine-icon-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+
+.routine-icon-group-label {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+}
+
+.routine-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: var(--spacing-3xs);
+}
+
+.routine-icon-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 0;
+  font-size: var(--font-size-body-lg);
+  line-height: 1;
+  background: none;
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.routine-icon-option:hover {
+  background: var(--surface-control-hover);
+}
+
+.routine-icon-option.is-selected {
+  background: var(--surface-selected);
+  border-color: var(--border-default);
+}
+
+.routine-icon-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding-top: var(--spacing-2xs);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.routine-icon-custom-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-2xs) var(--spacing-sm);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-body-md);
+  outline: none;
+}
+
+.routine-icon-custom-input:focus-visible {
+  border-color: var(--accent-focus);
 }
 
 /* The form is two named regions — what the routine says, and how it runs —

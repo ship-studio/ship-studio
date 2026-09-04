@@ -27,6 +27,7 @@ import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { TextField } from '../primitives/TextField';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { RoutineTemplatePicker } from './RoutineTemplatePicker';
+import { RoutineIconPicker } from './RoutineIconPicker';
 import {
   buildCommandPreview,
   describeTriggerReality,
@@ -109,6 +110,9 @@ function presetFor(trigger: RoutineTrigger): TriggerPreset {
   }
 }
 
+/** Above this many options a dropdown gets a filter field instead of a scroll. */
+const SEARCH_THRESHOLD = 8;
+
 /** `null` means "use whatever agent is set as the default". */
 const DEFAULT_AGENT = '__default__';
 
@@ -120,6 +124,7 @@ const AGENT_OPTIONS = [
 
 interface Draft {
   name: string;
+  icon: string | null;
   description: string;
   agentId: string;
   projectPath: string;
@@ -133,6 +138,7 @@ interface Draft {
 function draftFrom(routine: Routine): Draft {
   return {
     name: routine.name,
+    icon: routine.icon,
     description: routine.description,
     agentId: routine.agentId ?? DEFAULT_AGENT,
     projectPath: routine.projectPath,
@@ -147,6 +153,7 @@ function draftFrom(routine: Routine): Draft {
 function blankDraft(projectPath: string): Draft {
   return {
     name: '',
+    icon: null,
     description: '',
     agentId: DEFAULT_AGENT,
     projectPath,
@@ -180,6 +187,7 @@ export function RoutineEditorModal({
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [projectQuery, setProjectQuery] = useState('');
 
   const trigger = TRIGGER_PRESETS[draft.trigger];
   const triggerShape = shapeFor(draft.trigger);
@@ -206,6 +214,7 @@ export function RoutineEditorModal({
     setDraft({
       ...blankDraft(draft.projectPath),
       name: isBlank ? '' : next.name,
+      icon: isBlank ? null : next.icon,
       description: isBlank ? '' : next.description,
       trigger: presetFor(next.trigger),
       permission: next.permission,
@@ -230,6 +239,7 @@ export function RoutineEditorModal({
     try {
       await onSave(draft.projectPath, isNew ? null : routine.slug, {
         name: draft.name.trim(),
+        icon: draft.icon,
         description: draft.description.trim(),
         agentId,
         trigger,
@@ -270,6 +280,14 @@ export function RoutineEditorModal({
     );
   }
 
+  // Substring, not fuzzy: project names are short and typed from memory, and a
+  // fuzzy match over 160 of them surfaces more noise than it saves.
+  const matchingProjects = projectQuery.trim()
+    ? projects.filter((project) =>
+        project.name.toLowerCase().includes(projectQuery.trim().toLowerCase())
+      )
+    : projects;
+
   const projectLabel =
     projects.find((project) => project.path === draft.projectPath)?.name ??
     (hasProject ? draft.projectPath : 'Pick a project');
@@ -287,14 +305,22 @@ export function RoutineEditorModal({
         <section className="routine-section">
           <h4 className="routine-section-title">What it does</h4>
 
-          <label className="routine-field">
-            <span className="routine-field-label text-style-label">Name</span>
-            <TextField
-              value={draft.name}
-              placeholder="Security sweep"
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+          <div className="routine-name-row">
+            <RoutineIconPicker
+              value={draft.icon}
+              name={draft.name}
+              onChange={(icon) => setDraft({ ...draft, icon })}
             />
-          </label>
+            <div className="routine-field routine-name-field">
+              <TextField
+                className="routine-name-input"
+                value={draft.name}
+                placeholder="Name this routine"
+                aria-label="Routine name"
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              />
+            </div>
+          </div>
 
           <label className="routine-field">
             <span className="routine-field-label text-style-label">Instructions</span>
@@ -335,6 +361,19 @@ export function RoutineEditorModal({
             <div className="routine-field">
               <span className="routine-field-label text-style-label">Runs against</span>
               <Dropdown
+                menuClassName="routine-project-menu"
+                search={
+                  projects.length > SEARCH_THRESHOLD
+                    ? {
+                        value: projectQuery,
+                        onChange: setProjectQuery,
+                        placeholder: 'Search projects…',
+                      }
+                    : undefined
+                }
+                onOpenChange={(open) => {
+                  if (!open) setProjectQuery('');
+                }}
                 trigger={(props) => (
                   <MenuButton
                     variant="secondary"
@@ -356,7 +395,12 @@ export function RoutineEditorModal({
                     No projects yet
                   </DropdownItem>
                 )}
-                {projects.map((project) => (
+                {projects.length > 0 && matchingProjects.length === 0 && (
+                  <DropdownItem disabled onSelect={() => undefined}>
+                    No project matches “{projectQuery}”
+                  </DropdownItem>
+                )}
+                {matchingProjects.map((project) => (
                   <DropdownItem
                     key={project.path}
                     active={draft.projectPath === project.path}

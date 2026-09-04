@@ -18,10 +18,17 @@ import { reportError } from '../lib/errorReporting';
 export type ToastType = 'success' | 'error' | 'info';
 
 /** Toast notification data */
+/** An optional single action rendered inside a toast. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: number;
   message: string;
   type: ToastType;
+  action?: ToastAction;
 }
 
 /** Return type for useToasts hook */
@@ -29,7 +36,7 @@ export interface UseToastsReturn {
   /** Array of active toast notifications */
   toasts: Toast[];
   /** Show a new toast notification */
-  showToast: (message: string, type?: ToastType) => void;
+  showToast: (message: string, type?: ToastType, action?: ToastAction) => void;
   /** Dismiss a toast by ID */
   dismissToast: (id: number) => void;
 }
@@ -74,29 +81,32 @@ export function useToasts(): UseToastsReturn {
     };
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = 'success') => {
-    // An error toast is, by definition, the user seeing something not work as
-    // intended — report it to the admin agent (deduped + throttled; see
-    // docs/error-reporting.md).
-    if (type === 'error') {
-      reportError({ message, source: 'toast' });
-    }
-    const id = ++toastIdRef.current;
-    setToasts((prev) => {
-      // Keep max toasts, remove oldest if needed
-      const updated = [...prev, { id, message, type }];
-      return updated.slice(-MAX_TOASTS);
-    });
-    // Auto-dismiss after timeout — except errors, which persist until the
-    // user dismisses them (they carry detail worth reading/copying).
-    if (type !== 'error') {
-      const timer = setTimeout(() => {
-        timerMap.current.delete(id);
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, TOAST_DURATION_MS);
-      timerMap.current.set(id, timer);
-    }
-  }, []);
+  const showToast = useCallback(
+    (message: string, type: ToastType = 'success', action?: ToastAction) => {
+      // An error toast is, by definition, the user seeing something not work as
+      // intended — report it to the admin agent (deduped + throttled; see
+      // docs/error-reporting.md).
+      if (type === 'error') {
+        reportError({ message, source: 'toast' });
+      }
+      const id = ++toastIdRef.current;
+      setToasts((prev) => {
+        // Keep max toasts, remove oldest if needed
+        const updated = [...prev, { id, message, type, action }];
+        return updated.slice(-MAX_TOASTS);
+      });
+      // Auto-dismiss after timeout — except errors, which persist until the
+      // user dismisses them (they carry detail worth reading/copying).
+      if (type !== 'error') {
+        const timer = setTimeout(() => {
+          timerMap.current.delete(id);
+          setToasts((prev) => prev.filter((t) => t.id !== id));
+        }, TOAST_DURATION_MS);
+        timerMap.current.set(id, timer);
+      }
+    },
+    []
+  );
 
   const dismissToast = useCallback((id: number) => {
     const timer = timerMap.current.get(id);

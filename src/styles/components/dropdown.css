@@ -16,11 +16,51 @@
   width: max-content;
   min-width: 200px;
   max-width: 320px;
+  /* Never taller than the viewport can show. Without a cap a menu over a long
+     list (164 projects, say) renders every row and runs off the screen with no
+     way to reach the end. The floor keeps a short menu from becoming a
+     pointlessly tiny scroll box. */
+  max-height: min(360px, calc(100vh - var(--spacing-2xl) * 3));
+  overflow-y: auto;
+  /* Reaching the end of the menu must not start scrolling the page or the
+     dialog behind it. */
+  overscroll-behavior: contain;
   padding: var(--spacing-xs);
   background: var(--surface-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow);
+}
+
+/* Sticky so the field stays reachable while the list scrolls under it. */
+.ss-dropdown__search {
+  position: sticky;
+  top: calc(var(--spacing-xs) * -1);
+  z-index: 1;
+  margin: calc(var(--spacing-xs) * -1) calc(var(--spacing-xs) * -1) var(--spacing-2xs);
+  padding: var(--spacing-xs);
+  background: var(--surface-panel);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+.ss-dropdown__search-input {
+  width: 100%;
+  padding: var(--spacing-2xs) var(--spacing-sm);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-menu-item);
+  outline: none;
+}
+
+.ss-dropdown__search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.ss-dropdown__search-input:focus-visible {
+  border-color: var(--accent-focus);
 }
 
 .ss-dropdown__menu--right {

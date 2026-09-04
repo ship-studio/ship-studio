@@ -43,7 +43,7 @@ import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { HomeSidebar } from './components/workspace/HomeSidebar';
 import { StandingWorkView } from './components/workspace/StandingWorkView';
-import { useRoutineHandoff } from './hooks/useRoutineHandoff';
+import { HANDOFF_DELIVERED_MESSAGE, useRoutineHandoff } from './hooks/useRoutineHandoff';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
@@ -151,7 +151,9 @@ function AppContents({ initialProjectPath }: AppProps) {
         currentProjectName: currentProject?.name ?? null,
         currentProjectPath: currentProject?.path ?? null,
       });
-    } else if (view === 'projects') {
+    } else if (view === 'projects' || view === 'routines' || view === 'inbox') {
+      // Routines and the Inbox are home-level screens; left in 'other' their
+      // ⌘K armed a palette that couldn't render (see CommandPaletteHost).
       setPaletteContext({ kind: 'home', currentProjectName: null, currentProjectPath: null });
     } else {
       setPaletteContext({ kind: 'other', currentProjectName: null, currentProjectPath: null });
@@ -555,16 +557,14 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   useRoutineCommands({ setView, showToast });
 
+  const handoffDelivered = useCallback(
+    () => showToast(HANDOFF_DELIVERED_MESSAGE, 'success'),
+    [showToast]
+  );
+
   // Deliver a queued "Fix with agent" prompt once the opened project actually
   // has a terminal to type into — see hooks/useRoutineHandoff.
-  useRoutineHandoff(
-    currentProject?.path ?? null,
-    sendToClaude,
-    useCallback(
-      () => showToast('Prompt sent to the terminal — press Enter to run it', 'success'),
-      [showToast]
-    )
-  );
+  useRoutineHandoff(currentProject?.path ?? null, sendToClaude, handoffDelivered);
 
   // Close an active session from the sidebar (dashboard, collapsed rail, or
   // workspace). Ordering and the auto-open sentinel are load-bearing — see

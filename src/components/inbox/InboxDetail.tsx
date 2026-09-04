@@ -16,7 +16,7 @@
 import { useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { CodeIcon, CopyIcon, TerminalIcon, TrashIcon } from '@/components/icons';
+import { CodeIcon, CopyIcon, ResetIcon, TerminalIcon, TrashIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
@@ -25,6 +25,8 @@ import { formatAgo, type InboxItem, type Severity } from '../../lib/routines';
 interface InboxDetailProps {
   item: InboxItem;
   onArchive: (item: InboxItem) => void;
+  /** Permanently forget a finding. Archived items only. */
+  onDelete: (item: InboxItem) => void;
   /**
    * Opens the finding's project and types `prompt` into its terminal. Absent
    * when there is nowhere to navigate to, in which case the fix actions are
@@ -39,7 +41,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
   info: 'Info',
 };
 
-export function InboxDetail({ item, onArchive, onFix }: InboxDetailProps) {
+export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailProps) {
   const { showToast } = useOptionalToast();
   const { copy } = useCopyToClipboard({
     onCopy: () => showToast('Prompt copied', 'success'),
@@ -97,9 +99,13 @@ export function InboxDetail({ item, onArchive, onFix }: InboxDetailProps) {
           <section className="inbox-handoff">
             <div className="inbox-handoff-header">
               <TerminalIcon size={12} />
-              <span className="text-style-label">What the agent will be told</span>
+              <span className="text-style-label">What the agent will be asked to do</span>
             </div>
             <p className="inbox-handoff-prompt">{item.suggestedPrompt}</p>
+            <p className="inbox-handoff-note text-style-hint">
+              Sending this starts the agent on it — it doesn&rsquo;t mean the finding is fixed.
+              Review what it does like any other change.
+            </p>
           </section>
         </article>
       </div>
@@ -112,9 +118,10 @@ export function InboxDetail({ item, onArchive, onFix }: InboxDetailProps) {
               variant="primary"
               size="compact"
               leftIcon={<TerminalIcon size={12} />}
+              title={`Open ${item.projectName} and hand this to your agent`}
               onClick={() => onFix(item, item.suggestedPrompt)}
             >
-              Fix in {item.projectName}
+              Send to agent
             </Button>
           )}
           <Button
@@ -126,14 +133,31 @@ export function InboxDetail({ item, onArchive, onFix }: InboxDetailProps) {
             Copy prompt
           </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="compact"
-          leftIcon={<TrashIcon size={12} />}
-          onClick={() => onArchive(item)}
-        >
-          {item.archived ? 'Restore' : 'Archive'}
-        </Button>
+        {/* Archiving and deleting are different promises, so they get
+            different icons and live side by side once a finding is archived:
+            archive mutes the fingerprint, delete forgets it and lets a future
+            run file it again. */}
+        <div className="inbox-detail-actions-secondary">
+          <Button
+            variant="ghost"
+            size="compact"
+            leftIcon={item.archived ? <ResetIcon size={12} /> : <TrashIcon size={12} />}
+            onClick={() => onArchive(item)}
+          >
+            {item.archived ? 'Restore' : 'Archive'}
+          </Button>
+          {item.archived && (
+            <Button
+              variant="ghost"
+              size="compact"
+              className="inbox-detail-delete"
+              leftIcon={<TrashIcon size={12} />}
+              onClick={() => onDelete(item)}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
       </div>
     </>
   );

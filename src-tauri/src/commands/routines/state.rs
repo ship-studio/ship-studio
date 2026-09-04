@@ -232,6 +232,21 @@ pub async fn set_inbox_item_archived(id: String, archived: bool) -> Result<(), C
     })
 }
 
+/// Permanently remove one finding.
+///
+/// Distinct from archiving: archived items still count as "told you about
+/// this" and keep their fingerprint muted for future runs. Deleting forgets
+/// the finding entirely, so the next run that sees the same problem files it
+/// as new — which is the right behaviour for something you deleted because it
+/// was wrong, and the reason both actions exist.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn delete_inbox_item(id: String) -> Result<(), CommandError> {
+    mutate_state(|state| {
+        state.inbox.retain(|item| item.id != id);
+    })
+}
+
 #[tauri::command]
 #[tracing::instrument]
 pub async fn mark_all_inbox_read() -> Result<(), CommandError> {

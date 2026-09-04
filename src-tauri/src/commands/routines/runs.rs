@@ -38,7 +38,7 @@ use super::{RoutinePermission, RoutineTrigger, Severity};
 use crate::agent::{get_active_agent, get_agent_by_id, AgentConfig};
 use crate::commands::claude::find_validated_binary;
 use crate::errors::CommandError;
-use crate::external_command::{run_with_timeout, run_with_timeout_stdin};
+use crate::external_command::run_with_timeout;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -415,8 +415,92 @@ struct AgentReply {
     tokens: Option<u64>,
 }
 
+/// Spawn a command, feed it a prompt, and hand each stdout line to `on_line`
+/// as it arrives.
+///
+/// The shared `run_with_timeout_stdin` buffers everything until exit, which is
+/// the right shape for a two-second `git` call and the wrong one for a
+/// two-minute agent run that the user is watching. Same guarantees otherwise:
+/// stdin is written and closed, the child is killed on timeout or drop.
+async fn run_streaming(
+    mut cmd: tokio::process::Command,
+    stdin_data: &str,
+    label: &str,
+    timeout_secs: u64,
+    mut on_line: impl FnMut(&str),
+) -> Result<std::process::Output, CommandError> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+
+    let data = stdin_data.as_bytes().to_vec();
+    let run = async {
+        let mut child = cmd.spawn()?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let mut stdin = child.stdin.take();
+
+        let feed = async {
+            if let Some(mut handle) = stdin.take() {
+                match handle.write_all(&data).await {
+                    Ok(()) => {
+                        let _ = handle.shutdown().await;
+                    }
+                    // The child stopped reading — its exit status is the story.
+                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+                    Err(e) => warn!(error = %e, "failed writing to routine agent stdin"),
+                }
+            }
+        };
+
+        let collect_err = async {
+            let mut buf = Vec::new();
+            if let Some(handle) = stderr {
+                let mut reader = BufReader::new(handle);
+                let _ = tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut buf).await;
+            }
+            buf
+        };
+
+        let read_out = async {
+            let mut all = String::new();
+            if let Some(handle) = stdout {
+                let mut lines = BufReader::new(handle).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    on_line(&line);
+                    all.push_str(&line);
+                    all.push('\n');
+                }
+            }
+            all
+        };
+
+        let (stdout_text, stderr_bytes, ()) = tokio::join!(read_out, collect_err, feed);
+        let status = child.wait().await?;
+        Ok::<_, std::io::Error>(std::process::Output {
+            status,
+            stdout: stdout_text.into_bytes(),
+            stderr: stderr_bytes,
+        })
+    };
+
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), run).await {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(e)) => Err(format!("{label} failed to run: {e}").into()),
+        Err(_) => Err(CommandError::Timeout {
+            cmd: label.to_string(),
+            secs: timeout_secs,
+        }),
+    }
+}
+
 /// Build and run the agent, returning its final message.
 async fn invoke_agent(
+    app: Option<&AppHandle>,
+    routine_id: &str,
     agent: &AgentConfig,
     project: &Path,
     prompt: &str,
@@ -438,25 +522,34 @@ async fn invoke_agent(
                 RoutinePermission::CanEdit => "acceptEdits",
             };
             let mut cmd = create_command(&binary);
+            // stream-json (not plain json) so each tool call is visible while
+            // the run is happening. The closing `result` event carries the same
+            // answer and usage the buffered form did.
             cmd.args([
                 "--print",
                 "--output-format",
-                "json",
+                "stream-json",
+                "--verbose",
                 "--permission-mode",
                 mode,
             ])
             .env("PATH", get_extended_path())
             .current_dir(project);
-            let output = run_with_timeout_stdin(
+            let output = run_streaming(
                 tokio::process::Command::from(cmd),
                 prompt,
                 "Claude Code CLI",
                 RUN_TIMEOUT_SECS,
+                |line| {
+                    if let Some(text) = super::progress::describe_claude_event(line) {
+                        super::progress::push(app, routine_id, text);
+                    }
+                },
             )
             .await?;
             check_status(agent, &output, prompt)?;
             let stdout = String::from_utf8_lossy(&output.stdout);
-            Ok(parse_claude_json(&stdout))
+            Ok(parse_claude_stream(&stdout))
         }
         "codex" => {
             let sandbox = match permission {
@@ -482,11 +575,20 @@ async fn invoke_agent(
             ])
             .env("PATH", get_extended_path())
             .current_dir(project);
-            let result = run_with_timeout_stdin(
+            let result = run_streaming(
                 tokio::process::Command::from(cmd),
                 prompt,
                 "Codex CLI",
                 RUN_TIMEOUT_SECS,
+                |line| {
+                    // Codex exec prints a plain transcript rather than a typed
+                    // event stream, so the best available signal is its own
+                    // non-empty output lines.
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && !trimmed.starts_with('{') {
+                        super::progress::push(app, routine_id, truncate_line(trimmed));
+                    }
+                },
             )
             .await;
             let message = std::fs::read_to_string(&output_file).ok();
@@ -542,7 +644,20 @@ fn check_status(
 /// Claude `--output-format json`: the answer is `result`, and `usage` carries
 /// real token counts. Falls back to treating stdout as the answer if the shape
 /// ever changes, so a CLI update degrades the token column, not the feature.
-fn parse_claude_json(stdout: &str) -> AgentReply {
+fn truncate_line(text: &str) -> String {
+    if text.chars().count() <= 160 {
+        return text.to_string();
+    }
+    format!("{}…", text.chars().take(160).collect::<String>().trim_end())
+}
+
+/// Pull the answer and usage out of a `stream-json` run.
+///
+/// Every line is one JSON event; the one with `type: "result"` closes the run.
+/// Scanned from the end so a transcript that mentions the word never wins over
+/// the real envelope. Falls back to the raw text if the shape ever changes, so
+/// a CLI update costs the token column rather than the feature.
+fn parse_claude_stream(stdout: &str) -> AgentReply {
     #[derive(Deserialize)]
     struct Usage {
         #[serde(default)]
@@ -556,13 +671,25 @@ fn parse_claude_json(stdout: &str) -> AgentReply {
     }
     #[derive(Deserialize)]
     struct ClaudeResult {
+        #[serde(default, rename = "type")]
+        event_type: Option<String>,
         #[serde(default)]
         result: Option<String>,
         #[serde(default)]
         usage: Option<Usage>,
     }
-    match serde_json::from_str::<ClaudeResult>(stdout.trim()) {
-        Ok(parsed) => AgentReply {
+    for line in stdout.lines().rev() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(parsed) = serde_json::from_str::<ClaudeResult>(line) else {
+            continue;
+        };
+        if parsed.event_type.as_deref() != Some("result") {
+            continue;
+        }
+        return AgentReply {
             text: parsed.result.unwrap_or_default(),
             tokens: parsed.usage.map(|u| {
                 u.input_tokens
@@ -570,11 +697,11 @@ fn parse_claude_json(stdout: &str) -> AgentReply {
                     + u.cache_creation_input_tokens
                     + u.cache_read_input_tokens
             }),
-        },
-        Err(_) => AgentReply {
-            text: stdout.to_string(),
-            tokens: None,
-        },
+        };
+    }
+    AgentReply {
+        text: stdout.to_string(),
+        tokens: None,
     }
 }
 
@@ -612,7 +739,7 @@ pub async fn run_routine(
             routine.name
         )));
     }
-    let outcome = execute(&project, &routine).await;
+    let outcome = execute(Some(&app), &project, &routine).await;
     release(&routine.id);
     let _ = app.emit(ROUTINES_CHANGED_EVENT, ());
     outcome
@@ -620,7 +747,11 @@ pub async fn run_routine(
 
 /// The run itself, with no Tauri surface, so it can be exercised end to end
 /// against the real agent CLI in a test.
-async fn execute(project: &Path, routine: &Routine) -> Result<RoutineRun, CommandError> {
+async fn execute(
+    app: Option<&AppHandle>,
+    project: &Path,
+    routine: &Routine,
+) -> Result<RoutineRun, CommandError> {
     let agent = routine
         .agent_id
         .as_deref()
@@ -649,7 +780,20 @@ async fn execute(project: &Path, routine: &Routine) -> Result<RoutineRun, Comman
         "running routine"
     );
 
-    let reply = invoke_agent(agent, project, &prompt, routine.permission).await;
+    // Start this run's activity log clean so the panel shows this run rather
+    // than a confusing mix with the last one.
+    super::progress::reset(&routine.id);
+    super::progress::push(app, &routine.id, format!("Starting {}", agent.display_name));
+
+    let reply = invoke_agent(
+        app,
+        &routine.id,
+        agent,
+        project,
+        &prompt,
+        routine.permission,
+    )
+    .await;
     let duration_ms = now_ms() - started_at;
     let head = head_commit(project).await;
 
@@ -1018,7 +1162,7 @@ mod tests {
         assert_eq!(routine.name, "Security sweep");
         assert_eq!(routine.permission, RoutinePermission::ReadOnly);
 
-        let run = execute(project, &routine)
+        let run = execute(None, project, &routine)
             .await
             .expect("run should succeed");
         println!(

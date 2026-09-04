@@ -18,6 +18,17 @@ const RETRY_MS = 700;
 const GIVE_UP_MS = 60_000;
 
 /**
+ * What the user is told once the prompt lands.
+ *
+ * Deliberately explicit that the agent has *started*, not finished: a finding
+ * handed over is the beginning of a change to review, and a toast that reads
+ * like "done" would be the most expensive wrong impression this feature could
+ * give.
+ */
+export const HANDOFF_DELIVERED_MESSAGE =
+  'Sent to your agent — it has started on it, but nothing is fixed until you review it';
+
+/**
  * @param projectPath The open project, or null when not in a workspace.
  * @param send Types a prompt into the active terminal. Returns whether it
  *   landed — false while no terminal is mounted yet.

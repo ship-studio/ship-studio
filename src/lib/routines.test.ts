@@ -42,6 +42,7 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     id: '/p::r',
     slug: 'r',
     name: 'R',
+    icon: null,
     description: '',
     agentId: null,
     projectPath: '/p',

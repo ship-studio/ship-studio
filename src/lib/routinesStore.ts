@@ -17,10 +17,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { logger } from './logger';
-import type { InboxItem, Routine, RoutineDraft, RoutineRun } from './routines';
+import type { InboxItem, ProgressLine, Routine, RoutineDraft, RoutineRun } from './routines';
 
 /** Emitted by the backend whenever runs or the inbox change. */
 const CHANGED_EVENT = 'routines:changed';
+
+/** Emitted per activity line while a routine runs. */
+const PROGRESS_EVENT = 'routines:progress';
+
+/** Activity lines kept per routine in the UI. The backend keeps more. */
+const MAX_PROGRESS_LINES = 120;
 
 /**
  * Poll interval while the app is showing routines. The event covers everything
@@ -33,15 +39,24 @@ const POLL_MS = 15_000;
 interface RoutinesState {
   routines: Routine[];
   inbox: InboxItem[];
+  /** Live activity per routine id, oldest first. */
+  progress: Record<string, ProgressLine[]>;
   /** False until the first load resolves, so the UI can tell empty from unknown. */
   loaded: boolean;
   error: string | null;
 }
 
-let state: RoutinesState = { routines: [], inbox: [], loaded: false, error: null };
+let state: RoutinesState = {
+  routines: [],
+  inbox: [],
+  progress: {},
+  loaded: false,
+  error: null,
+};
 
 const listeners = new Set<() => void>();
 let unlisten: UnlistenFn | null = null;
+let unlistenProgress: UnlistenFn | null = null;
 let pollTimer: number | null = null;
 let inFlight: Promise<void> | null = null;
 
@@ -84,6 +99,40 @@ function start(): void {
         logger.warn('[Routines] Could not subscribe to change events', { error: String(err) });
       });
   }
+  if (unlistenProgress === null) {
+    void listen<ProgressLine>(PROGRESS_EVENT, (event) => appendProgress(event.payload))
+      .then((fn) => {
+        if (listeners.size === 0) {
+          fn();
+          return;
+        }
+        unlistenProgress = fn;
+      })
+      .catch((err: unknown) => {
+        logger.warn('[Routines] Could not subscribe to progress events', { error: String(err) });
+      });
+  }
+}
+
+function appendProgress(line: ProgressLine): void {
+  const existing = state.progress[line.routineId] ?? [];
+  const next = [...existing, line].slice(-MAX_PROGRESS_LINES);
+  emit({ ...state, progress: { ...state.progress, [line.routineId]: next } });
+}
+
+/**
+ * Pull the backend's buffer for one routine.
+ *
+ * A window opened mid-run has missed every event, so it asks once and follows
+ * the stream from there.
+ */
+export async function loadProgress(routineId: string): Promise<void> {
+  try {
+    const lines = await invoke<ProgressLine[]>('routine_progress', { routineId });
+    emit({ ...state, progress: { ...state.progress, [routineId]: lines } });
+  } catch (err) {
+    logger.warn('[Routines] Could not load progress', { error: String(err) });
+  }
 }
 
 function stop(): void {
@@ -93,6 +142,8 @@ function stop(): void {
   }
   unlisten?.();
   unlisten = null;
+  unlistenProgress?.();
+  unlistenProgress = null;
 }
 
 /**
@@ -110,7 +161,7 @@ export async function refresh(): Promise<void> {
         invoke<Routine[]>('list_all_routines'),
         invoke<InboxItem[]>('list_inbox_items'),
       ]);
-      emit({ routines, inbox, loaded: true, error: null });
+      emit({ ...state, routines, inbox, loaded: true, error: null });
     } catch (err) {
       logger.error('[Routines] Failed to load', { error: String(err) });
       emit({ ...state, loaded: true, error: String(err) });
@@ -137,6 +188,7 @@ export async function setAutoRun(routine: Routine, autoRun: boolean): Promise<vo
 export function toDraft(routine: Routine): RoutineDraft {
   return {
     name: routine.name,
+    icon: routine.icon,
     description: routine.description,
     agentId: routine.agentId,
     trigger: routine.trigger,
@@ -210,6 +262,12 @@ export async function markAllRead(): Promise<void> {
 
 export async function setItemArchived(id: string, archived: boolean): Promise<void> {
   await invoke('set_inbox_item_archived', { id, archived });
+  await refresh();
+}
+
+/** Permanently remove a finding. Archiving mutes it; this forgets it. */
+export async function deleteItem(id: string): Promise<void> {
+  await invoke('delete_inbox_item', { id });
   await refresh();
 }
 

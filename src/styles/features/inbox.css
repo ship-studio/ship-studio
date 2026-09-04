@@ -10,7 +10,7 @@
   /* Grow into the column rather than sitting at content height: reading is
      the job here, so leftover vertical space belongs to the reader, not to a
      band of nothing under the card. */
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -24,12 +24,28 @@
      readable report — under that the page scrolls instead. A fixed height was
      shrunk by the surrounding flex column to ~260px, which clipped a list row
      in half and pushed the detail pane's actions out of sight. */
-  flex: 1 1 auto;
+  /* Basis 0, not auto: with `auto` the basis is the content height, so one
+     long report stretched the panel past the bottom of the window and the
+     reader's own scrolling never engaged. */
+  flex: 1 1 0;
   min-height: 320px;
   border: var(--border-width-default) solid var(--border-subtle);
   border-radius: var(--radius-card);
   overflow: hidden;
   background: var(--surface-recessed);
+}
+
+/* The filter row: a SegmentedControl beside a dropdown trigger. The segmented
+   control wraps its buttons in a bordered, padded rail, so the two controls
+   have different natural heights even at the same `size`. Stretching both to
+   the row settles it without either file hardcoding the other's box model. */
+.inbox-filters {
+  align-items: stretch;
+}
+
+.inbox-filters > .segmented-control,
+.inbox-filters .inbox-project-filter {
+  height: auto;
 }
 
 /* ---- list ---- */
@@ -435,6 +451,13 @@
   color: var(--text-secondary);
 }
 
+/* Handing a finding to an agent starts work; it does not finish it. Saying so
+   next to the prompt is cheaper than the disappointment of assuming otherwise. */
+.inbox-handoff-note {
+  margin: 0;
+  line-height: var(--line-height-help);
+}
+
 .inbox-handoff-actions {
   display: flex;
   align-items: center;
@@ -460,6 +483,18 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--surface-panel);
   border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* Archive and Delete sit together, away from the fix actions: they end the
+   conversation about a finding rather than continue it. */
+.inbox-detail-actions-secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+}
+
+.inbox-detail-delete {
+  color: var(--accent-error-light);
 }
 
 .inbox-detail-actions-primary {

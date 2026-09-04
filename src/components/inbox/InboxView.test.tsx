@@ -22,6 +22,7 @@ vi.mock('../../contexts/ToastContext', () => ({
 vi.mock('../../lib/routinesStore', () => ({
   subscribe: vi.fn(() => () => undefined),
   getSnapshot: vi.fn(),
+  deleteItem: vi.fn().mockResolvedValue(undefined),
   markAllRead: vi.fn().mockResolvedValue(undefined),
   setItemArchived: vi.fn().mockResolvedValue(undefined),
   setItemRead: vi.fn().mockResolvedValue(undefined),
@@ -55,6 +56,7 @@ function snapshot(inbox: InboxItem[]) {
   vi.mocked(store.getSnapshot).mockReturnValue({
     routines: [],
     inbox,
+    progress: {},
     loaded: true,
     error: null,
   });
@@ -84,7 +86,7 @@ describe('InboxView', () => {
     // A button that does nothing is worse than no button.
     snapshot([item()]);
     render(<InboxView />);
-    expect(screen.queryByRole('button', { name: /Fix in/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send to agent/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Copy prompt/ })).toBeInTheDocument();
   });
 
@@ -93,7 +95,7 @@ describe('InboxView', () => {
     snapshot([item()]);
     render(<InboxView onOpenProject={onOpenProject} />);
 
-    await userEvent.click(screen.getByRole('button', { name: /Fix in demo/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Send to agent/ }));
 
     expect(onOpenProject).toHaveBeenCalledWith({
       name: 'demo',
@@ -112,6 +114,29 @@ describe('InboxView', () => {
     await waitFor(() => {
       expect(store.setItemRead).toHaveBeenCalledWith('b', true);
     });
+  });
+
+  it('says that sending to the agent is not the same as fixing it', () => {
+    snapshot([item()]);
+    render(<InboxView onOpenProject={vi.fn()} />);
+    expect(screen.getByText(/doesn’t mean the finding is fixed/)).toBeInTheDocument();
+  });
+
+  it('offers restore and permanent delete only once archived', async () => {
+    snapshot([item({ archived: true, read: true })]);
+    render(<InboxView />);
+    // The archived filter is what shows archived items.
+    await userEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(screen.getByRole('button', { name: /Restore/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument();
+  });
+
+  it('offers archive but not delete for a live finding', () => {
+    snapshot([item()]);
+    render(<InboxView />);
+    // "Archived" is also a filter button, so match the action exactly.
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
   });
 
   it('shows a caught-up state rather than an empty pane', () => {

@@ -26,6 +26,7 @@ vi.mock('../../contexts/ToastContext', () => ({
 vi.mock('../../lib/routinesStore', () => ({
   subscribe: vi.fn(() => () => undefined),
   getSnapshot: vi.fn(),
+  loadProgress: vi.fn(),
   runRoutineNow: vi.fn(),
   saveRoutine: vi.fn(),
   setAutoRun: vi.fn(),
@@ -37,6 +38,7 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     id: '/p/demo::security-sweep',
     slug: 'security-sweep',
     name: 'Security sweep',
+    icon: null,
     description: 'Looks for secrets.',
     agentId: 'claude-code',
     projectPath: '/p/demo',
@@ -55,10 +57,18 @@ function routine(overrides: Partial<Routine> = {}): Routine {
   };
 }
 
-function snapshot(routines: Routine[], extra: { loaded?: boolean; error?: string | null } = {}) {
+function snapshot(
+  routines: Routine[],
+  extra: {
+    loaded?: boolean;
+    error?: string | null;
+    progress?: Record<string, { routineId: string; at: number; text: string }[]>;
+  } = {}
+) {
   vi.mocked(store.getSnapshot).mockReturnValue({
     routines,
     inbox: [],
+    progress: extra.progress ?? {},
     loaded: extra.loaded ?? true,
     error: extra.error ?? null,
   });
@@ -193,6 +203,45 @@ describe('RoutinesView', () => {
     const { container } = render(<RoutinesView />);
     // Scoped to the status line: the Run button also reads "Running".
     expect(container.querySelector('.routine-row-last')?.textContent).toBe('Running');
+  });
+
+  it('shows the latest activity line while a routine runs', () => {
+    // A spinner says "running". This says "doing something sensible", which is
+    // the question people actually have the first few times.
+    snapshot([routine({ isRunning: true, runningSince: Date.now() - 5000 })], {
+      progress: {
+        '/p/demo::security-sweep': [
+          { routineId: '/p/demo::security-sweep', at: 1, text: 'Starting Claude Code' },
+          { routineId: '/p/demo::security-sweep', at: 2, text: 'Reading …/src/api/checkout.js' },
+        ],
+      },
+    });
+    render(<RoutinesView />);
+    // Only the newest line shows until it's expanded.
+    expect(screen.getByText('Reading …/src/api/checkout.js')).toBeInTheDocument();
+    expect(screen.queryByText('Starting Claude Code')).not.toBeInTheDocument();
+  });
+
+  it('expands to the full activity log on request', async () => {
+    snapshot([routine({ isRunning: true })], {
+      progress: {
+        '/p/demo::security-sweep': [
+          { routineId: '/p/demo::security-sweep', at: 1, text: 'Starting Claude Code' },
+          { routineId: '/p/demo::security-sweep', at: 2, text: '$ git diff --stat' },
+        ],
+      },
+    });
+    render(<RoutinesView />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Show what it is doing/ }));
+    expect(screen.getByText('Starting Claude Code')).toBeInTheDocument();
+    expect(screen.getByText('$ git diff --stat')).toBeInTheDocument();
+  });
+
+  it('shows no activity affordance for a routine that has not run', () => {
+    snapshot([routine()]);
+    render(<RoutinesView />);
+    expect(screen.queryByRole('button', { name: /Show what it is doing/ })).not.toBeInTheDocument();
   });
 
   it('shows no auto-run switch for a manual routine', () => {

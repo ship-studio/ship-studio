@@ -79,6 +79,7 @@ you to do right now, or a second time after they have declined.
 ```markdown
 ---
 name: Dependency drift
+icon: 📦
 description: Daily advisory check plus a read on which majors are worth taking.
 trigger: daily at 09:00
 permission: read-only
@@ -95,6 +96,7 @@ published fix, say what upgrading costs. Ignore dev-only packages.
 | Key              | Values                                                                                                | Default     |
 |------------------|-------------------------------------------------------------------------------------------------------|-------------|
 | `name`           | Any short phrase. Shown in the routines list.                                                           | filename    |
+| `icon`           | A single emoji shown beside the name, Notion-style. One glyph only.                                     | none        |
 | `description`    | One line, shown under the name.                                                                         | empty       |
 | `agent`          | `claude-code` or `codex`. Omit to use whichever agent the user has set as their default.                | user default|
 | `trigger`        | `manual`, `every 30m`, `every 2h`, `daily at 09:00`, `weekly on monday at 09:00`, `on push`, `on pr`    | `manual`    |
@@ -122,6 +124,8 @@ reporting format — so do **not** write any of that into the body yourself.
   plan mode, Codex in a read-only sandbox), so a routine genuinely cannot edit
   the tree while nobody is watching. Only use `can-edit` if the user explicitly
   asks for unattended changes.
+- **Give it an `icon`.** One emoji that says what it watches (🔒 security, 📦
+  dependencies, 🎨 design). It becomes the routine's mark in the list.
 - **Start on `manual`** unless the user named a cadence. They can arm it with
   one switch in the Routines tab once they've seen what it produces.
 
@@ -251,6 +255,7 @@ mod tests {
         let md = skill_markdown();
         for key in [
             "name",
+            "icon",
             "description",
             "agent",
             "trigger",
@@ -284,13 +289,14 @@ mod tests {
 
     #[test]
     fn the_example_file_in_the_skill_parses_into_what_it_claims() {
-        let example = "---\nname: Dependency drift\ndescription: Daily advisory check plus a read on which majors are worth taking.\ntrigger: daily at 09:00\npermission: read-only\nseverity-floor: warning\nauto-run: true\n---\n\nCheck the installed dependencies.\n";
+        let example = "---\nname: Dependency drift\nicon: 📦\ndescription: Daily advisory check plus a read on which majors are worth taking.\ntrigger: daily at 09:00\npermission: read-only\nseverity-floor: warning\nauto-run: true\n---\n\nCheck the installed dependencies.\n";
         let routine = super::super::files::parse_routine(
             std::path::Path::new("/tmp/p"),
             std::path::Path::new("/tmp/p/.shipstudio/routines/dependency-drift.md"),
             example,
         );
         assert_eq!(routine.name, "Dependency drift");
+        assert_eq!(routine.icon.as_deref(), Some("📦"));
         assert_eq!(
             routine.trigger,
             super::super::RoutineTrigger::Daily {

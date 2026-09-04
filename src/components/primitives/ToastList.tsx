@@ -30,6 +30,18 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
         {toast.type === 'success' ? <SuccessIcon size={16} /> : <InfoIcon size={16} />}
       </span>
       <span className="toast-message">{toast.message}</span>
+      {toast.action && (
+        <button
+          type="button"
+          className="toast-action"
+          onClick={() => {
+            toast.action?.onClick();
+            onDismiss(toast.id);
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
       {toast.type === 'error' && (
         <Button
           variant="ghost"

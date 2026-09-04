@@ -38,7 +38,14 @@ export function CommandPaletteHost() {
     return () => window.removeEventListener('keydown', handler, { capture: true });
   }, [palette, openPalette]);
 
-  // Don't surface the palette in pre-app states (loading / onboarding).
+  // Don't surface the palette in pre-app states (loading / onboarding). The
+  // toggle above still flips the shared modal state, so an armed-but-unrendered
+  // palette would spring open on the next screen that *can* render it — close
+  // it instead of leaving that trap set.
+  useEffect(() => {
+    if (ctx.kind === 'other' && palette.isOpen) palette.close();
+  }, [ctx.kind, palette]);
+
   if (ctx.kind === 'other') return null;
 
   return (

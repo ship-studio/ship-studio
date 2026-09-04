@@ -75,6 +75,8 @@ export interface Routine {
   /** Filename stem, and the routine's identity within its project. */
   slug: string;
   name: string;
+  /** A single emoji standing in for the routine. Null falls back to a dot. */
+  icon: string | null;
   description: string;
   /** Null means "whatever the user's default agent is". */
   agentId: string | null;
@@ -104,6 +106,7 @@ export interface Routine {
 /** Everything a save may change. Identity fields are not editable. */
 export interface RoutineDraft {
   name: string;
+  icon: string | null;
   description: string;
   agentId: string | null;
   trigger: RoutineTrigger;
@@ -111,6 +114,13 @@ export interface RoutineDraft {
   prompt: string;
   severityFloor: Severity;
   autoRun: boolean;
+}
+
+/** One line of live activity from a running routine. */
+export interface ProgressLine {
+  routineId: string;
+  at: number;
+  text: string;
 }
 
 /** A file/line the finding points at. */
@@ -150,6 +160,8 @@ export interface InboxItem {
 export interface RoutineTemplate {
   id: string;
   name: string;
+  /** Seeded onto the routine so a new one arrives already recognisable. */
+  icon: string;
   description: string;
   category: 'Quality' | 'Security' | 'Maintenance' | 'Research';
   trigger: RoutineTrigger;
@@ -382,6 +394,7 @@ export function buildCommandPreview(routine: Pick<Routine, 'agentId' | 'permissi
 export const ROUTINE_TEMPLATES: RoutineTemplate[] = [
   {
     id: 'tpl-security',
+    icon: '🔒',
     name: 'Security sweep',
     description: 'Reviews each new diff for secrets, auth gaps, and unsafe input.',
     category: 'Security',
@@ -393,6 +406,7 @@ Include the exact file and line for each finding. Ignore test fixtures.`,
   },
   {
     id: 'tpl-deps',
+    icon: '📦',
     name: 'Dependency drift',
     description: 'Daily advisory check plus a read on which majors are worth taking.',
     category: 'Maintenance',
@@ -404,6 +418,7 @@ Ignore dev-only packages unless the advisory is remotely exploitable.`,
   },
   {
     id: 'tpl-competitors',
+    icon: '🧭',
     name: 'Competitor watch',
     description: 'Reads competitor blogs and changelogs, reports what changed.',
     category: 'Research',
@@ -415,6 +430,7 @@ Report anything published since your last run that changes what we should be bui
   },
   {
     id: 'tpl-design',
+    icon: '🎨',
     name: 'Design-system drift',
     description: 'Checks each push against the repo’s own design rules.',
     category: 'Quality',
@@ -426,6 +442,7 @@ Only report things the docs actually forbid.`,
   },
   {
     id: 'tpl-pr',
+    icon: '🔍',
     name: 'PR review pass',
     description: 'Reviews every PR you open before a human sees it.',
     category: 'Quality',
@@ -437,6 +454,7 @@ For each finding, give me the concrete inputs that produce the wrong output. If 
   },
   {
     id: 'tpl-links',
+    icon: '🔗',
     name: 'Broken links & images',
     description: 'Crawls the running preview. Needs the project open with its dev server up.',
     category: 'Quality',
@@ -448,6 +466,7 @@ If no preview is running, report nothing and stop. Do not start a server yoursel
   },
   {
     id: 'tpl-blank',
+    icon: '✨',
     name: 'Blank routine',
     description: 'Start from an empty prompt.',
     category: 'Quality',

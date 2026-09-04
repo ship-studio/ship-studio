@@ -31,6 +31,7 @@ import type { Project } from '../../lib/project';
 import {
   getSnapshot,
   markAllRead,
+  deleteItem,
   setItemArchived,
   setItemRead,
   subscribe,
@@ -100,6 +101,15 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
     [showToast]
   );
 
+  const handleDelete = useCallback(
+    (item: InboxItem) => {
+      deleteItem(item.id)
+        .then(() => showToast(`Deleted — "${item.title}"`, 'info'))
+        .catch((err: unknown) => showToast(String(err), 'error'));
+    },
+    [showToast]
+  );
+
   /**
    * Queue the prompt, then open the project. The queue survives the navigation
    * and is delivered by `useRoutineHandoff` once a terminal actually exists —
@@ -109,7 +119,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
     (item: InboxItem, prompt: string) => {
       if (!onOpenProject) return;
       queueHandoff(item.projectPath, prompt);
-      showToast(`Opening ${item.projectName}…`, 'info');
+      showToast(`Handing this to your agent in ${item.projectName}…`, 'info');
       void onOpenProject({ name: item.projectName, path: item.projectPath, thumbnail: null });
     },
     [onOpenProject, showToast]
@@ -138,7 +148,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
                 </div>
               </div>
               <div className="dashboard-section-controls">
-                <div className="dashboard-section-actions-left">
+                <div className="dashboard-section-actions-left inbox-filters">
                   <SegmentedControl
                     aria-label="Filter inbox"
                     value={filter}
@@ -154,6 +164,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
                       <MenuButton
                         variant="secondary"
                         size="compact"
+                        className="inbox-project-filter"
                         expanded={props['aria-expanded']}
                         {...props}
                       >
@@ -245,6 +256,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
                     <InboxDetail
                       item={selected}
                       onArchive={handleArchive}
+                      onDelete={handleDelete}
                       onFix={onOpenProject ? handleFix : undefined}
                     />
                   )}

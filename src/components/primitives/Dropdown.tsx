@@ -58,6 +58,20 @@ interface DropdownProps {
   onOpenChange?: (open: boolean) => void;
   /** Optional controlled open state. */
   open?: boolean;
+  /**
+   * Adds a filter field at the top of the menu.
+   *
+   * The *caller* owns the query and does the filtering, because only the
+   * caller knows how its options should match and sort. This just renders the
+   * field, focuses it on open, and hands ArrowDown to the list — a menu with
+   * more than a handful of options is unusable without it, and typeahead
+   * (jump-to-first-letter) is not the same thing as search.
+   */
+  search?: {
+    value: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+  };
 }
 
 const DropdownContext = createContext<{ close: () => void } | null>(null);
@@ -87,6 +101,7 @@ export function Dropdown({
   menuClassName,
   onOpenChange,
   open: controlledOpen,
+  search,
 }: DropdownProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
@@ -96,6 +111,7 @@ export function Dropdown({
   const menuRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
   const restoreFocusOnCloseRef = useRef(true);
+  const hasSearch = search !== undefined;
   const typeaheadRef = useRef('');
   const typeaheadTimerRef = useRef<number | null>(null);
 
@@ -174,8 +190,10 @@ export function Dropdown({
 
     wasOpenRef.current = true;
     restoreFocusOnCloseRef.current = true;
-    focusEnabledMenuItemAt(0);
-  }, [focusEnabledMenuItemAt, isOpen]);
+    // With a filter field, focus belongs in the field — you opened the menu to
+    // search it. ArrowDown from there hands focus to the list.
+    if (!hasSearch) focusEnabledMenuItemAt(0);
+  }, [focusEnabledMenuItemAt, hasSearch, isOpen]);
 
   useEffect(() => {
     return () => {
@@ -327,6 +345,30 @@ export function Dropdown({
       tabIndex={-1}
       onKeyDown={handleMenuKeyDown}
     >
+      {search && (
+        <div className="ss-dropdown__search">
+          <input
+            type="text"
+            className="ss-dropdown__search-input"
+            value={search.value}
+            placeholder={search.placeholder ?? 'Search…'}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label={search.placeholder ?? 'Search'}
+            // The menu just opened for the express purpose of searching it,
+            // so focus belongs in the field.
+            autoFocus
+            onChange={(event) => search.onChange(event.target.value)}
+            onKeyDown={(event) => {
+              // Hand the list its keys back: typing filters, arrows navigate.
+              if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                focusEnabledMenuItemAt(0);
+              }
+            }}
+          />
+        </div>
+      )}
       <DropdownContext.Provider value={{ close }}>{children}</DropdownContext.Provider>
     </div>
   ) : null;
