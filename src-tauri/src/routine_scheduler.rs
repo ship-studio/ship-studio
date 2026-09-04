@@ -142,21 +142,21 @@ pub async fn fire_event(
     }
 }
 
-/// Fire every `on project-open` routine for a project the user just opened.
-#[tauri::command]
-#[tracing::instrument(skip(app))]
-pub async fn fire_project_open_routines(
-    app: AppHandle,
-    project_path: String,
-) -> Result<(), crate::errors::CommandError> {
-    let validated = crate::utils::validate_project_path(&project_path)?;
-    fire_event(
-        &app,
-        &validated.to_string_lossy(),
-        crate::commands::routines::RoutineEvent::ProjectOpen,
-    )
-    .await;
-    Ok(())
+/// Fire matching event routines without making the caller wait.
+///
+/// The events that trigger routines are all the tail of an action the user is
+/// waiting on — a branch published, a PR opened. Awaiting an agent run there
+/// would turn a two-second operation into a two-minute one.
+pub fn spawn_event(
+    app: &AppHandle,
+    project_path: &str,
+    event: crate::commands::routines::RoutineEvent,
+) {
+    let app = app.clone();
+    let project_path = project_path.to_string();
+    tauri::async_runtime::spawn(async move {
+        fire_event(&app, &project_path, event).await;
+    });
 }
 
 /// Fire every `on push` routine for a project that just pushed.

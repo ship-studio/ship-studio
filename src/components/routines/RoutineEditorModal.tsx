@@ -127,7 +127,6 @@ interface Draft {
   permission: RoutinePermission;
   prompt: string;
   severityFloor: Severity;
-  notify: boolean;
   autoRun: boolean;
 }
 
@@ -141,7 +140,6 @@ function draftFrom(routine: Routine): Draft {
     permission: routine.permission,
     prompt: routine.prompt,
     severityFloor: routine.severityFloor,
-    notify: routine.notify,
     autoRun: routine.autoRun,
   };
 }
@@ -159,7 +157,6 @@ function blankDraft(projectPath: string): Draft {
     permission: 'read-only',
     prompt: '',
     severityFloor: 'info',
-    notify: false,
     autoRun: true,
   };
 }
@@ -239,7 +236,6 @@ export function RoutineEditorModal({
         permission: draft.permission,
         prompt: draft.prompt,
         severityFloor: draft.severityFloor,
-        notify: draft.notify,
         autoRun: canAutoRun ? draft.autoRun : false,
       });
     } catch (err) {
@@ -484,6 +480,29 @@ export function RoutineEditorModal({
               {draft.permission === 'read-only'
                 ? 'Enforced by the agent itself — Claude Code runs in plan mode, Codex in a read-only sandbox. It reads the repository and reports; it cannot change anything.'
                 : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
+            </span>
+          </div>
+
+          <div className="routine-field">
+            <span className="routine-field-label text-style-label">File in my Inbox</span>
+            <SegmentedControl
+              aria-label="Severity floor"
+              size="default"
+              className="routine-segments-fill"
+              value={draft.severityFloor}
+              onValueChange={(value) => setDraft({ ...draft, severityFloor: value })}
+              options={[
+                { value: 'info', label: 'Everything' },
+                { value: 'warning', label: 'Warnings and up' },
+                { value: 'critical', label: 'Critical only' },
+              ]}
+            />
+            <span className="routine-field-hint">
+              {draft.severityFloor === 'info'
+                ? 'Every finding is filed. Start here, and raise the floor if this routine turns out to be chatty.'
+                : draft.severityFloor === 'warning'
+                  ? 'Findings the agent rates as informational are dropped rather than filed.'
+                  : 'Only critical findings reach your Inbox. Everything else is dropped, not held back.'}
             </span>
           </div>
 

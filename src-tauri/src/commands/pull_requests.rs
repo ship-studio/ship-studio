@@ -149,6 +149,7 @@ fn pr_create_refusal(stderr: &str, base: &str) -> Option<CommandError> {
 #[tauri::command]
 #[tracing::instrument(skip(project_path, title, body, base), fields(project = %project_path, base = %base))]
 pub async fn create_pull_request(
+    app: tauri::AppHandle,
     project_path: String,
     title: String,
     body: Option<String>,
@@ -238,6 +239,13 @@ pub async fn create_pull_request(
 
     // Output contains the PR URL
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Fire any `on pr` routines. Spawned rather than awaited: the PR is
+    // created, and the user should not wait on an agent to be told so.
+    crate::routine_scheduler::spawn_event(
+        &app,
+        &validated_path.to_string_lossy(),
+        crate::commands::routines::RoutineEvent::PrOpened,
+    );
     Ok(url)
 }
 

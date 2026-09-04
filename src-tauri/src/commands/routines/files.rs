@@ -39,7 +39,6 @@ pub struct Routine {
     pub permission: RoutinePermission,
     pub prompt: String,
     pub severity_floor: Severity,
-    pub notify: bool,
     pub auto_run: bool,
     pub file_path: String,
     /// Keys the parser didn't recognise, kept so a round-trip is lossless.
@@ -59,7 +58,6 @@ pub struct RoutineDraft {
     pub permission: RoutinePermission,
     pub prompt: String,
     pub severity_floor: Severity,
-    pub notify: bool,
     pub auto_run: bool,
 }
 
@@ -143,7 +141,6 @@ const KNOWN_KEYS: &[&str] = &[
     "trigger",
     "permission",
     "severity-floor",
-    "notify",
     "auto-run",
 ];
 
@@ -199,7 +196,6 @@ pub fn parse_routine(project: &Path, file_path: &Path, contents: &str) -> Routin
             .get("severity-floor")
             .and_then(|s| Severity::parse(s))
             .unwrap_or(Severity::Info),
-        notify: parse_bool(front.get("notify"), false),
         auto_run: parse_bool(front.get("auto-run"), true),
         project_name: project_name_of(project),
         project_path,
@@ -225,7 +221,6 @@ pub fn serialize_routine(routine: &Routine) -> String {
         "severity-floor: {}\n",
         routine.severity_floor.as_str()
     ));
-    out.push_str(&format!("notify: {}\n", routine.notify));
     if routine.trigger.is_armable() {
         out.push_str(&format!("auto-run: {}\n", routine.auto_run));
     }
@@ -405,7 +400,6 @@ pub async fn save_routine_file(
         permission: draft.permission,
         prompt: draft.prompt.trim().to_string(),
         severity_floor: draft.severity_floor,
-        notify: draft.notify,
         auto_run: draft.auto_run,
         project_name: project_name_of(&project),
         project_path: project.to_string_lossy().to_string(),
@@ -461,7 +455,6 @@ mod tests {
             RoutineTrigger::Interval { every_minutes: 30 }
         );
         assert_eq!(routine.severity_floor, Severity::Warning);
-        assert!(routine.notify);
         assert!(!routine.auto_run);
         assert_eq!(routine.prompt, "Review the diff.");
         assert_eq!(routine.id, "/tmp/demo::security-sweep");
@@ -502,7 +495,6 @@ mod tests {
         assert_eq!(reparsed.trigger, original.trigger);
         assert_eq!(reparsed.permission, original.permission);
         assert_eq!(reparsed.severity_floor, original.severity_floor);
-        assert_eq!(reparsed.notify, original.notify);
         assert_eq!(reparsed.auto_run, original.auto_run);
         assert_eq!(reparsed.prompt, original.prompt);
     }

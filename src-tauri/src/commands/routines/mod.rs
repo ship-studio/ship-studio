@@ -108,7 +108,6 @@ impl RoutinePermission {
 pub enum RoutineEvent {
     Push,
     PrOpened,
-    ProjectOpen,
 }
 
 /// What sets a routine off.
@@ -173,9 +172,6 @@ impl RoutineTrigger {
                 "pr" | "pr-opened" | "pull request" => Some(RoutineTrigger::Event {
                     event: RoutineEvent::PrOpened,
                 }),
-                "open" | "project-open" | "project open" => Some(RoutineTrigger::Event {
-                    event: RoutineEvent::ProjectOpen,
-                }),
                 _ => None,
             };
         }
@@ -228,7 +224,6 @@ impl RoutineTrigger {
             RoutineTrigger::Event { event } => match event {
                 RoutineEvent::Push => "on push".to_string(),
                 RoutineEvent::PrOpened => "on pr".to_string(),
-                RoutineEvent::ProjectOpen => "on project-open".to_string(),
             },
         }
     }

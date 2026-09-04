@@ -143,7 +143,6 @@ export function toDraft(routine: Routine): RoutineDraft {
     permission: routine.permission,
     prompt: routine.prompt,
     severityFloor: routine.severityFloor,
-    notify: routine.notify,
     autoRun: routine.autoRun,
   };
 }

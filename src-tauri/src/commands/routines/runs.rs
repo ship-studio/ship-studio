@@ -599,17 +599,15 @@ pub async fn run_routine(
             routine.name
         )));
     }
-    let outcome = execute(&app, &project, &routine).await;
+    let outcome = execute(&project, &routine).await;
     release(&routine.id);
     let _ = app.emit(ROUTINES_CHANGED_EVENT, ());
     outcome
 }
 
-async fn execute(
-    app: &AppHandle,
-    project: &Path,
-    routine: &Routine,
-) -> Result<RoutineRun, CommandError> {
+/// The run itself, with no Tauri surface, so it can be exercised end to end
+/// against the real agent CLI in a test.
+async fn execute(project: &Path, routine: &Routine) -> Result<RoutineRun, CommandError> {
     let agent = routine
         .agent_id
         .as_deref()
@@ -661,7 +659,6 @@ async fn execute(
             run.error = Some(err.to_string());
             run.transcript = err.to_string();
             record_run(&run, routine, None)?;
-            let _ = app.emit(ROUTINES_CHANGED_EVENT, ());
             // The run is recorded as failed and shown in history; the caller
             // still gets the error so the click that started it can say why.
             return Err(err);
@@ -972,6 +969,61 @@ mod tests {
             assert!(due > now);
             assert!(due - now <= 8 * 86_400_000, "weekday {weekday} overshot");
         }
+    }
+
+    /// End-to-end against the real agent CLI, in a real git repo, with a
+    /// routine file in the format the bundled skill documents.
+    ///
+    /// Ignored by default: it spends the developer's own agent quota and needs
+    /// a signed-in CLI. Run it deliberately with
+    /// `cargo test e2e_runs_a_routine_against_the_real_agent -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "spends real agent quota; run deliberately"]
+    async fn e2e_runs_a_routine_against_the_real_agent() {
+        use super::super::files::parse_routine;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path();
+        std::fs::create_dir_all(project.join("src/api")).unwrap();
+        std::fs::write(
+            project.join("src/api/checkout.js"),
+            "export async function POST(request) {\n  const userId = request.headers.get('cookie');\n  return charge(userId);\n}\n",
+        )
+        .unwrap();
+
+        let routines = project.join(".shipstudio/routines");
+        std::fs::create_dir_all(&routines).unwrap();
+        let file = routines.join("security-sweep.md");
+        std::fs::write(
+            &file,
+            "---\nname: Security sweep\ntrigger: manual\npermission: read-only\nseverity-floor: info\n---\n\nReview this repository for auth checks missing from a route that needs one. Include the exact file and line.\n",
+        )
+        .unwrap();
+
+        let contents = std::fs::read_to_string(&file).unwrap();
+        let routine = parse_routine(project, &file, &contents);
+        assert_eq!(routine.name, "Security sweep");
+        assert_eq!(routine.permission, RoutinePermission::ReadOnly);
+
+        let run = execute(project, &routine)
+            .await
+            .expect("run should succeed");
+        println!(
+            "status={:?} findings={} tokens={:?}",
+            run.status, run.findings, run.tokens
+        );
+        println!("--- transcript ---\n{}", run.transcript);
+
+        assert!(
+            matches!(run.status, RunStatus::Ok | RunStatus::Findings),
+            "run should complete, got {:?}",
+            run.status
+        );
+        // Read-only must have been enforced, not merely requested.
+        assert!(
+            !project.join("PWNED.txt").exists(),
+            "a read-only routine must not have written anything"
+        );
     }
 
     #[test]

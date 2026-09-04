@@ -50,7 +50,6 @@ function routine(overrides: Partial<Routine> = {}): Routine {
     permission: 'read-only',
     prompt: 'do a thing',
     severityFloor: 'info',
-    notify: false,
     autoRun: true,
     filePath: '/p/.shipstudio/routines/r.md',
     nextRunAt: null,

@@ -83,7 +83,6 @@ description: Daily advisory check plus a read on which majors are worth taking.
 trigger: daily at 09:00
 permission: read-only
 severity-floor: warning
-notify: false
 auto-run: true
 ---
 
@@ -101,7 +100,6 @@ published fix, say what upgrading costs. Ignore dev-only packages.
 | `trigger`        | `manual`, `every 30m`, `every 2h`, `daily at 09:00`, `weekly on monday at 09:00`, `on push`, `on pr`    | `manual`    |
 | `permission`     | `read-only` or `can-edit`                                                                               | `read-only` |
 | `severity-floor` | `critical`, `warning`, `info` — findings below this are dropped                                         | `info`      |
-| `notify`         | `true` / `false` — also send a desktop notification                                                     | `false`     |
 | `auto-run`       | `true` / `false` — whether the trigger is armed                                                         | `true`      |
 
 Intervals must be between 5 minutes and 7 days. An unrecognised trigger falls
@@ -258,7 +256,6 @@ mod tests {
             "trigger",
             "permission",
             "severity-floor",
-            "notify",
             "auto-run",
         ] {
             assert!(md.contains(&format!("`{key}`")), "undocumented key: {key}");
@@ -287,7 +284,7 @@ mod tests {
 
     #[test]
     fn the_example_file_in_the_skill_parses_into_what_it_claims() {
-        let example = "---\nname: Dependency drift\ndescription: Daily advisory check plus a read on which majors are worth taking.\ntrigger: daily at 09:00\npermission: read-only\nseverity-floor: warning\nnotify: false\nauto-run: true\n---\n\nCheck the installed dependencies.\n";
+        let example = "---\nname: Dependency drift\ndescription: Daily advisory check plus a read on which majors are worth taking.\ntrigger: daily at 09:00\npermission: read-only\nseverity-floor: warning\nauto-run: true\n---\n\nCheck the installed dependencies.\n";
         let routine = super::super::files::parse_routine(
             std::path::Path::new("/tmp/p"),
             std::path::Path::new("/tmp/p/.shipstudio/routines/dependency-drift.md"),

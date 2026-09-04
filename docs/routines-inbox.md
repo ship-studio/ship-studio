@@ -1,285 +1,251 @@
-# Routines & Inbox — design notes
+# Routines & Inbox
 
-> Status: **prototype**. The UI on branch `prototype/routines-inbox` is clickable
-> and driven entirely by fixtures in `src/lib/routines.ts`. Nothing schedules,
-> spawns, or writes anything yet. This document is the plan the prototype is
-> designed against, so the shape we look at is the shape we'd build.
-
-## The idea
-
-Give a project standing instructions that run on a trigger and report back:
-
-- *Every 30 minutes, review what changed for security regressions.*
-- *Every morning, check my dependencies for advisories and breaking majors.*
-- *Every Monday, read my three competitors' blogs and tell me what they shipped.*
-- *After every push, check the diff against our design-system rules.*
-
-Findings land in an **Inbox**. From an inbox item you open the project with the
-agent already primed to fix it.
+A **routine** is a standing instruction: a prompt, a project, and something that
+sets it off. Running one invokes the user's own agent CLI headless in the
+project directory. What it finds is filed to the **Inbox**.
 
 ## What makes this Ship Studio's version of it
 
-Every other tool that ships this feature builds a backend: their own scheduler,
-their own sandboxed runtime, their own datastore, their own model calls, their
-own billing meter. Ship Studio's entire premise is the opposite — it is a
-desktop shell around tools the user already installed and already pays for.
+Every other product in this space runs your code on their servers, stores your
+findings in their database, and bills you for their inference. Ship Studio's
+whole premise is that you already have the good tools — Claude Code, Codex, a
+terminal, a repo — and it should get out of the way.
 
-So the whole feature reduces to four boring pieces, none of them new to this
-codebase:
+So the feature reduces to four boring pieces, three of which already existed:
 
-| Piece | What it actually is | Already exists as |
-|---|---|---|
-| A routine | A markdown file with frontmatter | `.shipstudio/` metadata convention |
-| A run | `claude -p` / `codex exec` in the project directory | `HeadlessInvocation` in `commands/ai.rs` |
-| A schedule | One tokio task comparing `now` to `next_run_at` | — (new, ~150 lines) |
-| A report | A markdown file written by the agent via one MCP tool | `agent_bridge.rs` loopback MCP server |
+| Piece      | What it is                            | Lives in                                        |
+| ---------- | ------------------------------------- | ----------------------------------------------- |
+| A routine  | a markdown file with frontmatter      | `<project>/.shipstudio/routines/<slug>.md`      |
+| A run      | `claude --print` / `codex exec`       | `src-tauri/src/commands/routines/runs.rs`       |
+| A schedule | a tokio tick over armed routines      | `src-tauri/src/routine_scheduler.rs`            |
+| A report   | the last fenced JSON block in a reply | `parse_findings` in `runs.rs`                   |
 
-There is no Ship Studio inference, no Ship Studio storage, no Ship Studio
-sandbox. If the user's Claude Code subscription can do it interactively, a
-routine can do it on a timer. That's the whole trick.
+There is no Ship Studio server, no copy of your code anywhere else, and no
+inference we bill for. Tokens go to the plan you already pay for.
 
 ## 1. A routine is a file
 
-```
-<project>/.shipstudio/routines/security-sweep.md     # project-scoped, committed
-~/ShipStudio/.shipstudio/routines/competitor-watch.md # workspace-scoped
-```
-
 ```markdown
 ---
-id: security-sweep
-name: Security sweep
-agent: claude-code
-trigger: every 30m
+name: Dependency drift
+description: Daily advisory check plus a read on which majors are worth taking.
+trigger: daily at 09:00
 permission: read-only
-deliver: inbox
-severity_floor: warning
-enabled: true
+severity-floor: warning
+auto-run: true
 ---
 
-Review everything that changed since your last run for security regressions:
-secrets committed to source, unvalidated user input reaching the filesystem or
-a shell, auth checks removed from a route, dependencies pulled in from an
-unfamiliar registry.
-
-Report each finding with `ship_studio_report`. If nothing is wrong, report
-nothing — do not file an "all clear".
+Check the installed dependencies against known advisories. For anything with a
+published fix, say what upgrading costs. Ignore dev-only packages.
 ```
 
-A file, not a database row, because:
+Frontmatter is **not** real YAML: the parser accepts a flat list of `key: value`
+lines and nothing else. No nesting, no block scalars, no quoting rules. That is
+deliberate — the primary authoring path is an agent writing this file by hand
+(§5), and a small surface is one a model cannot get subtly wrong.
 
-- **The agent can write it.** "Claude, add a routine that checks my bundle size
-  weekly" is a file write, not an API we have to design.
-- **A team shares it by committing it.** Routines travel with the repo. Clone
-  the project, get its standing checks.
-- **It diffs, greps, and reviews.** A routine that can run an agent against your
-  codebase on a timer is exactly the kind of thing that should show up in a PR.
-- **There is no migration story.** Ever.
-- **Plugins and templates are the same thing.** A starter routine is a file we
-  copy in; a plugin-provided routine is a file the plugin drops.
+`trigger` is a human phrase rather than a nested object for the same reason:
+`trigger: daily at 09:00` is written correctly first time far more reliably than
+a three-key sub-map. The grammar is `manual`, `every <n>m|h`, `daily at HH:MM`,
+`weekly on <weekday> at HH:MM`, `on push`, `on pr`. An unrecognised phrase falls
+back to `manual` — one typo costs the schedule, not the routine.
 
-Mutable state (`last_run_at`, `last_status`, run history pointers) lives beside
-it in `.shipstudio/routines/state.json`, gitignored — so the definition stays
-clean in version control and two machines running the same routine don't fight.
+Unknown keys round-trip untouched, so an older Ship Studio editing a file
+written by a newer one doesn't silently drop its values.
+
+**Definitions live in the repo. Results do not.** Routine files are source: read
+them, edit them, review them in a PR, commit them. Run history and findings are
+per-machine churn that would appear in `git status` within a day of real use, so
+they go to `~/ShipStudio/.shipstudio/routines-state.json`, next to `folders.json`
+and `attached-libraries.json`.
 
 ## 2. A run is the agent CLI, headless
 
-`src-tauri/src/commands/ai.rs` already resolves an agent's print mode and shells
-out through `run_with_timeout`. A routine run is the same call with a different
-prompt and cwd:
+`run_routine` builds a prompt (the routine body, plus what changed since the
+last run, plus the fingerprints already filed) and shells out.
 
-```
-claude --print --output-format stream-json \
-       --permission-mode plan \
-       --mcp-config <loopback inbox server> \
-       --add-dir <attached libraries>
-  < prompt on stdin, cwd = project path
-```
+### Read-only is enforced, not requested
 
-Codex takes the `codex exec` branch that's already there. Opencode likewise.
-Nothing agent-specific leaks out of `lib/agent.ts`.
+Both supported agents have a real mode for this. Verified against the installed
+CLIs, not assumed:
 
-Three things get prepended to the user's prompt by Ship Studio, and the routine
-editor shows them so nothing is hidden:
+| Agent       | Read-only                 | Can edit                    |
+| ----------- | ------------------------- | --------------------------- |
+| Claude Code | `--permission-mode plan`  | `--permission-mode acceptEdits` |
+| Codex       | `--sandbox read-only`     | `--sandbox workspace-write`  |
 
-1. **Scope** — "changes since `<last_run_sha>`" plus the diff stat, so a
-   30-minute routine reads a diff and not the whole repo. This is the difference
-   between a routine that costs cents and one that costs dollars.
-2. **Memory** — the titles and fingerprints this routine already reported, so it
-   doesn't file the same finding twelve times a day.
-3. **Reporting contract** — how to call `ship_studio_report`, and an explicit
-   "report nothing if there's nothing" instruction.
+Plan mode still allows `Read`, `Grep`, `Glob` and `Bash`, so the routine does its
+analysis — but the CLI itself refuses `Write` and `Edit`. A routine instructed to
+create a file replies that it can't, and no file appears. Codex's sandbox gives
+the same guarantee one layer down.
 
-Runs are serialized per project (one agent per repo at a time — they share a
-working tree) with a small global concurrency cap. A run that overruns its
-timeout is killed and filed as a failed run, visible in the routine's history.
+This matters because the UI says "read-only is enforced". If enforcement were
+only a line in the prompt, that sentence would be a lie, and an unattended agent
+is exactly where that lie costs someone their work.
 
-## 3. Manual first, and two honest tiers of automation
+### Read-only is the default
 
-Routines run the agent CLI on this machine. That constraint decides the shape of
-the feature, so it is stated in the UI rather than papered over.
+An omitted `permission:` key parses as `read-only`. An unattended agent that can
+edit is a decision, never an accident.
 
-**Pressing Run is the primary trigger.** A routine is a saved instruction you
-fire when you want it. Every row has a Run button and it is always live. That is
-the default for a new routine, and for a lot of them it is the only trigger
-anyone needs.
+## 3. The report is a fenced JSON block
 
-Automation is an opt-in on top, and what is honestly possible depends entirely
-on *where the trigger is evaluated*:
+The agent is told to end its reply with one ```json block:
 
-### Tier A — while Ship Studio is open
-
-Ship Studio's own scheduler: one tokio task on a 30-second tick, in Rust beside
-the PTY sessions (multi-window is a first-class feature here, so two windows
-must not mean two schedulers). Nothing is installed and nothing touches the
-system.
-
-This tier owns the triggers that only make sense while you are working anyway:
-
-- `on: push` / `on: pr-opened` / `on: branch-merged` — the best fit by far. They
-  fire during work, and Ship Studio already polls git and PR state.
-- `on: project-open`
-- `every 15m / 30m / hourly` — a minimum gap since the last run, not a clock.
-- `on: dev-server-error` — the preview proxy already sees console and network
-  failures.
-
-### Tier B — even when Ship Studio is closed
-
-A per-user launchd agent in `~/Library/LaunchAgents` (Windows: a Task Scheduler
-task) running the *identical* `claude -p` command. The findings are waiting in
-the Inbox when you next open the app.
-
-This is worth offering because of what `man launchd.plist` actually guarantees:
-
-> Unlike cron which skips job invocations when the computer is asleep, launchd
-> will start the job the next time the computer wakes up. If multiple intervals
-> transpire before the computer is woken, those events will be coalesced into
-> one event upon wake from sleep.
-
-So a 10:00 routine survives a closed lid: it runs on wake, **once**, not once
-per missed day. The conditions it cannot escape, and which the editor states as
-a list rather than a footnote:
-
-- the Mac has to be powered on or asleep — a shut-down machine runs nothing;
-- you have to be signed in, because LaunchAgents are per-user;
-- the agent CLI needs a session it can use non-interactively.
-
-**Background is offered for `daily` and `weekly` only**, and that falls straight
-out of the primitive rather than being a product opinion: launchd's
-`StartInterval` explicitly *misses* a firing if the system is asleep for it,
-while `StartCalendarInterval` catches up. An interval that silently skipped
-overnight would be exactly the dishonest scheduling this design avoids.
-
-**Background runs are read-only, enforced.** Nobody is watching, there is no UI
-to approve a permission prompt, and an unattended agent editing a repository
-while you sleep is not a feature.
-
-### What this removes
-
-There is no "missed run" state anywhere in the UI, because no tier can produce
-one. Tier A cannot miss a window — an interval is a minimum age, so it runs late
-and late needs no error. Tier B cannot miss one either — launchd coalesces and
-fires on wake. What the UI *does* say, on every row and in the editor, is which
-tier a routine is on: "Every 30 min, when Ship Studio is open" versus "Daily at
-10:00, in the background".
-
-## 4. Delivery: one MCP tool, backed by files
-
-The agent bridge already stands up a loopback MCP server and registers it with
-the agent CLI. Add one tool:
-
-```
-ship_studio_report({ title, severity, summary, body_md, files[], fingerprint, suggested_prompt })
+```json
+{
+  "findings": [
+    {
+      "title": "…",
+      "severity": "critical|warning|info",
+      "summary": "one line",
+      "body": "markdown",
+      "fingerprint": "stable-slug",
+      "locations": [{ "path": "src/x.ts", "line": 12, "note": "why" }],
+      "suggestedPrompt": "what to tell an agent to fix this"
+    }
+  ]
+}
 ```
 
-It writes `<project>/.shipstudio/inbox/2026-09-03T0930-security-sweep-a3f1.md`.
-That's the entire delivery mechanism. If MCP isn't available for an agent, the
-fallback is a path in the prompt and the same file on disk.
+An MCP tool (`ship_studio_report`) would be tidier and is the intended v2. The
+fenced block wins for v1 because it works identically for Claude's `--print` and
+Codex's `--output-last-message`, needs no server registration, and — decisively —
+needs **no write permission**, so it composes with the read-only enforcement
+above instead of fighting it.
 
-The inbox is therefore a folder of markdown files: greppable, gitignorable,
-diffable, and — importantly — **readable by the next run**, which is how the
-routine knows what it already told you.
+`{"findings": []}` is a normal outcome and the prompt says so twice. The failure
+mode that kills an inbox is a routine that files "no issues found" every thirty
+minutes.
 
-**Deduplication is the make-or-break detail.** A 30-minute routine that refiles
-the same finding is uninstalled within a day. Each report carries a
-`fingerprint` (agent-supplied, stable across cosmetic changes); a repeat bumps
-`occurrences` and `lastSeenAt` on the existing item instead of creating a new
-one. An item the user archives is muted by fingerprint until it changes.
+### Dedup
 
-## 5. The inbox closes the loop
+A finding's identity is `hash(routine_id + agent_fingerprint_or_normalized_title)`.
+A repeat bumps `occurrences` and refreshes the timestamp rather than filing a
+second copy — a 30-minute routine would otherwise produce 48 identical items a
+day. **Archiving is sticky**: once you've said you don't want to hear about
+something, a recurrence must not un-archive it.
 
-This is the part that makes it Ship Studio rather than a notification list. An
-inbox item is not something you read — it's the head of a work session:
+## 4. Scheduling, honestly
 
-- **Fix with agent** → opens the project workspace, spawns a terminal tab, and
-  pre-fills the prompt with the report and its file references. The user presses
-  Enter. Report → interactive session → PR, without leaving the app.
-- **Snapshot & fix** → takes a rewind point first, then the above.
-- **Open file** → code mode at the referenced line.
-- **Archive / Snooze / Mute this finding**
+Routines are your agent CLI on your machine. There is no server, so **nothing
+fires while Ship Studio is closed**, and every sentence in the UI says so.
 
-The prototype wires the reading and the routing; the "Fix with agent" handoff is
-mocked at the point where it would hand off to `useTerminalManagement`.
+One tokio tick, once a minute, over every armed routine in every known project:
 
-## 6. Trust and cost
+- **It never catches up.** An interval means "at least this long since it last
+  looked". Close the app for a week and you get one run on reopen, not a week of
+  backlog. A daily routine due while the app was closed is simply late.
+- **At most one routine per tick.** Runs spend your own subscription. Five armed
+  routines coming due in the same minute must not fire five agents at once.
+- **It skips anything already in flight.** Two agents reasoning about the same
+  working tree is confusing at best, and a corruption risk if either can edit.
 
-Two things will decide whether anyone leaves this turned on:
+Event triggers (`on push`, `on pr`) fire from the backend at the tail of the
+commands that complete those actions (`push_branch`, `create_pull_request`),
+spawned rather than awaited so publishing a branch never sits behind an agent
+run. They fire during work — exactly when the app is open, so the honesty
+problem doesn't arise.
 
-- **Read-only by default.** Routines run in the agent's plan/read mode. A
-  routine that may edit files is an explicit opt-in and is badged everywhere it
-  appears. No routine gets `--dangerously-skip-permissions` from a checkbox —
-  if that's ever supported it's per-routine, typed-confirmation, and loud.
-- **Visible price.** Every run records duration and tokens; the routine row
-  shows a rolling cost so "every 30 minutes" is a decision the user makes with
-  the number in front of them. The editor shows the literal command line. There
-  is no hidden orchestration to be surprised by.
+There is deliberately no `on project-open` trigger. It parses nowhere and fires
+nowhere: starting an agent run every time you open a project is a quota trap
+dressed as a convenience.
 
-## Naming
+There is **no "missed run" state anywhere**, because neither mechanism can
+produce one.
 
-The prototype calls the tab **Routines**, not "Agents".
+### The background tier is not built
 
-Ship Studio already uses "agent" precisely: Claude Code / Codex / Opencode, the
-CLI in the terminal. There's an Agents card on the dashboard for managing them
-and an `AgentsPanel` component. A second, different "Agents" tab meaning
-"scheduled prompts" would collide with the app's own vocabulary on day one.
+An earlier design proposed a second tier: a per-user launchd agent for daily and
+weekly triggers, firing whether or not the app is open. `man launchd.plist` says
+`StartCalendarInterval` catches up on wake and coalesces missed firings, so it is
+genuinely feasible. It is not implemented, so **there is no control for it** —
+rather than a switch that sits there doing nothing. It writes to
+`~/Library/LaunchAgents`, needs a clean uninstall path, and has no Windows
+equivalent yet.
 
-"Routines" says what it is — a standing instruction on a schedule — and leaves
-"agent" meaning the thing that runs it. Worth deciding deliberately before any
-of this ships, because the name ends up in the sidebar, the palette, the docs,
-and the file path.
+## 5. Discovery: the agent introduces the feature
 
-## What the prototype covers
+This is the part that makes the file format load-bearing rather than incidental.
 
-- Routines list: scope, schedule, agent, permission badge, last result, next
-  run, always-visible Run, and an auto-run switch for armed triggers
-- Creation flow: two steps matching Create Project — grouped template cards with
-  a selected state and an explicit Continue, then a form split into *what it
-  does* (name, instruction) and *how it runs* (project, agent, trigger,
-  permission, command preview), with unreplaced template blanks flagged before
-  you can create a routine that would report nothing useful
-- Run log: a realistic headless transcript, so the "it's just `claude -p`" story
-  is visible
-- Inbox: list/detail, severity, unread, per-project and per-routine filtering,
-  recurrence, and the action bar
+Nobody browses a new tab. But everyone using Ship Studio is already talking to an
+agent all day, and they routinely say things like "check the bundle size before
+every release" or "I keep forgetting to look at dependency advisories".
 
-## What it deliberately does not cover
+Ship Studio installs a `shipstudio-routines` skill into each installed agent's
+user-scope skills directory (`~/.claude/skills/`, `~/.codex/skills/`) at launch.
+The skill's `description` — which is what decides whether the agent loads it at
+all — names the phrasings people actually use ("every time", "each week", "before
+every release", "keep an eye on", "I keep forgetting to"), not the word
+"routine", which is the one word someone who hasn't found the feature will never
+say.
 
-Scheduling, spawning, MCP tooling, file writes, dedup logic, cost accounting,
-notifications, and the terminal handoff. All fixtures.
+Once loaded, the skill documents the file format completely enough that the agent
+writes the routine itself. No API, no MCP tool, no Ship Studio call. The
+frontend store polls as well as listening for backend events, precisely so a file
+that appears on disk without the UI being touched still shows up.
+
+The install is idempotent and version-stamped, and skips agents whose config
+directory doesn't exist — scattering folders into someone's home for tools they
+don't use is not ours to do.
+
+## 6. The inbox closes the loop
+
+A finding is not a notification; it's the head of a work session. The primary
+action is **Fix in \<project\>**, which opens the finding's workspace and types
+`suggestedPrompt` into its terminal.
+
+That crosses a navigation boundary (the Inbox is home-level, the terminal only
+exists inside a workspace) and the trip is asynchronous — opening a project
+mounts a workspace, spawns a PTY and boots an agent. So the prompt goes through
+a one-slot queue (`lib/routineHandoff.ts`) with a TTL, peeked-then-consumed by
+`useRoutineHandoff` once a terminal actually accepts it.
+
+The action bar is pinned to the foot of the reader rather than sitting at the end
+of the report: a long finding would otherwise push the entire point of the
+feature below the fold.
+
+## 7. Cost
+
+Every run spends the user's own agent subscription. A trivial three-file repo
+cost ~73k tokens in an end-to-end test — mostly system prompt and cache, but it
+is not free and it is not small.
+
+That shapes several decisions: manual is the default trigger; intervals are
+floored at 5 minutes; the scheduler runs one routine per tick; there is
+deliberately **no "Run all routines" command** in the palette; and the token
+column shows an em dash rather than a zero when the CLI reports nothing (Codex
+`exec` reports no usage, and a confident "0" would read as a free run).
+
+## Testing
+
+```bash
+cd src-tauri && cargo test routines           # 38 unit tests
+pnpm vitest run src/lib/routines.test.ts src/lib/routineHandoff.test.ts
+pnpm vitest run src/components/routines src/components/inbox
+```
+
+There is also a real end-to-end test that runs an actual agent against a real
+git repo. It is `#[ignore]`d because it spends quota and needs a signed-in CLI:
+
+```bash
+cd src-tauri && cargo test e2e_runs_a_routine_against_the_real_agent -- --ignored --nocapture
+```
+
+It asserts the run completes **and** that a read-only routine wrote nothing.
 
 ## Open questions
 
-Three things the prototype does not answer, in the order they would bite:
-
-1. **Working-tree contention.** A routine shelling into a project you are
-   actively editing reads a dirty tree, and a `can-edit` routine fights your
-   interactive agent outright. Worktrees already exist here; a routine probably
-   wants a dedicated one pinned to the last known commit.
-2. **Quota.** A half-hourly routine spends the same agent allowance you need for
-   real work, and Ship Studio does not own that meter. It can only show the cost
-   and back off — likely a budget ceiling plus a "not while I'm working" rule.
-   This is also the argument for keeping `all-projects` scope out of v1: a
-   half-hourly sweep across twelve repos is a quota bomb.
-3. **Deduplication.** A routine that refiles the same finding every thirty
-   minutes is uninstalled within a day. The fingerprint is modelled in the data
-   but the matching rules are not designed.
+- **Working-tree contention.** A routine shelling into a repo you're actively
+  editing reads a tree mid-change. Read-only makes this survivable (a stale read,
+  not a corrupt write), and the in-flight guard stops two runs colliding. A
+  `git worktree` per run is the eventual answer.
+- **Quota.** Nothing stops someone arming a dozen 15-minute routines and burning
+  a month's allowance in a week. There is no budget, cap, or projection yet.
+- **Fingerprint drift.** Dedup leans on the agent producing a stable fingerprint,
+  with a normalised title as fallback. A model that rewords a finding *and* omits
+  the fingerprint files a duplicate.
+- **Notifications.** There is no desktop-notification path. A `notify:` key is
+  preserved verbatim if a file has one, but it is not documented to agents and
+  does nothing — advertising a no-op key would be the same dishonesty this
+  design spends its effort avoiding.

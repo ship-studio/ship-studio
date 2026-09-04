@@ -5,8 +5,6 @@
  * press, and auto-run is an opt-in on top of that. There is deliberately no
  * "missed" state — see the RoutineTrigger docs in `lib/routines`.
  *
- * PROTOTYPE. Actions mutate the in-memory store in `lib/routinesStore` only.
- *
  * @module components/routines/RoutineRow
  */
 

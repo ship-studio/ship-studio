@@ -418,7 +418,6 @@ pub fn run() {
             commands::routines::set_inbox_item_archived,
             commands::routines::mark_all_inbox_read,
             commands::routines::ensure_routines_skill,
-            routine_scheduler::fire_project_open_routines,
             routine_scheduler::fire_push_routines,
             commands::projects::get_dashboard_projects,
             commands::projects::list_pages,

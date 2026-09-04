@@ -99,15 +99,15 @@ interface Props {
   /** Hide the sidebar-owned navigation row when the workspace titlebar owns it. */
   showNavigationControls?: boolean;
   /**
-   * PROTOTYPE (routines/inbox): which top-level destination is showing, so the
+   * Which top-level destination is showing, so the
    * nav row can mark it current. Defaults to Home when omitted.
    */
   activeNav?: 'home' | 'routines' | 'inbox';
-  /** PROTOTYPE: open the Routines page. Hides the nav button when omitted. */
+  /** Open the Routines page. Hides the nav button when omitted. */
   onGoRoutines?: () => void;
-  /** PROTOTYPE: open the Inbox. Hides the nav button when omitted. */
+  /** Open the Inbox. Hides the nav button when omitted. */
   onGoInbox?: () => void;
-  /** PROTOTYPE: unread findings, rendered as a badge on the Inbox button. */
+  /** Unread findings, rendered as a badge on the Inbox button. */
   inboxUnreadCount?: number;
 
   // Projects

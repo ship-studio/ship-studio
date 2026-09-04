@@ -650,7 +650,11 @@ pub async fn create_branch(
 /// sets its upstream. Used by the per-branch "Publish" action.
 #[tauri::command]
 #[instrument(name = "push_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
-pub async fn push_branch(project_path: String, branch_name: String) -> Result<(), CommandError> {
+pub async fn push_branch(
+    app: tauri::AppHandle,
+    project_path: String,
+    branch_name: String,
+) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Reject names git couldn't safely take as a ref argument.
@@ -697,6 +701,13 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
     }
 
     info!("Branch published successfully");
+    // Fire any `on push` routines for this project. Spawned rather than
+    // awaited: publishing a branch must not sit behind an agent run.
+    crate::routine_scheduler::spawn_event(
+        &app,
+        &validated_path.to_string_lossy(),
+        crate::commands::routines::RoutineEvent::Push,
+    );
     Ok(())
 }
 

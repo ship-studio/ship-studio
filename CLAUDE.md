@@ -55,6 +55,7 @@ Command modules in `src-tauri/src/commands/`. Domains with submodules are direct
 - `plugins/` - Plugin lifecycle and storage
 - `projects/` - Project CRUD: detection, metadata, dev-server config, pins, sessions, templates, UI state, window registry
 - `pty/` - Pseudo-terminal spawn/stream for the embedded agent terminals
+- `routines/` - Routines & Inbox: routine markdown files, headless runs, filed findings, and the bundled agent skill (see `docs/routines-inbox.md`)
 - `setup/` - First-run onboarding: install, auth, status checks, mock/force modes
 - `skills/` - Agent skill search and install
 
@@ -111,6 +112,8 @@ Single-file domains:
 - `branches/` - Git/branch UI: branches/PR tabs, conflict resolution, diff, publish controls, GitHub button
 - `code/` - Code mode: viewer, file tree, code tab, health panel
 - `plugins/` - Plugin manager/slots/dropdown, MCP and Skills modals
+- `routines/` - Routines list, row, editor, template picker, run history
+- `inbox/` - Findings list and the report reader
 - `shopify/` - Shopify theme setup and store modal
 - `primitives/`, `icons/`, `setup/`, `edit/`, `support/`, `CommandPalette/`, `import-project/` - pre-existing groups
 - Root holds only cross-cutting files: ErrorBoundary, UpdateBanner, EducationOverlay, ConnectOverlay, AppGlobalModals, HelpModal
@@ -150,6 +153,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `mobile.ts` / `androidMirror.ts` - Mobile app preview and device mirror
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
+- `routines.ts` / `routinesStore.ts` / `routineHandoff.ts` - Routines & Inbox: types mirroring the Rust shapes, the store over the Tauri commands, and the queue that carries a finding's prompt into a workspace terminal
 - `projectSessions.ts` / `sessionRegistry.ts` / `ptySession.ts` - Hot project sessions (backend authority + frontend mirror)
 - `setup.ts` - Setup wizard step definitions and integration status
 - `terminalLinks.ts` - Clickable URLs in terminals (web-links addon)
@@ -319,6 +323,16 @@ These names predate the layered token system. Product code must use the canonica
 3. On submit the modal runs the whole flow itself: commits pending changes (a failed commit aborts with a humanized error — never a PR that silently lacks the user's latest work), generates the title/description via the agent CLI when available (branch-name title as fallback), then creates the PR
 4. Backend gathers git context (diff, commits, branch name) and calls Claude CLI for the summary
 5. PR is created via `gh pr create`; git/GitHub failures surface through `humanizeGitError` (src/lib/errors.ts) with the branch names filled in
+
+### Routines Flow
+
+1. A routine is a markdown file at `<project>/.shipstudio/routines/<slug>.md` — frontmatter plus an instruction body. The form in `RoutineEditorModal` and the user's own agent (via the bundled `shipstudio-routines` skill) write the *same* artifact; there is no API in front of it
+2. Running one shells out to the user's agent CLI headless in the project dir. Read-only is enforced by the CLI (`--permission-mode plan` / `--sandbox read-only`), not merely requested — never weaken this without changing the UI copy that claims it
+3. Findings come back as the last fenced ```json block in the reply, are deduped by fingerprint, and are filed to `~/ShipStudio/.shipstudio/routines-state.json` — **never** into the project repo
+4. Scheduling is one tokio tick (`routine_scheduler.rs`), at most one run per tick, never catching up on a backlog. Nothing fires while the app is closed and every UI string says so
+5. In the Inbox, "Fix in \<project\>" queues the suggested prompt (`lib/routineHandoff.ts`), opens the workspace, and `useRoutineHandoff` types it once a terminal exists
+
+Full design: [docs/routines-inbox.md](docs/routines-inbox.md).
 
 ### Languages (Multilingual / i18n) Flow
 1. Cmd+K → "Languages" opens `LanguagesModal` (`useModal('i18n')`)

@@ -26,7 +26,7 @@ export type RoutinePermission = 'read-only' | 'can-edit';
  * best fit for the model: they fire during work, which is exactly when the app
  * is open.
  */
-export type RoutineEvent = 'push' | 'pr-opened' | 'project-open';
+export type RoutineEvent = 'push' | 'pr-opened';
 
 /**
  * What sets a routine off.
@@ -86,8 +86,6 @@ export interface Routine {
   prompt: string;
   /** Findings below this level are dropped rather than filed. */
   severityFloor: Severity;
-  /** Send an OS notification as well as filing to the inbox. */
-  notify: boolean;
   /**
    * Whether the trigger is armed. Irrelevant for a manual routine, which is
    * always runnable from its Run button — pressing Run is the whole trigger.
@@ -110,7 +108,6 @@ export interface RoutineDraft {
   permission: RoutinePermission;
   prompt: string;
   severityFloor: Severity;
-  notify: boolean;
   autoRun: boolean;
 }
 
@@ -163,7 +160,6 @@ export interface RoutineTemplate {
 const EVENT_LABELS: Record<RoutineEvent, string> = {
   push: 'After every push',
   'pr-opened': 'When a PR opens',
-  'project-open': 'When the project opens',
 };
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

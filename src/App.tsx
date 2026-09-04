@@ -42,9 +42,8 @@ import { ProjectsView } from './components/dashboard/ProjectsView';
 import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { HomeSidebar } from './components/workspace/HomeSidebar';
-import { RoutinesView } from './components/routines/RoutinesView';
+import { StandingWorkView } from './components/workspace/StandingWorkView';
 import { useRoutineHandoff } from './hooks/useRoutineHandoff';
-import { InboxView } from './components/inbox/InboxView';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
@@ -975,7 +974,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     [loadedPlugins, pluginFailures, getSlotPlugins, reloadPlugins]
   );
 
-  // PROTOTYPE (routines/inbox): shared configuration for the home-level
+  // Shared configuration for the home-level
   // sidebar, used by the Projects, Routines, and Inbox screens.
   const routinesSnapshot = useSyncExternalStore(subscribeRoutines, getRoutinesSnapshot);
   const inboxUnread = unreadCount(routinesSnapshot);
@@ -1202,19 +1201,13 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'routines' || view === 'inbox') {
     return (
       <>
-        <div className="app workspace workspace-home">
-          <div
-            className={`projects-with-rail${isCompact ? ' is-compact' : ''}`}
-            key="view-standing"
-          >
-            {!isCompact && <HomeSidebar {...homeSidebarProps} activeNav={view} />}
-            {view === 'routines' ? (
-              <RoutinesView currentProjectPath={currentProject?.path ?? null} />
-            ) : (
-              <InboxView onOpenProject={handleSelectProject} />
-            )}
-          </div>
-        </div>
+        <StandingWorkView
+          view={view}
+          isCompact={isCompact}
+          sidebarProps={homeSidebarProps}
+          currentProjectPath={currentProject?.path ?? null}
+          onOpenProject={handleSelectProject}
+        />
         <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
       </>
