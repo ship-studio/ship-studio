@@ -3701,7 +3701,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 199
+      "consumerCount": 198
     },
     {
       "name": "--surface-control",
@@ -4475,7 +4475,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 239
+      "consumerCount": 238
     },
     {
       "name": "--spacing-sm",
@@ -4493,7 +4493,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 251
+      "consumerCount": 252
     },
     {
       "name": "--spacing-lg",

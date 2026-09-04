@@ -12,7 +12,13 @@
   /* Wider than the editor: a list beside a readable report needs the room, and
      the prompt block below it wraps badly under ~40em. */
   width: min(1000px, 94vw);
-  max-height: 88vh;
+  /* A *definite* height, not a max. `.modal-frame-content` is a flex column
+     sized by its content up to 90vh, and inside a content-sized flex parent a
+     `flex: 1 1 0` child resolves against nothing: both panes below collapsed
+     to zero and the dialog rendered as a bar. This screen is always tall — a
+     browsable list beside a report — so it takes a height and lets the panes
+     divide it. */
+  height: min(860px, 88vh);
   overflow: hidden;
 }
 
@@ -75,7 +81,8 @@
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--spacing-md) var(--spacing-sm);
+  /* The first group's label carries the top space, so the list starts flush. */
+  padding: 0 var(--spacing-sm) var(--spacing-md);
   border-right: var(--border-width-default) solid var(--border-subtle);
   /* Same treatment as the Inbox list: WKWebView otherwise paints a permanent
      light track that doubles up with the pane divider. */
@@ -92,16 +99,15 @@
   gap: var(--spacing-3xs);
 }
 
-/* Sticky, because twenty templates is more than one screen of list and the
-   category you are scrolling through is the thing that stops it feeling like
-   an undifferentiated pile. */
+/* Deliberately not sticky. It was, and it looked broken: the label band is
+   ~28px against a ~52px row, so the row scrolling under it was sliced through
+   the middle of its own glyphs and read as a rendering fault rather than as a
+   header. Orientation in a twenty-item list is not worth an artifact that
+   makes the screen look broken, and the labels scroll into view soon enough
+   on their own. */
 .workflow-template-group-label {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-2xs);
-  /* The dialog's own surface, so rows scroll under it cleanly. */
-  background: var(--surface-panel);
+  display: block;
+  padding: var(--spacing-md) var(--spacing-sm) var(--spacing-2xs);
   color: var(--text-muted);
 }
 
@@ -170,6 +176,13 @@
   min-width: 0;
   overflow-y: auto;
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+  /* Same as .inbox-detail-scroll: WKWebView paints a permanent light track
+     otherwise, which sits right on the dialog's own edge. */
+  scrollbar-width: none;
+}
+
+.workflow-template-preview::-webkit-scrollbar {
+  display: none;
 }
 
 .workflow-template-preview-head {
