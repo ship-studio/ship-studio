@@ -666,8 +666,6 @@ fn parse_claude_stream(stdout: &str) -> AgentReply {
         output_tokens: u64,
         #[serde(default)]
         cache_creation_input_tokens: u64,
-        #[serde(default)]
-        cache_read_input_tokens: u64,
     }
     #[derive(Deserialize)]
     struct ClaudeResult {
@@ -691,12 +689,16 @@ fn parse_claude_stream(stdout: &str) -> AgentReply {
         }
         return AgentReply {
             text: parsed.result.unwrap_or_default(),
-            tokens: parsed.usage.map(|u| {
-                u.input_tokens
-                    + u.output_tokens
-                    + u.cache_creation_input_tokens
-                    + u.cache_read_input_tokens
-            }),
+            // Deliberately excludes `cache_read_input_tokens`. A long agentic
+            // run re-reads the same cached context on every turn, so cache
+            // reads dominate the raw total — a real security sweep came back
+            // as 1.4M "tokens" — while being billed at a fraction of the rest.
+            // Including them made the figure read as roughly ten times the
+            // actual spend, which is worse than useless on a number whose
+            // whole job is letting someone watch their quota.
+            tokens: parsed
+                .usage
+                .map(|u| u.input_tokens + u.output_tokens + u.cache_creation_input_tokens),
         };
     }
     AgentReply {

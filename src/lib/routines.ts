@@ -57,6 +57,9 @@ export interface RoutineRun {
    * Tokens billed to the user's own agent subscription, or null when the CLI
    * doesn't report them (Codex `exec` doesn't). Null renders as "—"; a guessed
    * number would defeat the point of showing it at all.
+   *
+   * Excludes cached-context reads — see `parse_claude_stream` in
+   * `runs.rs` for why counting them made this read ten times too high.
    */
   tokens: number | null;
   /** Why it failed. Null for a run that completed. */

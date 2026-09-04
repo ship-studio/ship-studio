@@ -35,6 +35,12 @@ interface RoutineRowProps {
   progress: ProgressLine[];
   isExpanded: boolean;
   onToggleExpanded: (routine: Routine) => void;
+  /**
+   * Whether any routine in the list has an auto-run switch. Only then is the
+   * empty slot worth holding — with an all-manual list it reserves space for a
+   * control that appears nowhere.
+   */
+  reserveToggleSlot: boolean;
   onEdit: (routine: Routine) => void;
   onRunNow: (routine: Routine) => void;
   onToggleAutoRun: (routine: Routine, autoRun: boolean) => void;
@@ -69,6 +75,7 @@ export function RoutineRow({
   progress,
   isExpanded,
   onToggleExpanded,
+  reserveToggleSlot,
   onEdit,
   onRunNow,
   onToggleAutoRun,
@@ -197,9 +204,11 @@ export function RoutineRow({
                 </span>
               </button>
             ) : (
-              /* A manual routine has no switch, but the slot is held so Run stays
-               in the same column down the list. */
-              <span className="routine-row-toggle-slot" aria-hidden />
+              /* A manual routine has no switch. The empty slot keeps Run in one
+                 column down a mixed list, but reserves space for nothing when
+                 every routine is manual — so it's only held when some row in
+                 the list actually has a switch. */
+              reserveToggleSlot && <span className="routine-row-toggle-slot" aria-hidden />
             )}
           </div>
         </div>

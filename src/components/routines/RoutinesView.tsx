@@ -91,6 +91,8 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
     { intervalMs: 1000, enabled: anyRunning }
   );
 
+  // Hold the switch column only if something in the list actually has one.
+  const anyArmable = routines.some((routine) => routine.trigger.kind !== 'manual');
   const armedCount = routines.filter(
     (routine) => routine.autoRun && routine.trigger.kind !== 'manual'
   ).length;
@@ -238,6 +240,7 @@ export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
                     routine={routine}
                     progress={progress[routine.id] ?? EMPTY_PROGRESS}
                     isExpanded={expandedId === routine.id}
+                    reserveToggleSlot={anyArmable}
                     onToggleExpanded={handleToggleExpanded}
                     onEdit={setEditing}
                     onRunNow={handleRunNow}

@@ -205,6 +205,22 @@ describe('RoutinesView', () => {
     expect(container.querySelector('.routine-row-last')?.textContent).toBe('Running');
   });
 
+  it('hides the empty switch column when every routine is manual', () => {
+    snapshot([routine({ trigger: { kind: 'manual' }, nextRunAt: null })]);
+    const { container } = render(<RoutinesView />);
+    expect(container.querySelector('.routine-row-toggle-slot')).toBeNull();
+  });
+
+  it('keeps the switch column when the list is mixed', () => {
+    // Alignment only matters when some row actually has a switch.
+    snapshot([
+      routine({ id: 'a', trigger: { kind: 'manual' }, nextRunAt: null }),
+      routine({ id: 'b', trigger: { kind: 'interval', everyMinutes: 30 } }),
+    ]);
+    const { container } = render(<RoutinesView />);
+    expect(container.querySelector('.routine-row-toggle-slot')).not.toBeNull();
+  });
+
   it('shows the latest activity line while a routine runs', () => {
     // A spinner says "running". This says "doing something sensible", which is
     // the question people actually have the first few times.

@@ -231,6 +231,12 @@ deliberately **no "Run all routines" command** in the palette; and the token
 column shows an em dash rather than a zero when the CLI reports nothing (Codex
 `exec` reports no usage, and a confident "0" would read as a free run).
 
+The token figure excludes cached-context reads. A long agentic run re-reads the
+same cached context every turn, so cache reads dominate the raw total — a real
+security sweep reported 1.4M — while being billed at a fraction of the rest.
+Counting them made the number read as roughly ten times the actual spend, which
+is worse than useless on a figure whose whole job is watching a quota.
+
 ## Testing
 
 ```bash
