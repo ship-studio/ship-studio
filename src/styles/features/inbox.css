@@ -7,6 +7,10 @@
 .inbox-panel {
   display: flex;
   flex-direction: column;
+  /* Grow into the column rather than sitting at content height: reading is
+     the job here, so leftover vertical space belongs to the reader, not to a
+     band of nothing under the card. */
+  flex: 1 0 auto;
   min-height: 0;
 }
 
@@ -16,20 +20,16 @@
      long report title push the list track past its max and out from under the
      divider. */
   grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
-  height: min(720px, 68vh);
-  min-height: 0;
+  /* Fill what the panel gives us, but never below a height that can hold a
+     readable report — under that the page scrolls instead. A fixed height was
+     shrunk by the surrounding flex column to ~260px, which clipped a list row
+     in half and pushed the detail pane's actions out of sight. */
+  flex: 1 1 auto;
+  min-height: 320px;
   border: var(--border-width-default) solid var(--border-subtle);
   border-radius: var(--radius-card);
   overflow: hidden;
   background: var(--surface-recessed);
-}
-
-.inbox-empty {
-  display: flex;
-  min-height: 220px;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-2xl);
 }
 
 /* ---- list ---- */
@@ -203,13 +203,23 @@
 
 /* ---- detail ---- */
 
+/* The pane is a column: a scrolling report, then a pinned action bar. */
 .inbox-detail-pane {
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.inbox-detail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   scrollbar-width: none;
 }
 
-.inbox-detail-pane::-webkit-scrollbar {
+.inbox-detail-scroll::-webkit-scrollbar {
   display: none;
 }
 
@@ -410,6 +420,10 @@
   color: var(--text-muted);
 }
 
+.inbox-handoff-copy {
+  margin-left: auto;
+}
+
 .inbox-handoff-prompt {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);
@@ -428,11 +442,29 @@
   flex-wrap: wrap;
 }
 
-.inbox-detail-footer {
+.inbox-detail-provenance {
+  display: flex;
+  align-items: center;
+  padding-top: var(--spacing-2xs);
+}
+
+/* Pinned to the foot of the pane — see InboxDetail. Sits on the panel surface
+   so it reads as chrome over the recessed report rather than part of it. */
+.inbox-detail-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-sm);
-  padding-top: var(--spacing-md);
+  gap: var(--spacing-md);
+  flex: none;
+  flex-wrap: wrap;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--surface-panel);
   border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.inbox-detail-actions-primary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
 }

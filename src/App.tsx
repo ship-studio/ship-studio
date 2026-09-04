@@ -43,6 +43,7 @@ import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { HomeSidebar } from './components/workspace/HomeSidebar';
 import { RoutinesView } from './components/routines/RoutinesView';
+import { useRoutineHandoff } from './hooks/useRoutineHandoff';
 import { InboxView } from './components/inbox/InboxView';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
@@ -553,8 +554,18 @@ function AppContents({ initialProjectPath }: AppProps) {
     showToast,
   });
 
-  // PROTOTYPE (routines/inbox) — see src/commands/useRoutineCommands.tsx
   useRoutineCommands({ setView, showToast });
+
+  // Deliver a queued "Fix with agent" prompt once the opened project actually
+  // has a terminal to type into — see hooks/useRoutineHandoff.
+  useRoutineHandoff(
+    currentProject?.path ?? null,
+    sendToClaude,
+    useCallback(
+      () => showToast('Prompt sent to the terminal — press Enter to run it', 'success'),
+      [showToast]
+    )
+  );
 
   // Close an active session from the sidebar (dashboard, collapsed rail, or
   // workspace). Ordering and the auto-open sentinel are load-bearing — see
@@ -1187,7 +1198,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     );
   }
 
-  // PROTOTYPE (routines/inbox): two home-level screens sharing the home sidebar.
+  // Routines and the Inbox: two home-level screens sharing the home sidebar.
   if (view === 'routines' || view === 'inbox') {
     return (
       <>
@@ -1197,7 +1208,11 @@ function AppContents({ initialProjectPath }: AppProps) {
             key="view-standing"
           >
             {!isCompact && <HomeSidebar {...homeSidebarProps} activeNav={view} />}
-            {view === 'routines' ? <RoutinesView /> : <InboxView />}
+            {view === 'routines' ? (
+              <RoutinesView currentProjectPath={currentProject?.path ?? null} />
+            ) : (
+              <InboxView onOpenProject={handleSelectProject} />
+            )}
           </div>
         </div>
         <ToastList toasts={toasts} onDismiss={dismissToast} />

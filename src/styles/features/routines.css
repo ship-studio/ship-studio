@@ -261,6 +261,16 @@
   max-width: 74ch;
 }
 
+/* The first load has no way to tell "no routines" from "not read yet", so it
+   shows neither — an empty state that flashes before real content is a lie
+   about the user's data. */
+.routines-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+}
+
 /* ---- editor modal ---- */
 
 .routine-editor-modal {
@@ -341,6 +351,29 @@
 .routine-field > .segmented-control {
   align-self: flex-start;
   max-width: 100%;
+}
+
+/* Opt back into filling, with segments sharing the width equally. Used where
+   the control sits in a two-up grid beside a full-width dropdown (a hugging
+   control there leaves the row visibly ragged) and for the trigger rails,
+   whose segments read as a single spectrum. */
+.routine-field > .segmented-control.routine-segments-fill,
+.routine-trigger-detail > .segmented-control.routine-segments-fill {
+  display: flex;
+  align-self: stretch;
+  width: 100%;
+}
+
+.routine-segments-fill > .button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The equal-width segments put every label under shrink pressure, and a
+   flexible SVG answers that by collapsing to a sliver — the Claude glyph
+   crushed to a dot. Only the text may give. */
+.routine-segments-fill > .button > svg {
+  flex-shrink: 0;
 }
 
 .routine-field-hint {
@@ -479,6 +512,25 @@
   overflow-x: auto;
 }
 
+/* Step position sits at the leading edge of the footer, opposite the actions,
+   so a two-step flow says where you are without a second header row. */
+.routine-editor-step {
+  margin-right: auto;
+}
+
+/* Where the routine lands on disk, under the command it runs — the two facts
+   that make "there is no hidden orchestration" checkable rather than claimed. */
+.routine-command-note {
+  margin: var(--spacing-xs) 0 0;
+  line-height: var(--line-height-help);
+}
+
+.routine-command-note code {
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
 .routine-editor-actions {
   display: flex;
   justify-content: flex-end;
@@ -519,10 +571,91 @@
   max-width: 64ch;
 }
 
-/* .stack-grid is three-up for the full-width Create Project modal; two-up
-   suits this narrower dialog. */
-.routine-template-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+/* A flat option list — see RoutineTemplatePicker for why this isn't a grid. */
+.routine-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+
+.routine-template-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: none;
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-card);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition:
+    background var(--transition-interaction),
+    border-color var(--transition-interaction);
+}
+
+.routine-template-option:hover {
+  background: var(--surface-control-hover);
+}
+
+/* The app's list-selection recipe, shared with .inbox-item and
+   .run-history-item: a filled surface and the ordinary border. An accent ring
+   here shouted louder than anything else on the screen, and the inline check
+   already says which one is chosen. */
+.routine-template-option.is-selected {
+  background: var(--surface-selected);
+  border-color: var(--border-default);
+}
+
+.routine-template-option-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.routine-template-option-name {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-template-option-check {
+  flex-shrink: 0;
+  color: var(--accent-active);
+  /* Baseline alignment puts an icon's box on the text baseline; nudge it back
+     onto the optical centre of the name it marks. */
+  align-self: center;
+}
+
+/* Cadence and category are pushed to the trailing edge so the names form a
+   single scannable column down the left. Plain muted text with a middot, the
+   same treatment .routine-row-meta gives the identical facts in the list — a
+   badge would be a component the app doesn't otherwise have. */
+.routine-template-option-tags {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+  white-space: nowrap;
+}
+
+.routine-template-tag-sep {
+  color: var(--text-faint);
+}
+
+.routine-template-option-description {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
 }
 
 /* ---- run history ---- */

@@ -103,7 +103,8 @@ export interface UseProjectLifecycleParams {
    *  a successful pnpm/npm install so a follow-up startServer actually spawns. */
   clearNeedsInstall: (projectPath: string) => void;
   // Terminal
-  pasteToActiveTerminal: (text: string) => void;
+  /** Returns false when no terminal is mounted yet. */
+  pasteToActiveTerminal: (text: string) => boolean;
   terminalTabs: Array<{ id: number; agentId: string; sessionId: string }>;
   activeTerminalTab: number;
   /** Seed a project's tab list from persisted backend state on first open. */
@@ -216,11 +217,10 @@ export function useProjectLifecycle({
   // Used to detect when a stale async handleSelectProject should stop modifying view state.
   const navigationVersionRef = useRef(0);
 
-  // Send prompt to Claude terminal
+  // Send prompt to the agent terminal. Returns false when there is no terminal
+  // yet — the routine handoff retries on that.
   const sendToClaude = useCallback(
-    (prompt: string) => {
-      pasteToActiveTerminal(prompt);
-    },
+    (prompt: string): boolean => pasteToActiveTerminal(prompt),
     [pasteToActiveTerminal]
   );
 

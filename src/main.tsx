@@ -16,10 +16,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { reactErrorHandler } from '@sentry/react';
 import App from './App';
-import {
-  DevRoutinesPreviewRoot,
-  isDevRoutinesPreviewRequested,
-} from './components/routines/DevRoutinesPreview';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { exposeReactGlobals, lookupBlobOwner, markPluginCrashed } from './lib/plugin-loader';
 import { uninstallPlugin } from './lib/plugins';
@@ -268,14 +264,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
 }).render(
   <React.StrictMode>
     <ErrorBoundary>
-      {/* PROTOTYPE: ?routinesPreview=1 renders the Routines/Inbox prototype on
-          its own, so it can be reviewed in a plain browser where the Tauri
-          backend the real app needs is not available. DEV-only. */}
-      {isDevRoutinesPreviewRequested(window.location.search) ? (
-        <DevRoutinesPreviewRoot />
-      ) : (
-        <App initialProjectPath={initialProjectPath} />
-      )}
+      <App initialProjectPath={initialProjectPath} />
     </ErrorBoundary>
   </React.StrictMode>
 );

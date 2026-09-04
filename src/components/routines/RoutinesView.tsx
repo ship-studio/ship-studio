@@ -6,26 +6,30 @@
  * `dashboard-section-header` title/actions row the project list uses. Moving
  * between Home, Routines and Inbox should not move anything.
  *
- * PROTOTYPE. Reads and writes the in-memory store in `lib/routinesStore`;
- * nothing is scheduled, spawned, or persisted. See `docs/routines-inbox.md`
- * for the architecture this stands in for.
+ * Reads from `lib/routinesStore`, which is backed by real files on disk. A
+ * routine that appears here may have been written by the form below *or* by
+ * the user's own agent through the bundled skill — the store reloads on both.
  *
  * @module components/routines/RoutinesView
  */
 
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { PlusIcon, ZapIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { EmptyState } from '../primitives/EmptyState';
+import { Spinner } from '../primitives/Spinner';
 import { DashboardHeader } from '../dashboard/DashboardHeader';
 import { DashboardSearch } from '../dashboard/DashboardSearch';
 import { RoutineRow } from './RoutineRow';
-import { RoutineEditorModal } from './RoutineEditorModal';
+import { RoutineEditorModal, type RoutineProjectOption } from './RoutineEditorModal';
 import { RunHistoryModal } from './RunHistoryModal';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
-import { formatTokens, summarizeWeek, type Routine } from '../../lib/routines';
+import { listProjects } from '../../lib/project';
+import { logger } from '../../lib/logger';
+import { formatTokens, summarizeWeek, type Routine, type RoutineDraft } from '../../lib/routines';
 import {
+  deleteRoutine,
   getSnapshot,
   runRoutineNow,
   saveRoutine,
@@ -33,13 +37,35 @@ import {
   subscribe,
 } from '../../lib/routinesStore';
 
-export function RoutinesView() {
-  const { routines } = useSyncExternalStore(subscribe, getSnapshot);
+interface RoutinesViewProps {
+  /** Preselected project for a new routine, when opened from a workspace. */
+  currentProjectPath?: string | null;
+}
+
+export function RoutinesView({ currentProjectPath }: RoutinesViewProps) {
+  const { routines, loaded, error } = useSyncExternalStore(subscribe, getSnapshot);
   const { showToast } = useOptionalToast();
   const { dashboardHeaderHidden, hideDashboardHeader } = useDashboardVisibility();
 
   const [editing, setEditing] = useState<Routine | 'new' | null>(null);
   const [historyFor, setHistoryFor] = useState<Routine | null>(null);
+  const [projects, setProjects] = useState<RoutineProjectOption[]>([]);
+
+  // The project list is only needed to answer "which project does this run
+  // against", so it loads once rather than on every store change.
+  useEffect(() => {
+    let active = true;
+    listProjects()
+      .then((list) => {
+        if (active) setProjects(list);
+      })
+      .catch((err: unknown) => {
+        logger.warn('[Routines] Could not load projects', { error: String(err) });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const armedCount = routines.filter(
     (routine) => routine.autoRun && routine.trigger.kind !== 'manual'
@@ -48,25 +74,44 @@ export function RoutinesView() {
 
   const handleToggleAutoRun = useCallback(
     (routine: Routine, autoRun: boolean) => {
-      setAutoRun(routine.id, autoRun);
-      showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${routine.name}`, 'info');
+      setAutoRun(routine, autoRun)
+        .then(() => showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${routine.name}`, 'info'))
+        .catch((err: unknown) => showToast(String(err), 'error'));
     },
     [showToast]
   );
 
   const handleRunNow = useCallback(
     (routine: Routine) => {
-      runRoutineNow(routine.id);
       showToast(`Running ${routine.name}…`, 'info');
+      runRoutineNow(routine)
+        .then((run) => {
+          if (run.findings === 0) {
+            showToast(`${routine.name}: nothing to report`, 'success');
+          } else {
+            const plural = run.findings === 1 ? 'finding' : 'findings';
+            showToast(`${routine.name}: ${run.findings} ${plural} — see your Inbox`, 'success');
+          }
+        })
+        .catch((err: unknown) => showToast(String(err), 'error'));
     },
     [showToast]
   );
 
   const handleSave = useCallback(
-    (routine: Routine) => {
-      saveRoutine(routine);
+    async (projectPath: string, slug: string | null, draft: RoutineDraft) => {
+      const saved = await saveRoutine(projectPath, slug, draft);
       setEditing(null);
-      showToast(`Saved ${routine.name}`, 'success');
+      showToast(`Saved ${saved.name}`, 'success');
+    },
+    [showToast]
+  );
+
+  const handleDelete = useCallback(
+    async (routine: Routine) => {
+      await deleteRoutine(routine.projectPath, routine.slug);
+      setEditing(null);
+      showToast(`Deleted ${routine.name}`, 'info');
     },
     [showToast]
   );
@@ -115,22 +160,36 @@ export function RoutinesView() {
                     <span className="routines-summary-item">
                       <strong>{week.runs}</strong> runs this week
                     </span>
-                    <span className="routines-summary-sep" aria-hidden>
-                      ·
-                    </span>
-                    <span className="routines-summary-item">
-                      <strong>{formatTokens(week.tokens)}</strong> tokens
-                    </span>
+                    {week.tokens !== null && (
+                      <>
+                        <span className="routines-summary-sep" aria-hidden>
+                          ·
+                        </span>
+                        <span className="routines-summary-item">
+                          <strong>{formatTokens(week.tokens)}</strong> tokens
+                        </span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
             </div>
 
-            {routines.length === 0 ? (
+            {!loaded ? (
+              <div className="routines-loading">
+                <Spinner size="lg" />
+              </div>
+            ) : error ? (
+              <EmptyState
+                icon={<ZapIcon size={28} />}
+                title="Could not read your routines"
+                description={error}
+              />
+            ) : routines.length === 0 ? (
               <EmptyState
                 icon={<ZapIcon size={28} />}
                 title="No routines yet"
-                description="A routine is a prompt and a project. Press Run whenever you want it, or put it on an interval that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox."
+                description="A routine is an instruction and a project. Press Run whenever you want it, or put it on a schedule that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox. You can also just ask your agent to make you one."
                 action={
                   <Button variant="primary" onClick={() => setEditing('new')}>
                     Create your first routine
@@ -156,10 +215,9 @@ export function RoutinesView() {
           <p className="routines-page-footer">
             Routines run the agent CLI installed on this Mac, inside your project folder — there is
             no Ship Studio server and no copy of your code anywhere else. Nothing runs while the app
-            is closed, so auto-run is an interval that only ticks while Ship Studio is open rather
-            than a time of day it has to hit. Each routine is a markdown file under{' '}
-            <code>.shipstudio/routines/</code>, and tokens are billed to the agent plan you already
-            pay for.
+            is closed. Each routine is a markdown file under <code>.shipstudio/routines/</code>, so
+            you can commit them, review them in a PR, or ask your agent to write one for you. Tokens
+            are billed to the agent plan you already pay for.
           </p>
 
           <div className="dashboard-bottom-spacer" aria-hidden />
@@ -170,14 +228,17 @@ export function RoutinesView() {
         <RoutineEditorModal
           key={editing === 'new' ? 'new' : editing.id}
           routine={editing}
+          projects={projects}
+          defaultProjectPath={currentProjectPath}
           onClose={() => setEditing(null)}
           onSave={handleSave}
+          onDelete={handleDelete}
         />
       )}
       {historyFor !== null && (
         <RunHistoryModal
           key={historyFor.id}
-          routine={historyFor}
+          routine={routines.find((r) => r.id === historyFor.id) ?? historyFor}
           onClose={() => setHistoryFor(null)}
         />
       )}

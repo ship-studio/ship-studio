@@ -1,16 +1,18 @@
 /**
  * Palette commands for Routines and the Inbox.
  *
- * PROTOTYPE. Navigation is real; "Run all routines now" fakes runs through the
- * in-memory store like the rest of the prototype.
+ * There is deliberately no "Run all routines" command. Every run spends the
+ * user's own agent subscription, and a single keystroke that fans out N
+ * concurrent agents across every project is the fastest way to burn someone's
+ * quota on something they didn't picture. Running one is a per-row decision.
  *
  * @module commands/useRoutineCommands
  */
 
 import { useSyncExternalStore } from 'react';
-import { BellIcon, PlayIcon, PlusIcon, ZapIcon } from '@/components/icons';
+import { BellIcon, CheckIcon, PlusIcon, ZapIcon } from '@/components/icons';
 import { useCommands } from './useCommands';
-import { getSnapshot, runRoutineNow, subscribe, unreadCount } from '../lib/routinesStore';
+import { getSnapshot, markAllRead, subscribe, unreadCount } from '../lib/routinesStore';
 import type { AppView } from '../lib/types';
 
 interface UseRoutineCommandsParams {
@@ -29,7 +31,7 @@ export function useRoutineCommands({ setView, showToast }: UseRoutineCommandsPar
         title: 'Routines',
         icon: <ZapIcon size={14} />,
         category: 'navigation',
-        keywords: ['schedule', 'automation', 'cron', 'agents', 'recurring'],
+        keywords: ['schedule', 'automation', 'cron', 'recurring', 'checks'],
         run: () => setView('routines'),
       },
       {
@@ -49,23 +51,19 @@ export function useRoutineCommands({ setView, showToast }: UseRoutineCommandsPar
         run: () => setView('routines'),
       },
       {
-        id: 'routines.runAll',
-        title: 'Run all routines now',
-        icon: <PlayIcon size={14} />,
+        id: 'inbox.markAllRead',
+        title: 'Mark all findings read',
+        icon: <CheckIcon size={14} />,
         category: 'navigation',
-        keywords: ['trigger', 'sweep'],
+        keywords: ['inbox', 'clear', 'unread'],
+        when: () => unread > 0,
         run: () => {
-          const { routines } = snapshot;
-          if (routines.length === 0) {
-            showToast('No routines yet', 'info');
-            return;
-          }
-          for (const routine of routines) runRoutineNow(routine.id);
-          setView('routines');
-          showToast(`Running ${routines.length} routines…`, 'info');
+          markAllRead()
+            .then(() => showToast('Inbox marked read', 'success'))
+            .catch((err: unknown) => showToast(String(err), 'error'));
         },
       },
     ],
-    [setView, showToast, snapshot, unread]
+    [setView, showToast, unread]
   );
 }

@@ -30,7 +30,7 @@ interface RoutineRowProps {
   onOpenHistory: (routine: Routine) => void;
 }
 
-function AgentGlyph({ agentId }: { agentId: string }) {
+function AgentGlyph({ agentId }: { agentId: string | null }) {
   if (agentId === 'claude-code') return <ClaudeIcon size={12} />;
   if (agentId === 'codex') return <CodexIcon size={12} />;
   return <GenericAgentIcon size={12} />;
@@ -38,8 +38,8 @@ function AgentGlyph({ agentId }: { agentId: string }) {
 
 /** "1 finding 18m ago" / "Running now" / "Never run". */
 function lastRunLabel(routine: Routine): string {
+  if (routine.isRunning) return 'Running now';
   const run = routine.runs[0];
-  if (run?.status === 'running') return 'Running now';
   if (!run) return 'Never run';
   if (run.status === 'failed') return `Failed ${formatAgo(run.startedAt)}`;
   if (run.findings === 0) return `Clean ${formatAgo(run.startedAt)}`;
@@ -55,7 +55,9 @@ export function RoutineRow({
   onOpenHistory,
 }: RoutineRowProps) {
   const agent = agentForRoutine(routine.agentId);
-  const isRunning = routine.runs[0]?.status === 'running';
+  // Authority is the backend's in-flight set, not the newest run record: a run
+  // started in another window has no local record yet but is still running.
+  const isRunning = routine.isRunning;
   const lastStatus = routine.runs[0]?.status ?? 'ok';
 
   // A manual routine has no trigger to arm, so it shows no auto-run switch.
@@ -92,9 +94,7 @@ export function RoutineRow({
           <span className="routine-row-description">{routine.description}</span>
 
           <span className="routine-row-meta">
-            <span className="routine-row-meta-item">
-              {routine.scope.kind === 'all-projects' ? 'All projects' : routine.scope.projectName}
-            </span>
+            <span className="routine-row-meta-item">{routine.projectName}</span>
             <span className="routine-row-meta-sep" aria-hidden>
               ·
             </span>

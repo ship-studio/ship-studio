@@ -1,66 +1,49 @@
 /**
- * Routines & Inbox — prototype store.
+ * Routines & Inbox — the frontend store.
  *
- * PROTOTYPE ONLY. An in-memory store over the fixtures in `./routines`, shaped
- * like `sessionRegistry` so components can read it with `useSyncExternalStore`.
- * The real feature would back these reads with Tauri commands over
- * `.shipstudio/routines/` and `.shipstudio/inbox/` — see `docs/routines-inbox.md`.
+ * A `useSyncExternalStore` source over the Tauri commands in
+ * `src-tauri/src/commands/routines/`, shaped like `sessionRegistry` so
+ * components read it the same way they read session state.
  *
- * "Run now" fakes a run on a timer so the list has something live in it. It
- * spawns nothing.
+ * The backend is the authority. Anything that changes routines or the inbox —
+ * a manual Run, the scheduler's tick, a routine file the user's *agent* just
+ * wrote — emits `routines:changed`, and this store reloads. That matters
+ * because the agent-authored path means files appear without the UI ever
+ * having been touched.
  *
  * @module lib/routinesStore
  */
 
-import {
-  FIXTURE_INBOX,
-  FIXTURE_ROUTINES,
-  type InboxItem,
-  type Routine,
-  type RoutineRun,
-  type RoutineTrigger,
-} from './routines';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { logger } from './logger';
+import type { InboxItem, Routine, RoutineDraft, RoutineRun } from './routines';
+
+/** Emitted by the backend whenever runs or the inbox change. */
+const CHANGED_EVENT = 'routines:changed';
 
 /**
- * When a trigger next comes due, from now.
- *
- * PROTOTYPE-grade: the real scheduler computes this in Rust, and a background
- * routine's timing is launchd's business rather than ours.
+ * Poll interval while the app is showing routines. The event covers everything
+ * Ship Studio does itself; this catches the case the event cannot — a routine
+ * file written directly on disk, which is exactly what happens when the user's
+ * agent creates one through the bundled skill.
  */
-function nextDueAt(trigger: RoutineTrigger): number | null {
-  const now = new Date();
-  switch (trigger.kind) {
-    case 'interval':
-      return Date.now() + trigger.everyMinutes * 60_000;
-    case 'daily':
-    case 'weekly': {
-      const next = new Date(now);
-      next.setHours(trigger.atHour, trigger.atMinute, 0, 0);
-      if (trigger.kind === 'weekly') {
-        const delta = (trigger.weekday - next.getDay() + 7) % 7;
-        next.setDate(next.getDate() + delta);
-      }
-      if (next.getTime() <= now.getTime()) {
-        next.setDate(next.getDate() + (trigger.kind === 'weekly' ? 7 : 1));
-      }
-      return next.getTime();
-    }
-    default:
-      return null;
-  }
-}
+const POLL_MS = 15_000;
 
 interface RoutinesState {
   routines: Routine[];
   inbox: InboxItem[];
+  /** False until the first load resolves, so the UI can tell empty from unknown. */
+  loaded: boolean;
+  error: string | null;
 }
 
-let state: RoutinesState = {
-  routines: FIXTURE_ROUTINES,
-  inbox: FIXTURE_INBOX,
-};
+let state: RoutinesState = { routines: [], inbox: [], loaded: false, error: null };
 
 const listeners = new Set<() => void>();
+let unlisten: UnlistenFn | null = null;
+let pollTimer: number | null = null;
+let inFlight: Promise<void> | null = null;
 
 function emit(next: RoutinesState): void {
   state = next;
@@ -70,7 +53,11 @@ function emit(next: RoutinesState): void {
 /** Subscribe to store changes. Pair with `getSnapshot` in `useSyncExternalStore`. */
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  if (listeners.size === 1) start();
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) stop();
+  };
 }
 
 /** Current state. Referentially stable until a mutation. */
@@ -78,116 +65,153 @@ export function getSnapshot(): RoutinesState {
   return state;
 }
 
-/* ------------------------------------------------------------- routines */
-
-/** Arm or disarm a routine's trigger. Disarming clears its countdown. */
-export function setAutoRun(id: string, autoRun: boolean): void {
-  emit({
-    ...state,
-    routines: state.routines.map((routine) =>
-      routine.id === id
-        ? {
-            ...routine,
-            autoRun,
-            nextRunAt: autoRun ? nextDueAt(routine.trigger) : null,
-          }
-        : routine
-    ),
-  });
+function start(): void {
+  void refresh();
+  if (pollTimer === null) {
+    pollTimer = window.setInterval(() => void refresh(), POLL_MS);
+  }
+  if (unlisten === null) {
+    void listen(CHANGED_EVENT, () => void refresh())
+      .then((fn) => {
+        // A late resolve after the last subscriber left must not leak a listener.
+        if (listeners.size === 0) {
+          fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch((err: unknown) => {
+        logger.warn('[Routines] Could not subscribe to change events', { error: String(err) });
+      });
+  }
 }
 
-/** Create or replace a routine. */
-export function saveRoutine(routine: Routine): void {
-  const exists = state.routines.some((r) => r.id === routine.id);
-  emit({
-    ...state,
-    routines: exists
-      ? state.routines.map((r) => (r.id === routine.id ? routine : r))
-      : [routine, ...state.routines],
-  });
-}
-
-/** Remove a routine. Its already-filed inbox items stay. */
-export function deleteRoutine(id: string): void {
-  emit({ ...state, routines: state.routines.filter((routine) => routine.id !== id) });
+function stop(): void {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  unlisten?.();
+  unlisten = null;
 }
 
 /**
- * Fake a run: mark the routine running, then settle after a beat.
+ * Reload routines and inbox from disk.
  *
- * The real implementation spawns the agent headless and streams its output;
- * this exists so the prototype's "Run now" does something visible.
+ * Concurrent calls share one round trip: the event and the poll routinely land
+ * together, and two overlapping loads can otherwise resolve out of order and
+ * flip the list back to a stale snapshot.
  */
-export function runRoutineNow(id: string): void {
-  const routine = state.routines.find((r) => r.id === id);
-  if (!routine || routine.runs[0]?.status === 'running') return;
+export async function refresh(): Promise<void> {
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    try {
+      const [routines, inbox] = await Promise.all([
+        invoke<Routine[]>('list_all_routines'),
+        invoke<InboxItem[]>('list_inbox_items'),
+      ]);
+      emit({ routines, inbox, loaded: true, error: null });
+    } catch (err) {
+      logger.error('[Routines] Failed to load', { error: String(err) });
+      emit({ ...state, loaded: true, error: String(err) });
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
 
-  const runId = `run-${id}-${Date.now()}`;
-  const pending: RoutineRun = {
-    id: runId,
-    startedAt: Date.now(),
-    durationMs: 0,
-    status: 'running',
-    findings: 0,
-    tokens: 0,
-    transcript: routine.runs[0]?.transcript ?? '',
+/* ------------------------------------------------------------- routines */
+
+/**
+ * Arm or disarm a routine's trigger.
+ *
+ * `autoRun` lives in the routine's own file, so this is a save like any other
+ * — the switch in the list writes the same `auto-run:` line the editor does.
+ */
+export async function setAutoRun(routine: Routine, autoRun: boolean): Promise<void> {
+  await saveRoutine(routine.projectPath, routine.slug, { ...toDraft(routine), autoRun });
+}
+
+/** The editable half of a routine. */
+export function toDraft(routine: Routine): RoutineDraft {
+  return {
+    name: routine.name,
+    description: routine.description,
+    agentId: routine.agentId,
+    trigger: routine.trigger,
+    permission: routine.permission,
+    prompt: routine.prompt,
+    severityFloor: routine.severityFloor,
+    notify: routine.notify,
+    autoRun: routine.autoRun,
   };
+}
 
-  emit({
-    ...state,
-    routines: state.routines.map((r) => (r.id === id ? { ...r, runs: [pending, ...r.runs] } : r)),
-  });
+/**
+ * Create or update a routine file.
+ *
+ * `slug` is null to create (the backend derives one from the name and
+ * de-duplicates it) and set to edit in place.
+ */
+export async function saveRoutine(
+  projectPath: string,
+  slug: string | null,
+  draft: RoutineDraft
+): Promise<Routine> {
+  const saved = await invoke<Routine>('save_routine_file', { projectPath, slug, draft });
+  await refresh();
+  return saved;
+}
 
-  window.setTimeout(() => {
-    emit({
-      ...state,
-      routines: state.routines.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              // A manual run also restarts the interval — the point of the
-              // interval is "this long since it last ran", not a wall clock.
-              nextRunAt: r.autoRun ? nextDueAt(r.trigger) : null,
-              runs: r.runs.map((run) =>
-                run.id === runId
-                  ? {
-                      ...run,
-                      status: 'ok',
-                      durationMs: 24_600,
-                      tokens: 9_400,
-                    }
-                  : run
-              ),
-            }
-          : r
-      ),
+/** Delete a routine file. Findings it already filed stay in the inbox. */
+export async function deleteRoutine(projectPath: string, slug: string): Promise<void> {
+  await invoke('delete_routine_file', { projectPath, slug });
+  await refresh();
+}
+
+/**
+ * Run a routine now.
+ *
+ * Resolves when the agent has finished and its findings are filed, which can be
+ * minutes — callers should reflect `isRunning` from the store rather than
+ * blocking on this promise for their spinner.
+ */
+export async function runRoutineNow(routine: Routine): Promise<RoutineRun> {
+  const optimistic = state.routines.map((r) =>
+    r.id === routine.id ? { ...r, isRunning: true } : r
+  );
+  emit({ ...state, routines: optimistic });
+  try {
+    return await invoke<RoutineRun>('run_routine', {
+      projectPath: routine.projectPath,
+      slug: routine.slug,
     });
-  }, 2600);
+  } finally {
+    await refresh();
+  }
+}
+
+/** Run history for one routine, newest first. */
+export function listRuns(routineId: string): Promise<RoutineRun[]> {
+  return invoke<RoutineRun[]>('list_routine_runs', { routineId });
 }
 
 /* ---------------------------------------------------------------- inbox */
 
-/** Mark one item read or unread. */
-export function setItemRead(id: string, read: boolean): void {
-  emit({
-    ...state,
-    inbox: state.inbox.map((item) => (item.id === id ? { ...item, read } : item)),
-  });
+export async function setItemRead(id: string, read: boolean): Promise<void> {
+  await invoke('set_inbox_item_read', { id, read });
+  await refresh();
 }
 
-/** Mark every non-archived item read. */
-export function markAllRead(): void {
-  emit({ ...state, inbox: state.inbox.map((item) => ({ ...item, read: true })) });
+export async function markAllRead(): Promise<void> {
+  await invoke('mark_all_inbox_read');
+  await refresh();
 }
 
-/** Archive or restore an item. Archiving also mutes its fingerprint. */
-export function setItemArchived(id: string, archived: boolean): void {
-  emit({
-    ...state,
-    inbox: state.inbox.map((item) =>
-      item.id === id ? { ...item, archived, read: archived ? true : item.read } : item
-    ),
-  });
+export async function setItemArchived(id: string, archived: boolean): Promise<void> {
+  await invoke('set_inbox_item_archived', { id, archived });
+  await refresh();
 }
 
 /** Unread, non-archived count — drives the sidebar badge. */

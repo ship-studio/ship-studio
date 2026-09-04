@@ -1,9 +1,9 @@
 /**
- * Run history for one routine, with the headless transcript.
+ * Run history for one routine, with the agent's reply.
  *
- * PROTOTYPE. Transcripts are fixtures written to look like what
- * `claude --print --output-format stream-json` actually produces, because the
- * point of showing them is that there is no hidden orchestration.
+ * Showing the raw reply is the point: there is no hidden orchestration, and a
+ * user who wants to know why a routine filed something should be able to read
+ * exactly what came back rather than take the inbox item on trust.
  *
  * @module components/routines/RunHistoryModal
  */
@@ -65,7 +65,9 @@ export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {
                 <span className="run-history-item-meta text-style-hint">
                   {formatAgo(run.startedAt)}
                   {run.status !== 'running' && ` · ${formatDuration(run.durationMs)}`}
-                  {run.tokens > 0 && ` · ${formatTokens(run.tokens)} tok`}
+                  {/* Codex reports no usage, so most runs legitimately have no
+                      token count — show it only when there is one. */}
+                  {run.tokens !== null && ` · ${formatTokens(run.tokens)} tok`}
                 </span>
               </span>
             </button>
@@ -74,7 +76,9 @@ export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {
 
         <div className="run-history-transcript">
           {selected ? (
-            <pre className="run-history-transcript-body">{selected.transcript}</pre>
+            <pre className="run-history-transcript-body">
+              {selected.error ?? (selected.transcript || 'This run returned nothing.')}
+            </pre>
           ) : (
             <p className="text-style-hint">Nothing to show.</p>
           )}
@@ -82,8 +86,8 @@ export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {
       </div>
 
       <p className="run-history-note text-style-hint">
-        Stored under <code>{routine.filePath.replace(/routines\/.+$/, 'runs/')}</code>. Transcripts
-        are kept for 30 days and never leave this machine.
+        The last 20 runs per routine are kept on this machine, in{' '}
+        <code>~/ShipStudio/.shipstudio/routines-state.json</code>. Nothing is uploaded anywhere.
       </p>
     </ModalFrame>
   );

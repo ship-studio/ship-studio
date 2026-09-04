@@ -43,7 +43,7 @@ export interface WorkspacePreviewPaneProps {
   handleCropCancel: () => void;
   isBranchSwitching: boolean;
   isRestartingDevServer: boolean;
-  sendToClaude: (text: string) => void;
+  sendToClaude: (text: string) => unknown;
   showPreviewLogs: boolean;
   togglePreviewLogs: () => void;
   devServerOutput: string;

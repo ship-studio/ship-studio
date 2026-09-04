@@ -156,7 +156,7 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 /// dumps a whole session transcript on failure and the matching line can sit
 /// anywhere in it (issues #665/#689). Substring matching handles mid-transcript
 /// hits; only the user-facing message is capped.
-fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandError> {
+pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandError> {
     let lower = detail.to_lowercase();
     if lower.contains("session limit")
         || lower.contains("usage limit")

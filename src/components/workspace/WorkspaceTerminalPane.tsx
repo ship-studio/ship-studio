@@ -67,7 +67,7 @@ export interface WorkspaceTerminalPaneProps {
   showHealthLogs: boolean;
   healthOutput: string;
   healthOutputVersion: number;
-  sendToClaude: (text: string) => void;
+  sendToClaude: (text: string) => unknown;
   isPreviewHidden: boolean;
   isAgentPanelHidden: boolean;
   agentPanelPinned: boolean;

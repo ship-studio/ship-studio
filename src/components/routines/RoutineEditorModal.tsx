@@ -1,8 +1,11 @@
 /**
  * Create or edit a routine.
  *
- * PROTOTYPE. The command preview is real (it's the string a run would execute);
- * everything else writes to the in-memory store only.
+ * Two steps for a new routine (pick a starting point, then fill it in) and one
+ * for an existing one. Saving writes the markdown file — this form and the
+ * agent-authored path (see the bundled `shipstudio-routines` skill) produce
+ * exactly the same artifact, which is why the editor shows the frontmatter
+ * phrase for the trigger and the literal command a run executes.
  *
  * @module components/routines/RoutineEditorModal
  */
@@ -15,6 +18,7 @@ import {
   GenericAgentIcon,
   InfoIcon,
   TerminalIcon,
+  TrashIcon,
 } from '@/components/icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
@@ -27,14 +31,20 @@ import {
   buildCommandPreview,
   describeTriggerReality,
   formatTrigger,
+  triggerPhrase,
   type Routine,
-  supportsBackground,
-  type RoutineHost,
+  type RoutineDraft,
   type RoutinePermission,
   type RoutineTemplate,
   type RoutineTrigger,
   type Severity,
 } from '../../lib/routines';
+
+/** A project the routine can be attached to. */
+export interface RoutineProjectOption {
+  name: string;
+  path: string;
+}
 
 interface RoutineEditorModalProps {
   /**
@@ -43,8 +53,13 @@ interface RoutineEditorModalProps {
    * state below can be seeded once instead of re-synced in an effect.
    */
   routine: Routine | 'new';
+  /** Projects the routine can run against. Empty while they're still loading. */
+  projects: RoutineProjectOption[];
+  /** Preselected project for a new routine, e.g. the workspace you're in. */
+  defaultProjectPath?: string | null;
   onClose: () => void;
-  onSave: (routine: Routine) => void;
+  onSave: (projectPath: string, slug: string | null, draft: RoutineDraft) => Promise<void>;
+  onDelete?: (routine: Routine) => Promise<void>;
 }
 
 type TriggerPreset = 'manual' | '15m' | '30m' | '1h' | 'daily' | 'weekly' | 'push' | 'pr-opened';
@@ -59,6 +74,24 @@ const TRIGGER_PRESETS: Record<TriggerPreset, RoutineTrigger> = {
   push: { kind: 'event', event: 'push' },
   'pr-opened': { kind: 'event', event: 'pr-opened' },
 };
+
+/**
+ * The coarse choice, which is the one that actually changes the mental model:
+ * you press it, it repeats, or something in your workflow sets it off. The
+ * specific cadence is a detail *within* a shape, so it gets its own control —
+ * eight peer segments in one rail read as eight equally-weighted decisions and
+ * crammed to the point of illegibility.
+ */
+type TriggerShape = 'manual' | 'repeating' | 'event';
+
+const EVENT_PRESETS: readonly TriggerPreset[] = ['push', 'pr-opened'];
+const DEFAULT_REPEATING: TriggerPreset = '30m';
+const DEFAULT_EVENT: TriggerPreset = 'push';
+
+function shapeFor(preset: TriggerPreset): TriggerShape {
+  if (preset === 'manual') return 'manual';
+  return EVENT_PRESETS.includes(preset) ? 'event' : 'repeating';
+}
 
 function presetFor(trigger: RoutineTrigger): TriggerPreset {
   switch (trigger.kind) {
@@ -76,90 +109,107 @@ function presetFor(trigger: RoutineTrigger): TriggerPreset {
   }
 }
 
-const ALL_PROJECTS = 'all';
-const PROJECTS = ['hexa-storefront', 'client-atlas', 'portfolio-v3'];
+/** `null` means "use whatever agent is set as the default". */
+const DEFAULT_AGENT = '__default__';
 
 const AGENT_OPTIONS = [
+  { value: DEFAULT_AGENT, label: 'Default', glyph: <GenericAgentIcon size={12} /> },
   { value: 'claude-code', label: 'Claude Code', glyph: <ClaudeIcon size={12} /> },
   { value: 'codex', label: 'Codex', glyph: <CodexIcon size={12} /> },
-  { value: 'opencode', label: 'Opencode', glyph: <GenericAgentIcon size={12} /> },
 ];
 
 interface Draft {
   name: string;
   description: string;
   agentId: string;
-  scopeProject: string;
+  projectPath: string;
   trigger: TriggerPreset;
   permission: RoutinePermission;
   prompt: string;
   severityFloor: Severity;
   notify: boolean;
   autoRun: boolean;
-  host: RoutineHost;
 }
 
 function draftFrom(routine: Routine): Draft {
   return {
     name: routine.name,
     description: routine.description,
-    agentId: routine.agentId,
-    scopeProject:
-      routine.scope.kind === 'all-projects'
-        ? ALL_PROJECTS
-        : (routine.scope.projectName ?? PROJECTS[0]),
+    agentId: routine.agentId ?? DEFAULT_AGENT,
+    projectPath: routine.projectPath,
     trigger: presetFor(routine.trigger),
     permission: routine.permission,
     prompt: routine.prompt,
     severityFloor: routine.severityFloor,
     notify: routine.notify,
     autoRun: routine.autoRun,
-    host: routine.host,
   };
 }
 
-const BLANK: Draft = {
-  name: '',
-  description: '',
-  agentId: 'claude-code',
-  scopeProject: PROJECTS[0],
-  // Manual is the default. Putting a routine on a timer is a deliberate,
-  // separate decision with a cost attached.
-  trigger: 'manual',
-  permission: 'read-only',
-  prompt: '',
-  severityFloor: 'warning',
-  notify: false,
-  autoRun: true,
-  host: 'app',
-};
+function blankDraft(projectPath: string): Draft {
+  return {
+    name: '',
+    description: '',
+    agentId: DEFAULT_AGENT,
+    projectPath,
+    // Manual is the default. Putting a routine on a timer is a deliberate,
+    // separate decision with a cost attached — it spends the user's own
+    // agent subscription every time it fires.
+    trigger: 'manual',
+    permission: 'read-only',
+    prompt: '',
+    severityFloor: 'info',
+    notify: false,
+    autoRun: true,
+  };
+}
 
-export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorModalProps) {
+export function RoutineEditorModal({
+  routine,
+  projects,
+  defaultProjectPath,
+  onClose,
+  onSave,
+  onDelete,
+}: RoutineEditorModalProps) {
   const isNew = routine === 'new';
+  const initialProject =
+    (isNew ? (defaultProjectPath ?? projects[0]?.path) : routine.projectPath) ?? '';
+
   const [step, setStep] = useState<'template' | 'form'>(isNew ? 'template' : 'form');
   const [template, setTemplate] = useState<RoutineTemplate | null>(null);
-  const [draft, setDraft] = useState<Draft>(() => (isNew ? BLANK : draftFrom(routine)));
+  const [draft, setDraft] = useState<Draft>(() =>
+    isNew ? blankDraft(initialProject) : draftFrom(routine)
+  );
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const trigger = TRIGGER_PRESETS[draft.trigger];
+  const triggerShape = shapeFor(draft.trigger);
   const canAutoRun = trigger.kind !== 'manual';
-  const canRunInBackground = supportsBackground(trigger);
-  const host: RoutineHost = canRunInBackground ? draft.host : 'app';
-  // Nobody is watching a background run, so it never gets write access.
-  const permission = host === 'background' ? 'read-only' : draft.permission;
+
+  /** Switching shape keeps the current preset when it already fits. */
+  const selectShape = (next: TriggerShape) => {
+    if (next === shapeFor(draft.trigger)) return;
+    const preset: TriggerPreset =
+      next === 'manual' ? 'manual' : next === 'event' ? DEFAULT_EVENT : DEFAULT_REPEATING;
+    setDraft({ ...draft, trigger: preset });
+  };
+
+  const agentId = draft.agentId === DEFAULT_AGENT ? null : draft.agentId;
 
   const commandPreview = useMemo(
-    () => buildCommandPreview({ agentId: draft.agentId, permission: draft.permission }),
-    [draft.agentId, draft.permission]
+    () => buildCommandPreview({ agentId, permission: draft.permission }),
+    [agentId, draft.permission]
   );
 
   const selectTemplate = (next: RoutineTemplate) => {
     const isBlank = next.id === 'tpl-blank';
     setTemplate(next);
     setDraft({
-      ...BLANK,
+      ...blankDraft(draft.projectPath),
       name: isBlank ? '' : next.name,
       description: isBlank ? '' : next.description,
-      scopeProject: next.scopeKind === 'all-projects' ? ALL_PROJECTS : PROJECTS[0],
       trigger: presetFor(next.trigger),
       permission: next.permission,
       prompt: next.prompt,
@@ -168,51 +218,37 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
 
   /**
    * Templates ship angle-bracket blanks (`<competitor 1>`). Creating a routine
-   * that still contains them produces an agent run that does nothing useful, so
-   * the form says so instead of letting it through silently.
+   * that still contains them produces a run that does nothing useful, so the
+   * form says so instead of letting it through silently.
    */
   const placeholders = draft.prompt.match(/<[^<>\n]{2,40}>/g) ?? [];
   const promptIsEmpty = draft.prompt.trim().length === 0;
+  const nameIsEmpty = draft.name.trim().length === 0;
+  const hasProject = draft.projectPath.length > 0;
+  const canSave = !promptIsEmpty && !nameIsEmpty && hasProject && !saving;
 
-  const commit = () => {
-    const base = routine === 'new' ? null : routine;
-    const slug =
-      draft.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '') || 'untitled-routine';
-
-    onSave({
-      id: base?.id ?? slug,
-      name: draft.name.trim() || 'Untitled routine',
-      description: draft.description.trim() || 'No description yet.',
-      agentId: draft.agentId,
-      scope:
-        draft.scopeProject === ALL_PROJECTS
-          ? { kind: 'all-projects' }
-          : {
-              kind: 'project',
-              projectName: draft.scopeProject,
-              projectPath: `~/ShipStudio/${draft.scopeProject}`,
-            },
-      trigger,
-      permission,
-      prompt: draft.prompt,
-      severityFloor: draft.severityFloor,
-      notify: draft.notify,
-      autoRun: canAutoRun ? draft.autoRun : false,
-      host,
-      filePath:
-        base?.filePath ??
-        (draft.scopeProject === ALL_PROJECTS
-          ? `~/ShipStudio/.shipstudio/routines/${slug}.md`
-          : `${draft.scopeProject}/.shipstudio/routines/${slug}.md`),
-      nextRunAt:
-        canAutoRun && draft.autoRun && trigger.kind === 'interval'
-          ? Date.now() + trigger.everyMinutes * 60_000
-          : null,
-      runs: base?.runs ?? [],
-    });
+  const commit = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(draft.projectPath, isNew ? null : routine.slug, {
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        agentId,
+        trigger,
+        permission: draft.permission,
+        prompt: draft.prompt,
+        severityFloor: draft.severityFloor,
+        notify: draft.notify,
+        autoRun: canAutoRun ? draft.autoRun : false,
+      });
+    } catch (err) {
+      // Saving writes a file, which can genuinely fail (read-only volume, a
+      // project unmounted since the list loaded). Failing silently here would
+      // lose whatever the user just typed.
+      setSaveError(String(err));
+      setSaving(false);
+    }
   };
 
   if (step === 'template') {
@@ -226,6 +262,7 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
         <RoutineTemplatePicker selectedId={template?.id ?? null} onSelect={selectTemplate} />
 
         <div className="routine-editor-actions">
+          <span className="routine-editor-step text-style-hint">Step 1 of 2</span>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -237,7 +274,9 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
     );
   }
 
-  const scopeLabel = draft.scopeProject === ALL_PROJECTS ? 'All projects' : draft.scopeProject;
+  const projectLabel =
+    projects.find((project) => project.path === draft.projectPath)?.name ??
+    (hasProject ? draft.projectPath : 'Pick a project');
 
   return (
     <ModalFrame
@@ -247,12 +286,6 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
       className="routine-editor-modal"
     >
       <div className="routine-editor">
-        {isNew && template && (
-          <p className="routine-editor-context">
-            Starting from <strong>{template.name}</strong>
-          </p>
-        )}
-
         {/* What it does — the instruction is the routine. Everything below it
             is configuration with a sensible default. */}
         <section className="routine-section">
@@ -271,7 +304,7 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
             <span className="routine-field-label text-style-label">Instructions</span>
             <textarea
               className="routine-prompt"
-              rows={9}
+              rows={7}
               value={draft.prompt}
               spellCheck={false}
               placeholder="Tell the agent what to look for, and what not to bother you about."
@@ -291,8 +324,8 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
               </span>
             ) : (
               <span className="routine-field-hint">
-                Ship Studio prepends the diff since the last run, the findings this routine already
-                filed, and how to report new ones. Everything else is yours.
+                Ship Studio prepends what changed since the last run, the findings this routine
+                already filed, and how to report new ones. Everything else is yours.
               </span>
             )}
           </label>
@@ -314,7 +347,7 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
                     expanded={props['aria-expanded']}
                     {...props}
                   >
-                    <span className="routine-scope-label">{scopeLabel}</span>
+                    <span className="routine-scope-label">{projectLabel}</span>
                     <ChevronIcon
                       size={10}
                       className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
@@ -322,19 +355,18 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
                   </MenuButton>
                 )}
               >
-                <DropdownItem
-                  active={draft.scopeProject === ALL_PROJECTS}
-                  onSelect={() => setDraft({ ...draft, scopeProject: ALL_PROJECTS })}
-                >
-                  All projects
-                </DropdownItem>
-                {PROJECTS.map((project) => (
+                {projects.length === 0 && (
+                  <DropdownItem disabled onSelect={() => undefined}>
+                    No projects yet
+                  </DropdownItem>
+                )}
+                {projects.map((project) => (
                   <DropdownItem
-                    key={project}
-                    active={draft.scopeProject === project}
-                    onSelect={() => setDraft({ ...draft, scopeProject: project })}
+                    key={project.path}
+                    active={draft.projectPath === project.path}
+                    onSelect={() => setDraft({ ...draft, projectPath: project.path })}
                   >
-                    {project}
+                    {project.name}
                   </DropdownItem>
                 ))}
               </Dropdown>
@@ -345,6 +377,7 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
               <SegmentedControl
                 aria-label="Agent"
                 size="default"
+                className="routine-segments-fill"
                 value={draft.agentId}
                 onValueChange={(value) => setDraft({ ...draft, agentId: value })}
                 options={AGENT_OPTIONS.map((option) => ({
@@ -366,61 +399,54 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
             <SegmentedControl
               aria-label="When it runs"
               size="default"
-              value={draft.trigger}
-              onValueChange={(value) => setDraft({ ...draft, trigger: value })}
+              className="routine-segments-fill"
+              value={triggerShape}
+              onValueChange={selectShape}
               options={[
-                { value: 'manual', label: 'Manual' },
-                { value: '15m', label: 'Every 15m' },
-                { value: '30m', label: 'Every 30m' },
-                { value: '1h', label: 'Hourly' },
-                { value: 'daily', label: 'Daily' },
-                { value: 'weekly', label: 'Weekly' },
-                { value: 'push', label: 'On push' },
-                { value: 'pr-opened', label: 'On PR' },
+                { value: 'manual', label: 'When I press Run' },
+                { value: 'repeating', label: 'On a schedule' },
+                { value: 'event', label: 'On an event' },
               ]}
             />
 
             <div className="routine-trigger-detail">
-              {canRunInBackground && (
-                <div className="routine-field routine-host-field">
-                  <span className="routine-field-label text-style-label">
-                    Even when Ship Studio is closed
-                  </span>
-                  <SegmentedControl
-                    aria-label="Where it runs"
-                    size="default"
-                    value={host}
-                    onValueChange={(value) => setDraft({ ...draft, host: value })}
-                    options={[
-                      { value: 'app', label: 'Only while the app is open' },
-                      { value: 'background', label: 'Run in the background' },
-                    ]}
-                  />
-                </div>
+              {triggerShape === 'repeating' && (
+                <SegmentedControl
+                  aria-label="How often"
+                  size="default"
+                  className="routine-segments-fill"
+                  value={draft.trigger}
+                  onValueChange={(value) => setDraft({ ...draft, trigger: value })}
+                  options={[
+                    { value: '15m', label: 'Every 15m' },
+                    { value: '30m', label: 'Every 30m' },
+                    { value: '1h', label: 'Hourly' },
+                    { value: 'daily', label: 'Daily' },
+                    { value: 'weekly', label: 'Weekly' },
+                  ]}
+                />
+              )}
+
+              {triggerShape === 'event' && (
+                <SegmentedControl
+                  aria-label="Which event"
+                  size="default"
+                  className="routine-segments-fill"
+                  value={draft.trigger}
+                  onValueChange={(value) => setDraft({ ...draft, trigger: value })}
+                  options={[
+                    { value: 'push', label: 'After a push' },
+                    { value: 'pr-opened', label: 'When a PR opens' },
+                  ]}
+                />
               )}
 
               <div className="routine-note">
                 <InfoIcon size={12} />
                 <span className="routine-note-text">
-                  <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger, host)}
+                  <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger)}
                 </span>
               </div>
-
-              {host === 'background' && (
-                <ul className="routine-conditions">
-                  <li>
-                    Installs a login-scoped scheduled job (<code>~/Library/LaunchAgents</code>)
-                    running the exact command below. Deleting the routine removes it.
-                  </li>
-                  <li>
-                    Needs this Mac powered on or asleep, and you signed in. Shut down or signed out,
-                    nothing runs until the next scheduled time.
-                  </li>
-                  <li>
-                    Read-only is enforced — nobody is watching, so it reports but never edits.
-                  </li>
-                </ul>
-              )}
 
               {canAutoRun && (
                 <label className="settings-form-checkbox">
@@ -446,23 +472,18 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
             <SegmentedControl
               aria-label="Permission"
               size="default"
-              value={permission}
+              className="routine-segments-fill"
+              value={draft.permission}
               onValueChange={(value) => setDraft({ ...draft, permission: value })}
               options={[
                 { value: 'read-only', label: 'Read-only' },
-                {
-                  value: 'can-edit',
-                  label: 'Can edit files',
-                  disabled: host === 'background',
-                },
+                { value: 'can-edit', label: 'Can edit files' },
               ]}
             />
             <span className="routine-field-hint">
-              {host === 'background'
-                ? 'Background runs are read-only. The agent reads the repository and reports; it cannot change anything while nobody is watching.'
-                : permission === 'read-only'
-                  ? 'The agent can read the repository and report. It cannot change anything.'
-                  : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
+              {draft.permission === 'read-only'
+                ? 'Enforced by the agent itself — Claude Code runs in plan mode, Codex in a read-only sandbox. It reads the repository and reports; it cannot change anything.'
+                : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
             </span>
           </div>
 
@@ -472,12 +493,19 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
               <span className="text-style-label">What actually runs</span>
             </div>
             <pre className="routine-command-body">{commandPreview}</pre>
+            <p className="routine-command-note text-style-hint">
+              Saved as <code>.shipstudio/routines/</code> in the project, with{' '}
+              <code>trigger: {triggerPhrase(trigger)}</code>. Your agent can read and write these
+              files too — ask it to make you one.
+            </p>
           </div>
         </section>
+
+        {saveError && <p className="routine-field-warning">{saveError}</p>}
       </div>
 
       <div className="routine-editor-actions">
-        {isNew && (
+        {isNew ? (
           <Button
             variant="ghost"
             className="routine-editor-back"
@@ -485,12 +513,23 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
           >
             Back
           </Button>
+        ) : (
+          onDelete && (
+            <Button
+              variant="ghost"
+              className="routine-editor-back"
+              leftIcon={<TrashIcon size={12} />}
+              onClick={() => void onDelete(routine)}
+            >
+              Delete
+            </Button>
+          )
         )}
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={onClose} disabled={saving}>
           Cancel
         </Button>
-        <Button variant="primary" disabled={promptIsEmpty} onClick={commit}>
-          {isNew ? 'Create routine' : 'Save changes'}
+        <Button variant="primary" disabled={!canSave} onClick={() => void commit()}>
+          {saving ? 'Saving…' : isNew ? 'Create routine' : 'Save changes'}
         </Button>
       </div>
     </ModalFrame>

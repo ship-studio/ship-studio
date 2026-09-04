@@ -6,9 +6,9 @@
  * two-pane layout is the only thing that differs, because reading a report is
  * the job.
  *
- * PROTOTYPE. Items come from the in-memory store in `lib/routinesStore`. In the
- * real feature each item is a markdown file under `.shipstudio/inbox/`, written
- * by the agent through one MCP tool — see `docs/routines-inbox.md`.
+ * The action that matters is "Fix with agent", which opens the finding's
+ * project and types the suggested prompt into its terminal — a finding is the
+ * head of a work session, not a notification.
  *
  * @module components/inbox/InboxView
  */
@@ -26,6 +26,8 @@ import { InboxDetail } from './InboxDetail';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { formatAge, type InboxItem, type Severity } from '../../lib/routines';
+import { queueHandoff } from '../../lib/routineHandoff';
+import type { Project } from '../../lib/project';
 import {
   getSnapshot,
   markAllRead,
@@ -44,7 +46,12 @@ const SEVERITY_LABEL: Record<Severity, string> = {
   info: 'Info',
 };
 
-export function InboxView() {
+interface InboxViewProps {
+  /** Opens a project workspace. Absent in contexts that can't navigate. */
+  onOpenProject?: (project: Project) => void | Promise<void>;
+}
+
+export function InboxView({ onOpenProject }: InboxViewProps) {
   const { inbox } = useSyncExternalStore(subscribe, getSnapshot);
   const { showToast } = useOptionalToast();
   const { dashboardHeaderHidden, hideDashboardHeader } = useDashboardVisibility();
@@ -79,15 +86,33 @@ export function InboxView() {
 
   const handleSelect = useCallback((item: InboxItem) => {
     setSelectedId(item.id);
-    if (!item.read) setItemRead(item.id, true);
+    if (!item.read) void setItemRead(item.id, true);
   }, []);
 
   const handleArchive = useCallback(
     (item: InboxItem) => {
-      setItemArchived(item.id, !item.archived);
-      showToast(item.archived ? 'Restored to inbox' : `Archived — "${item.title}"`, 'info');
+      setItemArchived(item.id, !item.archived)
+        .then(() =>
+          showToast(item.archived ? 'Restored to inbox' : `Archived — "${item.title}"`, 'info')
+        )
+        .catch((err: unknown) => showToast(String(err), 'error'));
     },
     [showToast]
+  );
+
+  /**
+   * Queue the prompt, then open the project. The queue survives the navigation
+   * and is delivered by `useRoutineHandoff` once a terminal actually exists —
+   * opening a project is several seconds of mounting and spawning.
+   */
+  const handleFix = useCallback(
+    (item: InboxItem, prompt: string) => {
+      if (!onOpenProject) return;
+      queueHandoff(item.projectPath, prompt);
+      showToast(`Opening ${item.projectName}…`, 'info');
+      void onOpenProject({ name: item.projectName, path: item.projectPath, thumbnail: null });
+    },
+    [onOpenProject, showToast]
   );
 
   return (
@@ -159,7 +184,7 @@ export function InboxView() {
                     variant="ghost"
                     size="compact"
                     leftIcon={<CheckIcon size={12} />}
-                    onClick={markAllRead}
+                    onClick={() => void markAllRead()}
                     disabled={unread === 0}
                   >
                     Mark all read
@@ -216,13 +241,17 @@ export function InboxView() {
                 </div>
 
                 <div className="inbox-detail-pane">
-                  {selected && <InboxDetail item={selected} onArchive={handleArchive} />}
+                  {selected && (
+                    <InboxDetail
+                      item={selected}
+                      onArchive={handleArchive}
+                      onFix={onOpenProject ? handleFix : undefined}
+                    />
+                  )}
                 </div>
               </div>
             )}
           </section>
-
-          <div className="dashboard-bottom-spacer" aria-hidden />
         </div>
       </div>
     </div>

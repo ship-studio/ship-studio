@@ -278,7 +278,7 @@ interface LifecycleProps {
   handleStartDevServer: () => Promise<void>;
   handleGitHubStatusChange: () => void;
   handlePreviewReady: () => void;
-  sendToClaude: (text: string) => void;
+  sendToClaude: (text: string) => unknown;
   handleTerminalExit: (code: number | null) => void;
   handleToolbarAutoAcceptToggle: () => void;
   handleAutoAcceptWarningAccept: () => void;

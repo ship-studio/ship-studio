@@ -112,7 +112,8 @@ export interface UseTerminalManagementReturn {
   resetTerminals: () => void;
   getActiveTerminalRef: () => TerminalHandle | null;
   focusActiveTerminal: () => void;
-  pasteToActiveTerminal: (text: string) => void;
+  /** Returns false when no terminal is mounted yet, so callers can retry. */
+  pasteToActiveTerminal: (text: string) => boolean;
   switchTabAgent: (tabId: number, agentId: string) => void;
   /** Relaunch a tab's agent with a fresh session (used after it exits).
    *  Defaults to the current project; pass a path to target a background one. */
@@ -350,9 +351,13 @@ export function useTerminalManagement(
     getActiveTerminalRef()?.focus();
   }, [getActiveTerminalRef]);
 
+  /** Returns false when no terminal is mounted yet, so callers can retry. */
   const pasteToActiveTerminal = useCallback(
-    (text: string) => {
-      getActiveTerminalRef()?.paste(text);
+    (text: string): boolean => {
+      const ref = getActiveTerminalRef();
+      if (!ref) return false;
+      ref.paste(text);
+      return true;
     },
     [getActiveTerminalRef]
   );

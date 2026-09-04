@@ -19,6 +19,7 @@ pub mod errors;
 pub mod external_command;
 pub mod logging;
 pub mod proxy;
+pub mod routine_scheduler;
 pub mod state;
 pub mod static_server;
 pub mod types;
@@ -124,6 +125,18 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            // Teach the user's own agent about routines, and start the tick
+            // that fires the armed ones. The skill install is the discovery
+            // path for the whole feature (see commands::routines::skill); it
+            // is idempotent and skips agents that aren't installed.
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    commands::routines::install_routines_skill();
+                    routine_scheduler::spawn(handle);
+                });
+            }
+
             // Start the agent preview bridge (global loopback MCP server) at
             // launch so it's listening before any agent session spawns —
             // registrations from previous runs stay valid from second zero.
@@ -392,6 +405,21 @@ pub fn run() {
             commands::git::restore_backup,
             // Projects
             commands::projects::list_projects,
+            // Routines & Inbox
+            commands::routines::list_all_routines,
+            commands::routines::list_project_routines,
+            commands::routines::save_routine_file,
+            commands::routines::delete_routine_file,
+            commands::routines::run_routine,
+            commands::routines::running_routine_ids,
+            commands::routines::list_inbox_items,
+            commands::routines::list_routine_runs,
+            commands::routines::set_inbox_item_read,
+            commands::routines::set_inbox_item_archived,
+            commands::routines::mark_all_inbox_read,
+            commands::routines::ensure_routines_skill,
+            routine_scheduler::fire_project_open_routines,
+            routine_scheduler::fire_push_routines,
             commands::projects::get_dashboard_projects,
             commands::projects::list_pages,
             commands::projects::open_in_finder,
