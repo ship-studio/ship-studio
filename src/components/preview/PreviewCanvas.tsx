@@ -47,6 +47,18 @@ import {
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
 
+/** How close two scroll fractions have to be to count as the same position.
+ *  At 0.0005 that is half a pixel on a 1000px scroll range. */
+const SCROLL_ECHO_EPSILON = 0.0005;
+
+/** How long a broadcast position stays recognisable as our own echo. */
+const SCROLL_ECHO_WINDOW_MS = 500;
+
+/** How far the canvas must scroll before the mount window is recomputed. The
+ *  window carries a screen of slack on each side, so nothing can scroll into
+ *  view within this distance. */
+const SCROLL_RENDER_THRESHOLD_PX = 120;
+
 /** WebKit's non-standard pinch events (Safari and every Tauri webview on
  *  macOS). Not in lib.dom, so the shape we use is spelled out here. */
 interface GestureLikeEvent extends UIEvent {
@@ -139,6 +151,18 @@ export function PreviewCanvas({
   const surfaceWidth = layout.contentWidth * scale + slackX * 2;
   const surfaceHeight = CANVAS_LABEL_PX + stageHeight * scale + CANVAS_PADDING_PX + slackY * 2;
 
+  // Where the canvas sits when it has nothing better to do: the frames centred
+  // in the pane, with the slack spread evenly around them.
+  const contentWidthPx = layout.contentWidth * scale;
+  const contentHeightPx = CANVAS_LABEL_PX + stageHeight * scale;
+  const restingScroll = useCallback(
+    () => ({
+      left: Math.max(0, slackX - Math.max(0, (viewport.width - contentWidthPx) / 2)),
+      top: Math.max(0, slackY - Math.max(0, (viewport.height - contentHeightPx) / 2)),
+    }),
+    [slackX, slackY, viewport.width, viewport.height, contentWidthPx, contentHeightPx]
+  );
+
   const mounted = useMemo(
     () => new Set(visibleFrameIds(layout, scale, scrollLeft, viewport.width, slackX)),
     [layout, scale, scrollLeft, viewport.width, slackX]
@@ -166,14 +190,19 @@ export function PreviewCanvas({
     return () => observer.disconnect();
   }, []);
 
-  // Scroll drives the mount window; rAF-throttled so a flung scrollbar doesn't
-  // re-run the layout maths per frame.
+  // Scroll drives the mount window, and nothing else — so it only has to reach
+  // React when it has moved far enough to change which frames are mounted.
+  // rAF-throttled on top of that, so a flung scrollbar can't queue a render per
+  // frame while four live pages are already asking for the main thread.
   const scrollRafRef = useRef<number | null>(null);
   const handleScroll = useCallback(() => {
     if (scrollRafRef.current !== null) return;
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = null;
-      setScrollLeft(scrollRef.current?.scrollLeft ?? 0);
+      const next = scrollRef.current?.scrollLeft ?? 0;
+      setScrollLeft((previous) =>
+        Math.abs(next - previous) >= SCROLL_RENDER_THRESHOLD_PX ? next : previous
+      );
     });
   }, []);
   useEffect(
@@ -368,6 +397,43 @@ export function PreviewCanvas({
     return () => window.removeEventListener('message', onMessage);
   }, [scale, zoomAt]);
 
+  // Frames scroll together. Each one is a real viewport, so getting past the
+  // fold means scrolling — and scrolling four frames by hand to compare the
+  // same section is the whole thing this view exists to avoid. Position travels
+  // as a FRACTION of each page's scrollable range, because the same page is a
+  // different length at every width.
+  const lastBroadcastRef = useRef({ fraction: -1, at: 0 });
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; fraction?: number } | null;
+      if (data?.type !== 'ss:scroll' || typeof data.fraction !== 'number') return;
+      const fraction = data.fraction;
+
+      // A driven frame reports its new position once it settles, which is the
+      // position we just sent it. Rebroadcasting that is a loop that damps out
+      // but never quite stops, so recognise our own echo and drop it.
+      const last = lastBroadcastRef.current;
+      const echo =
+        Math.abs(fraction - last.fraction) < SCROLL_ECHO_EPSILON &&
+        Date.now() - last.at < SCROLL_ECHO_WINDOW_MS;
+      if (echo) return;
+      lastBroadcastRef.current = { fraction, at: Date.now() };
+
+      for (const element of frameElsRef.current.values()) {
+        // Not back to the frame that just moved — it is already there, and the
+        // round trip would fight the user's own scrolling.
+        if (!element || element.contentWindow === event.source) continue;
+        try {
+          element.contentWindow?.postMessage({ type: 'ss:scrollTo', fraction }, '*');
+        } catch {
+          // A frame mid-navigation can refuse; the next scroll catches it up.
+        }
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
   // Cmd/Ctrl with +, - and 0 (fit). Cmd+1-9 belong to project switching, so
   // 100% has no shortcut of its own — the readout in the zoom control is the
   // way back to it.
@@ -462,15 +528,19 @@ export function PreviewCanvas({
     }
     const node = scrollRef.current;
     if (!node) return;
-    const nextScale = isFit ? fitScale(layout.contentWidth, node.clientWidth) : zoom;
-    node.scrollLeft = scrollToCenterFrame(
-      layout,
-      activeFrameId,
-      nextScale,
-      node.clientWidth,
-      slackX
-    );
-  }, [zoom, layout, activeFrameId, slackX]);
+    if (isFit) {
+      // Fit shows everything; centre the lot rather than one frame of it.
+      // Measured after the layout the new scale produces, hence the frame.
+      requestAnimationFrame(() => {
+        const rest = restingScroll();
+        node.scrollLeft = rest.left;
+        node.scrollTop = rest.top;
+        setScrollLeft(node.scrollLeft);
+      });
+      return;
+    }
+    node.scrollLeft = scrollToCenterFrame(layout, activeFrameId, zoom, node.clientWidth, slackX);
+  }, [zoom, layout, activeFrameId, slackX, restingScroll]);
 
   // The frames sit `slack` into the surface, so any change in the slack moves
   // them under the viewport: on the first measurement (slack 0 → half a pane,
@@ -479,17 +549,27 @@ export function PreviewCanvas({
   // delta keeps whatever the user was looking at where it was — and, unlike a
   // one-shot "scroll onto the content", it cannot miss its moment and leave the
   // canvas stranded in the void.
-  const appliedSlackRef = useRef({ x: 0, y: 0 });
+  const appliedSlackRef = useRef<{ x: number; y: number } | null>(null);
   useLayoutEffect(() => {
     const node = scrollRef.current;
-    if (!node) return;
+    if (!node || viewport.width <= 0) return;
     const applied = appliedSlackRef.current;
-    if (applied.x === slackX && applied.y === slackY) return;
+    if (applied && applied.x === slackX && applied.y === slackY) return;
+    const firstMeasurement = applied === null;
     appliedSlackRef.current = { x: slackX, y: slackY };
-    node.scrollLeft += slackX - applied.x;
-    node.scrollTop += slackY - applied.y;
+    if (firstMeasurement) {
+      // Opening shot: land on the frames, centred.
+      const rest = restingScroll();
+      node.scrollLeft = rest.left;
+      node.scrollTop = rest.top;
+    } else {
+      // A resize moved the frames within the surface; follow them so whatever
+      // the user was looking at stays where it was.
+      node.scrollLeft += slackX - applied.x;
+      node.scrollTop += slackY - applied.y;
+    }
     setScrollLeft(node.scrollLeft);
-  }, [slackX, slackY]);
+  }, [slackX, slackY, viewport.width, restingScroll]);
 
   return (
     <div

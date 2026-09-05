@@ -128,15 +128,16 @@ describe('PreviewCanvas', () => {
     expect(scaled?.style.transform).toBe(`scale(${expected})`);
   });
 
-  it('opens with room to pan on every side, and lands on the frames', () => {
+  it('opens with room to pan on every side, and the frames centred in the pane', () => {
     const { container } = renderCanvas();
     const scaled = container.querySelector<HTMLElement>('.preview-canvas-scaled')!;
     const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    // Half a screen of slack either side (PAN_SLACK_RATIO), and the canvas
-    // scrolled by exactly that, so it opens on the content rather than in the
-    // empty margin beside it.
+    // Half a screen of slack either side (PAN_SLACK_RATIO)...
     expect(scaled.style.left).toBe('600px');
-    expect(scroller.scrollLeft).toBe(600);
+    // ...and the canvas resting on the frames with the leftover pane split
+    // evenly around them, rather than jammed against the top-left corner.
+    // Fit puts 1136px of content in a 1200px pane, so 32px each side.
+    expect(scroller.scrollLeft).toBe(600 - 32);
   });
 
   it('keeps the view put when the pane resizes under it', () => {
@@ -256,6 +257,83 @@ describe('PreviewCanvas', () => {
     for (const frame of container.querySelectorAll('iframe')) {
       expect(frame.getAttribute('src')).toBe('http://localhost:3000/pricing');
     }
+  });
+
+  it('walks every other frame to the same point in the page', () => {
+    const { container } = renderCanvas();
+    const frames = [...container.querySelectorAll<HTMLIFrameElement>('iframe')];
+    const source = frames[0];
+    const posts = frames.map((frame) => {
+      const post = vi.fn();
+      Object.defineProperty(frame, 'contentWindow', {
+        configurable: true,
+        value: frame === source ? source.contentWindow : { postMessage: post },
+      });
+      return post;
+    });
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: source.contentWindow,
+        data: { type: 'ss:scroll', top: 900, fraction: 0.42 },
+      })
+    );
+
+    // Every frame but the one that moved — sending it back where it already is
+    // would fight the user's own scrolling.
+    expect(posts[0]).not.toHaveBeenCalled();
+    for (const post of posts.slice(1)) {
+      expect(post).toHaveBeenCalledWith({ type: 'ss:scrollTo', fraction: 0.42 }, '*');
+    }
+  });
+
+  it('drops its own echo instead of looping frames back and forth', () => {
+    const { container } = renderCanvas();
+    const frames = [...container.querySelectorAll<HTMLIFrameElement>('iframe')];
+    const posts = frames.map((frame) => {
+      const post = vi.fn();
+      Object.defineProperty(frame, 'contentWindow', {
+        configurable: true,
+        value: { postMessage: post },
+      });
+      return post;
+    });
+
+    const report = (source: unknown, fraction: number) =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          source: source as MessageEventSource,
+          data: { type: 'ss:scroll', fraction },
+        })
+      );
+
+    report(frames[0].contentWindow, 0.42);
+    expect(posts[1]).toHaveBeenCalledTimes(1);
+
+    // The frames we just drove report back the position we sent them. That is
+    // our own echo, not a new scroll.
+    report(frames[1].contentWindow, 0.42);
+    report(frames[2].contentWindow, 0.4200001);
+    expect(posts[0]).not.toHaveBeenCalled();
+    expect(posts[1]).toHaveBeenCalledTimes(1);
+
+    // A real move still gets through.
+    report(frames[1].contentWindow, 0.8);
+    expect(posts[0]).toHaveBeenCalledWith({ type: 'ss:scrollTo', fraction: 0.8 }, '*');
+  });
+
+  it('ignores a scroll report without a position', () => {
+    const { container } = renderCanvas();
+    const frame = container.querySelector<HTMLIFrameElement>('iframe')!;
+    const post = vi.fn();
+    Object.defineProperty(container.querySelectorAll('iframe')[1], 'contentWindow', {
+      configurable: true,
+      value: { postMessage: post },
+    });
+    window.dispatchEvent(
+      new MessageEvent('message', { source: frame.contentWindow, data: { type: 'ss:scroll' } })
+    );
+    expect(post).not.toHaveBeenCalled();
   });
 
   it('reads out the current zoom, and returns to true size when it is clicked', async () => {

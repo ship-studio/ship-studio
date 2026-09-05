@@ -771,6 +771,35 @@ window.addEventListener('gesturechange',function(e){
 },{passive:false});
 window.addEventListener('gestureend',function(e){e.preventDefault();gzScale=1;},{passive:false});
 
+/* Scroll position, reported up and driven from up. The breakpoint canvas keeps
+   its frames in step so you can walk the whole page at every width at once —
+   each frame is a real viewport (a 100vh hero is one screen tall, as it should
+   be), and scrolling is what gets you past the fold. Reported as a fraction of
+   the scrollable range, because the same page is a different length at every
+   width. `ssScrollHold` keeps a driven scroll from echoing back out. */
+/* Throttled on the clock, not on animation frames: a frame that stops being
+   painted (backgrounded, or scrolled off the canvas) never runs its rAF
+   callback, and a rAF-latched guard would then stay closed forever and kill the
+   sync for that frame permanently. The trailing timer guarantees the final
+   resting position always goes out. */
+var ssScrollHold=0,ssScrollLast=0,ssScrollTimer=0,SS_SCROLL_MS=40;
+function ssScrollRange(){return Math.max(0,(document.documentElement.scrollHeight||0)-window.innerHeight);}
+function ssScrollReport(){
+  ssScrollLast=Date.now();
+  var max=ssScrollRange();
+  try{window.parent.postMessage({type:'ss:scroll',top:window.scrollY,fraction:max>0?window.scrollY/max:0},'*');}catch(err){}
+}
+window.addEventListener('scroll',function(){
+  if(Date.now()<ssScrollHold)return;
+  var since=Date.now()-ssScrollLast;
+  if(since>=SS_SCROLL_MS){ssScrollReport();return;}
+  if(ssScrollTimer)return;
+  ssScrollTimer=setTimeout(function(){
+    ssScrollTimer=0;
+    if(Date.now()>=ssScrollHold)ssScrollReport();
+  },SS_SCROLL_MS-since);
+},{passive:true});
+
 window.addEventListener('message',function(e){
 
 /* Only accept commands from the embedding app (our parent window) or same-window
@@ -782,6 +811,12 @@ var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
+else if(d.type==='ss:scrollTo'){
+  ssScrollHold=Date.now()+150;
+  var smax=ssScrollRange();
+  var target=typeof d.fraction==='number'?d.fraction*smax:(d.top||0);
+  window.scrollTo(0,Math.max(0,Math.min(smax,target)));
+}
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 
 /* Parent's verdict on whether the current selection's text is editable in source. If
