@@ -207,10 +207,33 @@ export function PreviewCanvas({
     userMovedRef.current = true;
   }, []);
 
+  // Measured from the ROOT, never from the scroller. The scroller contains the
+  // surface, and the surface is sized from this measurement — so anything that
+  // stops the scroller clipping (a scrollbar library relocating its children,
+  // say) turns that into a feedback loop that runs the canvas off to millions
+  // of pixels and leaves the user looking at grey. The root has one job and
+  // holds nothing, so it cannot grow.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const measure = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const width = root.clientWidth;
+    const height = root.clientHeight;
+    setViewport((current) =>
+      current.width === width && current.height === height ? current : { width, height }
+    );
+  }, []);
+
+  const setRootEl = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node;
+      if (node) measure();
+    },
+    [measure]
+  );
+
   const setScrollEl = useCallback((node: HTMLDivElement | null) => {
     scrollRef.current = node;
-    if (!node) return;
-    setViewport({ width: node.clientWidth, height: node.clientHeight });
   }, []);
 
   // Two sources, because the first one can lie. A pane measured during the
@@ -219,9 +242,8 @@ export function PreviewCanvas({
   // The window's own resize is a second chance at the truth for webviews that
   // deliver it before the observer.
   useEffect(() => {
-    const node = scrollRef.current;
+    const node = rootRef.current;
     if (!node) return;
-    const measure = () => setViewport({ width: node.clientWidth, height: node.clientHeight });
     const observer =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => measure());
     observer?.observe(node);
@@ -234,7 +256,7 @@ export function PreviewCanvas({
       window.removeEventListener('resize', measure);
       cancelAnimationFrame(settle);
     };
-  }, []);
+  }, [measure]);
 
   // Scroll drives the mount window, and nothing else — so it only has to reach
   // React when it has moved far enough to change which frames are mounted.
@@ -513,6 +535,7 @@ export function PreviewCanvas({
 
   return (
     <div
+      ref={setRootEl}
       className={`preview-canvas-root${spaceHeld ? ' is-pannable' : ''}${
         panning ? ' is-panning' : ''
       }`}

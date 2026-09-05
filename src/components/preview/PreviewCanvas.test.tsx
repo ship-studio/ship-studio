@@ -45,13 +45,19 @@ function stubCanvasSize(width: number, height: number) {
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.classList.contains('preview-canvas') ? width : 0;
+      return this.classList.contains('preview-canvas') ||
+        this.classList.contains('preview-canvas-root')
+        ? width
+        : 0;
     },
   });
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.classList.contains('preview-canvas') ? height : 0;
+      return this.classList.contains('preview-canvas') ||
+        this.classList.contains('preview-canvas-root')
+        ? height
+        : 0;
     },
   });
   return () => {
