@@ -363,6 +363,12 @@ mod tests {
         // feedback loop the agreement rule cannot see.
         assert!(SELECT_SCRIPT.contains("ssPageCommitted"));
         assert!(SELECT_SCRIPT.contains("ssPageLocked"));
+        // ...and the ratchet, which never repeats a value at all, so the
+        // visited list is blind to it. Cause and backstop both.
+        assert!(SELECT_SCRIPT.contains("position:relative!important"));
+        assert!(SELECT_SCRIPT.contains("ratchet"));
+        // The settle observer must not be able to feed itself.
+        assert!(SELECT_SCRIPT.contains("if(pin.textContent!==css)"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useState } from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PreviewCanvas, type CanvasZoom } from './PreviewCanvas';
 import {
@@ -176,6 +176,50 @@ describe('PreviewCanvas', () => {
     // Centred for the new pane: 400px of slack, 800px of pane, and Fit puts
     // 736px of content in it.
     expect(scroller.scrollLeft).toBe(400 - 32);
+  });
+
+  const panALittle = (scroller: HTMLElement) => {
+    fireEvent.keyDown(window, { code: 'Space' });
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 350, clientY: 300 });
+    fireEvent.mouseMove(document, { clientX: 340, clientY: 290 });
+    fireEvent.mouseUp(document);
+    fireEvent.keyUp(window, { code: 'Space' });
+  };
+
+  it('gives an axis back when a zoom stops needing it', async () => {
+    // Zoom is anchored to the pointer, which says where one point goes and
+    // nothing about the axis the frames have stopped filling. Zoomed out far
+    // enough they no longer need the pane's width, and without this they stay
+    // where the arithmetic left them — against an edge, most of the canvas
+    // empty beside them. Rule 3 stays quiet because nothing is LOST; the
+    // canvas is merely useless, which it has no rule against.
+    const { props, container, rerender } = renderCanvas({ zoom: 0.6 });
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    panALittle(scroller); // the position is now the user's, so rule 1 is off
+    scroller.scrollLeft = 100;
+
+    rerender(<PreviewCanvas {...props} zoom={0.05} />);
+
+    // 3751 canvas px at 5% is 188px of content in a 1200px pane, so the frames
+    // sit in the middle of it rather than jammed against the left edge.
+    const contentWidth = 3751 * 0.05;
+    const expected = 1200 * PAN_SLACK_RATIO - (1200 - contentWidth) / 2;
+    await waitFor(() => expect(scroller.scrollLeft).toBeCloseTo(expected, 1));
+  });
+
+  it('leaves an axis alone while the frames still fill it', async () => {
+    // The pages stay far taller than the pane, so a zoom must not throw away
+    // whatever part of them the user had come to look at.
+    const { props, container, rerender } = renderCanvas({ zoom: 1 });
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    panALittle(scroller);
+    scroller.scrollTop = 5000;
+
+    rerender(<PreviewCanvas {...props} zoom={0.9} />);
+
+    // 1024px tall at 90% still overflows an 800px pane, so nothing moves.
+    await waitFor(() => expect(scroller.scrollLeft).toBeGreaterThanOrEqual(0));
+    expect(scroller.scrollTop).toBe(5000);
   });
 
   it("keeps the view put once the position is the user's", () => {

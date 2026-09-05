@@ -48,6 +48,8 @@ interface UseCanvasPlacementParams {
   contentHeightPx: number;
   /** Whether the canvas is fitting — a standing instruction to show it all. */
   isFit: boolean;
+  /** The rendered scale. Rule 4 uses it to tell a zoom from a pan. */
+  scale: number;
   /** Anything that changes the laid-out geometry, so rule 3 knows to look. */
   geometryToken: unknown;
   /** Called after the canvas has placed itself. */
@@ -75,6 +77,7 @@ export function useCanvasPlacement({
   contentWidthPx,
   contentHeightPx,
   isFit,
+  scale,
   geometryToken,
   onScrollSettled,
 }: UseCanvasPlacementParams): CanvasPlacement {
@@ -184,6 +187,48 @@ export function useCanvasPlacement({
     const rest = restingScroll();
     parkScrollNow(node, rest.left, rest.top);
   }, [geometryToken, viewport.width, viewport.height, restingScroll, parkScrollNow, scrollRef]);
+
+  // Rule 4: a zoom that no longer needs an axis gives it back.
+  //
+  // Zoom is anchored to the pointer, which is right and is what every canvas
+  // tool does. But anchoring only says where the point under the cursor goes;
+  // it says nothing about the axis the content has stopped filling. Zoom out
+  // far enough and the frames stop needing the width of the pane, and they are
+  // left wherever the arithmetic put them — pushed against an edge with most of
+  // the canvas empty beside them. Nothing is lost, so rule 3 stays quiet: it
+  // only speaks when NOT ONE frame overlaps the pane. The canvas is merely
+  // useless, which it has no rule against.
+  //
+  // So when an axis is no longer needed — the content fits it — that axis is
+  // recentred. Only on an axis that fits, so a canvas taller than the pane
+  // keeps the vertical position the user zoomed to, and only when the SCALE
+  // changed, so panning the frames somewhere deliberately is left alone. Waits
+  // for the gesture to finish, because doing it mid-pinch is a fight.
+  const settledScaleRef = useRef(scale);
+  useLayoutEffect(() => {
+    if (interacting) return;
+    const node = scrollRef.current;
+    if (!node || viewport.width <= 0) return;
+    if (settledScaleRef.current === scale) return;
+    settledScaleRef.current = scale;
+    const rest = restingScroll();
+    parkScrollNow(
+      node,
+      contentWidthPx <= viewport.width ? rest.left : node.scrollLeft,
+      contentHeightPx <= viewport.height ? rest.top : node.scrollTop
+    );
+    settledRef.current(node.scrollLeft);
+  }, [
+    scale,
+    interacting,
+    contentWidthPx,
+    contentHeightPx,
+    viewport.width,
+    viewport.height,
+    restingScroll,
+    parkScrollNow,
+    scrollRef,
+  ]);
 
   return { markUserMoved, releaseToCanvas, interacting, restingScroll, parkScrollNow };
 }

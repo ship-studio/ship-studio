@@ -824,7 +824,12 @@ function ssResolveUnits(text){
 function ssRewriteRules(rules){
   for(var i=0;i<rules.length;i++){
     var rule=rules[i];
-    if(rule.cssRules&&rule.cssRules.length){ssRewriteRules(rule.cssRules);continue;}
+    /* Recurse AND fall through. A grouping rule (`@media`, `@supports`) has
+       only children, but a nested style rule has both its own declarations and
+       children — and `continue`ing here skipped every declaration it owned.
+       Nested CSS is not exotic any more: it is what Tailwind v4 emits, so a
+       whole modern stylesheet's `vh` was going through untouched. */
+    if(rule.cssRules&&rule.cssRules.length)ssRewriteRules(rule.cssRules);
     if(!rule.style)continue;
     var text=rule.style.cssText;
     if(!text||text.search(SS_VIEWPORT_UNIT)<0){SS_VIEWPORT_UNIT.lastIndex=0;continue;}
@@ -853,8 +858,37 @@ function ssPinRootHeight(){
     pin=document.createElement('style');pin.id='ss-root-height';
     (document.head||document.documentElement).appendChild(pin);
   }
-  pin.textContent='html{height:'+ssVH+'px!important;overflow:visible!important}'
-    +'body{overflow:visible!important}';
+  /* `body` is made a containing block, and that is not cosmetic — it is what
+     stops the frame's own height from re-entering the measurement.
+
+     Pinning `html` fixes percentage chains rooted at `html`. It does nothing
+     for an absolutely positioned element with no positioned ancestor, because
+     that resolves against the INITIAL containing block, and the initial
+     containing block is the viewport — which here is the frame, the very thing
+     about to be resized to whatever we measure. A single `position:absolute;
+     inset:0` child is then a ratchet: its bottom is the frame height, so the
+     page measures a little taller than the frame, so the frame grows, so it
+     measures taller again. It never repeats a value, so nothing that watches
+     for a repeat can see it; it just walks until the write budget runs out,
+     which is a frame visibly resizing for half a minute and then settling
+     several hundred pixels too tall.
+
+     With `body` positioned, those elements resolve against the content instead,
+     which is what the page meant on a real device anyway — there, the viewport
+     is a screen, not the whole document. */
+  var css='html{height:'+ssVH+'px!important;overflow:visible!important}'
+    +'body{overflow:visible!important;position:relative!important}';
+  /* Only write when it would actually differ, and it almost never does — the
+     device height does not change. This is not a micro-optimisation, it is the
+     thing that stops this function from driving the page in a circle: the style
+     it writes lives in the HEAD, assigning `textContent` replaces a child text
+     node, and the head is exactly what the settle observer watches. Writing
+     unconditionally meant every pass scheduled the next one, at 5Hz, forever,
+     in every frame — and each pass invalidated every style in the document
+     (`html{...!important}`), walked every stylesheet, and forced a layout of a
+     document ten thousand pixels tall. That, not animation, was what made an
+     idle canvas cost three times an idle preview. */
+  if(pin.textContent!==css)pin.textContent=css;
 }
 
 var ssViewportLied=false;
@@ -935,17 +969,28 @@ function ssRewriteViewportUnits(){
 function ssPageHeight(){
   var b=document.body;if(!b)return 0;
   var style=window.getComputedStyle(b);
-  var pad=parseFloat(style.marginTop||'0')+parseFloat(style.marginBottom||'0');
+  /* The BOTTOM margin only. The children's rects are measured from the document
+     origin, which is above body's top margin, so that margin is already inside
+     every number below — adding it here counted it twice, and eight stray
+     pixels a round is all a feedback loop needs to keep walking. */
+  var pad=parseFloat(style.marginBottom||'0')
+    +parseFloat(style.paddingBottom||'0')+parseFloat(style.borderBottomWidth||'0');
   /* Measured from where the CONTENT ends, not from `scrollHeight`. The frame is
      about to be resized to this answer, and a body stretched to its viewport
      (`html,body{height:100%}`) reports the frame's own height back — which
      would leave a frame that grew once unable to ever shrink again, i.e. a
-     screen of white space under a page that got shorter. Fixed elements are
-     skipped: they are positioned against the viewport, not the document. */
+     screen of white space under a page that got shorter.
+
+     Viewport-positioned elements are skipped, because the "viewport" here is
+     the frame, and the frame is the thing being measured. `fixed` is the
+     obvious one. `sticky` matters too: while stuck, its rect reports where it
+     is PARKED rather than where it lives, so a frame that happens to be
+     scrolled measures it too low down. */
   var bottom=0,kids=b.children;
   for(var i=0;i<kids.length;i++){
     var el=kids[i];
-    if(window.getComputedStyle(el).position==='fixed')continue;
+    var pos=window.getComputedStyle(el).position;
+    if(pos==='fixed'||pos==='sticky')continue;
     var y=el.getBoundingClientRect().bottom+window.scrollY;
     if(y>bottom)bottom=y;
   }
@@ -996,9 +1041,30 @@ function ssReportPage(){
     if(Math.abs(h-ssPageCommitted[i])<4)revisited=true;
     if(ssPageCommitted[i]>tallest)tallest=ssPageCommitted[i];
   }
-  if(revisited){
+  /* The other shape a feedback loop takes, and the one that actually bit: not a
+     cycle but a RATCHET, each answer a little taller than the last. It never
+     repeats a value, so the visited list above is blind to it. Its signature is
+     that the step is CONSTANT — the page is not settling, it is being handed
+     back its own frame height plus a fixed offset. Real settling (a font
+     swapping, an image getting its size) moves by whatever that content is
+     worth, so equal steps three times running is not something a page does by
+     accident. */
+  var n=ssPageCommitted.length,ratchet=false;
+  if(!revisited&&n>=3){
+    var d1=h-ssPageCommitted[n-1],d2=ssPageCommitted[n-1]-ssPageCommitted[n-2],
+        d3=ssPageCommitted[n-2]-ssPageCommitted[n-3];
+    if(d1>0&&Math.abs(d1-d2)<2&&Math.abs(d2-d3)<2)ratchet=true;
+  }
+  /* The two loops settle at opposite ends, and it matters which.
+     A CYCLE alternates between real layouts, so the tallest is the one that
+     shows all of the page — too tall costs a strip of background, too short
+     cuts content off. A RATCHET is the page being handed back its own inflated
+     frame height, so every step after the run began is that inflation and the
+     honest answer is the height BEFORE it started. */
+  if(revisited||ratchet){
     ssPageLocked=true;
-    if(Math.abs(tallest-ssPageH)>=4)ssSendPage(tallest);
+    var settled=ratchet?ssPageCommitted[n-3]:tallest;
+    if(Math.abs(settled-ssPageH)>=4)ssSendPage(settled);
     return;
   }
   ssPageCommitted.push(h);
@@ -1067,6 +1133,27 @@ function ssBackground(on){
   for(var i=0;i<held.length;i++){try{window.requestAnimationFrame(held[i]);}catch(err){}}
 }
 
+/* Our own injected styles live in the head, so they are mutations in the very
+   subtree being watched for them. A mutation that touches nothing but our own
+   elements tells us nothing we did not already know, and acting on it is how
+   this observer ends up feeding itself. */
+var SS_OWN_STYLE_IDS={'ss-root-height':1,'ss-still-style':1,'ss-preview':1,'ss-passive-style':1};
+function ssOwnNode(node){
+  if(!node)return false;
+  if(node.nodeType===3)return ssOwnNode(node.parentNode);   /* the style's text */
+  return !!(node.id&&SS_OWN_STYLE_IDS[node.id]);
+}
+function ssOnHeadMutations(records){
+  for(var i=0;i<records.length;i++){
+    var r=records[i];
+    if(!ssOwnNode(r.target)){ssSyncPage();return;}
+    var added=r.addedNodes;
+    for(var j=0;j<added.length;j++){
+      if(!ssOwnNode(added[j])){ssSyncPage();return;}
+    }
+  }
+}
+
 function ssSyncPage(){
   if(ssVHTimer)clearTimeout(ssVHTimer);
   ssVHTimer=setTimeout(function(){
@@ -1089,7 +1176,7 @@ function ssWatchPage(){
   if(ssPageWatching)return;
   ssPageWatching=true;
   if(window.MutationObserver){
-    new MutationObserver(ssSyncPage).observe(document.head||document.documentElement,
+    new MutationObserver(ssOnHeadMutations).observe(document.head||document.documentElement,
       {childList:true,subtree:true});
   }
   window.addEventListener('load',ssSyncPage);

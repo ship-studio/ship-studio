@@ -227,6 +227,7 @@ export function PreviewCanvas({
       contentWidthPx,
       contentHeightPx,
       isFit,
+      scale,
       geometryToken: layout,
       onScrollSettled: setScrollLeft,
     });

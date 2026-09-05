@@ -167,16 +167,34 @@ Agreement throws out a transient measured mid-load, which otherwise sticks — a
 frame with a screen of white space under a page that got shorter. A
 `scrollHeight` on a stretched body just reports the frame's own height back.
 
-And the visited list catches the feedback loop, which agreement cannot see. The
-frame is resized to whatever is reported, so a page whose layout answers to its
-own viewport height answers back with a different number — but it does that in
-*response to the resize*, which is slower than the sampling. Each height is
-therefore measured twice before the reply lands, agreement is satisfied every
-time, and the frame walks A → B → A → B until the write budget runs out. That
-is a frame visibly changing size every couple of seconds, and it was mistaken
-for solved once already. Returning to a committed height IS the loop: the frame
-settles on the tallest height of the cycle and stops — too tall shows a strip of
-background, too short cuts content off, and only one of those loses anything.
+And the last two rules catch the frame's own height re-entering the
+measurement, which agreement cannot see. The frame is resized to whatever is
+reported, so a page that answers to its viewport height answers back — but in
+*response to the resize*, which is slower than the sampling, so each value is
+comfortably measured twice and agreement is satisfied every time.
+
+It takes two shapes, and only one of them repeats itself.
+
+A **cycle** alternates between two real layouts, A → B → A → B. Returning to a
+committed height is that loop exactly, so the visited list ends it, and it
+settles on the tallest of the cycle: too tall shows a strip of background, too
+short cuts content off, and only one of those loses anything.
+
+A **ratchet** never repeats a value, so a visited list is blind to it. It was
+the one that actually bit. Pinning the root height fixes percentage chains
+rooted at the root — and does nothing for an absolutely positioned element with
+no positioned ancestor, because that resolves against the *initial* containing
+block, which is the viewport, which here is the frame about to be resized. Its
+bottom is therefore the frame's height, the page measures a constant offset
+taller than the frame, the frame grows, and it measures taller again: sixteen
+pixels a round, forty rounds, half a minute of a frame visibly resizing before
+stopping several hundred pixels too tall — stopping because the write budget ran
+out, not because anything was resolved. The cause is removed by making `body` a
+containing block, so those elements resolve against the content the way they
+would on a real device. The signature is also recognised as a backstop, because
+a constant step three times running is not something a settling page does by
+accident, and a ratchet settles on the height from *before* the run began —
+every step after that is the inflation.
 
 Everything the canvas adds is off until `ss:canvas` arrives, so the ordinary
 single-frame preview is left completely alone — including having its gestures
