@@ -114,6 +114,10 @@ const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
 
 const PREVIEW_BREAKPOINTS = Object.keys(BREAKPOINTS) as Breakpoint[];
 
+/** The viewport tab that means "all of them at once". Deliberately not a
+ *  breakpoint name, so it cannot collide with one. */
+const CANVAS_TAB = 'canvas';
+
 /**
  * A frame reports its selection box in its OWN pixels. Host-side editor chrome
  * draws at screen scale, so on the breakpoint canvas the rect has to come
@@ -1627,11 +1631,17 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
         <div className="preview-breakpoints" data-education-id="breakpoints">
           <Tabs
-            // On the canvas the tabs report the ACTIVE frame, and picking one
-            // leaves the canvas focused on that single breakpoint.
-            value={canvasMode ? canvasFrameId : resize.getActiveBreakpoint()}
+            // "Every breakpoint" is one of the viewport choices, not a mode on
+            // top of one: it lives in the same segmented control so exactly one
+            // thing is ever selected. Highlighting a device tab AND the canvas
+            // button at the same time reads as two active states.
+            value={canvasMode ? CANVAS_TAB : resize.getActiveBreakpoint()}
             mode="navigation"
             onValueChange={(value) => {
+              if (value === CANVAS_TAB) {
+                setCanvasEnabled(true);
+                return;
+              }
               setCanvasEnabled(false);
               resize.handleBreakpointClick(value as Breakpoint);
             }}
@@ -1650,6 +1660,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                   <BreakpointIcon type={bp} />
                 </TabsTab>
               ))}
+              <TabsTab
+                value={CANVAS_TAB}
+                className="preview-breakpoint-tab preview-breakpoint-tab--canvas button--icon-only"
+                size="default"
+                data-education-id="breakpoint-canvas"
+                aria-label="Every breakpoint"
+                title="Every breakpoint, side by side"
+              >
+                <GridIcon size={14} />
+              </TabsTab>
             </TabsList>
           </Tabs>
 
@@ -1677,23 +1697,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 />
               );
             })()}
-
-          <ToggleButton
-            type="button"
-            className="preview-canvas-control"
-            data-education-id="breakpoint-canvas"
-            variant={canvasMode ? 'secondary' : 'default'}
-            pressed={canvasMode}
-            onClick={toggleCanvasMode}
-            title={
-              canvasMode
-                ? 'Focus a single breakpoint'
-                : 'Show every breakpoint side by side on one canvas'
-            }
-            aria-label={canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint'}
-          >
-            <GridIcon size={14} />
-          </ToggleButton>
         </div>
       </div>
       <div

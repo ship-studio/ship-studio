@@ -889,19 +889,27 @@ function ssSyncPage(){
    frame, and each firing schedules a walk of the CSSOM and a forced layout.
    New styles land in <head> (a dev server's HMR included), which is all this
    needs to see. */
-if(window.MutationObserver){
-  new MutationObserver(ssSyncPage).observe(document.head||document.documentElement,
-    {childList:true,subtree:true});
+/* Started only when a canvas takes this frame over, and never otherwise: the
+   ordinary single-frame preview must cost exactly what it cost before this
+   feature existed. */
+var ssPageWatching=false;
+function ssWatchPage(){
+  if(ssPageWatching)return;
+  ssPageWatching=true;
+  if(window.MutationObserver){
+    new MutationObserver(ssSyncPage).observe(document.head||document.documentElement,
+      {childList:true,subtree:true});
+  }
+  window.addEventListener('load',ssSyncPage);
+  /* Everything else that changes a page's length — fonts landing, images
+     sizing, content revealed on load — happens early and then stops. A few
+     checks over the first few seconds cover it without watching forever. */
+  var ticks=0;
+  var settle=setInterval(function(){
+    if(++ticks>10){clearInterval(settle);return;}
+    ssReportPage();
+  },500);
 }
-/* Everything else that changes a page's length — fonts landing, images sizing,
-   content revealed on load — happens early and then stops. A few checks over
-   the first few seconds cover it without watching forever. */
-window.addEventListener('load',ssSyncPage);
-var ssSettleTicks=0;
-var ssSettle=setInterval(function(){
-  if(++ssSettleTicks>10||!ssCanvas&&ssSettleTicks>4){clearInterval(ssSettle);return;}
-  ssReportPage();
-},500);
 
 window.addEventListener('message',function(e){
 
@@ -933,7 +941,7 @@ else if(d.type==='ss:passive'){
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
-  if(ssVH){ssRewriteViewportUnits();ssPageH=0;ssPageGrowths=0;ssReportPage();}
+  if(ssVH){ssWatchPage();ssRewriteViewportUnits();ssPageH=0;ssPageGrowths=0;ssReportPage();}
 }
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 

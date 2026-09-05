@@ -1586,7 +1586,7 @@
       "owner": "Control",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 43
+      "consumerCount": 39
     },
     {
       "name": "--control-height-large",
@@ -3719,7 +3719,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 320
+      "consumerCount": 319
     },
     {
       "name": "--surface-control-hover",
@@ -3863,7 +3863,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 59
+      "consumerCount": 60
     },
     {
       "name": "--border-strong",
@@ -4376,7 +4376,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 18
+      "consumerCount": 17
     },
     {
       "name": "--shadow-source-control-attention",
@@ -4475,7 +4475,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 69
+      "consumerCount": 70
     },
     {
       "name": "--spacing-xs",
@@ -4538,7 +4538,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 132
+      "consumerCount": 131
     },
     {
       "name": "--radius-card",
