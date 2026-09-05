@@ -757,19 +757,25 @@ function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeS
    a page. Harmless outside the breakpoint canvas — nothing listens.
    Two flavours, because a trackpad pinch is ctrl+wheel in Chromium and a
    `gesture*` event in WebKit (which is what the app runs on macOS). */
+/* Off until the breakpoint canvas says otherwise (`ss:canvas`). On the single
+   preview frame there is no canvas to zoom, so none of this should touch the
+   page's own gestures — including swallowing them. */
+var ssCanvas=false;
 window.addEventListener('wheel',function(e){
+  if(!ssCanvas)return;
   if(!e.ctrlKey&&!e.metaKey)return;
   e.preventDefault();
   try{window.parent.postMessage({type:'ss:wheelZoom',deltaY:e.deltaY,x:e.clientX,y:e.clientY},'*');}catch(err){}
 },{passive:false});
 var gzScale=1;
-window.addEventListener('gesturestart',function(e){e.preventDefault();gzScale=e.scale||1;},{passive:false});
+window.addEventListener('gesturestart',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=e.scale||1;},{passive:false});
 window.addEventListener('gesturechange',function(e){
+  if(!ssCanvas)return;
   e.preventDefault();
   var now=e.scale||1,factor=gzScale>0?now/gzScale:1;gzScale=now;
   try{window.parent.postMessage({type:'ss:zoomBy',factor:factor,x:e.clientX,y:e.clientY},'*');}catch(err){}
 },{passive:false});
-window.addEventListener('gestureend',function(e){e.preventDefault();gzScale=1;},{passive:false});
+window.addEventListener('gestureend',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=1;},{passive:false});
 
 /* Scroll position, reported up and driven from up. The breakpoint canvas keeps
    its frames in step so you can walk the whole page at every width at once —
@@ -790,6 +796,7 @@ function ssScrollReport(){
   try{window.parent.postMessage({type:'ss:scroll',top:window.scrollY,fraction:max>0?window.scrollY/max:0},'*');}catch(err){}
 }
 window.addEventListener('scroll',function(){
+  if(!ssCanvas)return;
   if(Date.now()<ssScrollHold)return;
   var since=Date.now()-ssScrollLast;
   if(since>=SS_SCROLL_MS){ssScrollReport();return;}
@@ -811,6 +818,7 @@ var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
+else if(d.type==='ss:canvas'){ssCanvas=!!d.on;}
 else if(d.type==='ss:scrollTo'){
   ssScrollHold=Date.now()+150;
   var smax=ssScrollRange();

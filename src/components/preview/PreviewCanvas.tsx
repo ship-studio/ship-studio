@@ -47,6 +47,20 @@ import { useFrameScrollSync } from '../../hooks/useFrameScrollSync';
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
 
+/**
+ * Tell a frame whether it is part of a canvas. The injected preview script
+ * keeps its gesture forwarding and scroll reporting off until it hears this,
+ * so the single preview frame's own gestures are left completely alone. A
+ * reloaded document starts from the default again, hence the `load` handler.
+ */
+const announceCanvas = (frame: HTMLIFrameElement, on = true): void => {
+  try {
+    frame.contentWindow?.postMessage({ type: 'ss:canvas', on }, '*');
+  } catch {
+    // A frame mid-navigation can refuse; its load handler will say it again.
+  }
+};
+
 /** How far the canvas must scroll before the mount window is recomputed. The
  *  window carries a screen of slack on each side, so nothing can scroll into
  *  view within this distance. */
@@ -202,8 +216,13 @@ export function PreviewCanvas({
     const frameId = element.dataset.frameId;
     if (!frameId) return;
     frameElsRef.current.set(frameId, element);
+    announceCanvas(element);
     setFrameEpoch((epoch) => epoch + 1);
     return () => {
+      // Best effort: a frame going away because the canvas is closing should
+      // stop forwarding gestures and reporting scroll. A frame going away
+      // because it unmounted doesn't care.
+      announceCanvas(element, false);
       frameElsRef.current.delete(frameId);
       setFrameEpoch((epoch) => epoch + 1);
     };
@@ -396,6 +415,7 @@ export function PreviewCanvas({
                     title={`${placement.label} preview`}
                     data-tooltip-disabled
                     data-frame-id={placement.id}
+                    onLoad={(event) => announceCanvas(event.currentTarget)}
                   />
                 ) : (
                   <div className="preview-canvas-placeholder" aria-hidden />
