@@ -113,12 +113,17 @@ export function useCanvasZoom({
     fitRef.current = onFit;
   }, [onFit]);
 
-  // Every commit, not just the ones that changed the scale: whatever is on
-  // screen is the truth the next gesture builds on, including when the owner
-  // clamped or ignored what the last one asked for. The slack rides along —
-  // it moves with the pane, and the anchor arithmetic is measured against it.
+  // Resynced when the RENDERED scale actually changes — including when the
+  // owner clamped or ignored what the last gesture asked for. Not on every
+  // commit: a render caused by something else entirely (a frame reporting its
+  // page height, say) would otherwise rewind a gesture already in flight to the
+  // value on screen, and the rest of that pinch would go nowhere.
+  const renderedScaleRef = useRef(scale);
   useLayoutEffect(() => {
-    liveScaleRef.current = scale;
+    if (scale !== renderedScaleRef.current) {
+      renderedScaleRef.current = scale;
+      liveScaleRef.current = scale;
+    }
     slackRef.current = { x: slackX, y: slackY };
   });
 

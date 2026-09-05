@@ -179,7 +179,9 @@ describe('PreviewCanvas', () => {
   });
 
   it("keeps the view put once the position is the user's", () => {
-    const { container } = renderCanvas();
+    // Not at Fit: Fit is a standing instruction to show everything, so it
+    // re-fits through a resize no matter who moved the canvas last.
+    const { container } = renderCanvas({ zoom: 0.2 });
     const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
     // A pan is the user taking the canvas position into their own hands.
     fireEvent.keyDown(window, { code: 'Space' });
@@ -393,14 +395,15 @@ describe('PreviewCanvas', () => {
     expect(stage.style.height).toBe('900px');
   });
 
-  it('pans the canvas with a gesture a frame could not use', () => {
+  it('pans the canvas with a gesture a frame could not use', async () => {
     const { container } = renderCanvas();
     const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
     const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
     const before = { left: scroller.scrollLeft, top: scroller.scrollTop };
 
     // A frame showing its whole page has nothing left to scroll, so it hands
-    // the wheel up and the canvas moves instead.
+    // the wheel up and the canvas moves instead — coalesced into one scroll
+    // write per frame, so the assertion waits for that frame.
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -408,6 +411,9 @@ describe('PreviewCanvas', () => {
           source: frame.contentWindow,
         })
       );
+    });
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
     });
     expect(scroller.scrollLeft).toBe(before.left + 40);
     expect(scroller.scrollTop).toBe(before.top + 120);

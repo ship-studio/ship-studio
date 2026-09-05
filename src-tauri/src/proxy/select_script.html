@@ -861,10 +861,21 @@ function ssPageHeight(){
   return Math.ceil(Math.max(b.scrollHeight,b.offsetHeight)
     +parseFloat(style.marginTop||'0')+parseFloat(style.marginBottom||'0'));
 }
+/* Only ever taller, and only so many times. The frame is resized to whatever
+   this reports, and a page whose layout responds to its own viewport height
+   (a section that reflows, something revealed as more of the page fits) then
+   reports a different number back — the two settle into a flicker a couple of
+   seconds long rather than converging. Growing monotonically ends at the
+   tallest layout the page has, which is the one that shows all of it; the
+   counter stops a genuinely unbounded page (an infinite scroller) from
+   climbing forever. Both reset when the document does. */
+var ssPageGrowths=0,SS_PAGE_MAX_GROWTHS=12;
 function ssReportPage(){
   if(!ssCanvas||!ssVH)return;
   var h=ssPageHeight();
-  if(!h||Math.abs(h-ssPageH)<4)return;
+  if(!h||h<=ssPageH+4)return;
+  if(ssPageGrowths>=SS_PAGE_MAX_GROWTHS)return;
+  ssPageGrowths++;
   ssPageH=h;
   try{window.parent.postMessage({type:'ss:pageHeight',height:h},'*');}catch(err){}
 }
@@ -892,7 +903,7 @@ else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoi
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
-  if(ssVH){ssRewriteViewportUnits();ssPageH=0;ssReportPage();}
+  if(ssVH){ssRewriteViewportUnits();ssPageH=0;ssPageGrowths=0;ssReportPage();}
 }
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 

@@ -151,8 +151,9 @@ export function PreviewCanvas({
     [frames]
   );
 
+  const isFit = zoom === 'fit';
   const fitted = fitScale(layout.contentWidth, viewport.width);
-  const scale = zoom === 'fit' ? fitted : zoom;
+  const scale = isFit ? fitted : zoom;
   // Room around the frames so the canvas can be pushed past its own content —
   // screen-space, so it doesn't change what has to fit at Fit, and constant
   // across a zoom (which keeps pointer anchoring honest).
@@ -198,9 +199,31 @@ export function PreviewCanvas({
     node.scrollLeft = left;
     node.scrollTop = top;
   }, []);
+  // While the user is actually moving the canvas, the scaled layer is promoted
+  // to its own compositor layer so a zoom is a transform rather than four
+  // enormous frames being rasterised again. Dropped a beat after the gesture
+  // stops — `will-change` on a layer this size is not free to hold.
+  const [interacting, setInteracting] = useState(false);
+  const interactingTimerRef = useRef<number | null>(null);
+  const beginInteraction = useCallback(() => {
+    setInteracting(true);
+    if (interactingTimerRef.current !== null) clearTimeout(interactingTimerRef.current);
+    interactingTimerRef.current = window.setTimeout(() => {
+      interactingTimerRef.current = null;
+      setInteracting(false);
+    }, 300);
+  }, []);
+  useEffect(
+    () => () => {
+      if (interactingTimerRef.current !== null) clearTimeout(interactingTimerRef.current);
+    },
+    []
+  );
+
   const markUserMoved = useCallback(() => {
     userMovedRef.current = true;
-  }, []);
+    beginInteraction();
+  }, [beginInteraction]);
 
   // Measured from the ROOT, never from the scroller. The scroller contains the
   // surface, and the surface is sized from this measurement — so anything that
@@ -297,6 +320,14 @@ export function PreviewCanvas({
   // any gesture the frame could not use itself. A wheel over a frame showing a
   // whole page has nothing left to scroll there, so the frame hands it up and
   // it pans the canvas — which is what the gesture meant.
+  const panPendingRef = useRef({ dx: 0, dy: 0 });
+  const panRafRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
+    },
+    []
+  );
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const data = event.data as {
@@ -321,13 +352,25 @@ export function PreviewCanvas({
       }
       const node = scrollRef.current;
       if (!node) return;
-      userMovedRef.current = true;
-      node.scrollLeft += data.dx ?? 0;
-      node.scrollTop += data.dy ?? 0;
+      markUserMoved();
+      // Coalesced: a trackpad delivers these faster than the canvas can paint,
+      // and each one written straight to `scrollLeft` is its own scroll and its
+      // own repaint of everything on the surface.
+      panPendingRef.current.dx += data.dx ?? 0;
+      panPendingRef.current.dy += data.dy ?? 0;
+      if (panRafRef.current !== null) return;
+      panRafRef.current = requestAnimationFrame(() => {
+        panRafRef.current = null;
+        const scroller = scrollRef.current;
+        if (!scroller) return;
+        scroller.scrollLeft += panPendingRef.current.dx;
+        scroller.scrollTop += panPendingRef.current.dy;
+        panPendingRef.current = { dx: 0, dy: 0 };
+      });
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [markUserMoved]);
 
   // ONE stable ref callback for every frame — a per-frame closure would be a
   // new function on each render, and React would detach and re-attach a live
@@ -492,9 +535,13 @@ export function PreviewCanvas({
     const node = scrollRef.current;
     if (!node || viewport.width <= 0) return;
     const applied = appliedSlackRef.current;
-    if (userMovedRef.current && applied && applied.x === slackX && applied.y === slackY) return;
+    // Fit is a standing instruction, not a one-off: while it is on, a pane that
+    // changes shape — the split dragged, fullscreen entered — re-fits and
+    // re-centres. Anything else keeps the place the user put it.
+    const owned = userMovedRef.current && !isFit;
+    if (owned && applied && applied.x === slackX && applied.y === slackY) return;
     appliedSlackRef.current = { x: slackX, y: slackY };
-    if (!userMovedRef.current) {
+    if (!owned) {
       const rest = restingScroll();
       parkScrollNow(node, rest.left, rest.top);
     } else if (applied) {
@@ -505,7 +552,7 @@ export function PreviewCanvas({
       );
     }
     setScrollLeft(node.scrollLeft);
-  }, [slackX, slackY, viewport.width, restingScroll, parkScrollNow]);
+  }, [slackX, slackY, viewport.width, isFit, restingScroll, parkScrollNow]);
 
   // A canvas you cannot lose. Whatever the arithmetic did — a bad measurement,
   // a zoom that ran out of scroll range, a resize mid-gesture — if not one
@@ -539,18 +586,17 @@ export function PreviewCanvas({
     // dependencies — one bad measurement away from a loop.
     const rest = restingScroll();
     parkScrollNow(node, rest.left, rest.top);
-    // Deliberately every commit: this is the check that the arithmetic above it
-    // produced something a person can see, and it can only be answered by
-    // measuring what was actually laid out. It settles immediately — once a
-    // frame overlaps the box it returns before touching anything.
-  });
+    // Runs when the geometry it checks could have changed, not on every commit:
+    // it reads laid-out boxes, and a forced layout per render is exactly the
+    // cost a canvas cannot afford while a gesture is in flight.
+  }, [scale, layout, viewport.width, viewport.height, restingScroll, parkScrollNow]);
 
   return (
     <div
       ref={setRootEl}
       className={`preview-canvas-root${spaceHeld ? ' is-pannable' : ''}${
         panning ? ' is-panning' : ''
-      }`}
+      }${interacting ? ' is-interacting' : ''}`}
     >
       <div
         className="preview-canvas"
