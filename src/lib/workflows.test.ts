@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { initDefaultAgent } from './agent';
 import {
+  agentForWorkflow,
   buildCommandPreview,
   describeSchedule,
   describeTriggerReality,
@@ -244,5 +246,25 @@ describe('buildCommandPreview', () => {
     expect(buildCommandPreview({ agentId: 'nonsense', permission: 'read-only' })).toContain(
       'claude'
     );
+  });
+
+  describe('agentForWorkflow', () => {
+    it('resolves a null agent to the actual default, not to Claude Code', () => {
+      // null means "whatever the user has set as their default". Rendering it as
+      // Claude Code told someone running Codex that their workflow used a tool it
+      // did not — the exact "never assume data" failure this app forbids.
+      initDefaultAgent('codex');
+      expect(agentForWorkflow(null).id).toBe('codex');
+      initDefaultAgent('claude-code');
+      expect(agentForWorkflow(null).id).toBe('claude-code');
+    });
+
+    it('says plainly when an agent cannot run a workflow', () => {
+      // The backend refuses anything without a headless mode, so a plausible
+      // command here would read as a promise the run cannot keep.
+      const preview = buildCommandPreview({ agentId: 'opencode', permission: 'read-only' });
+      expect(preview).toMatch(/can't run a workflow yet/);
+      expect(preview).not.toMatch(/--permission-mode/);
+    });
   });
 });

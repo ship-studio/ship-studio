@@ -8,7 +8,7 @@
  * @module lib/workflows
  */
 
-import { CLAUDE_CODE, CODEX, OPENCODE, type AgentConfig } from './agent';
+import { CLAUDE_CODE, CODEX, OPENCODE, getActiveAgent, type AgentConfig } from './agent';
 
 /* ------------------------------------------------------------------ types */
 
@@ -356,9 +356,25 @@ export function summarizeWeek(workflows: Workflow[]): {
 
 const AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE];
 
-/** Agent config for a workflow, falling back to Claude Code. */
+/**
+ * The agent a workflow will actually be run with.
+ *
+ * A null `agentId` means "whatever the user has set as their default", which is
+ * not the same as Claude Code — and rendering it as Claude Code told someone
+ * running Codex that their workflow uses a tool it doesn't. Resolving the real
+ * default is the only honest answer, and it matches what the backend does:
+ * `run_workflow` falls back to `get_active_agent()` for the same case.
+ */
 export function agentForWorkflow(agentId: string | null): AgentConfig {
-  return AGENTS.find((agent) => agent.id === agentId) ?? CLAUDE_CODE;
+  if (agentId === null) return getActiveAgent();
+  return AGENTS.find((agent) => agent.id === agentId) ?? getActiveAgent();
+}
+
+/** Agents with a headless mode `run_workflow` can actually drive. */
+const RUNNABLE_AGENT_IDS = new Set(['claude-code', 'codex']);
+
+export function canRunWorkflows(agent: AgentConfig): boolean {
+  return RUNNABLE_AGENT_IDS.has(agent.id);
 }
 
 /**
@@ -373,6 +389,12 @@ export function agentForWorkflow(agentId: string | null): AgentConfig {
  */
 export function buildCommandPreview(workflow: Pick<Workflow, 'agentId' | 'permission'>): string {
   const agent = agentForWorkflow(workflow.agentId);
+  if (!canRunWorkflows(agent)) {
+    // Printing a plausible command for an agent the backend refuses to drive
+    // is worse than printing nothing: it reads as a promise. This is the same
+    // sentence `invoke_agent` fails with.
+    return `${agent.displayName} can't run a workflow yet — it has no headless mode.\nPick Claude Code or Codex for this workflow.`;
+  }
   if (agent.id === 'codex') {
     const sandbox = workflow.permission === 'read-only' ? 'read-only' : 'workspace-write';
     return [

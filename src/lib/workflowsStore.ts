@@ -60,6 +60,15 @@ let unlistenProgress: UnlistenFn | null = null;
 let pollTimer: number | null = null;
 let inFlight: Promise<void> | null = null;
 let queued: Promise<void> | null = null;
+/**
+ * Bumped by every start and stop.
+ *
+ * `listen()` resolves asynchronously, so a fast unsubscribe/resubscribe could
+ * start a second subscription while the first was still pending — and the
+ * first's late resolve would then find subscribers again, keep its handle, and
+ * leave two listeners refreshing the store on every event.
+ */
+let subscriptionGeneration = 0;
 
 function emit(next: WorkflowsState): void {
   state = next;
@@ -82,6 +91,7 @@ export function getSnapshot(): WorkflowsState {
 }
 
 function start(): void {
+  const generation = ++subscriptionGeneration;
   void refresh();
   if (pollTimer === null) {
     pollTimer = window.setInterval(() => void refresh(), POLL_MS);
@@ -89,8 +99,9 @@ function start(): void {
   if (unlisten === null) {
     void listen(CHANGED_EVENT, () => void refresh())
       .then((fn) => {
-        // A late resolve after the last subscriber left must not leak a listener.
-        if (listeners.size === 0) {
+        // A late resolve must not leak a listener — neither after the last
+        // subscriber left, nor after a newer start() superseded this one.
+        if (listeners.size === 0 || generation !== subscriptionGeneration) {
           fn();
           return;
         }
@@ -103,7 +114,7 @@ function start(): void {
   if (unlistenProgress === null) {
     void listen<ProgressLine>(PROGRESS_EVENT, (event) => appendProgress(event.payload))
       .then((fn) => {
-        if (listeners.size === 0) {
+        if (listeners.size === 0 || generation !== subscriptionGeneration) {
           fn();
           return;
         }
@@ -137,6 +148,7 @@ export async function loadProgress(workflowId: string): Promise<void> {
 }
 
 function stop(): void {
+  subscriptionGeneration += 1;
   if (pollTimer !== null) {
     window.clearInterval(pollTimer);
     pollTimer = null;
