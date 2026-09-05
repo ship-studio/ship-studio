@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { initDefaultAgent } from './agent';
+import { agentPromptArgs, initDefaultAgent } from './agent';
 import {
   agentForWorkflow,
   buildCommandPreview,
@@ -266,5 +266,16 @@ describe('buildCommandPreview', () => {
       expect(preview).toMatch(/can't run a workflow yet/);
       expect(preview).not.toMatch(/--permission-mode/);
     });
+  });
+});
+
+describe('agentPromptArgs', () => {
+  it('gives each CLI the shape it takes an opening prompt in', () => {
+    // This is what makes "Send to agent" reliable: the prompt is in the
+    // process's argv before the agent starts, so it cannot be typed into a
+    // CLI that is not listening yet, and needs no Return.
+    expect(agentPromptArgs('claude-code', 'do the thing')).toEqual(['do the thing']);
+    expect(agentPromptArgs('codex', 'do the thing')).toEqual(['do the thing']);
+    expect(agentPromptArgs('opencode', 'do the thing')).toEqual(['--prompt', 'do the thing']);
   });
 });

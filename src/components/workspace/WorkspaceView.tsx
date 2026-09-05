@@ -92,6 +92,8 @@ interface TerminalProps {
   focusActiveTerminal: () => void;
   switchTabAgent: (tabId: number, agentId: string) => void;
   restartTerminalTab: (tabId: number, projectPath?: string) => void;
+  /** Forget a tab's opening prompt once its agent has spawned with it. */
+  clearInitialPrompt: (tabId: number, projectPath?: string) => void;
   getActiveTabAgent: () => AgentConfig;
   /** Side-by-side view: tab ids visible in panes, or null when off. */
   splitPaneTabIds: number[] | null;
@@ -413,6 +415,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     closeTerminalTab,
     focusActiveTerminal,
     restartTerminalTab,
+    clearInitialPrompt,
     getActiveTabAgent,
     splitPaneTabIds,
     splitPaneSizes,
@@ -1145,6 +1148,7 @@ export const WorkspaceView = memo(function WorkspaceView({
             autoAcceptMode={autoAcceptMode}
             handleTerminalExit={handleTerminalExit}
             restartTerminalTab={restartTerminalTab}
+            clearInitialPrompt={clearInitialPrompt}
             createTabStatusHandler={createTabStatusHandler}
             handleTabTitleChange={handleTabTitleChange}
           />
@@ -1243,6 +1247,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                       createTabStatusHandler={createTabStatusHandler}
                       handleTabTitleChange={handleTabTitleChange}
                       restartTerminalTab={restartTerminalTab}
+                      clearInitialPrompt={clearInitialPrompt}
                       showHealthLogs={showHealthLogs}
                       healthOutput={healthOutput}
                       healthOutputVersion={healthOutputVersion}

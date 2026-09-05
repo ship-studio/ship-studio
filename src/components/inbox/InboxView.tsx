@@ -180,7 +180,9 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
         occurrences: item.occurrences,
       });
       queueHandoff(item.projectPath, prompt);
-      showToast(`Handing this to your agent in ${item.projectName}…`, 'info');
+      // Says what is happening, not that it is done — the success toast comes
+      // from the handoff itself, once an agent has actually started.
+      showToast(`Opening ${item.projectName} and starting an agent…`, 'info');
       // If the project never opens, the prompt must not sit in the queue: it
       // stays valid for three minutes, and the next time that project is
       // opened by hand it would type an instruction from an action that

@@ -154,6 +154,23 @@ export function getDefaultAgentId(): string {
  * Look up an agent by its unique ID.
  * Falls back to CLAUDE_CODE if the ID is not recognized.
  */
+/**
+ * The argv that makes an agent CLI open with something already asked.
+ *
+ * Every supported CLI takes an opening prompt on the command line, which is
+ * the only delivery that cannot race: the prompt is in the process's argv
+ * before it starts, so there is no window in which the terminal exists but the
+ * agent is not yet listening — and nothing has to press Return afterwards.
+ *
+ * Typing into a live TTY was the previous approach and it lost prompts: the
+ * paste landed while the CLI was still booting, and even when it survived it
+ * sat unsent in the input box.
+ */
+export function agentPromptArgs(agentId: string, prompt: string): string[] {
+  // Opencode wants a flag; the rest take a positional argument.
+  return agentId === 'opencode' ? ['--prompt', prompt] : [prompt];
+}
+
 export function getAgentById(id: string): AgentConfig {
   return ALL_TAB_OPTIONS.find((a) => a.id === id) ?? CLAUDE_CODE;
 }

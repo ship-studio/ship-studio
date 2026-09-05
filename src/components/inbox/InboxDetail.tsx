@@ -138,8 +138,8 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
             </div>
             <p className="inbox-handoff-prompt">{item.suggestedPrompt}</p>
             <p className="inbox-handoff-note text-style-hint">
-              Sending this starts the agent on it — it doesn&rsquo;t mean the finding is fixed.
-              Review what it does like any other change.
+              Opens the project and starts a new agent tab with this already asked. It doesn&rsquo;t
+              mean the finding is fixed — review what it does like any other change.
             </p>
           </section>
         </article>
@@ -153,7 +153,7 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
               variant="primary"
               size="compact"
               leftIcon={<TerminalIcon size={12} />}
-              title={`Open ${item.projectName} and hand this to your agent`}
+              title={`Open ${item.projectName} and start a new agent on this`}
               onClick={() => onFix(item, item.suggestedPrompt)}
             >
               Send to agent

@@ -293,7 +293,36 @@ That crosses a navigation boundary (the Inbox is home-level, the terminal only
 exists inside a workspace) and the trip is asynchronous — opening a project
 mounts a workspace, spawns a PTY and boots an agent. So the prompt goes through
 a one-slot queue (`lib/workflowHandoff.ts`) with a TTL, peeked-then-consumed by
-`useWorkflowHandoff` once a terminal actually accepts it.
+`useWorkflowHandoff` once the workspace can act on it.
+
+### Delivery is a spawn, not a paste
+
+The prompt becomes the agent CLI's opening argument in a **new** tab:
+`claude [flags] "<prompt>"`, `codex "<prompt>"`, `opencode --prompt "<prompt>"`
+— the same shape the guided onboarding uses, and the shape both CLIs document
+(`claude [options] [prompt]`, `codex [OPTIONS] [PROMPT]`).
+
+It was a paste into whichever terminal happened to be active, and that failed
+three ways at once:
+
+- the paste landed while the CLI was still booting and was swallowed;
+- when it did survive, nothing pressed Return, so it sat unsent in the input;
+- and if the tab was mid-conversation, it interrupted it.
+
+In argv none of those exist: the prompt is in the process before the agent
+starts, so there is no window to lose it in and nothing to submit. A new tab
+also means an in-flight conversation is never disturbed.
+
+The prompt lives on the tab record only until the agent spawns with it, then
+it is cleared — otherwise restarting that tab later would silently ask the
+same question again. It is deliberately *not* a dependency of the spawn
+effect: clearing it would otherwise tear the terminal down and respawn it at
+the moment it succeeded.
+
+Two failures are said out loud rather than swallowed: a project already at its
+tab cap ("close one and send this again", immediately, because retrying cannot
+help), and a delivery that never became possible within a minute — which also
+drops the queued prompt, so it cannot ambush a terminal opened later.
 
 The action bar is pinned to the foot of the reader rather than sitting at the end
 of the report: a long finding would otherwise push the entire point of the

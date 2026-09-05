@@ -64,6 +64,8 @@ interface CompactWorkspaceProps {
   handleTerminalExit: (code: number | null) => void;
   /** Relaunch a tab's agent after it exits (parent mints a fresh session). */
   restartTerminalTab: (tabId: number, projectPath?: string) => void;
+  /** Forget a tab's opening prompt once its agent has spawned with it. */
+  clearInitialPrompt: (tabId: number, projectPath?: string) => void;
   createTabStatusHandler: (
     projectPath: string,
     tabId: number
@@ -118,6 +120,7 @@ export function CompactWorkspace({
   autoAcceptMode,
   handleTerminalExit,
   restartTerminalTab,
+  clearInitialPrompt,
   createTabStatusHandler,
   handleTabTitleChange,
 }: CompactWorkspaceProps) {
@@ -235,6 +238,9 @@ export function CompactWorkspace({
                         pid,
                         exitCode: null,
                       });
+                      // The opening prompt is in the agent's argv by now. Forget it,
+                      // or restarting this tab later would ask the same thing again.
+                      clearInitialPrompt(tab.id, session.projectPath);
                     }}
                     onExit={(code) => {
                       handleTerminalExit(code);
@@ -250,6 +256,7 @@ export function CompactWorkspace({
                     sessionName={tab.sessionId}
                     isActive={isVisible}
                     shouldResume={tab.shouldResume}
+                    initialPrompt={tab.initialPrompt}
                     onRequestRestart={() => restartTerminalTab(tab.id, session.projectPath)}
                   />
                 </TabsPanel>

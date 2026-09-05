@@ -49,6 +49,14 @@ export interface TerminalTab {
   sessionId: string;
   /** Whether this tab should resume a previous session on spawn */
   shouldResume?: boolean;
+  /**
+   * Opens the agent with this already asked, via its argv.
+   *
+   * Set once, when the tab is created for a specific request — "Send to agent"
+   * from the Inbox. Cleared as soon as the agent spawns, so restarting the tab
+   * later does not silently ask the same thing a second time.
+   */
+  initialPrompt?: string;
 }
 
 interface ProjectTerminalState {
@@ -102,7 +110,12 @@ export interface UseTerminalManagementReturn {
   terminalRefsMap: React.MutableRefObject<Map<string, TerminalHandle | null>>;
   maxTerminalTabs: number;
   setActiveTerminalTab: (tabId: number) => void;
-  addTerminalTab: (agentId?: string) => void;
+  addTerminalTab: (
+    agentId?: string,
+    options?: { initialPrompt?: string; projectPath?: string }
+  ) => void;
+  /** Forget a tab's opening prompt once its agent has spawned with it. */
+  clearInitialPrompt: (tabId: number, projectPath?: string) => void;
   closeTerminalTab: (tabId: number) => void;
   /** Destroy every tab + PTY for a specific project (explicit close). */
   closeAllTerminalsForProject: (projectPath: string) => void;
@@ -250,8 +263,10 @@ export function useTerminalManagement(
   );
 
   const addTerminalTab = useCallback(
-    (agentId?: string) => {
-      const path = currentPathRef.current;
+    (agentId?: string, options?: { initialPrompt?: string; projectPath?: string }) => {
+      // A caller may target a project that is still becoming current — the
+      // Inbox opens a project and asks for a tab in the same breath.
+      const path = options?.projectPath ?? currentPathRef.current;
       if (!path) return;
       const s = getOrCreate(path);
       if (s.tabs.length >= MAX_TERMINAL_TABS) {
@@ -262,7 +277,10 @@ export function useTerminalManagement(
       const newTabId = s.counter;
       const sessionId = crypto.randomUUID();
       const resolvedAgent = agentId ?? getDefaultAgentId();
-      s.tabs = [...s.tabs, { id: newTabId, agentId: resolvedAgent, sessionId }];
+      s.tabs = [
+        ...s.tabs,
+        { id: newTabId, agentId: resolvedAgent, sessionId, initialPrompt: options?.initialPrompt },
+      ];
       s.activeTabId = newTabId;
       bump();
       void trackEvent('terminal_tab_added', {
@@ -272,6 +290,29 @@ export function useTerminalManagement(
       });
     },
     [bump, getOrCreate]
+  );
+
+  /**
+   * Forget a tab's opening prompt once its agent has spawned with it.
+   *
+   * The prompt lives in the tab record only long enough to reach the argv. If
+   * it stayed, restarting the tab after the agent exited would silently ask
+   * the same question again — from a click the user made once, minutes ago.
+   */
+  const clearInitialPrompt = useCallback(
+    (tabId: number, projectPath?: string) => {
+      const path = projectPath ?? currentPathRef.current;
+      if (!path) return;
+      const s = statesRef.current.get(path);
+      if (!s) return;
+      const tab = s.tabs.find((candidate) => candidate.id === tabId);
+      if (!tab?.initialPrompt) return;
+      s.tabs = s.tabs.map((candidate) =>
+        candidate.id === tabId ? { ...candidate, initialPrompt: undefined } : candidate
+      );
+      bump();
+    },
+    [bump]
   );
 
   const closeTerminalTab = useCallback(
@@ -601,6 +642,7 @@ export function useTerminalManagement(
     maxTerminalTabs: MAX_TERMINAL_TABS,
     setActiveTerminalTab,
     addTerminalTab,
+    clearInitialPrompt,
     closeTerminalTab,
     closeAllTerminalsForProject,
     killAllTerminals,

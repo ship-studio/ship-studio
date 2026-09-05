@@ -43,7 +43,7 @@ import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { HomeSidebar } from './components/workspace/HomeSidebar';
 import { StandingWorkView } from './components/workspace/StandingWorkView';
-import { HANDOFF_DELIVERED_MESSAGE, useWorkflowHandoff } from './hooks/useWorkflowHandoff';
+import { useFindingHandoff } from './hooks/useWorkflowHandoff';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
@@ -198,6 +198,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     pasteToActiveTerminal,
     switchTabAgent,
     restartTerminalTab,
+    clearInitialPrompt,
     getActiveTabAgent,
     restoreTerminalTabs,
     ensureProjectSeeded,
@@ -557,15 +558,6 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   useWorkflowCommands({ setView, showToast });
 
-  const handoffDelivered = useCallback(
-    () => showToast(HANDOFF_DELIVERED_MESSAGE, 'success'),
-    [showToast]
-  );
-
-  // Deliver a queued "Fix with agent" prompt once the opened project actually
-  // has a terminal to type into — see hooks/useWorkflowHandoff.
-  useWorkflowHandoff(currentProject?.path ?? null, sendToClaude, handoffDelivered);
-
   // Close an active session from the sidebar (dashboard, collapsed rail, or
   // workspace). Ordering and the auto-open sentinel are load-bearing — see
   // hooks/useCloseProject.
@@ -698,6 +690,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       focusActiveTerminal,
       switchTabAgent,
       restartTerminalTab,
+      clearInitialPrompt,
       getActiveTabAgent,
       splitPaneTabIds,
       splitPaneSizes,
@@ -721,6 +714,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       focusActiveTerminal,
       switchTabAgent,
       restartTerminalTab,
+      clearInitialPrompt,
       getActiveTabAgent,
       splitPaneTabIds,
       splitPaneSizes,
@@ -737,6 +731,9 @@ function AppContents({ initialProjectPath }: AppProps) {
     if (!currentProject || !needsInstall) return;
     handleRunInstall(currentProject.path, needsInstall.packageManager);
   }, [currentProject, needsInstall, handleRunInstall]);
+
+  // "Send to agent" from the Inbox — see hooks/useWorkflowHandoff.
+  useFindingHandoff(currentProject?.path ?? null, terminalProps, showToast);
 
   const devServerProps = useMemo(
     () => ({

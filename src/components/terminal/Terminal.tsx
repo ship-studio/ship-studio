@@ -61,7 +61,7 @@ import {
   STARTUP_TIMEOUT_MS,
 } from './startupWatchdog';
 import { createTerminalOptions } from './terminalTheme';
-import type { AgentConfig } from '../../lib/agent';
+import { agentPromptArgs, type AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
 /** Agent status based on terminal title */
@@ -95,6 +95,13 @@ interface TerminalProps {
    *  fresh session and remounts — keeps session-id semantics clean instead
    *  of reusing an id whose conversation file already exists. */
   onRequestRestart?: () => void;
+  /** Open the agent with this already asked, passed in its argv.
+   *
+   *  Used by "Send to agent" in the Inbox. Delivering a prompt by typing into
+   *  a live TTY loses it — the paste lands while the CLI is still booting, and
+   *  even when it survives it sits unsent. In argv it cannot race and needs no
+   *  Return. */
+  initialPrompt?: string;
 }
 
 /**
@@ -130,11 +137,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     sessionName,
     isActive = true,
     shouldResume,
+    initialPrompt,
     onRequestRestart,
   },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // The prompt this tab was born with, captured once. See the spawn effect.
+  const initialPromptRef = useRef(initialPrompt);
+
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<SessionHandle | null>(null);
@@ -667,6 +678,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
               error: String(err),
             });
           }
+        }
+
+        // The opening prompt goes last: every supported CLI takes it as a
+        // trailing positional argument (opencode behind --prompt), and a flag
+        // added after it would be read as part of the prompt.
+        //
+        // Read from the ref, and deliberately not a dependency of this effect.
+        // The parent clears the prompt as soon as the agent spawns with it, so
+        // depending on it here would tear this terminal down and respawn it the
+        // moment it succeeded.
+        const opening = initialPromptRef.current;
+        if (opening && opening.trim()) {
+          agentArgs.push(...agentPromptArgs(agent.id, opening));
         }
 
         // Placeholder — on Windows the real spawn shape (direct vs. wrapped

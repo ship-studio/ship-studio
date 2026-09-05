@@ -11,6 +11,7 @@
  * @module lib/agentOnboarding
  */
 
+import { agentPromptArgs } from './agent';
 import { invoke } from '@tauri-apps/api/core';
 import { SetupItem, isSetupItemReady, isWindows, TerminalCommand } from './setup';
 
@@ -269,11 +270,8 @@ export function buildGuidedSetupPrompt(
  * a project directory, so it takes `--prompt` instead.
  */
 export function guidedAgentSpawn(agentBinaryId: string, prompt: string): TerminalCommand {
-  if (agentBinaryId === 'opencode') {
-    return { command: 'opencode', args: ['--prompt', prompt] };
-  }
   const binary = agentBinaryId === 'cursor' ? 'cursor-agent' : agentBinaryId;
-  return { command: binary, args: [prompt] };
+  return { command: binary, args: agentPromptArgs(agentBinaryId, prompt) };
 }
 
 /**
