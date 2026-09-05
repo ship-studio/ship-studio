@@ -31,12 +31,14 @@ import { PublishBranchDropdown } from '../branches/PublishBranchDropdown';
 import { PluginSlot } from '../plugins/PluginSlot';
 import {
   AgentsIcon,
+  BellIcon,
   ElementsIcon,
   FolderOpenIcon,
   HomeIcon,
   ImageIcon,
   PanelLeftIcon,
   VariablesIcon,
+  ZapIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -60,6 +62,10 @@ export interface WorkspaceHeaderProps {
   projectPath: string;
   projectName: string;
   onGoHome: () => void;
+  /** Home-level destinations, kept reachable from inside a project. */
+  onGoWorkflows?: () => void;
+  onGoInbox?: () => void;
+  inboxUnreadCount?: number;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
   /** Consolidate navigation, tools, modes, and publishing into the titlebar. */
@@ -150,6 +156,10 @@ export interface WorkspaceHeaderProps {
 
 export interface WorkspaceNavigationProps {
   onGoHome: () => void;
+  /** Home-level destinations, reachable from inside a project. */
+  onGoWorkflows?: () => void;
+  onGoInbox?: () => void;
+  inboxUnreadCount?: number;
   isHomeActive?: boolean;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
@@ -158,6 +168,12 @@ export interface WorkspaceNavigationProps {
 /** Shared navigation controls used by the project and home titlebars. */
 export function WorkspaceNavigation({
   onGoHome,
+  onGoWorkflows,
+  onGoInbox,
+  // Passed in, exactly as HomeSidebar takes it: this row is presentational,
+  // and subscribing to the workflows store from here would start its polling
+  // inside every open project to render one badge.
+  inboxUnreadCount = 0,
   isHomeActive = false,
   isSidebarHidden,
   onToggleSidebar,
@@ -183,6 +199,37 @@ export function WorkspaceNavigation({
         title="Home"
         aria-label="Home"
       />
+      {/* Workflows and the Inbox are home-level screens, but the work they
+          describe happens here. Leaving them behind on Home meant a finding
+          filed while you were in a project could only be noticed by going
+          looking for it. */}
+      {onGoWorkflows && (
+        <IconButton
+          variant="ghost"
+          className="workspace-titlebar-home"
+          icon={<ZapIcon size={12} />}
+          onClick={onGoWorkflows}
+          title="Workflows"
+          aria-label="Workflows"
+        />
+      )}
+      {onGoInbox && (
+        <span className="workspace-titlebar-inbox">
+          <IconButton
+            variant="ghost"
+            className="workspace-titlebar-home"
+            icon={<BellIcon size={12} />}
+            onClick={onGoInbox}
+            title="Inbox"
+            aria-label={inboxUnreadCount > 0 ? `Inbox — ${inboxUnreadCount} unread` : 'Inbox'}
+          />
+          {inboxUnreadCount > 0 && (
+            <span className="workspace-titlebar-inbox-badge" aria-hidden>
+              {inboxUnreadCount > 9 ? '9+' : inboxUnreadCount}
+            </span>
+          )}
+        </span>
+      )}
     </div>
   );
 }
@@ -228,6 +275,9 @@ export function WorkspaceHeader({
   projectPath,
   projectName,
   onGoHome,
+  onGoWorkflows,
+  onGoInbox,
+  inboxUnreadCount,
   isSidebarHidden,
   onToggleSidebar,
   compactWorkspaceToolbarEnabled,
@@ -526,6 +576,9 @@ export function WorkspaceHeader({
         <WorkspaceTitlebar>
           <WorkspaceNavigation
             onGoHome={onGoHome}
+            onGoWorkflows={onGoWorkflows}
+            onGoInbox={onGoInbox}
+            inboxUnreadCount={inboxUnreadCount}
             isSidebarHidden={isSidebarHidden}
             onToggleSidebar={onToggleSidebar}
           />
@@ -548,6 +601,9 @@ export function WorkspaceHeader({
         <div className="workspace-titlebar-left">
           <WorkspaceNavigation
             onGoHome={onGoHome}
+            onGoWorkflows={onGoWorkflows}
+            onGoInbox={onGoInbox}
+            inboxUnreadCount={inboxUnreadCount}
             isSidebarHidden={isSidebarHidden}
             onToggleSidebar={onToggleSidebar}
           />

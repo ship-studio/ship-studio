@@ -1284,6 +1284,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   return (
     <>
       <WorkspaceView
+        homeNav={homeSidebarProps}
         currentProject={currentProject}
         previewRef={previewRef}
         terminal={terminalProps}

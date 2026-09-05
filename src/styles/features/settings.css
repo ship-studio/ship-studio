@@ -23,8 +23,13 @@
   margin: 0;
 }
 
+/* The body's own inset, named so a full-bleed child can cancel it. */
+:root {
+  --settings-body-inset: 20px;
+}
+
 .settings-modal-body {
-  padding: 20px;
+  padding: var(--settings-body-inset);
 }
 
 .settings-modal > .tabs {
@@ -148,10 +153,16 @@
   align-items: stretch;
 }
 
+/* One rule, under the group — the tab's own divider already sits above the
+   first row, so a second line there was two dividers with nothing between
+   them. It runs the full width of the dialog rather than stopping inside the
+   body's padding, which is what makes it read as a section break instead of
+   an underline. */
 .settings-group {
   display: flex;
   flex-direction: column;
-  border-top: var(--border-width-default) solid var(--border-subtle);
+  margin: 0 calc(var(--settings-body-inset) * -1);
+  padding: 0 var(--settings-body-inset);
   border-bottom: var(--border-width-default) solid var(--border-subtle);
 }
 

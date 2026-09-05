@@ -765,17 +765,24 @@
   line-height: var(--line-height-help);
 }
 
+/* The command palette's row, like the template picker's: this is a list you
+   pick from inside a dialog, and that is how this app draws one. */
 .run-history-item {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-xs);
-  padding: var(--spacing-sm);
-  background: none;
-  border: var(--border-width-default) solid transparent;
-  border-radius: var(--radius-control);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-radius: 0;
   text-align: left;
   cursor: pointer;
   color: inherit;
+  transition: background-color var(--transition-interaction);
+}
+
+.run-history-item:hover {
+  background: var(--surface-control-hover);
 }
 
 .run-history-item:hover {
@@ -783,8 +790,7 @@
 }
 
 .run-history-item.is-selected {
-  background: var(--surface-selected);
-  border-color: var(--border-default);
+  background: var(--surface-control);
 }
 
 .run-history-item-dot {

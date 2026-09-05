@@ -376,3 +376,30 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* Inbox badge in the workspace titlebar — the sidebar's badge, in the row that
+   carries Home, Workflows and Inbox while a project is open. */
+.workspace-titlebar-inbox {
+  position: relative;
+  display: inline-flex;
+}
+
+.workspace-titlebar-inbox-badge {
+  position: absolute;
+  top: calc(var(--spacing-2xs) * -1);
+  right: calc(var(--spacing-2xs) * -1);
+  min-width: var(--spacing-md);
+  height: var(--spacing-md);
+  padding: 0 var(--spacing-2xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent-error);
+  color: var(--text-white);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+  pointer-events: none;
+}

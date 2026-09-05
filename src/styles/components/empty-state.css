@@ -26,3 +26,9 @@
   max-width: 360px;
   line-height: 1.5;
 }
+
+/* The action is a decision, not another line of copy: it gets more room above
+   it than the uniform stack gap gives everything else. */
+.empty-state-action {
+  margin-top: var(--spacing-sm);
+}

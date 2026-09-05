@@ -341,6 +341,12 @@ export interface WorkspaceViewProps {
   onSelectProjectTab: (projectPath: string, tabSessionId: string) => void;
   /** Navigate to the Home (projects) view. */
   onGoHome: () => void;
+  /** Home-level destinations, kept reachable from inside a project. */
+  homeNav?: {
+    onGoWorkflows: () => void;
+    onGoInbox: () => void;
+    inboxUnreadCount: number;
+  };
   /** Open the project picker modal. */
   onOpenProjectPicker: () => void;
   /** Open the "Switch Workspace" picker from the sidebar footer. */
@@ -382,6 +388,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   onCloseProject,
   onSelectProjectTab,
   onGoHome,
+  homeNav,
   onSwitchAccount,
   onUnpinProject,
   onOpenProjectPicker,
@@ -1024,6 +1031,9 @@ export const WorkspaceView = memo(function WorkspaceView({
     projectPath: currentProject.path,
     projectName: currentProject.name,
     onGoHome,
+    onGoWorkflows: homeNav?.onGoWorkflows,
+    onGoInbox: homeNav?.onGoInbox,
+    inboxUnreadCount: homeNav?.inboxUnreadCount,
     isSidebarHidden,
     onToggleSidebar,
     compactWorkspaceToolbarEnabled,

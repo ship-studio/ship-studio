@@ -133,9 +133,7 @@ export function WorkflowTemplatePicker({ selectedId, onSelect }: WorkflowTemplat
               {/* Filtered to one category, the heading only repeats the chip
                   that is already lit above the list. */}
               {filter === 'all' && (
-                <span className="workflow-template-group-label text-style-label">
-                  {group.label}
-                </span>
+                <span className="workflow-template-group-label">{group.label}</span>
               )}
               {group.templates.map((template) => (
                 <button
