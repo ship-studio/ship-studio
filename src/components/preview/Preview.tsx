@@ -1381,6 +1381,32 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         .join(' ')
     : undefined;
 
+  // Blank-page watchdog: the server is healthy top-level but the page never
+  // proved it rendered inside an embedded frame — e.g. an auth redirect loop
+  // aborted the subframe load (issue #179). Shared by both views; on the canvas
+  // it is the difference between "nothing renders" and knowing why.
+  const blankPageOverlay =
+    conn.iframeBlank && !isBranchSwitching && !isDevServerRestarting ? (
+      <div className="preview-iframe-error-overlay" data-education-id="preview-iframe-error">
+        <h3>The page isn't rendering in the preview</h3>
+        <p>
+          The dev server is up, but this page never painted inside the embedded preview. That
+          usually means it failed in the iframe — commonly an auth-middleware redirect loop (e.g.
+          Clerk development keys) — even though it may load fine in a normal browser.
+        </p>
+        <div className="preview-iframe-error-actions">
+          <Button variant="secondary" onClick={conn.handleRefresh}>
+            Retry
+          </Button>
+          {handleFixWithAgent && (
+            <Button variant="primary" onClick={() => handleFixWithAgent('blank-iframe')}>
+              Fix with agent
+            </Button>
+          )}
+        </div>
+      </div>
+    ) : null;
+
   return (
     <div
       className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
@@ -1684,41 +1710,44 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           />
         )}
         {canvasMode ? (
-          <PreviewCanvas
-            frames={canvasFrames}
-            // Passive frames follow wherever the page actually is; `navSignal`
-            // changes only on a deliberate navigation, so a link click inside
-            // the active frame doesn't reload that same frame.
-            url={`${conn.baseUrl}${conn.currentPage === '/' ? '' : conn.currentPage}`}
-            navSignal={conn.iframePath}
-            activeFrameId={canvasFrameId}
-            reloadToken={conn.reloadToken}
-            zoom={canvasZoom}
-            onZoomChange={setCanvasZoom}
-            onActivateFrame={activateCanvasFrame}
-            onActiveFrameElement={setCanvasFrameEl}
-            onStageHeightChange={setCanvasFrameStageHeight}
-            activeFrameOverlay={(scale) =>
-              activeEditMode ? (
-                <ElementToolbar
-                  // The frame reports the selection box in its OWN pixels; the
-                  // toolbar draws at screen scale, so both the rect and the
-                  // bounds it is clamped to come through the canvas scale.
-                  selection={scaleSelection(structure.selection, scale)}
-                  bounds={{
-                    w: canvasFrameWidth * scale,
-                    h: canvasFrameStageHeight * scale,
-                  }}
-                  busy={structure.busy}
-                  hidden={structure.textEditing}
-                  onInsert={(position, kind) => void structure.insert(position, kind)}
-                  onDuplicate={() => void structure.duplicate()}
-                  onDelete={() => void structure.remove()}
-                  openMenuRef={openInsertMenuRef}
-                />
-              ) : null
-            }
-          />
+          <>
+            {blankPageOverlay}
+            <PreviewCanvas
+              frames={canvasFrames}
+              // Passive frames follow wherever the page actually is; `navSignal`
+              // changes only on a deliberate navigation, so a link click inside
+              // the active frame doesn't reload that same frame.
+              url={`${conn.baseUrl}${conn.currentPage === '/' ? '' : conn.currentPage}`}
+              navSignal={conn.iframePath}
+              activeFrameId={canvasFrameId}
+              reloadToken={conn.reloadToken}
+              zoom={canvasZoom}
+              onZoomChange={setCanvasZoom}
+              onActivateFrame={activateCanvasFrame}
+              onActiveFrameElement={setCanvasFrameEl}
+              onStageHeightChange={setCanvasFrameStageHeight}
+              activeFrameOverlay={(scale) =>
+                activeEditMode ? (
+                  <ElementToolbar
+                    // The frame reports the selection box in its OWN pixels; the
+                    // toolbar draws at screen scale, so both the rect and the
+                    // bounds it is clamped to come through the canvas scale.
+                    selection={scaleSelection(structure.selection, scale)}
+                    bounds={{
+                      w: canvasFrameWidth * scale,
+                      h: canvasFrameStageHeight * scale,
+                    }}
+                    busy={structure.busy}
+                    hidden={structure.textEditing}
+                    onInsert={(position, kind) => void structure.insert(position, kind)}
+                    onDuplicate={() => void structure.duplicate()}
+                    onDelete={() => void structure.remove()}
+                    openMenuRef={openInsertMenuRef}
+                  />
+                ) : null
+              }
+            />
+          </>
         ) : (
           <div
             className={`preview-frame-grid${
@@ -1795,30 +1824,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               {/* Blank-iframe watchdog overlay: the server is healthy top-level but
                 the page never proved it rendered inside the embedded iframe —
                 e.g. an auth redirect loop aborted the subframe load (issue #179). */}
-              {conn.iframeBlank && !isBranchSwitching && !isDevServerRestarting && (
-                <div
-                  className="preview-iframe-error-overlay"
-                  data-education-id="preview-iframe-error"
-                >
-                  <h3>The page isn't rendering in the preview</h3>
-                  <p>
-                    The dev server is up, but this page never painted inside the embedded preview.
-                    That usually means it failed in the iframe — commonly an auth-middleware
-                    redirect loop (e.g. Clerk development keys) — even though it may load fine in a
-                    normal browser.
-                  </p>
-                  <div className="preview-iframe-error-actions">
-                    <Button variant="secondary" onClick={conn.handleRefresh}>
-                      Retry
-                    </Button>
-                    {handleFixWithAgent && (
-                      <Button variant="primary" onClick={() => handleFixWithAgent('blank-iframe')}>
-                        Fix with agent
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
+              {blankPageOverlay}
               {/* Branch switching overlay */}
               {isBranchSwitching && (
                 <div className="preview-branch-switching-overlay">
