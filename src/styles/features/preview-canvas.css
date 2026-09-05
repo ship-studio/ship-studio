@@ -7,8 +7,20 @@
    the overlay layer holds labels and outlines at screen scale so they stay
    legible and crisp at 25% zoom. */
 
-.preview-canvas {
+/* Fills the preview viewport, which centres its child — so the root has to
+   claim the whole box itself rather than shrink to its content. */
+.preview-canvas-root {
   position: relative;
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.preview-canvas {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -126,15 +138,13 @@
 /* Floating zoom control, pinned to the canvas rather than the toolbar so it
    sits next to the thing it scales. */
 .preview-canvas-zoom {
-  position: sticky;
+  position: absolute;
+  right: var(--spacing-md);
   bottom: var(--spacing-md);
-  left: 100%;
   z-index: var(--z-floating-panel);
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-3xs);
-  width: max-content;
-  margin-right: var(--spacing-md);
   padding: var(--spacing-3xs);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);

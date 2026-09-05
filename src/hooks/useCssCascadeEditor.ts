@@ -37,6 +37,7 @@ import {
 import { parseRuleBody, serializeRuleBody, overriddenProps, type RuleBody } from '../lib/cssBody';
 import { keyframesName, parseRulePrelude } from '../lib/cssStructures';
 import { logger } from '../lib/logger';
+import { useFrameRebind } from './useFrameRebind';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
 
@@ -160,6 +161,18 @@ export function useCssCascadeEditor({
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
   );
+
+  // Moved to another preview frame (the breakpoint canvas): the cascade we are
+  // showing was read out of the frame we left.
+  useFrameRebind(iframeRef, () => {
+    setSelection(null);
+    setRows([]);
+    setBodies({});
+    bodiesRef.current = {};
+    baselineInner.current = {};
+    setOverridden({});
+    lastSignatureRef.current = null;
+  });
 
   const clearTimers = useCallback(() => {
     Object.values(previewTimers.current).forEach(clearTimeout);
