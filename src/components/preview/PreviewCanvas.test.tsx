@@ -515,7 +515,9 @@ describe('PreviewCanvas', () => {
       bubbles: true,
       cancelable: true,
     });
-    scroller.dispatchEvent(event);
+    act(() => {
+      scroller.dispatchEvent(event);
+    });
     expect(event.defaultPrevented).toBe(true);
     expect(onZoomChange).toHaveBeenCalledWith(0.625);
   });
@@ -578,7 +580,9 @@ describe('PreviewCanvas', () => {
     const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
     const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
     const event = new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true });
-    scroller.dispatchEvent(event);
+    act(() => {
+      scroller.dispatchEvent(event);
+    });
     expect(event.defaultPrevented).toBe(false);
     expect(onZoomChange).not.toHaveBeenCalled();
   });
@@ -638,12 +642,14 @@ describe('PreviewCanvas', () => {
     const onZoomChange = vi.fn();
     const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
     const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        source: frame.contentWindow,
-        data: { type: 'ss:wheelZoom', deltaY: -10, x: 100, y: 50 },
-      })
-    );
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          source: frame.contentWindow,
+          data: { type: 'ss:wheelZoom', deltaY: -10, x: 100, y: 50 },
+        })
+      );
+    });
     expect(onZoomChange).toHaveBeenCalledWith(wheelZoom(0.5, -10));
   });
 

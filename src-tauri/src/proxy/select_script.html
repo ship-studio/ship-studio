@@ -886,6 +886,29 @@ function ssLoadEverything(){
   for(var i=0;i<lazy.length;i++){try{lazy[i].setAttribute('loading','eager');}catch(err){}}
 }
 
+/* A page that rolls its own lazy loading — `rect.top < innerHeight` rather than
+   an IntersectionObserver — is not helped by the line above, and with the lie in
+   place it will never believe anything below the first screen exists. So it is
+   told the truth exactly once, for one frame, with a scroll and a resize to make
+   it look: long enough to load what is on screen, too short for anything to
+   commit a layout from it. The page-height reporter needs the same answer twice
+   in a row before it acts, so a blip cannot resize the frame. */
+var ssRevealed=false;
+function ssRevealPass(){
+  if(ssRevealed||!ssVH||!ssViewportLied)return;
+  ssRevealed=true;
+  var lied=Object.getOwnPropertyDescriptor(window,'innerHeight');
+  try{delete window.innerHeight;}catch(err){return;}
+  try{
+    window.dispatchEvent(new Event('resize'));
+    window.dispatchEvent(new Event('scroll'));
+  }catch(err){}
+  setTimeout(function(){
+    if(lied){try{Object.defineProperty(window,'innerHeight',lied);}catch(err){}}
+    try{window.dispatchEvent(new Event('resize'));}catch(err){}
+  },120);
+}
+
 function ssRewriteViewportUnits(){
   if(!ssVH)return;
   var sheets=document.styleSheets;
@@ -985,6 +1008,7 @@ function ssWatchPage(){
   var ticks=0;
   var settle=setInterval(function(){
     if(++ticks>24){clearInterval(settle);return;}
+    if(ticks===3)ssRevealPass();
     ssReportPage();
   },400);
 }
