@@ -3,9 +3,10 @@
 #   irm https://ship.studio/install.ps1 | iex
 #
 # Downloads the latest build, runs the installer silently, and launches the app.
-# The installer .exe isn't code-signed, so we strip the "Mark of the Web"
-# (Unblock-File) before running it -- the Windows equivalent of clearing the
-# macOS quarantine flag, so SmartScreen doesn't block it.
+# Installers are Authenticode-signed (Azure Artifact Signing), so the normal
+# path is downloading the .exe from https://ship.studio -- this script is the
+# power-user / scripted alternative. It still strips the "Mark of the Web"
+# (Unblock-File) as belt-and-braces for older, unsigned builds.
 #
 # Options (env vars):
 #   $env:SHIPSTUDIO_NO_LAUNCH = '1'   install but don't open the app afterwards
