@@ -7,7 +7,7 @@
  * inert-until-activated, click → `ss:select` signature, and `ss:mutate` → live class.
  */
 
-import { beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 // Import the exact script Rust injects (via `include_str!`) as a raw string so
 // both consumers share one source of truth.
 import scriptHtml from '../../../src-tauri/src/proxy/select_script.html?raw';
@@ -57,6 +57,20 @@ function nextMessage<T>(type: string): Promise<T> {
 
 beforeAll(() => {
   window.eval(scriptJs);
+});
+
+afterAll(() => {
+  // The script debounces its tree-dirty notice by 300ms (select_script.html),
+  // and that timer belongs to the evaluated scope, so no handle reaches this
+  // file. On a slow runner it fires after vitest has torn the environment
+  // down, and the callback touches `window` — which by then is gone. That
+  // surfaces as an unhandled "ReferenceError: window is not defined" and fails
+  // the run even though every test passed, as it did on Windows CI.
+  //
+  // Sweeping every pending timeout is blunt but correct here: the environment
+  // is being discarded on the next line anyway.
+  const highest = setTimeout(() => undefined, 0) as unknown as number;
+  for (let id = 0; id <= highest; id += 1) clearTimeout(id);
 });
 
 it('stays inert until activated', () => {
