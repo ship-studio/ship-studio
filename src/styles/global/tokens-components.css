@@ -17,6 +17,10 @@
   --size-sidebar-section-row: 22px;
   --size-sidebar-shortcut: 21px;
 
+  /* Spotify widget (workspace sidebar) — the playback-progress fill drawn
+   * over the panel's own bottom border. */
+  --spotify-widget-progress-height: var(--stroke-2);
+
   --size-icon-sm: 14px;
   --size-icon-button: 16px;
   --size-icon-md: 18px;

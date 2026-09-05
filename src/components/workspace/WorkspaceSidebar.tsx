@@ -34,6 +34,7 @@ import { IconButton } from '../primitives/IconButton';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { PixelLoaderRings } from './PixelLoaderRings';
+import { SpotifyWidget } from './SpotifyWidget';
 import { UpdateBanner } from '../UpdateBanner';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { useModal } from '../../contexts/ModalContext';
@@ -908,6 +909,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             <span className="workspace-sidebar-filter-shortcut">{kbd('mod', 'K')}</span>
           </button>
         </div>
+
+        <SpotifyWidget isSidebarHidden={isSidebarHidden} />
 
         <div className="workspace-sidebar-scroll">
           {isSidebarHidden ? (
