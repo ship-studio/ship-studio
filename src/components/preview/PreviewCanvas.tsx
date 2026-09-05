@@ -46,6 +46,7 @@ import { useCanvasViewport } from '../../hooks/useCanvasViewport';
 import { useCanvasZoom } from '../../hooks/useCanvasZoom';
 import { useCanvasPan } from '../../hooks/useCanvasPan';
 import { useCanvasPlacement } from '../../hooks/useCanvasPlacement';
+import { useCanvasReveal } from '../../hooks/useCanvasReveal';
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
 
@@ -235,6 +236,15 @@ export function PreviewCanvas({
     markMovedRef.current = markUserMoved;
   }, [markUserMoved]);
 
+  // A frame must be mounted at some height before it can be measured, and the
+  // only honest guess is the device's own. So the first measurement moves every
+  // frame from one screen to a whole page at once, and the canvas re-centres
+  // under them: correct, and indistinguishable from the feature glitching. The
+  // canvas is held back until the frames know their heights, so it appears once,
+  // already right.
+  const unmeasured = layout.placements.filter((p) => !pageHeights[p.id]).length;
+  const revealed = useCanvasReveal(unmeasured, reloadToken);
+
   const mounted = useMemo(
     () => new Set(visibleFrameIds(layout, scale, scrollLeft, viewport.width, slackX)),
     [layout, scale, scrollLeft, viewport.width, slackX]
@@ -366,7 +376,7 @@ export function PreviewCanvas({
       ref={setRootEl}
       className={`preview-canvas-root${spaceHeld ? ' is-pannable' : ''}${
         panning ? ' is-panning' : ''
-      }${interacting ? ' is-interacting' : ''}`}
+      }${interacting ? ' is-interacting' : ''}${revealed ? '' : ' is-measuring'}`}
     >
       <div
         className="preview-canvas"

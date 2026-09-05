@@ -237,7 +237,11 @@
   --editor-panel-inline-pad: var(--spacing-md);
   --editor-panel-row-gap: var(--space-06);
   --editor-panel-section-h: 40px;
-  --editor-panel-label-w: 72px;
+  /* Wide enough for the longest label the panel actually has. Measured at the
+     label's 11px: "Justify content" is 79px and "Letter spacing" 76px, so 72px
+     truncated them — and the value column beside it is `1fr`, which had width
+     to spare. */
+  --editor-panel-label-w: 88px;
   --editor-panel-field-w: 100%;
   --editor-panel-spacing-w: 224px;
   --editor-panel-spacing-h: 112px;

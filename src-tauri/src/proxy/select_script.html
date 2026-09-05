@@ -773,8 +773,46 @@ window.addEventListener('wheel',function(e){
      and WebKit does not chain the scroll out of the frame either. Hand it up. */
   if(ssScrollRange()>0)return;
   e.preventDefault();
-  try{window.parent.postMessage({type:'ss:panBy',dx:e.deltaX,dy:e.deltaY},'*');}catch(err){}
+  /* Shift+wheel is how a mouse pans sideways. Some engines hand it over as
+     deltaX already; the ones that don't would otherwise pan a frame vertically
+     while the same gesture over the canvas behind it panned sideways. */
+  var dx=e.deltaX,dy=e.deltaY;
+  if(e.shiftKey&&!dx){dx=dy;dy=0;}
+  try{window.parent.postMessage({type:'ss:panBy',dx:dx,dy:dy},'*');}catch(err){}
 },{passive:false});
+
+/* Middle-drag is the other mouse idiom for panning a canvas, and the frame
+   swallows it: the host binds it on mousedown, which never arrives because the
+   press landed in a cross-origin document. Space-drag has no such problem —
+   holding space lifts the frames out of the way with `pointer-events:none`
+   before the button goes down — but nothing can lift them for a gesture whose
+   first event IS the button going down. So the frame runs the drag itself and
+   reports it, negated: dragging down moves the canvas up, the way dragging
+   paper does. */
+var ssDragging=false;
+window.addEventListener('mousedown',function(e){
+  if(!ssCanvas||e.button!==1)return;
+  e.preventDefault();
+  ssDragging=true;
+},true);
+window.addEventListener('mousemove',function(e){
+  if(!ssDragging)return;
+  e.preventDefault();
+  try{window.parent.postMessage(
+    {type:'ss:panBy',dx:-(e.movementX||0),dy:-(e.movementY||0)},'*');}catch(err){}
+},true);
+window.addEventListener('mouseup',function(e){
+  if(!ssDragging||e.button!==1)return;
+  ssDragging=false;
+},true);
+/* The pointer leaving the frame mid-drag ends it here; the host cannot be
+   handed a drag it never started. */
+window.addEventListener('mouseleave',function(){ssDragging=false;},true);
+/* Middle-click pastes on X11 and opens links in some builds. Neither belongs
+   to a page being panned. */
+window.addEventListener('auxclick',function(e){
+  if(ssCanvas&&e.button===1)e.preventDefault();
+},true);
 var gzScale=1;
 window.addEventListener('gesturestart',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=e.scale||1;},{passive:false});
 window.addEventListener('gesturechange',function(e){

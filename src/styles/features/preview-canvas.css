@@ -216,3 +216,22 @@
 .preview-canvas-root.is-panning .preview-canvas-scaled {
   pointer-events: none;
 }
+
+/* Held back until the frames have been measured. A frame starts at its device
+   height because that is the only honest guess before the page inside it has
+   been laid out, so the first measurement moves all four from one screen to a
+   whole page at once. Shown after, the canvas appears once and already right;
+   shown before, that correction is the first thing the user sees and it reads
+   as the feature glitching. Not animated on purpose: growing four enormous
+   layers over 300ms is the same jump, drawn out, and re-rastered every frame.
+   `useCanvasReveal` owns the deadline that guarantees this always lifts. */
+.preview-canvas-root.is-measuring .preview-canvas-surface {
+  opacity: 0;
+}
+
+/* Opacity rather than visibility or display: the pages must keep laying out
+   and painting while hidden, because being laid out is precisely what is being
+   waited for. */
+.preview-canvas-surface {
+  transition: opacity var(--transition-interaction);
+}

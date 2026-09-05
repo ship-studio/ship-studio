@@ -178,6 +178,40 @@ describe('PreviewCanvas', () => {
     expect(scroller.scrollLeft).toBe(400 - 32);
   });
 
+  it('stays hidden until the frames know how tall they are', async () => {
+    // A frame opens at its device height because nothing else is knowable yet,
+    // so the first measurement moves all four from one screen to a whole page
+    // at once. Showing that correction is what reads as a glitch on open.
+    const { container } = renderCanvas();
+    const surface = container.querySelector<HTMLElement>('.preview-canvas-root')!;
+    expect(surface.className).toContain('is-measuring');
+
+    const frames = container.querySelectorAll<HTMLIFrameElement>('.preview-canvas-iframe');
+    act(() => {
+      frames.forEach((frame, index) => {
+        Object.defineProperty(frame, 'contentWindow', { value: {}, configurable: true });
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { type: 'ss:pageHeight', height: 4000 + index },
+            source: frame.contentWindow,
+          })
+        );
+      });
+    });
+    await waitFor(() => expect(surface.className).not.toContain('is-measuring'));
+  });
+
+  it('shows itself anyway if a frame never reports', async () => {
+    // A page that fails to load must not be able to hold the whole canvas
+    // blank. Visibly wrong beats empty.
+    const { container } = renderCanvas();
+    const surface = container.querySelector<HTMLElement>('.preview-canvas-root')!;
+    expect(surface.className).toContain('is-measuring');
+    await waitFor(() => expect(surface.className).not.toContain('is-measuring'), {
+      timeout: 5000,
+    });
+  });
+
   const panALittle = (scroller: HTMLElement) => {
     fireEvent.keyDown(window, { code: 'Space' });
     fireEvent.mouseDown(scroller, { button: 0, clientX: 350, clientY: 300 });
