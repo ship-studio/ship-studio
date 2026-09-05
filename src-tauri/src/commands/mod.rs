@@ -22,6 +22,7 @@ pub mod folders;
 pub mod git;
 pub mod github;
 pub mod health;
+pub mod hosting;
 pub mod i18n;
 pub mod ide;
 pub mod mcp;

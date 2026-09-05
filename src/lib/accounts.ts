@@ -39,17 +39,27 @@ export interface AccountCredentialStatus {
   vercelUsername: string | null;
   hasAnthropicBaseUrl: boolean;
   hasVercelToken: boolean;
+  hasCloudflareApiToken: boolean;
+  hasNetlifyAuthToken: boolean;
   hasGitName: boolean;
   hasGitEmail: boolean;
 }
 
 /** Credential key identifiers accepted by set/clear commands. */
-export type CredentialKey = 'anthropic_base_url' | 'vercel_token' | 'git_name' | 'git_email';
+export type CredentialKey =
+  | 'anthropic_base_url'
+  | 'vercel_token'
+  | 'cloudflare_api_token'
+  | 'netlify_auth_token'
+  | 'git_name'
+  | 'git_email';
 
 /** Human-readable labels for each credential key. */
 export const CREDENTIAL_LABELS: Record<CredentialKey, string> = {
   anthropic_base_url: 'Anthropic Base URL',
   vercel_token: 'Vercel Token',
+  cloudflare_api_token: 'Cloudflare API Token',
+  netlify_auth_token: 'Netlify Token',
   git_name: 'Git Name',
   git_email: 'Git Email',
 };
@@ -63,13 +73,22 @@ export const CREDENTIAL_DESCRIPTIONS: Record<CredentialKey, string> = {
   anthropic_base_url:
     'Point Claude Code at a custom Anthropic endpoint (a proxy or gateway) instead of the default. Leave unset unless your org requires it.',
   vercel_token:
-    'Lets this workspace publish to Vercel without an interactive login — use a token from a specific Vercel account or team.',
+    'Lets this workspace publish to Vercel without an interactive login — use a token from a specific Vercel account or team, and lets Ship Studio show whether your pushes deployed.',
+  cloudflare_api_token:
+    'Lets Ship Studio read your Cloudflare Pages deployments. Needs the Pages:Read and Account Settings:Read permissions.',
+  netlify_auth_token:
+    'Lets Ship Studio read your Netlify deploys without depending on the CLI login, which can expire.',
   git_name: "Sets the author name on commits made in this workspace's projects.",
   git_email: "Sets the author email on commits made in this workspace's projects.",
 };
 
 /** Credential keys that are sensitive (masked input). */
-export const SENSITIVE_KEYS = new Set<CredentialKey>(['anthropic_base_url', 'vercel_token']);
+export const SENSITIVE_KEYS = new Set<CredentialKey>([
+  'anthropic_base_url',
+  'vercel_token',
+  'cloudflare_api_token',
+  'netlify_auth_token',
+]);
 
 /** Maps AccountCredentialStatus boolean field → CredentialKey. */
 export const STATUS_FIELD_TO_KEY: Record<
@@ -85,6 +104,8 @@ export const STATUS_FIELD_TO_KEY: Record<
 > = {
   hasAnthropicBaseUrl: 'anthropic_base_url',
   hasVercelToken: 'vercel_token',
+  hasCloudflareApiToken: 'cloudflare_api_token',
+  hasNetlifyAuthToken: 'netlify_auth_token',
   hasGitName: 'git_name',
   hasGitEmail: 'git_email',
 };

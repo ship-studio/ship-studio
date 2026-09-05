@@ -653,6 +653,14 @@ pub fn run() {
             commands::publishing::publish_to_staging,
             commands::publishing::publish_to_production,
             commands::publishing::publish_branch,
+            // Hosting — which provider a project deploys to, and whether the
+            // pushed commit actually went live.
+            commands::hosting::get_hosting_status,
+            commands::hosting::detect_hosting_links,
+            commands::hosting::list_hosting_projects,
+            commands::hosting::set_hosting_link,
+            commands::hosting::clear_hosting_link,
+            commands::hosting::verify_hosting_token,
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,
