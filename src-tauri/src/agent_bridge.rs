@@ -134,6 +134,16 @@ fn write_identity(identity: &BridgeIdentity) {
                     "[AgentBridge] Could not persist bridge identity (registrations will rotate next run): {}",
                     e
                 );
+            } else {
+                // The file holds the bridge's bearer token — the only thing
+                // standing between a local process and the preview tools. Default
+                // umask leaves it world-readable; owner-only is the right shape
+                // for a credential.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                }
             }
         }
         Err(e) => tracing::warn!("[AgentBridge] Could not serialize bridge identity: {}", e),

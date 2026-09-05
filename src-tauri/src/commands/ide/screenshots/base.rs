@@ -1,7 +1,7 @@
 //! Base screenshot operations: crop and save, read as base64, and comparison.
 
 use crate::errors::CommandError;
-use crate::utils::validate_project_path;
+use crate::utils::{validate_project_file_path, validate_project_path};
 use image::GenericImageView;
 
 /// Crop an image and save it to the project's screenshots folder
@@ -59,12 +59,16 @@ pub async fn crop_and_save_screenshot(
 
 /// Read a screenshot file and return it as a base64 data URL.
 /// Used for displaying screenshot previews in the UI.
+///
+/// The path is validated: every caller passes a path this app just wrote under
+/// `<project>/.shipstudio/screenshots`, so containment costs nothing here and
+/// stops the command from doubling as a read-any-file-on-disk primitive.
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_screenshot_base64(file_path: String) -> Result<String, CommandError> {
     use base64::Engine;
 
-    let path = std::path::PathBuf::from(&file_path);
+    let path = validate_project_file_path(&file_path)?;
 
     if !path.exists() {
         return Err((format!("Screenshot file not found: {file_path}")).into());
@@ -86,6 +90,12 @@ pub async fn compare_screenshots(
     path2: String,
     _skip_header_pixels: u32, // kept for API compatibility
 ) -> Result<bool, CommandError> {
+    // Both paths are screenshots this app wrote under the project; validate them
+    // so the command can't be pointed at arbitrary files (see
+    // [`get_screenshot_base64`]).
+    let path1 = validate_project_file_path(&path1)?;
+    let path2 = validate_project_file_path(&path2)?;
+
     let img1 = image::open(&path1).map_err(|e| format!("Failed to open image 1: {e}"))?;
     let img2 = image::open(&path2).map_err(|e| format!("Failed to open image 2: {e}"))?;
 
