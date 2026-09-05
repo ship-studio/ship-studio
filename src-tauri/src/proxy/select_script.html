@@ -858,25 +858,47 @@ function ssRewriteViewportUnits(){
 function ssPageHeight(){
   var b=document.body;if(!b)return 0;
   var style=window.getComputedStyle(b);
-  return Math.ceil(Math.max(b.scrollHeight,b.offsetHeight)
-    +parseFloat(style.marginTop||'0')+parseFloat(style.marginBottom||'0'));
+  var pad=parseFloat(style.marginTop||'0')+parseFloat(style.marginBottom||'0');
+  /* Measured from where the CONTENT ends, not from `scrollHeight`. The frame is
+     about to be resized to this answer, and a body stretched to its viewport
+     (`html,body{height:100%}`) reports the frame's own height back — which
+     would leave a frame that grew once unable to ever shrink again, i.e. a
+     screen of white space under a page that got shorter. Fixed elements are
+     skipped: they are positioned against the viewport, not the document. */
+  var bottom=0,kids=b.children;
+  for(var i=0;i<kids.length;i++){
+    var el=kids[i];
+    if(window.getComputedStyle(el).position==='fixed')continue;
+    var y=el.getBoundingClientRect().bottom+window.scrollY;
+    if(y>bottom)bottom=y;
+  }
+  if(!bottom)bottom=Math.max(b.scrollHeight,b.offsetHeight);
+  return Math.ceil(bottom+pad);
 }
-/* Only ever taller, and only so many times. The frame is resized to whatever
-   this reports, and a page whose layout responds to its own viewport height
-   (a section that reflows, something revealed as more of the page fits) then
-   reports a different number back — the two settle into a flicker a couple of
-   seconds long rather than converging. Growing monotonically ends at the
-   tallest layout the page has, which is the one that shows all of it; the
-   counter stops a genuinely unbounded page (an infinite scroller) from
-   climbing forever. Both reset when the document does. */
-var ssPageGrowths=0,SS_PAGE_MAX_GROWTHS=12;
+/* A height has to be measured TWICE in a row before it counts.
+   The frame is resized to whatever this reports, and a page whose layout
+   answers to its own viewport height reports a different number back — left
+   alone the two oscillate every couple of seconds. Requiring agreement kills
+   that: an alternating pair never repeats, so nothing is committed and the
+   frame holds still. It also stops a transient from sticking — measuring
+   mid-load, before fonts or images have settled, is how a frame ends up
+   locked at a height with a screen of white space at the bottom. The counter
+   is a backstop against a page that genuinely never settles. */
+var ssPageSeen=0,ssPageAgreed=0,ssPageWrites=0,SS_PAGE_MAX_WRITES=40;
 function ssReportPage(){
   if(!ssCanvas||!ssVH)return;
   var h=ssPageHeight();
-  if(!h||h<=ssPageH+4)return;
-  if(ssPageGrowths>=SS_PAGE_MAX_GROWTHS)return;
-  ssPageGrowths++;
-  ssPageH=h;
+  if(!h)return;
+  if(Math.abs(h-ssPageH)<4){ssPageSeen=0;return;}   /* already reported */
+  if(Math.abs(h-ssPageSeen)<4){
+    ssPageAgreed++;
+  }else{
+    ssPageSeen=h;ssPageAgreed=1;return;             /* first sighting */
+  }
+  if(ssPageAgreed<2)return;
+  if(ssPageWrites>=SS_PAGE_MAX_WRITES)return;
+  ssPageWrites++;
+  ssPageH=h;ssPageSeen=0;ssPageAgreed=0;
   try{window.parent.postMessage({type:'ss:pageHeight',height:h},'*');}catch(err){}
 }
 function ssSyncPage(){
@@ -906,9 +928,9 @@ function ssWatchPage(){
      checks over the first few seconds cover it without watching forever. */
   var ticks=0;
   var settle=setInterval(function(){
-    if(++ticks>10){clearInterval(settle);return;}
+    if(++ticks>24){clearInterval(settle);return;}
     ssReportPage();
-  },500);
+  },400);
 }
 
 window.addEventListener('message',function(e){
@@ -941,7 +963,7 @@ else if(d.type==='ss:passive'){
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
-  if(ssVH){ssWatchPage();ssRewriteViewportUnits();ssPageH=0;ssPageGrowths=0;ssReportPage();}
+  if(ssVH){ssWatchPage();ssRewriteViewportUnits();ssPageH=0;ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;ssReportPage();}
 }
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 

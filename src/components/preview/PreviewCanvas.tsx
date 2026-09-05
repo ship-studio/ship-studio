@@ -41,44 +41,13 @@ import {
   zoomForFrame,
   type CanvasFrame,
 } from '../../lib/previewCanvas';
+import { useCanvasFrames } from '../../hooks/useCanvasFrames';
+import { useCanvasViewport } from '../../hooks/useCanvasViewport';
 import { useCanvasZoom } from '../../hooks/useCanvasZoom';
 import { useCanvasPan } from '../../hooks/useCanvasPan';
+import { useCanvasPlacement } from '../../hooks/useCanvasPlacement';
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
-
-/**
- * Tell a frame it is part of a canvas, and what viewport height it is standing
- * in for. The injected preview script keeps its gesture forwarding off until it
- * hears this, so the single preview frame's own gestures are left completely
- * alone — and the height is what lets the frame show the WHOLE page while
- * `100vh` still means one screen. A reloaded document starts from the default
- * again, hence the `load` handler.
- */
-const announceCanvas = (frame: HTMLIFrameElement, on = true): void => {
-  try {
-    const viewportHeight = Number(frame.dataset.viewportHeight) || undefined;
-    frame.contentWindow?.postMessage({ type: 'ss:canvas', on, vh: viewportHeight }, '*');
-  } catch {
-    // A frame mid-navigation can refuse; its load handler will say it again.
-  }
-};
-
-/**
- * Tell a frame whether it is one nobody is working in. A passive frame is a
- * review surface: it holds still, so four live pages don't spend the machine's
- * whole budget animating at once.
- */
-const announcePassive = (frame: HTMLIFrameElement, passive: boolean): void => {
-  try {
-    frame.contentWindow?.postMessage({ type: 'ss:passive', on: passive }, '*');
-  } catch {
-    // Mid-navigation; the next announcement covers it.
-  }
-};
-
-/** A page longer than this is a runaway (an infinite scroller, a feedback loop
- *  between the frame's height and the page's own layout), not a page. */
-const MAX_PAGE_HEIGHT_PX = 24000;
 
 /** How far the canvas must scroll before the mount window is recomputed. The
  *  window carries a screen of slack on each side, so nothing can scroll into
@@ -136,22 +105,85 @@ export function PreviewCanvas({
   activeFrameOverlay,
 }: PreviewCanvasProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const frameElsRef = useRef(new Map<string, HTMLIFrameElement | null>());
 
-  // Visible canvas box (screen pixels) and scroll offset, both driving which
-  // frames stay mounted and how large the fit scale is.
-  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  // The visible canvas box, and the scroll offset — together they decide the
+  // fit scale, where the canvas rests, and which frames stay mounted.
+  const { setRootEl, viewport } = useCanvasViewport();
   const [scrollLeft, setScrollLeft] = useState(0);
+
+  const setScrollEl = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node;
+  }, []);
+
+  // The frames have to be wired up before the canvas knows how big they make it
+  // — a frame reports its page height, which decides the geometry, which is
+  // what placement is computed from. So the one thing a forwarded gesture needs
+  // from placement is handed over afterwards, through this.
+  const markMovedRef = useRef<() => void>(() => {});
+
+  // Scroll drives the mount window, and nothing else — so it only has to reach
+  // React when it has moved far enough to change which frames are mounted.
+  // rAF-throttled on top of that, so a flung scrollbar can't queue a render per
+  // frame while four live pages are already asking for the main thread.
+  const scrollRafRef = useRef<number | null>(null);
+  const handleScroll = useCallback(() => {
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const next = scrollRef.current?.scrollLeft ?? 0;
+      setScrollLeft((previous) =>
+        Math.abs(next - previous) >= SCROLL_RENDER_THRESHOLD_PX ? next : previous
+      );
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    },
+    []
+  );
+
+  // A gesture a frame could not use: it pans the canvas instead. Coalesced,
+  // because a trackpad delivers these faster than the canvas can paint and each
+  // one written straight to `scrollLeft` is its own scroll and its own repaint
+  // of everything on the surface.
+  const panPendingRef = useRef({ dx: 0, dy: 0 });
+  const panRafRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
+    },
+    []
+  );
+  const panBy = useCallback((dx: number, dy: number) => {
+    markMovedRef.current();
+    panPendingRef.current.dx += dx;
+    panPendingRef.current.dy += dy;
+    if (panRafRef.current !== null) return;
+    panRafRef.current = requestAnimationFrame(() => {
+      panRafRef.current = null;
+      const scroller = scrollRef.current;
+      if (!scroller) return;
+      scroller.scrollLeft += panPendingRef.current.dx;
+      scroller.scrollTop += panPendingRef.current.dy;
+      panPendingRef.current = { dx: 0, dy: 0 };
+    });
+  }, []);
+
+  const { frameElsRef, registerFrame, handleFrameLoad, pageHeights } = useCanvasFrames({
+    activeFrameId,
+    onActiveFrameElement,
+    onPanBy: panBy,
+  });
 
   // What each page turned out to be, once it had been laid out at that width.
   // The device height is only the starting guess and the floor: the canvas
   // shows whole pages, so a frame is as tall as the document inside it.
-  const [pageHeights, setPageHeights] = useState<Record<string, number>>({});
   const sizedFrames = useMemo(
     () =>
       frames.map((frame) => ({
         ...frame,
-        height: Math.min(MAX_PAGE_HEIGHT_PX, Math.max(frame.height, pageHeights[frame.id] ?? 0)),
+        height: Math.max(frame.height, pageHeights[frame.id] ?? 0),
       })),
     [frames, pageHeights]
   );
@@ -182,17 +214,25 @@ export function PreviewCanvas({
   const surfaceHeight =
     CANVAS_LABEL_PX + tallestFrameHeight * scale + CANVAS_PADDING_PX + slackY * 2;
 
-  // Where the canvas sits when it has nothing better to do: the frames centred
-  // in the pane, with the slack spread evenly around them.
+  // The frames' on-screen extent, which is what "centred" is measured against.
   const contentWidthPx = layout.contentWidth * scale;
   const contentHeightPx = CANVAS_LABEL_PX + tallestFrameHeight * scale;
-  const restingScroll = useCallback(
-    () => ({
-      left: Math.max(0, slackX - Math.max(0, (viewport.width - contentWidthPx) / 2)),
-      top: Math.max(0, slackY - Math.max(0, (viewport.height - contentHeightPx) / 2)),
-    }),
-    [slackX, slackY, viewport.width, viewport.height, contentWidthPx, contentHeightPx]
-  );
+
+  const { markUserMoved, releaseToCanvas, interacting, restingScroll, parkScrollNow } =
+    useCanvasPlacement({
+      scrollRef,
+      viewport,
+      slackX,
+      slackY,
+      contentWidthPx,
+      contentHeightPx,
+      isFit,
+      geometryToken: layout,
+      onScrollSettled: setScrollLeft,
+    });
+  useEffect(() => {
+    markMovedRef.current = markUserMoved;
+  }, [markUserMoved]);
 
   const mounted = useMemo(
     () => new Set(visibleFrameIds(layout, scale, scrollLeft, viewport.width, slackX)),
@@ -204,226 +244,6 @@ export function PreviewCanvas({
     (frameId: string) => frameId === activeFrameId || mounted.has(frameId),
     [mounted, activeFrameId]
   );
-
-  // Whether the position on screen is the user's doing. Until it is, the canvas
-  // keeps re-centring itself on every measurement.
-  const userMovedRef = useRef(false);
-  const parkScrollNow = useCallback((node: HTMLDivElement, left: number, top: number) => {
-    node.scrollLeft = left;
-    node.scrollTop = top;
-  }, []);
-  // While the user is actually moving the canvas, the scaled layer is promoted
-  // to its own compositor layer so a zoom is a transform rather than four
-  // enormous frames being rasterised again. Dropped a beat after the gesture
-  // stops — `will-change` on a layer this size is not free to hold.
-  const [interacting, setInteracting] = useState(false);
-  const interactingTimerRef = useRef<number | null>(null);
-  const beginInteraction = useCallback(() => {
-    setInteracting(true);
-    if (interactingTimerRef.current !== null) clearTimeout(interactingTimerRef.current);
-    interactingTimerRef.current = window.setTimeout(() => {
-      interactingTimerRef.current = null;
-      setInteracting(false);
-    }, 300);
-  }, []);
-  useEffect(
-    () => () => {
-      if (interactingTimerRef.current !== null) clearTimeout(interactingTimerRef.current);
-    },
-    []
-  );
-
-  const markUserMoved = useCallback(() => {
-    userMovedRef.current = true;
-    beginInteraction();
-  }, [beginInteraction]);
-
-  // Measured from the ROOT, never from the scroller. The scroller contains the
-  // surface, and the surface is sized from this measurement — so anything that
-  // stops the scroller clipping (a scrollbar library relocating its children,
-  // say) turns that into a feedback loop that runs the canvas off to millions
-  // of pixels and leaves the user looking at grey. The root has one job and
-  // holds nothing, so it cannot grow.
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const measure = useCallback(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    // Clamped to the window, which is the last word on how big a pane inside it
-    // can be. The canvas sizes its surface from this number and then lives
-    // inside the box it just sized, so any ancestor that fails to clip turns
-    // the pair into a feedback loop — one that ends at several million pixels
-    // and a user looking at grey. The clamp makes that arithmetically
-    // impossible, whatever a stylesheet upstream decides to do.
-    const width = Math.min(root.clientWidth, window.innerWidth || root.clientWidth);
-    const height = Math.min(root.clientHeight, window.innerHeight || root.clientHeight);
-    setViewport((current) =>
-      current.width === width && current.height === height ? current : { width, height }
-    );
-  }, []);
-
-  const setRootEl = useCallback(
-    (node: HTMLDivElement | null) => {
-      rootRef.current = node;
-      if (node) measure();
-    },
-    [measure]
-  );
-
-  const setScrollEl = useCallback((node: HTMLDivElement | null) => {
-    scrollRef.current = node;
-  }, []);
-
-  // Ownership is taken by INPUT, never by a `scroll` event. The browser fires
-  // those for its own reasons — including adjusting the offset when the content
-  // grows, which is exactly what happens as the frames learn how long their
-  // pages are. Reading that as "the user has placed the canvas" freezes it
-  // wherever the growth left it, which on a first open is nowhere useful.
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    node.addEventListener('wheel', markUserMoved, { passive: true });
-    return () => node.removeEventListener('wheel', markUserMoved);
-  }, [markUserMoved]);
-
-  // Two sources, because the first one can lie. A pane measured during the
-  // commit that mounts it has not necessarily reached its final size, and the
-  // canvas that gets built from that measurement is the one the user opens.
-  // The window's own resize is a second chance at the truth for webviews that
-  // deliver it before the observer.
-  useEffect(() => {
-    const node = rootRef.current;
-    if (!node) return;
-    const observer =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => measure());
-    observer?.observe(node);
-    window.addEventListener('resize', measure);
-    // One more read after the frame the canvas mounted in, for the case where
-    // the pane was still settling when the ref callback measured it.
-    const settle = requestAnimationFrame(measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', measure);
-      cancelAnimationFrame(settle);
-    };
-  }, [measure]);
-
-  // Scroll drives the mount window, and nothing else — so it only has to reach
-  // React when it has moved far enough to change which frames are mounted.
-  // rAF-throttled on top of that, so a flung scrollbar can't queue a render per
-  // frame while four live pages are already asking for the main thread.
-  const scrollRafRef = useRef<number | null>(null);
-  const handleScroll = useCallback(() => {
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const next = scrollRef.current?.scrollLeft ?? 0;
-      setScrollLeft((previous) =>
-        Math.abs(next - previous) >= SCROLL_RENDER_THRESHOLD_PX ? next : previous
-      );
-    });
-  }, []);
-  useEffect(
-    () => () => {
-      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
-    },
-    []
-  );
-
-  // Everything a frame reports back: how tall its page turned out to be, and
-  // any gesture the frame could not use itself. A wheel over a frame showing a
-  // whole page has nothing left to scroll there, so the frame hands it up and
-  // it pans the canvas — which is what the gesture meant.
-  const panPendingRef = useRef({ dx: 0, dy: 0 });
-  const panRafRef = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
-    },
-    []
-  );
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as {
-        type?: string;
-        height?: number;
-        dx?: number;
-        dy?: number;
-      } | null;
-      if (data?.type !== 'ss:pageHeight' && data?.type !== 'ss:panBy') return;
-      let frameId: string | null = null;
-      for (const [id, element] of frameElsRef.current.entries()) {
-        if (element && element.contentWindow === event.source) frameId = id;
-      }
-      if (frameId === null) return; // not one of ours
-      if (data.type === 'ss:pageHeight') {
-        const height = Math.round(data.height ?? 0);
-        if (height <= 0) return;
-        setPageHeights((current) =>
-          current[frameId] === height ? current : { ...current, [frameId]: height }
-        );
-        return;
-      }
-      const node = scrollRef.current;
-      if (!node) return;
-      markUserMoved();
-      // Coalesced: a trackpad delivers these faster than the canvas can paint,
-      // and each one written straight to `scrollLeft` is its own scroll and its
-      // own repaint of everything on the surface.
-      panPendingRef.current.dx += data.dx ?? 0;
-      panPendingRef.current.dy += data.dy ?? 0;
-      if (panRafRef.current !== null) return;
-      panRafRef.current = requestAnimationFrame(() => {
-        panRafRef.current = null;
-        const scroller = scrollRef.current;
-        if (!scroller) return;
-        scroller.scrollLeft += panPendingRef.current.dx;
-        scroller.scrollTop += panPendingRef.current.dy;
-        panPendingRef.current = { dx: 0, dy: 0 };
-      });
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [markUserMoved]);
-
-  // ONE stable ref callback for every frame — a per-frame closure would be a
-  // new function on each render, and React would detach and re-attach a live
-  // iframe (unbinding and rebinding the editor) for no reason. The frame it
-  // belongs to comes off the element's own `data-frame-id`, and the cleanup
-  // return (React 19) is what tells us a frame went away. Registration bumps
-  // an epoch; the effect below turns that into one report of the active
-  // element.
-  const [frameEpoch, setFrameEpoch] = useState(0);
-  const registerFrame = useCallback((element: HTMLIFrameElement) => {
-    const frameId = element.dataset.frameId;
-    if (!frameId) return;
-    frameElsRef.current.set(frameId, element);
-    announceCanvas(element);
-    setFrameEpoch((epoch) => epoch + 1);
-    return () => {
-      // Best effort: a frame going away because the canvas is closing should
-      // stop forwarding gestures and reporting scroll. A frame going away
-      // because it unmounted doesn't care.
-      announceCanvas(element, false);
-      frameElsRef.current.delete(frameId);
-      setFrameEpoch((epoch) => epoch + 1);
-    };
-  }, []);
-
-  // Which frame is live and which are holding still. Re-announced whenever the
-  // active frame changes or a frame (re)mounts, because a reloaded document
-  // starts out live again.
-  useEffect(() => {
-    for (const [frameId, element] of frameElsRef.current.entries()) {
-      if (element) announcePassive(element, frameId !== activeFrameId);
-    }
-  }, [activeFrameId, frameEpoch]);
-
-  // Report the active frame's element upward whenever the binding could have
-  // changed — a different frame, a remount, or the canvas going away.
-  useEffect(() => {
-    onActiveFrameElement(frameElsRef.current.get(activeFrameId) ?? null);
-  }, [activeFrameId, frameEpoch, onActiveFrameElement]);
-  useEffect(() => () => onActiveFrameElement(null), [onActiveFrameElement]);
 
   // The active frame's own src. Passive frames track `url` directly; the active
   // frame is only re-pointed on a deliberate navigation, a refresh, or when the
@@ -461,20 +281,19 @@ export function PreviewCanvas({
     if (!node) return;
     recenterRef.current = false;
     const rest = restingScroll();
-    node.scrollLeft = rest.left;
-    node.scrollTop = rest.top;
+    parkScrollNow(node, rest.left, rest.top);
     setScrollLeft(node.scrollLeft);
     // `scale` is a dependency because a fit request usually changes it, and the
     // resting position has to be measured against the layout that produces.
-  }, [recenterTick, scale, restingScroll]);
+  }, [recenterTick, scale, restingScroll, parkScrollNow]);
 
   const fitCanvas = useCallback(() => {
     // Fit hands the canvas back to the canvas: it is centred again, and it
     // stays centred through anything that resizes the pane afterwards.
-    userMovedRef.current = false;
+    releaseToCanvas();
     onZoomChange('fit');
     requestRecenter();
-  }, [onZoomChange, requestRecenter]);
+  }, [releaseToCanvas, onZoomChange, requestRecenter]);
 
   const zoomToLevel = useCallback(
     (next: number) => {
@@ -541,78 +360,6 @@ export function PreviewCanvas({
     node.scrollLeft = scrollToCenterFrame(layout, activeFrameId, zoom, node.clientWidth, slackX);
   }, [zoom, layout, activeFrameId, slackX, consumeAnchored]);
 
-  // Until the user moves the canvas themselves, it is simply centred — every
-  // time, on every measurement. This is the difference between a canvas that
-  // opens on the frames and one that opens on grey: the pane's FIRST measured
-  // size cannot be trusted (a webview commits the mount before the pane has
-  // settled), and a canvas that treats the opening position as a one-off is
-  // stranded in the slack for good when that first number is wrong. Re-centring
-  // is idempotent, so being told the size three times costs nothing.
-  //
-  // The moment the user pans, zooms or scrolls, the position is theirs: from
-  // then on a resize compensates by the slack delta instead, which keeps what
-  // they were looking at where it was.
-  const appliedSlackRef = useRef<{ x: number; y: number } | null>(null);
-  useLayoutEffect(() => {
-    const node = scrollRef.current;
-    if (!node || viewport.width <= 0) return;
-    const applied = appliedSlackRef.current;
-    // Fit is a standing instruction, not a one-off: while it is on, a pane that
-    // changes shape — the split dragged, fullscreen entered — re-fits and
-    // re-centres. Anything else keeps the place the user put it.
-    const owned = userMovedRef.current && !isFit;
-    if (owned && applied && applied.x === slackX && applied.y === slackY) return;
-    appliedSlackRef.current = { x: slackX, y: slackY };
-    if (!owned) {
-      const rest = restingScroll();
-      parkScrollNow(node, rest.left, rest.top);
-    } else if (applied) {
-      parkScrollNow(
-        node,
-        node.scrollLeft + slackX - applied.x,
-        node.scrollTop + slackY - applied.y
-      );
-    }
-    setScrollLeft(node.scrollLeft);
-  }, [slackX, slackY, viewport.width, isFit, restingScroll, parkScrollNow]);
-
-  // A canvas you cannot lose. Whatever the arithmetic did — a bad measurement,
-  // a zoom that ran out of scroll range, a resize mid-gesture — if not one
-  // frame overlaps the visible box, the canvas is showing nothing at all, and
-  // no user has ever wanted that. Measured from the DOM rather than from the
-  // numbers that produced it, so a wrong number can't also decide it was fine.
-  useLayoutEffect(() => {
-    const node = scrollRef.current;
-    if (!node || viewport.width <= 0) return;
-    const box = node.getBoundingClientRect();
-    // Nothing measurable to reason about — a pane that hasn't been laid out, or
-    // an environment that doesn't do layout at all. Silence is not evidence
-    // that the canvas is lost.
-    if (box.width <= 0 || box.height <= 0) return;
-    const chrome = node.querySelectorAll('.preview-canvas-chrome');
-    if (chrome.length === 0) return;
-    let measurable = false;
-    for (const element of chrome) {
-      const frame = element.getBoundingClientRect();
-      if (frame.width > 0 && frame.height > 0) measurable = true;
-    }
-    if (!measurable) return;
-    for (const element of chrome) {
-      const frame = element.getBoundingClientRect();
-      const overlapX = Math.min(frame.right, box.right) - Math.max(frame.left, box.left);
-      const overlapY = Math.min(frame.bottom, box.bottom) - Math.max(frame.top, box.top);
-      if (overlapX > 0 && overlapY > 0) return;
-    }
-    // No state update: the scroll this causes reports itself like any other,
-    // and publishing from here would be a set inside an effect with no
-    // dependencies — one bad measurement away from a loop.
-    const rest = restingScroll();
-    parkScrollNow(node, rest.left, rest.top);
-    // Runs when the geometry it checks could have changed, not on every commit:
-    // it reads laid-out boxes, and a forced layout per render is exactly the
-    // cost a canvas cannot afford while a gesture is in flight.
-  }, [scale, layout, viewport.width, viewport.height, restingScroll, parkScrollNow]);
-
   return (
     <div
       ref={setRootEl}
@@ -661,10 +408,7 @@ export function PreviewCanvas({
                     data-tooltip-disabled
                     data-frame-id={placement.id}
                     data-viewport-height={deviceHeights.get(placement.id) ?? placement.height}
-                    onLoad={(event) => {
-                      announceCanvas(event.currentTarget);
-                      announcePassive(event.currentTarget, placement.id !== activeFrameId);
-                    }}
+                    onLoad={(event) => handleFrameLoad(event.currentTarget)}
                   />
                 ) : (
                   <div className="preview-canvas-placeholder" aria-hidden />
