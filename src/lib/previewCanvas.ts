@@ -93,8 +93,6 @@ const PINCH_RESPONSE = 0.006;
  *  a slow scroll from tearing frames down and reloading them immediately. */
 const MOUNT_MARGIN_SCREENS = 1;
 
-const MIN_SCALE = 0.05;
-
 /**
  * Place frames left to right in the order given, separated by `gap`, with
  * `CANVAS_PADDING_PX` of surface padding on each side.
@@ -120,7 +118,9 @@ export function layoutFrames(frames: CanvasFrame[], gap: number = CANVAS_GAP_PX)
 export function fitScale(contentWidth: number, viewportWidth: number): number {
   if (contentWidth <= 0 || viewportWidth <= 0) return 1;
   const usable = Math.max(1, viewportWidth - CANVAS_PADDING_PX * 2);
-  return Math.max(MIN_SCALE, Math.min(1, usable / contentWidth));
+  // The same floor the zoom controls use: Fit shouldn't be able to take the
+  // canvas somewhere the buttons can't bring it back from.
+  return Math.max(MIN_ZOOM, Math.min(1, usable / contentWidth));
 }
 
 /** The tallest frame on the canvas — the surface has to hold it. */

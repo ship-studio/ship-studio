@@ -124,14 +124,15 @@ export function PreviewCanvas({
   // the zoom — a `100vh` hero is exactly as tall as the frame says it is, and a
   // frame sized from the pane makes every viewport-relative unit in the page a
   // lie. The page scrolls inside its frame, like it does in a browser.
-  const stageHeight = tallestFrame(layout);
+  const tallestFrameHeight = tallestFrame(layout);
   const surfaceWidth = layout.contentWidth * scale + slackX * 2;
-  const surfaceHeight = CANVAS_LABEL_PX + stageHeight * scale + CANVAS_PADDING_PX + slackY * 2;
+  const surfaceHeight =
+    CANVAS_LABEL_PX + tallestFrameHeight * scale + CANVAS_PADDING_PX + slackY * 2;
 
   // Where the canvas sits when it has nothing better to do: the frames centred
   // in the pane, with the slack spread evenly around them.
   const contentWidthPx = layout.contentWidth * scale;
-  const contentHeightPx = CANVAS_LABEL_PX + stageHeight * scale;
+  const contentHeightPx = CANVAS_LABEL_PX + tallestFrameHeight * scale;
   const restingScroll = useCallback(
     () => ({
       left: Math.max(0, slackX - Math.max(0, (viewport.width - contentWidthPx) / 2)),
@@ -230,7 +231,7 @@ export function PreviewCanvas({
   }, [navSignal, activeFrameId, reloadToken]);
 
   const activeFrameHeight =
-    layout.placements.find((frame) => frame.id === activeFrameId)?.height ?? stageHeight;
+    layout.placements.find((frame) => frame.id === activeFrameId)?.height ?? tallestFrameHeight;
   useEffect(() => {
     onStageHeightChange?.(activeFrameHeight);
   }, [activeFrameHeight, onStageHeightChange]);
@@ -370,7 +371,7 @@ export function PreviewCanvas({
             className="preview-canvas-scaled"
             style={{
               width: `${layout.contentWidth}px`,
-              height: `${stageHeight}px`,
+              height: `${tallestFrameHeight}px`,
               left: `${slackX}px`,
               top: `${slackY + CANVAS_LABEL_PX}px`,
               transform: `scale(${scale})`,
@@ -453,7 +454,7 @@ export function PreviewCanvas({
                             : undefined;
                         onActivateFrame(placement.id, point);
                       }}
-                      title={`Work at ${placement.label} (${placement.width}px)`}
+                      title={`Work at ${placement.label} — ${placement.width} × ${placement.height}`}
                       aria-label={`Work at ${placement.label}, ${placement.width} pixels`}
                     />
                   )}
