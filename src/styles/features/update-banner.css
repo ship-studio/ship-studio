@@ -2,6 +2,8 @@
 
 .update-indicator {
   position: relative;
+  /* Keep the footer's scroll fade behind the update affordance. */
+  z-index: var(--z-dropdown);
   flex: 0 0 auto;
   align-self: stretch;
   max-height: calc(var(--control-height-standard) + (var(--space-02) * 2));

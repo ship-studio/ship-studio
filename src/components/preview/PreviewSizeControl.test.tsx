@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { PreviewSizeControl } from './PreviewSizeControl';
+import { PreviewSizeControl, type PreviewBreakpointOption } from './PreviewSizeControl';
 
 vi.mock('../../lib/analytics', () => ({
   trackEvent: vi.fn().mockResolvedValue(undefined),
@@ -14,6 +14,9 @@ const renderControl = (overrides = {}) => {
     scalePercent: null as number | null,
     onApply: vi.fn(),
     onFit: vi.fn(),
+    activeBreakpoint: 'full',
+    breakpointOptions: undefined as PreviewBreakpointOption[] | undefined,
+    onBreakpointChange: vi.fn(),
     ...overrides,
   };
   render(<PreviewSizeControl {...props} />);
@@ -71,5 +74,29 @@ describe('PreviewSizeControl', () => {
     renderControl({ scalePercent: 57 });
     fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
     expect(screen.getByText(/scaled to 57%/)).toBeInTheDocument();
+  });
+
+  it('keeps every breakpoint available in the size popover', () => {
+    const props = renderControl({
+      activeBreakpoint: 'desktop',
+      breakpointOptions: [
+        { value: 'full', label: 'Full', width: '100%', icon: <span aria-hidden="true" /> },
+        { value: 'desktop', label: 'Desktop', width: '1440px', icon: <span aria-hidden="true" /> },
+        { value: 'laptop', label: 'Laptop', width: '1024px', icon: <span aria-hidden="true" /> },
+        { value: 'tablet', label: 'Tablet', width: '768px', icon: <span aria-hidden="true" /> },
+        { value: 'mobile', label: 'Mobile', width: '375px', icon: <span aria-hidden="true" /> },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
+    expect(screen.getByRole('heading', { name: 'Breakpoints' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Desktop 1440px' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mobile 375px' }));
+    expect(props.onBreakpointChange).toHaveBeenCalledWith('mobile');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

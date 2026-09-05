@@ -111,7 +111,6 @@ export function ElementToolbar({
           className="ss-el-toolbar__selection"
           role="group"
           aria-label={`Selected element: ${selectionLabel}`}
-          title={selectionLabel}
         >
           {elementIcon ? (
             <span className="ss-el-toolbar__tag-icon" title={`<${tagName}>`}>

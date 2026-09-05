@@ -10,6 +10,7 @@ import { ProjectCard } from './ProjectCard';
 import { ProjectTableView } from './ProjectTableView';
 import { EmptyState } from '../primitives/EmptyState';
 import { Button } from '../primitives/Button';
+import { PlusIcon } from '@/components/icons';
 import type { DashboardProject } from '../../lib/project';
 import type { FolderInfo } from '../../lib/folders';
 
@@ -35,6 +36,7 @@ export interface ProjectGridViewProps {
   onSelectAllVisible: (selected: boolean) => void;
   onToggleProjectSelection: (projectPath: string) => void;
   onSelectProject: (project: ProjectWithThumbnail) => void;
+  onOpenProjectSettings: (project: DashboardProject) => void;
   onDeleteProject: (project: DashboardProject) => void;
   onRenameProject: (project: DashboardProject) => void;
   onToggleMainBranchWarning: (projectPath: string, hidden: boolean) => void;
@@ -73,6 +75,7 @@ export function ProjectGridView({
   onSelectAllVisible,
   onToggleProjectSelection,
   onSelectProject,
+  onOpenProjectSettings,
   onDeleteProject,
   onRenameProject,
   onToggleMainBranchWarning,
@@ -104,8 +107,12 @@ export function ProjectGridView({
             description="You don't need a repo or any code to start — pick a template and your AI agent builds it."
             action={
               onCreateProject ? (
-                <Button variant="primary" onClick={onCreateProject}>
-                  + Create your first project
+                <Button
+                  variant="primary"
+                  onClick={onCreateProject}
+                  leftIcon={<PlusIcon size={16} />}
+                >
+                  Create your first project
                 </Button>
               ) : undefined
             }
@@ -141,6 +148,7 @@ export function ProjectGridView({
             onSelectAllVisible={onSelectAllVisible}
             onToggleProjectSelection={onToggleProjectSelection}
             onSelectProject={onSelectProject}
+            onOpenProjectSettings={onOpenProjectSettings}
             onDeleteProject={onDeleteProject}
             onRenameProject={onRenameProject}
             onToggleMainBranchWarning={onToggleMainBranchWarning}
@@ -177,6 +185,7 @@ export function ProjectGridView({
           project={project}
           thumbnailData={project.thumbnailData}
           onSelect={() => onSelectProject(project)}
+          onOpenSettings={() => onOpenProjectSettings(project)}
           onDelete={() => onDeleteProject(project)}
           onToggleMainBranchWarning={(hidden) => onToggleMainBranchWarning(project.path, hidden)}
           onRename={project.is_external ? undefined : () => onRenameProject(project)}

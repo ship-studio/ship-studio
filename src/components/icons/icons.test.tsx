@@ -30,7 +30,7 @@ describe('shared icons', () => {
     const { container } = render(<VariablesIcon />);
     expect(container.querySelector('svg')).toHaveAttribute(
       'data-icon-source',
-      'icons/import/variables.svg'
+      'icons/variables.svg'
     );
   });
 

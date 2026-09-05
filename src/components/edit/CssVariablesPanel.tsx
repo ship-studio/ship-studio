@@ -430,8 +430,73 @@ function AddVariable({
     setOpen(false);
   };
 
-  if (!open) {
-    return (
+  const norm = name.trim().startsWith('--') ? name.trim() : `--${name.trim()}`;
+  const dupe = name.trim().length > 0 && existing.has(norm);
+
+  return (
+    <>
+      {open && (
+        <div className="ss-var-row">
+          <span className="ss-var-row__name">
+            <VariableValueMarker value={value} />
+            <input
+              className="ss-var-input ss-var-input--name"
+              autoFocus
+              value={name}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="--token"
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') document.getElementById('ss-var-add-value')?.focus();
+                else if (e.key === 'Escape') setOpen(false);
+              }}
+            />
+            <Dropdown
+              align="right"
+              portal
+              menuClassName="ss-var-row__menu"
+              trigger={(triggerProps) => (
+                <IconButton
+                  {...triggerProps}
+                  variant="ghost"
+                  size="compact"
+                  className="ss-var-row__menu-trigger"
+                  aria-label="Cancel adding variable"
+                  title="Cancel adding variable"
+                  icon={<MoreHorizontalIcon size={12} />}
+                />
+              )}
+            >
+              <DropdownItem
+                variant="danger"
+                icon={<TrashIcon size={14} />}
+                onSelect={() => setOpen(false)}
+              >
+                Cancel
+              </DropdownItem>
+            </Dropdown>
+          </span>
+          <span className="ss-var-row__colon">:</span>
+          <span className="ss-var-row__value-group">
+            <ColorSwatch value={value} />
+            <input
+              id="ss-var-add-value"
+              className="ss-var-input"
+              value={value}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="value"
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !dupe) submit();
+                else if (e.key === 'Escape') setOpen(false);
+              }}
+              onBlur={submit}
+            />
+          </span>
+        </div>
+      )}
       <div className="ss-cascade-action">
         <Button
           variant="default"
@@ -442,42 +507,6 @@ function AddVariable({
           Add variable
         </Button>
       </div>
-    );
-  }
-
-  const norm = name.trim().startsWith('--') ? name.trim() : `--${name.trim()}`;
-  const dupe = name.trim().length > 0 && existing.has(norm);
-
-  return (
-    <div className="ss-vars__add">
-      <input
-        className="ss-var-input ss-var-input--name"
-        autoFocus
-        value={name}
-        spellCheck={false}
-        autoComplete="off"
-        placeholder="--token"
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') document.getElementById('ss-var-add-value')?.focus();
-          else if (e.key === 'Escape') setOpen(false);
-        }}
-      />
-      <span className="ss-var-row__colon">:</span>
-      <input
-        id="ss-var-add-value"
-        className="ss-var-input"
-        value={value}
-        spellCheck={false}
-        autoComplete="off"
-        placeholder="value"
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !dupe) submit();
-          else if (e.key === 'Escape') setOpen(false);
-        }}
-        onBlur={submit}
-      />
-    </div>
+    </>
   );
 }

@@ -23,15 +23,21 @@ import {
   arbitraryValue,
   spacingValue,
   boxSide,
+  boxSideResetSpec,
+  positionSide,
+  positionSideResetSpec,
+  positionSidePrefix,
   spacingCss,
   spacingDisplay,
   spacingTokenFor,
+  utilityTokenFor,
   arbitraryToken,
   parseSpacingInput,
   stepSpacingValue,
   removeAtLayer,
   competesWithUnlayered,
   markImportant,
+  radiusResetSpec,
   type Breakpoint,
 } from './edit';
 
@@ -153,6 +159,71 @@ describe('free-form spacing values', () => {
     expect(boxSide('flex', 'margin', 'left')).toBeNull();
   });
 
+  it('positionSide honors side, axis, and all-sides inset utilities', () => {
+    expect(positionSide('inset-4', 'top')).toEqual({ kind: 'scale', n: 4 });
+    expect(positionSide('inset-x-2 inset-y-3', 'left')).toEqual({ kind: 'scale', n: 2 });
+    expect(positionSide('inset-y-3 top-[10px]', 'top')).toEqual({
+      kind: 'arbitrary',
+      raw: '10px',
+    });
+    expect(positionSide('top-auto', 'top')).toEqual({ kind: 'arbitrary', raw: 'auto' });
+    expect(positionSidePrefix('right')).toBe('right');
+  });
+
+  it('reads Tailwind position presets, negatives, arbitrary values, and prefixes', () => {
+    expect(positionSide('-top-4', 'top')).toEqual({ kind: 'scale', n: -4 });
+    expect(positionSide('-top-full', 'top')).toEqual({ kind: 'arbitrary', raw: '-100%' });
+    expect(positionSide('top-1/2', 'top')).toEqual({ kind: 'arbitrary', raw: '50%' });
+    expect(
+      positionSide('tw:top-(--offset)', 'top', {
+        tailwindVersion: 'v4',
+        utilityPrefix: 'tw:',
+      })
+    ).toEqual({ kind: 'arbitrary', raw: 'var(--offset)' });
+    expect(
+      positionSide('tw-top-[--offset]', 'top', {
+        tailwindVersion: 'v3',
+        utilityPrefix: 'tw-',
+      })
+    ).toEqual({ kind: 'arbitrary', raw: 'var(--offset)' });
+  });
+
+  it('maps v4 logical inset utilities to the physical fields', () => {
+    expect(positionSide('inset-s-2', 'left', { tailwindVersion: 'v4', direction: 'ltr' })).toEqual({
+      kind: 'scale',
+      n: 2,
+    });
+    expect(positionSide('inset-s-2', 'right', { tailwindVersion: 'v4', direction: 'rtl' })).toEqual(
+      { kind: 'scale', n: 2 }
+    );
+    expect(
+      positionSide('inset-x-3', 'top', { tailwindVersion: 'v4', writingMode: 'vertical-rl' })
+    ).toEqual({ kind: 'scale', n: 3 });
+    expect(
+      positionSide('inset-y-3', 'right', { tailwindVersion: 'v4', writingMode: 'vertical-rl' })
+    ).toEqual({ kind: 'scale', n: 3 });
+  });
+
+  it('box and position side reset specs cover their fallback utility prefixes', () => {
+    const paddingTop = boxSideResetSpec('padding', 'top');
+    expect(paddingTop.match('pt-6')).toBe(true);
+    expect(paddingTop.match('py-6')).toBe(true);
+    expect(paddingTop.match('p-6')).toBe(true);
+    expect(paddingTop.match('px-6')).toBe(false);
+    expect(paddingTop.cssProps).toEqual([
+      'padding-top',
+      'padding-right',
+      'padding-bottom',
+      'padding-left',
+    ]);
+
+    const positionLeft = positionSideResetSpec('left');
+    expect(positionLeft.match('left-4')).toBe(true);
+    expect(positionLeft.match('inset-x-full')).toBe(true);
+    expect(positionLeft.match('inset-1/2')).toBe(true);
+    expect(positionLeft.match('inset-y-4')).toBe(false);
+  });
+
   it('resolves a value to CSS and a display string', () => {
     expect(spacingCss({ kind: 'scale', n: 6 })).toBe('1.5rem'); // 6 × 0.25
     expect(spacingCss({ kind: 'arbitrary', raw: '10rem' })).toBe('10rem');
@@ -164,7 +235,38 @@ describe('free-form spacing values', () => {
   it('builds scale and arbitrary tokens, escaping spaces', () => {
     expect(spacingTokenFor('p', { kind: 'scale', n: 6 })).toBe('p-6');
     expect(spacingTokenFor('pt', { kind: 'arbitrary', raw: '10rem' })).toBe('pt-[10rem]');
+    expect(spacingTokenFor('top', { kind: 'arbitrary', raw: 'auto' })).toBe('top-auto');
+    expect(spacingTokenFor('top', { kind: 'arbitrary', raw: '100%' })).toBe('top-full');
+    expect(spacingTokenFor('top', { kind: 'arbitrary', raw: '1px' })).toBe('top-px');
+    expect(spacingTokenFor('top', { kind: 'arbitrary', raw: '-100%' })).toBe('-top-full');
+    expect(
+      spacingTokenFor('top', { kind: 'arbitrary', raw: 'var(--offset)' }, { tailwindVersion: 'v4' })
+    ).toBe('top-(--offset)');
+    expect(spacingTokenFor('top', { kind: 'scale', n: -13 }, { tailwindVersion: 'v3' })).toBe(
+      '-top-[3.25rem]'
+    );
+    expect(utilityTokenFor('top-4', 'tw:')).toBe('tw:top-4');
+    expect(utilityTokenFor('-top-4', 'tw:')).toBe('tw:-top-4');
+    expect(utilityTokenFor('-top-4', 'tw-')).toBe('-tw-top-4');
     expect(arbitraryToken('gap', 'clamp(1rem, 5vw, 4rem)')).toBe('gap-[clamp(1rem,_5vw,_4rem)]');
+  });
+
+  it('uses the project spacing source for preview values', () => {
+    expect(spacingCss({ kind: 'scale', n: 4 }, { tailwindVersion: 'v4', spacingUnit: '1px' })).toBe(
+      'calc(var(--spacing, 0.25rem) * 4)'
+    );
+    expect(
+      spacingCss({ kind: 'scale', n: 4 }, { tailwindVersion: 'v4', utilityPrefix: 'tw:' })
+    ).toBe('calc(var(--tw-spacing, 0.25rem) * 4)');
+    expect(
+      spacingCss(
+        { kind: 'scale', n: 18 },
+        {
+          tailwindVersion: 'v3',
+          spacingScale: { 18: '4.5rem' },
+        }
+      )
+    ).toBe('4.5rem');
   });
 
   describe('parseSpacingInput', () => {
@@ -175,6 +277,15 @@ describe('free-form spacing values', () => {
     it('treats a bare integer as a Tailwind scale step', () => {
       expect(parseSpacingInput('6', 'padding')).toEqual({ kind: 'scale', n: 6 });
       expect(parseSpacingInput(' 10 ', 'padding')).toEqual({ kind: 'scale', n: 10 });
+    });
+    it('accepts Tailwind position presets and fractions', () => {
+      expect(parseSpacingInput('auto', 'top')).toEqual({ kind: 'arbitrary', raw: 'auto' });
+      expect(parseSpacingInput('full', 'top')).toEqual({ kind: 'arbitrary', raw: '100%' });
+      expect(parseSpacingInput('1/2', 'top')).toEqual({ kind: 'arbitrary', raw: '50%' });
+      expect(parseSpacingInput('-1/2', 'top')).toEqual({ kind: 'arbitrary', raw: '-50%' });
+      expect(parseSpacingInput('-full', 'top', { allowNegative: false })).toEqual({
+        kind: 'invalid',
+      });
     });
     it('treats a valid CSS value as arbitrary', () => {
       stubCss((v) => /^[\d.]+(px|rem|%)$/.test(v));
@@ -370,5 +481,19 @@ describe('cascade-winning (important modifier for custom CSS)', () => {
   it('competesWithUnlayered: no unlayered props → never competes', () => {
     expect(competesWithUnlayered(['color'], [])).toBe(false);
     expect(competesWithUnlayered(['color'], undefined)).toBe(false);
+  });
+});
+
+describe('radius reset spec', () => {
+  it('matches physical, logical, important, and configured-prefix radius utilities', () => {
+    const v4 = radiusResetSpec('tw:');
+    expect(v4.match('tw:rounded-tl-lg!')).toBe(true);
+    expect(v4.match('!tw:rounded-s-md')).toBe(true);
+    expect(v4.match('tw:rounded-[12px_8px]')).toBe(true);
+    expect(v4.match('tw:hover:rounded-lg')).toBe(false);
+
+    const v3 = radiusResetSpec('tw-');
+    expect(v3.match('!tw-rounded-bl-lg')).toBe(true);
+    expect(v3.match('tw-rounded')).toBe(true);
   });
 });

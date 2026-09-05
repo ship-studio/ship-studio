@@ -214,7 +214,8 @@
   color: var(--text-secondary);
 }
 
-.ss-tree-row:hover {
+.ss-tree-row:hover,
+.ss-tree-row.hovered {
   background: var(--property-field-hover);
 }
 
@@ -225,7 +226,8 @@
 
 /* The read-only navigator uses neutral highlights; blue is reserved for active
    visual-editing state. */
-.ss-tree-panel--view-only .ss-tree-row:hover {
+.ss-tree-panel--view-only .ss-tree-row:hover,
+.ss-tree-panel--view-only .ss-tree-row.hovered {
   background: var(--surface-control-hover);
 }
 

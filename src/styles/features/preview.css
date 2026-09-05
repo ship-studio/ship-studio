@@ -1037,6 +1037,9 @@
   color: var(--text-primary);
   margin: var(--spacing-xs) 0 0;
 }
+.preview-status__loader {
+  margin-bottom: var(--spacing-sm);
+}
 .preview-status__icon {
   color: var(--text-muted);
 }

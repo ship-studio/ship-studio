@@ -9,13 +9,15 @@ import { useEffect, useRef, useState } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { TextField } from '../primitives/TextField';
-import { useModal } from '../../contexts/ModalContext';
+import { useModal, type ModalId } from '../../contexts/ModalContext';
 import { getForceStaticServe, setForceStaticServe } from '../../lib/project';
 import { logger } from '../../lib/logger';
 
 interface ProjectSettingsModalProps {
   currentPort: number;
   onSave: (port: number) => void;
+  /** Modal id used by the caller when more than one settings surface exists. */
+  modalId?: ModalId;
   /** Only shown for generic (non-web-framework) projects */
   customDevCommand?: string | null;
   onSaveDevCommand?: (command: string | null) => void;
@@ -27,12 +29,13 @@ interface ProjectSettingsModalProps {
 export function ProjectSettingsModal({
   currentPort,
   onSave,
+  modalId = 'projectSettings',
   customDevCommand,
   onSaveDevCommand,
   isWebProject,
   projectPath,
 }: ProjectSettingsModalProps) {
-  const { isOpen, close: onClose } = useModal('projectSettings');
+  const { isOpen, close: onClose } = useModal(modalId);
   const [port, setPort] = useState(currentPort);
   const [devCommand, setDevCommand] = useState(customDevCommand ?? '');
   const showDevCommand = !isWebProject && onSaveDevCommand;

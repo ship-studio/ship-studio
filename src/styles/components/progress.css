@@ -1,0 +1,47 @@
+/* ===== Primitive: Progress ===== */
+.ss-progress {
+  display: flex;
+  width: 100%;
+  height: var(--progress-height);
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--progress-track);
+  border-radius: var(--progress-radius);
+}
+
+.ss-progress__indicator {
+  display: block;
+  width: 0;
+  height: 100%;
+  flex: 0 0 auto;
+  background: var(--progress-indicator);
+  border-radius: inherit;
+  transition: width var(--progress-transition);
+}
+
+.ss-progress--indeterminate .ss-progress__indicator {
+  width: var(--progress-indeterminate-width);
+  animation: ss-progress-indeterminate var(--progress-indeterminate-duration)
+    var(--progress-indeterminate-easing) infinite;
+}
+
+@keyframes ss-progress-indeterminate {
+  from {
+    transform: translateX(-125%);
+  }
+
+  to {
+    transform: translateX(325%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-progress__indicator {
+    transition: none;
+  }
+
+  .ss-progress--indeterminate .ss-progress__indicator {
+    animation: none;
+    transform: translateX(0);
+  }
+}

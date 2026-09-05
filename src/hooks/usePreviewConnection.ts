@@ -62,6 +62,9 @@ interface UsePreviewConnectionParams {
   projectPath: string;
   isDevServerRestarting: boolean;
   isStaticProject: boolean;
+  /** Keep the preview shell mounted without probing a placeholder port while
+   *  project setup is still reserving the real dev-server port. */
+  enabled?: boolean;
   onServerReady?: () => void;
   onPageChange?: (page: string) => void;
   onSendToClaude?: (prompt: string) => void;
@@ -73,6 +76,7 @@ export function usePreviewConnection({
   projectPath,
   isDevServerRestarting,
   isStaticProject,
+  enabled = true,
   onServerReady,
   onPageChange,
   onSendToClaude,
@@ -170,7 +174,9 @@ export function usePreviewConnection({
     }, IFRAME_BLANK_TIMEOUT_MS);
   }, [clearIframeWatchdogTimer]);
 
-  // Reset state when project or port changes
+  // Reset state when project, port, or connection availability changes. The
+  // Preview surface can mount before the project has reserved a real port;
+  // keep its loading shell visible but do not probe the 3000 placeholder.
   useEffect(() => {
     setIsLoading(true);
     setHasError(false);
@@ -189,9 +195,11 @@ export function usePreviewConnection({
     notFoundStreakRef.current = 0;
     sawHealthyRootRef.current = false;
 
+    if (!enabled) return;
+
     const timer = setTimeout(() => setRetryCount(0), 1500);
     return () => clearTimeout(timer);
-  }, [projectPath, port]);
+  }, [projectPath, port, enabled]);
 
   // Reset server state when dev server is restarting, start polling when done
   useEffect(() => {
@@ -498,6 +506,10 @@ export function usePreviewConnection({
 
   // Server check polling
   useEffect(() => {
+    if (!enabled) {
+      logger.info('[Preview] Waiting for the project port before checking the server');
+      return;
+    }
     if (retryCount < 0) {
       logger.info('[Preview] Waiting for old server to die (retryCount=-1)');
       return;
@@ -567,11 +579,11 @@ export function usePreviewConnection({
       readyProbeControllerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- port is covered by devServerUrl
-  }, [devServerUrl, retryCount, isStopped]);
+  }, [devServerUrl, retryCount, isStopped, enabled]);
 
   // Periodic health check after server is ready
   useEffect(() => {
-    if (!serverReady) {
+    if (!enabled || !serverReady) {
       healthCheckFailuresRef.current = 0;
       return;
     }
@@ -663,7 +675,7 @@ export function usePreviewConnection({
       stopPolling();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [serverReady, port]);
+  }, [enabled, serverReady, port]);
 
   // Handlers
   const handleRefresh = useCallback(() => {

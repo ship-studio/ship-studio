@@ -106,6 +106,10 @@ interface ProjectServerState {
    *  project — a guessed port screenshots someone else's server). */
   portKnown: boolean;
   type: ProjectType;
+  /** True once project-type detection has completed, including a deliberate
+   *  `unknown` result. Keeps the Preview surface mounted while detection is
+   *  still in flight without treating an unpreviewable project as a web app. */
+  projectTypeResolved: boolean;
   customCommand: string | null;
   outputBuffer: string;
   healthBuffer: string;
@@ -171,6 +175,7 @@ function makeState(): ProjectServerState {
     port: DEFAULT_PORT,
     portKnown: false,
     type: 'unknown',
+    projectTypeResolved: false,
     customCommand: null,
     outputBuffer: '',
     healthBuffer: '',
@@ -249,9 +254,9 @@ export function useDevServer(currentProjectPath: string | null) {
   // project's live state entirely (by design), but the Preview tab must stay
   // visible while nothing is running — so we keep the detected type and any
   // custom dev command here and fall back to them in the scalar views below.
-  const lastKnownRef = useRef<Map<string, { type: ProjectType; customCommand: string | null }>>(
-    new Map()
-  );
+  const lastKnownRef = useRef<
+    Map<string, { type: ProjectType; projectTypeResolved: boolean; customCommand: string | null }>
+  >(new Map());
   // Sync the ref synchronously during render so handlers that fire between
   // a `setCurrentProject(...)` state update and the next committed render
   // still see the incoming path via the optional `projectPath` argument.
@@ -298,6 +303,8 @@ export function useDevServer(currentProjectPath: string | null) {
   const knownDevServerPort = activeState?.portKnown ? activeState.port : null;
   const lastKnown = currentProjectPath ? lastKnownRef.current.get(currentProjectPath) : undefined;
   const projectType = activeState?.type ?? lastKnown?.type ?? 'unknown';
+  const projectTypeResolved =
+    activeState?.projectTypeResolved ?? lastKnown?.projectTypeResolved ?? false;
   const customDevCommand = activeState?.customCommand ?? lastKnown?.customCommand ?? null;
   const needsInstall = activeState?.needsInstall ?? null;
   const devServerOutputVersion = activeState?.outputVersion ?? 0;
@@ -377,6 +384,7 @@ export function useDevServer(currentProjectPath: string | null) {
       if (!path) return;
       const s = getOrCreateState(path);
       s.type = type;
+      s.projectTypeResolved = true;
       bump();
     },
     [bump, getOrCreateState]
@@ -566,6 +574,7 @@ export function useDevServer(currentProjectPath: string | null) {
       s.suppressed = false;
       s.port = port;
       s.portKnown = true;
+      s.projectTypeResolved = false;
       // A fresh spawn supersedes any prior death — clear the record so the
       // Preview pane doesn't keep reporting a stale "process stopped".
       s.unexpectedExit = null;
@@ -614,6 +623,7 @@ export function useDevServer(currentProjectPath: string | null) {
       }
 
       s.type = detectedType;
+      s.projectTypeResolved = true;
       bump();
 
       // Now verify `node_modules` exists. If not, the dev server would fail
@@ -892,7 +902,11 @@ export function useDevServer(currentProjectPath: string | null) {
       // lastKnownRef), then drop the live entry so the map doesn't leak for
       // closed projects. (Pinned-project guards in useProjectLifecycle make
       // sure we don't call stopServer for hot projects we intend to keep.)
-      lastKnownRef.current.set(targetPath, { type: s.type, customCommand: s.customCommand });
+      lastKnownRef.current.set(targetPath, {
+        type: s.type,
+        projectTypeResolved: s.projectTypeResolved,
+        customCommand: s.customCommand,
+      });
       statesRef.current.delete(targetPath);
       bump();
     },
@@ -1129,6 +1143,7 @@ export function useDevServer(currentProjectPath: string | null) {
     knownDevServerPort,
     setDevServerPort,
     projectType,
+    projectTypeResolved,
     setProjectType,
     isRestartingDevServer,
     customDevCommand,

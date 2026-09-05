@@ -1,7 +1,7 @@
 /**
- * Structural element editing — insert / duplicate / delete elements on the
+ * Structural element editing — insert / duplicate / delete / paste elements on the
  * canvas, committed straight to source. Backend: `insert_element` /
- * `duplicate_element` / `delete_element` in
+ * `duplicate_element` / `paste_element` / `delete_element` in
  * `src-tauri/src/commands/edit_structure.rs`.
  */
 
@@ -98,6 +98,21 @@ export function duplicateElement(
   signature: ElementSignature
 ): Promise<InsertedElement> {
   return invoke<InsertedElement>('duplicate_element', { projectPath, signature });
+}
+
+/** Paste a captured element subtree inside the selected element. */
+export function pasteElement(
+  projectPath: string,
+  signature: ElementSignature,
+  html: string,
+  sourceClassName: string
+): Promise<InsertedElement> {
+  return invoke<InsertedElement>('paste_element', {
+    projectPath,
+    signature,
+    html,
+    sourceClassName,
+  });
 }
 
 /** Delete the selected element's markup, drift-guarded against `oldHtml`. */

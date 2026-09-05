@@ -1,5 +1,5 @@
 /**
- * Tests for the boot loading screen watchdog (#173): the spinner must give
+ * Tests for the boot loading screen watchdog (#173): the progress bar must give
  * way to a restart prompt if the app is still deciding its initial view
  * after BOOT_WATCHDOG_MS.
  */
@@ -25,9 +25,13 @@ describe('BootLoadingScreen', () => {
     vi.useRealTimers();
   });
 
-  it('shows the logo and spinner initially', () => {
+  it('shows the logo and progress bar initially', () => {
     render(<BootLoadingScreen />);
     expect(screen.getByAltText('Ship Studio')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Starting Ship Studio' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    );
     expect(screen.queryByText(/taking longer than expected/)).not.toBeInTheDocument();
   });
 
@@ -39,7 +43,7 @@ describe('BootLoadingScreen', () => {
     expect(screen.queryByText(/taking longer than expected/)).not.toBeInTheDocument();
   });
 
-  it('swaps the spinner for a restart prompt after the watchdog fires', () => {
+  it('swaps the progress bar for a restart prompt after the watchdog fires', () => {
     render(<BootLoadingScreen />);
     act(() => {
       vi.advanceTimersByTime(BOOT_WATCHDOG_MS);

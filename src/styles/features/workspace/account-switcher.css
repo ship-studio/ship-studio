@@ -1,0 +1,223 @@
+/* Upward-opening account switcher for the workspace sidebar footer. */
+
+.workspace-switcher {
+  --workspace-switcher-summary-height: var(--control-height-standard);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  max-height: calc(var(--workspace-switcher-summary-height) + (var(--spacing-2xs) * 2));
+  padding: var(--spacing-2xs);
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+  transition:
+    width var(--transition-interaction),
+    max-height var(--transition-interaction),
+    background-color var(--transition-interaction),
+    box-shadow var(--transition-interaction);
+}
+
+.workspace-switcher.is-open {
+  max-height: calc(var(--spacing-2xl) * 10);
+  background: var(--surface-control);
+  box-shadow: var(--shadow-sm);
+}
+
+.workspace-switcher .workspace-sidebar-ws-switch {
+  height: var(--workspace-switcher-summary-height);
+  min-height: var(--workspace-switcher-summary-height);
+  font-size: var(--font-size-body-md);
+  gap: var(--spacing-sm);
+}
+
+.workspace-switcher-summary {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: var(--spacing-sm);
+  text-align: left;
+}
+
+.workspace-switcher-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  flex: 0 0 var(--size-icon-sm);
+  border-radius: var(--radius-pill);
+  color: var(--text-inverse);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-heading);
+  line-height: 1;
+  text-align: center;
+}
+
+.workspace-switcher-option-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-icon-button);
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+}
+
+.workspace-switcher-name,
+.workspace-switcher-option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-name {
+  flex: 1;
+}
+
+.workspace-switcher-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-icon-sm);
+  transition: transform var(--transition-interaction-fast);
+}
+
+.workspace-switcher-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.workspace-switcher-options {
+  order: -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  max-height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0 var(--spacing-xs);
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--spacing-xs)));
+  transition:
+    max-height var(--transition-interaction),
+    margin-bottom var(--transition-interaction),
+    padding-top var(--transition-interaction),
+    padding-bottom var(--transition-interaction),
+    opacity var(--transition-interaction),
+    transform var(--transition-interaction);
+}
+
+.workspace-switcher.is-open .workspace-switcher-options {
+  max-height: calc(var(--spacing-2xl) * 8);
+  margin-bottom: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  overflow-y: auto;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* The collapsed rail keeps the closed switcher controls available at the
+ * same square footprint as the other footer controls. */
+.workspace-sidebar.is-hidden .workspace-switcher {
+  width: var(--control-height-standard);
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  max-height: var(--control-height-standard);
+  flex: 0 0 var(--control-height-standard);
+  padding: 0;
+  transition: none;
+}
+
+.workspace-sidebar.is-hidden .workspace-switcher.is-open {
+  max-height: var(--control-height-standard);
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  z-index: var(--z-dropdown);
+}
+
+.workspace-switcher-options.is-portal {
+  position: fixed;
+  box-sizing: border-box;
+  top: auto;
+  bottom: auto;
+  right: auto;
+  left: auto;
+  display: block;
+  width: max-content;
+  min-width: 0;
+  max-width: calc(100vw - (var(--spacing-sm) * 2));
+  max-height: min(calc(var(--spacing-2xl) * 8), calc(100vh - (var(--spacing-sm) * 2)));
+  margin: 0;
+  padding: var(--spacing-xs);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+  opacity: 1;
+  transform: translateY(0);
+  transition: none;
+  z-index: var(--z-workspace-header);
+}
+
+.workspace-switcher-options-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+  width: 100%;
+}
+
+.workspace-switcher-options.is-portal .workspace-switcher-options-stack {
+  display: grid;
+  grid-template-columns: max-content;
+  grid-auto-rows: max-content;
+  width: max-content;
+  row-gap: var(--spacing-2xs);
+}
+
+.workspace-switcher-options.is-portal .workspace-switcher-options-stack .button {
+  width: auto;
+  justify-self: stretch;
+}
+
+.workspace-switcher-options.is-portal .workspace-switcher-option-list {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr);
+  grid-auto-rows: max-content;
+  min-width: 0;
+  width: auto;
+  row-gap: var(--spacing-2xs);
+}
+
+.workspace-switcher-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+
+.workspace-switcher-option {
+  justify-content: flex-start;
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  padding-inline: var(--button-padding);
+}
+
+.workspace-switcher-option-name {
+  flex: 1;
+  text-align: left;
+}
+
+.workspace-switcher-new,
+.workspace-switcher-manage {
+  justify-content: flex-start;
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  padding-inline: var(--button-padding);
+  color: var(--text-muted);
+}

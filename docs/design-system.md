@@ -395,6 +395,25 @@ Gotcha: the spinning arc uses `currentColor` — tint it by setting `color` on t
 (`style={{ color: 'var(--accent-active)' }}`) or let it inherit; inside a green action button it's
 automatically dark. The track stays `var(--border)`.
 
+### Progress — [Progress.tsx](../src/components/primitives/Progress.tsx)
+
+`Progress` is a dependency-free progressbar primitive for work with a known completion value. It
+also supports an indeterminate state when `value` is omitted or `null`.
+
+| Prop | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `value` | `number \| null` | `undefined` | Current value; omit or pass `null` for indeterminate progress. Values are clamped to `0..max`. |
+| `max` | `number` | `100` | The value that represents completion. Invalid or non-positive values fall back to `100`. |
+| native div attributes | `HTMLAttributes<HTMLDivElement>` | — | Supports `className`, `style`, labels, and other native attributes. |
+
+```tsx
+<Progress value={56} aria-label="Upload progress" />
+```
+
+The track and indicator use the shared surface and brand-green tokens. The root exposes native
+`progressbar` semantics, including `aria-valuemin`, `aria-valuemax`, and `aria-valuenow` for
+determinate progress; indeterminate progress intentionally omits `aria-valuenow`.
+
 ### PixelLoader — [PixelLoader.tsx](../src/components/primitives/PixelLoader.tsx)
 
 `PixelLoader` is a separate experimental activity indicator; it does not replace or modify

@@ -111,7 +111,9 @@
 .ss-var-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: start;
+  /* Match CSS declaration rows: align the first line, then let a long value
+     continue below it without vertically centering the name and colon. */
+  align-items: baseline;
   column-gap: var(--spacing-xs);
   padding: 3px 4px; /* css-ok: dense token row */
   margin: 0 -4px; /* css-ok: edge-to-edge row */
@@ -130,6 +132,8 @@
   box-sizing: border-box;
   flex: 0 0 auto;
   align-self: flex-start;
+  /* Keep the chip centered on the first text line, not the whole wrapped value. */
+  margin-block-start: var(--space-02);
   width: var(--size-icon-button);
   height: var(--size-icon-button);
   border: var(--stroke-1) solid var(--border-default);
@@ -219,14 +223,14 @@
 }
 .ss-var-row__value-group {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   min-width: 0;
   gap: var(--spacing-xs);
 }
 
 .ss-var-row__value {
   display: block;
-  align-self: start;
+  align-self: baseline;
   min-width: 0;
   width: 100%;
   min-height: var(--control-height-compact);

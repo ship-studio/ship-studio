@@ -349,34 +349,35 @@ export function WorkspaceModals({
         <ModalFrame
           isOpen
           onClose={onCloseAutoAcceptWarning}
-          ariaLabel="Enable Auto-Accept Mode?"
+          title="Auto Accept Mode"
           className="auto-accept-warning-modal"
-          showCloseButton={false}
         >
-          <div className="auto-accept-warning-icon">
-            <ZapIcon size={32} />
-          </div>
-          <h3>Enable Auto-Accept Mode?</h3>
-          <p>
-            This mode allows {agentDisplayName} to execute commands{' '}
-            <strong>without asking for permission</strong>. {agentDisplayName} will be able to:
-          </p>
-          <ul className="auto-accept-warning-list">
-            <li>Read and modify any files in your project</li>
-            <li>Run shell commands automatically</li>
-            <li>Make changes without confirmation</li>
-          </ul>
-          <p className="auto-accept-warning-disclaimer">
-            By enabling this mode, you acknowledge that Ship Studio and Anthropic are{' '}
-            <strong>not liable</strong> for any unintended changes or actions taken by the AI.
-          </p>
-          <div className="modal-actions">
-            <Button variant="secondary" onClick={onCloseAutoAcceptWarning}>
-              Cancel
-            </Button>
-            <Button variant="warning" onClick={onAcceptAutoAcceptWarning}>
-              I understand, enable it
-            </Button>
+          <div className="auto-accept-warning-body">
+            <div className="auto-accept-warning-icon">
+              <ZapIcon size={32} />
+            </div>
+            <h3>Enable Auto-Accept Mode?</h3>
+            <p>
+              This mode allows {agentDisplayName} to execute commands{' '}
+              <strong>without asking for permission</strong>. {agentDisplayName} will be able to:
+            </p>
+            <ul className="auto-accept-warning-list">
+              <li>Read and modify any files in your project</li>
+              <li>Run shell commands automatically</li>
+              <li>Make changes without confirmation</li>
+            </ul>
+            <p className="auto-accept-warning-disclaimer">
+              By enabling this mode, you acknowledge that Ship Studio and Anthropic are{' '}
+              <strong>not liable</strong> for any unintended changes or actions taken by the AI.
+            </p>
+            <div className="modal-actions">
+              <Button variant="secondary" onClick={onCloseAutoAcceptWarning}>
+                Cancel
+              </Button>
+              <Button variant="warning" onClick={onAcceptAutoAcceptWarning}>
+                I understand, enable it
+              </Button>
+            </div>
           </div>
         </ModalFrame>
       )}

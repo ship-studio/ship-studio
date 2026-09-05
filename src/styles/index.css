@@ -20,7 +20,9 @@
 @import './components/property-field.css';
 @import './components/empty-state.css';
 @import './components/dropdown.css';
+@import './components/context-menu.css';
 @import './components/spinner.css';
+@import './components/progress.css';
 @import './components/pixel-loader.css';
 @import './components/text-field.css';
 @import './components/modal.css';
@@ -50,6 +52,7 @@
 @import './features/workspace/terminal.css';
 @import './features/workspace/sidebar.css';
 @import './features/workspace/spotify-widget.css';
+@import './features/workspace/account-switcher.css';
 @import './features/workspace/connect-overlay.css';
 @import './features/workspace/compact-workspace.css';
 @import './features/toolbar.css';

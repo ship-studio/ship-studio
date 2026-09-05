@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../lib/project';
 import { sessionRegistry } from '../lib/sessionRegistry';
 import { useModal } from '../contexts/ModalContext';
 import { basename } from '../lib/paths';
+import { isMac } from '../lib/setup';
 import { familyRootOf, ensureFamilyRoot } from '../lib/worktreeFamilies';
 
 interface Params {
@@ -13,8 +15,8 @@ interface Params {
 }
 
 /**
- * Global Cmd/Ctrl+1..9 shortcuts to jump to the Nth project in the
- * sidebar's effective order: pinned rows first, then active sessions
+ * Global Cmd/Ctrl+1..9 shortcuts to jump to the Nth project in the sidebar's
+ * effective order: pinned rows first, then active sessions
  * (deduped against pinned, sorted by path — matches `WorkspaceSidebar`).
  *
  * The ordering is read fresh on each keystroke from a ref + the session
@@ -30,12 +32,9 @@ export function useProjectNumberShortcuts({ pinnedPaths, handleSelectProject }: 
   }, [pinnedPaths, handleSelectProject, palette.close]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.shiftKey || e.altKey) return;
-      if (e.key.length !== 1 || e.key < '1' || e.key > '9') return;
+    const switchProject = (index: number): boolean => {
+      if (!Number.isInteger(index) || index < 0 || index > 8) return false;
 
-      const index = parseInt(e.key, 10) - 1;
       const { pinnedPaths: pins, handleSelectProject: open, closePalette } = latest.current;
 
       const pinSet = new Set(pins);
@@ -54,16 +53,37 @@ export function useProjectNumberShortcuts({ pinnedPaths, handleSelectProject }: 
 
       const ordered = [...pins, ...activePaths];
       const path = ordered[index];
-      if (!path) return;
+      if (!path) return false;
 
-      e.preventDefault();
-      e.stopPropagation();
       closePalette();
       const name = basename(path) || 'Project';
       void open({ name, path, thumbnail: null });
+      return true;
+    };
+
+    const handler = (e: KeyboardEvent) => {
+      // macOS registers this accelerator with the native menu so it also works
+      // from the cross-origin preview iframe. Avoid handling the same keydown
+      // a second time if WebKit also forwards it to the app frame.
+      if (isMac()) return;
+      if (!e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      if (e.key.length !== 1 || e.key < '1' || e.key > '9') return;
+
+      const index = parseInt(e.key, 10) - 1;
+      if (!switchProject(index)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
     };
 
     window.addEventListener('keydown', handler, { capture: true });
-    return () => window.removeEventListener('keydown', handler, { capture: true });
+    const unlisten = listen<number>('switch-project-shortcut', ({ payload }) => {
+      switchProject(payload - 1);
+    });
+
+    return () => {
+      window.removeEventListener('keydown', handler, { capture: true });
+      void unlisten.then((fn) => fn());
+    };
   }, []);
 }

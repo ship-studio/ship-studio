@@ -12,6 +12,7 @@ import { listAgentSkills, AgentSkill } from '../lib/claude';
 import { trackEvent } from '../lib/analytics';
 import { logger } from '../lib/logger';
 import { kbd } from '../lib/shortcuts';
+import { isMac } from '../lib/setup';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Tabs, TabsList, TabsPanel, TabsTab } from './primitives/Tabs';
 import { useModal } from '../contexts/ModalContext';
@@ -28,7 +29,32 @@ interface HelpShortcut {
   keys: string[];
 }
 
+const DEFAULT_WORKSPACE_PANEL_LABELS = ['Agent', 'Elements', 'Variables', 'Assets', 'Plugins'];
+
+function getWorkspacePanelLabels(): string[] {
+  if (typeof document === 'undefined') return DEFAULT_WORKSPACE_PANEL_LABELS;
+
+  const labels = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(
+      '.workspace-panel-group button[data-workspace-panel]'
+    )
+  )
+    .map((button) => button.getAttribute('aria-label')?.trim())
+    .filter((label): label is string => Boolean(label));
+
+  return labels.length > 0 ? labels : DEFAULT_WORKSPACE_PANEL_LABELS;
+}
+
 function getHelpShortcuts(): HelpShortcut[] {
+  const panelShortcuts = getWorkspacePanelLabels()
+    .slice(0, 5)
+    .map((label, index) => ({
+      id: `workspace-panel-${index + 1}`,
+      label: `Toggle ${label} panel`,
+      description: `Open or close the ${label} panel (toolbar position ${index + 1})`,
+      keys: [String(index + 1)],
+    }));
+
   return [
     {
       id: 'command-palette',
@@ -45,20 +71,49 @@ function getHelpShortcuts(): HelpShortcut[] {
     {
       id: 'switch-project',
       label: 'Switch project',
-      description: 'Jump to a pinned project or active workspace',
+      description: 'Jump to a pinned or active project',
       keys: [kbd('mod', '1–9')],
+    },
+    {
+      id: 'switch-workspace',
+      label: 'Switch workspace',
+      description: 'Switch to the workspace in the matching account-picker position',
+      keys: [kbd('alt', '1–9')],
+    },
+    ...panelShortcuts,
+    ...(isMac()
+      ? [
+          {
+            id: 'switch-workspace-mode',
+            label: 'Switch workspace mode',
+            description: 'Switch to Preview, Focus, or Code (1–3 respectively)',
+            keys: [kbd('mod', 'ctrl', '1–3')],
+          },
+        ]
+      : []),
+    {
+      id: 'switch-terminal-tab',
+      label: 'Switch terminal/agent tab',
+      description: 'Switch to terminal or agent tab 1–9 in the current project',
+      keys: [isMac() ? kbd('ctrl', '1–9') : kbd('ctrl', 'alt', '1–9')],
+    },
+    {
+      id: 'toggle-edit-mode',
+      label: 'Toggle Edit mode',
+      description: 'Turn visual editing on or off in Preview',
+      keys: [kbd('mod', 'E')],
+    },
+    {
+      id: 'toggle-inspector',
+      label: 'Toggle Inspector',
+      description: 'Open or close the Preview inspector panel',
+      keys: [kbd('mod', 'I')],
     },
     {
       id: 'help',
       label: 'Open Help & Commands',
       description: 'Show this reference',
       keys: [kbd('mod', '/'), 'F1'],
-    },
-    {
-      id: 'switch-terminal-tab',
-      label: 'Switch terminal tab',
-      description: 'Switch to terminal tab 1–5 in the current project',
-      keys: [kbd('mod', '1–5')],
     },
     {
       id: 'new-terminal-tab',
@@ -89,6 +144,36 @@ function getHelpShortcuts(): HelpShortcut[] {
       label: 'Redo agent changes',
       description: 'Redo the last undone working-tree snapshot',
       keys: [kbd('mod', 'shift', 'Z')],
+    },
+    {
+      id: 'copy-element',
+      label: 'Copy selected element',
+      description: 'Copy the selected element and its children in Edit mode',
+      keys: [kbd('mod', 'C')],
+    },
+    {
+      id: 'cut-element',
+      label: 'Cut selected element',
+      description: 'Cut the selected element and its children in Edit mode',
+      keys: [kbd('mod', 'X')],
+    },
+    {
+      id: 'paste-element',
+      label: 'Paste element',
+      description: 'Paste the copied or cut element inside the selection',
+      keys: [kbd('mod', 'V')],
+    },
+    {
+      id: 'duplicate-element',
+      label: 'Duplicate selected element',
+      description: 'Duplicate the selected element and its children in Edit mode',
+      keys: [kbd('mod', 'D')],
+    },
+    {
+      id: 'delete-element',
+      label: 'Delete selected element',
+      description: 'Delete the selected element and its children in Edit mode',
+      keys: [kbd('⌫')],
     },
     {
       id: 'save-code',

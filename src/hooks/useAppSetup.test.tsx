@@ -25,6 +25,8 @@ function makeParams() {
     setView: vi.fn(),
     setCurrentProject: vi.fn(),
     setDevServerPort: vi.fn(),
+    setWorkspaceTab: vi.fn(),
+    setIsPreviewHidden: vi.fn(),
     handleSelectProject: vi.fn().mockResolvedValue(undefined),
     refreshAllCliStatuses: vi.fn().mockResolvedValue(undefined),
     setProjectGitHubStatus: vi.fn(),
@@ -84,6 +86,8 @@ describe('useAppSetup HMR recovery vs. closing a project', () => {
       );
     });
     expect(params.setView).toHaveBeenCalledWith('workspace');
+    expect(params.setWorkspaceTab).toHaveBeenCalledWith('preview');
+    expect(params.setIsPreviewHidden).toHaveBeenCalledWith(false);
   });
 
   it('leaves the user on the dashboard once the close clears the sentinel', async () => {

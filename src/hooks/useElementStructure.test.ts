@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { fireEvent, renderHook, act } from '@testing-library/react';
 
 vi.mock('../lib/edit-structure', async (importActual) => {
   const actual = await importActual<typeof import('../lib/edit-structure')>();
@@ -18,6 +18,7 @@ vi.mock('../lib/edit-structure', async (importActual) => {
     insertElement: vi.fn(),
     duplicateElement: vi.fn(),
     deleteElement: vi.fn(),
+    pasteElement: vi.fn(),
   };
 });
 vi.mock('../lib/edit-html', () => ({
@@ -31,7 +32,12 @@ import {
   structuralEditMessage,
   isExpectedStructuralRefusal,
 } from './useElementStructure';
-import { insertElement, duplicateElement, deleteElement } from '../lib/edit-structure';
+import {
+  insertElement,
+  duplicateElement,
+  deleteElement,
+  pasteElement,
+} from '../lib/edit-structure';
 import { resolveElementHtml } from '../lib/edit-html';
 
 type Fn = ReturnType<typeof vi.fn>;
@@ -97,10 +103,16 @@ beforeEach(() => {
     tagName: 'section',
   });
   (deleteElement as Fn).mockResolvedValue(undefined);
+  (pasteElement as Fn).mockResolvedValue({
+    file: 'src/pages/index.astro',
+    line: 16,
+    className: 'hero ss-section-ef56',
+    tagName: 'section',
+  });
   (resolveElementHtml as Fn).mockResolvedValue({
     file: 'src/pages/index.astro',
     line: 8,
-    html: '<section class="hero">…</section>',
+    html: '<section class="hero"><p class="child">Child</p></section>',
   });
 });
 
@@ -169,6 +181,172 @@ describe('useElementStructure', () => {
     vi.useRealTimers();
   });
 
+  it('copy captures the selected element markup, including its descendants', async () => {
+    const { result, iframeRef, onToast } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+
+    await act(async () => {
+      await result.current.copy();
+    });
+
+    expect(resolveElementHtml as Fn).toHaveBeenCalledWith('/proj', SIG);
+    expect(result.current.hasClipboard).toBe(true);
+    expect(result.current.clipboardSourceNodeId).toBe(7);
+    expect(onToast).toHaveBeenCalledWith('Element copied', 'success');
+  });
+
+  it('cut captures the subtree only after deleting the source element', async () => {
+    const { result, iframeRef, onToast } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+
+    await act(async () => {
+      await result.current.cut();
+    });
+
+    expect(deleteElement as Fn).toHaveBeenCalledWith(
+      '/proj',
+      SIG,
+      '<section class="hero"><p class="child">Child</p></section>'
+    );
+    expect(result.current.selection).toBeNull();
+    expect(result.current.hasClipboard).toBe(true);
+    expect(onToast).toHaveBeenCalledWith('Element cut', 'success');
+  });
+
+  it('pastes the captured subtree inside the selected destination', async () => {
+    const { result, iframeRef } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+    await act(async () => {
+      await result.current.copy();
+    });
+
+    const target = { ...SIG, className: 'shell', tagName: 'main', nodeId: 9 };
+    await dispatch({ type: 'ss:select', signature: target, count: 1, nodeId: 9 }, source);
+    await act(async () => {
+      await result.current.paste();
+    });
+
+    expect(pasteElement as Fn).toHaveBeenCalledWith(
+      '/proj',
+      target,
+      '<section class="hero"><p class="child">Child</p></section>',
+      'hero'
+    );
+    expect(result.current.hasClipboard).toBe(true);
+  });
+
+  it('handles Cmd/Ctrl+C, X, and V from the host window', async () => {
+    const { result, iframeRef } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'c', metaKey: true });
+      await Promise.resolve();
+    });
+    expect(result.current.hasClipboard).toBe(true);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'x', metaKey: true });
+      await Promise.resolve();
+    });
+    expect(deleteElement as Fn).toHaveBeenCalledWith(
+      '/proj',
+      SIG,
+      '<section class="hero"><p class="child">Child</p></section>'
+    );
+
+    await dispatch(
+      { type: 'ss:select', signature: { ...SIG, className: 'shell', tagName: 'main' }, nodeId: 9 },
+      source
+    );
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'v', metaKey: true });
+      await Promise.resolve();
+    });
+    expect(pasteElement as Fn).toHaveBeenCalled();
+  });
+
+  it('handles Cmd/Ctrl+D and Backspace from the host window', async () => {
+    const { result, iframeRef } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'd', metaKey: true });
+      await Promise.resolve();
+    });
+    expect(duplicateElement as Fn).toHaveBeenCalledWith('/proj', SIG);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Backspace' });
+      await Promise.resolve();
+    });
+    expect(deleteElement as Fn).toHaveBeenCalledWith(
+      '/proj',
+      SIG,
+      '<section class="hero"><p class="child">Child</p></section>'
+    );
+    expect(result.current.selection).toBeNull();
+  });
+
+  it('handles native macOS clipboard commands through the element actions', async () => {
+    const { result, iframeRef } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+
+    await act(async () => {
+      fireEvent.copy(document);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.hasClipboard).toBe(true);
+
+    await act(async () => {
+      fireEvent.cut(document);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(deleteElement as Fn).toHaveBeenCalledWith(
+      '/proj',
+      SIG,
+      '<section class="hero"><p class="child">Child</p></section>'
+    );
+
+    await dispatch(
+      { type: 'ss:select', signature: { ...SIG, className: 'shell', tagName: 'main' }, nodeId: 9 },
+      source
+    );
+    await act(async () => {
+      fireEvent.paste(document);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pasteElement as Fn).toHaveBeenCalled();
+  });
+
+  it('handles element shortcuts forwarded from the preview iframe', async () => {
+    const { result, iframeRef } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1, nodeId: 7 }, source);
+
+    await dispatch({ type: 'ss:elementShortcut', key: 'c' }, source);
+    await dispatch({ type: 'ss:elementShortcut', key: 'd' }, source);
+    await dispatch({ type: 'ss:elementShortcut', key: 'backspace' }, source);
+
+    expect(result.current.hasClipboard).toBe(true);
+    expect(resolveElementHtml as Fn).toHaveBeenCalledWith('/proj', SIG);
+    expect(duplicateElement as Fn).toHaveBeenCalledWith('/proj', SIG);
+    expect(deleteElement as Fn).toHaveBeenCalledWith(
+      '/proj',
+      SIG,
+      '<section class="hero"><p class="child">Child</p></section>'
+    );
+  });
+
   it('delete resolves fresh markup as the drift baseline and clears the selection', async () => {
     const { result, iframeRef, onToast } = setup();
     const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
@@ -180,7 +358,7 @@ describe('useElementStructure', () => {
     expect(deleteElement as Fn).toHaveBeenCalledWith(
       '/proj',
       SIG,
-      '<section class="hero">…</section>'
+      '<section class="hero"><p class="child">Child</p></section>'
     );
     expect(result.current.selection).toBeNull();
     expect(onToast).toHaveBeenCalledWith('Element deleted — affects 2 copies', 'success');

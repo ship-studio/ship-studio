@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,7 @@ import {
   BellIcon,
   ChevronIcon,
   CloseIcon,
+  EditFieldIcon,
   HomeIcon,
   PanelLeftIcon,
   PinIcon,
@@ -32,13 +34,18 @@ import {
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
+import { Spinner } from '../primitives/Spinner';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { PixelLoaderRings } from './PixelLoaderRings';
 import { SpotifyWidget } from './SpotifyWidget';
 import { UpdateBanner } from '../UpdateBanner';
+import { NewAccountModal } from '../accounts/NewAccountModal';
+import { RenameProjectModal } from '../dashboard/RenameProjectModal';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { useModal } from '../../contexts/ModalContext';
 import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../../lib/agent';
+import { getDevServerPort, setDevServerPort } from '../../lib/project';
+import { preferredPortForProject } from '../../lib/ports';
 import { type WorktreeInfo } from '../../lib/worktrees';
 import {
   familyRootOf,
@@ -53,7 +60,17 @@ import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
 import { kbd } from '../../lib/shortcuts';
 import { basename } from '../../lib/paths';
-import '../../styles/features/account-select.css';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import { setActiveAccountId, type Account } from '../../lib/accounts';
+import { ProjectSettingsModal } from './ProjectSettingsModal';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '../primitives/ContextMenu';
 import {
   sessionRegistry,
   type SessionSnapshot,
@@ -63,6 +80,9 @@ import {
 
 type SectionId = 'agents' | 'terminals' | 'worktrees' | 'commands';
 type GroupId = 'pinned' | 'projects';
+
+const WORKSPACE_SWITCHER_MENU_GUTTER = 8;
+const WORKSPACE_SWITCHER_MENU_OFFSET = 4;
 
 interface SidebarItem {
   key: string;
@@ -124,6 +144,10 @@ interface Props {
    *  live session to close — without it, a pin whose folder was moved or
    *  deleted outside the app could never be removed (issue #366). */
   onUnpinProject?: (projectPath: string) => void;
+  /** Rename a project folder and update the owning app state. */
+  onRenameProject?: (projectPath: string, newName: string) => Promise<void>;
+  /** Toggle whether a project is pinned in the sidebar. */
+  onTogglePinProject?: (projectPath: string, shouldPin: boolean) => void | Promise<void>;
   /**
    * Switch to a non-current project and focus a specific tab (by session id)
    * once the restore completes. The caller is responsible for persisting
@@ -162,6 +186,8 @@ interface Props {
    *  Used for background (non-current) project rows so their Commands section
    *  can reflect the live state. Evaluated on each render. */
   isProjectDevServerRunning?: (projectPath: string) => boolean;
+  /** Stop the dev server for any project represented by a sidebar row. */
+  onStopDevServer?: (projectPath: string) => void | Promise<void>;
 
   // Worktrees
   /** All worktrees of the current project's repository (`git worktree list`,
@@ -170,7 +196,7 @@ interface Props {
   /** Open the "New worktree" modal. When omitted, the section has no "+". */
   onAddWorktree?: () => void;
 
-  /** Open the "Switch Workspace" picker. When omitted, the footer button
+  /** Open the "Switch Workspace" picker. When omitted, the sidebar switcher
    *  showing the active Workspace is not rendered. */
   onSwitchAccount?: () => void;
 }
@@ -233,6 +259,10 @@ function projectInitials(name: string): string {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
   return cleaned.slice(0, 2).toUpperCase();
+}
+
+function workspaceInitial(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || '?';
 }
 
 /**
@@ -301,6 +331,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSelectProject,
   onCloseProject,
   onUnpinProject,
+  onRenameProject,
+  onTogglePinProject,
   onSelectProjectTab,
   terminalTabs,
   activeTerminalTab,
@@ -318,6 +350,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onRestartDevServer,
   devServerUrl,
   isProjectDevServerRunning,
+  onStopDevServer,
   worktrees,
   onAddWorktree,
   onSwitchAccount,
@@ -326,11 +359,230 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // 219, not 214: the top row gained Workflows and Inbox beside Home, and at the
   // old default the last one sat hard against the resize edge.
   const [sidebarWidth, setSidebarWidth] = useState(219);
+  const sidebarProjectSettingsModal = useModal('sidebarProjectSettings');
+  const sidebarProjectRenameModal = useModal('sidebarProjectRename');
+  const { showToast } = useOptionalToast();
+  const [projectSettingsTarget, setProjectSettingsTarget] = useState<Pick<
+    PinnedProjectRow,
+    'projectPath' | 'fallbackName'
+  > | null>(null);
+  const [projectSettingsPort, setProjectSettingsPort] = useState<number | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Pick<
+    PinnedProjectRow,
+    'projectPath' | 'fallbackName'
+  > | null>(null);
   const { activeAccount, accounts } = useActiveAccount(currentProjectPath);
+  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<string | null>(null);
+  const workspaceSwitcherRef = useRef<HTMLDivElement>(null);
+  const workspaceSwitcherOptionsRef = useRef<HTMLDivElement>(null);
+  const [workspaceSwitcherPosition, setWorkspaceSwitcherPosition] = useState<{
+    bottom: number;
+    left: number;
+  } | null>(null);
   // The Workspaces feature is invisible until you actually have more than one.
   // For the ~80% single-workspace users the footer switcher stays hidden; the
   // picker is still reachable any time via the ⌘K command below.
   const hasMultipleWorkspaces = accounts.length > 1;
+  const showWorkspaceSwitcher = Boolean(onSwitchAccount && activeAccount && hasMultipleWorkspaces);
+  const otherWorkspaces = accounts.filter((account) => account.id !== activeAccount?.id);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+
+  const handleOpenProjectSettings = useCallback(
+    async (row: Pick<PinnedProjectRow, 'projectPath' | 'fallbackName'>) => {
+      try {
+        const savedPort = await getDevServerPort(row.projectPath);
+        setProjectSettingsTarget(row);
+        setProjectSettingsPort(savedPort ?? preferredPortForProject(row.projectPath));
+        sidebarProjectSettingsModal.open();
+      } catch (error) {
+        showToast(
+          `Couldn't load settings for ${row.fallbackName}: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      }
+    },
+    [sidebarProjectSettingsModal, showToast]
+  );
+
+  const handleSaveProjectSettings = useCallback(
+    async (port: number) => {
+      if (!projectSettingsTarget) return;
+      try {
+        await setDevServerPort(projectSettingsTarget.projectPath, port);
+        showToast('Project settings saved', 'success');
+      } catch (error) {
+        showToast(
+          `Couldn't save settings for ${projectSettingsTarget.fallbackName}: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      }
+    },
+    [projectSettingsTarget, showToast]
+  );
+
+  const handleOpenRenameProject = useCallback(
+    (row: Pick<PinnedProjectRow, 'projectPath' | 'fallbackName'>) => {
+      if (!onRenameProject) return;
+      setRenameTarget(row);
+      sidebarProjectRenameModal.open();
+    },
+    [onRenameProject, sidebarProjectRenameModal]
+  );
+
+  const handleCloseRenameProject = useCallback(() => {
+    sidebarProjectRenameModal.close();
+    setRenameTarget(null);
+  }, [sidebarProjectRenameModal]);
+
+  const handleRenameProject = useCallback(
+    async (newName: string) => {
+      if (!renameTarget || !onRenameProject) return;
+      await onRenameProject(renameTarget.projectPath, newName);
+    },
+    [onRenameProject, renameTarget]
+  );
+
+  useEffect(() => {
+    if (!sidebarProjectSettingsModal.isOpen) {
+      setProjectSettingsTarget(null);
+      setProjectSettingsPort(null);
+    }
+  }, [sidebarProjectSettingsModal.isOpen]);
+
+  useEffect(() => {
+    if (!sidebarProjectRenameModal.isOpen) setRenameTarget(null);
+  }, [sidebarProjectRenameModal.isOpen]);
+
+  const closeWorkspaceSwitcher = useCallback(() => {
+    setWorkspaceSwitcherOpen(false);
+    setWorkspaceSwitcherPosition(null);
+  }, []);
+
+  const toggleWorkspaceSwitcher = useCallback(() => {
+    if (switchingWorkspaceId) return;
+    setWorkspaceSwitcherOpen((open) => {
+      if (open) setWorkspaceSwitcherPosition(null);
+      return !open;
+    });
+  }, [switchingWorkspaceId]);
+
+  const openNewWorkspace = useCallback(() => {
+    closeWorkspaceSwitcher();
+    setNewWorkspaceOpen(true);
+  }, [closeWorkspaceSwitcher]);
+
+  const handleWorkspaceSelect = useCallback(
+    async (account: Account) => {
+      if (switchingWorkspaceId) return;
+
+      if (account.id === activeAccount?.id) {
+        closeWorkspaceSwitcher();
+        return;
+      }
+
+      setSwitchingWorkspaceId(account.id);
+      try {
+        await setActiveAccountId(account.id);
+        closeWorkspaceSwitcher();
+        // Projects are scoped to the active workspace. Leave the current
+        // project before the sidebar resolves the new workspace indicator so
+        // the dashboard can load the correct project set.
+        onGoHome();
+      } catch (error) {
+        showToast(
+          `Failed to switch workspace: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      } finally {
+        setSwitchingWorkspaceId(null);
+      }
+    },
+    [activeAccount?.id, closeWorkspaceSwitcher, onGoHome, showToast, switchingWorkspaceId]
+  );
+
+  const updateWorkspaceSwitcherPosition = useCallback(() => {
+    const switcher = workspaceSwitcherRef.current;
+    if (!switcher) return;
+
+    const rect = switcher.getBoundingClientRect();
+    setWorkspaceSwitcherPosition({
+      bottom: Math.max(
+        WORKSPACE_SWITCHER_MENU_GUTTER,
+        window.innerHeight - rect.top + WORKSPACE_SWITCHER_MENU_OFFSET
+      ),
+      left: rect.left,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isSidebarHidden || !workspaceSwitcherOpen) return;
+
+    updateWorkspaceSwitcherPosition();
+    const handleViewportChange = () => updateWorkspaceSwitcherPosition();
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [isSidebarHidden, updateWorkspaceSwitcherPosition, workspaceSwitcherOpen]);
+
+  useLayoutEffect(() => {
+    if (!isSidebarHidden || !workspaceSwitcherOpen || !workspaceSwitcherPosition) return;
+    const menu = workspaceSwitcherOptionsRef.current;
+    if (!menu) return;
+
+    const rect = menu.getBoundingClientRect();
+    const maxLeft = Math.max(
+      WORKSPACE_SWITCHER_MENU_GUTTER,
+      window.innerWidth - rect.width - WORKSPACE_SWITCHER_MENU_GUTTER
+    );
+    const maxBottom = Math.max(
+      WORKSPACE_SWITCHER_MENU_GUTTER,
+      window.innerHeight - rect.height - WORKSPACE_SWITCHER_MENU_GUTTER
+    );
+    const left = Math.min(
+      Math.max(WORKSPACE_SWITCHER_MENU_GUTTER, workspaceSwitcherPosition.left),
+      maxLeft
+    );
+    const bottom = Math.min(
+      Math.max(WORKSPACE_SWITCHER_MENU_GUTTER, workspaceSwitcherPosition.bottom),
+      maxBottom
+    );
+
+    if (left === workspaceSwitcherPosition.left && bottom === workspaceSwitcherPosition.bottom) {
+      return;
+    }
+
+    setWorkspaceSwitcherPosition((current) => (current ? { ...current, bottom, left } : current));
+  }, [isSidebarHidden, workspaceSwitcherOpen, workspaceSwitcherPosition]);
+
+  useEffect(() => {
+    if (!workspaceSwitcherOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (workspaceSwitcherRef.current?.contains(target) ||
+          workspaceSwitcherOptionsRef.current?.contains(target))
+      ) {
+        return;
+      }
+      closeWorkspaceSwitcher();
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') closeWorkspaceSwitcher();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeWorkspaceSwitcher, workspaceSwitcherOpen]);
 
   // Keep the workspace picker discoverable from the palette even when the
   // footer switcher is hidden (single-workspace case) — otherwise a user with
@@ -349,12 +601,47 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               ),
               category: 'action' as const,
               keywords: ['workspace', 'account', 'switch', 'new workspace', 'profile', 'org'],
-              run: () => onSwitchAccount(),
+              run: () => (hasMultipleWorkspaces ? onSwitchAccount() : openNewWorkspace()),
+            },
+            ...(hasMultipleWorkspaces
+              ? [
+                  {
+                    id: 'workspace.new',
+                    title: 'New workspace…',
+                    icon: <NewWorkspaceIcon size={14} />,
+                    category: 'action' as const,
+                    keywords: ['workspace', 'account', 'new', 'create', 'profile', 'org'],
+                    run: () => openNewWorkspace(),
+                  },
+                ]
+              : []),
+          ]
+        : [],
+    [onSwitchAccount, hasMultipleWorkspaces, openNewWorkspace]
+  );
+
+  useCommands(
+    () =>
+      onRenameProject && currentProjectPath
+        ? [
+            {
+              id: 'project.rename',
+              title: 'Rename project…',
+              icon: <EditFieldIcon size={14} />,
+              category: 'action' as const,
+              when: 'project' as const,
+              keywords: ['project', 'rename', 'name', 'folder'],
+              run: () =>
+                handleOpenRenameProject({
+                  projectPath: currentProjectPath,
+                  fallbackName: currentProjectName ?? basename(currentProjectPath),
+                }),
             },
           ]
         : [],
-    [onSwitchAccount, hasMultipleWorkspaces]
+    [onRenameProject, currentProjectPath, currentProjectName, handleOpenRenameProject]
   );
+
   // Filter state retained as a constant — the sidebar used to own a
   // text-filter input, but the ⌘K palette now takes over search. The
   // filter helpers below all short-circuit when the string is empty,
@@ -670,7 +957,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     !currentInPinned &&
     (currentExternalRow !== null || activeRows.some((r) => r.projectPath === currentFamily));
   const pinnedOpen = currentInPinned || !groupCollapsed.pinned;
-  const activeOpen = currentInActive || !groupCollapsed.projects;
+  const hasActiveProjects = visibleActive.length > 0;
+  const activeOpen = currentInActive || (hasActiveProjects && !groupCollapsed.projects);
 
   /**
    * Cmd+1..9 shortcut number for this row — matches the ordering used by
@@ -701,7 +989,28 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     // an unpin affordance — critically including pins whose folder no longer
     // exists and which therefore can never become active (issue #366).
     const canClose = !!onCloseProject && row.status !== 'inactive';
-    const canUnpin = !canClose && !!onUnpinProject && pinnedPaths.has(row.projectPath);
+    const unpinProject =
+      onUnpinProject && pinnedPaths.has(row.projectPath)
+        ? () => onUnpinProject(row.projectPath)
+        : undefined;
+    const isPinned = pinnedPaths.has(row.projectPath);
+    const togglePin = onTogglePinProject
+      ? (shouldPin: boolean) => {
+          void onTogglePinProject(row.projectPath, shouldPin);
+        }
+      : unpinProject
+        ? (_shouldPin: boolean) => unpinProject()
+        : undefined;
+    const canUnpin = !canClose && unpinProject !== undefined;
+    const hasRunningDevServer = isProjectDevServerRunning
+      ? isProjectDevServerRunning(row.projectPath)
+      : isCurrent && devServerRunning;
+    const stopDevServer =
+      onStopDevServer && hasRunningDevServer
+        ? () => {
+            void onStopDevServer(row.projectPath);
+          }
+        : undefined;
     // Closing a family row shuts down every member session (main checkout
     // and worktrees alike) — leaving invisible hot sessions behind would
     // silently keep dev servers and PTYs running.
@@ -743,7 +1052,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         onToggleExpand={() => toggleProjectExpanded(row.projectPath)}
         onSelectProject={onSelectProject}
         onClose={canClose ? closeFamily : undefined}
-        onUnpin={canUnpin ? () => onUnpinProject?.(row.projectPath) : undefined}
+        isPinned={isPinned}
+        onOpenRenameProject={onRenameProject ? () => handleOpenRenameProject(row) : undefined}
+        onOpenProjectSettings={() => void handleOpenProjectSettings(row)}
+        onUnpin={canUnpin ? unpinProject : undefined}
+        onTogglePin={togglePin}
+        onStopDevServer={stopDevServer}
       >
         {expanded &&
           (isCurrent ? (
@@ -824,6 +1138,130 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const resizeSidebarBy = useCallback((delta: number) => {
     setSidebarWidth((width) => Math.max(150, Math.min(width + delta, 500)));
   }, []);
+
+  const workspaceSwitcherOptionContent = (
+    <div className="workspace-switcher-options-stack">
+      {isSidebarHidden && !workspaceSwitcherOpen ? (
+        <IconButton
+          variant="ghost"
+          className="workspace-switcher-manage"
+          icon={<SettingsIcon size={14} />}
+          onClick={() => {
+            closeWorkspaceSwitcher();
+            onSwitchAccount?.();
+          }}
+          tabIndex={workspaceSwitcherOpen ? 0 : -1}
+          aria-label="Manage workspaces"
+          title="Manage workspaces"
+        />
+      ) : (
+        <Button
+          variant="ghost"
+          width={isSidebarHidden ? 'hug' : 'fill'}
+          className="workspace-switcher-manage"
+          onClick={() => {
+            closeWorkspaceSwitcher();
+            onSwitchAccount?.();
+          }}
+          tabIndex={workspaceSwitcherOpen ? 0 : -1}
+          leftIcon={<SettingsIcon size={14} />}
+        >
+          Manage workspaces
+        </Button>
+      )}
+      {isSidebarHidden && !workspaceSwitcherOpen ? (
+        <IconButton
+          variant="ghost"
+          className="workspace-switcher-new"
+          icon={<NewWorkspaceIcon size={14} />}
+          onClick={openNewWorkspace}
+          tabIndex={workspaceSwitcherOpen ? 0 : -1}
+          aria-label="New workspace"
+          title="New workspace"
+        />
+      ) : (
+        <Button
+          variant="ghost"
+          width={isSidebarHidden ? 'hug' : 'fill'}
+          className="workspace-switcher-new"
+          onClick={openNewWorkspace}
+          tabIndex={workspaceSwitcherOpen ? 0 : -1}
+          leftIcon={<NewWorkspaceIcon size={14} />}
+        >
+          New workspace
+        </Button>
+      )}
+      <div className="workspace-switcher-option-list">
+        {otherWorkspaces.map((account) => {
+          const isSwitching = account.id === switchingWorkspaceId;
+
+          return isSidebarHidden && !workspaceSwitcherOpen ? (
+            <IconButton
+              key={account.id}
+              variant="ghost"
+              className="workspace-switcher-option"
+              icon={
+                isSwitching ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <span
+                    className="workspace-switcher-dot"
+                    style={{ background: account.color }}
+                    aria-hidden="true"
+                  >
+                    {workspaceInitial(account.name)}
+                  </span>
+                )
+              }
+              onClick={() => void handleWorkspaceSelect(account)}
+              disabled={switchingWorkspaceId !== null}
+              tabIndex={workspaceSwitcherOpen ? 0 : -1}
+              aria-label={`Switch to ${account.name}`}
+              title={`Switch to ${account.name}`}
+            />
+          ) : (
+            <Button
+              key={account.id}
+              variant="ghost"
+              width={isSidebarHidden ? 'hug' : 'fill'}
+              className="workspace-switcher-option"
+              onClick={() => void handleWorkspaceSelect(account)}
+              disabled={switchingWorkspaceId !== null}
+              tabIndex={workspaceSwitcherOpen ? 0 : -1}
+              aria-label={`Switch to ${account.name}`}
+            >
+              <span className="workspace-switcher-option-dot" aria-hidden="true">
+                <span className="workspace-switcher-dot" style={{ background: account.color }}>
+                  {workspaceInitial(account.name)}
+                </span>
+              </span>
+              <span className="workspace-switcher-option-name">{account.name}</span>
+              {isSwitching && <Spinner size="sm" />}
+            </Button>
+          );
+        })}
+      </div>
+      {activeAccount && (
+        <Button
+          variant="ghost"
+          width={isSidebarHidden ? 'hug' : 'fill'}
+          className="workspace-switcher-option is-current"
+          onClick={closeWorkspaceSwitcher}
+          tabIndex={workspaceSwitcherOpen ? 0 : -1}
+          aria-label={`${activeAccount.name}, current workspace`}
+          aria-current="true"
+          data-selected="true"
+        >
+          <span className="workspace-switcher-option-dot" aria-hidden="true">
+            <span className="workspace-switcher-dot" style={{ background: activeAccount.color }}>
+              {workspaceInitial(activeAccount.name)}
+            </span>
+          </span>
+          <span className="workspace-switcher-option-name">{activeAccount.name}</span>
+        </Button>
+      )}
+    </div>
+  );
 
   const sidebarStyle = {
     width: sidebarWidth,
@@ -942,16 +1380,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           {(isSidebarHidden || activeOpen) &&
             (visibleActive.length === 0 && !filterLower
               ? !isSidebarHidden && (
-                  <div className="sidebar-group-empty">No active projects. Open one from Home.</div>
+                  <div className="sidebar-group-empty">No active projects yet.</div>
                 )
               : visibleActive.map((row) => renderProjectRow(row)))}
-        </div>
 
-        <div className="workspace-sidebar-footer">
-          <UpdateBanner />
-          <div className="workspace-sidebar-footer-actions">
+          <div className="workspace-sidebar-active-actions">
             <Button
-              variant="default"
+              variant="ghost"
               width="fill"
               className="workspace-sidebar-add-project"
               onClick={onOpenProjectPicker}
@@ -960,6 +1395,100 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               <AddIcon size={16} />
               <span>Open project</span>
             </Button>
+          </div>
+        </div>
+
+        <div className="workspace-sidebar-footer">
+          <UpdateBanner />
+          <div
+            className={`workspace-sidebar-footer-actions${
+              showWorkspaceSwitcher ? ' has-workspace-switcher' : ''
+            }`}
+          >
+            {onSwitchAccount && activeAccount && hasMultipleWorkspaces && (
+              <div
+                ref={workspaceSwitcherRef}
+                className={`workspace-switcher${workspaceSwitcherOpen ? ' is-open' : ''}`}
+              >
+                {isSidebarHidden ? (
+                  <IconButton
+                    variant={workspaceSwitcherOpen ? 'ghost' : 'default'}
+                    className="workspace-sidebar-ws-switch"
+                    icon={
+                      <span
+                        className="workspace-switcher-dot"
+                        style={{ background: activeAccount.color }}
+                        aria-hidden="true"
+                      >
+                        {workspaceInitial(activeAccount.name)}
+                      </span>
+                    }
+                    onClick={toggleWorkspaceSwitcher}
+                    aria-label={`Switch workspace, currently ${activeAccount.name}`}
+                    aria-expanded={workspaceSwitcherOpen}
+                    aria-controls="workspace-switcher-options"
+                    title={`Switch workspace, currently ${activeAccount.name}`}
+                  />
+                ) : (
+                  <Button
+                    variant={workspaceSwitcherOpen ? 'ghost' : 'default'}
+                    width="fill"
+                    className="workspace-sidebar-ws-switch"
+                    onClick={toggleWorkspaceSwitcher}
+                    aria-label={`Switch workspace, currently ${activeAccount.name}`}
+                    aria-expanded={workspaceSwitcherOpen}
+                    aria-controls="workspace-switcher-options"
+                  >
+                    <span className="workspace-switcher-summary">
+                      <span
+                        className="workspace-switcher-dot"
+                        style={{ background: activeAccount.color }}
+                        aria-hidden="true"
+                      >
+                        {workspaceInitial(activeAccount.name)}
+                      </span>
+                      <span className="workspace-switcher-name">{activeAccount.name}</span>
+                    </span>
+                    <span
+                      className={`workspace-switcher-chevron${workspaceSwitcherOpen ? ' is-open' : ''}`}
+                      aria-hidden="true"
+                    >
+                      <ChevronIcon size={12} />
+                    </span>
+                  </Button>
+                )}
+                {!isSidebarHidden && (
+                  <div
+                    id="workspace-switcher-options"
+                    className="workspace-switcher-options"
+                    role="group"
+                    aria-label="Available workspaces"
+                    aria-hidden={!workspaceSwitcherOpen}
+                  >
+                    {workspaceSwitcherOptionContent}
+                  </div>
+                )}
+              </div>
+            )}
+            {isSidebarHidden && workspaceSwitcherOpen && workspaceSwitcherPosition
+              ? createPortal(
+                  <div
+                    ref={workspaceSwitcherOptionsRef}
+                    id="workspace-switcher-options"
+                    className="workspace-switcher-options is-portal"
+                    role="group"
+                    aria-label="Available workspaces"
+                    aria-hidden="false"
+                    style={{
+                      bottom: workspaceSwitcherPosition.bottom,
+                      left: workspaceSwitcherPosition.left,
+                    }}
+                  >
+                    {workspaceSwitcherOptionContent}
+                  </div>,
+                  document.body
+                )
+              : null}
             <IconButton
               variant="default"
               className="workspace-sidebar-support"
@@ -978,28 +1507,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               aria-label="App settings"
             />
           </div>
-          {onSwitchAccount && activeAccount && hasMultipleWorkspaces && (
-            <>
-              {/* Same button family as the footer row above it — the hairline
-                  divider it used to sit under only made sense while this was a
-                  borderless ghost row. */}
-              <Button
-                variant="default"
-                width="fill"
-                className="workspace-sidebar-ws-switch"
-                onClick={onSwitchAccount}
-                title={`Switch workspace (${activeAccount.name})`}
-              >
-                <span
-                  className="workspace-switch-account-dot"
-                  style={{ background: activeAccount.color }}
-                />
-                <span className="workspace-switch-account-name">{activeAccount.name}</span>
-              </Button>
-            </>
-          )}
         </div>
       </aside>
+      <NewAccountModal
+        isOpen={newWorkspaceOpen}
+        onClose={() => setNewWorkspaceOpen(false)}
+        onCreated={() => setNewWorkspaceOpen(false)}
+      />
       <PanelResizeHandle
         value={sidebarWidth}
         min={150}
@@ -1008,6 +1522,23 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         onResize={resizeSidebar}
         onResizeBy={resizeSidebarBy}
       />
+      {projectSettingsTarget && projectSettingsPort !== null && (
+        <ProjectSettingsModal
+          key={projectSettingsTarget.projectPath}
+          modalId="sidebarProjectSettings"
+          currentPort={projectSettingsPort}
+          onSave={(port) => void handleSaveProjectSettings(port)}
+        />
+      )}
+      {renameTarget && onRenameProject && (
+        <RenameProjectModal
+          key={renameTarget.projectPath}
+          isOpen={sidebarProjectRenameModal.isOpen}
+          onClose={handleCloseRenameProject}
+          currentName={renameTarget.fallbackName}
+          onRename={handleRenameProject}
+        />
+      )}
     </>
   );
 });
@@ -1194,7 +1725,12 @@ function ProjectGroup({
   onToggleExpand,
   onSelectProject,
   onClose,
+  isPinned,
+  onOpenRenameProject,
+  onOpenProjectSettings,
   onUnpin,
+  onTogglePin,
+  onStopDevServer,
   children,
 }: {
   row: PinnedProjectRow;
@@ -1206,11 +1742,21 @@ function ProjectGroup({
   shortcutNumber: number | null;
   onToggleExpand: () => void;
   onSelectProject: (path: string) => void;
+  /** Whether this row is currently pinned to the sidebar. */
+  isPinned: boolean;
+  /** Open the rename modal for this project. */
+  onOpenRenameProject?: () => void;
+  /** Open settings for this project from the context menu. */
+  onOpenProjectSettings: () => void;
   /** Shown as a hover-only X when defined. */
   onClose?: () => void;
   /** Hover-only unpin action for rows with no live session (issue #366).
    *  Ignored when `onClose` is present — one hover action per row. */
   onUnpin?: () => void;
+  /** Toggle the pin state shown in the context menu. */
+  onTogglePin?: (shouldPin: boolean) => void;
+  /** Stop this row's dev server when one is explicitly tracked. */
+  onStopDevServer?: () => void;
   children?: React.ReactNode;
 }) {
   const initials = projectInitials(row.fallbackName);
@@ -1227,98 +1773,121 @@ function ProjectGroup({
 
   return (
     <div className={`sidebar-project ${isCurrent ? 'is-current' : ''}`}>
-      <div
-        className="sidebar-project-row"
-        role="button"
-        tabIndex={0}
-        aria-current={isCurrent ? 'true' : undefined}
-        onClick={() => {
-          if (!isCurrent) onSelectProject(row.projectPath);
-        }}
-        onKeyDown={(e) => {
-          if ((e.key === 'Enter' || e.key === ' ') && !isCurrent) {
-            e.preventDefault();
-            onSelectProject(row.projectPath);
-          }
-        }}
-      >
-        {!compact && (
-          <IconButton
-            className="sidebar-project-control sidebar-project-chevron"
-            variant="ghost"
-            size="compact"
-            icon={
-              <ChevronIcon
-                size={10}
-                className={isExpanded ? 'chevron-expanded' : 'chevron-collapsed'}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className="sidebar-project-row"
+            role="button"
+            tabIndex={0}
+            aria-current={isCurrent ? 'true' : undefined}
+            onClick={() => {
+              if (!isCurrent) onSelectProject(row.projectPath);
+            }}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && !isCurrent) {
+                e.preventDefault();
+                onSelectProject(row.projectPath);
+              }
+            }}
+          >
+            {!compact && (
+              <IconButton
+                className="sidebar-project-control sidebar-project-chevron"
+                variant="ghost"
+                size="compact"
+                icon={
+                  <ChevronIcon
+                    size={10}
+                    className={isExpanded ? 'chevron-expanded' : 'chevron-collapsed'}
+                  />
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleExpand();
+                }}
+                aria-expanded={isExpanded}
+                title={isExpanded ? 'Collapse project' : 'Expand project'}
+                aria-label={isExpanded ? 'Collapse project' : 'Expand project'}
               />
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpand();
-            }}
-            aria-expanded={isExpanded}
-            title={isExpanded ? 'Collapse project' : 'Expand project'}
-            aria-label={isExpanded ? 'Collapse project' : 'Expand project'}
-          />
-        )}
-        <span
-          className={`sidebar-project-initials ${shortcutNumber !== null ? 'is-shortcut' : ''}`}
-          aria-hidden={!compact}
-          title={
-            compact
-              ? row.fallbackName
-              : shortcutNumber !== null
-                ? kbd('mod', String(shortcutNumber))
-                : undefined
-          }
-        >
-          {shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : initials}
-        </span>
-        {!compact && <ProjectRowName name={row.fallbackName} />}
-        {!compact && memoryLabel && <span className="sidebar-project-meta">{memoryLabel}</span>}
-        {!compact && onClose && (
-          <IconButton
-            className="sidebar-project-control sidebar-project-close"
-            variant="ghost"
-            size="compact"
-            icon={<CloseIcon size={10} />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-            aria-label={`Close ${row.fallbackName}`}
-            title="Close project (stops dev server)"
-          />
-        )}
-        {!compact && !onClose && onUnpin && (
-          <IconButton
-            className="sidebar-project-control sidebar-project-close"
-            variant="ghost"
-            size="compact"
-            icon={<CloseIcon size={10} />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onUnpin();
-            }}
-            aria-label={`Unpin ${row.fallbackName}`}
-            title="Unpin from sidebar"
-          />
-        )}
-        {!compact && (
-          <span className="sidebar-project-status">
-            {showWorkingIndicator ? (
-              <PixelLoaderRings
-                className="sidebar-project-pixel-loader"
-                size="sm"
-                label={`Working on ${row.fallbackName}`}
-              />
-            ) : (
-              <span className={`sidebar-row-dot dot-${dot}`} aria-hidden="true" />
             )}
-          </span>
-        )}
-      </div>
+            <span
+              className={`sidebar-project-initials ${shortcutNumber !== null ? 'is-shortcut' : ''}`}
+              aria-hidden={!compact}
+              title={
+                compact
+                  ? row.fallbackName
+                  : shortcutNumber !== null
+                    ? kbd('mod', String(shortcutNumber))
+                    : undefined
+              }
+            >
+              {shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : initials}
+            </span>
+            {!compact && <ProjectRowName name={row.fallbackName} />}
+            {!compact && memoryLabel && <span className="sidebar-project-meta">{memoryLabel}</span>}
+            {!compact && onClose && (
+              <IconButton
+                className="sidebar-project-control sidebar-project-close"
+                variant="ghost"
+                size="compact"
+                icon={<CloseIcon size={10} />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                aria-label={`Close ${row.fallbackName}`}
+                title="Close project (stops dev server)"
+              />
+            )}
+            {!compact && !onClose && onUnpin && (
+              <IconButton
+                className="sidebar-project-control sidebar-project-close"
+                variant="ghost"
+                size="compact"
+                icon={<CloseIcon size={10} />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnpin();
+                }}
+                aria-label={`Unpin ${row.fallbackName}`}
+                title="Unpin from sidebar"
+              />
+            )}
+            {!compact && (
+              <span className="sidebar-project-status">
+                {showWorkingIndicator ? (
+                  <PixelLoaderRings
+                    className="sidebar-project-pixel-loader"
+                    size="sm"
+                    label={`Working on ${row.fallbackName}`}
+                  />
+                ) : (
+                  <span className={`sidebar-row-dot dot-${dot}`} aria-hidden="true" />
+                )}
+              </span>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent aria-label={`Actions for ${row.fallbackName}`}>
+          <ContextMenuItem onSelect={onOpenProjectSettings}>
+            <SettingsIcon size={14} aria-hidden="true" />
+            <span>Project Settings</span>
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!onOpenRenameProject} onSelect={onOpenRenameProject}>
+            <EditFieldIcon size={14} aria-hidden="true" />
+            <span>Rename project</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={!onStopDevServer} onSelect={onStopDevServer}>
+            <CloseIcon size={14} aria-hidden="true" />
+            <span>Stop dev server</span>
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!onTogglePin} onSelect={() => onTogglePin?.(!isPinned)}>
+            <PinIcon size={14} aria-hidden="true" />
+            <span>{isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {!compact && isExpanded && children && <div className="sidebar-project-body">{children}</div>}
     </div>
   );

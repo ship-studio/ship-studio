@@ -131,20 +131,10 @@
 }
 
 /* Density tiers for the toolbar itself (see `container-name: preview-toolbar`
-   above). Each tier drops the lowest-priority control that still has another
-   way in, so the row degrades in a defined order instead of overlapping.
-   Order of sacrifice: breakpoint icon strip → undo/redo → open-in-browser and
-   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen
-   and the dimensions readout survive at every width. */
-@container preview-toolbar (max-width: 820px) {
-  /* The dimensions readout beside it opens the same viewport controls
-     (presets + exact size), and ⌘K's "Set exact preview size…" reaches the
-     popover directly — so the icon strip is the cheapest thing to drop. */
-  .preview-breakpoint-tabs {
-    display: none;
-  }
-}
-
+   above). The breakpoint group condenses internally first; these tiers then
+   drop the remaining controls that have another way in, so the row degrades
+   in a defined order instead of overlapping. Edit, Inspect, the page switcher,
+   refresh, fullscreen and the breakpoint group survive at every width. */
 @container preview-toolbar (max-width: 660px) {
   /* Undo/redo keep their ⌘Z / ⌘⇧Z shortcuts. */
   .preview-toolbar > .preview-history-btn {

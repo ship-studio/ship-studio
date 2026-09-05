@@ -6,10 +6,14 @@
   --size-control-large: 36px;
   --size-control-medium: 24px;
   --size-control-compact: 20px;
+  --size-boot-progress: 180px;
 
   --size-titlebar-project-path: 30ch;
   --size-element-toolbar-selector: 140px;
   --size-preview-dimensions: 84px;
+  --size-preview-breakpoints-min-width: 69px;
+  --size-preview-breakpoint-menu: 240px;
+  --size-preview-breakpoint-divider-height: var(--stroke-1);
 
   --size-sidebar-project-shortcut: 24px;
   --size-sidebar-project: 214px;
@@ -25,6 +29,19 @@
   --size-icon-button: 16px;
   --size-icon-md: 18px;
   --icon-size-full: 24px;
+
+  --context-menu-min-width: 176px;
+  --context-menu-max-width: 320px;
+  --context-menu-border-width: var(--stroke-1);
+  --context-menu-separator-height: var(--stroke-1);
+  --context-menu-item-height: var(--space-32);
+  --context-menu-animation-duration: var(--duration-standard);
+  --context-menu-animation-easing: var(--ease-standard);
+  --context-menu-destructive-hover-surface: color-mix(
+    in srgb,
+    var(--accent-error) 12%,
+    var(--surface-panel)
+  );
 
   --pixel-loader-size-sm: var(--size-icon-sm);
   --pixel-loader-size-md: var(--size-control-compact);
@@ -62,6 +79,15 @@
   --pixel-loader-delay-decay-outer: var(--duration-loader-fast);
   --pixel-loader-delay-quad-tight-inner: 350ms;
   --pixel-loader-delay-quad-tight-outer: 700ms;
+
+  --progress-height: var(--space-04);
+  --progress-radius: var(--radius-pill);
+  --progress-track: color-mix(in srgb, var(--accent-active) 18%, var(--surface-control));
+  --progress-indicator: var(--accent-active);
+  --progress-transition: var(--transition-interaction-slow);
+  --progress-indeterminate-width: 40%;
+  --progress-indeterminate-duration: var(--duration-loader-standard);
+  --progress-indeterminate-easing: var(--ease-standard);
 
   --size-icon-gallery-width: 480px;
   --size-icon-gallery-column: 120px;

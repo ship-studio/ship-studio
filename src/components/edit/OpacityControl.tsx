@@ -6,10 +6,12 @@
 
 import {
   scaleValue,
+  spacingValue,
   spacingResetSpec,
   readLayer,
   type LayerContext,
   type ResetSpec,
+  type TailwindValueOptions,
 } from '../../lib/edit';
 import { ResettableLabel } from './ResettableLabel';
 import { ValueField } from '../primitives/ValueField';
@@ -21,17 +23,17 @@ interface Props {
   onReset: (spec: ResetSpec) => void;
 }
 
-const ARBITRARY_OPACITY = /^opacity-\[(\d*\.?\d+)\]$/;
-
 /** Opacity 0–100 from a class string: the `opacity-N` scale token, or the
  *  arbitrary `opacity-[0.375]` form an off-scale value is written as. */
-export function opacityPercent(className: string): number | null {
-  const scale = scaleValue(className, 'opacity');
+export function opacityPercent(
+  className: string,
+  options: TailwindValueOptions = {}
+): number | null {
+  const scale = scaleValue(className, 'opacity', options);
   if (scale !== null) return scale;
-  for (const token of className.split(/\s+/)) {
-    const match = ARBITRARY_OPACITY.exec(token);
-    if (!match) continue;
-    const percent = Number(match[1]) * 100;
+  const arbitrary = spacingValue(className, 'opacity', options);
+  if (arbitrary?.kind === 'arbitrary') {
+    const percent = Number(arbitrary.raw) * 100;
     if (Number.isFinite(percent)) return Math.round(percent * 100) / 100;
   }
   return null;
@@ -46,14 +48,14 @@ export function opacityToken(percent: number): string {
 }
 
 export function OpacityControl({ currentClass, layer, onApplyEnum, onReset }: Props) {
-  const opacity = readLayer(currentClass, layer, opacityPercent);
+  const opacity = readLayer(currentClass, layer, (s) => opacityPercent(s, layer));
   return (
     <div className="ss-edit-panel__control">
       <ResettableLabel
         label="Opacity"
         definedAt={opacity.definedAt}
         active={layer.bp}
-        onReset={() => onReset(spacingResetSpec('opacity', 'opacity'))}
+        onReset={() => onReset(spacingResetSpec('opacity', 'opacity', layer.utilityPrefix))}
       />
       <div className="ss-edit-panel__range-value">
         <input

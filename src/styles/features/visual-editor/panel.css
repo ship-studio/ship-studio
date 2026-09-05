@@ -249,6 +249,7 @@
   height: var(--size-control-medium);
   gap: 0;
   padding: var(--stroke-1);
+  align-items: stretch;
 }
 .ss-edit-panel__align-tabs {
   width: 100%;
@@ -256,16 +257,17 @@
   height: var(--size-control-medium);
   gap: 0;
   padding: var(--stroke-1);
+  align-items: stretch;
 }
 .ss-edit-panel__segmented > .button {
   flex: 1 1 0;
   min-width: 0;
-  height: 100%;
+  height: auto;
   min-height: 0;
   padding-inline: var(--spacing-xs);
 }
 .ss-edit-panel__align-tabs > .button {
-  height: 100%;
+  height: auto;
   min-height: 0;
 }
 .ss-edit-panel__segmented svg {
@@ -286,6 +288,15 @@
 }
 .ss-edit-panel__segmented--icons > .button {
   padding-inline: 0;
+}
+
+/* Property value groups use the same surface as the editable value field.
+   Scope this to the Visual Editor so the shared segmented/tab treatment keeps
+   its existing appearance everywhere else. */
+.ss-edit-panel
+  :is(.ss-edit-panel__segmented, .ss-edit-panel__align-tabs)
+  > .button[aria-pressed='true'] {
+  background-color: var(--surface-panel);
 }
 
 .ss-edit-panel__align-tabs > .button {

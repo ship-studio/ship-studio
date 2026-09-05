@@ -35,6 +35,28 @@ describe('HelpModal', () => {
     expect(shortcutsTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Open command palette')).toBeVisible();
     expect(screen.getByText('⌘K')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('F1')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.queryByText('Switch terminal tab')).not.toBeInTheDocument();
+    expect(screen.getByText('Switch project')).toBeVisible();
+    expect(screen.getByText('⌘1–9')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Switch workspace')).toBeVisible();
+    expect(screen.getByText('⌥1–9')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Toggle Agent panel')).toBeVisible();
+    expect(screen.getByText('Switch workspace mode')).toBeVisible();
+    expect(screen.getByText('⌘⌃1–3')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Switch terminal/agent tab')).toBeVisible();
+    expect(screen.getByText('⌃1–9')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Toggle Edit mode')).toBeVisible();
+    expect(screen.getByText('⌘E')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Toggle Inspector')).toBeVisible();
+    expect(screen.getByText('⌘I')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Copy selected element')).toBeVisible();
+    expect(screen.getByText('⌘C')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('⌘X')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('⌘V')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('Duplicate selected element')).toBeVisible();
+    expect(screen.getByText('⌘D')).toHaveClass('workspace-sidebar-filter-shortcut');
+    expect(screen.getByText('⌫')).toHaveClass('workspace-sidebar-filter-shortcut');
     expect(screen.queryByText('/clear')).not.toBeVisible();
 
     fireEvent.click(commandsTab);

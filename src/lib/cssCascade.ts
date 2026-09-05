@@ -292,6 +292,48 @@ export function rowKey(row: CascadeRow): string {
   return `${row.file ?? 'x'}|${row.selector ?? 'inline'}|${row.mediaMinPx ?? 0}|${row.index}`;
 }
 
+export interface MediaCascadeGroup {
+  kind: 'media';
+  /** Stable identity for one source wrapper, independent of its child selectors. */
+  key: string;
+  condition: string;
+  rows: CascadeRow[];
+}
+
+export type CascadeGroupItem = { kind: 'rule'; row: CascadeRow } | MediaCascadeGroup;
+
+/** Group sibling rules that share the same authored `@media` wrapper. */
+export function groupCascadeRows(rows: readonly CascadeRow[]): CascadeGroupItem[] {
+  const items: CascadeGroupItem[] = [];
+  const groups = new Map<string, MediaCascadeGroup>();
+
+  for (const row of rows) {
+    if (!row.mediaText) {
+      items.push({ kind: 'rule', row });
+      continue;
+    }
+
+    // Keep source files and other enclosing contexts in the identity. Two identical
+    // conditions in separate files/contexts are not one editable wrapper.
+    const key = [
+      row.file ?? row.sourceFiles?.join(',') ?? 'unknown',
+      row.mediaText,
+      row.layer ?? '',
+      row.container ?? '',
+      row.supports ?? '',
+    ].join('\u0000');
+    let group = groups.get(key);
+    if (!group) {
+      group = { kind: 'media', key, condition: row.mediaText, rows: [] };
+      groups.set(key, group);
+      items.push(group);
+    }
+    group.rows.push(row);
+  }
+
+  return items;
+}
+
 /** Build the bare CSS rule text (`selector { body }`) for a live preview. The iframe
  *  replaces the real rule in place inside its own `@media`/`@layer` group, so the
  *  preview text must NOT be media-wrapped (the group provides the context). */

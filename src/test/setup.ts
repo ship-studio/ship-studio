@@ -53,12 +53,7 @@ export function clearInvokeMocks() {
   invokeErrors.clear();
 }
 
-// Set up Tauri mocks before all tests
-beforeAll(() => {
-  // Mock windows
-  mockWindows('main');
-
-  // Set up IPC mock handler
+function installInvokeMock() {
   mockIPC((cmd, args) => {
     // Check for error first
     const error = invokeErrors.get(cmd);
@@ -110,11 +105,22 @@ beforeAll(() => {
         return '/Users/test/Library/Logs/ShipStudio';
       case 'log_frontend_event':
         return undefined;
+      case 'get_color_sampler_support':
+        return {
+          available: false,
+          reason: 'Screen color sampling is unavailable in this test environment.',
+        };
       default:
         console.warn(`[Test] No mock for invoke command: ${cmd}`, args);
         return undefined;
     }
   });
+}
+
+// Set up Tauri mocks before all tests
+beforeAll(() => {
+  mockWindows('main');
+  installInvokeMock();
 });
 
 // Mock tauri-pty (native module)
@@ -148,6 +154,8 @@ vi.mock('@tauri-apps/plugin-process', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   clearInvokeMocks();
+  mockWindows('main');
+  installInvokeMock();
 });
 
 // Cleanup after each test

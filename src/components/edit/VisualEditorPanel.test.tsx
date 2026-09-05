@@ -4,10 +4,12 @@ import { VisualEditorPanel } from './VisualEditorPanel';
 import {
   BASE_BREAKPOINT,
   DEFAULT_BREAKPOINTS,
+  type ResetSpec,
   type Breakpoint,
   type UsageReport,
 } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
+import type { ValueFieldVariable } from '../primitives/ValueField';
 
 const BREAKPOINTS: Breakpoint[] = [BASE_BREAKPOINT, ...DEFAULT_BREAKPOINTS];
 const MD = BREAKPOINTS.find((b) => b.name === 'md')!;
@@ -36,7 +38,9 @@ function renderPanel(
   onApplyEnum = vi.fn(),
   onSetSide = vi.fn(),
   onReset = vi.fn(),
-  editTarget: import('../../hooks/useVisualEditor').EditTarget = { kind: 'element' }
+  editTarget: import('../../hooks/useVisualEditor').EditTarget = { kind: 'element' },
+  onSetPositionSide = vi.fn(),
+  variables: ValueFieldVariable[] = []
 ) {
   return render(
     <VisualEditorPanel
@@ -44,6 +48,7 @@ function renderPanel(
       projectPath="/Users/test/ShipStudio/demo"
       onReplaceImage={vi.fn(async () => {})}
       currentClass={currentClass}
+      variables={variables}
       breakpoints={BREAKPOINTS}
       activeBreakpoint={activeBreakpoint}
       breakpointTooWide={breakpointTooWide}
@@ -52,6 +57,7 @@ function renderPanel(
       onToggleAutoSave={onToggleAutoSave}
       onStepGap={vi.fn()}
       onSetSide={onSetSide}
+      onSetPositionSide={onSetPositionSide}
       onApplyEnum={onApplyEnum}
       onReset={onReset}
       multiTarget="all"
@@ -133,6 +139,81 @@ describe('VisualEditorPanel', () => {
     expect(positionSection).toHaveTextContent('Z-index');
     expect(layoutSection).not.toHaveTextContent('Position');
     expect(layoutSection).not.toHaveTextContent('Z-index');
+  });
+
+  it('renders the four-sided offset box for a positioned element', () => {
+    const selection: Selection = {
+      signature: { className: 'relative top-4 inset-x-2', tagName: 'div', ancestorClasses: [] },
+      resolution: {
+        status: 'resolved',
+        file: 'components/Hero.tsx',
+        line: 11,
+        column: 1,
+        class_name: 'relative top-4 inset-x-2',
+        confidence: 'unique',
+      },
+      instanceCount: 1,
+    };
+
+    renderPanel(selection, 'relative top-4 inset-x-2');
+
+    const box = screen.getByTestId('position-box');
+    expect(box.querySelectorAll('.ss-box__band')).toHaveLength(4);
+    expect(within(box).getByRole('button', { name: 'Top' })).toHaveTextContent('4');
+    expect(within(box).getByRole('button', { name: 'Bottom' })).toHaveTextContent('Auto');
+    expect(within(box).getByRole('button', { name: 'Left' })).toHaveTextContent('2');
+    expect(within(box).getByRole('button', { name: 'Right' })).toHaveTextContent('2');
+  });
+
+  it('keeps the offset box hidden while Position is Static', () => {
+    renderPanel(resolvedSelection, 'static p-3');
+    expect(screen.queryByTestId('position-box')).not.toBeInTheDocument();
+  });
+
+  it('commits a manually entered position offset from the popup', () => {
+    vi.stubGlobal('CSS', { supports: () => true });
+    const onSetPositionSide = vi.fn();
+    const selection: Selection = {
+      signature: { className: 'relative', tagName: 'div', ancestorClasses: [] },
+      resolution: {
+        status: 'resolved',
+        file: 'components/Hero.tsx',
+        line: 11,
+        column: 1,
+        class_name: 'relative',
+        confidence: 'unique',
+      },
+      instanceCount: 1,
+    };
+
+    renderPanel(
+      selection,
+      'relative',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      { kind: 'element' },
+      onSetPositionSide
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Top' }));
+
+    const input = within(screen.getByRole('dialog', { name: 'Top' })).getByRole('textbox', {
+      name: 'Top',
+    });
+    expect(input).toHaveValue('auto');
+    fireEvent.change(input, { target: { value: '10rem' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onSetPositionSide).toHaveBeenLastCalledWith('top', {
+      kind: 'arbitrary',
+      raw: '10rem',
+    });
+    vi.unstubAllGlobals();
   });
 
   it('shows read-only reason and no controls for a read-only element', () => {
@@ -323,32 +404,212 @@ describe('VisualEditorPanel', () => {
     expect(screen.getByLabelText('Set on md')).toBeInTheDocument();
   });
 
-  it('reads an arbitrary (free-form) value into the box field', () => {
+  it('opens the full property editor for an arbitrary box value', () => {
     renderPanel(resolvedSelection, 'pt-[10rem]');
-    expect(screen.getByLabelText<HTMLInputElement>('Padding top').value).toBe('10rem');
+    fireEvent.click(screen.getByRole('button', { name: 'Padding top' }));
+
+    const popover = screen.getByRole('dialog', { name: 'Padding Top' });
+    expect(popover).toHaveTextContent('Padding Top');
+    expect(within(popover).getByRole('textbox', { name: 'Padding Top' })).toHaveValue('10');
+    expect(within(popover).getByRole('button', { name: 'Padding Top format' })).toHaveTextContent(
+      'REM'
+    );
+    expect(within(popover).getByRole('textbox', { name: 'Padding Top' })).toHaveFocus();
   });
 
-  it('styles box-model values by cascade state and sizes them to their text', () => {
+  it('opens the variable picker from a box-model value field after typing --', () => {
+    const variables = [{ name: '--margin-gutter', value: '24px' }];
+    renderPanel(
+      resolvedSelection,
+      'p-3',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      { kind: 'element' },
+      vi.fn(),
+      variables
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Margin left' }));
+    const input = within(screen.getByRole('dialog', { name: 'Margin Left' })).getByRole(
+      'combobox',
+      { name: 'Margin Left' }
+    );
+    fireEvent.change(input, { target: { value: '--' } });
+
+    expect(screen.getByRole('listbox', { name: 'Margin Left variables' })).toHaveTextContent(
+      '--margin-gutter'
+    );
+  });
+
+  it('uses the variable presentation for compact box-model values', () => {
+    renderPanel(
+      resolvedSelection,
+      'm-(--margin-gutter)',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      { kind: 'element' },
+      vi.fn(),
+      [{ name: '--margin-gutter', value: '24px' }]
+    );
+
+    const field = screen.getByRole('button', { name: 'Margin left' });
+    expect(field).toHaveClass('ss-box__field--variable');
+    expect(field).not.toHaveClass('ss-box__field--modified');
+    expect(field).toHaveTextContent('--margin-gutter');
+  });
+
+  it('styles box-model value triggers by cascade state', () => {
     renderPanel(resolvedSelection, 'p-3 md:pt-6', MD);
-    const modified = screen.getByLabelText<HTMLInputElement>('Padding top');
-    const inherited = screen.getByLabelText<HTMLInputElement>('Padding right');
+    const modified = screen.getByRole('button', { name: 'Padding top' });
+    const inherited = screen.getByRole('button', { name: 'Padding right' });
 
     expect(modified).toHaveClass('ss-box__field--modified');
     expect(inherited).toHaveClass('ss-box__field--inherited');
-    expect(modified).toHaveAttribute('size', modified.value.length.toString());
-    expect(inherited).toHaveAttribute('size', inherited.value.length.toString());
+    expect(modified).toHaveTextContent('6');
+    expect(inherited).toHaveTextContent('3');
   });
 
-  it('focuses a box-model value from its full grabbable panel', () => {
+  it('Alt-clicking a modified spacing value resets its box utility', () => {
+    const onReset = vi.fn<(spec: ResetSpec) => void>();
+    renderPanel(
+      resolvedSelection,
+      'p-3 md:pt-6',
+      MD,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      onReset
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Padding top' }), { altKey: true });
+
+    expect(onReset).toHaveBeenCalledTimes(1);
+    const spec = onReset.mock.calls[0][0];
+    expect(spec.match('pt-6')).toBe(true);
+    expect(spec.match('py-6')).toBe(true);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('Alt-clicking a modified position value resets its offset utility', () => {
+    const onReset = vi.fn<(spec: ResetSpec) => void>();
+    const selection: Selection = {
+      signature: { className: 'relative top-4 inset-x-2', tagName: 'div', ancestorClasses: [] },
+      resolution: {
+        status: 'resolved',
+        file: 'components/Hero.tsx',
+        line: 11,
+        column: 1,
+        class_name: 'relative top-4 inset-x-2',
+        confidence: 'unique',
+      },
+      instanceCount: 1,
+    };
+
+    renderPanel(
+      selection,
+      'relative top-4 inset-x-2',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      onReset
+    );
+    fireEvent.click(screen.getByTestId('position-box').querySelector('[aria-label="Top"]')!, {
+      altKey: true,
+    });
+
+    expect(onReset).toHaveBeenCalledTimes(1);
+    const spec = onReset.mock.calls[0][0];
+    expect(spec.match('top-4')).toBe(true);
+    expect(spec.match('inset-y-4')).toBe(true);
+    expect(spec.match('inset-x-2')).toBe(false);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opens a box-model value from its full grabbable panel', () => {
     renderPanel(resolvedSelection, 'p-3');
     const box = screen.getByTestId('spacing-box');
-    const marginTopPanel = box.querySelector<HTMLLabelElement>(
-      '.ss-box__margin .ss-box__band--top'
-    );
+    const marginTopPanel = box.querySelector<HTMLElement>('.ss-box__margin .ss-box__band--top');
 
     expect(marginTopPanel).not.toBeNull();
     fireEvent.click(marginTopPanel!);
-    expect(screen.getByLabelText('Margin top')).toHaveFocus();
+    const popover = screen.getByRole('dialog', { name: 'Margin Top' });
+    expect(within(popover).getByRole('textbox', { name: 'Margin Top' })).toHaveFocus();
+  });
+
+  it('sizes the popup from the box and places bottom values below it', () => {
+    renderPanel(resolvedSelection, 'p-3');
+    const box = screen.getByTestId('spacing-box');
+    const boxRect = {
+      top: 100,
+      right: 300,
+      bottom: 212,
+      left: 100,
+      width: 200,
+      height: 112,
+    } as DOMRect;
+    vi.spyOn(box, 'getBoundingClientRect').mockReturnValue(boxRect);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Padding bottom' }));
+
+    const popover = screen.getByRole('dialog', { name: 'Padding Bottom' });
+    const popupTop = Number.parseFloat(popover.style.top);
+    const popupWidth = Number.parseFloat(popover.style.width);
+    const popupHeight = Number.parseFloat(popover.style.height);
+
+    expect(popupTop).toBeGreaterThanOrEqual(boxRect.bottom);
+    expect(popupTop).toBeCloseTo(boxRect.bottom + 8);
+    expect(popupWidth).toBeCloseTo(boxRect.width * 0.78);
+    expect(popupHeight).toBeCloseTo(boxRect.height * 0.37);
+
+    vi.restoreAllMocks();
+  });
+
+  it('commits a manually entered spacing value from the popup', () => {
+    vi.stubGlobal('CSS', { supports: () => true });
+    const onSetSide = vi.fn();
+    renderPanel(
+      resolvedSelection,
+      'p-3',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      onSetSide
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Padding top' }));
+    const input = within(screen.getByRole('dialog', { name: 'Padding Top' })).getByRole('textbox', {
+      name: 'Padding Top',
+    });
+    fireEvent.change(input, { target: { value: '10rem' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', {
+      kind: 'arbitrary',
+      raw: '10rem',
+    });
+    vi.unstubAllGlobals();
   });
 
   it('flags an invalid typed value and does not apply it', () => {
@@ -600,7 +861,10 @@ describe('VisualEditorPanel', () => {
       vi.fn(),
       onSetSide
     );
-    const pt = screen.getByLabelText('Padding top');
+    fireEvent.click(screen.getByRole('button', { name: 'Padding top' }));
+    const pt = within(screen.getByRole('dialog', { name: 'Padding Top' })).getByRole('textbox', {
+      name: 'Padding Top',
+    });
     fireEvent.keyDown(pt, { key: 'ArrowUp' });
     expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', { kind: 'scale', n: 4 });
     fireEvent.keyDown(pt, { key: 'ArrowDown' });
@@ -622,7 +886,13 @@ describe('VisualEditorPanel', () => {
       vi.fn(),
       onSetSide
     );
-    fireEvent.keyDown(screen.getByLabelText('Padding top'), { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('button', { name: 'Padding top' }));
+    fireEvent.keyDown(
+      within(screen.getByRole('dialog', { name: 'Padding Top' })).getByRole('textbox', {
+        name: 'Padding Top',
+      }),
+      { key: 'ArrowDown' }
+    );
     expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', { kind: 'scale', n: 0 });
   });
 
@@ -639,7 +909,10 @@ describe('VisualEditorPanel', () => {
       vi.fn(),
       onSetSide
     );
-    const pt = screen.getByLabelText('Padding top');
+    fireEvent.click(screen.getByRole('button', { name: 'Padding top' }));
+    const pt = within(screen.getByRole('dialog', { name: 'Padding Top' })).getByRole('textbox', {
+      name: 'Padding Top',
+    });
     fireEvent.keyDown(pt, { key: 'ArrowUp' });
     expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', {
       kind: 'arbitrary',

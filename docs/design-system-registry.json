@@ -56,6 +56,58 @@
       "lifecycle": "canonical"
     },
     {
+      "name": "ContextMenu family",
+      "file": "src/components/primitives/ContextMenu.tsx",
+      "exports": [
+        "ContextMenuProps",
+        "ContextMenu",
+        "ContextMenuTrigger",
+        "ContextMenuContentProps",
+        "ContextMenuContent",
+        "ContextMenuItemProps",
+        "ContextMenuItem",
+        "ContextMenuSeparator",
+        "ContextMenuGroup",
+        "ContextMenuLabel",
+        "ContextMenuShortcut"
+      ],
+      "purpose": "Native context-menu state, portaled positioning, dismissal, and keyboard-operable menu items.",
+      "owner": "primitives/menus",
+      "props": [
+        "children",
+        "asChild",
+        "onContextMenu",
+        "className",
+        "disabled",
+        "inset",
+        "onSelect",
+        "variant",
+        "native menu attributes"
+      ],
+      "variants": [
+        "default item",
+        "destructive item",
+        "inset item",
+        "disabled item",
+        "asChild trigger"
+      ],
+      "states": [
+        "closed",
+        "open",
+        "focused item",
+        "keyboard navigation",
+        "outside dismissal",
+        "Escape dismissal"
+      ],
+      "accessibility": "Uses menu/menuitem semantics, focuses the first enabled item, supports Arrow/Home/End/Escape navigation, and exposes disabled state.",
+      "style": "src/styles/components/context-menu.css",
+      "example": "docs/design-system.md#development-primitive-lab",
+      "tests": [
+        "src/components/primitives/ContextMenu.test.tsx"
+      ],
+      "lifecycle": "canonical"
+    },
+    {
       "name": "DockablePanel",
       "file": "src/components/primitives/DockablePanel.tsx",
       "exports": [
@@ -397,6 +449,39 @@
         "src/components/primitives/PixelLoader.test.tsx"
       ],
       "lifecycle": "experimental"
+    },
+    {
+      "name": "Progress",
+      "file": "src/components/primitives/Progress.tsx",
+      "exports": [
+        "ProgressProps",
+        "Progress"
+      ],
+      "purpose": "Dependency-free determinate or indeterminate progress bar with native progressbar semantics.",
+      "owner": "primitives/status",
+      "props": [
+        "value",
+        "max",
+        "native div attributes"
+      ],
+      "variants": [
+        "determinate",
+        "indeterminate"
+      ],
+      "states": [
+        "empty",
+        "in progress",
+        "complete",
+        "indeterminate",
+        "reduced motion"
+      ],
+      "accessibility": "Uses role=progressbar with min/max/now values for determinate progress and omits aria-valuenow when indeterminate.",
+      "style": "src/styles/components/progress.css",
+      "example": "docs/design-system.md#progress",
+      "tests": [
+        "src/components/primitives/Progress.test.tsx"
+      ],
+      "lifecycle": "canonical"
     },
     {
       "name": "PropertyField",

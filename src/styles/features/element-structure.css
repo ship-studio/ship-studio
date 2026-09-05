@@ -1,6 +1,5 @@
 /* Structural element editing — the floating canvas toolbar (+ / duplicate /
-   delete), the shared insert-element palette, and the element tree's row
-   context menu. */
+   delete) and the shared insert-element palette. */
 
 /* ── Canvas toolbar, absolutely positioned inside the preview iframe wrapper ── */
 
@@ -164,44 +163,4 @@
   flex: 0 0 auto;
   color: var(--tag-text);
   font-size: var(--font-size-badge);
-}
-
-/* ── Element tree row context menu ── */
-
-.ss-tree-menu {
-  z-index: var(--z-tooltip);
-  display: flex;
-  flex-direction: column;
-  padding: var(--spacing-xs);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
-  background: var(--surface-panel);
-  box-shadow: var(--shadow-lg);
-}
-
-.ss-tree-menu__item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: 5px var(--spacing-sm);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-size-body-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.ss-tree-menu__item:hover {
-  background: var(--tint);
-}
-
-.ss-tree-menu__item--danger {
-  color: var(--accent-error);
-}
-
-.ss-tree-menu__item--danger:hover {
-  background: rgba(var(--accent-error-rgb), 0.12);
 }

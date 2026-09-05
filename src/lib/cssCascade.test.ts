@@ -5,6 +5,7 @@ import {
   mergeCascade,
   formatRuleCss,
   rowKey,
+  groupCascadeRows,
   looksLikeCssModuleSelector,
   cssModuleFileHint,
   type MatchedRule,
@@ -191,6 +192,54 @@ describe('rowKey', () => {
     )[0];
     expect(rowKey(a)).toBe(rowKey({ ...a }));
     expect(rowKey(a)).not.toBe(rowKey({ ...a, index: 1 }));
+  });
+});
+
+describe('groupCascadeRows', () => {
+  it('keeps sibling selectors in one media group while preserving surrounding order', () => {
+    const rows = [
+      {
+        ...mergeCascade([rule({ selector: '.base' })], new Map([[0, { status: 'not_found' }]]))[0],
+        index: 0,
+      },
+      {
+        ...mergeCascade(
+          [rule({ selector: '.first', mediaText: 'screen and (max-width: 767px)' })],
+          new Map([[0, { status: 'not_found' }]])
+        )[0],
+        index: 1,
+      },
+      {
+        ...mergeCascade(
+          [rule({ selector: '.second', mediaText: 'screen and (max-width: 767px)' })],
+          new Map([[0, { status: 'not_found' }]])
+        )[0],
+        index: 2,
+      },
+    ];
+
+    const groups = groupCascadeRows(rows);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ kind: 'rule', row: { selector: '.base' } });
+    expect(groups[1]).toMatchObject({
+      kind: 'media',
+      condition: 'screen and (max-width: 767px)',
+      rows: [{ selector: '.first' }, { selector: '.second' }],
+    });
+  });
+
+  it('does not combine identical conditions from separate source files', () => {
+    const makeRow = (selector: string, file: string, index: number) => ({
+      ...mergeCascade(
+        [rule({ selector, mediaText: '(max-width: 767px)' })],
+        new Map([[0, { status: 'resolved', file, line: 1, inner_text: '' }]])
+      )[0],
+      index,
+    });
+
+    const groups = groupCascadeRows([makeRow('.a', 'a.css', 1), makeRow('.b', 'b.css', 2)]);
+    expect(groups).toHaveLength(2);
+    expect(groups.every((group) => group.kind === 'media')).toBe(true);
   });
 });
 

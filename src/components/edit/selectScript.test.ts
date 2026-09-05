@@ -7,7 +7,7 @@
  * inert-until-activated, click → `ss:select` signature, and `ss:mutate` → live class.
  */
 
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 // Import the exact script Rust injects (via `include_str!`) as a raw string so
 // both consumers share one source of truth.
 import scriptHtml from '../../../src-tauri/src/proxy/select_script.html?raw';
@@ -100,6 +100,40 @@ it('reports a signature on click after activate', async () => {
   expect(msg.count).toBe(1);
 });
 
+it('reports page hover changes so the Elements row can mirror them', () => {
+  document.body.innerHTML =
+    '<div class="shell"><button class="hover-target">Hover me</button></div>';
+  send({ type: 'ss:activate' });
+  const post = vi.spyOn(window.parent, 'postMessage');
+  try {
+    const target = document.querySelector('.hover-target')!;
+    target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+
+    const hoverMessages = post.mock.calls
+      .map(([data]) => data as { type?: string; nodeId?: number | null })
+      .filter((data) => data.type === 'ss:hover');
+    expect(hoverMessages).toHaveLength(1);
+    expect(hoverMessages[0]?.nodeId).toEqual(expect.any(Number));
+
+    // Repeated mousemove events over the same element do not churn the host state.
+    target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    expect(
+      post.mock.calls.filter(([data]) => (data as { type?: string }).type === 'ss:hover')
+    ).toHaveLength(1);
+
+    document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    expect(post.mock.calls[post.mock.calls.length - 1]?.[0]).toEqual({
+      type: 'ss:hover',
+      nodeId: null,
+    });
+  } finally {
+    send({ type: 'ss:deactivate' });
+    document.body.innerHTML =
+      '<section class="hero"><div class="card"><button class="btn p-4">Buy now</button></div></section>';
+    post.mockRestore();
+  }
+});
+
 it('reports React development source for an element-tree source anchor', async () => {
   const button = document.querySelector('.btn')!;
   Object.defineProperty(button, '__reactFiber$test', {
@@ -167,6 +201,37 @@ it('reports a Next/Turbopack client chunk frame for backend source-map resolutio
   );
   expect(msg.signature.sourceLine).toBe(44);
   expect(msg.signature.sourceColumn).toBe(120);
+});
+
+it('checks every React fiber record for an authored source frame', async () => {
+  const node = document.createElement('button');
+  node.className = 'multi-fiber-source';
+  document.body.appendChild(node);
+  Object.defineProperty(node, '__reactFiber$renderer-a', {
+    configurable: true,
+    value: {},
+  });
+  Object.defineProperty(node, '__reactFiber$renderer-b', {
+    configurable: true,
+    value: {
+      _debugStack: {
+        stack:
+          'Error: react-stack-top-frame\n    at Card (http://localhost:5173/src/Card.tsx:27:11)\n    at react_stack_bottom_frame (react-dom-client.development.js:1:1)',
+      },
+    },
+  });
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  node.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const msg = await selected;
+  expect(msg.signature.sourceFile).toBe('http://localhost:5173/src/Card.tsx');
+  expect(msg.signature.sourceLine).toBe(27);
+  expect(msg.signature.sourceColumn).toBe(11);
+
+  // Keep the shared script state aligned with the following mutation tests.
+  const restored = nextSelect();
+  document.querySelector('.btn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await restored;
 });
 
 it('live-applies a class to the selected element on ss:mutate', () => {
@@ -867,4 +932,48 @@ it('does not flag decoration when the element draws its own line', async () => {
   const msg = await selected;
   const inh = (msg.signature.inheritedProps ?? {}) as Record<string, InheritedPropMsg>;
   expect(inh['text-decoration-line']).toBeUndefined();
+});
+
+it('draws selection immediately and only inspects the latest click after a frame', async () => {
+  document.body.innerHTML =
+    '<button class="first">First</button><button class="second">Second</button>';
+  send({ type: 'ss:activate' });
+  const post = vi.spyOn(window.parent, 'postMessage');
+  try {
+    document.querySelector('.first')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.querySelector('.first')!.hasAttribute('data-ss-sel')).toBe(true);
+    expect(
+      Array.from(document.querySelectorAll<HTMLElement>('[data-ss-overlay]')).some(
+        (box) => box.style.display === 'block' && box.style.borderStyle === 'solid'
+      )
+    ).toBe(true);
+    expect(post.mock.calls.some(([data]) => (data as { type?: string }).type === 'ss:select')).toBe(
+      false
+    );
+    const selected = nextSelect();
+    document.querySelector('.second')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect((await selected).signature.className).toBe('second');
+    expect(
+      post.mock.calls.filter(([data]) => (data as { type?: string }).type === 'ss:select')
+    ).toHaveLength(1);
+  } finally {
+    send({ type: 'ss:deactivate' });
+    post.mockRestore();
+  }
+});
+
+it('cancels pending selection inspection when edit mode closes', async () => {
+  document.body.innerHTML = '<button class="cancel">Cancel</button>';
+  send({ type: 'ss:activate' });
+  const post = vi.spyOn(window.parent, 'postMessage');
+  try {
+    document.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    send({ type: 'ss:deactivate' });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    expect(post.mock.calls.some(([data]) => (data as { type?: string }).type === 'ss:select')).toBe(
+      false
+    );
+  } finally {
+    post.mockRestore();
+  }
 });

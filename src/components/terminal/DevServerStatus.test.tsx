@@ -22,6 +22,8 @@ function renderStatus(overrides: Partial<React.ComponentProps<typeof DevServerSt
 describe('DevServerStatus', () => {
   it('shows Stop + the attempt counter once past warm-up', () => {
     const props = renderStatus({ phase: 'loading', retryCount: 24 });
+    expect(document.querySelector('.ss-pixel-loader')).toBeInTheDocument();
+    expect(document.querySelector('.ss-spinner')).not.toBeInTheDocument();
     expect(screen.getByText('Still trying… (attempt 24 of 60)')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Stop'));
     expect(props.onStop).toHaveBeenCalledOnce();

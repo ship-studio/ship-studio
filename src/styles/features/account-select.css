@@ -3,6 +3,10 @@
 /* Same vocabulary as the dashboard hero and the onboarding agent picker: a
    centred column, one display title, square pick-cards, a quiet footnote. */
 
+:root {
+  --account-select-paragraph-line-height: var(--line-height-medium);
+}
+
 /* Drag region — fixed strip at the very top so the window is movable anywhere
  * on the screen, not just over content. Mirrors dashboard-drag-region. */
 .account-select-drag-region {
@@ -17,30 +21,38 @@
 
 .account-select-screen {
   position: relative;
-  display: flex;
   flex: 1;
+  width: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.account-select-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
+  width: calc(100% - var(--spacing-2xl));
   max-width: 720px;
-  margin: 0 auto;
-  /* Top clears the overlay titlebar; the hero adds its own breathing room. */
-  padding: 56px var(--spacing-xl) var(--spacing-2xl);
+  max-height: calc(100% - var(--spacing-2xl));
+  margin: 0;
+  padding: var(--spacing-xl) 0;
   overflow-y: auto;
+  transform: translate(-50%, -50%);
 }
 
-/* "← Back" sits where the eye expects it, clear of the traffic lights. */
+/* Keep Back in the same traffic-light-safe titlebar inset as Home/Sidebar. */
 .account-select-back {
-  position: absolute;
-  top: 52px;
-  left: var(--spacing-xl);
-  color: var(--text-muted);
-  /* Above the drag strip so it stays clickable. */
-  z-index: calc(var(--z-dropdown) + 1);
-}
-
-.account-select-back:hover {
-  color: var(--text-primary);
+  position: fixed;
+  top: var(--spacing-sm);
+  left: calc(
+    var(--spacing-2xl) + var(--spacing-2xl) + var(--spacing-md) + var(--button-gap) +
+      var(--spacing-sm)
+  );
+  z-index: var(--z-workspace-header);
 }
 
 .account-select-hero {
@@ -70,7 +82,7 @@
   color: var(--text-primary);
 }
 
-.account-select-subtitle {
+.account-select-subtitle.text-style-body-medium {
   /* Explicit width so the box (not just the text inside it) is what the
      flex column centres — WebKit's balanced wrap shrinks a fit-content box
      and leaves it hugging the left of the column otherwise. */
@@ -78,6 +90,7 @@
   max-width: 520px;
   margin: 0;
   color: var(--text-secondary);
+  line-height: var(--account-select-paragraph-line-height);
   text-align: center;
   text-wrap: balance;
 }
@@ -91,10 +104,11 @@
   color: var(--text-muted);
 }
 
-.account-select-footnote {
+.account-select-footnote.text-style-hint {
   width: 100%;
   max-width: 520px;
   margin: var(--spacing-2xl) 0 0;
+  line-height: var(--account-select-paragraph-line-height);
   text-align: center;
   text-wrap: balance;
 }
@@ -190,6 +204,8 @@
   color: var(--text-white);
   font-size: var(--font-size-h4);
   font-weight: 600;
+  line-height: 1;
+  text-align: center;
   flex-shrink: 0;
 }
 
@@ -267,6 +283,10 @@
   margin-top: var(--spacing-sm);
   font-size: var(--font-size-badge);
   color: var(--text-muted);
+}
+
+.account-settings-loader {
+  margin: var(--spacing-md) 0;
 }
 
 .account-settings-hint code {
@@ -378,27 +398,34 @@
 
 .account-color-picker {
   display: flex;
-  gap: 6px;
+  gap: var(--button-gap);
   flex-wrap: wrap;
   align-items: center;
 }
 
-.account-color-swatch {
-  width: 20px;
-  height: 20px;
+.account-color-swatch.button {
+  width: var(--size-control-compact);
+  min-width: var(--size-control-compact);
+  height: var(--size-control-compact);
+  min-height: var(--size-control-compact);
+  padding: 0;
   border-radius: var(--radius-sm);
-  cursor: pointer;
-  border: 2px solid transparent;
+  border: var(--focus-ring-width) solid transparent;
+  box-shadow: none;
   transition:
     transform var(--transition),
     border-color var(--transition);
 }
 
-.account-color-swatch:hover {
+.account-color-swatch.button:hover:not(:disabled) {
   transform: scale(1.15);
 }
 
-.account-color-swatch.selected {
+.account-color-swatch.button:active:not(:disabled) {
+  transform: scale(var(--button-active-scale));
+}
+
+.account-color-swatch.button.selected {
   border-color: var(--text-primary);
 }
 
@@ -466,6 +493,17 @@
   justify-content: flex-end;
   gap: var(--spacing-xs);
   min-width: 0;
+}
+
+.account-service-row .account-cred-status {
+  flex: 1 1 auto;
+}
+
+.account-service-row .account-cred-badge {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .account-cred-badge {
@@ -572,5 +610,14 @@
     /* css-ok: two tiles per row on a narrow window */
     width: 156px;
     height: 156px;
+  }
+
+  .account-service-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .account-service-row .account-cred-status {
+    flex: 1 1 calc(100% - 200px - var(--spacing-sm));
   }
 }

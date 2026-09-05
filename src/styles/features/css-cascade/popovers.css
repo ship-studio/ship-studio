@@ -63,6 +63,15 @@
   font-size: var(--font-size-body-sm);
   overflow-wrap: anywhere;
 }
+.ss-suggest__label[data-suggestion-tone='media'] {
+  color: var(--media-text);
+}
+.ss-suggest__label[data-suggestion-tone='property'] {
+  color: var(--property-text);
+}
+.ss-suggest__label[data-suggestion-tone='text'] {
+  color: var(--text-primary);
+}
 .ss-suggest__hint {
   margin-left: auto;
   flex: 0 0 auto;

@@ -109,7 +109,7 @@ export function ColorField({
   // Explicit arbitrary value at the active breakpoint; otherwise fall back to
   // the element's rendered color for display/seeding.
   const { value: explicit, definedAt } = readLayer(currentClass, layer, (s) =>
-    arbitraryColorRaw(s, prefix)
+    arbitraryColorRaw(s, prefix, layer.utilityPrefix)
   );
   const computedRaw = computed?.[css];
   const resolvedExplicit = explicit ? resolveVariableColor(explicit, variables) : null;
@@ -232,7 +232,7 @@ export function ColorField({
         label={label}
         definedAt={definedAt}
         active={layer.bp}
-        onReset={() => onReset(colorResetSpec(prefix, css))}
+        onReset={() => onReset(colorResetSpec(prefix, css, layer.utilityPrefix))}
         inherited={inherited}
         onAdopt={adopt}
         projectPath={projectPath}

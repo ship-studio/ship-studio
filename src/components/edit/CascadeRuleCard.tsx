@@ -91,9 +91,8 @@ interface EditableCard extends CommonHeader {
   /** A not-yet-created rule (one of the element's own selectors) — shown dashed with a
    *  "new" chip; the rule is written to source on the first property. */
   draft?: boolean;
-  /** Editing-flow: open the "+ Add" menu on mount (right after this rule was created via
-   *  "Add selector"), so the user jumps straight to its first property. */
-  autoOpenAdd?: boolean;
+  /** A local selector waiting for its enclosing construct to become writable. */
+  pendingReason?: string;
   /** This created rule's selector doesn't match the selected element — show a note so it
    *  doesn't look like it applies (e.g. `cool` typed for an `<h1>`, or a class the
    *  element doesn't have). */
@@ -142,6 +141,7 @@ export function CascadeRuleCard(props: Props) {
   const sourcePaths = props.file ? [props.file] : Array.from(new Set(props.sourceFiles ?? []));
   const sourceTitle = props.file ? `${props.file}:${props.line}` : sourcePaths.join('\n');
   const sourceLabel = sourcePaths.map(fileLabel).join(', ');
+  const propertyCount = props.editable ? declarations(props.body).length : props.decls.length;
 
   // Focus management after a destructive action (#14): the focused button unmounts, so
   // without intervention focus falls to <body>. Capture a stable target *before* mutating,
@@ -268,7 +268,7 @@ export function CascadeRuleCard(props: Props) {
         {!editable && (
           <span className="ss-cascade-card__src ss-cascade-card__src--ro">read-only</span>
         )}
-        {editable && props.onDelete && !props.draft && (
+        {editable && props.onDelete && (!props.draft || props.pendingReason) && (
           <button
             type="button"
             className="ss-cascade-card__trash"
@@ -289,6 +289,11 @@ export function CascadeRuleCard(props: Props) {
           </span>
         )}
       </div>
+      {collapsed && (
+        <span className="ss-cascade-card__collapsed-summary">
+          {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}
+        </span>
+      )}
     </>
   );
 
@@ -363,11 +368,19 @@ export function CascadeRuleCard(props: Props) {
             <div className="ss-cascade-card__draft-row">
               <span
                 className="ss-cascade-card__chip ss-cascade-card__chip--new"
-                title="No rules applied — add a property to create this selector in your stylesheet"
+                title={
+                  props.pendingReason ??
+                  'No rules applied — add a property to create this selector in your stylesheet'
+                }
               >
-                No rules applied
+                {props.pendingReason ? 'Pending selector' : 'No rules applied'}
               </span>
             </div>
+          )}
+          {props.pendingReason && (
+            <p className="ss-cascade-card__note ss-cascade-card__note--pending">
+              {props.pendingReason}
+            </p>
           )}
           {props.unmatched && (
             <p className="ss-cascade-card__note ss-cascade-card__note--unmatched">
@@ -395,19 +408,20 @@ export function CascadeRuleCard(props: Props) {
             />
           ))}
 
-          <div className="ss-cascade-card__add-row">
-            <AddMenu
-              mode={isKeyframes ? 'keyframes' : isStep ? 'props' : 'full'}
-              autoOpen={props.editable && props.autoOpenAdd}
-              onAddProperty={(prop) => {
-                onChange(addDeclaration(body, { prop, value: '', important: false }));
-                setAutoEditProp(prop); // → the new row opens its value input
-              }}
-              onNest={(sel) => onChange(addNestedRule(body, sel))}
-            />
-          </div>
+          {!props.pendingReason && (
+            <div className="ss-cascade-card__add-row">
+              <AddMenu
+                mode={isKeyframes ? 'keyframes' : isStep ? 'props' : 'full'}
+                onAddProperty={(prop) => {
+                  onChange(addDeclaration(body, { prop, value: '', important: false }));
+                  setAutoEditProp(prop); // → the new row opens its value input
+                }}
+                onNest={(sel) => onChange(addNestedRule(body, sel))}
+              />
+            </div>
+          )}
 
-          {prediction && (
+          {prediction && !props.pendingReason && (
             <div
               className="ss-decl ss-decl--ghost"
               title="Predicted next — Tab to accept, Esc to dismiss"

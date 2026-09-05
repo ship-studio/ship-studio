@@ -1,6 +1,6 @@
-//! # Structural element editing — insert / duplicate / delete
+//! # Structural element editing — insert / duplicate / delete / paste
 //!
-//! Webflow-style structural edits committed straight to source. All three
+//! Webflow-style structural edits committed straight to source. These
 //! operations anchor on the same class-literal resolution as the rest of the
 //! visual editor ([`locate_element`]), so they inherit its fail-closed
 //! behavior: dynamic or ambiguous (`Multi`) elements refuse with an "ask your
@@ -518,6 +518,67 @@ pub fn duplicate_element(
         // A class-less original contributes nothing, so the copy's class is the
         // generated token alone — never a leading space (issue #318).
         class_name: format!("{} {token}", sig_class.trim()).trim().to_string(),
+        tag_name: tag,
+    })
+}
+
+/// Paste a captured element subtree inside the selected element. The pasted
+/// root receives a fresh class token so it remains uniquely editable even when
+/// the source was copied rather than cut.
+#[tauri::command]
+#[tracing::instrument(skip(signature, html), fields(project = %project_path))]
+pub fn paste_element(
+    project_path: String,
+    signature: ElementSignature,
+    html: String,
+    source_class_name: String,
+) -> Result<InsertedElement, CommandError> {
+    let snippet = html.trim();
+    if !snippet.starts_with('<') {
+        return Err(validation(
+            "html",
+            "The copied element markup could not be read — copy it again and try again.",
+        ));
+    }
+    let tag = span_tag(snippet, 0);
+    if tag.is_empty() {
+        return Err(validation(
+            "html",
+            "The copied element markup could not be read — copy it again and try again.",
+        ));
+    }
+    if STRUCTURAL_TAGS.contains(&tag.as_str()) {
+        return Err(validation(
+            "html",
+            format!("<{tag}> can't be pasted inside another element."),
+        ));
+    }
+
+    let (file, abs, src, _line, start, end) = locate_element(&project_path, signature)?;
+    let root = validate_project_path(&project_path)?;
+    let token = generate_class(&root, &tag);
+    let copy = append_class_token(
+        snippet,
+        &["class", "className"],
+        &token,
+        class_attr_for_path(&file),
+    )
+    .ok_or_else(|| {
+        validation(
+            "html",
+            "The copied element markup could not be distinguished from its source.",
+        )
+    })?;
+    let (updated, offset) = splice_snippet(&src, start, end, InsertPosition::Inside, &copy)?;
+    std::fs::write(&abs, &updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
+    invalidate_index_cache(&root);
+    Ok(InsertedElement {
+        file,
+        line: line_of(&updated, offset),
+        class_name: format!("{} {token}", source_class_name.trim())
+            .trim()
+            .to_string(),
         tag_name: tag,
     })
 }

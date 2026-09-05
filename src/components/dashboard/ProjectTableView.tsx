@@ -18,6 +18,7 @@ interface ProjectTableViewProps<TProject extends DashboardProject> {
   onSelectAllVisible: (selected: boolean) => void;
   onToggleProjectSelection: (projectPath: string) => void;
   onSelectProject: (project: TProject) => void;
+  onOpenProjectSettings: (project: DashboardProject) => void;
   onDeleteProject: (project: DashboardProject) => void;
   onRenameProject: (project: DashboardProject) => void;
   onToggleMainBranchWarning: (projectPath: string, hidden: boolean) => void;
@@ -59,6 +60,7 @@ export function ProjectTableView<TProject extends DashboardProject>({
   onSelectAllVisible,
   onToggleProjectSelection,
   onSelectProject,
+  onOpenProjectSettings,
   onDeleteProject,
   onRenameProject,
   onToggleMainBranchWarning,
@@ -193,6 +195,7 @@ export function ProjectTableView<TProject extends DashboardProject>({
 
             <div className="project-table-actions-cell" role="cell">
               <ProjectCardMenu
+                onOpenSettings={() => onOpenProjectSettings(project)}
                 hideMainBranchWarning={hideMainBranchWarning}
                 onToggleMainBranchWarning={(hidden) =>
                   onToggleMainBranchWarning(project.path, hidden)

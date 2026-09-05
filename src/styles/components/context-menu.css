@@ -1,0 +1,120 @@
+/* Native context-menu primitive, styled to match Ship Studio's existing dark menus. */
+
+.ss-context-menu {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: flex;
+  flex-direction: column;
+  min-width: var(--context-menu-min-width);
+  max-width: var(--context-menu-max-width);
+  padding: var(--spacing-xs);
+  border: var(--context-menu-border-width) solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  outline: none;
+  transform-origin: top left;
+  animation: ss-context-menu-enter var(--context-menu-animation-duration)
+    var(--context-menu-animation-easing) both;
+}
+
+.ss-context-menu[data-state='closed'] {
+  pointer-events: none;
+  animation-name: ss-context-menu-exit;
+}
+
+.ss-context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 100%;
+  height: var(--context-menu-item-height);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--transition-interaction-fast),
+    color var(--transition-interaction-fast);
+}
+
+.ss-context-menu__item:hover,
+.ss-context-menu__item:focus-visible {
+  background: var(--tint-subtle);
+  outline: none;
+}
+
+.ss-context-menu__item:active {
+  transform: scale(var(--button-active-scale));
+}
+
+.ss-context-menu__item.is-destructive {
+  color: var(--accent-error);
+}
+
+.ss-context-menu__item.is-destructive:hover,
+.ss-context-menu__item.is-destructive:focus-visible {
+  background: var(--context-menu-destructive-hover-surface);
+}
+
+.ss-context-menu__item.is-inset {
+  padding-inline-start: var(--spacing-xl);
+}
+
+.ss-context-menu__item:disabled,
+.ss-context-menu__item[aria-disabled='true'] {
+  opacity: var(--button-disabled-opacity);
+  cursor: not-allowed;
+}
+
+.ss-context-menu__separator {
+  flex: 0 0 auto;
+  width: calc(100% + var(--spacing-xs) + var(--spacing-xs));
+  height: var(--context-menu-separator-height);
+  margin: var(--spacing-xs) calc(-1 * var(--spacing-xs));
+  background: var(--border-default);
+}
+
+.ss-context-menu__label {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.ss-context-menu__shortcut {
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+
+@keyframes ss-context-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--spacing-sm))) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ss-context-menu-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}

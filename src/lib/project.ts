@@ -725,6 +725,24 @@ export async function setCustomDevCommand(
 }
 
 /**
+ * Get the configured dev server port for a project.
+ * @param projectPath - Absolute path to the project directory
+ * @returns The saved port, or null when the project uses its derived default
+ */
+export async function getDevServerPort(projectPath: string): Promise<number | null> {
+  return invoke<number | null>('get_dev_server_port', { projectPath });
+}
+
+/**
+ * Set the dev server port for a project.
+ * @param projectPath - Absolute path to the project directory
+ * @param port - Port number to use
+ */
+export async function setDevServerPort(projectPath: string, port: number): Promise<void> {
+  return invoke<void>('set_dev_server_port', { projectPath, port });
+}
+
+/**
  * Get whether the project is forced to serve as a static site (overriding the
  * `generic` classification a root `package.json` would otherwise trigger).
  * @param projectPath - Absolute path to the project directory

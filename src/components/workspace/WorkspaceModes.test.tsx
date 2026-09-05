@@ -5,6 +5,7 @@ import { WorkspaceModes } from './WorkspaceModes';
 function renderModes(overrides: Partial<Parameters<typeof WorkspaceModes>[0]> = {}) {
   const props: Parameters<typeof WorkspaceModes>[0] = {
     hasPreview: true,
+    projectTypeResolved: true,
     isPreviewHidden: false,
     workspaceTab: 'code',
     setIsPreviewHidden: vi.fn(),
@@ -20,6 +21,11 @@ function renderModes(overrides: Partial<Parameters<typeof WorkspaceModes>[0]> = 
 describe('WorkspaceModes', () => {
   it('shows the Preview tab whenever the project supports preview', () => {
     renderModes();
+    expect(screen.getByRole('tab', { name: /preview/i })).toBeInTheDocument();
+  });
+
+  it('keeps the Preview tab visible while project type detection is pending', () => {
+    renderModes({ hasPreview: false, projectTypeResolved: false });
     expect(screen.getByRole('tab', { name: /preview/i })).toBeInTheDocument();
   });
 

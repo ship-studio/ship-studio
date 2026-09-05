@@ -18,6 +18,8 @@ export interface Suggestion {
   /** Shown (defaults to value). */
   label: string;
   hint?: string;
+  /** Optional syntax colour used by structured editors such as media queries. */
+  tone?: 'media' | 'property' | 'text';
 }
 
 interface Props {
@@ -28,6 +30,8 @@ interface Props {
   active: number;
   onPick: (value: string) => void;
   width?: number;
+  /** Keep the menu below its anchor instead of flipping above it. */
+  flip?: boolean;
   /** ARIA listbox id — the owning combobox input points its `aria-controls` here, and
    *  each option's id is derived from it (`${listId}-opt-${i}`) for `aria-activedescendant`. */
   listId?: string;
@@ -38,20 +42,43 @@ export function suggestionOptionId(listId: string | undefined, index: number): s
   return listId ? `${listId}-opt-${index}` : undefined;
 }
 
-export function SuggestionPopover({ anchor, items, active, onPick, width = 240, listId }: Props) {
+export function SuggestionPopover({
+  anchor,
+  items,
+  active,
+  onPick,
+  width = 240,
+  flip = true,
+  listId,
+}: Props) {
   const pos = useMemo(() => {
     if (!anchor || items.length === 0) return null;
     const r = anchor.getBoundingClientRect();
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    const anchorShell = anchor.closest<HTMLElement>('.ss-cascade-chip');
+    const anchorShellRect = anchorShell?.getBoundingClientRect() ?? r;
+    const boundary = anchor.closest<HTMLElement>('.ss-cascade-selector-composer');
+    const boundaryRect = boundary?.getBoundingClientRect();
+    const popoverWidth = boundaryRect
+      ? Math.min(width, Math.max(0, boundaryRect.right - anchorShellRect.left))
+      : width;
+    const minLeft = Math.max(8, boundaryRect?.left ?? 8);
+    const maxLeft = Math.min(
+      window.innerWidth - popoverWidth - 8,
+      boundaryRect ? boundaryRect.right - popoverWidth : window.innerWidth - popoverWidth - 8
+    );
+    const left = boundaryRect
+      ? anchorShellRect.left
+      : Math.max(minLeft, Math.min(anchorShellRect.left, maxLeft));
     const below = window.innerHeight - r.bottom;
-    const flip = below < 220 && r.top > below;
+    const shouldFlip = flip && below < 220 && r.top > below;
     return {
       left,
-      top: flip ? undefined : r.bottom + 4,
-      bottom: flip ? window.innerHeight - r.top + 4 : undefined,
-      maxHeight: Math.max(120, (flip ? r.top : below) - 12),
+      width: popoverWidth,
+      top: shouldFlip ? undefined : r.bottom + 12,
+      bottom: shouldFlip ? window.innerHeight - r.top + 12 : undefined,
+      maxHeight: Math.max(120, (shouldFlip ? r.top : below) - 12),
     };
-  }, [anchor, items.length, width]);
+  }, [anchor, flip, items.length, width]);
 
   if (!pos) return null;
 
@@ -65,7 +92,7 @@ export function SuggestionPopover({ anchor, items, active, onPick, width = 240, 
         left: pos.left,
         top: pos.top,
         bottom: pos.bottom,
-        width,
+        width: pos.width,
         maxHeight: pos.maxHeight,
         // Bulletproof layout (inline = wins over any class/global rule):
         display: 'block',
@@ -100,6 +127,7 @@ export function SuggestionPopover({ anchor, items, active, onPick, width = 240, 
         >
           <code
             className="ss-suggest__label"
+            data-suggestion-tone={it.tone}
             style={{
               flex: '1 1 auto',
               minWidth: 0,

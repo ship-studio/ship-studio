@@ -27,7 +27,12 @@ import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { getProjectThumbnail, listProjects } from '../../lib/project';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
-import { Button } from '../primitives/Button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '../primitives/ContextMenu';
 
 interface ProjectRailProps {
   /** Joined pin + session rows from `usePinnedProjects`. */
@@ -87,13 +92,6 @@ export function ProjectRail({
   const pendingDragRef = useRef<PendingDrag | null>(null);
   const rowsRef = useRef(rows);
   const onReorderRef = useRef(onReorder);
-
-  // Context menu state (lifted from RailItem so it renders outside the list)
-  const [contextMenu, setContextMenu] = useState<{
-    projectPath: string;
-    x: number;
-    y: number;
-  } | null>(null);
 
   // "Add project" picker state
   const [showPicker, setShowPicker] = useState(false);
@@ -287,25 +285,6 @@ export function ProjectRail({
     [dragSource, onPinClick]
   );
 
-  // Close context menu on outside click / escape.
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-    };
-    window.addEventListener('click', close);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [contextMenu]);
-
-  const handleItemContextMenu = useCallback((projectPath: string, x: number, y: number) => {
-    setContextMenu({ projectPath, x, y });
-  }, []);
-
   // Open the project picker: fetch all projects and filter out already-pinned ones.
   const openPicker = useCallback(async () => {
     try {
@@ -358,7 +337,7 @@ export function ProjectRail({
             row={row}
             registerElement={registerItemElement}
             onClick={handleClick}
-            onContextMenu={handleItemContextMenu}
+            onUnpin={onUnpin}
             isDragging={dragSource === row.projectPath}
             isDropTarget={dropTarget === row.projectPath && dragSource !== row.projectPath}
             dropSide={dropSide}
@@ -427,28 +406,6 @@ export function ProjectRail({
           </ul>
         </div>
       )}
-
-      {contextMenu && (
-        <div
-          className="project-rail-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-          role="menu"
-        >
-          <Button
-            variant="ghost"
-            className="project-rail-menu-item danger"
-            role="menuitem"
-            onClick={() => {
-              const path = contextMenu.projectPath;
-              setContextMenu(null);
-              onUnpin(path);
-            }}
-          >
-            Unpin from sidebar
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
@@ -457,7 +414,7 @@ interface RailItemProps {
   row: PinnedProjectRow;
   registerElement: (projectPath: string, el: HTMLElement | null) => void;
   onClick: (projectPath: string) => void;
-  onContextMenu: (projectPath: string, x: number, y: number) => void;
+  onUnpin: (projectPath: string) => void;
   isDragging: boolean;
   isDropTarget: boolean;
   /** When this row is the drop target, which side the indicator is on. */
@@ -471,7 +428,7 @@ function RailItem({
   row,
   registerElement,
   onClick,
-  onContextMenu,
+  onUnpin,
   isDragging,
   isDropTarget,
   dropSide,
@@ -523,12 +480,6 @@ function RailItem({
     };
   }, [row.projectPath]);
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onContextMenu(row.projectPath, e.clientX, e.clientY);
-  };
-
   const tooltip = buildTooltip(row);
   const dotClass = statusDotClassName(row);
 
@@ -552,47 +503,55 @@ function RailItem({
 
   return (
     <li className={wrapperClassName}>
-      <div
-        ref={itemRef}
-        className={itemClassName}
-        title={tooltip}
-        aria-label={tooltip}
-        role="button"
-        tabIndex={0}
-        onPointerDown={(e) => onPointerDown(row.projectPath, e)}
-        onClick={(e) => {
-          // Suppress click if a drag just happened — the browser fires
-          // click after pointerup even when the gesture was a drag.
-          if (suppressClickAfterDrag) {
-            e.preventDefault();
-            return;
-          }
-          onClick(row.projectPath);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onClick(row.projectPath);
-          }
-        }}
-        onContextMenu={handleContextMenu}
-      >
-        <span className="project-rail-thumb">
-          {thumbnail ? (
-            <img src={thumbnail} alt="" draggable={false} />
-          ) : (
-            <span className="project-rail-placeholder" aria-hidden="true">
-              {row.fallbackName.charAt(0).toUpperCase()}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={itemRef}
+            className={itemClassName}
+            title={tooltip}
+            aria-label={tooltip}
+            role="button"
+            tabIndex={0}
+            onPointerDown={(e) => onPointerDown(row.projectPath, e)}
+            onClick={(e) => {
+              // Suppress click if a drag just happened — the browser fires
+              // click after pointerup even when the gesture was a drag.
+              if (suppressClickAfterDrag) {
+                e.preventDefault();
+                return;
+              }
+              onClick(row.projectPath);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick(row.projectPath);
+              }
+            }}
+          >
+            <span className="project-rail-thumb">
+              {thumbnail ? (
+                <img src={thumbnail} alt="" draggable={false} />
+              ) : (
+                <span className="project-rail-placeholder" aria-hidden="true">
+                  {row.fallbackName.charAt(0).toUpperCase()}
+                </span>
+              )}
             </span>
-          )}
-        </span>
-        <span className={`project-rail-dot ${dotClass}`} aria-hidden="true" />
-        {row.unreadCount > 0 && (
-          <span className="project-rail-badge" aria-label={`${row.unreadCount} unread`}>
-            {row.unreadCount > 9 ? '9+' : row.unreadCount}
-          </span>
-        )}
-      </div>
+            <span className={`project-rail-dot ${dotClass}`} aria-hidden="true" />
+            {row.unreadCount > 0 && (
+              <span className="project-rail-badge" aria-label={`${row.unreadCount} unread`}>
+                {row.unreadCount > 9 ? '9+' : row.unreadCount}
+              </span>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent aria-label={`Actions for ${row.fallbackName}`}>
+          <ContextMenuItem variant="destructive" onSelect={() => onUnpin(row.projectPath)}>
+            Unpin from sidebar
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </li>
   );
 }

@@ -1,10 +1,13 @@
 import AlignLeftSvg from '../../assets/icons/align-left.svg?react';
 import AlignCenterSvg from '../../assets/icons/align-center.svg?react';
 import AlignRightSvg from '../../assets/icons/align-right.svg?react';
+import AlignJustifySvg from '../../assets/icons/align-justify.svg?react';
 import JustifyStartSvg from '../../assets/icons/justify-start.svg?react';
 import JustifyCenterSvg from '../../assets/icons/justify-center.svg?react';
 import JustifyEndSvg from '../../assets/icons/justify-end.svg?react';
 import JustifyBetweenSvg from '../../assets/icons/justify-between.svg?react';
+import JustifyAroundSvg from '../../assets/icons/justify-around.svg?react';
+import AlignItemsBaselineSvg from '../../assets/icons/align-items-baseline.svg?react';
 import AlignItemsStartSvg from '../../assets/icons/align-items-start.svg?react';
 import AlignItemsCenterSvg from '../../assets/icons/align-items-center.svg?react';
 import AlignItemsEndSvg from '../../assets/icons/align-items-end.svg?react';
@@ -14,6 +17,11 @@ import DisplayFlexSvg from '../../assets/icons/display-flex.svg?react';
 import DisplayGridSvg from '../../assets/icons/display-grid.svg?react';
 import DisplayInlineBlockSvg from '../../assets/icons/display-inline-block.svg?react';
 import DisplayInlineFlexSvg from '../../assets/icons/display-inline-flex.svg?react';
+import CornerRadiusSvg from '../../assets/icons/corner-radius.svg?react';
+import CornerRadiusTopLeftSvg from '../../assets/icons/corner-radius-top-left.svg?react';
+import CornerRadiusTopRightSvg from '../../assets/icons/corner-radius-top-right.svg?react';
+import CornerRadiusBottomRightSvg from '../../assets/icons/corner-radius-bottom-right.svg?react';
+import CornerRadiusBottomLeftSvg from '../../assets/icons/corner-radius-bottom-left.svg?react';
 import ItalicsOffSvg from '../../assets/icons/italics-off.svg?react';
 import ItalicsOnSvg from '../../assets/icons/italics-on.svg?react';
 import DecorationNoneSvg from '../../assets/icons/decoration-none.svg?react';
@@ -26,6 +34,8 @@ import OverflowAutoSvg from '../../assets/icons/overflow-auto.svg?react';
 import WrapUpSvg from '../../assets/icons/wrap-up.svg?react';
 import UpSvg from '../../assets/icons/up.svg?react';
 import DownSvg from '../../assets/icons/down.svg?react';
+import LockedSvg from '../../assets/icons/locked.svg?react';
+import UnlockedSvg from '../../assets/icons/unlocked.svg?react';
 import { createIcon } from './icon-base';
 
 export const AlignLeftIcon = createIcon(AlignLeftSvg, {
@@ -45,6 +55,13 @@ export const AlignCenterIcon = createIcon(AlignCenterSvg, {
 export const AlignRightIcon = createIcon(AlignRightSvg, {
   name: 'AlignRightIcon',
   source: 'icons/align-right.svg',
+  kind: 'ui',
+  defaultSize: 15,
+  strokeWidth: '1px',
+});
+export const AlignJustifyIcon = createIcon(AlignJustifySvg, {
+  name: 'AlignJustifyIcon',
+  source: 'icons/align-justify.svg',
   kind: 'ui',
   defaultSize: 15,
   strokeWidth: '1px',
@@ -73,6 +90,20 @@ export const JustifyEndIcon = createIcon(JustifyEndSvg, {
 export const JustifyBetweenIcon = createIcon(JustifyBetweenSvg, {
   name: 'JustifyBetweenIcon',
   source: 'icons/justify-between.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const JustifyAroundIcon = createIcon(JustifyAroundSvg, {
+  name: 'JustifyAroundIcon',
+  source: 'icons/justify-around.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const AlignItemsBaselineIcon = createIcon(AlignItemsBaselineSvg, {
+  name: 'AlignItemsBaselineIcon',
+  source: 'icons/align-items-baseline.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',
@@ -136,6 +167,41 @@ export const DisplayInlineBlockIcon = createIcon(DisplayInlineBlockSvg, {
 export const DisplayInlineFlexIcon = createIcon(DisplayInlineFlexSvg, {
   name: 'DisplayInlineFlexIcon',
   source: 'icons/display-inline-flex.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CornerRadiusIcon = createIcon(CornerRadiusSvg, {
+  name: 'CornerRadiusIcon',
+  source: 'icons/corner-radius.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CornerRadiusTopLeftIcon = createIcon(CornerRadiusTopLeftSvg, {
+  name: 'CornerRadiusTopLeftIcon',
+  source: 'icons/corner-radius-top-left.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CornerRadiusTopRightIcon = createIcon(CornerRadiusTopRightSvg, {
+  name: 'CornerRadiusTopRightIcon',
+  source: 'icons/corner-radius-top-right.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CornerRadiusBottomRightIcon = createIcon(CornerRadiusBottomRightSvg, {
+  name: 'CornerRadiusBottomRightIcon',
+  source: 'icons/corner-radius-bottom-right.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CornerRadiusBottomLeftIcon = createIcon(CornerRadiusBottomLeftSvg, {
+  name: 'CornerRadiusBottomLeftIcon',
+  source: 'icons/corner-radius-bottom-left.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',
@@ -220,6 +286,20 @@ export const ArrowUpIcon = createIcon(UpSvg, {
 export const ArrowDownIcon = createIcon(DownSvg, {
   name: 'ArrowDownIcon',
   source: 'icons/down.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const LockedIcon = createIcon(LockedSvg, {
+  name: 'LockedIcon',
+  source: 'icons/locked.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const UnlockedIcon = createIcon(UnlockedSvg, {
+  name: 'UnlockedIcon',
+  source: 'icons/unlocked.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',

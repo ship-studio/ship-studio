@@ -23,6 +23,8 @@ export type ModalId =
   | 'pluginManager'
   | 'devCommand'
   | 'projectSettings'
+  | 'sidebarProjectSettings'
+  | 'sidebarProjectRename'
   | 'notificationSettings'
   | 'settings'
   | 'attachedLibraries'

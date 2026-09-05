@@ -5,9 +5,10 @@
  * has no hsb() syntax, so that selection emits standards-compliant RGB.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { converter, parse } from 'culori';
 import { HsvaColorPicker, type HsvaColor } from 'react-colorful';
+import { useAsyncState } from '../../hooks/useAsyncState';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   COLOR_FORMATS,
@@ -22,6 +23,7 @@ import {
   type ColorFormat,
   type Hsva,
 } from '../../lib/color';
+import { getColorSamplerSupport, sampleScreenColor } from '../../lib/color-sampler';
 import { logger } from '../../lib/logger';
 import { CheckIcon, ChevronIcon, CloseIcon, ColorPickerIcon, CopyIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
@@ -265,6 +267,7 @@ export function ColorPicker({ value, onChange, onClose }: Props) {
   const [originalHsva] = useState(() => toHsva(value));
   const [hsva, setHsva] = useState(() => toHsva(value));
   const [syncedValue, setSyncedValue] = useState(value);
+  const eyeDropperActiveRef = useRef(false);
 
   if (syncedValue !== value) {
     setSyncedValue(value);
@@ -286,6 +289,22 @@ export function ColorPicker({ value, onChange, onClose }: Props) {
   const originalRgba = toRgba(hsvaToCss(originalHsva));
   const channels = channelDefinitions(localValue, format, hsva);
   const eyeDropper = eyeDropperConstructor();
+  const { data: nativeSamplerSupport, isLoading: isCheckingNativeSampler } = useAsyncState(
+    getColorSamplerSupport,
+    { immediate: true }
+  );
+  const nativeSampler = useAsyncState(sampleScreenColor, {
+    onError: (error) => {
+      logger.warn('[ColorPicker] Native color sampler failed', { error: String(error) });
+    },
+  });
+  const eyeDropperAvailable = Boolean(eyeDropper || nativeSamplerSupport?.available);
+  const eyeDropperTitle = eyeDropperAvailable
+    ? 'Pick color from screen'
+    : (nativeSamplerSupport?.reason ??
+      (isCheckingNativeSampler
+        ? 'Checking screen color support…'
+        : 'Screen color sampling is unavailable in this webview.'));
   const { copy, isCopied, error: copyError } = useCopyToClipboard();
 
   const emitHsva = useCallback(
@@ -332,15 +351,30 @@ export function ColorPicker({ value, onChange, onClose }: Props) {
   );
 
   const handleEyeDropper = async () => {
-    if (!eyeDropper) return;
+    // `isLoading` does not update until React renders. The ref closes the small
+    // window in which a rapid second click could open another native sampler.
+    if (eyeDropperActiveRef.current) return;
+    eyeDropperActiveRef.current = true;
+
     try {
-      const result = await new eyeDropper().open();
-      const next = toCss(result.sRGBHex);
+      if (eyeDropper) {
+        const result = await new eyeDropper().open();
+        const next = toCss(result.sRGBHex);
+        if (next) emitHsva(toHsva(next));
+        return;
+      }
+
+      if (!nativeSamplerSupport?.available || nativeSampler.isLoading) return;
+
+      const sampledColor = await nativeSampler.execute();
+      const next = sampledColor ? toCss(sampledColor) : null;
       if (next) emitHsva(toHsva(next));
     } catch (error) {
       if (!isEyeDropperCancellation(error)) {
         logger.warn('[ColorPicker] EyeDropper failed', { error: String(error) });
       }
+    } finally {
+      eyeDropperActiveRef.current = false;
     }
   };
 
@@ -394,10 +428,8 @@ export function ColorPicker({ value, onChange, onClose }: Props) {
             variant="default"
             icon={<ColorPickerIcon size={16} />}
             aria-label="Eyedropper"
-            title={
-              eyeDropper ? 'Pick color from screen' : 'Eyedropper unavailable on this platform.'
-            }
-            disabled={!eyeDropper}
+            title={eyeDropperTitle}
+            disabled={!eyeDropperAvailable || nativeSampler.isLoading}
             onClick={() => void handleEyeDropper()}
           />
           <div

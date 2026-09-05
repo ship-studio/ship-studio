@@ -5,7 +5,7 @@
  */
 
 import { beforeEach, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { mockConvertFileSrc, mockIPC } from '@tauri-apps/api/mocks';
 import { AssetsModal } from './AssetsPanel';
 
@@ -84,6 +84,38 @@ it('clicking an image hands the asset to onPick', async () => {
   expect(onPick.mock.calls[0][0]).toMatchObject({ path: 'hero.png', isDirectory: false });
 });
 
+it('groups asset actions in the overflow menu', async () => {
+  render(<AssetsModal projectPath="/p" isOpen onClose={vi.fn()} />);
+  const heroEntry = (await screen.findByText('hero.png')).closest('.assets-grid-entry');
+  expect(heroEntry).not.toBeNull();
+
+  const trigger = within(heroEntry as HTMLElement).getByRole('button', {
+    name: 'Asset actions',
+  });
+
+  fireEvent.click(trigger);
+
+  expect(screen.getByRole('menuitem', { name: 'Download' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Copy path' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument();
+});
+
+it('uses the overflow menu for list-view asset actions too', async () => {
+  render(<AssetsModal projectPath="/p" isOpen onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole('tab', { name: 'List view' }));
+
+  const heroRow = (await screen.findByText('hero.png')).closest('.assets-item');
+  expect(heroRow).not.toBeNull();
+
+  fireEvent.click(within(heroRow as HTMLElement).getByRole('button', { name: 'Asset actions' }));
+
+  expect(screen.getByRole('menuitem', { name: 'Download' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Copy path' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument();
+});
+
 it('clicking a folder navigates into it instead of picking', async () => {
   const { onPick } = renderPicker();
   fireEvent.click(await screen.findByText('images'));
@@ -97,6 +129,6 @@ it('without pick mode, files are not click-to-pick targets', async () => {
   render(<AssetsModal projectPath="/p" isOpen onClose={vi.fn()} />);
   expect(screen.getByText('Assets')).toBeInTheDocument();
   const file = await screen.findByText('notes.txt'); // manager shows ALL files
-  const item = file.closest('.assets-item, .assets-grid-item')!;
+  const item = file.closest('.assets-item, .assets-grid-entry')!;
   expect(item.className).not.toContain('is-pickable');
 });

@@ -21,8 +21,24 @@ pub const INSPECTOR_SHIM: &str = r#"
     if (window.__shipstudio_inspector_installed) return;
     window.__shipstudio_inspector_installed = true;
 
+    // The host owns context menus. Prevent WebKit from showing the project
+    // page's native menu inside the preview until Ship Studio provides a menu
+    // for that surface too.
+    window.addEventListener('contextmenu', function (event) {
+      event.preventDefault();
+    }, true);
+
     var CHANNEL = 'shipstudio-inspect';
     var seq = 0;
+    var structureShortcutsEnabled = false;
+
+    window.addEventListener('message', function (event) {
+      if (event.source !== window.parent) return;
+      var data = event.data;
+      if (data && data.type === 'ss:setElementStructureShortcuts') {
+        structureShortcutsEnabled = data.enabled === true;
+      }
+    });
 
     var safeStringify = function (value, depth) {
       depth = depth || 0;
@@ -63,6 +79,67 @@ pub const INSPECTOR_SHIM: &str = r#"
         window.parent.postMessage(msg, '*');
       } catch (_) {}
     };
+
+    // The preview iframe owns keyboard focus while a project is being
+    // previewed, so the host window cannot observe Option+number directly.
+    // Forward workspace shortcuts to the host; the native menu remains the
+    // fallback for frames where WebKit handles the accelerator first.
+    document.addEventListener('keydown', function (event) {
+      if (event.isComposing || event.metaKey || event.ctrlKey || event.shiftKey || !event.altKey) return;
+      var target = event.target;
+      if (target && target.matches && target.matches('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+      if (target && target.closest && target.closest('[contenteditable=""],[contenteditable="true"]')) return;
+      var match = /^Digit([1-9])$/.exec(String(event.code || ''));
+      if (!match) return;
+      event.preventDefault();
+      post({ type: 'ss:workspaceShortcut', index: Number(match[1]) - 1 });
+    }, true);
+
+    // Element-editing shortcuts must be captured here rather than only in the
+    // injected selection script: the preview can replace that script during a
+    // reload, while this initialization script is installed for every frame.
+    document.addEventListener('keydown', function (event) {
+      if (!structureShortcutsEnabled || event.isComposing) return;
+      var target = event.target;
+      if (target && target.matches && target.matches('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+      if (target && target.closest && target.closest('[contenteditable=""],[contenteditable="true"]')) return;
+      var key = String(event.key || '').toLowerCase();
+      var mod = event.metaKey || event.ctrlKey;
+      var isModifierShortcut = mod && !event.shiftKey && !event.altKey &&
+        (key === 'c' || key === 'x' || key === 'v' || key === 'd');
+      var isDeleteShortcut = key === 'backspace' && !mod && !event.shiftKey && !event.altKey;
+      if (!isModifierShortcut && !isDeleteShortcut) return;
+      event.preventDefault();
+      post({ type: 'ss:elementShortcut', key: key });
+    }, true);
+
+    // macOS Edit-menu commands dispatch clipboard events without necessarily
+    // delivering the corresponding keydown event to the frame. Keep them on
+    // the same element-action path, while leaving text fields untouched.
+    document.addEventListener('copy', function (event) {
+      if (!structureShortcutsEnabled) return;
+      var target = event.target;
+      if (target && target.matches && target.matches('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+      if (target && target.closest && target.closest('[contenteditable=""],[contenteditable="true"]')) return;
+      event.preventDefault();
+      post({ type: 'ss:elementShortcut', key: 'c' });
+    }, true);
+    document.addEventListener('cut', function (event) {
+      if (!structureShortcutsEnabled) return;
+      var target = event.target;
+      if (target && target.matches && target.matches('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+      if (target && target.closest && target.closest('[contenteditable=""],[contenteditable="true"]')) return;
+      event.preventDefault();
+      post({ type: 'ss:elementShortcut', key: 'x' });
+    }, true);
+    document.addEventListener('paste', function (event) {
+      if (!structureShortcutsEnabled) return;
+      var target = event.target;
+      if (target && target.matches && target.matches('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+      if (target && target.closest && target.closest('[contenteditable=""],[contenteditable="true"]')) return;
+      event.preventDefault();
+      post({ type: 'ss:elementShortcut', key: 'v' });
+    }, true);
 
     // --- Console ---
     ['log', 'info', 'warn', 'error', 'debug'].forEach(function (level) {

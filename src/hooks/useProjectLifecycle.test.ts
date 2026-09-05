@@ -106,6 +106,7 @@ function createParams(overrides?: Partial<UseProjectLifecycleParams>): UseProjec
     startScreenshotInterval: vi.fn(),
     onPreviewReady: vi.fn(),
     setWorkspaceTab: vi.fn(),
+    setIsPreviewHidden: vi.fn(),
     resetLayout: vi.fn(),
     setProjectGitHubStatus: vi.fn(),
     clearProjectStatuses: vi.fn(),

@@ -189,7 +189,12 @@ body.compact-mode-active html {
   width: auto;
 }
 
-/* Boot watchdog — replaces the loading spinner when the app is still stuck
+.app.loading .boot-progress {
+  width: var(--size-boot-progress);
+  max-width: calc(100vw - var(--spacing-2xl));
+}
+
+/* Boot watchdog — replaces the loading progress bar when the app is still stuck
    on the loading view after BOOT_WATCHDOG_MS (see BootLoadingScreen.tsx). */
 .boot-watchdog {
   display: flex;

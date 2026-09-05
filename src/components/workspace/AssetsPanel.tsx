@@ -21,8 +21,9 @@ import { useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatFileSize, isImageFile, type Asset } from '../../lib/assets';
 import { useAssetManagement } from '../../hooks/useAssetManagement';
-import { Dropdown, DropdownItem } from '../primitives/Dropdown';
+import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { Button } from '../primitives/Button';
+import { IconButton } from '../primitives/IconButton';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { useOptionalToast } from '../../contexts/ToastContext';
@@ -33,6 +34,7 @@ import {
   DownloadIcon,
   TrashIcon,
   EditIcon,
+  EditFieldIcon,
   UploadIcon,
   FolderIcon,
   FileIcon,
@@ -44,6 +46,7 @@ import {
   SearchIcon,
   GridIcon,
   ListIcon,
+  MoreHorizontalIcon,
 } from '@/components/icons';
 
 /** Common asset folders offered in the root picker. */
@@ -203,6 +206,47 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
       </div>
     );
   };
+
+  /** Keep the same action menu available from both asset layouts. */
+  const renderAssetActions = (asset: Asset) => (
+    <Dropdown
+      portal
+      align="right"
+      menuClassName="assets-actions-menu"
+      trigger={(p) => (
+        <IconButton
+          variant="default"
+          icon={<MoreHorizontalIcon size={14} />}
+          title="Asset actions"
+          aria-label="Asset actions"
+          {...p}
+        />
+      )}
+    >
+      {!asset.isDirectory && (
+        <DropdownItem icon={<DownloadIcon size={14} />} onSelect={() => void handleDownload(asset)}>
+          <span>Download</span>
+        </DropdownItem>
+      )}
+      <DropdownItem
+        icon={copiedPath === asset.path ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+        onSelect={() => void handleCopyPath(asset)}
+      >
+        <span>Copy path</span>
+      </DropdownItem>
+      <DropdownItem icon={<EditFieldIcon size={14} />} onSelect={() => startRename(asset)}>
+        <span>Rename</span>
+      </DropdownItem>
+      <DropdownDivider />
+      <DropdownItem
+        variant="danger"
+        icon={deleteTarget === asset.path ? <CheckIcon size={14} /> : <TrashIcon size={14} />}
+        onSelect={() => void handleDeleteClick(asset)}
+      >
+        <span>{deleteTarget === asset.path ? 'Confirm delete' : 'Delete'}</span>
+      </DropdownItem>
+    </Dropdown>
+  );
 
   if (!isOpen) return null;
 
@@ -475,54 +519,7 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                       <span className="assets-item-size">{formatFileSize(asset.size)}</span>
                     )}
                   </div>
-                  <div className="assets-item-actions">
-                    {!asset.isDirectory && (
-                      <button
-                        className="assets-action-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDownload(asset);
-                        }}
-                        title="Download"
-                      >
-                        <DownloadIcon size={12} />
-                      </button>
-                    )}
-                    <button
-                      className="assets-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleCopyPath(asset);
-                      }}
-                      title="Copy path"
-                    >
-                      {copiedPath === asset.path ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-                    </button>
-                    <button
-                      className="assets-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startRename(asset);
-                      }}
-                      title="Rename"
-                    >
-                      <EditIcon size={12} />
-                    </button>
-                    <button
-                      className={`assets-action-btn assets-action-delete ${deleteTarget === asset.path ? 'armed' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleDeleteClick(asset);
-                      }}
-                      title={deleteTarget === asset.path ? 'Click to confirm delete' : 'Delete'}
-                    >
-                      {deleteTarget === asset.path ? (
-                        <CheckIcon size={12} />
-                      ) : (
-                        <TrashIcon size={12} />
-                      )}
-                    </button>
-                  </div>
+                  <div className="assets-item-actions">{renderAssetActions(asset)}</div>
                 </div>
               ))}
             </div>
@@ -531,17 +528,20 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
               {visibleAssets.map((asset) => (
                 <div
                   key={asset.path}
-                  className={`assets-grid-item${itemModeClass(asset)}`}
+                  className={`assets-grid-entry${itemModeClass(asset)}`}
                   onClick={() => handleItemClick(asset)}
                 >
-                  <div className="assets-grid-preview">
-                    {asset.isDirectory ? (
-                      <FolderIcon size={32} />
-                    ) : isImageFile(asset.name) ? (
-                      <img src={convertFileSrc(asset.fullPath)} alt={asset.name} loading="lazy" />
-                    ) : (
-                      <FileIcon size={32} />
-                    )}
+                  <div className="assets-grid-item">
+                    <div className="assets-grid-preview">
+                      {asset.isDirectory ? (
+                        <FolderIcon size={32} />
+                      ) : isImageFile(asset.name) ? (
+                        <img src={convertFileSrc(asset.fullPath)} alt={asset.name} loading="lazy" />
+                      ) : (
+                        <FileIcon size={32} />
+                      )}
+                    </div>
+                    <div className="assets-grid-actions">{renderAssetActions(asset)}</div>
                   </div>
                   <div className="assets-grid-info">
                     {renameTarget?.path === asset.path ? (
@@ -564,54 +564,6 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                         {asset.name}
                       </span>
                     )}
-                  </div>
-                  <div className="assets-grid-actions">
-                    {!asset.isDirectory && (
-                      <button
-                        className="assets-action-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDownload(asset);
-                        }}
-                        title="Download"
-                      >
-                        <DownloadIcon size={12} />
-                      </button>
-                    )}
-                    <button
-                      className="assets-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleCopyPath(asset);
-                      }}
-                      title="Copy path"
-                    >
-                      {copiedPath === asset.path ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-                    </button>
-                    <button
-                      className="assets-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startRename(asset);
-                      }}
-                      title="Rename"
-                    >
-                      <EditIcon size={12} />
-                    </button>
-                    <button
-                      className={`assets-action-btn assets-action-delete ${deleteTarget === asset.path ? 'armed' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleDeleteClick(asset);
-                      }}
-                      title={deleteTarget === asset.path ? 'Click to confirm delete' : 'Delete'}
-                    >
-                      {deleteTarget === asset.path ? (
-                        <CheckIcon size={12} />
-                      ) : (
-                        <TrashIcon size={12} />
-                      )}
-                    </button>
                   </div>
                 </div>
               ))}

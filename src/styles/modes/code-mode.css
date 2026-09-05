@@ -291,11 +291,10 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--spacing-sm) var(--spacing-md);
   border: none;
-  border-bottom: 1px solid var(--border-default);
   border-radius: 0;
-  background: var(--surface-control);
+  background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
   font-family: var(--font-code);
@@ -304,12 +303,21 @@
 }
 
 .code-selection-reference:hover {
+  background: var(--surface-control-hover);
   color: var(--text-secondary);
 }
 
+.code-selection-attachment {
+  margin: var(--spacing-sm) var(--spacing-sm) 0;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: var(--surface-control);
+}
+
 .code-selection-reference .file-tree-chevron {
-  width: 10px;
-  height: 10px;
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
   flex-shrink: 0;
 }
 
@@ -323,7 +331,7 @@
   max-height: 150px;
   overflow: auto;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-default);
   border-radius: 0;
   background: var(--surface-app);
   font-family: var(--font-code);

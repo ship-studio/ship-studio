@@ -1,119 +1,5 @@
-import { useId, useState } from 'react';
-import { suggestMediaConditions } from '../../lib/cssProperties';
 import { LayersIcon } from '@/components/icons';
-import { CascadeChip } from './CascadeChip';
-import { SuggestionPopover, suggestionOptionId, type Suggestion } from './SuggestionPopover';
-
-/** A click-to-edit `@media` condition chip (shows the compact label, edits the raw
- *  condition with a styled SuggestionPopover of common conditions). */
-function MediaChip({
-  condition,
-  onCommit,
-}: {
-  condition: string;
-  onCommit: (newMedia: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(condition);
-  const [active, setActive] = useState(0);
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  // `dirty` = the user typed since opening the field; `navigated` = they moved the
-  // highlight with the arrow keys. Without them, Enter straight after clicking the
-  // chip would commit the first browse suggestion and silently rewrite the rule's
-  // condition.
-  const [dirty, setDirty] = useState(false);
-  const [navigated, setNavigated] = useState(false);
-  const startEditing = () => {
-    setText(condition);
-    setActive(0);
-    setDirty(false);
-    setNavigated(false);
-    setEditing(true);
-  };
-  const listId = useId();
-  if (!editing) {
-    return (
-      <CascadeChip
-        tone="media"
-        interactive
-        title="Click to edit the condition"
-        role="button"
-        tabIndex={0}
-        onClick={startEditing}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            startEditing();
-          }
-        }}
-      >
-        <span className="ss-cascade-chip__content">
-          <span className="ss-cascade-card__media-at">@media</span> {condition}
-        </span>
-      </CascadeChip>
-    );
-  }
-  const commit = (value: string) => {
-    const v = value.trim();
-    if (v && v !== condition) onCommit(v);
-    setEditing(false);
-  };
-  const matches: Suggestion[] = suggestMediaConditions(text).map((m) => ({ value: m, label: m }));
-  return (
-    <CascadeChip tone="media" editing>
-      <input
-        className="ss-cascade-chip__input"
-        autoFocus
-        value={text}
-        size={Math.max(text.length, 1)}
-        spellCheck={false}
-        autoComplete="off"
-        role="combobox"
-        aria-expanded={matches.length > 0}
-        aria-controls={listId}
-        aria-activedescendant={matches.length > 0 ? suggestionOptionId(listId, active) : undefined}
-        aria-autocomplete="list"
-        aria-label="Media condition"
-        onFocus={(e) => setAnchorEl(e.currentTarget)}
-        onChange={(e) => {
-          setText(e.target.value);
-          setActive(0);
-          setDirty(true);
-          setNavigated(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            // Only take the highlighted suggestion when the user typed or arrowed
-            // to it; a bare Enter commits exactly what the field shows.
-            commit(dirty || navigated ? (matches[active]?.value ?? text) : text);
-          } else if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setNavigated(true);
-            setActive((a) => Math.min(a + 1, matches.length - 1));
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setNavigated(true);
-            setActive((a) => Math.max(a - 1, 0));
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            setText(condition);
-            setEditing(false);
-          }
-        }}
-        onBlur={() => setEditing(false)}
-      />
-      <SuggestionPopover
-        anchor={anchorEl}
-        items={matches}
-        active={active}
-        onPick={commit}
-        width={220}
-        listId={listId}
-      />
-    </CascadeChip>
-  );
-}
+import { MediaQueryChips } from './MediaQueryChips';
 
 /** Renders the selector, at-rule, and inheritance context for a CSS declaration. */
 export function RuleContextChips({
@@ -151,14 +37,9 @@ export function RuleContextChips({
       )}
       {mediaText &&
         (onRenameAtRule ? (
-          <MediaChip condition={mediaText} onCommit={onRenameAtRule} />
+          <MediaQueryChips condition={mediaText} onCommit={onRenameAtRule} />
         ) : (
-          // Read-only rule: still show the full condition, just not editable.
-          <CascadeChip tone="media">
-            <span className="ss-cascade-chip__content">
-              <span className="ss-cascade-card__media-at">@media</span> {mediaText}
-            </span>
-          </CascadeChip>
+          <MediaQueryChips condition={mediaText} />
         ))}
     </>
   );

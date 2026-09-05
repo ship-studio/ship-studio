@@ -7,6 +7,7 @@
   box-sizing: border-box;
   flex: 0 1 auto;
   min-width: 21px;
+  min-block-size: calc(1em + (2 * var(--space-06)));
   max-width: 100%;
   padding: var(--space-06) var(--space-04);
   border: 0;
@@ -72,13 +73,17 @@
   position: relative;
   z-index: 1;
   min-width: 0;
+  block-size: 1em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .ss-cascade-chip__input {
+  appearance: none;
+  display: block;
   flex: 0 1 auto;
   min-width: 0;
+  block-size: 1em;
   width: auto;
   max-width: none;
   padding: 0;
@@ -91,19 +96,108 @@
   line-height: inherit;
 }
 
-.ss-cascade-chip.is-editing .ss-cascade-chip__input,
+.ss-cascade-chip.is-editing .ss-cascade-chip__input {
+  background: transparent;
+}
+
 .ss-cascade-chip.is-editing .ss-cascade-chip__input::selection {
+  color: var(--text-inverse);
   background: var(--property-surface);
 }
 
-.ss-cascade-chip[data-tone='media'].is-editing .ss-cascade-chip__input,
-.ss-cascade-chip[data-tone='media'].is-editing .ss-cascade-chip__input::selection {
+.ss-media-query__chunk--at-rule.is-editing .ss-cascade-chip__input::selection,
+.ss-media-query__chunk--value.is-editing .ss-cascade-chip__input::selection {
+  background: var(--media-surface-hover);
+}
+
+.ss-cascade-chip[data-tone='tag'].is-editing .ss-cascade-chip__input::selection {
+  background: var(--tag-chip-surface);
+}
+
+/* Media queries use the same editable chip contract as selectors, with semantic
+   color roles for the pieces authors scan most often. */
+.ss-media-query__chunks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.ss-media-query__chunk-slot {
+  display: contents;
+}
+
+.ss-media-query__chunks .ss-cascade-chip {
+  max-width: 100%;
+}
+
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--at-rule,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--value {
   background: var(--media-surface);
 }
 
-.ss-cascade-chip[data-tone='tag'].is-editing .ss-cascade-chip__input,
-.ss-cascade-chip[data-tone='tag'].is-editing .ss-cascade-chip__input::selection {
-  background: var(--tag-chip-surface);
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--type,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--feature {
+  background: var(--surface-control);
+  color: var(--property-text);
+}
+
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--operator,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--literal {
+  background: var(--surface-control);
+  color: var(--text-primary);
+}
+
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--at-rule:hover,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--value:hover {
+  background: var(--media-surface-hover);
+}
+
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--type:hover,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--feature:hover,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--operator:hover,
+.ss-media-query__chunks .ss-cascade-chip.ss-media-query__chunk--literal:hover {
+  background: var(--surface-control-hover);
+}
+
+.ss-media-query__chunk.is-editing {
+  background: var(--surface-control);
+}
+
+.ss-media-query__chunk--at-rule.is-editing,
+.ss-media-query__chunk--value.is-editing {
+  color: var(--text-inverse);
+  background: var(--media-surface);
+}
+
+.ss-media-query__chunk--type.is-editing,
+.ss-media-query__chunk--feature.is-editing {
+  color: var(--property-text);
+}
+
+.ss-media-query__chunks .ss-cascade-chip__input {
+  field-sizing: content;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.ss-media-query__tail-input {
+  box-sizing: content-box;
+  flex: 0 1 auto;
+  width: fit-content;
+  margin-inline-start: var(--spacing-2xs);
+  min-width: var(--space-04);
+  max-width: 100%;
+  padding: 0 0 0 var(--space-02);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--media-text);
+  caret-color: var(--media-surface-hover);
+  font: inherit;
+  field-sizing: content;
 }
 
 /* A media condition is shown inside the block-level context row. Give the chip

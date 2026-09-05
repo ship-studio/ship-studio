@@ -49,4 +49,8 @@ describe('workspace view state', () => {
     expect(defaultWorkspaceTab(true)).toBe('preview');
     expect(defaultWorkspaceTab(false)).toBe('code');
   });
+
+  it('keeps the preview surface as the default while project type resolves', () => {
+    expect(defaultWorkspaceTab(false, false)).toBe('preview');
+  });
 });

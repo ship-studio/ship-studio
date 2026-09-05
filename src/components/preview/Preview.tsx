@@ -110,6 +110,13 @@ const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
 
 const PREVIEW_BREAKPOINTS = Object.keys(BREAKPOINTS) as Breakpoint[];
 
+const PREVIEW_BREAKPOINT_OPTIONS = PREVIEW_BREAKPOINTS.map((bp) => ({
+  value: bp,
+  label: BREAKPOINTS[bp].label,
+  width: BREAKPOINTS[bp].width,
+  icon: <BreakpointIcon type={bp} />,
+}));
+
 /** Props for the Preview component */
 interface PreviewProps {
   /** Dev server port (default: 3000) */
@@ -134,6 +141,9 @@ interface PreviewProps {
   isDevServerRestarting?: boolean;
   /** Whether this is a static HTML project (changes loading/error messaging) */
   isStaticProject?: boolean;
+  /** Whether the preview may probe its port. The Preview shell stays mounted
+   *  while project setup is still reserving the real port. */
+  previewConnectionEnabled?: boolean;
   /** Detected project type; gates the visual editor to Next.js for v1. */
   projectType?: ProjectType;
   /** Callback to send prompt to Claude terminal */
@@ -219,6 +229,8 @@ export interface PreviewHandle {
   refresh: () => void;
   /** Check if the dev server is ready and responding */
   isServerReady: () => boolean;
+  /** Toggle the active visual editor from a workspace-level shortcut. */
+  toggleEditMode: () => void;
 }
 
 /** Smallest the Inspect panel can be dragged to. Below this the tab bar
@@ -264,6 +276,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     isBranchSwitching = false,
     isDevServerRestarting = false,
     isStaticProject = false,
+    previewConnectionEnabled = true,
     projectType,
     onSendToClaude,
     previewPlugins,
@@ -314,6 +327,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     projectPath,
     isDevServerRestarting,
     isStaticProject,
+    enabled: previewConnectionEnabled,
     onServerReady,
     onPageChange,
     onSendToClaude,
@@ -625,7 +639,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     enabled: activeEditMode,
     onToast,
   });
-  // Structural edits (insert / duplicate / delete) — shared by both styling
+  // Structural edits (insert / duplicate / delete / cut / copy / paste) — shared by both styling
   // editors the same way text editing is; drives the canvas toolbar and the
   // element tree's context menu.
   const structure = useElementStructure({
@@ -719,6 +733,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               title: 'Duplicate selected element',
               category: 'action' as const,
               when: 'project' as const,
+              shortcut: kbd('mod', 'D'),
               keywords: ['duplicate', 'copy', 'element', 'clone'],
               run: () => {
                 if (!structureSelection) {
@@ -733,6 +748,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               title: 'Delete selected element',
               category: 'action' as const,
               when: 'project' as const,
+              shortcut: kbd('⌫'),
               keywords: ['delete', 'remove', 'element'],
               run: () => {
                 if (!structureSelection) {
@@ -742,6 +758,55 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 void structure.remove();
               },
             },
+            {
+              id: 'edit.cutElement',
+              title: 'Cut selected element',
+              category: 'action' as const,
+              when: 'project' as const,
+              shortcut: kbd('mod', 'X'),
+              keywords: ['cut', 'move', 'element'],
+              run: () => {
+                if (!structureSelection) {
+                  onToast('Select an element on the canvas first', 'error');
+                  return;
+                }
+                void structure.cut();
+              },
+            },
+            {
+              id: 'edit.copyElement',
+              title: 'Copy selected element',
+              category: 'action' as const,
+              when: 'project' as const,
+              shortcut: kbd('mod', 'C'),
+              keywords: ['copy', 'element', 'children', 'subtree'],
+              run: () => {
+                if (!structureSelection) {
+                  onToast('Select an element on the canvas first', 'error');
+                  return;
+                }
+                void structure.copy();
+              },
+            },
+            ...(structure.hasClipboard
+              ? [
+                  {
+                    id: 'edit.pasteElement',
+                    title: 'Paste element inside selection',
+                    category: 'action' as const,
+                    when: 'project' as const,
+                    shortcut: kbd('mod', 'V'),
+                    keywords: ['paste', 'element', 'children', 'subtree'],
+                    run: () => {
+                      if (!structureSelection) {
+                        onToast('Select an element on the canvas first', 'error');
+                        return;
+                      }
+                      void structure.paste();
+                    },
+                  },
+                ]
+              : []),
           ]
         : [],
     [
@@ -749,6 +814,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       structureSelection,
       structure.duplicate,
       structure.remove,
+      structure.cut,
+      structure.copy,
+      structure.paste,
+      structure.hasClipboard,
       structureInsertOpen,
       onToast,
     ]
@@ -1067,6 +1136,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       isCapturing: () => capture.isCapturing,
       refresh,
       isServerReady: () => conn.serverReady,
+      toggleEditMode: toggleActiveEditor,
     }),
     [
       capture.captureForClaude,
@@ -1074,6 +1144,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       capture.isCapturing,
       refresh,
       conn.serverReady,
+      toggleActiveEditor,
     ]
   );
 
@@ -1446,51 +1517,58 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         </button>
 
         <div className="preview-breakpoints" data-education-id="breakpoints">
-          <Tabs
-            value={resize.getActiveBreakpoint()}
-            mode="navigation"
-            onValueChange={(value) => resize.handleBreakpointClick(value as Breakpoint)}
-            className="preview-breakpoint-tabs"
-          >
-            <TabsList aria-label="Preview viewport sizes">
-              {PREVIEW_BREAKPOINTS.map((bp) => (
-                <TabsTab
-                  key={bp}
-                  value={bp}
-                  className="preview-breakpoint-tab button--icon-only"
-                  size="default"
-                  aria-label={BREAKPOINTS[bp].label}
-                  title={`${BREAKPOINTS[bp].label} (${BREAKPOINTS[bp].width})`}
-                >
-                  <BreakpointIcon type={bp} />
-                </TabsTab>
-              ))}
-            </TabsList>
-          </Tabs>
+          <div className="preview-breakpoints__inner">
+            <Tabs
+              value={resize.getActiveBreakpoint()}
+              mode="navigation"
+              onValueChange={(value) => resize.handleBreakpointClick(value as Breakpoint)}
+              className="preview-breakpoint-tabs"
+            >
+              <TabsList aria-label="Preview viewport sizes">
+                {PREVIEW_BREAKPOINTS.map((bp) => (
+                  <TabsTab
+                    key={bp}
+                    value={bp}
+                    className={`preview-breakpoint-tab preview-breakpoint-tab--${bp} button--icon-only`}
+                    size="default"
+                    aria-label={BREAKPOINTS[bp].label}
+                    title={`${BREAKPOINTS[bp].label} (${BREAKPOINTS[bp].width})`}
+                  >
+                    <BreakpointIcon type={bp} />
+                  </TabsTab>
+                ))}
+              </TabsList>
+            </Tabs>
 
-          {iframeSize &&
-            iframeSize.w > 0 &&
-            iframeSize.h > 0 &&
-            (() => {
-              // The wrapper reports its VISUAL box; when the frame is scaled to
-              // fit, the page actually lays out at the true (unscaled) size —
-              // that's the honest number to show (and to let the user set).
-              const w = Math.round(iframeSize.w / resize.previewScale);
-              const h = Math.round(iframeSize.h / resize.previewScale);
-              return (
-                <PreviewSizeControl
-                  width={w}
-                  height={h}
-                  hasCustomHeight={resize.customHeight !== null}
-                  scalePercent={
-                    resize.previewScale < 1 ? Math.round(resize.previewScale * 100) : null
-                  }
-                  onApply={resize.previewAtSize}
-                  onFit={() => resize.handleBreakpointClick('full')}
-                  openSignal={sizePopoverSignal}
-                />
-              );
-            })()}
+            {iframeSize &&
+              iframeSize.w > 0 &&
+              iframeSize.h > 0 &&
+              (() => {
+                // The wrapper reports its VISUAL box; when the frame is scaled to
+                // fit, the page actually lays out at the true (unscaled) size —
+                // that's the honest number to show (and to let the user set).
+                const w = Math.round(iframeSize.w / resize.previewScale);
+                const h = Math.round(iframeSize.h / resize.previewScale);
+                return (
+                  <PreviewSizeControl
+                    width={w}
+                    height={h}
+                    hasCustomHeight={resize.customHeight !== null}
+                    scalePercent={
+                      resize.previewScale < 1 ? Math.round(resize.previewScale * 100) : null
+                    }
+                    onApply={resize.previewAtSize}
+                    onFit={() => resize.handleBreakpointClick('full')}
+                    openSignal={sizePopoverSignal}
+                    activeBreakpoint={resize.getActiveBreakpoint()}
+                    breakpointOptions={PREVIEW_BREAKPOINT_OPTIONS}
+                    onBreakpointChange={(value) =>
+                      resize.handleBreakpointClick(value as Breakpoint)
+                    }
+                  />
+                );
+              })()}
+          </div>
         </div>
       </div>
       <div
@@ -1726,6 +1804,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               tree={elementTree.tree}
               truncated={elementTree.truncated}
               selectedId={elementTree.selectedId}
+              hoveredId={elementTree.hoveredId}
               affectedIds={elementTree.affectedIds}
               onSelect={elementTree.selectNode}
               onHover={elementTree.hoverNode}
@@ -1746,6 +1825,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                       insert: (position, kind) => void structure.insert(position, kind),
                       duplicate: () => void structure.duplicate(),
                       remove: () => void structure.remove(),
+                      copy: () => void structure.copy(),
+                      cut: () => void structure.cut(),
+                      paste: () => void structure.paste(),
+                      hasClipboard: structure.hasClipboard,
+                      clipboardSourceNodeId: structure.clipboardSourceNodeId,
                     }
                   : undefined
               }
@@ -1785,6 +1869,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               projectPath={projectPath}
               currentClass={editor.currentClass}
               variables={cssVariables.variables}
+              tailwindVersion={editor.tailwindVersion}
+              utilityPrefix={editor.utilityPrefix ?? undefined}
+              spacingScale={editor.spacingScale ?? undefined}
               textResolution={textEditing.textResolution}
               imageResolution={editor.imageResolution}
               onReplaceImage={editor.replaceImage}
@@ -1802,6 +1889,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onToggleAutoSave={editor.toggleAutoSave}
               onStepGap={(dir, step) => editor.stepSpacing('gap', dir, step)}
               onSetSide={editor.setBoxSide}
+              onSetPositionSide={editor.setPositionSide}
               onApplyEnum={editor.applyEnum}
               onReset={editor.reset}
               multiTarget={editor.multiTarget}
@@ -1873,16 +1961,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                   bodies={cssEditor.bodies}
                   overridden={cssEditor.overridden}
                   onChangeBody={cssEditor.setBody}
-                  onDeleteRule={(key) => void cssEditor.deleteRule(key)}
+                  onDeleteRule={(key) => cssEditor.deleteRule(key)}
                   onWrapRule={(key, at) => void cssEditor.wrapRule(key, at)}
                   onRenameRule={(key, sel) => void cssEditor.renameSelector(key, sel)}
                   onRenameAtRule={(key, m) => void cssEditor.renameAtRule(key, m)}
-                  onAddSelector={(sel) => void cssEditor.addSelector(sel)}
+                  onAddSelector={(sel, atPrelude) => void cssEditor.addSelector(sel, atPrelude)}
                   selectorSuggestions={cssEditor.classSuggestions.map((c) => `.${c}`)}
                   existingSelectors={cssEditor.existingSelectors}
                   variables={cssEditor.variableSuggestions}
                   animations={cssEditor.animationSuggestions}
-                  justCreatedKey={cssEditor.justCreatedKey}
                   settings={elementSettings}
                   animationsState={cssAnimations}
                   onClose={cssEditor.toggleEditMode}

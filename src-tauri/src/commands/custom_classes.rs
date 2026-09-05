@@ -21,7 +21,7 @@
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Which Tailwind generation the project uses — decides where/how a custom
@@ -49,6 +49,13 @@ pub struct TailwindSetup {
     /// Whether `entry_css` already contains a writable `@layer components { … }`
     /// block (so Phase 1 appends to it rather than creating one).
     pub components_layer: bool,
+    /// The configured utility prefix, including its separator (`tw:` in v4 or
+    /// `tw-` in v3), when the project declares one.
+    pub utility_prefix: Option<String>,
+    /// Simple v3 `theme.spacing` entries that can be resolved without running
+    /// user configuration code. Tailwind v4 uses the CSS `--spacing` variable
+    /// instead, so this remains empty for v4 projects.
+    pub spacing_scale: Option<BTreeMap<String, String>>,
 }
 
 /// One custom class parsed from the entry stylesheet.
@@ -122,14 +129,16 @@ fn detect_setup_at(root: &Path) -> TailwindSetup {
         }
     }
 
-    let has_v3_config = [
+    let v3_config = [
         "tailwind.config.js",
         "tailwind.config.ts",
         "tailwind.config.cjs",
         "tailwind.config.mjs",
     ]
     .iter()
-    .any(|n| root.join(n).exists());
+    .map(|n| root.join(n))
+    .find(|p| p.exists());
+    let has_v3_config = v3_config.is_some();
 
     // Prefer the shallowest, then lexicographically-first candidate — the global
     // entry stylesheet (e.g. `src/index.css`) over a deeply-nested component CSS.
@@ -156,10 +165,33 @@ fn detect_setup_at(root: &Path) -> TailwindSetup {
         .map(|css| has_components_layer(&css))
         .unwrap_or(false);
 
+    let utility_prefix = match version {
+        TailwindVersion::V4 => entry_abs
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|css| css_tailwind_prefix(&css)),
+        TailwindVersion::V3 => v3_config
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|config| js_tailwind_prefix(&config)),
+        TailwindVersion::None => None,
+    };
+
+    let spacing_scale = if version == TailwindVersion::V3 {
+        v3_config
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|config| js_spacing_scale(&config))
+    } else {
+        None
+    };
+
     TailwindSetup {
         version,
         entry_css: entry_abs.map(|abs| rel_posix(root, &abs)),
         components_layer,
+        utility_prefix,
+        spacing_scale,
     }
 }
 
@@ -210,6 +242,209 @@ fn css_imports_tailwind(css: &str) -> bool {
         }
     }
     false
+}
+
+/// Read Tailwind v4's `prefix(name)` import option and return the class prefix
+/// with the separator the frontend needs (`name:`). This deliberately only
+/// accepts a simple identifier; dynamic CSS cannot be resolved safely here.
+fn css_tailwind_prefix(css: &str) -> Option<String> {
+    let kind = css_scan(css);
+    let mut from = 0;
+    while let Some(rel) = css[from..].find("@import") {
+        let at = from + rel;
+        from = at + "@import".len();
+        if kind[at] != CssKind::Code {
+            continue;
+        }
+        let end = css[at..].find(';').map(|e| at + e).unwrap_or(css.len());
+        let spec = first_quoted(&css[at..end]);
+        if !matches!(spec, Some("tailwindcss")) {
+            continue;
+        }
+        let statement = &css[at..end];
+        let Some(start) = statement.find("prefix(") else {
+            return None;
+        };
+        let rest = &statement[start + "prefix(".len()..];
+        let name = rest.split(')').next()?.trim().trim_matches(['"', '\'']);
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            return Some(format!("{name}:"));
+        }
+        return None;
+    }
+    None
+}
+
+/// Read a static v3 `prefix: 'tw-'` setting. A function-valued prefix is left
+/// unresolved because evaluating project configuration would execute user code.
+fn js_tailwind_prefix(config: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(rel) = config[from..].find("prefix") {
+        let start = from + rel;
+        let before = config[..start].chars().next_back();
+        let after = config[start + "prefix".len()..].chars().next();
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            || after.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            from = start + "prefix".len();
+            continue;
+        }
+        let rest = &config[start + "prefix".len()..];
+        let Some(colon) = rest.find(':') else {
+            from = start + "prefix".len();
+            continue;
+        };
+        let value = rest[colon + 1..].trim_start();
+        let quote = value.chars().next()?;
+        if quote != '\'' && quote != '"' {
+            return None;
+        }
+        let end = value[1..].find(quote)? + 1;
+        let prefix = &value[1..end];
+        return (!prefix.is_empty()).then(|| prefix.to_string());
+    }
+    None
+}
+
+/// The matching `}` for a JavaScript object literal, ignoring quoted strings.
+fn js_matching_brace(source: &str, open: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0i32;
+    let mut quote = None;
+    let mut i = open;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if let Some(q) = quote {
+            if byte == b'\\' {
+                i += 2;
+                continue;
+            }
+            if byte == q {
+                quote = None;
+            }
+        } else if matches!(byte, b'\'' | b'"' | b'`') {
+            quote = Some(byte);
+        } else if byte == b'{' {
+            depth += 1;
+        } else if byte == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Parse simple `theme.spacing` object entries from a v3 config. Values may be
+/// quoted strings or numeric literals; expressions are skipped rather than
+/// guessed. The map is only an aid for the live preview — Tailwind still owns
+/// the final generated CSS after the class is saved.
+fn js_spacing_scale(config: &str) -> Option<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    let mut from = 0;
+    while let Some(rel) = config[from..].find("spacing") {
+        let key_start = from + rel;
+        let before = config[..key_start].chars().next_back();
+        let after = config[key_start + "spacing".len()..].chars().next();
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            || after.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            from = key_start + "spacing".len();
+            continue;
+        }
+        let rest = &config[key_start + "spacing".len()..];
+        let Some(colon) = rest.find(':') else {
+            from = key_start + "spacing".len();
+            continue;
+        };
+        let value_start = key_start + "spacing".len() + colon + 1;
+        let Some(open_rel) = config[value_start..].find('{') else {
+            from = value_start;
+            continue;
+        };
+        let open = value_start + open_rel;
+        let Some(close) = js_matching_brace(config, open) else {
+            from = open + 1;
+            continue;
+        };
+        parse_js_spacing_entries(&config[open + 1..close], &mut out);
+        from = close + 1;
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn parse_js_spacing_entries(object: &str, out: &mut BTreeMap<String, String>) {
+    let bytes = object.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let (key, next) = if matches!(bytes[i], b'\'' | b'"') {
+            let quote = bytes[i];
+            let start = i + 1;
+            let end = object[start..].find(quote as char).map(|e| start + e);
+            let Some(end) = end else { break };
+            (object[start..end].to_string(), end + 1)
+        } else {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric()
+                    || matches!(bytes[i], b'-' | b'_' | b'.' | b'/'))
+            {
+                i += 1;
+            }
+            if i == start {
+                i += 1;
+                continue;
+            }
+            (object[start..i].to_string(), i)
+        };
+        i = next;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if bytes.get(i) != Some(&b':') {
+            continue;
+        }
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let (value, end) = if matches!(bytes[i], b'\'' | b'"') {
+            let quote = bytes[i];
+            let start = i + 1;
+            let end = object[start..].find(quote as char).map(|e| start + e);
+            let Some(end) = end else { break };
+            (object[start..end].to_string(), end + 1)
+        } else {
+            let start = i;
+            while i < bytes.len() && !matches!(bytes[i], b',' | b'}' | b'\n') {
+                i += 1;
+            }
+            (object[start..i].trim().to_string(), i)
+        };
+        if !value.is_empty()
+            && !value.starts_with('{')
+            && !value.starts_with('(')
+            && !value.contains("=>")
+        {
+            out.insert(key, value);
+        }
+        i = end;
+    }
 }
 
 /// True if a code-level `@tailwind` directive is present (the v3 entry signal).
@@ -1208,6 +1443,27 @@ div.card { @apply p-4; }
         ));
     }
 
+    #[test]
+    fn parses_tailwind_prefixes_and_static_v3_spacing() {
+        assert_eq!(
+            css_tailwind_prefix(r#"@import "tailwindcss" prefix(tw);"#),
+            Some("tw:".to_string())
+        );
+        assert_eq!(
+            js_tailwind_prefix("module.exports = { prefix: 'tw-' }"),
+            Some("tw-".to_string())
+        );
+
+        let spacing = js_spacing_scale(
+            r#"module.exports = {
+                theme: { extend: { spacing: { 18: '4.5rem', card: '1.75rem' } } }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(spacing.get("18").map(String::as_str), Some("4.5rem"));
+        assert_eq!(spacing.get("card").map(String::as_str), Some("1.75rem"));
+    }
+
     // ───────────── Setup detection (filesystem) ─────────────
 
     fn tmp(name: &str) -> PathBuf {
@@ -1236,13 +1492,29 @@ div.card { @apply p-4; }
         assert_eq!(setup.version, TailwindVersion::V4);
         assert_eq!(setup.entry_css.as_deref(), Some("src/index.css"));
         assert!(setup.components_layer);
+        assert_eq!(setup.utility_prefix, None);
+        assert_eq!(setup.spacing_scale, None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn setup_detects_v4_utility_prefix() {
+        let dir = tmp("v4-prefix");
+        std::fs::write(dir.join("app.css"), "@import \"tailwindcss\" prefix(tw);").unwrap();
+        let setup = detect_setup_at(&dir);
+        assert_eq!(setup.utility_prefix.as_deref(), Some("tw:"));
+        assert_eq!(setup.spacing_scale, None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn setup_detects_v3_directive_entry() {
         let dir = tmp("v3");
-        std::fs::write(dir.join("tailwind.config.js"), "module.exports = {}").unwrap();
+        std::fs::write(
+            dir.join("tailwind.config.js"),
+            "module.exports = { prefix: 'tw-', theme: { extend: { spacing: { card: '1.75rem' } } } }",
+        )
+        .unwrap();
         std::fs::write(
             dir.join("globals.css"),
             "@tailwind base;\n@tailwind components;\n@tailwind utilities;",
@@ -1252,6 +1524,11 @@ div.card { @apply p-4; }
         assert_eq!(setup.version, TailwindVersion::V3);
         assert_eq!(setup.entry_css.as_deref(), Some("globals.css"));
         assert!(!setup.components_layer);
+        assert_eq!(setup.utility_prefix.as_deref(), Some("tw-"));
+        assert_eq!(
+            setup.spacing_scale.as_ref().and_then(|s| s.get("card")),
+            Some(&"1.75rem".to_string())
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

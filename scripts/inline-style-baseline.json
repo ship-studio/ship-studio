@@ -285,12 +285,6 @@
       "count": 1
     },
     {
-      "path": "src/components/edit/ElementTreeContextMenu.tsx",
-      "property": "position",
-      "value": "'fixed'",
-      "count": 1
-    },
-    {
       "path": "src/components/edit/InsertMenu.tsx",
       "property": "position",
       "value": "'fixed'",

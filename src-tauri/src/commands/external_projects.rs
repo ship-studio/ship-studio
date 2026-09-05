@@ -43,9 +43,9 @@ fn summarize_names(names: &[String]) -> String {
 }
 
 /// Grant the asset protocol (`convertFileSrc`) read access to a directory at
-/// runtime. The static scope in tauri.conf.json deliberately only covers
-/// ~/ShipStudio; external projects live anywhere on disk, so we widen the scope
-/// for each registered external root individually rather than exposing all of
+/// runtime. The static scope in tauri.conf.json deliberately only covers the
+/// default ~/ShipStudio root; projects can live elsewhere on disk, so we widen
+/// the scope for each project root individually rather than exposing all of
 /// `$HOME`/`/Volumes` (which would let any main-frame script read ~/.ssh etc.).
 pub fn grant_asset_scope(app: &AppHandle, path: &Path) {
     use tauri::Manager;
@@ -54,7 +54,7 @@ pub fn grant_asset_scope(app: &AppHandle, path: &Path) {
             tracing::warn!(
                 path = %path.display(),
                 error = %e,
-                "Failed to grant asset-protocol scope for external project"
+                "Failed to grant asset-protocol scope for project directory"
             );
         }
     }
@@ -427,9 +427,10 @@ fn looks_like_project_root(path: &Path) -> bool {
 ///
 /// Called automatically when a project outside ~/ShipStudio is opened
 /// (e.g., via session restore or URL params) to ensure backend commands
-/// don't fail with "Security error: path is outside ShipStudio directory".
+/// don't fail with "Security error: path is outside the projects directory".
 ///
-/// Returns Ok(true) if newly registered, Ok(false) if already registered or inside ~/ShipStudio.
+/// Returns Ok(true) if newly registered, Ok(false) if already registered or
+/// inside an approved projects root.
 #[tauri::command]
 #[tracing::instrument(skip(app))]
 pub async fn ensure_external_project_registered(
@@ -439,17 +440,23 @@ pub async fn ensure_external_project_registered(
     let canonical =
         crate::utils::canonicalize_tagged(Path::new(&path), "ensure_external_project_registered")?;
 
-    // Skip if already inside a projects root (configured or default) — those are
-    // already trusted by validate_project_path and listed automatically.
+    // Projects inside a configured or default root are already trusted by
+    // validate_project_path and listed automatically. The asset protocol has a
+    // separate runtime scope, though, so grant access to this project directory
+    // without exposing the entire configured root.
     if crate::utils::allowed_project_roots()
         .iter()
         .any(|root| canonical.starts_with(root))
     {
+        grant_asset_scope(&app, &canonical);
         return Ok(false);
     }
 
     // Skip if already registered
     if is_registered_external_path(&canonical)? {
+        // Re-apply the runtime scope in case this project was registered after
+        // startup or the current webview was recreated.
+        grant_asset_scope(&app, &canonical);
         return Ok(false);
     }
 

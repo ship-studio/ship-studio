@@ -236,6 +236,67 @@ pub fn run() {
                     .accelerator("CmdOrCtrl+N")
                     .build(app)?;
 
+                // Native accelerators keep the project, workspace, mode, and
+                // inspector shortcuts working while the cross-origin preview
+                // iframe has focus.
+                let mut project_shortcuts = Vec::with_capacity(9);
+                for number in 1..=9 {
+                    project_shortcuts.push(
+                        MenuItemBuilder::with_id(
+                            format!("switch_project_{number}"),
+                            format!("Switch Project {number}"),
+                        )
+                        .accelerator(format!("CmdOrCtrl+Digit{number}"))
+                        .build(app)?,
+                    );
+                }
+
+                let mut workspace_shortcuts = Vec::with_capacity(9);
+                for number in 1..=9 {
+                    workspace_shortcuts.push(
+                        MenuItemBuilder::with_id(
+                            format!("switch_workspace_{number}"),
+                            format!("Switch Workspace {number}"),
+                        )
+                        .accelerator(format!("Alt+Digit{number}"))
+                        .build(app)?,
+                    );
+                }
+
+                let mut terminal_shortcuts = Vec::with_capacity(9);
+                for number in 1..=9 {
+                    terminal_shortcuts.push(
+                        MenuItemBuilder::with_id(
+                            format!("switch_terminal_{number}"),
+                            format!("Switch Terminal {number}"),
+                        )
+                        .accelerator(format!("Control+Digit{number}"))
+                        .build(app)?,
+                    );
+                }
+
+                let mut mode_shortcuts = Vec::with_capacity(3);
+                for number in 1..=3 {
+                    mode_shortcuts.push(
+                        MenuItemBuilder::with_id(
+                            format!("switch_workspace_mode_{number}"),
+                            format!("Switch Workspace Mode {number}"),
+                        )
+                        .accelerator(format!("CmdOrCtrl+Control+Digit{number}"))
+                        .build(app)?,
+                    );
+                }
+
+                let toggle_edit_mode =
+                    MenuItemBuilder::with_id("toggle_edit_mode", "Toggle Edit Mode")
+                        .accelerator("CmdOrCtrl+E")
+                        .build(app)?;
+
+                let toggle_inspector =
+                    MenuItemBuilder::with_id("toggle_inspector", "Toggle Inspector")
+                        .accelerator("CmdOrCtrl+I")
+                        .build(app)?;
+
                 let app_menu = SubmenuBuilder::new(app, "Ship Studio")
                     .about(None)
                     .separator()
@@ -265,7 +326,28 @@ pub fn run() {
                     .select_all()
                     .build()?;
 
-                let view_menu = SubmenuBuilder::new(app, "View").fullscreen().build()?;
+                let mut view_menu_builder = SubmenuBuilder::new(app, "View").fullscreen();
+                view_menu_builder = view_menu_builder.separator();
+                for item in &project_shortcuts {
+                    view_menu_builder = view_menu_builder.item(item);
+                }
+                view_menu_builder = view_menu_builder.separator();
+                for item in &workspace_shortcuts {
+                    view_menu_builder = view_menu_builder.item(item);
+                }
+                view_menu_builder = view_menu_builder.separator();
+                for item in &terminal_shortcuts {
+                    view_menu_builder = view_menu_builder.item(item);
+                }
+                view_menu_builder = view_menu_builder.separator();
+                for item in &mode_shortcuts {
+                    view_menu_builder = view_menu_builder.item(item);
+                }
+                view_menu_builder = view_menu_builder
+                    .separator()
+                    .item(&toggle_edit_mode)
+                    .item(&toggle_inspector);
+                let view_menu = view_menu_builder.build()?;
 
                 let window_menu = SubmenuBuilder::new(app, "Window")
                     .item(&new_window)
@@ -287,23 +369,48 @@ pub fn run() {
                 // Handle custom menu items
                 let app_handle = app.handle().clone();
                 app.on_menu_event(move |_app, event| {
+                    let event_id = event.id().as_ref();
                     // "New Window" spawns a fresh window directly — handled
                     // before the per-window event-emit branch since it does
                     // not require a focused webview to exist.
-                    if event.id() == "new_window" {
+                    if event_id == "new_window" {
                         if let Err(e) = commands::projects::spawn_blank_window(&app_handle) {
                             tracing::error!("Failed to spawn new window: {}", e);
                         }
                         return;
                     }
                     if let Some(window) = app_handle.get_webview_window("main") {
-                        if event.id() == "close_tab" {
+                        if let Some(number) = event_id
+                            .strip_prefix("switch_project_")
+                            .and_then(|value| value.parse::<u8>().ok())
+                        {
+                            let _ = window.emit("switch-project-shortcut", number);
+                        } else if let Some(number) = event_id
+                            .strip_prefix("switch_workspace_mode_")
+                            .and_then(|value| value.parse::<u8>().ok())
+                        {
+                            let _ = window.emit("switch-workspace-mode-shortcut", number);
+                        } else if let Some(number) = event_id
+                            .strip_prefix("switch_workspace_")
+                            .and_then(|value| value.parse::<u8>().ok())
+                        {
+                            let _ = window.emit("switch-workspace-shortcut", number);
+                        } else if let Some(number) = event_id
+                            .strip_prefix("switch_terminal_")
+                            .and_then(|value| value.parse::<u8>().ok())
+                        {
+                            let _ = window.emit("switch-terminal-shortcut", number);
+                        } else if event_id == "toggle_edit_mode" {
+                            let _ = window.emit("toggle-edit-mode-shortcut", ());
+                        } else if event_id == "toggle_inspector" {
+                            let _ = window.emit("toggle-inspector-shortcut", ());
+                        } else if event_id == "close_tab" {
                             let _ = window.emit("close-tab", ());
-                        } else if event.id() == "confirm_quit" {
+                        } else if event_id == "confirm_quit" {
                             let _ = window.emit("confirm-quit", ());
-                        } else if event.id() == "capture_screenshot" {
+                        } else if event_id == "capture_screenshot" {
                             let _ = window.emit("capture-screenshot", ());
-                        } else if event.id() == "toggle_crop" {
+                        } else if event_id == "toggle_crop" {
                             let _ = window.emit("toggle-crop", ());
                         }
                     }
@@ -466,6 +573,7 @@ pub fn run() {
             commands::edit::project_uses_react,
             commands::edit_structure::insert_element,
             commands::edit_structure::duplicate_element,
+            commands::edit_structure::paste_element,
             commands::edit_structure::delete_element,
             commands::edit_css::resolve_css_rule,
             commands::edit_css::set_css_declaration,
@@ -750,6 +858,9 @@ pub fn run() {
             commands::setup::sign_out_agent,
             commands::setup::uninstall_agent,
             // Client Editor
+            // Native screen colour sampler
+            commands::color_picker::get_color_sampler_support,
+            commands::color_picker::sample_screen_color,
             // Code Browser
             commands::code::list_project_files,
             commands::code::read_project_file,

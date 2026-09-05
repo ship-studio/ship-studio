@@ -28,8 +28,12 @@ interface HomeSidebarProps {
   projects: PinnedProjectRow[];
   onSelectProject: (projectPath: string) => void;
   onCloseProject: (projectPath: string) => void;
+  onUnpinProject?: (projectPath: string) => void;
+  onRenameProject?: (projectPath: string, newName: string) => Promise<void>;
+  onTogglePinProject?: (projectPath: string, shouldPin: boolean) => void | Promise<void>;
   onSelectProjectTab: (projectPath: string, tabSessionId: string) => void;
   isProjectDevServerRunning: (projectPath: string) => boolean;
+  onStopDevServer?: (projectPath: string) => void | Promise<void>;
   onSwitchAccount: () => void;
 }
 
@@ -45,8 +49,12 @@ export function HomeSidebar({
   projects,
   onSelectProject,
   onCloseProject,
+  onUnpinProject,
+  onRenameProject,
+  onTogglePinProject,
   onSelectProjectTab,
   isProjectDevServerRunning,
+  onStopDevServer,
   onSwitchAccount,
 }: HomeSidebarProps) {
   return (
@@ -67,6 +75,9 @@ export function HomeSidebar({
       currentProjectName={null}
       onSelectProject={onSelectProject}
       onCloseProject={onCloseProject}
+      onUnpinProject={onUnpinProject}
+      onRenameProject={onRenameProject}
+      onTogglePinProject={onTogglePinProject}
       onSelectProjectTab={onSelectProjectTab}
       terminalTabs={[]}
       activeTerminalTab={0}
@@ -80,6 +91,7 @@ export function HomeSidebar({
       isRestartingDevServer={false}
       devServerRunning={false}
       isProjectDevServerRunning={isProjectDevServerRunning}
+      onStopDevServer={onStopDevServer}
       onSwitchAccount={onSwitchAccount}
     />
   );

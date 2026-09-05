@@ -125,6 +125,7 @@ export interface UseProjectLifecycleParams {
   onPreviewReady: (projectPath: string) => void;
   // Layout
   setWorkspaceTab: (tab: 'preview' | 'branches' | 'prs') => void;
+  setIsPreviewHidden: (hidden: boolean) => void;
   resetLayout: () => void;
   // Integrations
   setProjectGitHubStatus: (status: ProjectGitHubStatus | null) => void;
@@ -157,6 +158,7 @@ export function useProjectLifecycle({
   startScreenshotInterval,
   onPreviewReady,
   setWorkspaceTab,
+  setIsPreviewHidden,
   resetLayout,
   setProjectGitHubStatus,
   clearProjectStatuses,
@@ -451,6 +453,8 @@ export function useProjectLifecycle({
     // their PTYs) down with it, killing background sessions. Dev servers
     // for fresh projects spin up asynchronously in the background while
     // the workspace is already visible.
+    setWorkspaceTab('preview');
+    setIsPreviewHidden(false);
     setCurrentProject(project);
     setCurrentPreviewPage('/');
     currentProjectPathRef.current = project.path;

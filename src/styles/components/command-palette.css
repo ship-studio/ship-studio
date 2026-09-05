@@ -160,7 +160,7 @@
 }
 
 .command-palette-group-header {
-  padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-xs);
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;

@@ -31,6 +31,7 @@ import {
   duplicateElement,
   ELEMENT_KINDS,
   insertElement,
+  pasteElement,
   type ElementKind,
   type InsertPosition,
 } from '../lib/edit-structure';
@@ -52,6 +53,23 @@ export interface StructureSelection {
   /** Same-class elements in the DOM — >1 means an edit lands on all of them. */
   count: number;
   nodeId: number | null;
+}
+
+export interface ElementClipboard {
+  html: string;
+  sourceClassName: string;
+  sourceNodeId: number;
+  mode: 'copy' | 'cut';
+}
+
+type ElementShortcutKey = 'c' | 'x' | 'v' | 'd' | 'backspace';
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return (
+    target.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]') ||
+    target.closest('[contenteditable=""], [contenteditable="true"]') !== null
+  );
 }
 
 interface Params {
@@ -134,9 +152,21 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
   // the contenteditable or the formatting bubble.
   const [textEditing, setTextEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [clipboard, setClipboard] = useState<ElementClipboard | null>(null);
 
   const selectionRef = useRef<StructureSelection | null>(null);
   selectionRef.current = selection;
+  const clipboardRef = useRef<ElementClipboard | null>(null);
+  const updateClipboard = useCallback((next: ElementClipboard | null) => {
+    clipboardRef.current = next;
+    setClipboard(next);
+  }, []);
+  const shortcutActionsRef = useRef<
+    | {
+        [key in ElementShortcutKey]: () => void;
+      }
+    | null
+  >(null);
   const busyRef = useRef(false);
   // The new element's expected signature, replayed until the reload lands.
   const pendingReselectRef = useRef<{ sig: ElementSignature; at: number } | null>(null);
@@ -148,6 +178,17 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
   );
+
+  // The preview's initialization shim captures keys before the page can
+  // consume them, but only while structural editing is enabled. Re-send the
+  // flag after every iframe load because a navigation creates a fresh frame.
+  useEffect(() => {
+    const sendShortcutState = () => post({ type: 'ss:setElementStructureShortcuts', enabled });
+    sendShortcutState();
+    const iframe = iframeRef.current;
+    iframe?.addEventListener('load', sendShortcutState);
+    return () => iframe?.removeEventListener('load', sendShortcutState);
+  }, [enabled, iframeRef, post]);
 
   // Drop all transient state when edit mode closes.
   useEffect(() => {
@@ -173,10 +214,17 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
         count?: number;
         nodeId?: number;
         rect?: SelectionRect;
+        key?: ElementShortcutKey;
       } | null;
       if (!d) return;
 
-      if (d.type === 'ss:select' && d.signature) {
+      if (
+        d.type === 'ss:elementShortcut' &&
+        (d.key === 'c' || d.key === 'x' || d.key === 'v' || d.key === 'd' || d.key === 'backspace')
+      ) {
+        const action = shortcutActionsRef.current?.[d.key];
+        if (action) action();
+      } else if (d.type === 'ss:select' && d.signature) {
         setSelection({
           signature: d.signature,
           rect: d.signature.rect ?? null,
@@ -325,6 +373,134 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
     [projectPath, runAction, onToast]
   );
 
+  const copy = useCallback(
+    () =>
+      runAction(async () => {
+        const sel = selectionRef.current;
+        if (!sel || sel.nodeId == null) return;
+        const { html } = await resolveElementHtml(projectPath, sel.signature);
+        updateClipboard({
+          html,
+          sourceClassName: sel.signature.className,
+          sourceNodeId: sel.nodeId,
+          mode: 'copy',
+        });
+        onToast?.('Element copied', 'success');
+      }),
+    [projectPath, runAction, updateClipboard, onToast]
+  );
+
+  const cut = useCallback(
+    () =>
+      runAction(async () => {
+        const sel = selectionRef.current;
+        if (!sel || sel.nodeId == null) return;
+        const { html } = await resolveElementHtml(projectPath, sel.signature);
+        await deleteElement(projectPath, sel.signature, html);
+        updateClipboard({
+          html,
+          sourceClassName: sel.signature.className,
+          sourceNodeId: sel.nodeId,
+          mode: 'cut',
+        });
+        setSelection(null);
+        onToast?.('Element cut', 'success');
+      }),
+    [projectPath, runAction, updateClipboard, onToast]
+  );
+
+  const paste = useCallback(
+    () =>
+      runAction(async () => {
+        const sel = selectionRef.current;
+        const currentClipboard = clipboardRef.current;
+        if (!sel || !currentClipboard) return;
+        const inserted = await pasteElement(
+          projectPath,
+          sel.signature,
+          currentClipboard.html,
+          currentClipboard.sourceClassName
+        );
+        scheduleReselect({
+          className: inserted.className,
+          tagName: inserted.tagName,
+          ancestorClasses: [sel.signature.className, ...sel.signature.ancestorClasses].filter(
+            Boolean
+          ),
+        });
+        if (currentClipboard.mode === 'cut') updateClipboard(null);
+        onToast?.('Element pasted', 'success');
+      }),
+    [projectPath, runAction, scheduleReselect, updateClipboard, onToast]
+  );
+
+  shortcutActionsRef.current = {
+    c: () => void copy(),
+    x: () => void cut(),
+    v: () => void paste(),
+    d: () => void duplicate(),
+    backspace: () => void remove(),
+  };
+
+  // The tree and context-menu live in the host window; the canvas lives in a
+  // cross-origin iframe. Handle the same shortcuts in both documents, while
+  // leaving native text-entry and inline editing alone.
+  useEffect(() => {
+    if (!enabled) return;
+    const runShortcut = (event: Event, shortcutKey: ElementShortcutKey) => {
+      if (
+        event.defaultPrevented ||
+        (event instanceof KeyboardEvent && event.isComposing) ||
+        isTextEntryTarget(event.target)
+      ) {
+        return;
+      }
+
+      const currentSelection = selectionRef.current;
+      if (!currentSelection || currentSelection.nodeId == null) return;
+      if (shortcutKey === 'v' && !clipboardRef.current) return;
+
+      event.preventDefault();
+      shortcutActionsRef.current?.[shortcutKey]();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || isTextEntryTarget(event.target)) return;
+
+      const key = event.key.toLowerCase();
+      const isModifierShortcut =
+        (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey;
+      const isDeleteShortcut =
+        key === 'backspace' && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+      if (
+        !isDeleteShortcut &&
+        !(isModifierShortcut && (key === 'c' || key === 'x' || key === 'v' || key === 'd'))
+      ) {
+        return;
+      }
+
+      runShortcut(event, key as ElementShortcutKey);
+    };
+
+    // macOS menu-bar Copy/Cut/Paste commands dispatch clipboard events rather
+    // than a keydown event. Route those through the same element actions.
+    const handleClipboard = (event: ClipboardEvent) => {
+      const shortcutKey = event.type === 'copy' ? 'c' : event.type === 'cut' ? 'x' : 'v';
+      runShortcut(event, shortcutKey);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('copy', handleClipboard, true);
+    document.addEventListener('cut', handleClipboard, true);
+    document.addEventListener('paste', handleClipboard, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('copy', handleClipboard, true);
+      document.removeEventListener('cut', handleClipboard, true);
+      document.removeEventListener('paste', handleClipboard, true);
+    };
+  }, [enabled]);
+
   /** Select a tree node, then run `action` once its ss:select lands — the tree
    *  context menu can act on rows that aren't the current selection. */
   const selectAndRun = useCallback(
@@ -354,6 +530,11 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
     insert,
     duplicate,
     remove,
+    copy,
+    cut,
+    paste,
+    hasClipboard: clipboard !== null,
+    clipboardSourceNodeId: clipboard?.mode === 'copy' ? clipboard.sourceNodeId : null,
     selectAndRun,
   };
 }

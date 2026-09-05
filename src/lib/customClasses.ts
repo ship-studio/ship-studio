@@ -24,6 +24,10 @@ export interface TailwindSetup {
   entryCss: string | null;
   /** Whether `entryCss` already has a writable `@layer components { … }` block. */
   componentsLayer: boolean;
+  /** Configured utility prefix (`tw:` in v4 or `tw-` in v3), when present. */
+  utilityPrefix?: string | null;
+  /** Simple v3 theme spacing entries used to keep the live preview accurate. */
+  spacingScale?: Record<string, string> | null;
 }
 
 /** One custom class parsed from the entry stylesheet. */

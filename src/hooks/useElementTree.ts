@@ -56,6 +56,7 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
   const [truncated, setTruncated] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [affectedIds, setAffectedIds] = useState<number[]>([]);
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
   /** A request is out and the iframe hasn't answered with a snapshot yet. */
   const [awaitingTree, setAwaitingTree] = useState(enabled);
   // Re-opening the navigator always refetches — the page has moved on since the
@@ -64,7 +65,10 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
   const [wasEnabled, setWasEnabled] = useState(enabled);
   if (wasEnabled !== enabled) {
     setWasEnabled(enabled);
-    if (enabled) setAwaitingTree(true);
+    if (enabled) {
+      setAwaitingTree(true);
+      setHoveredId(null);
+    }
   }
 
   const post = useCallback(
@@ -107,7 +111,7 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
             type?: string;
             tree?: WireNode;
             truncated?: boolean;
-            nodeId?: number;
+            nodeId?: number | null;
             affectedNodeIds?: number[];
           }
         | undefined;
@@ -118,6 +122,8 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
         setTruncated(!!d.truncated);
       } else if (d.type === 'ss:treeDirty') {
         requestTree();
+      } else if (d.type === 'ss:hover') {
+        setHoveredId(typeof d.nodeId === 'number' ? d.nodeId : null);
       } else if (d.type === 'ss:select') {
         setSelectedId(typeof d.nodeId === 'number' ? d.nodeId : null);
         setAffectedIds(
@@ -133,7 +139,10 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
     // so re-request on iframe load to keep the navigator alive across HMR
     // full-reloads and manual refreshes.
     const iframe = iframeRef.current;
-    const onLoad = () => requestTree();
+    const onLoad = () => {
+      setHoveredId(null);
+      requestTree();
+    };
     iframe?.addEventListener('load', onLoad);
 
     return () => {
@@ -144,7 +153,15 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
   }, [enabled, post, requestTree, iframeRef]);
 
   const selectNode = useCallback((id: number) => post({ type: 'ss:selectNode', id }), [post]);
-  const hoverNode = useCallback((id: number | null) => post({ type: 'ss:hoverNode', id }), [post]);
+  const hoverNode = useCallback(
+    (id: number | null) => {
+      // The pointer is over the Elements pane, so a previous page-side hover is
+      // no longer the active visual target.
+      setHoveredId(null);
+      post({ type: 'ss:hoverNode', id });
+    },
+    [post]
+  );
 
   // Stale data is kept while disabled (cheap) but never exposed.
   return {
@@ -152,6 +169,7 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
     truncated,
     selectedId: enabled ? selectedId : null,
     affectedIds: enabled ? affectedIds : [],
+    hoveredId: enabled ? hoveredId : null,
     selectNode,
     hoverNode,
   };

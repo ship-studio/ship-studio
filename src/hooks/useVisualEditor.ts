@@ -7,8 +7,8 @@
  * since the script re-initializes inert on each HMR reload) → an `ss:select`
  * click resolves to source via the backend (class resolution, plus a parallel
  * image resolution guarded by a staleness token) → edits (`applyToken`,
- * `setBoxSide`, `stepSpacing`, `reset`) twMerge the live class and post
- * `ss:mutate` with breakpoint-scoped preview rules (instant DOM feedback, no
+ * `setBoxSide`, `setPositionSide`, `stepSpacing`, `reset`) twMerge the live class
+ * and post `ss:mutate` with breakpoint-scoped preview rules (instant DOM feedback, no
  * write) → `commit` writes the merged className back to source and advances
  * the drift baseline so consecutive edits keep working. Image edits
  * (`replaceImage`) write immediately on confirm. Inline TEXT editing lives in
@@ -48,12 +48,20 @@ import {
   stepSpacingValue,
   boxSide,
   boxSidePrefix,
+  boxSideUtilityResetSpec,
+  positionSide,
+  positionSidePrefix,
+  positionSideUtilityResetSpec,
   withVariant,
   tokensForVariant,
   removeAtLayer,
   breakpointPrefixes,
   competesWithUnlayered,
   markImportant,
+  radiusResetSpec,
+  enumResetSpec,
+  ENUM_CONTROLS,
+  utilityTokenFor,
   SPACING_CONTROLS,
   type SpacingKind,
   type BoxType,
@@ -73,6 +81,8 @@ import {
   updateCustomClass,
   classifyApplyTokens,
   type CustomClass,
+  type TailwindSetup,
+  type TailwindVersion,
 } from '../lib/customClasses';
 import { logger } from '../lib/logger';
 import { isExpectedStructuralRefusal } from './useElementStructure';
@@ -111,6 +121,8 @@ const AUTOSAVE_KEY = 'ss:visualEditor:autoSave';
 /** Quiet period after the last edit before an auto-save fires — long enough that a
  *  drag (many rapid mutations) saves once when it settles, not on every frame. */
 const AUTOSAVE_DEBOUNCE_MS = 700;
+
+const POSITION_CONTROL = ENUM_CONTROLS.find((control) => control.label === 'Position')!;
 
 /** Index just past the `)` that closes the group opened before `from`, or -1 when
  * the text is malformed/truncated. Quote- and nesting-aware. */
@@ -540,14 +552,27 @@ export function useVisualEditor({
   // degrades naturally (the class list is empty without an entry), but create
   // must be disabled with a hint rather than failing on a raw backend error.
   const [classEntryReady, setClassEntryReady] = useState(true);
+  // Tailwind grammar context is loaded alongside the custom-class list. Keep a
+  // ref for mutation callbacks (which intentionally do not resubscribe to the
+  // message bridge) and state for the panel's layer readers.
+  const [tailwindSetup, setTailwindSetup] = useState<TailwindSetup | null>(null);
+  const tailwindSetupRef = useRef<TailwindSetup | null>(null);
 
   useEffect(() => {
     if (!editMode) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: load custom classes + entry-CSS check on edit-mode open
     void refreshCustomClasses();
     void detectTailwindSetup(projectPath)
-      .then((setup) => setClassEntryReady(setup.entryCss != null))
-      .catch(() => setClassEntryReady(false));
+      .then((setup) => {
+        tailwindSetupRef.current = setup;
+        setTailwindSetup(setup);
+        setClassEntryReady(setup.entryCss != null);
+      })
+      .catch(() => {
+        tailwindSetupRef.current = null;
+        setTailwindSetup(null);
+        setClassEntryReady(false);
+      });
   }, [editMode, projectPath, refreshCustomClasses]);
 
   /**
@@ -563,18 +588,37 @@ export function useVisualEditor({
    */
   const applyToken = useCallback(
     (token: string, style?: Record<string, string>) => {
+      const setup = tailwindSetupRef.current;
+      const version: TailwindVersion = setup?.version ?? 'v4';
+      const utilityPrefix = setup?.utilityPrefix ?? undefined;
+      const prefixed = utilityTokenFor(token, utilityPrefix);
+      const current = style?.position
+        ? removeAtLayer(
+            currentClassRef.current,
+            activeBreakpoint,
+            known,
+            enumResetSpec(POSITION_CONTROL, utilityPrefix).match
+          )
+        : style?.['border-radius']
+          ? removeAtLayer(
+              currentClassRef.current,
+              activeBreakpoint,
+              known,
+              radiusResetSpec(utilityPrefix).match
+            )
+          : currentClassRef.current;
       // Mark important when the edited property is set by unlayered custom CSS, so
       // the saved utility wins the cascade (the live preview already wins via !important).
       const bare =
         style && competesWithUnlayered(Object.keys(style), unlayeredPropsRef.current)
-          ? markImportant(token)
-          : token;
-      const merged = twMerge(currentClassRef.current, withVariant(activeBreakpoint.prefix, bare));
+          ? markImportant(prefixed, version)
+          : prefixed;
+      const merged = twMerge(current, withVariant(activeBreakpoint.prefix, bare));
       setLiveClass(merged);
       const rules: PreviewRule[] = style ? [{ minPx: activeBreakpoint.minPx, decls: style }] : [];
       postMutate(merged, rules);
     },
-    [postMutate, setLiveClass, activeBreakpoint]
+    [postMutate, setLiveClass, activeBreakpoint, known]
   );
 
   /** Set one side of a box (padding/margin) at the active breakpoint to a scale
@@ -582,17 +626,83 @@ export function useVisualEditor({
    *  (so unset sides fall through to the real, already-compiled base CSS). */
   const setBoxSide = useCallback(
     (type: BoxType, side: Side, value: SpacingValue) => {
-      const bare = spacingTokenFor(boxSidePrefix(type, side), value);
+      const setup = tailwindSetupRef.current;
+      const version: TailwindVersion = setup?.version ?? 'v4';
+      const utilityPrefix = setup?.utilityPrefix ?? undefined;
+      const spacingScale = setup?.spacingScale ?? undefined;
+      const valueOptions = {
+        tailwindVersion: version,
+        utilityPrefix,
+        spacingScale,
+        spacingUnit: selectedSigRef.current?.spacingUnit,
+      };
+      const bare = utilityTokenFor(
+        spacingTokenFor(boxSidePrefix(type, side), value, valueOptions),
+        utilityPrefix
+      );
       const token = competesWithUnlayered([`${type}-${side}`], unlayeredPropsRef.current)
-        ? markImportant(bare)
+        ? markImportant(bare, version)
         : bare;
-      const merged = twMerge(currentClassRef.current, withVariant(activeBreakpoint.prefix, token));
+      const current = removeAtLayer(
+        currentClassRef.current,
+        activeBreakpoint,
+        known,
+        boxSideUtilityResetSpec(type, side, utilityPrefix).match
+      );
+      const merged = twMerge(current, withVariant(activeBreakpoint.prefix, token));
       setLiveClass(merged);
       const scoped = tokensForVariant(merged, activeBreakpoint.prefix, known);
       const decls: Record<string, string> = {};
       for (const s of ['top', 'right', 'bottom', 'left'] as Side[]) {
-        const v = boxSide(scoped, type, s);
-        if (v) decls[`${type}-${s}`] = spacingCss(v);
+        const v = boxSide(scoped, type, s, { ...valueOptions, utilityPrefix });
+        if (v) decls[`${type}-${s}`] = spacingCss(v, valueOptions);
+      }
+      postMutate(merged, [{ minPx: activeBreakpoint.minPx, decls }]);
+    },
+    [postMutate, setLiveClass, activeBreakpoint, known]
+  );
+
+  /** Set one position offset at the active breakpoint. Like the spacing box,
+   *  preview every effective offset so `inset-*` fallbacks remain visible while
+   *  a side-specific utility is being edited. */
+  const setPositionSide = useCallback(
+    (side: Side, value: SpacingValue) => {
+      const setup = tailwindSetupRef.current;
+      const version: TailwindVersion = setup?.version ?? 'v4';
+      const utilityPrefix = setup?.utilityPrefix ?? undefined;
+      const spacingScale = setup?.spacingScale ?? undefined;
+      const valueOptions = {
+        tailwindVersion: version,
+        utilityPrefix,
+        spacingScale,
+        spacingUnit: selectedSigRef.current?.spacingUnit,
+      };
+      const bare = utilityTokenFor(
+        spacingTokenFor(positionSidePrefix(side), value, valueOptions),
+        utilityPrefix
+      );
+      const token = competesWithUnlayered([side], unlayeredPropsRef.current)
+        ? markImportant(bare, version)
+        : bare;
+      const current = removeAtLayer(
+        currentClassRef.current,
+        activeBreakpoint,
+        known,
+        positionSideUtilityResetSpec(side, utilityPrefix).match
+      );
+      const merged = twMerge(current, withVariant(activeBreakpoint.prefix, token));
+      setLiveClass(merged);
+      const scoped = tokensForVariant(merged, activeBreakpoint.prefix, known);
+      const positionOptions = {
+        ...valueOptions,
+        utilityPrefix,
+        direction: selectedSigRef.current?.direction,
+        writingMode: selectedSigRef.current?.writingMode,
+      };
+      const decls: Record<string, string> = {};
+      for (const s of ['top', 'right', 'bottom', 'left'] as Side[]) {
+        const v = positionSide(scoped, s, positionOptions);
+        if (v) decls[s] = spacingCss(v, positionOptions);
       }
       postMutate(merged, [{ minPx: activeBreakpoint.minPx, decls }]);
     },
@@ -608,8 +718,21 @@ export function useVisualEditor({
       const ctrl = SPACING_CONTROLS.find((c) => c.kind === kind);
       if (!ctrl) return;
       const scoped = tokensForVariant(currentClassRef.current, activeBreakpoint.prefix, known);
-      const next = stepSpacingValue(spacingValue(scoped, ctrl.prefix), dir * step);
-      applyToken(spacingTokenFor(ctrl.prefix, next), { [ctrl.css]: spacingCss(next) });
+      const setup = tailwindSetupRef.current;
+      const valueOptions = {
+        tailwindVersion: setup?.version ?? 'v4',
+        utilityPrefix: setup?.utilityPrefix ?? undefined,
+        spacingScale: setup?.spacingScale ?? undefined,
+        spacingUnit: selectedSigRef.current?.spacingUnit,
+      };
+      const next = stepSpacingValue(
+        spacingValue(scoped, ctrl.prefix, valueOptions),
+        dir * step,
+        kind === 'margin'
+      );
+      applyToken(spacingTokenFor(ctrl.prefix, next, valueOptions), {
+        [ctrl.css]: spacingCss(next, valueOptions),
+      });
     },
     [applyToken, activeBreakpoint, known]
   );
@@ -1056,6 +1179,7 @@ export function useVisualEditor({
     toggleAutoSave,
     stepSpacing,
     setBoxSide,
+    setPositionSide,
     // Enum controls apply an absolute token (twMerge swaps the prior one) plus an
     // inline-style preview — same path as spacing, just not relative to a scale.
     applyEnum: applyToken,
@@ -1074,6 +1198,10 @@ export function useVisualEditor({
     customClasses,
     /** Whether a writable Tailwind entry stylesheet exists (gates create). */
     classEntryReady,
+    /** Tailwind token context used by the visual editor's readers and writers. */
+    tailwindVersion: tailwindSetup?.version ?? 'v4',
+    utilityPrefix: tailwindSetup?.utilityPrefix,
+    spacingScale: tailwindSetup?.spacingScale,
     /** Insert the first class on a class-less element, then re-resolve. */
     addFirstClass,
     /** Append an existing custom class to the element and edit it. */

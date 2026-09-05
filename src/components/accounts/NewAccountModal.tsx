@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
+import { AccountColorPicker } from './AccountColorPicker';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { createAccount, ACCOUNT_COLORS, type Account } from '../../lib/accounts';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -59,17 +60,7 @@ export function NewAccountModal({ isOpen, onClose, onCreated }: NewAccountModalP
         <div className="account-section-title" style={{ marginTop: 'var(--spacing-md)' }}>
           Color
         </div>
-        <div className="account-color-picker">
-          {ACCOUNT_COLORS.map((c) => (
-            <button
-              key={c}
-              className={`account-color-swatch ${c === color ? 'selected' : ''}`}
-              style={{ background: c }}
-              onClick={() => setColor(c)}
-              title={c}
-            />
-          ))}
-        </div>
+        <AccountColorPicker value={color} onChange={setColor} />
       </div>
       <div className="account-detail-footer">
         <Button variant="ghost" onClick={handleClose}>

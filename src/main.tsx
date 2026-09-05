@@ -145,6 +145,10 @@ Node.prototype.insertBefore = function <T extends Node>(newNode: T, referenceNod
 // Skips elements with scrollbar-width: none (intentionally hidden scrollbars).
 const OS_ATTR = 'data-os-init';
 const OS_OPTS = { scrollbars: { theme: 'os-theme-shipstudio', autoHide: 'move' as const } };
+const ASSET_SCROLL_SELECTOR = '.assets-list-container';
+const ASSET_OS_OPTS = {
+  scrollbars: { theme: 'os-theme-shipstudio', autoHide: 'never' as const },
+};
 
 // Elements that should never get OverlayScrollbars (use CSS class matching).
 // Includes containers that hide native scrollbars via scrollbar-width: none /
@@ -206,10 +210,12 @@ function initScrollbars() {
       el.closest('[data-overlayscrollbars]')
     )
       return;
-    // Skip elements inside modals, overlays, dropdowns
-    if (el.closest(OS_SKIP_SELECTOR)) return;
     // Skip non-HTML elements (SVG, etc.)
     if (!(el instanceof HTMLElement)) return;
+    const isAssetScrollContainer = el.matches(ASSET_SCROLL_SELECTOR);
+    // Skip elements inside modals, overlays, dropdowns, except the Assets
+    // browser, whose scrollbar is intentionally rendered as an overlay.
+    if (!isAssetScrollContainer && el.closest(OS_SKIP_SELECTOR)) return;
 
     const style = getComputedStyle(el);
     // Skip elements that intentionally hide scrollbars
@@ -217,7 +223,7 @@ function initScrollbars() {
     const oy = style.overflowY;
     if (oy === 'auto' || oy === 'scroll') {
       el.setAttribute(OS_ATTR, '');
-      OverlayScrollbars(el, OS_OPTS);
+      OverlayScrollbars(el, isAssetScrollContainer ? ASSET_OS_OPTS : OS_OPTS);
     }
   });
 }

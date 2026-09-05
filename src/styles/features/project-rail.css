@@ -221,44 +221,6 @@ body.rail-drag-active iframe {
   pointer-events: none;
 }
 
-/* Right-click context menu — anchored to viewport coords from the click. */
-.project-rail-menu {
-  position: fixed;
-  background: var(--surface-control);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-control);
-  box-shadow: var(--shadow-md);
-  padding: var(--spacing-xs);
-  z-index: var(--z-tooltip);
-  min-width: 180px;
-}
-
-.project-rail-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-size-body-lg);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.project-rail-menu-item:hover {
-  background: var(--surface-app);
-}
-
-.project-rail-menu-item.danger {
-  color: var(--accent-error);
-}
-
-.project-rail-menu-item.danger:hover {
-  background: var(--accent-error);
-  color: var(--text-inverse);
-}
-
 /* "+" button — last item in the rail list. */
 .project-rail-add {
   width: 48px;

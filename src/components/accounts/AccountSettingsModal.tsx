@@ -10,6 +10,8 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { TextButton } from '../primitives/TextButton';
 import { Spinner } from '../primitives/Spinner';
+import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
+import { AccountColorPicker } from './AccountColorPicker';
 import { GitHubIcon, VercelIcon } from '@/components/icons';
 import { useWorkspaceConnect, type ConnectServiceId } from '../../hooks/useWorkspaceConnect';
 import { useOptionalToast } from '../../contexts/ToastContext';
@@ -21,7 +23,6 @@ import {
   clearAccountCredential,
   CREDENTIAL_LABELS,
   CREDENTIAL_DESCRIPTIONS,
-  ACCOUNT_COLORS,
   STATUS_FIELD_TO_KEY,
   SENSITIVE_KEYS,
   type Account,
@@ -191,17 +192,7 @@ export function AccountSettingsModal({
               {!account.isDefault && (
                 <div style={{ marginTop: 'var(--spacing-sm)' }}>
                   <div className="account-section-title">Color</div>
-                  <div className="account-color-picker">
-                    {ACCOUNT_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        className={`account-color-swatch ${c === editColor ? 'selected' : ''}`}
-                        style={{ background: c }}
-                        onClick={() => setEditColor(c)}
-                        title={c}
-                      />
-                    ))}
-                  </div>
+                  <AccountColorPicker value={editColor} onChange={setEditColor} />
                 </div>
               )}
             </div>
@@ -211,7 +202,7 @@ export function AccountSettingsModal({
             <div>
               <div className="account-section-title">Coding agents</div>
               {isLoadingCreds ? (
-                <Spinner size="sm" />
+                <PixelLoaderRings className="account-settings-loader" size="md" />
               ) : (
                 <div className="account-cred-list">
                   {(
@@ -242,7 +233,7 @@ export function AccountSettingsModal({
             <div>
               <div className="account-section-title">Services</div>
               {isLoadingCreds ? (
-                <Spinner size="sm" />
+                <PixelLoaderRings className="account-settings-loader" size="md" />
               ) : (
                 <div className="account-cred-list">
                   {(
@@ -263,7 +254,7 @@ export function AccountSettingsModal({
                   ).map((svc) => {
                     const connected = !!svc.identity;
                     return (
-                      <div key={svc.id} className="account-cred-row">
+                      <div key={svc.id} className="account-cred-row account-service-row">
                         <span className="account-cred-label">
                           {svc.icon} {svc.label}
                         </span>
@@ -313,7 +304,7 @@ export function AccountSettingsModal({
             <div>
               <div className="account-section-title">Credential Vault</div>
               {isLoadingCreds ? (
-                <Spinner size="sm" />
+                <PixelLoaderRings className="account-settings-loader" size="md" />
               ) : (
                 <div className="account-cred-list">
                   {credRows.map(([statusField, key]) => {

@@ -252,6 +252,17 @@ class SessionRegistry {
     }
   }
 
+  /** Rekey a session after its project folder is renamed on disk. */
+  renamePath(oldPath: string, newPath: string): void {
+    if (oldPath === newPath) return;
+    const session = this.sessions.get(oldPath);
+    if (!session) return;
+    this.sessions.delete(oldPath);
+    this.sessions.set(newPath, { ...session, projectPath: newPath });
+    logger.info('[SessionRegistry] Renamed session path', { oldPath, newPath });
+    this.notify(newPath);
+  }
+
   /**
    * Bump `lastFocusedAt`. Cheap, idempotent within the same millisecond.
    * Call on terminal input, focus, etc.

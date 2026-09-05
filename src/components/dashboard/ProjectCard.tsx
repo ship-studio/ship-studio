@@ -21,6 +21,8 @@ interface ProjectCardProps {
   thumbnailData: string | null;
   /** Callback when the card is clicked to open the project */
   onSelect: () => void;
+  /** Callback to open settings for this project */
+  onOpenSettings?: () => void;
   /** Callback when deleting project files from disk is clicked */
   onDelete: () => void;
   /** Callback when main branch warning is toggled */
@@ -49,6 +51,7 @@ export const ProjectCard = memo(function ProjectCard({
   project,
   thumbnailData,
   onSelect,
+  onOpenSettings,
   onDelete,
   onToggleMainBranchWarning,
   onRename,
@@ -118,6 +121,7 @@ export const ProjectCard = memo(function ProjectCard({
           </div>
         </div>
         <ProjectCardMenu
+          onOpenSettings={onOpenSettings}
           hideMainBranchWarning={hideMainBranchWarning}
           onToggleMainBranchWarning={onToggleMainBranchWarning}
           onRename={onRename}

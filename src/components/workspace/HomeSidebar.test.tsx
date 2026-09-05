@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { HomeSidebar } from './HomeSidebar';
 import { ModalProvider } from '../../contexts/ModalContext';
 import { PaletteContextProvider } from '../CommandPalette/paletteContext';
+import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 
 // Accounts load over Tauri IPC, which isn't available here — and the sidebar
 // reads `accounts.length` during render.
@@ -19,6 +20,7 @@ function renderSidebar(ui: React.ReactElement) {
 }
 
 const props = {
+  activeNav: 'home' as const,
   onGoHome: vi.fn(),
   onGoWorkflows: vi.fn(),
   onGoInbox: vi.fn(),
@@ -35,6 +37,28 @@ const props = {
 };
 
 describe('HomeSidebar', () => {
+  it('shows and handles unpin from a project context menu', () => {
+    const onTogglePinProject = vi.fn();
+    const project: PinnedProjectRow = {
+      projectPath: '/tmp/project-a',
+      fallbackName: 'project-a',
+      status: 'inactive',
+      agentStatus: 'idle',
+      unreadCount: 0,
+      memoryBytes: 0,
+      isCurrent: false,
+    };
+
+    const { container } = renderSidebar(
+      <HomeSidebar {...props} projects={[project]} onTogglePinProject={onTogglePinProject} />
+    );
+
+    fireEvent.contextMenu(container.querySelector<HTMLElement>('.sidebar-project-row')!);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpin from sidebar' }));
+
+    expect(onTogglePinProject).toHaveBeenCalledWith('/tmp/project-a', false);
+  });
+
   it('renders the Workflows and Inbox destinations', () => {
     renderSidebar(<HomeSidebar {...props} activeNav="home" />);
     expect(screen.getByRole('button', { name: 'Workflows' })).toBeInTheDocument();

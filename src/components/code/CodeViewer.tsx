@@ -18,14 +18,16 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
-import { MenuButton } from '../primitives/MenuButton';
+import { IconButton } from '../primitives/IconButton';
 import { ToggleButton } from '../primitives/ToggleButton';
 import {
   ChevronIcon,
+  ChevronRightIcon,
   CodeIcon,
   CopyIcon,
   CursorIcon,
   EditIcon,
+  ExternalLinkIcon,
   FileIcon,
   FileTextIcon,
   SaveIcon,
@@ -380,16 +382,15 @@ export function CodeViewer({
             <Dropdown
               portal
               align="right"
+              openOnHover
               trigger={(p) => (
-                <MenuButton
-                  variant="secondary"
-                  title="Open in IDE"
-                  rightIcon={<ChevronIcon size={10} />}
-                  expanded={p['aria-expanded']}
+                <IconButton
+                  variant="default"
+                  icon={<ExternalLinkIcon size={14} />}
+                  aria-label="Open with IDE"
+                  title="Open with IDE (hover for options)"
                   {...p}
-                >
-                  Open with
-                </MenuButton>
+                />
               )}
             >
               {ideAvailability.vscode && (
@@ -437,17 +438,22 @@ export function CodeViewer({
         popoverStyle &&
         createPortal(
           <div className="code-selection-popover" ref={popoverRef} style={popoverStyle}>
-            <button
-              type="button"
-              className="code-selection-reference"
-              onClick={() => setPreviewExpanded((p) => !p)}
-            >
-              <span className={`file-tree-chevron${previewExpanded ? ' expanded' : ''}`}>
-                <ChevronIcon size={8} />
-              </span>
-              <span className="code-selection-reference-label">{lineRefLabel}</span>
-            </button>
-            {previewExpanded && <div className="code-selection-preview">{selectionInfo.text}</div>}
+            <div className="code-selection-attachment">
+              <button
+                type="button"
+                className="code-selection-reference"
+                aria-expanded={previewExpanded}
+                onClick={() => setPreviewExpanded((p) => !p)}
+              >
+                <span className="file-tree-chevron">
+                  {previewExpanded ? <ChevronIcon size={12} /> : <ChevronRightIcon size={12} />}
+                </span>
+                <span className="code-selection-reference-label">{lineRefLabel}</span>
+              </button>
+              {previewExpanded && (
+                <div className="code-selection-preview">{selectionInfo.text}</div>
+              )}
+            </div>
             <input
               className="code-selection-input"
               type="text"

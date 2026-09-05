@@ -108,7 +108,11 @@ describe('AccountSelectScreen', () => {
     render(<AccountSelectScreen onContinue={vi.fn()} onBack={onBack} />);
     await screen.findByRole('button', { name: 'Switch to Client B' });
 
-    fireEvent.click(screen.getByRole('button', { name: /Back/ }));
+    const backButton = screen.getByRole('button', { name: /Back/ });
+    expect(backButton).toHaveClass('button', 'button--ghost');
+    expect(backButton).not.toHaveClass('text-button');
+
+    fireEvent.click(backButton);
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(onBack).toHaveBeenCalledTimes(2);

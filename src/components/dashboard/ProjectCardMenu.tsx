@@ -20,11 +20,14 @@ import {
   EditFieldIcon,
   MoveToWorkspaceIcon,
   MoreHorizontalIcon,
+  SettingsIcon,
 } from '@/components/icons';
 import { Dropdown, DropdownItem, DropdownDivider } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
 
 interface ProjectCardMenuProps {
+  /** Callback to open settings for this project */
+  onOpenSettings?: () => void;
   /** Whether main branch warning is hidden */
   hideMainBranchWarning: boolean;
   /** Callback when main branch warning toggle is clicked */
@@ -55,6 +58,7 @@ interface ProjectCardMenuProps {
 }
 
 export function ProjectCardMenu({
+  onOpenSettings,
   hideMainBranchWarning,
   onToggleMainBranchWarning,
   onRename,
@@ -82,6 +86,11 @@ export function ProjectCardMenu({
           />
         )}
       >
+        {onOpenSettings && (
+          <DropdownItem icon={<SettingsIcon size={14} />} onSelect={onOpenSettings}>
+            <span>Project Settings</span>
+          </DropdownItem>
+        )}
         <DropdownItem
           icon={<WarningIcon size={14} />}
           onSelect={() => onToggleMainBranchWarning(!hideMainBranchWarning)}

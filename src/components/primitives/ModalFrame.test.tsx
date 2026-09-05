@@ -5,6 +5,20 @@ import { ModalFrame } from './ModalFrame';
 import { ToastList } from './ToastList';
 
 describe('ModalFrame', () => {
+  it('renders the standard close button for titled dialogs', () => {
+    const onClose = vi.fn();
+
+    render(
+      <ModalFrame isOpen onClose={onClose} title="Example dialog">
+        <button type="button">Continue</button>
+      </ModalFrame>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('labels the dialog, focuses its first control, and restores the opener', () => {
     const onClose = vi.fn();
     const { rerender } = render(

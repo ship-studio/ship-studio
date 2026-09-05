@@ -19,7 +19,8 @@ export function splitCompoundClassSelector(selector: string): string[] | null {
 
 /** Keep plain HTML/custom-element selectors in the media pink family. */
 export function selectorTone(selector: string): CascadeChipTone {
-  return TAG_SELECTOR_PATTERN.test(selector.trim()) ? 'tag' : 'selector';
+  const value = selector.trim();
+  return value === '*' || TAG_SELECTOR_PATTERN.test(value) ? 'tag' : 'selector';
 }
 
 function SelectorParts({ selector }: { selector: string }) {
@@ -57,6 +58,7 @@ export function SelectorDisplay({
   onActivate?: () => void;
 }) {
   const parts = splitCompoundClassSelector(selector);
+  const isUniversal = selector.trim() === '*';
   const title = interactive
     ? 'Click to edit — type a selector, or @media (…) to scope this rule'
     : selector;
@@ -73,6 +75,22 @@ export function SelectorDisplay({
         },
       }
     : {};
+
+  if (isUniversal) {
+    return (
+      <span
+        className="ss-cascade-selector-display ss-cascade-selector-display--universal"
+        title={title}
+        aria-label={`${selector} — Universal`}
+        {...activate}
+      >
+        <CascadeChip tone={selectorTone(selector)} interactive={interactive} aria-hidden="true">
+          <span className="ss-cascade-chip__content">{selector}</span>
+        </CascadeChip>
+        <span className="ss-cascade-selector-display__label">Universal</span>
+      </span>
+    );
+  }
 
   if (!parts) {
     return (

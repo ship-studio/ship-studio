@@ -32,12 +32,15 @@ describe('ElementToolbar', () => {
   it('uses the matching tag icon while keeping the class selector visible', () => {
     const { container } = renderToolbar('p');
 
-    expect(container.querySelector('[data-icon-name="AlignLeftIcon"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-icon-name="ElementParagraphIcon"]')).toBeInTheDocument();
     expect(container.querySelector('.ss-el-toolbar__tag')).not.toBeInTheDocument();
     expect(screen.getByText('.hero-title')).toBeInTheDocument();
     expect(
       screen.getByTestId('element-toolbar').querySelector('.ss-el-toolbar__selection')
-    ).toBeInTheDocument();
+    ).toHaveAttribute('aria-label', 'Selected element: p .hero-title');
+    expect(
+      screen.getByTestId('element-toolbar').querySelector('.ss-el-toolbar__selection')
+    ).not.toHaveAttribute('title');
     expect(
       screen.getByTestId('element-toolbar').querySelector('.ss-el-toolbar__actions')
     ).toBeInTheDocument();
@@ -51,9 +54,9 @@ describe('ElementToolbar', () => {
   });
 
   it('falls back to the tag name when no matching icon exists', () => {
-    const { container } = renderToolbar('main');
+    const { container } = renderToolbar('article');
 
-    expect(container.querySelector('.ss-el-toolbar__tag')).toHaveTextContent('main');
+    expect(container.querySelector('.ss-el-toolbar__tag')).toHaveTextContent('article');
     expect(container.querySelector('.ss-el-toolbar__tag-icon')).not.toBeInTheDocument();
   });
 });

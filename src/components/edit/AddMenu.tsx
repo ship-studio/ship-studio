@@ -14,7 +14,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
-import { AddIcon } from '@/components/icons';
+import { PlusIcon } from '@/components/icons';
 import { suggestProperties } from '../../lib/cssProperties';
 import {
   NEST_ITEMS,
@@ -60,16 +60,20 @@ interface Section {
 }
 
 interface MenuAnchor {
-  card: DOMRect;
   trigger: DOMRect;
+  right: number;
 }
 
 function getMenuAnchor(button: HTMLElement): MenuAnchor {
+  const trigger = button.getBoundingClientRect();
+  const card = button
+    .closest<HTMLElement>('.ss-cascade-card, .ss-custom-css')
+    ?.getBoundingClientRect();
   return {
-    card:
-      button.closest<HTMLElement>('.ss-cascade-card, .ss-custom-css')?.getBoundingClientRect() ??
-      button.getBoundingClientRect(),
-    trigger: button.getBoundingClientRect(),
+    trigger,
+    // The trigger sits inside a padded add row. Align the menu with the trigger's
+    // visible left edge while keeping its right edge aligned to the card.
+    right: card?.right ?? trigger.right,
   };
 }
 
@@ -228,8 +232,8 @@ export function AddMenu({
   // Position under the trigger, clamped; flip up if it would overflow below.
   const pos = useMemo(() => {
     if (!open || !anchor) return null;
-    const width = anchor.card.width;
-    const left = Math.max(8, Math.min(anchor.card.left, window.innerWidth - width - 8));
+    const left = Math.max(8, Math.min(anchor.trigger.left, window.innerWidth - 8));
+    const width = Math.max(0, Math.min(anchor.right - left, window.innerWidth - left - 8));
     const below = window.innerHeight - anchor.trigger.bottom;
     const flip = below < 300 && anchor.trigger.top > below;
     return {
@@ -245,8 +249,7 @@ export function AddMenu({
     isOutside: (t) => !popRef.current?.contains(t) && !btnRef.current?.contains(t),
   });
 
-  const defaultLabel =
-    mode === 'keyframes' ? 'Add step' : mode === 'props' ? 'Add property' : 'Add';
+  const defaultLabel = mode === 'keyframes' ? 'Add step' : 'Add property';
   const label = triggerLabel ?? defaultLabel;
   const placeholder =
     mode === 'keyframes'
@@ -276,7 +279,7 @@ export function AddMenu({
         }
       }}
     >
-      <AddIcon size={12} /> {label}
+      <PlusIcon size={12} /> {label}
     </button>
   );
 

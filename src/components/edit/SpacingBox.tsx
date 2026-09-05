@@ -1,25 +1,33 @@
 /**
  * Webflow-style box-model spacing editor: an outer margin box wrapping an inner
- * padding box, each with an editable value on all four sides. Reads the current
- * per-side value via the Tailwind cascade (side > axis > all) and writes it on
+ * padding box, each with an editable value on all four sides. The position
+ * variant reuses that inner four-sided surface for top/right/bottom/left
+ * offsets. Reads the current per-side value via the Tailwind cascade
+ * (side > axis > all) and writes it on
  * change/scroll/drag. Values can be a Tailwind scale step (a bare integer) or any
- * valid CSS length (`10rem`, `50%`, `clamp(…)`); invalid input flags the field.
- * Live preview + write-back are handled by the hook's `setBoxSide`.
+ * valid CSS length (`10rem`, `50%`, `clamp(…)`). Manual entry happens in the
+ * shared value-field popup so the compact box stays easy to scan. Live preview
+ * + write-back are handled by the hook's `setBoxSide` / `setPositionSide`
+ * callbacks.
  */
 
 import {
-  useId,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { SpacingValuePopover } from './SpacingValuePopover';
+import { parseValueFieldVariable, type ValueFieldVariable } from '../primitives/ValueField';
 import {
   boxSide,
+  boxSideResetSpec,
+  positionSide,
+  positionSideResetSpec,
   readLayer,
   spacingDisplay,
-  parseSpacingInput,
   type BoxType,
+  type ResetSpec,
   type Side,
   type LayerContext,
   type SpacingValue,
@@ -36,35 +44,55 @@ const SIDE_DRAG: Record<Side, { axis: 'x' | 'y'; sign: 1 | -1 }> = {
 
 /** Pixels of drag per 1-unit change. */
 const DRAG_SENSITIVITY = 5;
+type BoxControlType = BoxType | 'position';
 
 interface FieldProps {
-  id: string;
   value: SpacingValue | null;
+  display: string;
   onSet: (v: SpacingValue) => void;
-  /** CSS property the typed value is validated against (`padding` / `margin`). */
-  cssProp: string;
   label: string;
   className: string;
   dir: { axis: 'x' | 'y'; sign: 1 | -1 };
+  allowNegative: boolean;
   /** Cascade state for the value tag. */
-  state: 'default' | 'inherited' | 'modified';
+  state: 'default' | 'inherited' | 'modified' | 'variable';
+  onReset?: () => void;
 }
 
 /** The numeric magnitude a drag/scroll scrubs, plus how to rebuild a value from a
  *  new magnitude. Null when the value can't be stepped (e.g. `calc(…)`). */
 function dragBaseOf(
-  value: SpacingValue | null
+  value: SpacingValue | null,
+  allowNegative: boolean
 ): { magnitude: number; build: (m: number) => SpacingValue } | null {
   if (!value || value.kind === 'scale') {
     const mag = value?.kind === 'scale' ? value.n : 0;
-    return { magnitude: mag, build: (m) => ({ kind: 'scale', n: Math.max(0, Math.round(m)) }) };
+    return {
+      magnitude: mag,
+      build: (m) => ({
+        kind: 'scale',
+        n: allowNegative ? Math.round(m) : Math.max(0, Math.round(m)),
+      }),
+    };
+  }
+  if (value.kind === 'theme') {
+    const match = /^(-?\d*\.?\d+)(.*)$/.exec(value.raw.trim());
+    if (!match) return null;
+    const unit = match[2];
+    return {
+      magnitude: parseFloat(match[1]),
+      build: (m) => ({
+        kind: 'arbitrary',
+        raw: `${allowNegative ? m : Math.max(0, m)}${unit}`,
+      }),
+    };
   }
   const match = /^(-?\d*\.?\d+)(.*)$/.exec(value.raw.trim());
   if (!match) return null;
   const unit = match[2];
   return {
     magnitude: parseFloat(match[1]),
-    build: (m) => ({ kind: 'arbitrary', raw: `${Math.max(0, m)}${unit}` }),
+    build: (m) => ({ kind: 'arbitrary', raw: `${allowNegative ? m : Math.max(0, m)}${unit}` }),
   };
 }
 
@@ -72,15 +100,18 @@ function useSpacingDrag<T extends HTMLElement>(
   value: SpacingValue | null,
   onSet: (v: SpacingValue) => void,
   dir: FieldProps['dir'],
-  onClick: (target: T) => void
+  allowNegative: boolean,
+  onClick: (target: T, altKey: boolean) => void
 ) {
   const drag = useRef<{ x: number; y: number; base: ReturnType<typeof dragBaseOf> } | null>(null);
   const dragged = useRef(false);
+  const suppressClick = useRef(false);
 
   const onPointerDown = (e: ReactPointerEvent<T>) => {
     if (e.button !== 0) return;
+    suppressClick.current = false;
     e.preventDefault();
-    drag.current = { x: e.clientX, y: e.clientY, base: dragBaseOf(value) };
+    drag.current = { x: e.clientX, y: e.clientY, base: dragBaseOf(value, allowNegative) };
     dragged.current = false;
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
@@ -98,14 +129,32 @@ function useSpacingDrag<T extends HTMLElement>(
   const onPointerUp = (e: ReactPointerEvent<T>) => {
     const wasClick = drag.current && !dragged.current;
     drag.current = null;
-    if (wasClick) onClick(e.currentTarget);
+    if (wasClick) {
+      // Pointerdown prevents the browser's default focus/click path so a click
+      // can be distinguished from a scrub. Ignore the synthetic click when an
+      // engine still dispatches one, while leaving keyboard clicks available.
+      suppressClick.current = true;
+      onClick(e.currentTarget, e.altKey);
+      window.setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+    }
   };
 
   const onPointerCancel = () => {
     drag.current = null;
+    suppressClick.current = false;
   };
 
-  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+  const handleClick = (e: ReactMouseEvent<T>) => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    onClick(e.currentTarget, e.altKey);
+  };
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onClick: handleClick };
 }
 
 /**
@@ -113,113 +162,75 @@ function useSpacingDrag<T extends HTMLElement>(
  *  - drag along the bar's own axis (pulls outward to grow) — like a design tool,
  *  - scroll to scrub,
  *  - ArrowUp/Down to step (Shift ×10, Alt fine),
- *  - click then type a value or unit (10rem, 50%); Enter/blur applies.
- * Bad input (`40xyz`) marks the field invalid and isn't applied.
+ *  - click to open the full value editor popup.
  */
-function SideField({ id, value, onSet, cssProp, label, className, dir, state }: FieldProps) {
-  const display = spacingDisplay(value);
-  const [text, setText] = useState(display);
-  const [lastDisplay, setLastDisplay] = useState(display);
-  const [invalid, setInvalid] = useState(false);
-  // Sync the field when the value changes externally (steppers, reselect) — but
-  // not while the user is mid-edit with unsaved invalid text.
-  if (display !== lastDisplay && !invalid) {
-    setLastDisplay(display);
-    setText(display);
-  }
-
-  const dragHandlers = useSpacingDrag<HTMLInputElement>(value, onSet, dir, (target) =>
-    target.focus()
+function SideField({
+  value,
+  display,
+  label,
+  className,
+  dir,
+  allowNegative,
+  state,
+  onSet,
+  onReset,
+  open,
+  onOpen,
+}: FieldProps & { open: boolean; onOpen: (target: HTMLButtonElement) => void }) {
+  const dragHandlers = useSpacingDrag<HTMLButtonElement>(
+    value,
+    onSet,
+    dir,
+    allowNegative,
+    (target, altKey) => {
+      if (altKey && onReset) {
+        onReset();
+        return;
+      }
+      onOpen(target);
+    }
   );
 
-  /** Parse + apply the typed text; on bad input, mark invalid (keep the text). */
-  const commit = () => {
-    const parsed = parseSpacingInput(text, cssProp);
-    if (parsed.kind === 'invalid') {
-      setInvalid(true);
-      return false;
-    }
-    setInvalid(false);
-    onSet(parsed);
-    return true;
-  };
-
-  /** One keyboard step: ArrowUp/Down = one drag tick, Shift ×10, Alt = fine
-   *  (÷10 on unit values; the Tailwind scale stays on whole steps). Steps the
-   *  typed text when it parses, else the live value — same commit path as drag. */
-  const onArrowStep = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    const parsed = parseSpacingInput(text, cssProp);
-    const cur = parsed.kind === 'invalid' ? value : parsed;
-    const base = dragBaseOf(cur);
-    if (!base) return; // non-numeric (calc(…)) — leave the caret alone
-    e.preventDefault();
-    const fine = cur?.kind === 'arbitrary' ? 0.1 : 1;
-    const step = e.shiftKey ? 10 : e.altKey ? fine : 1;
-    const dir = e.key === 'ArrowUp' ? 1 : -1;
-    onSet(base.build(Math.round((base.magnitude + dir * step) * 100) / 100));
-  };
-
   return (
-    <input
-      id={id}
+    <button
+      type="button"
       className={`ss-box__field ${className} ss-box__field--${state}${
-        invalid ? ' ss-box__field--invalid' : ''
+        open ? ' ss-box__field--open' : ''
       }`}
-      size={Math.max(text.length, 1)}
       aria-label={label}
-      aria-invalid={invalid}
-      title={
-        invalid
-          ? 'Use a valid value or unit (e.g. 8, 10rem, 50%)'
-          : `${label} (drag, scroll, or type)`
-      }
-      inputMode="text"
-      autoCorrect="off"
-      autoCapitalize="off"
-      autoComplete="off"
-      spellCheck={false}
-      value={text}
-      onChange={(e) => {
-        setText(e.target.value);
-        if (invalid) setInvalid(false);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') commit();
-        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') onArrowStep(e);
-      }}
-      onBlur={() => {
-        // Apply if valid; otherwise drop the bad text back to the live value.
-        if (!commit()) {
-          setText(display);
-          setInvalid(false);
-        }
-      }}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      title={`${label} (drag or click to edit${onReset ? ', Alt-click to reset' : ''})`}
       {...dragHandlers}
-    />
+    >
+      {display}
+    </button>
   );
 }
 
 interface BandProps {
-  id: string;
-  type: BoxType;
+  type: BoxControlType;
   side: Side;
   value: SpacingValue | null;
   onSet: (v: SpacingValue) => void;
+  onOpen: (target: HTMLDivElement) => void;
 }
 
-function PanelBand({ id, type, side, value, onSet }: BandProps) {
-  const dragHandlers = useSpacingDrag<HTMLLabelElement>(value, onSet, SIDE_DRAG[side], () =>
-    document.getElementById(id)?.focus()
+function PanelBand({ type, side, value, onSet, onOpen }: BandProps) {
+  const dragHandlers = useSpacingDrag<HTMLDivElement>(
+    value,
+    onSet,
+    SIDE_DRAG[side],
+    type === 'position' || type === 'margin',
+    onOpen
   );
 
   return (
-    <label
+    <div
       className={`ss-box__band ss-box__band--${side}`}
-      htmlFor={id}
       aria-hidden="true"
       data-box-type={type}
       data-box-side={side}
-      onClick={() => document.getElementById(id)?.focus()}
       {...dragHandlers}
     />
   );
@@ -230,73 +241,183 @@ interface Props {
   /** Active breakpoint layer — sides read their effective value across the cascade. */
   layer: LayerContext;
   onSetSide: (type: BoxType, side: Side, value: SpacingValue) => void;
+  onReset: (spec: ResetSpec) => void;
+  /** Position variant uses the same four-sided interaction model with top/right/bottom/left. */
+  variant?: 'spacing' | 'position';
+  onSetPositionSide?: (side: Side, value: SpacingValue) => void;
+  /** Project CSS custom properties offered by the popup value fields. */
+  variables?: ValueFieldVariable[];
 }
 
-export function SpacingBox({ currentClass, layer, onSetSide }: Props) {
-  const idPrefix = useId();
-  const fieldId = (type: BoxType, side: Side) => `${idPrefix}-${type}-${side}`;
-  const sideData = (type: BoxType, side: Side) =>
-    readLayer(currentClass, layer, (s) => boxSide(s, type, side));
+interface OpenField {
+  type: BoxControlType;
+  side: Side;
+  anchor: HTMLElement;
+}
 
-  const field = (type: BoxType, side: Side, edge: string) => {
+function sideLabel(type: BoxType, side: Side): string {
+  return `${type === 'padding' ? 'Padding' : 'Margin'} ${side}`;
+}
+
+function positionSideLabel(side: Side): string {
+  return side.replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function variableName(value: SpacingValue | null): string | null {
+  return value?.kind === 'arbitrary' ? parseValueFieldVariable(value.raw) : null;
+}
+
+function spacingFieldDisplay(value: SpacingValue | null): string {
+  return variableName(value) ?? spacingDisplay(value);
+}
+
+function positionDisplay(value: SpacingValue | null): string {
+  if (!value || (value.kind === 'arbitrary' && value.raw.toLowerCase() === 'auto')) return 'Auto';
+  return spacingFieldDisplay(value);
+}
+
+function sideResetSpec(type: BoxControlType, side: Side, layer: LayerContext): ResetSpec {
+  return type === 'position'
+    ? positionSideResetSpec(side, layer.utilityPrefix, layer)
+    : boxSideResetSpec(type, side, layer.utilityPrefix);
+}
+
+function popoverLabel(type: BoxControlType, side: Side): string {
+  const label = type === 'position' ? positionSideLabel(side) : sideLabel(type, side);
+  return label.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export function SpacingBox({
+  currentClass,
+  layer,
+  onSetSide,
+  onReset,
+  variant = 'spacing',
+  onSetPositionSide,
+  variables,
+}: Props) {
+  const [openField, setOpenField] = useState<OpenField | null>(null);
+  const isPosition = variant === 'position';
+  const sideData = (type: BoxControlType, side: Side) =>
+    readLayer(currentClass, layer, (s) =>
+      type === 'position' ? positionSide(s, side, layer) : boxSide(s, type, side, layer)
+    );
+  const setSide = (type: BoxControlType, side: Side, value: SpacingValue) => {
+    if (type === 'position') {
+      onSetPositionSide?.(side, value);
+      return;
+    }
+    onSetSide(type, side, value);
+  };
+
+  const field = (type: BoxControlType, side: Side, edge: string) => {
     const { value, definedAt } = sideData(type, side);
-    const state =
-      definedAt === null ? 'default' : definedAt.name === layer.bp.name ? 'modified' : 'inherited';
+    const modified = definedAt?.name === layer.bp.name;
+    const state = variableName(value)
+      ? 'variable'
+      : definedAt === null
+        ? 'default'
+        : modified
+          ? 'modified'
+          : 'inherited';
     return (
       <SideField
-        id={fieldId(type, side)}
         value={value}
-        onSet={(v) => onSetSide(type, side, v)}
-        cssProp={type}
-        label={`${type === 'padding' ? 'Padding' : 'Margin'} ${side}`}
+        display={type === 'position' ? positionDisplay(value) : spacingFieldDisplay(value)}
+        onSet={(next) => setSide(type, side, next)}
+        label={type === 'position' ? positionSideLabel(side) : sideLabel(type, side)}
         className={`ss-box__edge--${edge}`}
         dir={SIDE_DRAG[side]}
+        allowNegative={type === 'position' || type === 'margin'}
         state={state}
+        onReset={modified ? () => onReset(sideResetSpec(type, side, layer)) : undefined}
+        open={openField?.type === type && openField.side === side}
+        onOpen={(anchor) => setOpenField({ type, side, anchor })}
       />
     );
   };
 
-  const band = (type: BoxType, side: Side) => {
+  const band = (type: BoxControlType, side: Side) => {
     const { value } = sideData(type, side);
     return (
       <PanelBand
-        id={fieldId(type, side)}
         type={type}
         side={side}
         value={value}
-        onSet={(next) => onSetSide(type, side, next)}
+        onSet={(next) => setSide(type, side, next)}
+        onOpen={(anchor) => setOpenField({ type, side, anchor })}
       />
     );
   };
 
   return (
-    <div className="ss-box" data-testid="spacing-box">
-      <span className="ss-box__tag">MARGIN</span>
-      <div className="ss-box__margin" aria-hidden="true">
-        {band('margin', 'top')}
-        {band('margin', 'right')}
-        {band('margin', 'bottom')}
-        {band('margin', 'left')}
-      </div>
-      {field('margin', 'top', 't')}
-      {field('margin', 'bottom', 'b')}
-      {field('margin', 'left', 'l')}
-      {field('margin', 'right', 'r')}
+    <div
+      className={`ss-box${isPosition ? ' ss-box--position' : ''}`}
+      data-testid={isPosition ? 'position-box' : 'spacing-box'}
+    >
+      {isPosition ? (
+        <>
+          <div className="ss-box__padding" aria-hidden="true">
+            {band('position', 'top')}
+            {band('position', 'right')}
+            {band('position', 'bottom')}
+            {band('position', 'left')}
+          </div>
+          {field('position', 'top', 't')}
+          {field('position', 'bottom', 'b')}
+          {field('position', 'left', 'l')}
+          {field('position', 'right', 'r')}
+          <div className="ss-box__core" />
+        </>
+      ) : (
+        <>
+          <span className="ss-box__tag">MARGIN</span>
+          <div className="ss-box__margin" aria-hidden="true">
+            {band('margin', 'top')}
+            {band('margin', 'right')}
+            {band('margin', 'bottom')}
+            {band('margin', 'left')}
+          </div>
+          {field('margin', 'top', 't')}
+          {field('margin', 'bottom', 'b')}
+          {field('margin', 'left', 'l')}
+          {field('margin', 'right', 'r')}
 
-      <div className="ss-box__inner">
-        <span className="ss-box__tag">PADDING</span>
-        <div className="ss-box__padding" aria-hidden="true">
-          {band('padding', 'top')}
-          {band('padding', 'right')}
-          {band('padding', 'bottom')}
-          {band('padding', 'left')}
-        </div>
-        {field('padding', 'top', 't')}
-        {field('padding', 'bottom', 'b')}
-        {field('padding', 'left', 'l')}
-        {field('padding', 'right', 'r')}
-        <div className="ss-box__core" />
-      </div>
+          <div className="ss-box__inner">
+            <span className="ss-box__tag">PADDING</span>
+            <div className="ss-box__padding" aria-hidden="true">
+              {band('padding', 'top')}
+              {band('padding', 'right')}
+              {band('padding', 'bottom')}
+              {band('padding', 'left')}
+            </div>
+            {field('padding', 'top', 't')}
+            {field('padding', 'bottom', 'b')}
+            {field('padding', 'left', 'l')}
+            {field('padding', 'right', 'r')}
+            <div className="ss-box__core" />
+          </div>
+        </>
+      )}
+
+      {openField && (
+        <SpacingValuePopover
+          key={`${openField.type}-${openField.side}`}
+          anchor={openField.anchor}
+          label={popoverLabel(openField.type, openField.side)}
+          cssProp={openField.type === 'position' ? openField.side : openField.type}
+          emptyValue={openField.type === 'position' ? 'auto' : '0px'}
+          side={openField.side}
+          value={sideData(openField.type, openField.side).value}
+          variables={variables}
+          onSet={(next) => setSide(openField.type, openField.side, next)}
+          onClose={() =>
+            setOpenField((current) =>
+              current?.type === openField.type && current.side === openField.side ? null : current
+            )
+          }
+        />
+      )}
     </div>
   );
 }

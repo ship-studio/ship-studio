@@ -98,14 +98,18 @@ const advance = (ms: number) =>
 /** Drive a selection through the in-window message bridge and resolve it.
  *  `source` mirrors the real preview iframe's contentWindow — the hook now
  *  rejects messages from any other source as a security measure. */
-async function select(className: string, source: MessageEventSource) {
+async function select(
+  className: string,
+  source: MessageEventSource,
+  extras: Partial<{ direction: 'ltr' | 'rtl'; writingMode: string; spacingUnit: string }> = {}
+) {
   await act(async () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         source,
         data: {
           type: 'ss:select',
-          signature: { className, tagName: 'div', ancestorClasses: [] },
+          signature: { className, tagName: 'div', ancestorClasses: [], ...extras },
           count: 1,
         },
       })
@@ -195,6 +199,132 @@ describe('useVisualEditor auto-save', () => {
     expect(localStorage.getItem('ss:visualEditor:autoSave')).toBe('1');
     act(() => result.current.toggleAutoSave());
     expect(localStorage.getItem('ss:visualEditor:autoSave')).toBe('0');
+  });
+});
+
+describe('useVisualEditor position offsets', () => {
+  it('writes a side-specific utility and previews effective inset fallbacks', async () => {
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('relative inset-4', iframeRef.current!.contentWindow!);
+
+    act(() => result.current.setPositionSide('right', { kind: 'scale', n: 2 }));
+
+    expect(result.current.currentClass).toBe('relative inset-4 right-2');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the postMessage mock
+    const post = iframeRef.current!.contentWindow!.postMessage as Fn;
+    expect(post).toHaveBeenLastCalledWith(
+      {
+        type: 'ss:mutate',
+        className: 'relative inset-4 right-2',
+        rules: [
+          {
+            minPx: 0,
+            decls: { top: '1rem', right: '0.5rem', bottom: '1rem', left: '1rem' },
+          },
+        ],
+      },
+      '*'
+    );
+  });
+
+  it('writes a v4 prefixed offset and previews its prefixed spacing variable', async () => {
+    (detectTailwindSetup as Fn).mockResolvedValue({
+      version: 'v4',
+      entryCss: 'app.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw:',
+    });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await flush();
+    await select('tw:relative tw:inset-y-2', iframeRef.current!.contentWindow!);
+
+    act(() => result.current.setPositionSide('top', { kind: 'scale', n: 3 }));
+
+    expect(result.current.currentClass).toBe('tw:relative tw:inset-y-2 tw:top-3');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the postMessage mock
+    const post = iframeRef.current!.contentWindow!.postMessage as Fn;
+    expect(post).toHaveBeenLastCalledWith(
+      {
+        type: 'ss:mutate',
+        className: 'tw:relative tw:inset-y-2 tw:top-3',
+        rules: [
+          {
+            minPx: 0,
+            decls: {
+              top: 'calc(var(--tw-spacing, 0.25rem) * 3)',
+              bottom: 'calc(var(--tw-spacing, 0.25rem) * 2)',
+            },
+          },
+        ],
+      },
+      '*'
+    );
+  });
+
+  it('writes v3 prefixed negative offsets and custom theme keys', async () => {
+    (detectTailwindSetup as Fn).mockResolvedValue({
+      version: 'v3',
+      entryCss: 'globals.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw-',
+      spacingScale: { hero: '3.75rem' },
+    });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await flush();
+    await select('-tw-top-4 tw-inset-x-2', iframeRef.current!.contentWindow!);
+
+    act(() => result.current.setPositionSide('top', { kind: 'scale', n: -6 }));
+
+    expect(result.current.currentClass).toBe('tw-inset-x-2 -tw-top-6');
+    act(() =>
+      result.current.setPositionSide('right', { kind: 'theme', key: 'hero', raw: '3.75rem' })
+    );
+    expect(result.current.currentClass).toBe('tw-inset-x-2 -tw-top-6 tw-right-hero');
+  });
+
+  it('replaces v3 prefixed directional radius utilities with the shorthand edit', async () => {
+    (detectTailwindSetup as Fn).mockResolvedValue({
+      version: 'v3',
+      entryCss: 'globals.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw-',
+    });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await flush();
+    await select('tw-rounded-tl-lg tw-rounded-tr-sm', iframeRef.current!.contentWindow!);
+
+    act(() =>
+      result.current.applyEnum('rounded-[12px_8px_4px_2px]', {
+        'border-radius': '12px 8px 4px 2px',
+      })
+    );
+
+    expect(result.current.currentClass).toBe('tw-rounded-[12px_8px_4px_2px]');
+  });
+
+  it('writes a v4 prefixed radius shorthand after removing directional utilities', async () => {
+    (detectTailwindSetup as Fn).mockResolvedValue({
+      version: 'v4',
+      entryCss: 'app.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw:',
+    });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await flush();
+    await select('tw:rounded-t-lg tw:rounded-tr-sm', iframeRef.current!.contentWindow!);
+
+    act(() =>
+      result.current.applyEnum('rounded-[12px_8px_4px_2px]', {
+        'border-radius': '12px 8px 4px 2px',
+      })
+    );
+
+    expect(result.current.currentClass).toBe('tw:rounded-[12px_8px_4px_2px]');
   });
 });
 
@@ -436,6 +566,38 @@ describe('useVisualEditor class drift recovery (issue #739)', () => {
 });
 
 describe('useVisualEditor custom classes', () => {
+  it('replaces directional radius utilities in a custom class @apply list', async () => {
+    (updateCustomClass as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('card', iframeRef.current!.contentWindow!);
+    act(() => result.current.editClass('card', ['rounded-tl-lg', 'rounded-tr-sm']));
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the postMessage mock
+    const post = iframeRef.current!.contentWindow!.postMessage as Fn;
+    post.mockClear();
+    act(() =>
+      result.current.applyEnum('rounded-[12px_8px_4px_2px]', {
+        'border-radius': '12px 8px 4px 2px',
+      })
+    );
+
+    expect(result.current.currentClass).toBe('rounded-[12px_8px_4px_2px]');
+    expect(post).toHaveBeenCalledWith(
+      {
+        type: 'ss:mutateClass',
+        selector: '.card',
+        rules: [{ minPx: 0, decls: { 'border-radius': '12px 8px 4px 2px' } }],
+      },
+      '*'
+    );
+
+    await act(async () => {
+      await result.current.commit();
+    });
+    expect(updateCustomClass).toHaveBeenCalledWith('/proj', 'card', ['rounded-[12px_8px_4px_2px]']);
+  });
+
   it('routes class edits to a class-scoped preview and saves via updateCustomClass', async () => {
     (updateCustomClass as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const { result, iframeRef } = setup();

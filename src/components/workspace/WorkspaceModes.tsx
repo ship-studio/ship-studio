@@ -5,6 +5,7 @@ import { workspaceModeValue, type WorkspaceTab } from './workspaceViewState';
 /** Props for the workspace preview, focus, code, branches, and pull-request mode controls. */
 export interface WorkspaceModesProps {
   hasPreview: boolean;
+  projectTypeResolved: boolean;
   isPreviewHidden: boolean;
   workspaceTab: WorkspaceTab;
   setIsPreviewHidden: (hidden: boolean) => void;
@@ -18,6 +19,7 @@ export interface WorkspaceModesProps {
 /** Renders the workspace mode tabs and focus toggle. */
 export function WorkspaceModes({
   hasPreview,
+  projectTypeResolved,
   isPreviewHidden,
   workspaceTab,
   setIsPreviewHidden,
@@ -47,7 +49,7 @@ export function WorkspaceModes({
         appearance="underline"
         aria-label="Workspace mode"
       >
-        {hasPreview && (
+        {(hasPreview || !projectTypeResolved) && (
           <TabsTab
             value="preview"
             className="workspace-tab"

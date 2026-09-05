@@ -75,9 +75,21 @@ export function PluginsDropdown({
     <div className="toolbar-dropdown-container" ref={menuRef}>
       <MenuButton
         expanded={isOpen}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={(event) => {
+          if (
+            event.currentTarget.dataset.workspacePanelShortcutTriggered === 'open-plugin-manager'
+          ) {
+            delete event.currentTarget.dataset.workspacePanelShortcutTriggered;
+            setIsOpen(false);
+            onOpenPluginManager();
+            return;
+          }
+          setIsOpen(!isOpen);
+        }}
         title="Plugins"
         data-education-id="plugins-dropdown"
+        data-workspace-panel="plugins"
+        data-workspace-panel-shortcut-action="open-plugin-manager"
         leftIcon={<PuzzleIcon size={16} />}
         aria-label="Plugins"
       >

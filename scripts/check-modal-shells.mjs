@@ -44,6 +44,11 @@ const allowlist = [
       'anchored provenance popover inside the editor panel; it is not a modal surface and must not trap focus',
   },
   {
+    file: 'src/components/edit/SpacingValuePopover.tsx',
+    label: 'role="dialog"',
+    reason: 'anchored spacing value editor; it is not a modal surface',
+  },
+  {
     file: 'src/components/preview/PreviewSizeControl.tsx',
     label: 'role="dialog"',
     reason: 'anchored preview-size popover; it is not a modal surface',

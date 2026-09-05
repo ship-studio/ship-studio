@@ -477,7 +477,7 @@ export function WorkspaceHeader({
   );
 
   const workspaceToolButtons = (
-    <>
+    <div className="workspace-panel-group" aria-label="Workspace panels">
       <ToggleButton
         variant={agentPanelVisible ? 'secondary' : 'default'}
         className="workspace-panel-toggle"
@@ -486,6 +486,7 @@ export function WorkspaceHeader({
         title="Agent"
         leftIcon={<AgentsIcon size={16} />}
         aria-label="Agent"
+        data-workspace-panel="agent"
       />
       <ToggleButton
         variant={elementTreeVisible ? 'secondary' : 'default'}
@@ -496,6 +497,7 @@ export function WorkspaceHeader({
         title={elementTreeAvailable ? 'Elements' : 'Elements are available in Preview'}
         leftIcon={<ElementsIcon size={16} />}
         aria-label="Elements"
+        data-workspace-panel="elements"
       />
       <ToggleButton
         variant={variablesPanelVisible ? 'secondary' : 'default'}
@@ -506,6 +508,7 @@ export function WorkspaceHeader({
         title={variablesPanelAvailable ? 'Variables' : 'Variables are available for web projects'}
         leftIcon={<VariablesIcon size={16} />}
         aria-label="Variables"
+        data-workspace-panel="variables"
       />
       <Button
         onClick={onOpenAssetsPanel}
@@ -513,10 +516,11 @@ export function WorkspaceHeader({
         aria-label="Assets"
         aria-pressed={assetsPanelVisible}
         data-education-id="assets-button"
+        data-workspace-panel="assets"
         leftIcon={<ImageIcon size={16} />}
       />
       {headerExtras}
-    </>
+    </div>
   );
   const projectTitle = (
     <div className="workspace-title-group">

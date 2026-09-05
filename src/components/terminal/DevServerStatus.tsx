@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../primitives/Button';
-import { Spinner } from '../primitives/Spinner';
+import { PixelLoader } from '../primitives/PixelLoader';
 import { ChevronRightIcon } from '@/components/icons';
 import { stripAnsi } from '../../lib/ansi';
 import DevServerStoppedGraphic from '@/assets/graphics/dev-server-stopped.svg?react';
@@ -142,7 +142,11 @@ export function DevServerStatus({
   return (
     <div className={`preview-status preview-status--${phase}`}>
       {phase === 'loading' ? (
-        <Spinner size="lg" style={{ color: 'var(--text-muted)' }} />
+        <PixelLoader
+          className="preview-status__loader"
+          size="md"
+          label={isStaticProject ? 'Starting preview' : 'Starting dev server'}
+        />
       ) : (
         <div className="preview-status__icon" aria-hidden>
           {phase === 'stopped' ? (

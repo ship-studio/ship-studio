@@ -262,6 +262,40 @@
   border: none;
   border-radius: var(--radius-card);
   position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) var(--surface-panel);
+}
+
+.assets-list-container::-webkit-scrollbar {
+  width: var(--spacing-sm);
+}
+
+.assets-list-container::-webkit-scrollbar-track {
+  background: var(--surface-panel);
+}
+
+.assets-list-container::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border: var(--stroke-1) solid var(--surface-panel);
+  border-radius: var(--radius-pill);
+}
+
+.assets-list-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* The Assets browser uses the app's overlay scrollbar so it stays visible
+   without reserving inline space for a native scrollbar. */
+.assets-list-container .os-theme-shipstudio.os-scrollbar .os-scrollbar-track {
+  background: var(--surface-panel);
+}
+
+.assets-list-container .os-theme-shipstudio.os-scrollbar .os-scrollbar-handle {
+  background: var(--text-muted);
+}
+
+.assets-list-container .os-theme-shipstudio.os-scrollbar .os-scrollbar-handle:hover {
+  background: var(--text-secondary);
 }
 
 .assets-list-container.dragging {
@@ -359,7 +393,7 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-sm);
-  object-fit: cover;
+  object-fit: contain;
   background: var(--surface-panel);
   flex-shrink: 0;
 }
@@ -421,29 +455,13 @@
   transition: opacity var(--transition);
 }
 
-.assets-item:hover .assets-item-actions {
+.assets-item:hover .assets-item-actions,
+.assets-item-actions:has([aria-expanded='true']) {
   opacity: 1;
 }
 
-.assets-action-btn {
-  padding: 6px;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.assets-action-btn:hover {
-  background: var(--surface-panel);
-  color: var(--text-primary);
-}
-
-.assets-action-btn.assets-action-delete:hover {
-  color: var(--accent-error);
+.assets-item-actions:focus-within {
+  opacity: 1;
 }
 
 /* Drag overlay */
@@ -483,50 +501,58 @@
 .assets-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 12px;
-  padding: 12px;
+  gap: var(--spacing-sm);
+  row-gap: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+.assets-grid-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  cursor: default;
+}
+
+.assets-grid-entry.is-folder,
+.assets-grid-entry.is-pickable {
+  cursor: pointer;
 }
 
 .assets-grid-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 8px 8px;
+  padding: 0;
   background: var(--surface-panel);
-  border-radius: var(--radius-card);
-  cursor: default;
+  border: var(--border-width-default) solid var(--border-strong);
+  border-radius: var(--radius-control);
+  cursor: inherit;
   transition:
     background-color var(--transition),
     color var(--transition),
     border-color var(--transition);
   position: relative;
+  overflow: hidden;
 }
 
-.assets-grid-item:hover {
+.assets-grid-entry:hover .assets-grid-item {
   background: var(--border-default);
 }
 
-.assets-grid-item.is-folder {
-  cursor: pointer;
-}
-
-.assets-grid-item.is-pickable {
-  cursor: pointer;
-}
-
 .assets-grid-preview {
-  width: 72px;
-  height: 72px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 8px;
-  border-radius: var(--radius-control);
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
   overflow: hidden;
-  background: var(--surface-control);
+  background: inherit;
 }
 
-.assets-grid-item.is-folder .assets-grid-preview {
+.assets-grid-entry.is-folder .assets-grid-preview {
   background: transparent;
   color: var(--accent-active);
 }
@@ -534,7 +560,7 @@
 .assets-grid-preview img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .assets-grid-preview svg {
@@ -543,6 +569,7 @@
 
 .assets-grid-info {
   width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
   text-align: center;
 }
 
@@ -556,7 +583,7 @@
   max-width: 100%;
 }
 
-.assets-grid-item .assets-rename-input {
+.assets-grid-info .assets-rename-input {
   width: 100%;
   text-align: center;
   font-size: var(--font-size-body-sm);
@@ -569,31 +596,21 @@
   top: 4px;
   right: 4px;
   display: flex;
-  gap: 2px;
   opacity: 0;
   transition: opacity var(--transition);
 }
 
-.assets-grid-item:hover .assets-grid-actions {
+.assets-grid-entry:hover .assets-grid-actions,
+.assets-grid-actions:has([aria-expanded='true']) {
   opacity: 1;
 }
 
-.assets-grid-actions .assets-action-btn {
-  padding: 4px;
-  background: var(--surface-app);
-  border-radius: var(--radius-sm);
+.assets-grid-actions:focus-within {
+  opacity: 1;
 }
 
-.assets-grid-actions .assets-action-btn:hover {
-  background: var(--surface-panel);
-}
-
-/* Delete button armed state (ready to confirm) */
-.assets-action-btn.assets-action-delete.armed {
-  background: var(--accent-error-light);
-  color: var(--text-inverse);
-}
-
-.assets-action-btn.assets-action-delete.armed:hover {
-  background: var(--accent-error-deep);
+/* Asset menus are portaled out of the modal content, so they must sit above
+   the Assets panel's modal stacking tier. */
+.assets-actions-menu {
+  z-index: var(--z-tooltip);
 }

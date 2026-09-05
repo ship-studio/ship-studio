@@ -33,6 +33,9 @@ export function workspacePreviewCapabilities(
 }
 
 /** Returns the initial workspace tab for a project with or without preview support. */
-export function defaultWorkspaceTab(hasPreview: boolean): 'preview' | 'code' {
-  return hasPreview ? 'preview' : 'code';
+export function defaultWorkspaceTab(
+  hasPreview: boolean,
+  projectTypeResolved = true
+): 'preview' | 'code' {
+  return hasPreview || !projectTypeResolved ? 'preview' : 'code';
 }

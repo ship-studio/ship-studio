@@ -1,6 +1,7 @@
 <script>(function(){
 if(window.__ssSelectInit)return;window.__ssSelectInit=true;
 var active=false,hoverBox=null,selBoxes=[],selectedSet=[],selPrimary=null;
+var lastHoverTarget=null,lastHoverNodeId=null;
 
 /* Box colors: the element the user actually clicked (selPrimary) gets the blue
    "you're editing this" outline; its same-source siblings — which a source edit will
@@ -60,9 +61,13 @@ function ensureSel(n){for(var i=0;i<n;i++){if(!selBoxes[i]||!selBoxes[i].isConne
 
 function editable(el){while(el&&el!==document.body){if(el.nodeType===1){var c=el.getAttribute&&el.getAttribute('class');if(c&&c.trim())return el;}el=el.parentElement;}return null;}
 
-function place(box,el){if(!box)return;if(!el){box.style.display='none';return;}var r=el.getBoundingClientRect();box.style.display='block';box.style.top=r.top+'px';box.style.left=r.left+'px';box.style.width=r.width+'px';box.style.height=r.height+'px';}
+function place(box,el){if(!box)return;placeRect(box,el?el.getBoundingClientRect():null);}
 
-function placeSet(){ensureSel(selectedSet.length);for(var i=0;i<selBoxes.length;i++){var el=selectedSet[i]||null;place(selBoxes[i],el);if(el){var primary=el===selPrimary;selBoxes[i].style.borderColor=(primary?SEL_PRIMARY_COLOR:SEL_SIBLING_COLOR);selBoxes[i].style.borderStyle=(primary?'solid':'dashed');}}}
+function placeRect(box,r){if(!r){box.style.display='none';return;}box.style.display='block';box.style.top=r.top+'px';box.style.left=r.left+'px';box.style.width=r.width+'px';box.style.height=r.height+'px';}
+
+/* Read every target before writing overlays: interleaving these forces layout
+   once per matching instance on large repeated lists. */
+function placeSet(){ensureSel(selectedSet.length);var rects=selectedSet.map(function(el){return el.getBoundingClientRect();});for(var i=0;i<selBoxes.length;i++){var el=selectedSet[i]||null;placeRect(selBoxes[i],rects[i]);if(el){var primary=el===selPrimary;selBoxes[i].style.borderColor=(primary?SEL_PRIMARY_COLOR:SEL_SIBLING_COLOR);selBoxes[i].style.borderStyle=(primary?'solid':'dashed');}}}
 
 /* All elements whose class attribute is identical to the clicked element's — these
    render from the same source literal (e.g. a .map), so a source edit changes all. */
@@ -270,23 +275,32 @@ function ssInternalNode(el){return!!(el&&el.hidden&&el.children.length===0&&!(el
    Elements tree can still be mapped back to source. This is a HINT, never authority:
    Rust only accepts it when the hinted file+line contains the matching tag. */
 function ssSource(el){
-  if(!el)return null;var ks=Object.getOwnPropertyNames(el),fiber=null;
-  for(var i=0;i<ks.length;i++){if(ks[i].indexOf('__reactFiber$')===0){fiber=el[ks[i]];break;}}
-  if(!fiber)return null;var stack=fiber._debugStack&&fiber._debugStack.stack;
-  if(!stack)return null;var lines=String(stack).split('\n'),clientChunk=null;
-  for(var j=0;j<lines.length;j++){
-    var s=lines[j];if(/node_modules|react-dom|react_stack_bottom_frame|fakeJSXCallSite/.test(s))continue;
-    /* Next/Turbopack server components report a generated server chunk. Rust maps
-       this verified .next file through its source map to the authored TSX. */
-    var tm=/about:\/\/React\/Server\/(file:\/\/\/[^\s()?]+?\.js)\?[^\s():]*:(\d+):(\d+)/i.exec(s);
-    if(tm)return{file:tm[1],line:Number(tm[2]),column:Number(tm[3])};
-    var cm=/(https?:\/\/[^/\s()]+\/_next\/static\/chunks\/[^\s()?]+?\.js)(?:\?[^\s():]*)?:(\d+):(\d+)/i.exec(s);
-    if(cm&&!clientChunk)clientChunk={file:cm[1],line:Number(cm[2]),column:Number(cm[3])};
-    if(cm)continue;
-    var m=/((?:https?:\/\/|file:\/\/\/|webpack-internal:\/\/\/|\/)[^\s()]+?\.(?:tsx|jsx|astro|vue|svelte|html))(?:\?[^\s():]*)?:(\d+):(\d+)/i.exec(s);
-    if(m)return{file:m[1],line:Number(m[2]),column:Number(m[3])};
+  if(!el)return null;
+  var ks=Object.getOwnPropertyNames(el),fallback=null;
+  /* Multiple renderers can leave multiple __reactFiber$ records on one host
+     node (React DevTools is one common example). The first record is not
+     guaranteed to carry the development stack, so inspect every record and
+     prefer a direct authored frame over a generated Next chunk. */
+  for(var fi=0;fi<ks.length;fi++){
+    if(ks[fi].indexOf('__reactFiber$')!==0)continue;
+    var fiber=el[ks[fi]],stack=fiber&&fiber._debugStack&&fiber._debugStack.stack;
+    if(!stack)continue;
+    var lines=String(stack).split('\n'),clientChunk=null;
+    for(var j=0;j<lines.length;j++){
+      var s=lines[j];if(/node_modules|react-dom|react_stack_bottom_frame|fakeJSXCallSite/.test(s))continue;
+      /* Next/Turbopack server components report a generated server chunk. Rust maps
+         this verified .next file through its source map to the authored TSX. */
+      var tm=/about:\/\/React\/Server\/(file:\/\/\/[^\s()?]+?\.js)\?[^\s():]*:(\d+):(\d+)/i.exec(s);
+      if(tm)return{file:tm[1],line:Number(tm[2]),column:Number(tm[3])};
+      var cm=/(https?:\/\/[^/\s()]+\/_next\/static\/chunks\/[^\s()?]+?\.js)(?:\?[^\s():]*)?:(\d+):(\d+)/i.exec(s);
+      if(cm&&!clientChunk)clientChunk={file:cm[1],line:Number(cm[2]),column:Number(cm[3])};
+      if(cm)continue;
+      var m=/((?:https?:\/\/|file:\/\/\/|webpack-internal:\/\/\/|\/)[^\s()]+?\.(?:tsx|jsx|astro|vue|svelte|html))(?:\?[^\s():]*)?:(\d+):(\d+)/i.exec(s);
+      if(m)return{file:m[1],line:Number(m[2]),column:Number(m[3])};
+    }
+    if(clientChunk&&!fallback)fallback=clientChunk;
   }
-  return clientChunk;
+  return fallback;
 }
 
 /* ── Ancestor-style inheritance (typography + text color) ──
@@ -349,7 +363,11 @@ function ssAncestorsAbove(def){
 }
 
 function ssInherited(el){
-  var cs=getComputedStyle(el),out={};
+  /* Selection-local cache: share ancestor reads across all inherited properties,
+     without retaining stale computed styles across edits or HMR. */
+  var styles=new Map();
+  function style(node){if(!styles.has(node))styles.set(node,getComputedStyle(node));return styles.get(node);}
+  var cs=style(el),out={};
   for(var prop in SS_INHERIT){
     var v=cs.getPropertyValue(prop);
     if(!v)continue;
@@ -357,17 +375,17 @@ function ssInherited(el){
     if(!par)continue;
     /* Differs right at the parent ⇒ el defines it locally (an inherited value
        would MATCH the parent's) — the panel already shows that from the class. */
-    if(getComputedStyle(par).getPropertyValue(prop)!==v)continue;
+    if(style(par).getPropertyValue(prop)!==v)continue;
     var node=par,nodeV=v,def=null,depth=0;
     while(node&&node!==document.body&&depth<8){
-      var pn=node.parentElement,pnv=pn?getComputedStyle(pn).getPropertyValue(prop):null;
+      var pn=node.parentElement,pnv=pn?style(pn).getPropertyValue(prop):null;
       if(pn&&pnv!==nodeV){def=node;break;}
       node=pn;nodeV=pnv;depth++;
     }
     if(!def)continue; /* equal all the way up — global default, not authored here */
     var dcls=def.getAttribute('class');
     if(!dcls||!dcls.trim())continue; /* classless definer = baseline/preflight */
-    var dfs=getComputedStyle(def).getPropertyValue('font-size');
+    var dfs=style(def).getPropertyValue('font-size');
     out[prop]={cssValue:v,tagName:(def.tagName||'').toLowerCase(),className:dcls,ancestorClasses:ssAncestorsAbove(def),token:ssInheritToken(def,SS_INHERIT[prop],v,parseFloat(dfs))};
   }
 
@@ -377,7 +395,7 @@ function ssInherited(el){
   if((cs.getPropertyValue('text-decoration-line')||'none')==='none'){
     var dp=el.parentElement,ddepth=0;
     while(dp&&dp!==document.body&&ddepth<8){
-      var dline=getComputedStyle(dp).getPropertyValue('text-decoration-line');
+      var dline=style(dp).getPropertyValue('text-decoration-line');
       if(dline&&dline!=='none'){
         var ddcls=dp.getAttribute('class');
         if(ddcls&&ddcls.trim()){
@@ -391,7 +409,7 @@ function ssInherited(el){
   return out;
 }
 
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
+function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el),spacing=cs.getPropertyValue('--spacing').trim();if(!spacing){for(var si=0;si<cs.length;si++){var sn=cs[si];if(/^--[\w-]+-spacing$/.test(sn)){spacing=cs.getPropertyValue(sn).trim();if(spacing)break;}}}return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,direction:cs.direction,writingMode:cs.writingMode,spacingUnit:spacing||undefined,unlayeredProps:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
 
 function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styleEl.id='ss-preview';document.head.appendChild(styleEl);}return styleEl;}
 
@@ -410,7 +428,7 @@ function rebuildSheet(){var css='';for(var k in pvDecls)css+=buildCss(k);ensureS
 
 /* Discard the current selection's UNCOMMITTED preview (revert class, drop its decls +
    marker). A committed selection is kept as-is — only the live pointer is released. */
-function restoreSel(){if(curMark!==null&&pendingMark===curMark){delete pvDecls[curMark];rebuildSheet();for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);el.removeAttribute('data-ss-sel');}}curMark=null;pendingMark=null;selectedSet=[];selPrimary=null;origClasses=[];}
+function restoreSel(){cancelSelectionDetails();if(curMark!==null&&pendingMark===curMark){delete pvDecls[curMark];rebuildSheet();for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);el.removeAttribute('data-ss-sel');}}curMark=null;pendingMark=null;selectedSet=[];selPrimary=null;origClasses=[];}
 
 function snapshotOrig(){origClasses=[];for(var i=0;i<selectedSet.length;i++)origClasses.push(selectedSet[i]?selectedSet[i].getAttribute('class'):null);}
 
@@ -662,9 +680,20 @@ function updateFmtBar(){
 
 function onDbl(e){if(!active||txtEditing)return;var el=textTarget(e.target);if(!el||!txtEditable)return;e.preventDefault();e.stopPropagation();startText(el,e.clientX,e.clientY);}
 
-function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);}
+function reportHover(el){var id=el?treeIdFor(el):null;if(lastHoverTarget===el&&lastHoverNodeId===id)return;lastHoverTarget=el;lastHoverNodeId=id;window.parent.postMessage({type:'ss:hover',nodeId:id},'*');}
 
-function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;var primaryNodeId=treeIdFor(el),affectedNodeIds=[];for(var ai=0;ai<selectedSet.length;ai++){var affectedId=treeIdFor(selectedSet[ai]);if(affectedId!==primaryNodeId)affectedNodeIds.push(affectedId);}window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:primaryNodeId,affectedNodeIds:affectedNodeIds},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:primaryNodeId},'*');}catch(e){}}}
+function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);reportHover(t);}
+
+/* Let the outline paint before stylesheet/source-signature inspection. A timer
+   queued from rAF runs after that rendering opportunity; rAF alone would still
+   put the expensive work before paint. Cancel both stages on a newer selection. */
+var selectionRaf=0,selectionTimer=0;
+function cancelSelectionDetails(){if(selectionRaf)cancelAnimationFrame(selectionRaf);if(selectionTimer)clearTimeout(selectionTimer);selectionRaf=0;selectionTimer=0;}
+function selectEl(el){reportHover(null);restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;
+  selectionRaf=requestAnimationFrame(function(){selectionRaf=0;selectionTimer=setTimeout(function(){selectionTimer=0;if(!active||selPrimary!==el||!el.isConnected)return;
+    var primaryNodeId=treeIdFor(el),affectedNodeIds=[];for(var ai=0;ai<selectedSet.length;ai++){var affectedId=treeIdFor(selectedSet[ai]);if(affectedId!==primaryNodeId)affectedNodeIds.push(affectedId);}window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:primaryNodeId,affectedNodeIds:affectedNodeIds},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:primaryNodeId},'*');}catch(e){}}
+  },0);});
+}
 
 /* Is `el` a plausible stand-in for the signature? Shared by the structural fast
    path and the fuzzy scan: never an editor overlay / internal node, and it must
@@ -759,7 +788,7 @@ window.addEventListener('message',function(e){
 if(e.source&&e.source!==window.parent&&e.source!==window)return;
 var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
-else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
+else if(d.type==='ss:deactivate'){reportHover(null);endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 
 /* Parent's verdict on whether the current selection's text is editable in source. If
    the user already started editing optimistically (verdict hadn't arrived yet) and it

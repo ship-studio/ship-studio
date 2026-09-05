@@ -28,11 +28,13 @@ import {
 } from '@/components/icons';
 import { EyeIcon, EyeOffIcon } from '@/components/icons';
 import {
+  AlignItemsBaselineIcon,
   AlignItemsCenterIcon,
   AlignItemsEndIcon,
   AlignItemsStartIcon,
   AlignItemsStretchIcon,
   AlignCenterIcon,
+  AlignJustifyIcon,
   AlignLeftIcon,
   AlignRightIcon,
   DecorationNoneIcon,
@@ -46,6 +48,7 @@ import {
   DisplayInlineFlexIcon,
   ItalicsOffIcon,
   ItalicsOnIcon,
+  JustifyAroundIcon,
   JustifyBetweenIcon,
   JustifyCenterIcon,
   JustifyEndIcon,
@@ -69,10 +72,13 @@ const ICONS: Record<string, ReactNode> = {
   'text-left': <AlignLeftIcon />,
   'text-center': <AlignCenterIcon />,
   'text-right': <AlignRightIcon />,
+  'text-justify': <AlignJustifyIcon />,
   'justify-start': <JustifyStartIcon />,
   'justify-center': <JustifyCenterIcon />,
   'justify-end': <JustifyEndIcon />,
   'justify-between': <JustifyBetweenIcon />,
+  'justify-around': <JustifyAroundIcon />,
+  'items-baseline': <AlignItemsBaselineIcon />,
   'items-start': <AlignItemsStartIcon />,
   'items-center': <AlignItemsCenterIcon />,
   'items-end': <AlignItemsEndIcon />,
@@ -134,7 +140,7 @@ export function EnumControlRow({
   onOpenInCode,
 }: { control: EnumControl } & Props) {
   const { value: active, definedAt } = readLayer(currentClass, layer, (s) =>
-    activeEnumToken(s, control)
+    activeEnumToken(s, control, layer.utilityPrefix)
   );
 
   // With nothing set locally, an attributed ancestor token preselects its option
@@ -257,7 +263,7 @@ export function EnumControlRow({
         label={control.label}
         definedAt={definedAt}
         active={layer.bp}
-        onReset={() => onReset(enumResetSpec(control))}
+        onReset={() => onReset(enumResetSpec(control, layer.utilityPrefix))}
         inherited={inherited}
         onAdopt={adopt}
         projectPath={projectPath}

@@ -66,14 +66,14 @@ interface Props {
 }
 
 export function GapControl({ currentClass, layer, onApplyEnum, onReset, onStepGap }: Props) {
-  const gap = readLayer(currentClass, layer, (s) => spacingValue(s, 'gap'));
+  const gap = readLayer(currentClass, layer, (s) => spacingValue(s, 'gap', layer));
   return (
     <div className="ss-edit-panel__control">
       <ResettableLabel
         label="Gap"
         definedAt={gap.definedAt}
         active={layer.bp}
-        onReset={() => onReset(spacingResetSpec('gap', 'gap'))}
+        onReset={() => onReset(spacingResetSpec('gap', 'gap', layer.utilityPrefix))}
       />
       <div className="ss-edit-panel__stepper">
         <Button
@@ -86,7 +86,9 @@ export function GapControl({ currentClass, layer, onApplyEnum, onReset, onStepGa
         </Button>
         <GapField
           value={gap.value}
-          onSet={(v) => onApplyEnum(spacingTokenFor('gap', v), { gap: spacingCss(v) })}
+          onSet={(v) =>
+            onApplyEnum(spacingTokenFor('gap', v, layer), { gap: spacingCss(v, layer) })
+          }
           onStep={onStepGap}
         />
         <Button

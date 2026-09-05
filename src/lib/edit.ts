@@ -8,6 +8,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import type { TailwindVersion } from './customClasses';
 
 /** A CSS property whose effective value on the selected element is INHERITED from
  *  an ancestor element's own styles (detected by the selection script's computed
@@ -58,6 +59,12 @@ export interface ElementSignature {
   /** The absolute URL the browser actually loaded for an `<img>` (resolves
    *  relative paths and srcset) — used only to render the panel's thumbnail. */
   currentSrc?: string | null;
+  /** The element's resolved writing direction, used to read logical inset utilities. */
+  direction?: 'ltr' | 'rtl';
+  /** The element's resolved writing mode, used to read logical inset utilities. */
+  writingMode?: string;
+  /** Resolved Tailwind v4 `--spacing` value when the preview exposes it. */
+  spacingUnit?: string;
 }
 
 /** A source location of a className literal. */
@@ -75,7 +82,7 @@ export type Resolution =
       line: number;
       column: number;
       class_name: string;
-      /** How the match was reached: "unique" | "tag" | "ancestor". */
+      /** How the match was reached: "source" | "dom_path" | "unique" | "tag" | "text" | "ancestor". */
       confidence: string;
     }
   | {
@@ -323,6 +330,17 @@ export interface LayerContext {
   bp: Breakpoint;
   ordered: Breakpoint[];
   known: Set<string>;
+  /** Tailwind's configured utility prefix (`tw:` in v4 or `tw-` in v3). */
+  utilityPrefix?: string;
+  /** Detected Tailwind generation, used for v4's CSS-first spacing variable. */
+  tailwindVersion?: TailwindVersion;
+  /** Numeric/named spacing entries read from a v3 config when available. */
+  spacingScale?: Record<string, string>;
+  /** Resolved writing context for logical inset utilities. */
+  direction?: 'ltr' | 'rtl';
+  writingMode?: string;
+  /** Presence of the project's Tailwind v4 --spacing theme variable. */
+  spacingUnit?: string;
 }
 
 /** `resolveCascade` bound to a `LayerContext` — the effective value at the layer's
@@ -371,39 +389,130 @@ export function removeAtLayer(
 export interface ResetSpec {
   match: (layerBase: string) => boolean;
   cssProps: string[];
+  /** Configured Tailwind utility prefix used to normalize tokens before matching. */
+  utilityPrefix?: string;
 }
 
 /** Reset spec for a scale-or-arbitrary spacing utility (gap, opacity). Matches
  *  `<prefix>-<n>` / `<prefix>-[…]` but not sub-utilities like `gap-x-…`. */
-export function spacingResetSpec(prefix: string, cssProp: string): ResetSpec {
-  return { match: (t) => new RegExp(`^${prefix}-(\\d+$|\\[)`).test(t), cssProps: [cssProp] };
+export function spacingResetSpec(
+  prefix: string,
+  cssProp: string,
+  utilityPrefix?: string
+): ResetSpec {
+  return {
+    match: (token) => isValueUtilityToken(token, prefix, utilityPrefix),
+    cssProps: [cssProp],
+    utilityPrefix,
+  };
+}
+
+/** Reset the utility that currently owns one box-model side. Because a side can
+ * be supplied by its side, axis, or all-sides shorthand, clear all three
+ * prefixes; the live preview is also cleared for every longhand so a previous
+ * box edit cannot leave stale inline declarations behind. */
+export function boxSideResetSpec(type: BoxType, side: Side, utilityPrefix?: string): ResetSpec {
+  const prefix = BOX_PREFIX[type];
+  const axis = side === 'top' || side === 'bottom' ? `${prefix}y` : `${prefix}x`;
+  const prefixes = [`${prefix}${SIDE_LETTER[side]}`, axis, prefix];
+  return {
+    match: (token) => prefixes.some((p) => isValueUtilityToken(token, p, utilityPrefix)),
+    cssProps: (['top', 'right', 'bottom', 'left'] as Side[]).map((s) => `${type}-${s}`),
+    utilityPrefix,
+  };
+}
+
+/** Reset the utility that currently owns one position offset, including its
+ *  axis/all-sides inset fallbacks. */
+export function positionSideResetSpec(
+  side: Side,
+  utilityPrefix?: string,
+  options: TailwindValueOptions = {}
+): ResetSpec {
+  const prefixes = positionPrefixesForSide(side, options);
+  return {
+    match: (token) => prefixes.some((p) => isValueUtilityToken(token, p, utilityPrefix)),
+    cssProps: ['top', 'right', 'bottom', 'left'],
+    utilityPrefix,
+  };
+}
+
+/** Reset only the physical utility for one position side. Used before writing a
+ * new side utility so v3's dash prefix cannot leave duplicate declarations. */
+export function positionSideUtilityResetSpec(side: Side, utilityPrefix?: string): ResetSpec {
+  return {
+    match: (token) => isValueUtilityToken(token, side, utilityPrefix),
+    cssProps: [side],
+    utilityPrefix,
+  };
+}
+
+/** Reset only the physical utility for one box-model side. */
+export function boxSideUtilityResetSpec(
+  type: BoxType,
+  side: Side,
+  utilityPrefix?: string
+): ResetSpec {
+  return {
+    match: (token) => isValueUtilityToken(token, boxSidePrefix(type, side), utilityPrefix),
+    cssProps: [`${type}-${side}`],
+    utilityPrefix,
+  };
 }
 
 /** Reset spec for an arbitrary color utility (`text-[…]` / `bg-[…]`) — only the
  *  bracketed form, so it never touches `text-center` / `text-xl`. */
-export function colorResetSpec(prefix: string, cssProp: string): ResetSpec {
-  return { match: (t) => new RegExp(`^${prefix}-\\[`).test(t), cssProps: [cssProp] };
+export function colorResetSpec(prefix: string, cssProp: string, utilityPrefix?: string): ResetSpec {
+  return {
+    match: (token) => isValueUtilityToken(token, prefix, utilityPrefix, true),
+    cssProps: [cssProp],
+    utilityPrefix,
+  };
 }
 
 /** Reset spec for an enum control — removes whichever of its options is set, and
  *  neutralizes every CSS property its options drive. */
-export function enumResetSpec(control: EnumControl): ResetSpec {
+export function enumResetSpec(control: EnumControl, utilityPrefix?: string): ResetSpec {
   return {
-    match: (t) => control.options.some((o) => o.token === t),
+    match: (token) =>
+      control.options.some((option) => normalizeResetToken(token, utilityPrefix) === option.token),
     cssProps: [...new Set(control.options.flatMap((o) => Object.keys(o.style)))],
+    utilityPrefix,
+  };
+}
+
+/** Reset the complete border-radius utility family, including Tailwind's
+ * side/corner forms (`rounded-t-*`, `rounded-tl-*`, …), important modifiers,
+ * and configured utility prefixes. Radius edits write one `border-radius`
+ * shorthand, so leaving a directional utility behind could override one of the
+ * four corners after the edit. */
+export function radiusResetSpec(utilityPrefix?: string): ResetSpec {
+  return {
+    match: (token) => {
+      const normalized = normalizeResetToken(token, utilityPrefix);
+      return normalized === 'rounded' || normalized?.startsWith('rounded-') === true;
+    },
+    cssProps: ['border-radius'],
+    utilityPrefix,
   };
 }
 
 /**
- * Current scale value of a Tailwind spacing utility (`<prefix>-N`) in a class
+ * Current numeric scale value of a Tailwind utility (`<prefix>-N`) in a class
  * string, or null if absent / arbitrary (`p-[..]`). `prefix` is a plain utility
  * key like `p`, `m`, `gap` (no regex metacharacters).
  */
-export function scaleValue(className: string, prefix: string): number | null {
-  const re = new RegExp(`^${prefix}-(\\d+)$`);
+export function scaleValue(
+  className: string,
+  prefix: string,
+  options: TailwindValueOptions = {}
+): number | null {
   for (const token of className.split(/\s+/)) {
-    const m = re.exec(token);
-    if (m) return Number(m[1]);
+    const parsed = tailwindUtilityValue(token, prefix, options);
+    if (!parsed || !/^\d+(?:\.\d+)?$/.test(parsed.value)) continue;
+    if (parsed.negative && !options.allowNegative) continue;
+    const n = Number(parsed.value) * (parsed.negative ? -1 : 1);
+    if (Number.isFinite(n)) return n;
   }
   return null;
 }
@@ -422,6 +531,46 @@ export function steppedScale(className: string, prefix: string, dir: 1 | -1): st
 
 /** Tailwind's default spacing unit: `<prefix>-n` resolves to n × 0.25rem. */
 export const SPACING_REM = 0.25;
+
+/** Numeric keys shipped by Tailwind v3's default spacing theme. v3 does not
+ * generate arbitrary numeric utility names, whereas v4's `--spacing` scale is
+ * intentionally open-ended. */
+const DEFAULT_V3_SPACING_KEYS = new Set([
+  '0',
+  '0.5',
+  '1',
+  '1.5',
+  '2',
+  '2.5',
+  '3',
+  '3.5',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  '11',
+  '12',
+  '14',
+  '16',
+  '20',
+  '24',
+  '28',
+  '32',
+  '36',
+  '40',
+  '44',
+  '48',
+  '52',
+  '56',
+  '60',
+  '64',
+  '72',
+  '80',
+  '96',
+]);
 
 export type SpacingKind = 'padding' | 'margin' | 'gap';
 
@@ -485,8 +634,254 @@ export function boxInlineStyle(className: string, type: BoxType): Record<string,
 // or an arbitrary CSS length (`10rem`, `12px`, `50%`, `clamp(…)` → `p-[10rem]`).
 // Invalid input is rejected via CSS.supports so the field can flag a bad unit.
 
-/** A resolved spacing value: a Tailwind scale step, or an arbitrary CSS length. */
-export type SpacingValue = { kind: 'scale'; n: number } | { kind: 'arbitrary'; raw: string };
+/** A resolved spacing value: a Tailwind scale step, an arbitrary CSS value, or a
+ * named entry from a project's custom spacing theme. */
+export type SpacingValue =
+  | { kind: 'scale'; n: number }
+  | { kind: 'arbitrary'; raw: string }
+  | { kind: 'theme'; key: string; raw: string; negative?: boolean };
+
+/** Details of a Tailwind utility token after its configured prefix, important
+ * marker, and negative marker have been removed. */
+interface TailwindUtilityValue {
+  value: string;
+  negative: boolean;
+}
+
+/** Extra Tailwind context needed to faithfully read and write utility values. */
+export interface TailwindValueOptions {
+  /** `tw:` for Tailwind v4 or `tw-` for the classic v3 prefix. */
+  utilityPrefix?: string;
+  tailwindVersion?: TailwindVersion;
+  /** Custom v3 `theme.spacing` entries, keyed as Tailwind sees them. */
+  spacingScale?: Record<string, string>;
+  /** Negative values are valid for margins and position offsets, not padding/gap. */
+  allowNegative?: boolean;
+  direction?: 'ltr' | 'rtl';
+  writingMode?: string;
+  /** Resolved Tailwind v4 spacing theme value exposed by the preview. */
+  spacingUnit?: string;
+}
+
+const POSITION_SIDES = new Set<Side>(['top', 'right', 'bottom', 'left']);
+
+/** Return a token without Tailwind's important/prefix decoration for reset
+ * matching. The configured prefix is deliberately explicit so `hover:top-4`
+ * cannot be mistaken for a base `top-4` utility. */
+function normalizeResetToken(token: string, utilityPrefix?: string): string | null {
+  const parts = tailwindUtilityParts(token, utilityPrefix);
+  if (!parts) return null;
+  return `${parts.negative ? '-' : ''}${parts.base}`;
+}
+
+/** A reset matcher for one utility family. Matching the whole family also covers
+ * custom theme keys that are not part of Tailwind's default numeric scale. */
+function isValueUtilityToken(
+  token: string,
+  prefix: string,
+  utilityPrefix?: string,
+  arbitraryOnly = false
+): boolean {
+  const normalized = normalizeResetToken(token, utilityPrefix);
+  if (!normalized) return false;
+  const marker = `${prefix}-`;
+  const value = normalized.startsWith(`-${marker}`)
+    ? normalized.slice(marker.length + 1)
+    : normalized.startsWith(marker)
+      ? normalized.slice(marker.length)
+      : null;
+  if (value === null || value === '') return false;
+  // `inset-x-*` and `inset-y-*` are separate utility families; the all-sides
+  // `inset` matcher must not accidentally claim either one.
+  if (prefix === 'inset' && /^(?:x|y|s|e|bs|be)-/.test(value)) return false;
+  if (normalized.startsWith(`-${marker}`)) {
+    if (arbitraryOnly) return false;
+    return true;
+  }
+  if (!normalized.startsWith(marker)) return false;
+  if (arbitraryOnly && !normalized.startsWith(`${marker}[`)) return false;
+  return true;
+}
+
+/** Normal horizontal writing mode maps inline start/end to left/right. The
+ * vertical cases cover Tailwind v4's logical inset utilities without changing
+ * the physical labels shown by the editor. */
+function logicalSides(options: TailwindValueOptions): {
+  inlineStart: Side;
+  inlineEnd: Side;
+  blockStart: Side;
+  blockEnd: Side;
+} {
+  const direction = options.direction ?? 'ltr';
+  const writingMode = options.writingMode?.toLowerCase() ?? 'horizontal-tb';
+  const vertical = writingMode.startsWith('vertical') || writingMode.startsWith('sideways');
+  if (!vertical) {
+    return {
+      inlineStart: direction === 'rtl' ? 'right' : 'left',
+      inlineEnd: direction === 'rtl' ? 'left' : 'right',
+      blockStart: 'top',
+      blockEnd: 'bottom',
+    };
+  }
+
+  const blockRight = writingMode.startsWith('vertical-rl');
+  return {
+    inlineStart: direction === 'rtl' ? 'bottom' : 'top',
+    inlineEnd: direction === 'rtl' ? 'top' : 'bottom',
+    blockStart: blockRight ? 'right' : 'left',
+    blockEnd: blockRight ? 'left' : 'right',
+  };
+}
+
+function positionLogicalPrefixForSide(side: Side, options: TailwindValueOptions): string | null {
+  const logical = logicalSides(options);
+  if (options.tailwindVersion !== 'v4') return null;
+  if (side === logical.inlineStart) return 'inset-s';
+  if (side === logical.inlineEnd) return 'inset-e';
+  if (side === logical.blockStart) return 'inset-bs';
+  if (side === logical.blockEnd) return 'inset-be';
+  return null;
+}
+
+function positionAxisPrefixForSide(side: Side, options: TailwindValueOptions): string {
+  // Tailwind v4 defines inset-x/y in terms of the logical inline/block axes;
+  // v3's utilities are physical left/right and top/bottom.
+  if (options.tailwindVersion === 'v4') {
+    const logical = logicalSides(options);
+    if (side === logical.inlineStart || side === logical.inlineEnd) return 'inset-x';
+    return 'inset-y';
+  }
+  return POSITION_SIDES.has(side) && (side === 'top' || side === 'bottom') ? 'inset-y' : 'inset-x';
+}
+
+function positionPrefixesForSide(side: Side, options: TailwindValueOptions): string[] {
+  const prefixes = [side, positionAxisPrefixForSide(side, options), 'inset'];
+  const logical = positionLogicalPrefixForSide(side, options);
+  if (logical) prefixes.splice(1, 0, logical);
+  return [...new Set(prefixes)];
+}
+
+/** Whether `:` appears outside Tailwind's arbitrary-value delimiters. */
+function hasTopLevelColon(token: string): boolean {
+  let square = 0;
+  let round = 0;
+  let quote = '';
+  for (const char of token) {
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '[') square += 1;
+    else if (char === ']') square = Math.max(0, square - 1);
+    else if (char === '(') round += 1;
+    else if (char === ')') round = Math.max(0, round - 1);
+    else if (char === ':' && square === 0 && round === 0) return true;
+  }
+  return false;
+}
+
+/** Details of a Tailwind utility token after decoration has been removed. */
+export interface TailwindUtilityParts {
+  base: string;
+  negative: boolean;
+  important: boolean;
+}
+
+/** Parse a single utility token. Variant-bearing tokens are intentionally
+ * ignored here; `tokensForVariant` has already selected the responsive layer,
+ * while hover/focus/dark utilities must not leak into the base editor value. */
+export function tailwindUtilityParts(
+  token: string,
+  utilityPrefix?: string
+): TailwindUtilityParts | null {
+  let raw = token.trim();
+  if (!raw) return null;
+
+  let important = false;
+
+  // Both important spellings are accepted: v4's trailing `!` and v3's leading
+  // `!` (the latter remains accepted by v4 for compatibility too).
+  if (raw.endsWith('!')) {
+    important = true;
+    raw = raw.slice(0, -1);
+  }
+  if (raw.startsWith('!')) {
+    important = true;
+    raw = raw.slice(1);
+  }
+
+  let negative = false;
+  if (raw.startsWith('-')) {
+    negative = true;
+    raw = raw.slice(1);
+  }
+  if (raw.startsWith('!')) {
+    important = true;
+    raw = raw.slice(1);
+  }
+
+  if (utilityPrefix && raw.startsWith(utilityPrefix)) raw = raw.slice(utilityPrefix.length);
+  if (raw.startsWith('!')) {
+    important = true;
+    raw = raw.slice(1);
+  }
+  if (raw.startsWith('-')) {
+    negative = true;
+    raw = raw.slice(1);
+  }
+  if (hasTopLevelColon(raw)) return null;
+  return raw ? { base: raw, negative, important } : null;
+}
+
+/** Decode one utility's value part while honoring configured prefixes. */
+function tailwindUtilityValue(
+  token: string,
+  prefix: string,
+  options: TailwindValueOptions
+): TailwindUtilityValue | null {
+  const parts = tailwindUtilityParts(token, options.utilityPrefix);
+  const marker = `${prefix}-`;
+  if (!parts || !parts.base.startsWith(marker)) return null;
+  const value = parts.base.slice(marker.length);
+  return value ? { value, negative: parts.negative } : null;
+}
+
+/** Normalize a CSS value when Tailwind's negative modifier is used. */
+function signedCssValue(value: string, negative: boolean): string {
+  const raw = value.trim();
+  if (!negative || raw === '0' || raw.startsWith('-')) return raw;
+  if (/^[+]?\d*\.?\d+(?:[a-z%]+)?$/i.test(raw)) return `-${raw.replace(/^\+/, '')}`;
+  return `calc(${raw} * -1)`;
+}
+
+/** Read a bracketed arbitrary value or v4's `-(--custom-property)` shorthand. */
+function arbitraryUtilityValue(
+  value: string,
+  negative: boolean,
+  version?: TailwindVersion
+): string | null {
+  if (value.startsWith('[') && value.endsWith(']')) {
+    const raw = value.slice(1, -1).replace(/_/g, ' ');
+    // Tailwind v3 accepted `[--token]` as shorthand for `var(--token)`. v4
+    // moved that shorthand to parentheses, so only normalize it when the
+    // project is explicitly v3.
+    if (version === 'v3' && /^--[\w-]+$/.test(raw.trim())) {
+      return negative ? `calc(var(${raw.trim()}) * -1)` : `var(${raw.trim()})`;
+    }
+    return signedCssValue(raw, negative);
+  }
+  if (version !== 'v3' && value.startsWith('(') && value.endsWith(')')) {
+    const property = value.slice(1, -1).trim();
+    if (/^--[\w-]+$/.test(property)) {
+      return negative ? `calc(var(${property}) * -1)` : `var(${property})`;
+    }
+  }
+  return null;
+}
 
 /** The arbitrary value inside `<prefix>-[…]` (e.g. `p-[10rem]` → `10rem`), with
  *  Tailwind's `_` un-escaped to spaces. Null if absent. `prefix` is a plain key
@@ -498,28 +893,163 @@ export function arbitraryValue(className: string, prefix: string): string | null
 
 /** The value of a spacing utility for one prefix — scale (`p-6`) or arbitrary
  *  (`p-[10rem]`), whichever is present. Null if neither. */
-export function spacingValue(className: string, prefix: string): SpacingValue | null {
-  const n = scaleValue(className, prefix);
-  if (n !== null) return { kind: 'scale', n };
-  const raw = arbitraryValue(className, prefix);
-  return raw !== null ? { kind: 'arbitrary', raw } : null;
+export function spacingValue(
+  className: string,
+  prefix: string,
+  options: TailwindValueOptions = {}
+): SpacingValue | null {
+  for (const token of className.split(/\s+/)) {
+    const parsed = tailwindUtilityValue(token, prefix, options);
+    if (!parsed) continue;
+    if (parsed.negative && !options.allowNegative) continue;
+
+    const arbitrary = arbitraryUtilityValue(parsed.value, parsed.negative, options.tailwindVersion);
+    if (arbitrary !== null) return { kind: 'arbitrary', raw: arbitrary };
+
+    if (/^\d+(?:\.\d+)?$/.test(parsed.value)) {
+      const n = Number(parsed.value) * (parsed.negative ? -1 : 1);
+      if (Number.isFinite(n)) return { kind: 'scale', n };
+    }
+
+    const themed = options.spacingScale?.[parsed.value];
+    if (themed !== undefined) {
+      if (/^\d+(?:\.\d+)?$/.test(parsed.value)) {
+        const n = Number(parsed.value) * (parsed.negative ? -1 : 1);
+        return { kind: 'scale', n };
+      }
+      return {
+        kind: 'theme',
+        key: parsed.value,
+        raw: signedCssValue(themed, parsed.negative),
+        negative: parsed.negative,
+      };
+    }
+  }
+  return null;
 }
 
 /** Effective value of one box side honoring the cascade (side > axis > all),
  *  reading both scale and arbitrary at each level. */
-export function boxSide(className: string, type: BoxType, side: Side): SpacingValue | null {
+export function boxSide(
+  className: string,
+  type: BoxType,
+  side: Side,
+  options: TailwindValueOptions = {}
+): SpacingValue | null {
   const p = BOX_PREFIX[type];
   const axis = side === 'top' || side === 'bottom' ? `${p}y` : `${p}x`;
   return (
-    spacingValue(className, `${p}${SIDE_LETTER[side]}`) ??
-    spacingValue(className, axis) ??
-    spacingValue(className, p)
+    spacingValue(className, `${p}${SIDE_LETTER[side]}`, {
+      ...options,
+      allowNegative: type === 'margin',
+    }) ??
+    spacingValue(className, axis, { ...options, allowNegative: type === 'margin' }) ??
+    spacingValue(className, p, { ...options, allowNegative: type === 'margin' })
   );
 }
 
+/** Named Tailwind inset values that do not fit the numeric spacing shape. They
+ *  are normalized to CSS values so the live preview and the compact field stay
+ *  truthful while edits can still be written back as side-specific utilities. */
+const POSITION_VALUES: Record<string, string> = {
+  auto: 'auto',
+  full: '100%',
+  px: '1px',
+};
+
+/** Decode a named/fractional value from Tailwind's inset grammar. The return
+ * value is CSS so the preview remains independent of whether the class came
+ * from v3 or v4. */
+function positionPresetCss(value: string, negative: boolean): string | null {
+  const raw = value.toLowerCase();
+  if (raw === 'auto') return negative ? null : POSITION_VALUES.auto;
+  const named = POSITION_VALUES[raw];
+  if (named) return signedCssValue(named, negative);
+
+  const fraction = /^(\d+)\/(\d+)$/.exec(raw);
+  if (!fraction || Number(fraction[2]) === 0) return null;
+  const percent = (Number(fraction[1]) / Number(fraction[2])) * 100;
+  const signed = negative ? -percent : percent;
+  return `${Number(signed.toFixed(4))}%`;
+}
+
+/** Read one position utility (`top-*`, `inset-x-*`, …), including named and
+ *  fractional Tailwind values. Side-specific utilities are resolved by the
+ *  caller before axis/all inset utilities, matching CSS's box-model controls. */
+function positionValue(
+  className: string,
+  prefix: string,
+  options: TailwindValueOptions = {}
+): SpacingValue | null {
+  const spacing = spacingValue(className, prefix, { ...options, allowNegative: true });
+  if (spacing) return spacing;
+
+  for (const token of className.split(/\s+/)) {
+    const parsed = tailwindUtilityValue(token, prefix, { ...options, allowNegative: true });
+    if (!parsed) continue;
+    const raw = parsed.value.toLowerCase();
+    const preset = positionPresetCss(raw, parsed.negative);
+    if (preset !== null) return { kind: 'arbitrary', raw: preset };
+
+    const themed = options.spacingScale?.[raw];
+    if (themed !== undefined) {
+      if (/^\d+(?:\.\d+)?$/.test(raw)) {
+        return { kind: 'scale', n: Number(raw) * (parsed.negative ? -1 : 1) };
+      }
+      return {
+        kind: 'theme',
+        key: raw,
+        raw: signedCssValue(themed, parsed.negative),
+        negative: parsed.negative,
+      };
+    }
+  }
+  return null;
+}
+
+/** Effective position offset for one side. A side utility beats its axis
+ *  shorthand (`inset-x`/`inset-y`), which beats the all-sides `inset` utility.
+ *  Tailwind v4's logical inset utilities are mapped to physical fields using the
+ *  selected element's writing direction/mode. */
+export function positionSide(
+  className: string,
+  side: Side,
+  options: TailwindValueOptions = {}
+): SpacingValue | null {
+  const logical = positionLogicalPrefixForSide(side, options);
+  const axis = positionAxisPrefixForSide(side, options);
+  return (
+    positionValue(className, side, options) ??
+    (logical ? positionValue(className, logical, options) : null) ??
+    positionValue(className, axis, options) ??
+    positionValue(className, 'inset', options)
+  );
+}
+
+/** The Tailwind utility prefix for one position side (`top`, `right`, …). */
+export function positionSidePrefix(side: Side): string {
+  return side;
+}
+
 /** The CSS length a SpacingValue resolves to (drives the live-preview decl). */
-export function spacingCss(v: SpacingValue): string {
-  return v.kind === 'scale' ? `${v.n * SPACING_REM}rem` : v.raw;
+export function spacingCss(v: SpacingValue, options: TailwindValueOptions = {}): string {
+  if (v.kind === 'theme') return v.raw;
+  if (v.kind === 'arbitrary') return v.raw;
+  const configured = options.spacingScale?.[String(Math.abs(v.n))];
+  if (configured !== undefined) return signedCssValue(configured, v.n < 0);
+  // Tailwind v4 derives numeric spacing utilities from --spacing. Keeping the
+  // fallback in the expression means a custom @theme --spacing is reflected in
+  // the live preview before the saved class has been rebuilt by Tailwind.
+  if (
+    options.tailwindVersion === 'v4' &&
+    (options.spacingUnit || options.utilityPrefix?.endsWith(':'))
+  ) {
+    const prefixName = options.utilityPrefix?.slice(0, -1);
+    const spacingVariable =
+      prefixName && /^[\w-]+$/.test(prefixName) ? `--${prefixName}-spacing` : '--spacing';
+    return `calc(var(${spacingVariable}, ${SPACING_REM}rem) * ${v.n})`;
+  }
+  return `${v.n * SPACING_REM}rem`;
 }
 
 /** What a value field displays: the scale integer, or the raw arbitrary value. */
@@ -540,8 +1070,55 @@ export function arbitraryToken(prefix: string, value: string): string {
 }
 
 /** The class token for a SpacingValue at a utility prefix (`p-6` or `p-[10rem]`). */
-export function spacingTokenFor(prefix: string, v: SpacingValue): string {
-  return v.kind === 'scale' ? `${prefix}-${v.n}` : arbitraryToken(prefix, v.raw);
+export function spacingTokenFor(
+  prefix: string,
+  v: SpacingValue,
+  options: Pick<TailwindValueOptions, 'tailwindVersion' | 'spacingScale'> = {}
+): string {
+  if (v.kind === 'scale') {
+    const negative = v.n < 0;
+    // Tailwind v3 only generates numeric utilities that exist in its resolved
+    // spacing theme. If detection did not find a custom entry, fall back to a
+    // valid arbitrary value instead of saving a class such as `top-13` that a
+    // stock v3 build cannot compile. v4's CSS-first scale is open-ended.
+    const key = String(Math.abs(v.n));
+    if (
+      options.tailwindVersion === 'v3' &&
+      options.spacingScale?.[key] === undefined &&
+      !DEFAULT_V3_SPACING_KEYS.has(key)
+    ) {
+      const raw = `${v.n * SPACING_REM}rem`;
+      return `${negative ? '-' : ''}${arbitraryToken(prefix, negative ? raw.slice(1) : raw)}`;
+    }
+    return `${negative ? '-' : ''}${prefix}-${Math.abs(v.n)}`;
+  }
+  if (v.kind === 'theme') {
+    return `${v.negative ? '-' : ''}${prefix}-${v.key}`;
+  }
+  const raw = v.raw.trim();
+  const negative = raw.startsWith('-') && raw.length > 1;
+  const unsigned = negative ? raw.slice(1) : raw;
+  if (POSITION_SIDES.has(prefix as Side)) {
+    const named = Object.entries(POSITION_VALUES).find(([, css]) => css === unsigned);
+    if (named && (named[0] !== 'auto' || !negative)) {
+      return `${negative ? '-' : ''}${prefix}-${named[0]}`;
+    }
+  }
+  if (options.tailwindVersion === 'v4' && /^var\(--[\w-]+\)$/.test(unsigned)) {
+    return `${negative ? '-' : ''}${prefix}-(${unsigned.slice(4, -1)})`;
+  }
+  return `${negative ? '-' : ''}${arbitraryToken(prefix, unsigned)}`;
+}
+
+/** Add a project's configured utility prefix to a bare token. Tailwind v4 puts
+ * its prefix before the utility as a variant (`tw:top-4`); v3 places a dash
+ * prefix after the negative marker (`-tw-top-4`). */
+export function utilityTokenFor(token: string, utilityPrefix?: string): string {
+  if (!utilityPrefix || token.startsWith(utilityPrefix)) return token;
+  if (token.startsWith('-') && !utilityPrefix.endsWith(':')) {
+    return `-${utilityPrefix}${token.slice(1)}`;
+  }
+  return `${utilityPrefix}${token}`;
 }
 
 /** Whether the browser accepts `value` for `prop` — Webflow-grade unit validation
@@ -556,32 +1133,63 @@ function cssSupports(prop: string, value: string): boolean {
   }
 }
 
-/** Classify typed input for a spacing field: a bare non-negative integer is a
- *  Tailwind scale step; anything else must be a valid CSS value for `cssProp`;
- *  otherwise invalid (the field flags a bad unit). */
+/** Classify typed input for a spacing field. Position offsets and margins allow
+ * negative/decimal scale keys; other spacing controls retain their non-negative
+ * integer scale grammar. Everything else must be a browser-valid CSS value. */
 export type ParsedSpacing = SpacingValue | { kind: 'invalid' };
-export function parseSpacingInput(input: string, cssProp: string): ParsedSpacing {
+export function parseSpacingInput(
+  input: string,
+  cssProp: string,
+  options: Pick<TailwindValueOptions, 'allowNegative'> = {}
+): ParsedSpacing {
   let s = input.trim();
   if (s === '') return { kind: 'invalid' };
   // Forgive a space between a number and its unit ("3 rem" → "3rem"); leave
   // function values (calc/clamp/min/max) untouched, where spaces are meaningful.
   s = s.replace(/^(-?\d*\.?\d+)\s+([a-z%]+)$/i, '$1$2');
-  if (/^\d+$/.test(s)) return { kind: 'scale', n: Number(s) };
+  const allowNegative =
+    options.allowNegative ?? (cssProp === 'margin' || POSITION_SIDES.has(cssProp as Side));
+  if (POSITION_SIDES.has(cssProp as Side)) {
+    const negative = s.startsWith('-') && s.length > 1;
+    const preset = positionPresetCss(negative ? s.slice(1) : s, negative);
+    if (preset !== null && (!negative || allowNegative)) {
+      return { kind: 'arbitrary', raw: preset };
+    }
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n) && (allowNegative || n >= 0)) return { kind: 'scale', n };
+  }
   return cssSupports(cssProp, s) ? { kind: 'arbitrary', raw: s } : { kind: 'invalid' };
 }
 
 /** Step a spacing value by `delta` units: scale steps the integer (clamped at 0);
  *  an arbitrary `<number><unit>` steps the number and keeps the unit; non-numeric
  *  arbitraries (e.g. `calc(…)`) are returned unchanged. */
-export function stepSpacingValue(v: SpacingValue | null, delta: number): SpacingValue {
+export function stepSpacingValue(
+  v: SpacingValue | null,
+  delta: number,
+  allowNegative = false
+): SpacingValue {
   if (!v || v.kind === 'scale') {
     // The scale is integer-stepped — round so a fine (fractional) delta can't
     // mint an invalid token like `gap-4.1`.
-    return { kind: 'scale', n: Math.max(0, Math.round((v?.kind === 'scale' ? v.n : 0) + delta)) };
+    const next = Math.round((v?.kind === 'scale' ? v.n : 0) + delta);
+    return { kind: 'scale', n: allowNegative ? next : Math.max(0, next) };
+  }
+  if (v.kind === 'theme') {
+    const m = /^(-?\d*\.?\d+)(.*)$/.exec(v.raw.trim());
+    if (!m) return v;
+    const next = parseFloat(m[1]) + delta;
+    const bounded = allowNegative ? next : Math.max(0, next);
+    const num = Number.isInteger(bounded)
+      ? String(bounded)
+      : String(parseFloat(bounded.toFixed(3)));
+    return { kind: 'arbitrary', raw: `${num}${m[2]}` };
   }
   const m = /^(-?\d*\.?\d+)(.*)$/.exec(v.raw.trim());
   if (!m) return v;
-  const next = Math.max(0, parseFloat(m[1]) + delta);
+  const next = allowNegative ? parseFloat(m[1]) + delta : Math.max(0, parseFloat(m[1]) + delta);
   const num = Number.isInteger(next) ? String(next) : String(parseFloat(next.toFixed(3)));
   return { kind: 'arbitrary', raw: `${num}${m[2]}` };
 }
@@ -637,6 +1245,7 @@ export const ENUM_CONTROLS: EnumControl[] = [
       { label: 'Left', token: 'text-left', style: { 'text-align': 'left' } },
       { label: 'Center', token: 'text-center', style: { 'text-align': 'center' } },
       { label: 'Right', token: 'text-right', style: { 'text-align': 'right' } },
+      { label: 'Justify', token: 'text-justify', style: { 'text-align': 'justify' } },
     ],
   },
   {
@@ -698,6 +1307,11 @@ export const ENUM_CONTROLS: EnumControl[] = [
       { label: 'Center', token: 'justify-center', style: { 'justify-content': 'center' } },
       { label: 'End', token: 'justify-end', style: { 'justify-content': 'flex-end' } },
       { label: 'Between', token: 'justify-between', style: { 'justify-content': 'space-between' } },
+      {
+        label: 'Space Around',
+        token: 'justify-around',
+        style: { 'justify-content': 'space-around' },
+      },
     ],
   },
   {
@@ -708,6 +1322,7 @@ export const ENUM_CONTROLS: EnumControl[] = [
       { label: 'Center', token: 'items-center', style: { 'align-items': 'center' } },
       { label: 'End', token: 'items-end', style: { 'align-items': 'flex-end' } },
       { label: 'Stretch', token: 'items-stretch', style: { 'align-items': 'stretch' } },
+      { label: 'Baseline', token: 'items-baseline', style: { 'align-items': 'baseline' } },
     ],
   },
   {
@@ -929,9 +1544,13 @@ export type ColorPrefix = (typeof COLOR_CONTROLS)[number]['prefix'];
 
 /** Current arbitrary hex for a color utility (`text-[#fff]`), or null if absent
  *  / a named Tailwind color (which we can't map back to hex here). */
-export function arbitraryColor(className: string, prefix: ColorPrefix): string | null {
-  const m = new RegExp(`(?:^|\\s)${prefix}-\\[(#[0-9a-fA-F]{3,8})\\]`).exec(className);
-  return m ? m[1] : null;
+export function arbitraryColor(
+  className: string,
+  prefix: ColorPrefix,
+  utilityPrefix?: string
+): string | null {
+  const raw = arbitraryColorRaw(className, prefix, utilityPrefix);
+  return raw && /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : null;
 }
 
 /** Class token for an arbitrary color, e.g. `text-[#1a1a1a]`. */
@@ -947,11 +1566,21 @@ const COLOR_VALUE = /^(#|rgb|hsl|hwb|oklch|oklab|lab|lch|color\(|var\()/i;
  * oklch(), or a var()), with Tailwind's `_` un-escaped back to spaces. Returns
  * null when the bracket value isn't color-like (e.g. `text-[14px]`) or absent.
  */
-export function arbitraryColorRaw(className: string, prefix: ColorPrefix): string | null {
-  const m = new RegExp(`(?:^|\\s)${prefix}-\\[([^\\]]+)\\]`).exec(className);
-  if (!m) return null;
-  const raw = m[1].replace(/_/g, ' ');
-  return COLOR_VALUE.test(raw) ? raw : null;
+export function arbitraryColorRaw(
+  className: string,
+  prefix: ColorPrefix,
+  utilityPrefix?: string
+): string | null {
+  for (const token of className.split(/\s+/)) {
+    const parsed = tailwindUtilityValue(token, prefix, { utilityPrefix });
+    if (!parsed || parsed.negative) continue;
+    const raw =
+      parsed.value.startsWith('[') && parsed.value.endsWith(']')
+        ? parsed.value.slice(1, -1).replace(/_/g, ' ')
+        : null;
+    if (raw && COLOR_VALUE.test(raw)) return raw;
+  }
+  return null;
 }
 
 /** Build an arbitrary-color class from a CSS color, escaping spaces to `_` as
@@ -970,10 +1599,19 @@ export function colorFormatOf(cssColor: string): 'hex' | 'rgb' | 'hsl' | 'oklch'
 }
 
 /** The token of the option currently active in `className` for a control, or null. */
-export function activeEnumToken(className: string, control: EnumControl): string | null {
-  const tokens = new Set(className.split(/\s+/));
+export function activeEnumToken(
+  className: string,
+  control: EnumControl,
+  utilityPrefix?: string
+): string | null {
   for (const option of control.options) {
-    if (tokens.has(option.token)) return option.token;
+    if (
+      className
+        .split(/\s+/)
+        .some((token) => normalizeResetToken(token, utilityPrefix) === option.token)
+    ) {
+      return option.token;
+    }
   }
   return null;
 }
@@ -1117,6 +1755,16 @@ const SHORTHAND_ROOTS: Record<string, string[]> = {
   'font-style': ['font'],
   'line-height': ['font'],
   'text-decoration-line': ['text-decoration'],
+  top: ['inset'],
+  right: ['inset'],
+  bottom: ['inset'],
+  left: ['inset'],
+  'inset-inline': ['inset'],
+  'inset-block': ['inset'],
+  'inset-inline-start': ['inset'],
+  'inset-inline-end': ['inset'],
+  'inset-block-start': ['inset'],
+  'inset-block-end': ['inset'],
 };
 
 /** Whether any of the CSS properties an edit sets is controlled by an unlayered
@@ -1129,11 +1777,14 @@ export function competesWithUnlayered(cssProps: string[], unlayered?: string[]):
   );
 }
 
-/** Add Tailwind's important modifier to a bare utility token (`p-8` → `p-8!`),
- *  idempotently. Applied before any variant prefix, so `withVariant` yields
- *  `md:p-8!` (v4 places `!` at the end). */
-export function markImportant(token: string): string {
-  return token.endsWith('!') ? token : `${token}!`;
+/** Add Tailwind's important modifier to a bare utility token. Tailwind v4 uses a
+ * trailing `!`; v3 uses a leading `!`. Both readers accept either spelling so
+ * projects can be upgraded without losing editor state. */
+export function markImportant(token: string, version: TailwindVersion = 'v4'): string {
+  let bare = token;
+  if (bare.endsWith('!')) bare = bare.slice(0, -1);
+  if (bare.startsWith('!')) bare = bare.slice(1);
+  return version === 'v3' ? `!${bare}` : `${bare}!`;
 }
 
 /**

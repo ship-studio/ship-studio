@@ -156,6 +156,34 @@ describe('usePreviewConnection readiness probe', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
   });
+
+  it('waits for an enabled connection before probing the preview port', async () => {
+    const server = installSlowServerFetch();
+    const { result, rerender, unmount } = renderHook(
+      (enabled: boolean) => usePreviewConnection({ ...baseParams, enabled }),
+      { initialProps: false }
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(server.fetchMock).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(true);
+
+    rerender(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(server.fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000',
+      expect.objectContaining({ mode: 'no-cors' })
+    );
+
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
 });
 
 describe('usePreviewConnection blank-iframe watchdog', () => {

@@ -104,9 +104,6 @@ export function useCssCascadeEditor({
   const [bodies, setBodies] = useState<Record<string, RuleBody>>({});
   const [overridden, setOverridden] = useState<Record<string, Map<string, string>>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
-  // The rowKey of a just-created rule ("Add selector"), so the panel can auto-open its
-  // "+ Add" menu for the editing flow. Cleared shortly after (one-shot).
-  const [justCreatedKey, setJustCreatedKey] = useState<string | null>(null);
   // Project class names for selector autocomplete (loaded when edit mode opens).
   const [classSuggestions, setClassSuggestions] = useState<string[]>([]);
   // Every existing rule selector (full text), so "Add selector" can suggest what's
@@ -583,7 +580,7 @@ export function useCssCascadeEditor({
   /** Create a brand-new rule for `selector` and add it as an editable card you can
    *  style immediately (optimistic — the real cascade refreshes on HMR/reselect). */
   const addSelector = useCallback(
-    async (input: string) => {
+    async (input: string, fixedAtPrelude?: string) => {
       const raw = input.trim();
       if (!raw) return;
 
@@ -591,9 +588,11 @@ export function useCssCascadeEditor({
       // condition (`@media (…)`, `@container (…)`, `@supports (…)`) creates a CONDITIONAL
       // rule (`@condition { selector { } }`); a bare condition with no selector targets
       // the element's primary selector. A plain selector creates a base rule.
-      const parsed = parseRulePrelude(raw);
+      const parsed = fixedAtPrelude
+        ? { condition: fixedAtPrelude, selector: raw }
+        : parseRulePrelude(raw);
       const condition = parsed.condition ?? (raw.startsWith('@') ? raw : null);
-      let sel = parsed.condition ? parsed.selector : raw;
+      let sel = fixedAtPrelude ? raw : parsed.condition ? parsed.selector : raw;
       let atPrelude: string | null = null;
       let condMediaText: string | null = null;
       let condMinPx: number | null = null;
@@ -690,10 +689,6 @@ export function useCssCascadeEditor({
         bodiesRef.current[key] = body;
         baselineInner.current[key] = innerText;
         setOverridden((prev) => ({ ...prev, [key]: new Map() }));
-        // Editing-flow: open the new card's "+ Add" menu so the user jumps straight to
-        // its first property. One-shot — cleared so later refreshes don't re-open it.
-        setJustCreatedKey(key);
-        window.setTimeout(() => setJustCreatedKey((k) => (k === key ? null : k)), 1500);
       };
 
       post({ type: 'ss:suppressReload' });
@@ -826,6 +821,7 @@ export function useCssCascadeEditor({
       const row = rowByKeyRef.current.get(key);
       const nm = newMedia.trim();
       if (!row || !row.editable || row.file == null || row.selector == null || !nm) return;
+      const sourceFile = row.file;
       if (nm === row.mediaText) return;
       // Cancel any in-flight debounced preview/save on the OLD key (re-keyed below).
       clearTimeout(previewTimers.current[key]);
@@ -841,38 +837,80 @@ export function useCssCascadeEditor({
           nm
         );
         const minMatch = /min-width\s*:\s*([\d.]+)px/i.exec(nm);
-        const newRow: CascadeRow = {
-          ...row,
-          mediaText: nm,
-          mediaMinPx: minMatch ? Math.round(parseFloat(minMatch[1])) : null,
+        const nextMediaMinPx = minMatch ? Math.round(parseFloat(minMatch[1])) : null;
+        const oldMedia = row.mediaText;
+        // `rename_css_at_rule` changes the shared wrapper, so every visible sibling in
+        // that wrapper must move together in local state. Otherwise the group briefly
+        // splits into an old and new media card until the next HMR/reselect refresh.
+        const affectedRows = [...rowByKeyRef.current.values()].filter(
+          (candidate) =>
+            candidate.mediaText === oldMedia &&
+            candidate.layer === row.layer &&
+            candidate.container === row.container &&
+            candidate.supports === row.supports &&
+            (candidate.file === sourceFile || candidate.sourceFiles?.includes(sourceFile) === true)
+        );
+        if (!affectedRows.some((candidate) => rowKey(candidate) === key)) {
+          affectedRows.push(row);
+        }
+
+        const moves = affectedRows.map((candidate) => {
+          const oldKey = rowKey(candidate);
+          const nextRow: CascadeRow = {
+            ...candidate,
+            mediaText: nm,
+            mediaMinPx: nextMediaMinPx,
+          };
+          return { oldKey, newKey: rowKey(nextRow), nextRow };
+        });
+        const movedByOldKey = new Map(moves.map((move) => [move.oldKey, move]));
+        const moveRecord = <T>(record: Record<string, T>): Record<string, T> => {
+          const next = { ...record };
+          for (const { oldKey, newKey } of moves) {
+            if (oldKey === newKey || !(oldKey in record)) continue;
+            next[newKey] = record[oldKey];
+            delete next[oldKey];
+          }
+          return next;
         };
-        const newKey = rowKey(newRow);
-        if (bodiesRef.current[key]) {
-          bodiesRef.current[newKey] = bodiesRef.current[key];
-          delete bodiesRef.current[key];
+
+        // Cancel callbacks that still point at the old identities before re-keying.
+        for (const { oldKey } of moves) {
+          clearTimeout(previewTimers.current[oldKey]);
+          clearTimeout(saveTimers.current[oldKey]);
         }
-        if (baselineInner.current[key] !== undefined) {
-          baselineInner.current[newKey] = baselineInner.current[key];
-          delete baselineInner.current[key];
+        bodiesRef.current = moveRecord(bodiesRef.current);
+        baselineInner.current = moveRecord(baselineInner.current);
+        setRows((prev) =>
+          prev.map((candidate) => movedByOldKey.get(rowKey(candidate))?.nextRow ?? candidate)
+        );
+        setBodies((prev) => moveRecord(prev));
+        setOverridden((prev) => moveRecord(prev));
+        setSavingKeys((prev) => {
+          const next = new Set(prev);
+          for (const { oldKey, newKey } of moves) {
+            if (oldKey !== newKey && next.delete(oldKey)) next.add(newKey);
+          }
+          return next;
+        });
+
+        // Keep optimistic rows attached to their new keys.
+        const nextCreatedRows = new Map<string, CascadeRow>();
+        for (const [createdKey, createdRow] of createdRowsRef.current) {
+          const move = movedByOldKey.get(createdKey);
+          nextCreatedRows.set(move?.newKey ?? createdKey, move?.nextRow ?? createdRow);
         }
-        setRows((prev) => prev.map((r) => (rowKey(r) === key ? newRow : r)));
-        setBodies((prev) => {
-          if (!(key in prev)) return prev;
-          const n = { ...prev };
-          n[newKey] = n[key];
-          delete n[key];
-          return n;
-        });
-        setOverridden((prev) => {
-          if (!(key in prev)) return prev;
-          const n = { ...prev };
-          n[newKey] = n[key];
-          delete n[key];
-          return n;
-        });
-        // Re-arm a pending body save under the new key (deferred; no-op if unchanged).
-        clearTimeout(saveTimers.current[newKey]);
-        saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
+        createdRowsRef.current = nextCreatedRows;
+        draftKeysRef.current = new Set(
+          [...draftKeysRef.current].map(
+            (draftKey) => movedByOldKey.get(draftKey)?.newKey ?? draftKey
+          )
+        );
+        // Re-arm pending body saves under the new identities (a no-op when the body
+        // already matches its baseline).
+        for (const { newKey } of moves) {
+          saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
+        }
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssCascade] rename at-rule failed', {
@@ -944,7 +982,6 @@ export function useCssCascadeEditor({
     existingSelectors,
     variableSuggestions,
     animationSuggestions,
-    justCreatedKey,
     loading,
     savingKeys,
   };

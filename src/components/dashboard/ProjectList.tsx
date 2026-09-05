@@ -22,7 +22,10 @@ import {
   uploadProjectThumbnail,
   renameProject,
   exportProjectAsTemplate,
+  getDevServerPort,
+  setDevServerPort,
 } from '../../lib/project';
+import { preferredPortForProject } from '../../lib/ports';
 import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
@@ -66,6 +69,7 @@ import { useProjectViewModeCommands } from '../../hooks/useProjectViewModeComman
 import { useProjectRemovalActions } from '../../hooks/useProjectRemovalActions';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { SwitchWorkspaceIcon } from '@/components/icons';
+import { ProjectSettingsModal } from '../workspace/ProjectSettingsModal';
 import type { ProjectViewMode } from './ProjectGridView';
 
 /** Basic project info for selection callback */
@@ -147,6 +151,9 @@ export function ProjectList({
   const activeAccountId = activeAccount?.id;
   const hasMultipleWorkspaces = accounts.length > 1;
   const [renameTarget, setRenameTarget] = useState<DashboardProject | null>(null);
+  const [projectSettingsTarget, setProjectSettingsTarget] = useState<DashboardProject | null>(null);
+  const [projectSettingsPort, setProjectSettingsPort] = useState<number | null>(null);
+  const projectSettingsModal = useModal('projectSettings');
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -589,6 +596,47 @@ export function ProjectList({
     });
   }, []);
 
+  const handleOpenProjectSettings = useCallback(
+    async (project: DashboardProject) => {
+      try {
+        const savedPort = await getDevServerPort(project.path);
+        setProjectSettingsTarget(project);
+        setProjectSettingsPort(savedPort ?? preferredPortForProject(project.path));
+        projectSettingsModal.open();
+      } catch (error) {
+        showToast(
+          `Couldn't load settings for ${project.name}: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      }
+    },
+    [projectSettingsModal, showToast]
+  );
+
+  const handleSaveProjectSettings = useCallback(
+    async (port: number) => {
+      if (!projectSettingsTarget) return;
+      try {
+        await setDevServerPort(projectSettingsTarget.path, port);
+        setProjectSettingsPort(port);
+        showToast('Project settings saved', 'success');
+      } catch (error) {
+        showToast(
+          `Couldn't save settings for ${projectSettingsTarget.name}: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      }
+    },
+    [projectSettingsTarget, showToast]
+  );
+
+  useEffect(() => {
+    if (!projectSettingsModal.isOpen) {
+      setProjectSettingsTarget(null);
+      setProjectSettingsPort(null);
+    }
+  }, [projectSettingsModal.isOpen]);
+
   const totalCount = currentFolderId
     ? filteredProjects.length
     : filteredFolders.length + filteredProjects.length;
@@ -688,6 +736,7 @@ export function ProjectList({
                 onSelectAllVisible={handleSelectAllVisible}
                 onToggleProjectSelection={handleToggleProjectSelection}
                 onSelectProject={(project) => onSelectProject(project)}
+                onOpenProjectSettings={(project) => void handleOpenProjectSettings(project)}
                 onDeleteProject={(project) => setDeleteConfirm(project)}
                 onRenameProject={(project) => setRenameTarget(project)}
                 onToggleMainBranchWarning={(path, hidden) =>
@@ -856,6 +905,14 @@ export function ProjectList({
           onSlackCtaHiddenChange={setSlackCtaHidden}
           onProjectsRootChanged={() => void loadProjects()}
         />
+
+        {projectSettingsTarget && projectSettingsPort !== null && (
+          <ProjectSettingsModal
+            key={projectSettingsTarget.path}
+            currentPort={projectSettingsPort}
+            onSave={(port) => void handleSaveProjectSettings(port)}
+          />
+        )}
 
         {/* What's New Modal */}
         {/* ChangelogModal is mounted globally in <AppGlobalModals>. */}

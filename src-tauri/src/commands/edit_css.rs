@@ -52,15 +52,28 @@ struct SheetIndex {
     rel: String,
     content: String,
     rules: Vec<RuleSpan>,
+    selectors: HashMap<String, Vec<usize>>,
 }
 
 impl SheetIndex {
     fn parse(rel: String, content: String) -> Self {
         let rules = index_rules(&content);
+        // Normalize once per snapshot, not every rule for every clicked element.
+        let mut selectors: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, rule) in rules.iter().enumerate() {
+            for part in split_selector_group(&rule.selector) {
+                let entries = selectors.entry(norm_selector(part)).or_default();
+                // A repeated member in a selector group still names just one rule.
+                if entries.last() != Some(&index) {
+                    entries.push(index);
+                }
+            }
+        }
         Self {
             rel,
             content,
             rules,
+            selectors,
         }
     }
 }
@@ -324,15 +337,6 @@ struct DeclSpan {
 }
 
 // ───────────────────────── Low-level helpers ─────────────────────────
-
-/// 1-based line number of the given byte index.
-fn line_of(src: &str, byte_idx: usize) -> usize {
-    src.as_bytes()[..byte_idx.min(src.len())]
-        .iter()
-        .filter(|&&b| b == b'\n')
-        .count()
-        + 1
-}
 
 /// Leading whitespace of the line containing `pos`.
 fn indent_of_line(src: &str, pos: usize) -> String {
@@ -612,11 +616,14 @@ fn locate_rule(sheets: &[SheetIndex], q: &MatchedRuleQuery) -> RuleLocation {
     };
 
     let mut hits: Vec<(&str, &str, &RuleSpan)> = Vec::new();
+    let selector = norm_selector(&q.selector);
     for sheet in sheets {
-        for rule in &sheet.rules {
-            if rule_selector_matches(&rule.selector, &q.selector)
-                && media_text_matches(&rule.media, &q.media_text)
-            {
+        let Some(indices) = sheet.selectors.get(&selector) else {
+            continue;
+        };
+        for &index in indices {
+            let rule = &sheet.rules[index];
+            if media_text_matches(&rule.media, &q.media_text) {
                 hits.push((sheet.rel.as_str(), sheet.content.as_str(), rule));
             }
         }
@@ -1003,6 +1010,13 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
 
     let bytes = css.as_bytes();
     let n = bytes.len();
+    // Previously each rule rescanned css[..selector_start] to count newlines:
+    // quadratic work that took seconds on ordinary exported stylesheets.
+    let line_breaks: Vec<usize> = bytes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, b)| (*b == b'\n').then_some(i))
+        .collect();
     let mut rules: Vec<RuleSpan> = Vec::new();
     let mut stack: Vec<Frame> = Vec::new();
     let mut prelude_start = 0usize;
@@ -1114,7 +1128,8 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
                     let container = enclosing_container(&stack);
                     let supports = enclosing_supports(&stack);
                     let selector_start = first_significant(css, prelude_start, i);
-                    let selector_line = line_of(css, selector_start);
+                    let selector_line =
+                        line_breaks.partition_point(|&pos| pos < selector_start) + 1;
                     let idx = rules.len();
                     rules.push(RuleSpan {
                         selector: prelude.to_string(),
@@ -1138,7 +1153,7 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
                 let container = enclosing_container(&stack);
                 let supports = enclosing_supports(&stack);
                 let selector_start = first_significant(css, prelude_start, i);
-                let selector_line = line_of(css, selector_start);
+                let selector_line = line_breaks.partition_point(|&pos| pos < selector_start) + 1;
                 let idx = rules.len();
                 rules.push(RuleSpan {
                     selector: prelude.to_string(),
@@ -2883,13 +2898,20 @@ pub fn get_css_variables(project_path: String) -> Result<Vec<CssVariableDef>, Co
 /// `not_found` (read-only) — the code panel renders accordingly.
 #[tauri::command]
 #[tracing::instrument(skip(matched), fields(project = %project_path, rules = matched.len()))]
-pub fn locate_css_rules(
+pub async fn locate_css_rules(
     project_path: String,
     matched: Vec<MatchedRuleQuery>,
 ) -> Result<Vec<RuleLocation>, CommandError> {
     let root = validate_project_path(&project_path)?;
-    let sheets = cached_sheets(&root);
-    Ok(matched.iter().map(|q| locate_rule(&sheets, q)).collect())
+    // Filesystem discovery and parsing must not block Tauri's UI thread.
+    tokio::task::spawn_blocking(move || {
+        let sheets = cached_sheets(&root);
+        matched.iter().map(|q| locate_rule(&sheets, q)).collect()
+    })
+    .await
+    .map_err(|e| CommandError::Other {
+        message: format!("CSS rule lookup task failed: {e}"),
+    })
 }
 
 /// Replace one rule's body with the user's edited source CSS, written verbatim and
@@ -3034,6 +3056,46 @@ mod tests {
         list.into_iter()
             .map(|(r, c)| SheetIndex::parse(r, c))
             .collect()
+    }
+
+    #[test]
+    fn selection_lookup_preserves_lines_and_bodies_in_large_stylesheets() {
+        let mut css = String::from("/* heading\n   café */\n");
+        for i in 0..4000 {
+            css.push_str(&format!(
+                "@media (min-width: 768px) {{\n/* rule */\n.r{i} {{ color: red; }}\n}}\n"
+            ));
+        }
+        let sheet = SheetIndex::parse("large.css".into(), css.clone());
+        assert_eq!(sheet.rules.len(), 4000);
+        for (i, rule) in sheet.rules.iter().enumerate() {
+            assert_eq!(rule.selector_line, 5 + i * 4);
+            assert_eq!(
+                &css[rule.block_inner_start..rule.block_inner_end],
+                " color: red; "
+            );
+        }
+        assert!(matches!(
+            locate_rule(&[sheet], &query(".r3999", Some("(min-width:768px)"), None)),
+            RuleLocation::Resolved { line: 16001, .. }
+        ));
+    }
+
+    #[test]
+    fn selection_lookup_indexes_groups_without_duplicating_rules() {
+        let sheets = idx(vec![(
+            "site.css".into(),
+            ".a>.b, .a > .b, :is(.x,.y) { color: red; }\n.a>.b { color: blue; }".into(),
+        )]);
+        assert_eq!(sheets[0].selectors[".a>.b"], vec![0, 1]);
+        assert!(matches!(
+            locate_rule(&sheets, &query(".a > .b", None, None)),
+            RuleLocation::Multiple { .. }
+        ));
+        assert!(matches!(
+            locate_rule(&sheets, &query(":is(.x, .y)", None, None)),
+            RuleLocation::Resolved { line: 1, .. }
+        ));
     }
 
     #[test]

@@ -8,6 +8,7 @@
  *   - `enum`       discrete Tailwind utilities (a dropdown or icon segmented set)
  *   - `color`      a swatch + color picker writing an arbitrary value
  *   - `spacingBox` the box-model padding/margin widget
+ *   - `positionBox` the inner box-model ring for position offsets
  *   - `gap`        the gap stepper + free-form field
  *   - `opacity`    the opacity slider
  *
@@ -20,6 +21,7 @@ import { ENUM_CONTROLS, COLOR_CONTROLS, type EnumControl, type ColorPrefix } fro
 
 export type RegistryControl =
   | { kind: 'spacingBox'; key: string }
+  | { kind: 'positionBox'; key: string }
   | { kind: 'gap'; key: string }
   | { kind: 'opacity'; key: string }
   | {
@@ -128,7 +130,11 @@ export const CONTROL_SECTIONS: ControlSection[] = [
     id: 'position',
     title: 'Position',
     defaultOpen: true,
-    controls: [enumRow('Position'), valueRow('z-index')],
+    controls: [
+      enumRow('Position'),
+      { kind: 'positionBox', key: 'positionBox' },
+      valueRow('z-index'),
+    ],
   },
   {
     id: 'typography',

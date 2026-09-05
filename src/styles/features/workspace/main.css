@@ -65,6 +65,14 @@
   z-index: var(--z-workspace-header);
 }
 
+/* Main panel buttons are one ordered group so number shortcuts can follow the
+   rendered toolbar order automatically. */
+.workspace-panel-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .workspace-titlebar-center {
   display: flex;
   align-items: stretch;
@@ -263,31 +271,21 @@
   }
 }
 
-/* Once the center is icon-only, remove inter-cluster breathing room so the
-   controls meet cleanly at the smallest supported desktop widths. */
+/* Once the center is icon-only, reduce the control footprint while preserving
+   the standard spacing between neighbouring controls. */
 @media (max-width: 900px) {
-  .workspace-titlebar-tools,
-  .workspace-titlebar-actions,
-  .workspace-titlebar-center {
-    gap: 0;
-  }
-
   .workspace-titlebar-center {
     margin-inline-start: var(--spacing-sm);
   }
 
-  .workspace-titlebar-tools > .button,
-  .workspace-titlebar-tools > .toolbar-dropdown-container > .button {
+  .workspace-titlebar-tools > .workspace-panel-group > .button,
+  .workspace-titlebar-tools > .workspace-panel-group > .toolbar-dropdown-container > .button {
     width: var(--button-height);
     min-width: var(--button-height);
     padding-inline: 0;
   }
 
-  .workspace-titlebar-tools > .toolbar-dropdown-container > .button {
-    gap: 0;
-  }
-
-  .workspace-titlebar .source-control-actions {
+  .workspace-titlebar-tools > .workspace-panel-group > .toolbar-dropdown-container > .button {
     gap: 0;
   }
 }

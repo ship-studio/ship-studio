@@ -77,6 +77,7 @@ describe('useDevServer', () => {
     // a port that belongs to this project.
     expect(result.current.knownDevServerPort).toBeNull();
     expect(result.current.projectType).toBe('unknown');
+    expect(result.current.projectTypeResolved).toBe(false);
     expect(result.current.isRestartingDevServer).toBe(false);
     expect(result.current.devServerOutputVersion).toBe(0);
     expect(result.current.healthOutputVersion).toBe(0);
@@ -240,6 +241,7 @@ describe('useDevServer', () => {
       });
 
       expect(result.current.projectType).toBe('statichtml');
+      expect(result.current.projectTypeResolved).toBe(true);
     });
   });
 
@@ -454,6 +456,7 @@ describe('useDevServer', () => {
       });
 
       expect(detectedType).toBe('unknown');
+      expect(result.current.projectTypeResolved).toBe(true);
     });
   });
 

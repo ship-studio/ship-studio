@@ -12,6 +12,7 @@ import { basename } from '../lib/paths';
 import { fileManagerName } from '../lib/setup';
 import {
   CodeIcon,
+  CloseIcon,
   CursorIcon,
   FolderOpenIcon,
   GlobeIcon,
@@ -46,6 +47,8 @@ export interface UseAppCommandsParams {
   handleRestartDevServer: () => Promise<void> | void;
   /** Start the dev server on demand (used when it isn't running). */
   handleStartDevServer: () => Promise<void> | void;
+  /** Stop the current project's dev server. */
+  handleStopDevServer: (projectPath: string) => Promise<void> | void;
   /** Predicate: is a dev server currently tracked for the given project? */
   isDevServerRunning: (projectPath: string) => boolean;
   /** Current education-mode state, so the command can read "Enter" vs "Exit". */
@@ -67,6 +70,7 @@ export function useAppCommands({
   handleGitHubConnect,
   handleRestartDevServer,
   handleStartDevServer,
+  handleStopDevServer,
   isDevServerRunning,
   isEducationMode,
   setIsEducationMode,
@@ -363,6 +367,18 @@ export function useAppCommands({
         run: restart,
       },
       {
+        id: 'devserver.stop',
+        title: 'Stop dev server',
+        icon: <CloseIcon size={14} />,
+        category: 'action' as const,
+        when: ({ kind }: PaletteCtx) =>
+          kind === 'project' && !!currentProject && isDevServerRunning(currentProject.path),
+        keywords: ['dev', 'server', 'stop', 'kill', 'halt'],
+        run: () => {
+          if (currentProject) void handleStopDevServer(currentProject.path);
+        },
+      },
+      {
         id: 'ide.finder',
         title: `Reveal in ${fileManagerName()}`,
         icon: <FolderOpenIcon size={14} />,
@@ -409,6 +425,7 @@ export function useAppCommands({
     currentProject,
     handleBackToProjects,
     restart,
+    handleStopDevServer,
     isDevServerRunning,
     runFinder,
     runIde,

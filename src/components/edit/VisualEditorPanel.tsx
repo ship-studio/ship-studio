@@ -44,7 +44,7 @@ import { ImageSection } from './ImageSection';
 import { PropControlRenderer, type ControlRenderCtx } from './PropControlRenderer';
 import type { ValueFieldVariable } from '../primitives/ValueField';
 import { ClassBar } from './ClassBar';
-import type { CustomClass } from '../../lib/customClasses';
+import type { CustomClass, TailwindVersion } from '../../lib/customClasses';
 import type { EditTarget } from '../../hooks/useVisualEditor';
 import { CONTROL_SECTIONS } from '../../lib/editControls';
 import {
@@ -283,6 +283,10 @@ interface Props {
   currentClass: string;
   /** Project CSS custom properties available to value fields. */
   variables?: ValueFieldVariable[];
+  /** Detected Tailwind token context (prefix/version/custom scale). */
+  tailwindVersion?: TailwindVersion;
+  utilityPrefix?: string;
+  spacingScale?: Record<string, string>;
   /** Text-editability of the selection. When read-only (dynamic text), the panel
    *  offers a copy-able request to hand the edit to the coding agent. */
   textResolution?: TextResolution | null;
@@ -310,6 +314,8 @@ interface Props {
   onStepGap: (dir: 1 | -1, step?: number) => void;
   /** Set one side of padding/margin to a scale step or arbitrary value. */
   onSetSide: (type: BoxType, side: Side, value: SpacingValue) => void;
+  /** Set one position offset (top/right/bottom/left) to a scale step or arbitrary value. */
+  onSetPositionSide?: (side: Side, value: SpacingValue) => void;
   /** Apply an enum option's token + inline-style preview. */
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   /** Reset a control's value at the active breakpoint. */
@@ -347,6 +353,7 @@ interface Props {
 
 const PANEL_WIDTH = 240;
 const EMPTY_VALUE_FIELD_VARIABLES: ValueFieldVariable[] = [];
+const NOOP_POSITION_SIDE = (_side: Side, _value: SpacingValue) => undefined;
 
 /** Initial top-right resting spot (clears the toolbar). Lazy so it reads the
  *  window once on mount; drag takes over from there. */
@@ -360,6 +367,9 @@ export function VisualEditorPanel({
   projectPath,
   currentClass,
   variables = EMPTY_VALUE_FIELD_VARIABLES,
+  tailwindVersion = 'v4',
+  utilityPrefix,
+  spacingScale,
   textResolution,
   imageResolution,
   onReplaceImage,
@@ -372,6 +382,7 @@ export function VisualEditorPanel({
   onToggleAutoSave,
   onStepGap,
   onSetSide,
+  onSetPositionSide = NOOP_POSITION_SIDE,
   onApplyEnum,
   onReset,
   multiTarget,
@@ -418,8 +429,18 @@ export function VisualEditorPanel({
   // Cascade-resolution context for the active breakpoint, threaded to each control
   // so they show the effective value at this layer and which breakpoint set it.
   const layer = useMemo<LayerContext>(
-    () => ({ bp: activeBreakpoint, ordered: breakpoints, known: breakpointPrefixes(breakpoints) }),
-    [activeBreakpoint, breakpoints]
+    () => ({
+      bp: activeBreakpoint,
+      ordered: breakpoints,
+      known: breakpointPrefixes(breakpoints),
+      tailwindVersion,
+      utilityPrefix,
+      spacingScale,
+      direction: selection?.signature.direction,
+      writingMode: selection?.signature.writingMode,
+      spacingUnit: selection?.signature.spacingUnit,
+    }),
+    [activeBreakpoint, breakpoints, selection, spacingScale, tailwindVersion, utilityPrefix]
   );
   const breakpointIcons = useMemo(
     () => Object.fromEntries(breakpoints.map((bp) => [bp.name, breakpointIcon(bp)])),
@@ -438,6 +459,7 @@ export function VisualEditorPanel({
       onApplyEnum,
       onReset,
       onSetSide,
+      onSetPositionSide,
       onStepGap,
       variables,
       computed: {
@@ -454,6 +476,7 @@ export function VisualEditorPanel({
       onApplyEnum,
       onReset,
       onSetSide,
+      onSetPositionSide,
       onStepGap,
       selection,
       variables,
@@ -463,10 +486,15 @@ export function VisualEditorPanel({
   );
   const displayControl = ENUM_CONTROLS.find((control) => control.label === 'Display')!;
   const display = readLayer(currentClass, layer, (tokens) =>
-    activeEnumToken(tokens, displayControl)
+    activeEnumToken(tokens, displayControl, layer.utilityPrefix)
   ).value;
   const flexLayout = display === 'flex' || display === 'inline-flex';
   const flexOrGridLayout = flexLayout || display === 'grid';
+  const positionControl = ENUM_CONTROLS.find((control) => control.label === 'Position')!;
+  const position = readLayer(currentClass, layer, (tokens) =>
+    activeEnumToken(tokens, positionControl, layer.utilityPrefix)
+  ).value;
+  const positioned = position !== null && position !== 'static';
 
   // Contextual mobile-first explainer (shown in the "?" tooltip by the label).
   const breakpointHelp =
@@ -670,7 +698,7 @@ export function VisualEditorPanel({
                       {resolution.file}:{resolution.line}
                     </code>
                   )}
-                  {resolution.confidence !== 'unique' && (
+                  {resolution.confidence !== 'unique' && resolution.confidence !== 'source' && (
                     <span
                       className="ss-edit-panel__badge ss-edit-panel__badge--approx"
                       title="These classes appear more than once in your code, so the source was located by surrounding context — double-check before saving."
@@ -709,6 +737,7 @@ export function VisualEditorPanel({
                 defaultOpen={section.defaultOpen}
               >
                 {section.controls.map((control) => {
+                  if (control.kind === 'positionBox' && !positioned) return null;
                   if (control.kind === 'enum') {
                     const label = control.control.label;
                     if ((label === 'Direction' || label === 'Wrap') && !flexLayout) return null;

@@ -4,7 +4,7 @@
  * Shown while the app decides its initial view (setup checks, CLI probes).
  * Every boot gate carries its own timeout, but as a last line of defense: if
  * we are somehow still stuck here after {@link BOOT_WATCHDOG_MS}, swap the
- * spinner for an explanation and a Restart button instead of spinning
+ * progress bar for an explanation and a Restart button instead of waiting
  * forever (#173).
  *
  * @module components/BootLoadingScreen
@@ -12,14 +12,19 @@
 
 import { useEffect, useState } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { PixelLoaderRings } from './workspace/PixelLoaderRings';
 import { Button } from './primitives/Button';
+import { Progress } from './primitives/Progress';
 import { logger } from '../lib/logger';
 
 /** How long the loading view may spin before we assume boot is wedged. */
 export const BOOT_WATCHDOG_MS = 25_000;
 
-export function BootLoadingScreen() {
+interface BootLoadingScreenProps {
+  /** Current startup gate progress, expressed as a percentage. */
+  progress?: number;
+}
+
+export function BootLoadingScreen({ progress = 0 }: BootLoadingScreenProps) {
   const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
@@ -62,7 +67,7 @@ export function BootLoadingScreen() {
           </p>
         </div>
       ) : (
-        <PixelLoaderRings size="lg" />
+        <Progress value={progress} aria-label="Starting Ship Studio" className="boot-progress" />
       )}
     </div>
   );

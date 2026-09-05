@@ -80,6 +80,18 @@ describe('SessionRegistry — lifecycle', () => {
     expect(sessionRegistry.snapshotAll()).toHaveLength(0);
   });
 
+  it('rekeys a session after its project folder is renamed', () => {
+    const original = sessionRegistry.getOrCreate('/tmp/old-project');
+
+    sessionRegistry.renamePath('/tmp/old-project', '/tmp/new-project');
+
+    expect(sessionRegistry.snapshot('/tmp/old-project')).toBeUndefined();
+    expect(sessionRegistry.snapshot('/tmp/new-project')).toMatchObject({
+      projectPath: '/tmp/new-project',
+      activatedAt: original.activatedAt,
+    });
+  });
+
   it('countActive excludes suspended sessions', () => {
     sessionRegistry.getOrCreate('/tmp/a');
     sessionRegistry.getOrCreate('/tmp/b');

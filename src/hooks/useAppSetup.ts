@@ -25,6 +25,7 @@ import { logger } from '../lib/logger';
 import { basename } from '../lib/paths';
 import { withTimeout } from '../lib/withTimeout';
 import type { AppView } from '../lib/types';
+import type { WorkspaceTab } from '../components/workspace/workspaceViewState';
 
 /**
  * Boot gates must never hang: each startup await below is capped so a stuck
@@ -41,12 +42,23 @@ const BOOT_GATE_TIMEOUT_MS = 20_000;
 /** CLI status refresh spawns gh/agent subprocesses — give it a bit longer. */
 const CLI_REFRESH_TIMEOUT_MS = 20_000;
 
+const BOOT_PROGRESS = {
+  initial: 0,
+  defaultAgent: 20,
+  setupProbe: 50,
+  fullSetup: 70,
+  cliStatuses: 90,
+  complete: 100,
+} as const;
+
 export interface UseAppSetupParams {
   view: AppView;
   setView: (view: AppView | ((prev: AppView) => AppView)) => void;
   initialProjectPath?: string | null;
   setCurrentProject: (project: Project | null) => void;
   setDevServerPort: (port: number, projectPath?: string) => void;
+  setWorkspaceTab: (tab: WorkspaceTab) => void;
+  setIsPreviewHidden: (hidden: boolean) => void;
   handleSelectProject: (project: Project) => Promise<void>;
   refreshAllCliStatuses: () => Promise<void>;
   setProjectGitHubStatus: (status: ProjectGitHubStatus | null) => void;
@@ -60,6 +72,8 @@ export function useAppSetup({
   initialProjectPath,
   setCurrentProject,
   setDevServerPort,
+  setWorkspaceTab,
+  setIsPreviewHidden,
   handleSelectProject,
   refreshAllCliStatuses,
   setProjectGitHubStatus,
@@ -70,6 +84,7 @@ export function useAppSetup({
   const autoOpenAttemptedRef = useRef(false);
 
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [bootProgress, setBootProgress] = useState<number>(BOOT_PROGRESS.initial);
 
   // Background verification for optimistic loading
   const verifySetupInBackground = async () => {
@@ -95,6 +110,7 @@ export function useAppSetup({
 
   const checkSetup = useCallback(async (forceFullCheck = false) => {
     setView('loading');
+    setBootProgress(BOOT_PROGRESS.initial);
     try {
       // Hydrate default agent cache from backend
       const defaultAgent = await withTimeout(
@@ -103,6 +119,7 @@ export function useAppSetup({
         'Default agent lookup'
       );
       initDefaultAgent(defaultAgent);
+      setBootProgress(BOOT_PROGRESS.defaultAgent);
 
       // Always boot straight into the projects view — and, because the active
       // account is persisted, into the user's last-used workspace. The picker
@@ -119,6 +136,7 @@ export function useAppSetup({
           BOOT_GATE_TIMEOUT_MS,
           'Quick setup check'
         );
+        setBootProgress(BOOT_PROGRESS.setupProbe);
         if (quickCheck.setupCompleteCached && quickCheck.allPresent) {
           // Setup was completed before and all binaries still exist
           // Show projects/account picker immediately, verify auth in background
@@ -126,6 +144,7 @@ export function useAppSetup({
           setView((currentView) =>
             currentView === 'loading' || currentView === 'onboarding' ? postSetupView : currentView
           );
+          setBootProgress(BOOT_PROGRESS.complete);
           void verifySetupInBackground();
           return;
         }
@@ -137,24 +156,29 @@ export function useAppSetup({
         BOOT_GATE_TIMEOUT_MS,
         'Full setup status'
       );
+      setBootProgress(BOOT_PROGRESS.fullSetup);
 
       // Check and set all CLI states atomically
       await withTimeout(refreshAllCliStatuses(), CLI_REFRESH_TIMEOUT_MS, 'CLI status refresh');
+      setBootProgress(BOOT_PROGRESS.cliStatuses);
 
       // Use full setup status to determine if onboarding is needed
       if (setupStatus.allReady) {
         // Persist setup complete for existing users upgrading to this version
         // (they already completed onboarding but don't have the cached state yet)
         void markSetupComplete();
+        setBootProgress(BOOT_PROGRESS.complete);
         // Use functional update to avoid overwriting HMR recovery's 'workspace' view
         setView((currentView) =>
           currentView === 'loading' || currentView === 'onboarding' ? postSetupView : currentView
         );
       } else {
+        setBootProgress(BOOT_PROGRESS.complete);
         setView('onboarding');
       }
     } catch (error) {
       logger.error('Failed to check prerequisites', { error });
+      setBootProgress(BOOT_PROGRESS.complete);
       setView('onboarding');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once on mount; refreshAllCliStatuses and verifySetupInBackground are stable
@@ -215,6 +239,8 @@ export function useAppSetup({
           });
 
           // Restore UI state without restarting dev server
+          setWorkspaceTab('preview');
+          setIsPreviewHidden(false);
           const projectName = basename(storedProjectPath) || 'Project';
           setCurrentProject({
             name: projectName,
@@ -304,5 +330,6 @@ export function useAppSetup({
   return {
     projectsLoading,
     setProjectsLoading,
+    bootProgress,
   };
 }

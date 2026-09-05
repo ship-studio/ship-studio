@@ -269,6 +269,8 @@ export interface ValueFieldProps extends Omit<
   format?: string;
   /** Reformat the current color when a color representation is selected. */
   onFormatChange?: (format: string) => void;
+  /** Observe the complete in-progress value without committing it. */
+  onValueChange?: (value: string) => void;
   /** Optional control rendered flush with the field's leading edge. */
   leading?: ReactNode;
   /** Return false to reject the value and restore the last controlled value. */
@@ -288,6 +290,7 @@ export function ValueField({
   variables = EMPTY_VARIABLES,
   format,
   onFormatChange,
+  onValueChange,
   leading,
   onCommit,
   className,
@@ -435,9 +438,14 @@ export function ValueField({
     return `${trimmed}${nextUnit}`;
   };
 
+  const notifyValueChange = (nextText: string, nextUnit: string) => {
+    onValueChange?.(nextText.trim() ? combinedValue(nextText, nextUnit) : '');
+  };
+
   const commit = (nextText = text, nextUnit = unit) => {
     if (!nextText.trim()) return true;
     const nextValue = combinedValue(nextText, nextUnit);
+    onValueChange?.(nextValue);
     if (onCommit(nextValue) === false) {
       const restored = splitValueFieldValue(value, options);
       setText(restored.text);
@@ -639,6 +647,7 @@ export function ValueField({
           if (isVariableInput) {
             setText(next);
             setUnit('var');
+            notifyValueChange(next, 'var');
             if (availableVariables.length > 0) {
               setVariableQuery(next);
               setActiveVariableIndex(0);
@@ -646,23 +655,24 @@ export function ValueField({
               setOpen(false);
             }
           } else {
+            let nextText = next;
+            let nextUnit = unit;
             if (unit === 'var') {
               setVariableOpen(false);
               setVariableQuery('');
             }
             if (!isFormatField && parsed.unit) {
-              setText(parsed.text);
-              setUnit(parsed.unit);
-            } else {
-              setText(next);
-              // A keyword/function value (`auto`, `calc(…)`) or a fraction carries
-              // its own meaning — drop the unit so the picker mirrors the value.
-              if (
-                !isFormatField &&
-                (/[a-z%)]$/i.test(next.trim()) || FRACTION_VALUE.test(next.trim()))
-              )
-                setUnit('');
+              nextText = parsed.text;
+              nextUnit = parsed.unit;
+            } else if (
+              !isFormatField &&
+              (/[a-z%)]$/i.test(next.trim()) || FRACTION_VALUE.test(next.trim()))
+            ) {
+              nextUnit = '';
             }
+            setText(nextText);
+            setUnit(nextUnit);
+            notifyValueChange(nextText, nextUnit);
           }
           if (invalid) setInvalid(false);
         }}
@@ -731,6 +741,7 @@ export function ValueField({
             setText(restored.text);
             setUnit(restored.unit);
             setInvalid(false);
+            onValueChange?.(value);
             event.currentTarget.select();
           } else {
             stepNumericValue(event);

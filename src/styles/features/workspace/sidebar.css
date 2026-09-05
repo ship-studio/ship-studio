@@ -193,10 +193,6 @@
   border-right: var(--stroke-1) solid var(--border-default);
 }
 
-.workspace-sidebar.is-hidden .workspace-sidebar-ws-switch {
-  display: none;
-}
-
 /* The resize handle is a sibling of the aside; hide it while collapsed
    since the collapsed rail is not user-resizable. */
 .workspace-sidebar.is-hidden + .panel-resize-handle {
@@ -210,7 +206,6 @@
 
 .workspace-sidebar.is-hidden .workspace-sidebar-toggle,
 .workspace-sidebar.is-hidden .workspace-sidebar-home,
-.workspace-sidebar.is-hidden .workspace-sidebar-add-project,
 .workspace-sidebar.is-hidden .workspace-sidebar-support,
 .workspace-sidebar.is-hidden .workspace-sidebar-settings {
   width: var(--control-height-standard);
@@ -452,7 +447,7 @@
   gap: var(--space-06);
   width: 100%;
   height: var(--size-sidebar-project-row);
-  padding: 0 var(--space-16) 0 var(--space-06);
+  padding: 0 var(--space-12) 0 var(--space-06);
   background: none;
   border: none;
   border-radius: 0;
@@ -618,7 +613,7 @@
   top: 50%;
   /* Center on the status slot: right padding + half the slot/button size
    * difference (the button is larger than the slot it covers). */
-  right: calc(var(--space-16) + (var(--pixel-loader-size-sm) - var(--button-height-compact)) / 2);
+  right: calc(var(--space-12) + (var(--pixel-loader-size-sm) - var(--button-height-compact)) / 2);
   transform: translateY(-50%);
   opacity: 0;
   transition:
@@ -1196,16 +1191,71 @@
 
 .workspace-sidebar-footer-actions > * {
   position: relative;
+}
+
+/* Keep the switcher and trailing icon controls in fixed footer columns. In the
+ * expanded sidebar, opening the switcher widens its drawer across the trailing
+ * controls while the drawer grows upward from the footer. */
+.workspace-sidebar-footer-actions.has-workspace-switcher {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-switcher {
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
+  justify-self: start;
+}
+
+.workspace-sidebar:not(.is-hidden)
+  .workspace-sidebar-footer-actions.has-workspace-switcher
+  > .workspace-switcher.is-open {
+  width: calc(100% + (var(--control-height-standard) * 2) + (var(--button-gap) * 2));
   z-index: var(--z-dropdown);
 }
 
-/* The workspace-switch button sits outside the actions row but under the same
- * scroll-fade overlay (whose bottom bleed otherwise paints over the button's
- * top border, making it look clipped) — lift it the same way as the actions. */
-.workspace-sidebar-footer > .workspace-sidebar-ws-switch {
-  position: relative;
-  z-index: var(--z-dropdown);
-  margin-top: var(--button-gap);
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-support,
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-settings {
+  grid-row: 1;
+  align-self: end;
+  margin-bottom: var(--spacing-2xs);
+}
+
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-support {
+  grid-column: 2;
+}
+
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-settings {
+  grid-column: 3;
+}
+
+/* The collapsed rail keeps the workspace switcher in the existing vertical
+ * icon stack while the expanded picker is rendered outside the rail. */
+.workspace-sidebar.is-hidden .workspace-sidebar-footer-actions.has-workspace-switcher {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-sidebar.is-hidden
+  .workspace-sidebar-footer-actions.has-workspace-switcher
+  > .workspace-switcher {
+  width: var(--control-height-standard);
+  min-width: var(--control-height-standard);
+  max-width: var(--control-height-standard);
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  max-height: var(--control-height-standard);
+  flex: 0 0 var(--control-height-standard);
+  align-self: center;
+}
+
+/* The updater is a sibling above the action grid. Keep its existing layer so
+ * it remains visibly above the footer fade while the drawer grows below it. */
+.workspace-sidebar-footer > .update-indicator {
+  z-index: var(--z-workspace-header);
 }
 
 /* Keep the fade attached to the fixed action group so it stays at the bottom
@@ -1237,32 +1287,45 @@
   overflow-x: hidden;
 }
 
-/* Layout-only — colors/hover/cursor come from the Button primitive (ghost).
- * Full-bleed: fixed height; flush corners via the sidebar-wide
- * border-radius reset above. Font pinned to the sidebar's base size so the
- * footer matches the rows above it. */
+/* The Open project action is a full-bleed row, matching the project cards
+ * above it. Its own content padding remains so the icon and label stay
+ * comfortably spaced. */
+.workspace-sidebar-active-actions {
+  width: 100%;
+  margin-top: 0;
+  padding: 0;
+}
+
 .workspace-sidebar-add-project {
   min-width: 0;
-  flex: 1 1 auto;
+  width: 100%;
+  height: var(--size-sidebar-project-row);
+  min-height: var(--size-sidebar-project-row);
+  border-radius: 0;
+  color: var(--text-faint);
+  justify-content: center;
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-active-actions {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-add-project {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  flex: 0 0 var(--control-height-standard);
+  padding: 0;
 }
 
 .workspace-sidebar-support,
 .workspace-sidebar-settings {
   flex: 0 0 var(--control-height-standard);
-}
-
-/* Workspace switcher — the same button as "Open project" directly above it:
- * border, radius, height and hover all come from the Button primitive, so
- * only the footer spacing and the dot/name row belong here. Only rendered
- * when the user has 2+ workspaces; shows the active workspace's color + name. */
-.workspace-sidebar-ws-switch {
-  margin-top: var(--button-gap);
-  gap: var(--space-06);
-  min-width: 0;
-}
-
-.workspace-sidebar-ws-switch .workspace-switch-account-name {
-  min-width: 0;
 }
 
 /* Project picker styles removed — replaced by the command palette (⌘O). */

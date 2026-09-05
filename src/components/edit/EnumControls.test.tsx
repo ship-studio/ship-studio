@@ -15,6 +15,9 @@ const LAYER: LayerContext = { bp: BASE_BREAKPOINT, ordered: [BASE_BREAKPOINT], k
 const WEIGHT = ENUM_CONTROLS.find((c) => c.label === 'Weight')!;
 const FONT = ENUM_CONTROLS.find((c) => c.label === 'Font')!;
 const DECORATION = ENUM_CONTROLS.find((c) => c.label === 'Decoration')!;
+const JUSTIFY = ENUM_CONTROLS.find((c) => c.label === 'Justify')!;
+const ALIGN_ITEMS = ENUM_CONTROLS.find((c) => c.label === 'Align items')!;
+const ALIGN = ENUM_CONTROLS.find((c) => c.label === 'Align')!;
 
 const INHERITED: InheritedProp = {
   cssValue: '600',
@@ -109,5 +112,71 @@ describe('EnumControlRow ancestor inheritance', () => {
     // The segmented control highlights Underline; the orange label explains why.
     const underline = screen.getByTitle('Underline');
     expect(underline).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('offers Space Around with the matching icon and CSS value', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <EnumControlRow
+        control={JUSTIFY}
+        currentClass=""
+        layer={LAYER}
+        onApplyEnum={onApplyEnum}
+        onReset={vi.fn()}
+      />
+    );
+
+    const spaceAround = screen.getByTitle('Space Around');
+    expect(spaceAround.querySelector('[data-icon-name="JustifyAroundIcon"]')).toBeInTheDocument();
+
+    fireEvent.click(spaceAround);
+
+    expect(onApplyEnum).toHaveBeenCalledWith('justify-around', {
+      'justify-content': 'space-around',
+    });
+  });
+
+  it('offers Baseline with the matching icon and CSS value', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <EnumControlRow
+        control={ALIGN_ITEMS}
+        currentClass=""
+        layer={LAYER}
+        onApplyEnum={onApplyEnum}
+        onReset={vi.fn()}
+      />
+    );
+
+    const baseline = screen.getByTitle('Baseline');
+    expect(baseline.querySelector('[data-icon-name="AlignItemsBaselineIcon"]')).toBeInTheDocument();
+
+    fireEvent.click(baseline);
+
+    expect(onApplyEnum).toHaveBeenCalledWith('items-baseline', {
+      'align-items': 'baseline',
+    });
+  });
+
+  it('offers Justify with the matching icon and CSS value', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <EnumControlRow
+        control={ALIGN}
+        currentClass=""
+        layer={LAYER}
+        onApplyEnum={onApplyEnum}
+        onReset={vi.fn()}
+      />
+    );
+
+    const justify = screen.getByTitle('Justify');
+    expect(justify.querySelector('[data-icon-name="AlignJustifyIcon"]')).toBeInTheDocument();
+
+    fireEvent.click(justify);
+
+    expect(onApplyEnum).toHaveBeenCalledWith('text-justify', {
+      'text-align': 'justify',
+    });
   });
 });

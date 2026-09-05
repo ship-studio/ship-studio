@@ -17,6 +17,7 @@ import { useClickOutside } from '../../hooks/useClickOutside';
 
 const MENU_ITEM_SELECTOR = '[role="menuitem"]';
 const TYPEAHEAD_TIMEOUT_MS = 500;
+const HOVER_CLOSE_DELAY_MS = 120;
 
 function getMenuItems(menu: HTMLDivElement | null): HTMLElement[] {
   return menu ? Array.from(menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR)) : [];
@@ -72,6 +73,8 @@ interface DropdownProps {
     onChange: (value: string) => void;
     placeholder?: string;
   };
+  /** Open on pointer hover while retaining click and keyboard access. */
+  openOnHover?: boolean;
 }
 
 const DropdownContext = createContext<{ close: () => void } | null>(null);
@@ -102,6 +105,7 @@ export function Dropdown({
   onOpenChange,
   open: controlledOpen,
   search,
+  openOnHover = false,
 }: DropdownProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
@@ -112,8 +116,10 @@ export function Dropdown({
   const wasOpenRef = useRef(false);
   const restoreFocusOnCloseRef = useRef(true);
   const hasSearch = search !== undefined;
+  const openedByHoverRef = useRef(false);
   const typeaheadRef = useRef('');
   const typeaheadTimerRef = useRef<number | null>(null);
+  const hoverCloseTimerRef = useRef<number | null>(null);
 
   const setOpen = useCallback(
     (open: boolean) => {
@@ -123,15 +129,47 @@ export function Dropdown({
     [controlledOpen, onOpenChange]
   );
 
-  const close = useCallback(() => setOpen(false), [setOpen]);
+  const cancelHoverClose = useCallback(() => {
+    if (hoverCloseTimerRef.current !== null) {
+      window.clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const close = useCallback(() => {
+    cancelHoverClose();
+    setOpen(false);
+  }, [cancelHoverClose, setOpen]);
+
+  const scheduleHoverClose = useCallback(() => {
+    cancelHoverClose();
+    hoverCloseTimerRef.current = window.setTimeout(() => {
+      // A pointer-driven close should not pull focus back to the trigger. The
+      // user may already be interacting with another control by the time the
+      // grace period expires.
+      restoreFocusOnCloseRef.current = false;
+      setOpen(false);
+      hoverCloseTimerRef.current = null;
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [cancelHoverClose, setOpen]);
+
+  const openFromHover = useCallback(() => {
+    cancelHoverClose();
+    if (!isOpen) {
+      openedByHoverRef.current = true;
+      setOpen(true);
+    }
+  }, [cancelHoverClose, isOpen, setOpen]);
 
   const handleTriggerClick = useCallback(
     (e: MouseEvent) => {
       // Triggers often sit inside clickable cards — don't activate the card.
       e.stopPropagation();
+      cancelHoverClose();
+      openedByHoverRef.current = false;
       setOpen(!isOpen);
     },
-    [isOpen, setOpen]
+    [cancelHoverClose, isOpen, setOpen]
   );
 
   // Dismissal by clicking elsewhere: the user has just put focus (or their
@@ -139,9 +177,10 @@ export function Dropdown({
   // menu closes without dragging focus back to its trigger. Escape and menu
   // selection still restore it.
   const closeFromOutsidePointer = useCallback(() => {
+    cancelHoverClose();
     restoreFocusOnCloseRef.current = false;
     setOpen(false);
-  }, [setOpen]);
+  }, [cancelHoverClose, setOpen]);
 
   // The portaled menu isn't a DOM descendant of the container; exclude it so
   // clicks inside the menu don't count as "outside".
@@ -190,6 +229,10 @@ export function Dropdown({
 
     wasOpenRef.current = true;
     restoreFocusOnCloseRef.current = true;
+    if (openedByHoverRef.current) {
+      openedByHoverRef.current = false;
+      return;
+    }
     // With a filter field, focus belongs in the field — you opened the menu to
     // search it. ArrowDown from there hands focus to the list.
     if (!hasSearch) focusEnabledMenuItemAt(0);
@@ -199,6 +242,9 @@ export function Dropdown({
     return () => {
       if (typeaheadTimerRef.current !== null) {
         window.clearTimeout(typeaheadTimerRef.current);
+      }
+      if (hoverCloseTimerRef.current !== null) {
+        window.clearTimeout(hoverCloseTimerRef.current);
       }
     };
   }, []);
@@ -344,6 +390,8 @@ export function Dropdown({
       role="menu"
       tabIndex={-1}
       onKeyDown={handleMenuKeyDown}
+      onMouseEnter={openOnHover ? cancelHoverClose : undefined}
+      onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
     >
       {search && (
         <div className="ss-dropdown__search">
@@ -374,7 +422,12 @@ export function Dropdown({
   ) : null;
 
   return (
-    <div className="ss-dropdown" ref={containerRef}>
+    <div
+      className="ss-dropdown"
+      ref={containerRef}
+      onMouseEnter={openOnHover ? openFromHover : undefined}
+      onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
+    >
       {trigger({
         ref: triggerRef,
         onClick: handleTriggerClick,

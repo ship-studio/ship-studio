@@ -48,8 +48,10 @@ import { useAccountSelectNavigation } from './hooks/useAccountSelectNavigation';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
+import { useActiveAccount } from './hooks/useActiveAccount';
 import { OnboardingRouter } from './components/setup';
-import { Project, setTerminalState } from './lib/project';
+import { Project, renameProject, setTerminalState } from './lib/project';
+import { setActiveAccountId, type Account } from './lib/accounts';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
 import { sessionRegistry } from './lib/sessionRegistry';
@@ -73,6 +75,7 @@ import {
 import { useAppCommands } from './commands/useAppCommands';
 import { useWorkflowCommands } from './commands/useWorkflowCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
+import { useWorkspaceNumberShortcuts } from './hooks/useWorkspaceNumberShortcuts';
 import { ToastList } from './components/primitives/ToastList';
 import { TooltipProvider } from './components/primitives/Tooltip';
 import { DevDesignSystemTools } from './components/design-system/DevDesignSystemTools';
@@ -111,6 +114,12 @@ interface AppProps {
  * without crashing. The actual app body lives in `AppContents`.
  */
 function App({ initialProjectPath }: AppProps) {
+  useEffect(() => {
+    const suppressNativeContextMenu = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener('contextmenu', suppressNativeContextMenu, true);
+    return () => document.removeEventListener('contextmenu', suppressNativeContextMenu, true);
+  }, []);
+
   return (
     <TooltipProvider>
       <ToastProvider>
@@ -251,6 +260,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     knownDevServerPort,
     setDevServerPort,
     projectType,
+    projectTypeResolved,
     isRestartingDevServer,
     customDevCommand,
     devServerOutputRef,
@@ -484,6 +494,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     startScreenshotInterval,
     onPreviewReady,
     setWorkspaceTab,
+    setIsPreviewHidden,
     resetLayout,
     setProjectGitHubStatus,
     clearProjectStatuses,
@@ -526,14 +537,52 @@ function AppContents({ initialProjectPath }: AppProps) {
     () => pinnedProjects.rows.map((r) => r.projectPath),
     [pinnedProjects.rows]
   );
+  const refreshPinnedProjects = pinnedProjects.refresh;
 
   const openPalette = useOpenPalette();
   const openProjectPicker = useCallback(() => {
     openPalette({ tab: 'project' });
   }, [openPalette]);
 
+  const handleStopDevServer = useCallback(
+    async (projectPath: string) => {
+      try {
+        await stopServer(projectPath);
+        showToast('Dev server stopped', 'success');
+      } catch (error) {
+        showToast(
+          `Couldn't stop the dev server: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      }
+    },
+    [showToast, stopServer]
+  );
+
   // Cmd/Ctrl+1..9 → jump to Nth sidebar project (pinned first, then active).
   useProjectNumberShortcuts({ pinnedPaths, handleSelectProject });
+
+  const { activeAccount, accounts } = useActiveAccount(currentProject?.path ?? null);
+  const handleSelectWorkspaceShortcut = useCallback(
+    async (account: Account) => {
+      if (account.id === activeAccount?.id) return;
+      try {
+        await setActiveAccountId(account.id);
+        handleBackToProjects();
+      } catch (error) {
+        showToast(
+          `Failed to switch workspace: ${formatCommandError(asCommandError(error))}`,
+          'error'
+        );
+      }
+    },
+    [activeAccount?.id, handleBackToProjects, showToast]
+  );
+  useWorkspaceNumberShortcuts({
+    accounts,
+    activeAccountId: activeAccount?.id ?? null,
+    handleSelectWorkspace: handleSelectWorkspaceShortcut,
+  });
 
   // Palette commands with real handlers — see src/commands/useAppCommands.tsx
   useAppCommands({
@@ -547,6 +596,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleGitHubConnect: handleGitHubConnectFromOverlay,
     handleRestartDevServer,
     handleStartDevServer,
+    handleStopDevServer,
     isDevServerRunning: isServerRunning,
     isEducationMode,
     setIsEducationMode,
@@ -568,6 +618,52 @@ function AppContents({ initialProjectPath }: AppProps) {
     setCurrentProject,
     setView,
   });
+
+  const handleRenameProject = useCallback(
+    async (projectPath: string, newName: string) => {
+      try {
+        const renamedPath = await renameProject(projectPath, newName);
+
+        // The backend suspends a hot session before moving its folder. Release
+        // the matching client-side server, terminal, and registry state too.
+        if (renamedPath !== projectPath) {
+          await stopServer(projectPath);
+          closeAllTerminalsForProject(projectPath);
+          sessionRegistry.renamePath(projectPath, renamedPath);
+          sessionRegistry.suspend(renamedPath);
+        }
+
+        if (currentProject?.path === projectPath) {
+          setCurrentProject((project) =>
+            project && project.path === projectPath
+              ? { ...project, name: newName, path: renamedPath }
+              : project
+          );
+          currentProjectPathRef.current = renamedPath;
+        }
+
+        await refreshPinnedProjects();
+        showToast(`Renamed project to ${newName}`, 'success');
+        void trackEvent('project_renamed', { $screen_name: 'Workspace' });
+      } catch (error) {
+        const message = formatCommandError(asCommandError(error));
+        const isExpectedRefusal =
+          message.includes('already exists') || message.includes('Close this project');
+        logger[isExpectedRefusal ? 'warn' : 'error']('[RenameProject] failed', {
+          projectPath,
+          error: message,
+        });
+        throw error;
+      }
+    },
+    [
+      closeAllTerminalsForProject,
+      currentProject?.path,
+      refreshPinnedProjects,
+      showToast,
+      stopServer,
+    ]
+  );
 
   // Switch to another project AND focus a specific tab within it. Writes the
   // desired active tab index to backend first so the restore flow on open
@@ -600,12 +696,14 @@ function AppContents({ initialProjectPath }: AppProps) {
   );
 
   // App setup, onboarding, HMR recovery, auto-open, keyboard shortcuts
-  const { projectsLoading, setProjectsLoading } = useAppSetup({
+  const { projectsLoading, setProjectsLoading, bootProgress } = useAppSetup({
     view,
     setView,
     initialProjectPath,
     setCurrentProject,
     setDevServerPort,
+    setWorkspaceTab,
+    setIsPreviewHidden,
     handleSelectProject,
     refreshAllCliStatuses,
     setProjectGitHubStatus,
@@ -740,9 +838,11 @@ function AppContents({ initialProjectPath }: AppProps) {
   const devServerProps = useMemo(
     () => ({
       hasDevServer: !!devServerRef.current,
+      knownDevServerPort,
       healthPanelRef,
       devServerPort,
       projectType,
+      projectTypeResolved,
       isRestartingDevServer,
       customDevCommand,
       devServerOutput: devServerOutputRef.current,
@@ -759,8 +859,10 @@ function AppContents({ initialProjectPath }: AppProps) {
     }),
     [
       devServerRef,
+      knownDevServerPort,
       devServerPort,
       projectType,
+      projectTypeResolved,
       isRestartingDevServer,
       customDevCommand,
       devServerOutputRef,
@@ -990,8 +1092,12 @@ function AppContents({ initialProjectPath }: AppProps) {
       projects: pinnedProjects.rows,
       onSelectProject: handleRailClick,
       onCloseProject: handleCloseProject,
+      onUnpinProject: handleRailUnpin,
+      onRenameProject: handleRenameProject,
+      onTogglePinProject: handleTogglePin,
       onSelectProjectTab: handleSelectProjectTab,
       isProjectDevServerRunning: isServerRunning,
+      onStopDevServer: handleStopDevServer,
       onSwitchAccount: openAccountSelect,
     }),
     [
@@ -1003,8 +1109,12 @@ function AppContents({ initialProjectPath }: AppProps) {
       pinnedProjects.rows,
       handleRailClick,
       handleCloseProject,
+      handleRailUnpin,
+      handleRenameProject,
+      handleTogglePin,
       handleSelectProjectTab,
       isServerRunning,
+      handleStopDevServer,
       setView,
     ]
   );
@@ -1082,7 +1192,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'loading') {
     return (
       <>
-        <BootLoadingScreen />
+        <BootLoadingScreen progress={bootProgress} />
         {quitConfirmModal}
       </>
     );
@@ -1231,6 +1341,10 @@ function AppContents({ initialProjectPath }: AppProps) {
               currentProjectName={currentProject?.name ?? null}
               onSelectProject={handleRailClick}
               onCloseProject={handleCloseProject}
+              onUnpinProject={handleRailUnpin}
+              onRenameProject={handleRenameProject}
+              onTogglePinProject={handleTogglePin}
+              onStopDevServer={handleStopDevServer}
               onSelectProjectTab={handleSelectProjectTab}
               terminalTabs={[]}
               activeTerminalTab={0}
@@ -1291,6 +1405,9 @@ function AppContents({ initialProjectPath }: AppProps) {
         onSelectProject={handleRailClick}
         onCloseProject={handleCloseProject}
         onUnpinProject={handleRailUnpin}
+        onRenameProject={handleRenameProject}
+        onTogglePinProject={handleTogglePin}
+        onStopDevServer={handleStopDevServer}
         onSelectProjectTab={handleSelectProjectTab}
         onGoHome={handleBackToProjects}
         onOpenProjectPicker={openProjectPicker}

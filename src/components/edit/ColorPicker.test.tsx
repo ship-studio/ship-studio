@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { mockInvokeResponse } from '../../test/setup';
 import { ColorPicker } from './ColorPicker';
 
 type EyeDropperWindow = Window & {
@@ -243,11 +244,46 @@ describe('ColorPicker', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/^hsl\(/)));
   });
 
-  it('disables the eyedropper with an explanatory tooltip when unsupported', () => {
+  it('uses the native color sampler when the browser EyeDropper is unavailable', async () => {
+    mockInvokeResponse('get_color_sampler_support', { available: true, reason: null });
+    mockInvokeResponse('sample_screen_color', '#00ff00');
+    const { onChange } = renderPicker();
+    const button = screen.getByRole('button', { name: 'Eyedropper' });
+
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/^hsl\(/)));
+  });
+
+  it('does not open overlapping native color samplers on rapid clicks', async () => {
+    mockInvokeResponse('get_color_sampler_support', { available: true, reason: null });
+    let finishSampling: ((color: string) => void) | undefined;
+    const sample = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finishSampling = resolve;
+        })
+    );
+    mockInvokeResponse('sample_screen_color', sample);
+    const { onChange } = renderPicker();
+    const button = screen.getByRole('button', { name: 'Eyedropper' });
+
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(sample).toHaveBeenCalledOnce();
+
+    finishSampling?.('#00ff00');
+    await waitFor(() => expect(onChange).toHaveBeenCalledOnce());
+  });
+
+  it('disables the eyedropper with the native support reason when unsupported', async () => {
+    const reason = 'The native macOS screen color sampler requires macOS 10.15 or later.';
+    mockInvokeResponse('get_color_sampler_support', { available: false, reason });
     renderPicker();
     const button = screen.getByRole('button', { name: 'Eyedropper' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Eyedropper unavailable on this platform.');
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAttribute('title', reason);
   });
 
   it('has no recent-variable footer', () => {

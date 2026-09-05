@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
@@ -38,6 +38,44 @@ describe('Dropdown', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Alpha' })).toHaveFocus();
     expect(screen.getByRole('menuitem', { name: 'Disabled' })).toBeDisabled();
+  });
+
+  it('opens on hover without stealing focus and keeps the menu reachable across the gap', async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <Dropdown
+          portal
+          align="right"
+          openOnHover
+          trigger={(props) => <TestTrigger {...props}>Open hover menu</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>Hover item</DropdownItem>
+        </Dropdown>
+      );
+
+      const trigger = screen.getByRole('button', { name: 'Open hover menu' });
+      const container = trigger.parentElement;
+      expect(container).not.toBeNull();
+
+      fireEvent.mouseEnter(container!);
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Hover item' })).not.toHaveFocus();
+
+      fireEvent.mouseLeave(container!);
+      await act(() => vi.advanceTimersByTime(119));
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      fireEvent.mouseEnter(screen.getByRole('menu'));
+      await act(() => vi.advanceTimersByTime(120));
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      fireEvent.mouseLeave(screen.getByRole('menu'));
+      await act(() => vi.advanceTimersByTime(120));
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('supports roving arrows, Home/End, typeahead, and keyboard selection', async () => {

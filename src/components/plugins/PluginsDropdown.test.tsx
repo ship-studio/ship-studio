@@ -41,17 +41,18 @@ function makeActions() {
 
 function renderDropdown(overrides: Partial<Parameters<typeof PluginsDropdown>[0]> = {}) {
   const { actions, showToast } = makeActions();
+  const onOpenPluginManager = vi.fn();
   render(
     <PluginsDropdown
       plugins={[]}
       pluginProject={null}
       pluginActions={actions}
       pluginTheme={theme}
-      onOpenPluginManager={vi.fn()}
+      onOpenPluginManager={onOpenPluginManager}
       {...overrides}
     />
   );
-  return { showToast };
+  return { showToast, onOpenPluginManager };
 }
 
 describe('PluginsDropdown', () => {
@@ -91,5 +92,16 @@ describe('PluginsDropdown', () => {
   it('shows the empty hint only when nothing is installed at all', () => {
     renderDropdown();
     expect(screen.getByText('No plugins installed yet.')).toBeInTheDocument();
+  });
+
+  it('opens Plugin Manager when invoked by the panel shortcut action', () => {
+    const { onOpenPluginManager } = renderDropdown();
+    const trigger = screen.getByRole('button', { name: 'Plugins' });
+    trigger.setAttribute('data-workspace-panel-shortcut-triggered', 'open-plugin-manager');
+
+    fireEvent.click(trigger);
+
+    expect(onOpenPluginManager).toHaveBeenCalledTimes(1);
+    expect(trigger).not.toHaveAttribute('data-workspace-panel-shortcut-triggered');
   });
 });

@@ -33,6 +33,7 @@ export interface ControlRenderCtx {
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onReset: (spec: ResetSpec) => void;
   onSetSide: (type: BoxType, side: Side, value: SpacingValue) => void;
+  onSetPositionSide: (side: Side, value: SpacingValue) => void;
   onStepGap: (dir: 1 | -1, step?: number) => void;
   /** Rendered colors (getComputedStyle) keyed by CSS prop, to seed color pickers. */
   computed?: Record<string, string | undefined>;
@@ -96,7 +97,25 @@ export function PropControlRenderer({
   switch (control.kind) {
     case 'spacingBox':
       return (
-        <SpacingBox currentClass={ctx.currentClass} layer={ctx.layer} onSetSide={ctx.onSetSide} />
+        <SpacingBox
+          currentClass={ctx.currentClass}
+          layer={ctx.layer}
+          onSetSide={ctx.onSetSide}
+          onReset={ctx.onReset}
+          variables={ctx.variables}
+        />
+      );
+    case 'positionBox':
+      return (
+        <SpacingBox
+          variant="position"
+          currentClass={ctx.currentClass}
+          layer={ctx.layer}
+          onSetSide={ctx.onSetSide}
+          onReset={ctx.onReset}
+          onSetPositionSide={ctx.onSetPositionSide}
+          variables={ctx.variables}
+        />
       );
     case 'gap':
       return (
