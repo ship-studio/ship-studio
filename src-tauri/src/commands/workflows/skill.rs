@@ -341,11 +341,18 @@ mod tests {
     fn skill_dirs_target_the_agents_own_config_locations() {
         let dirs = skill_dirs();
         assert_eq!(dirs.len(), 2, "Claude Code and Codex support skills");
-        assert!(dirs
-            .iter()
-            .any(|(id, p)| *id == "claude-code" && p.to_string_lossy().contains(".claude/skills")));
-        assert!(dirs
-            .iter()
-            .any(|(id, p)| *id == "codex" && p.to_string_lossy().contains(".codex/skills")));
+
+        // Compared as path components, not as a substring with a separator in
+        // it: `join` writes a backslash on Windows, so `.claude/skills` matched
+        // nothing there and this failed on a platform where the code is fine.
+        let ends_with = |agent: &str, config_dir: &str| {
+            let tail = std::path::Path::new(config_dir)
+                .join("skills")
+                .join(SKILL_DIR_NAME);
+            dirs.iter()
+                .any(|(id, path)| *id == agent && path.ends_with(&tail))
+        };
+        assert!(ends_with("claude-code", ".claude"));
+        assert!(ends_with("codex", ".codex"));
     }
 }
