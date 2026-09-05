@@ -339,8 +339,8 @@ export function PreviewCanvas({
 
   // ── Pan ─────────────────────────────────────────────
   // Space-drag and middle-drag, the two canvas idioms. Two-finger scrolling is
-  // the browser's own and needs nothing from us — except over the active frame,
-  // which is a live page and eats the gesture (see `modifierHeld` below).
+  // the browser's own; a gesture that lands inside a frame comes back to us
+  // through the frame's own forwarder (above).
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
   useEffect(() => {
@@ -361,25 +361,6 @@ export function PreviewCanvas({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
-    };
-  }, []);
-
-  // A wheel gesture over the ACTIVE frame belongs to that page — it is a live
-  // document and scrolling it is the point. But the frame is cross-origin, so
-  // the parent never sees those events, and a canvas zoom over it would do
-  // nothing. Holding ⌘/Ctrl (which the user is already doing to zoom) lifts the
-  // frames out of the way so the whole canvas is one zoom surface.
-  const [modifierHeld, setModifierHeld] = useState(false);
-  useEffect(() => {
-    const sync = (event: KeyboardEvent) => setModifierHeld(event.metaKey || event.ctrlKey);
-    const clear = () => setModifierHeld(false);
-    window.addEventListener('keydown', sync);
-    window.addEventListener('keyup', sync);
-    window.addEventListener('blur', clear);
-    return () => {
-      window.removeEventListener('keydown', sync);
-      window.removeEventListener('keyup', sync);
-      window.removeEventListener('blur', clear);
     };
   }, []);
 
@@ -456,7 +437,7 @@ export function PreviewCanvas({
     <div
       className={`preview-canvas-root${spaceHeld ? ' is-pannable' : ''}${
         panning ? ' is-panning' : ''
-      }${modifierHeld ? ' is-zooming' : ''}`}
+      }`}
     >
       <div
         className="preview-canvas"

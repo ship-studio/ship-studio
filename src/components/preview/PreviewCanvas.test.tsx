@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PreviewCanvas } from './PreviewCanvas';
-import { CANVAS_PADDING_PX, MAX_ZOOM, type CanvasFrame } from '../../lib/previewCanvas';
+import { CANVAS_PADDING_PX, MAX_ZOOM, wheelZoom, type CanvasFrame } from '../../lib/previewCanvas';
 
 const FRAMES: CanvasFrame[] = [
   { id: 'desktop', label: 'Desktop', width: 1440 },
@@ -311,14 +311,29 @@ describe('PreviewCanvas', () => {
     expect(root.className).not.toContain('is-panning');
   });
 
-  it('lifts the frames out of the way while the zoom modifier is held', () => {
-    const { container } = renderCanvas();
-    const root = container.querySelector<HTMLElement>('.preview-canvas-root')!;
-    expect(root.className).not.toContain('is-zooming');
-    fireEvent.keyDown(window, { key: 'Meta', metaKey: true });
-    expect(root.className).toContain('is-zooming');
-    fireEvent.keyUp(window, { key: 'Meta', metaKey: false });
-    expect(root.className).not.toContain('is-zooming');
+  it('zooms at a gesture a frame forwards up, mapped back to where it happened', () => {
+    const onZoomChange = vi.fn();
+    const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
+    const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { type: 'ss:wheelZoom', deltaY: -10, x: 100, y: 50 },
+      })
+    );
+    expect(onZoomChange).toHaveBeenCalledWith(wheelZoom(0.5, -10));
+  });
+
+  it('ignores a forwarded gesture from a window that is not one of its frames', () => {
+    const onZoomChange = vi.fn();
+    renderCanvas({ zoom: 0.5, onZoomChange });
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: window,
+        data: { type: 'ss:wheelZoom', deltaY: -10, x: 0, y: 0 },
+      })
+    );
+    expect(onZoomChange).not.toHaveBeenCalled();
   });
 
   it('renders host chrome over the active frame, with the canvas scale', () => {

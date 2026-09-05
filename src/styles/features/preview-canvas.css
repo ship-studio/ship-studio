@@ -183,7 +183,6 @@
    into an iframe would otherwise strand the gesture. Space alone does the same,
    so a space-drag can start over a frame. */
 .preview-canvas-root.is-pannable .preview-canvas-scaled,
-.preview-canvas-root.is-panning .preview-canvas-scaled,
-.preview-canvas-root.is-zooming .preview-canvas-scaled {
+.preview-canvas-root.is-panning .preview-canvas-scaled {
   pointer-events: none;
 }
