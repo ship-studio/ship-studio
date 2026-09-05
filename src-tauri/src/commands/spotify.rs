@@ -125,8 +125,9 @@ fn parse_state_payload(raw: &str) -> Result<SpotifyState, CommandError> {
     }
 
     // Duration is the one unit conversion: Spotify's sdef documents `duration`
-    // as seconds, but the app has always reported milliseconds. A zero/absent
-    // value means "no current track", not "a zero-length track".
+    // as seconds, but the app reports milliseconds. Confirmed against a live
+    // session — a ~4:00 track returned 238720. A zero/absent value means "no
+    // current track", not "a zero-length track".
     let duration = parse_number(fields[9])
         .filter(|ms| *ms > 0.0)
         .map(|ms| ms / 1000.0);
@@ -205,7 +206,14 @@ fn is_not_running_error(stderr: &str) -> bool {
 
 /// Actions accepted by [`spotify_control`]. A fixed allowlist — no
 /// user-controlled string is ever interpolated into AppleScript source.
-const CONTROL_ACTIONS: &[&str] = &["playpause", "next", "previous", "seek", "volume"];
+const CONTROL_ACTIONS: &[&str] = &[
+    "playpause",
+    "next",
+    "previous",
+    "seek",
+    "volume",
+    "activate",
+];
 
 /// Timeout for every osascript / pgrep spawn. A hung osascript must never
 /// wedge the widget's polling loop.
@@ -375,6 +383,16 @@ fn build_control_script(action: &str, value: Option<f64>) -> Result<String, Comm
         "playpause" => "tell application \"Spotify\" to playpause".to_string(),
         "next" => "tell application \"Spotify\" to next track".to_string(),
         "previous" => "tell application \"Spotify\" to previous track".to_string(),
+        // Brings Spotify to the foreground so the widget can hand off to the
+        // full app. `value` is meaningless here and is ignored, as it is for
+        // the other valueless actions.
+        //
+        // The `pgrep` guard in `platform_control` is load-bearing for this
+        // arm specifically: `activate` on a non-running app *launches* it,
+        // which is the one behaviour this whole module exists to avoid. The
+        // guard runs before any script is spawned, so a closed Spotify is an
+        // expected error rather than a surprise launch.
+        "activate" => "tell application \"Spotify\" to activate".to_string(),
         "seek" => {
             let seconds = require_value("value")?;
             if seconds < 0.0 {
@@ -431,7 +449,8 @@ async fn platform_control(action: String, value: Option<f64>) -> Result<(), Comm
 /// Drive Spotify playback.
 ///
 /// `action` is one of `playpause`, `next`, `previous`, `seek` (seconds in
-/// `value`) or `volume` (0-100 in `value`). Anything else is a
+/// `value`), `volume` (0-100 in `value`) or `activate` (focus the Spotify
+/// window). Anything else is a
 /// [`CommandError::Validation`]; controlling a closed Spotify is a clean
 /// [`CommandError::Expected`] rather than a launch.
 #[tauri::command]
@@ -617,6 +636,7 @@ mod tests {
         assert!(build_control_script("previous", None).is_ok());
         assert!(build_control_script("seek", Some(30.0)).is_ok());
         assert!(build_control_script("volume", Some(50.0)).is_ok());
+        assert!(build_control_script("activate", None).is_ok());
 
         for bogus in ["play", "quit", "pause", "", "PLAYPAUSE", "playpause; quit"] {
             let err = build_control_script(bogus, Some(1.0)).unwrap_err();
@@ -625,6 +645,18 @@ mod tests {
                 "`{bogus}` should be a validation error"
             );
         }
+    }
+
+    #[test]
+    fn activate_focuses_spotify_and_ignores_any_value() {
+        let script = build_control_script("activate", None).unwrap();
+        assert_eq!(script, "tell application \"Spotify\" to activate");
+        // A stray `value` must not change the emitted script, and must not be
+        // silently reinterpreted as a seek/volume argument.
+        assert_eq!(
+            build_control_script("activate", Some(42.0)).unwrap(),
+            script
+        );
     }
 
     #[test]
