@@ -104,11 +104,20 @@
 }
 
 /* The active frame's border. Drawn in the overlay so it stays 1px at any zoom
-   instead of thinning out with the scale transform. */
+   instead of thinning out with the scale transform. It also hosts the host-side
+   editor chrome (the structural-edit toolbar), which is positioned from the
+   frame's own coordinates scaled into screen space. */
 .preview-canvas-outline {
+  position: relative;
   flex: 1;
   border: 1px solid var(--accent-active);
   border-radius: var(--radius-card);
+}
+
+/* The overlay layer is click-through so the active frame stays interactive;
+   anything deliberately placed in it takes its clicks back. */
+.preview-canvas-outline > * {
+  pointer-events: auto;
 }
 
 /* Inactive frames sit behind a transparent target: one click makes the frame
@@ -150,4 +159,31 @@
   border-radius: var(--radius-pill);
   background: var(--surface-panel);
   box-shadow: var(--shadow-md);
+}
+
+/* Fixed width so stepping through zoom levels doesn't shuffle the buttons
+   either side of the readout. */
+.preview-canvas-zoom-readout {
+  min-width: 52px;
+}
+
+/* Space held: the canvas is ready to be dragged. The cursor lives on the root
+   so it covers the frames too — an iframe would otherwise show its own. */
+.preview-canvas-root.is-pannable,
+.preview-canvas-root.is-pannable .preview-canvas {
+  cursor: grab;
+}
+
+.preview-canvas-root.is-panning,
+.preview-canvas-root.is-panning .preview-canvas {
+  cursor: grabbing;
+}
+
+/* While panning, the frames must not swallow the drag — a mouse that crosses
+   into an iframe would otherwise strand the gesture. Space alone does the same,
+   so a space-drag can start over a frame. */
+.preview-canvas-root.is-pannable .preview-canvas-scaled,
+.preview-canvas-root.is-panning .preview-canvas-scaled,
+.preview-canvas-root.is-zooming .preview-canvas-scaled {
+  pointer-events: none;
 }

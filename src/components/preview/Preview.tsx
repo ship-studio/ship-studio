@@ -52,7 +52,7 @@ import { HealthTabPanel, type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useVisualEditor } from '../../hooks/useVisualEditor';
 import { useTextEditing } from '../../hooks/useTextEditing';
-import { useElementStructure } from '../../hooks/useElementStructure';
+import { useElementStructure, type StructureSelection } from '../../hooks/useElementStructure';
 import { ElementToolbar } from '../edit/ElementToolbar';
 import { useCssCascadeEditor } from '../../hooks/useCssCascadeEditor';
 import { useElementSettings } from '../../hooks/useElementSettings';
@@ -113,6 +113,29 @@ const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
 };
 
 const PREVIEW_BREAKPOINTS = Object.keys(BREAKPOINTS) as Breakpoint[];
+
+/**
+ * A frame reports its selection box in its OWN pixels. Host-side editor chrome
+ * draws at screen scale, so on the breakpoint canvas the rect has to come
+ * through the canvas scale first. (In focus mode the scale is 1 and this is a
+ * no-op.)
+ */
+const scaleSelection = (
+  selection: StructureSelection | null,
+  scale: number
+): StructureSelection | null => {
+  const rect = selection?.rect;
+  if (!selection || !rect) return selection;
+  return {
+    ...selection,
+    rect: {
+      top: rect.top * scale,
+      left: rect.left * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    },
+  };
+};
 
 /** Props for the Preview component */
 interface PreviewProps {
@@ -363,6 +386,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const [canvasZoom, setCanvasZoom] = useState<CanvasZoom>('fit');
   const [canvasFrameId, setCanvasFrameId] = useState<Breakpoint>('desktop');
   const [canvasFrameEl, setCanvasFrameEl] = useState<HTMLIFrameElement | null>(null);
+  // The canvas's own frame height, reported back so host-side editor chrome can
+  // be clamped to the same box the frames occupy.
+  const [canvasFrameStageHeight, setCanvasFrameStageHeight] = useState(0);
   // Device columns, widest first, straight off the toolbar's own presets so the
   // canvas and the breakpoint tabs can never disagree about a width. `full` has
   // no fixed width, so it isn't a column.
@@ -386,7 +412,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       return !on;
     });
   }, []);
-  const activateCanvasFrame = useCallback((frameId: string) => {
+  // Where the activating click landed inside the newly activated frame, held until the
+  // editor has finished binding to it (below).
+  const pendingCanvasSelectRef = useRef<{ x: number; y: number } | null>(null);
+  const activateCanvasFrame = useCallback((frameId: string, point?: { x: number; y: number }) => {
+    pendingCanvasSelectRef.current = point ?? null;
     setCanvasFrameId(frameId as Breakpoint);
     void trackEvent('preview_canvas_frame_activated', { breakpoint: frameId });
   }, []);
@@ -696,6 +726,25 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     enabled: activeEditMode,
     onToast,
   });
+  // Clicking a frame the user isn't working in yet activates it — and, if they
+  // were editing, selects what they actually pointed at. Declared AFTER the
+  // editor hooks so it runs after their own re-bind effects have posted
+  // `ss:activate` to this frame; the script ignores a select while inert.
+  useEffect(() => {
+    const point = pendingCanvasSelectRef.current;
+    if (!point) return;
+    pendingCanvasSelectRef.current = null;
+    if (!canvasMode || !canvasFrameEl || !activeEditMode) return;
+    try {
+      canvasFrameEl.contentWindow?.postMessage(
+        { type: 'ss:selectAt', x: point.x, y: point.y },
+        '*'
+      );
+    } catch {
+      // The frame may have gone away between the click and this effect.
+    }
+  }, [canvasMode, canvasFrameEl, activeEditMode]);
+
   // Imperative opener for the toolbar's insert palette (Cmd+K "Insert element…").
   const openInsertMenuRef = useRef<(() => void) | null>(null);
   const toggleActiveEditor =
@@ -1628,6 +1677,27 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onZoomChange={setCanvasZoom}
             onActivateFrame={activateCanvasFrame}
             onActiveFrameElement={setCanvasFrameEl}
+            onStageHeightChange={setCanvasFrameStageHeight}
+            activeFrameOverlay={(scale) =>
+              activeEditMode ? (
+                <ElementToolbar
+                  // The frame reports the selection box in its OWN pixels; the
+                  // toolbar draws at screen scale, so both the rect and the
+                  // bounds it is clamped to come through the canvas scale.
+                  selection={scaleSelection(structure.selection, scale)}
+                  bounds={{
+                    w: canvasFrameWidth * scale,
+                    h: canvasFrameStageHeight * scale,
+                  }}
+                  busy={structure.busy}
+                  hidden={structure.textEditing}
+                  onInsert={(position, kind) => void structure.insert(position, kind)}
+                  onDuplicate={() => void structure.duplicate()}
+                  onDelete={() => void structure.remove()}
+                  openMenuRef={openInsertMenuRef}
+                />
+              ) : null
+            }
           />
         ) : (
           <div

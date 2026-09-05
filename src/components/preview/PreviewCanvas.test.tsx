@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PreviewCanvas } from './PreviewCanvas';
-import { CANVAS_PADDING_PX, type CanvasFrame } from '../../lib/previewCanvas';
+import { CANVAS_PADDING_PX, MAX_ZOOM, type CanvasFrame } from '../../lib/previewCanvas';
 
 const FRAMES: CanvasFrame[] = [
   { id: 'desktop', label: 'Desktop', width: 1440 },
@@ -110,11 +110,25 @@ describe('PreviewCanvas', () => {
     ]);
   });
 
-  it('activates the clicked frame', async () => {
+  it('activates the clicked frame, and reports where the click landed in it', async () => {
     const onActivateFrame = vi.fn();
     renderCanvas({ onActivateFrame });
     await userEvent.click(screen.getByRole('button', { name: 'Work at Mobile, 375 pixels' }));
-    expect(onActivateFrame).toHaveBeenCalledWith('mobile');
+    const [frameId, point] = onActivateFrame.mock.calls[0] as [
+      string,
+      { x: number; y: number } | undefined,
+    ];
+    expect(frameId).toBe('mobile');
+    expect(typeof point?.x).toBe('number');
+    expect(typeof point?.y).toBe('number');
+  });
+
+  it('reports no point for a keyboard activation', async () => {
+    const onActivateFrame = vi.fn();
+    renderCanvas({ onActivateFrame });
+    screen.getByRole('button', { name: 'Work at Mobile, 375 pixels' }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onActivateFrame).toHaveBeenCalledWith('mobile', undefined);
   });
 
   it('reports the active frame element so the editor can bind to it', () => {
@@ -182,19 +196,126 @@ describe('PreviewCanvas', () => {
     }
   });
 
-  it('offers zoom levels and reports the choice', async () => {
+  it('reads out the current zoom, and returns to true size when it is clicked', async () => {
     const onZoomChange = vi.fn();
-    renderCanvas({ onZoomChange });
-    await userEvent.click(screen.getByRole('button', { name: '100%' }));
+    renderCanvas({ zoom: 0.5, onZoomChange });
+    await userEvent.click(screen.getByRole('button', { name: '50%' }));
     expect(onZoomChange).toHaveBeenCalledWith(1);
-    await userEvent.click(screen.getByRole('button', { name: 'Fit' }));
-    expect(onZoomChange).toHaveBeenCalledWith('fit');
   });
 
-  it('marks the current zoom level as pressed', () => {
+  it('steps the zoom in and out', async () => {
+    const onZoomChange = vi.fn();
+    renderCanvas({ zoom: 0.5, onZoomChange });
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(onZoomChange).toHaveBeenLastCalledWith(0.625);
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+    expect(onZoomChange).toHaveBeenLastCalledWith(0.4);
+  });
+
+  it('stops stepping at the ends of the zoom range', () => {
+    renderCanvas({ zoom: MAX_ZOOM });
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeEnabled();
+  });
+
+  it('marks Fit as pressed only while fitting', () => {
+    const { unmount } = renderCanvas({ zoom: 'fit' });
+    expect(screen.getByRole('button', { name: 'Fit' })).toHaveAttribute('aria-pressed', 'true');
+    unmount();
     renderCanvas({ zoom: 0.5 });
-    expect(screen.getByRole('button', { name: '50%' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Fit' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('zooms on ⌘+wheel, keeping the point under the pointer in place', () => {
+    const onZoomChange = vi.fn();
+    const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const event = new WheelEvent('wheel', {
+      deltaY: -120,
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    scroller.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onZoomChange).toHaveBeenCalledWith(0.625);
+  });
+
+  it('leaves a plain wheel alone so the canvas scrolls normally', () => {
+    const onZoomChange = vi.fn();
+    const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const event = new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true });
+    scroller.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onZoomChange).not.toHaveBeenCalled();
+  });
+
+  it('zooms with ⌘+ / ⌘- and fits with ⌘0', () => {
+    const onZoomChange = vi.fn();
+    renderCanvas({ zoom: 0.5, onZoomChange });
+    fireEvent.keyDown(window, { key: '=', metaKey: true });
+    expect(onZoomChange).toHaveBeenLastCalledWith(0.625);
+    fireEvent.keyDown(window, { key: '-', metaKey: true });
+    expect(onZoomChange).toHaveBeenLastCalledWith(0.4);
+    fireEvent.keyDown(window, { key: '0', metaKey: true });
+    expect(onZoomChange).toHaveBeenLastCalledWith('fit');
+  });
+
+  it('ignores zoom shortcuts while the user is typing', () => {
+    const onZoomChange = vi.fn();
+    renderCanvas({ zoom: 0.5, onZoomChange });
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: '=', metaKey: true });
+    expect(onZoomChange).not.toHaveBeenCalled();
+    input.remove();
+  });
+
+  it('arms panning while space is held, and drags the canvas', () => {
+    const { container } = renderCanvas({ zoom: 1 });
+    const root = container.querySelector<HTMLElement>('.preview-canvas-root')!;
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    scroller.scrollLeft = 400;
+
+    fireEvent.keyDown(window, { code: 'Space' });
+    expect(root.className).toContain('is-pannable');
+
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 300, clientY: 100 });
+    expect(root.className).toContain('is-panning');
+    fireEvent.mouseMove(document, { clientX: 250, clientY: 100 });
+    expect(scroller.scrollLeft).toBe(450);
+    fireEvent.mouseUp(document);
+    expect(root.className).not.toContain('is-panning');
+
+    fireEvent.keyUp(window, { code: 'Space' });
+    expect(root.className).not.toContain('is-pannable');
+  });
+
+  it('does not start a pan on a plain click', () => {
+    const { container } = renderCanvas({ zoom: 1 });
+    const root = container.querySelector<HTMLElement>('.preview-canvas-root')!;
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 300, clientY: 100 });
+    expect(root.className).not.toContain('is-panning');
+  });
+
+  it('lifts the frames out of the way while the zoom modifier is held', () => {
+    const { container } = renderCanvas();
+    const root = container.querySelector<HTMLElement>('.preview-canvas-root')!;
+    expect(root.className).not.toContain('is-zooming');
+    fireEvent.keyDown(window, { key: 'Meta', metaKey: true });
+    expect(root.className).toContain('is-zooming');
+    fireEvent.keyUp(window, { key: 'Meta', metaKey: false });
+    expect(root.className).not.toContain('is-zooming');
+  });
+
+  it('renders host chrome over the active frame, with the canvas scale', () => {
+    renderCanvas({
+      zoom: 0.5,
+      activeFrameOverlay: (scale: number) => <div data-testid="overlay">{scale}</div>,
+    });
+    expect(screen.getByTestId('overlay')).toHaveTextContent('0.5');
   });
 
   it('centres the active frame when the zoom level changes', () => {

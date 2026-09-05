@@ -42,8 +42,17 @@ export const CANVAS_LABEL_PX = 32;
 /** Outer padding around the whole surface, in canvas pixels. */
 export const CANVAS_PADDING_PX = 32;
 
-/** Zoom levels offered next to "Fit". */
-export const ZOOM_STEPS = [0.5, 0.75, 1] as const;
+/** Zoom bounds. Below the floor the frames stop being readable at all; above
+ *  the ceiling a preview frame is magnified past any useful detail. */
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 2;
+
+/** One press of the zoom buttons, as a ratio — multiplicative so a step feels
+ *  the same size at 20% as at 150%. */
+const ZOOM_STEP_RATIO = 1.25;
+
+/** How much wheel movement equals one full zoom step. */
+const WHEEL_PIXELS_PER_STEP = 120;
 
 /** How far a frame can sit outside the visible canvas and still stay mounted,
  *  as a multiple of the visible width. One screen of slack on each side keeps
@@ -123,6 +132,51 @@ export function visibleFrameIds(
   return layout.placements
     .filter((placement) => placement.x < windowEnd && placement.x + placement.width > windowStart)
     .map((placement) => placement.id);
+}
+
+/** Hold a zoom level inside the usable range. */
+export function clampZoom(zoom: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+}
+
+/** The next zoom level in or out, one button press from `zoom`. */
+export function stepZoom(zoom: number, direction: 'in' | 'out'): number {
+  return clampZoom(direction === 'in' ? zoom * ZOOM_STEP_RATIO : zoom / ZOOM_STEP_RATIO);
+}
+
+/**
+ * The zoom a wheel gesture asks for. Trackpad pinch and ctrl+wheel both arrive
+ * as wheel events with `ctrlKey`, in wildly different magnitudes, so the delta
+ * is treated as a fraction of a step rather than an absolute amount.
+ */
+export function wheelZoom(zoom: number, deltaY: number): number {
+  return clampZoom(zoom * Math.pow(ZOOM_STEP_RATIO, -deltaY / WHEEL_PIXELS_PER_STEP));
+}
+
+/**
+ * Scroll offsets that keep the canvas point under the pointer under the pointer
+ * across a zoom change — the difference between zooming *at the cursor* and
+ * zooming at the top-left corner, which throws the user's place away.
+ *
+ * `pointerX`/`pointerY` are relative to the visible canvas box.
+ */
+export function anchorScroll(params: {
+  scrollLeft: number;
+  scrollTop: number;
+  pointerX: number;
+  pointerY: number;
+  fromScale: number;
+  toScale: number;
+}): { scrollLeft: number; scrollTop: number } {
+  const { scrollLeft, scrollTop, pointerX, pointerY, fromScale, toScale } = params;
+  if (fromScale <= 0 || toScale <= 0) return { scrollLeft, scrollTop };
+  // The canvas-space point currently under the pointer, put back under it.
+  const canvasX = (scrollLeft + pointerX) / fromScale;
+  const canvasY = (scrollTop + pointerY) / fromScale;
+  return {
+    scrollLeft: Math.max(0, canvasX * toScale - pointerX),
+    scrollTop: Math.max(0, canvasY * toScale - pointerY),
+  };
 }
 
 /**

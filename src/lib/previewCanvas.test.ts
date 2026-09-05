@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import {
   CANVAS_GAP_PX,
   CANVAS_PADDING_PX,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  anchorScroll,
+  clampZoom,
   fitScale,
   frameHeight,
   layoutFrames,
   scrollToCenterFrame,
+  stepZoom,
   visibleFrameIds,
+  wheelZoom,
   type CanvasFrame,
 } from './previewCanvas';
 
@@ -129,5 +135,82 @@ describe('scrollToCenterFrame', () => {
 
   it('ignores an unknown frame', () => {
     expect(scrollToCenterFrame(layout, 'nope', 1, 1000)).toBe(0);
+  });
+});
+
+describe('clampZoom', () => {
+  it('holds the zoom inside the usable range', () => {
+    expect(clampZoom(0.001)).toBe(MIN_ZOOM);
+    expect(clampZoom(50)).toBe(MAX_ZOOM);
+    expect(clampZoom(0.8)).toBe(0.8);
+  });
+});
+
+describe('stepZoom', () => {
+  it('steps by a ratio, so a press feels the same size at any zoom', () => {
+    expect(stepZoom(0.4, 'in')).toBeCloseTo(0.5);
+    expect(stepZoom(1.6, 'in')).toBeCloseTo(2);
+    expect(stepZoom(0.5, 'out')).toBeCloseTo(0.4);
+  });
+
+  it('stops at the ends of the range', () => {
+    expect(stepZoom(MAX_ZOOM, 'in')).toBe(MAX_ZOOM);
+    expect(stepZoom(MIN_ZOOM, 'out')).toBe(MIN_ZOOM);
+  });
+});
+
+describe('wheelZoom', () => {
+  it('zooms in on a scroll up and out on a scroll down', () => {
+    expect(wheelZoom(1, -120)).toBeCloseTo(1.25);
+    expect(wheelZoom(1, 120)).toBeCloseTo(0.8);
+  });
+
+  it('scales with the size of the gesture', () => {
+    expect(wheelZoom(1, -60)).toBeLessThan(wheelZoom(1, -120));
+    expect(wheelZoom(1, -1)).toBeCloseTo(1, 1);
+  });
+
+  it('stays inside the range however hard the gesture is', () => {
+    expect(wheelZoom(1, -100000)).toBe(MAX_ZOOM);
+    expect(wheelZoom(1, 100000)).toBe(MIN_ZOOM);
+  });
+});
+
+describe('anchorScroll', () => {
+  const base = { scrollLeft: 0, scrollTop: 0, pointerX: 0, pointerY: 0 };
+
+  it('keeps the canvas point under the pointer under the pointer', () => {
+    const next = anchorScroll({
+      ...base,
+      scrollLeft: 400,
+      pointerX: 200,
+      fromScale: 0.5,
+      toScale: 1,
+    });
+    // Canvas x under the pointer was (400+200)/0.5 = 1200; at scale 1 that must
+    // still sit 200px into the visible canvas.
+    expect(next.scrollLeft).toBe(1200 - 200);
+  });
+
+  it('works on both axes', () => {
+    const next = anchorScroll({
+      scrollLeft: 100,
+      scrollTop: 50,
+      pointerX: 10,
+      pointerY: 20,
+      fromScale: 1,
+      toScale: 2,
+    });
+    expect(next).toEqual({ scrollLeft: 210, scrollTop: 120 });
+  });
+
+  it('never scrolls to a negative offset', () => {
+    const next = anchorScroll({ ...base, pointerX: 500, fromScale: 1, toScale: 0.5 });
+    expect(next.scrollLeft).toBe(0);
+  });
+
+  it('is a no-op for a nonsense scale', () => {
+    const next = anchorScroll({ ...base, scrollLeft: 42, fromScale: 0, toScale: 1 });
+    expect(next.scrollLeft).toBe(42);
   });
 });
