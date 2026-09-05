@@ -26,6 +26,16 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.1.0', // v1.1.0
+    items: [
+      'New: Workflows — standing instructions your own agent runs in a project, on demand or on a schedule, with what it finds filed to a new Inbox on the dashboard. Start from templates like Security sweep, Secrets & env drift, PR review pass, Accessibility pass, and Design-system drift, or describe one to your agent in the terminal and it writes the workflow for you',
+      'Workflows are read-only by default and that is enforced by the agent CLI, not merely requested; every run uses your own agent subscription on your machine, and nothing runs while Ship Studio is closed',
+      'Inbox findings carry a suggested fix: "Fix in <project>" opens the workspace and hands the prompt straight to your agent',
+      'One-click install on Mac: download the DMG, drag Ship Studio to Applications, open it. Builds are now notarized by Apple, so there is no terminal command and no "unverified developer" dialog',
+      'One download for every Mac: a single universal build runs natively on Apple Silicon and Intel, and existing installs move to it automatically through the in-app updater',
+    ],
+  },
+  {
     version: '1.0.0', // v1.0.0
     items: [
       'Ship Studio 1.0 — out of beta. A ground-up visual redesign by Martin Crandon: the Geist typeface, deeper dark surfaces, machined controls with crisp 1px depth, and a four-layer design-token system underneath it all',
