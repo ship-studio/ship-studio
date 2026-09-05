@@ -5,7 +5,7 @@
 Ship Studio is a desktop app for web developers that provides:
 - **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
 - **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
-- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects
+- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, with synced scrolling and editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
 - **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
 - **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace
 - **Branch Management** - Create, switch, and manage git branches
@@ -151,6 +151,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `logger.ts` - Structured frontend logging
 - `mcp.ts` / `skills.ts` / `plugins.ts` / `plugin-loader.ts` - Agent extensions and the plugin system
 - `mobile.ts` / `androidMirror.ts` - Mobile app preview and device mirror
+- `previewCanvas.ts` - Breakpoint-canvas geometry and zoom maths (layout, fit scale, device heights, mount window, pointer anchoring) — see `docs/breakpoint-canvas.md`
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
 - `workflows.ts` / `workflowsStore.ts` / `workflowHandoff.ts` / `workflowTemplates.ts` - Workflows & Inbox: types mirroring the Rust shapes, the store over the Tauri commands, the queue that carries a finding's prompt into a workspace terminal, and the template library the new-workflow picker is built from
@@ -333,6 +334,14 @@ These names predate the layered token system. Product code must use the canonica
 5. In the Inbox, "Fix in \<project\>" queues the suggested prompt (`lib/workflowHandoff.ts`), opens the workspace, and `useWorkflowHandoff` types it once a terminal exists
 
 Full design: [docs/workflows-inbox.md](docs/workflows-inbox.md).
+
+### Breakpoint Canvas Flow
+
+1. The preview toolbar's grid toggle (or Cmd+K → "Show every breakpoint") swaps the single resizable frame for one frame per device width on a scaled, pannable canvas
+2. Each frame is a real dev-server page at its own device size — a frame's height IS the viewport the page reports, so it is never derived from the pane or the zoom (a `100vh` hero must be one screen tall). Seeing the rest of the page means scrolling, so the frames scroll together
+3. Exactly one frame is active: interactive, editor-bound, inspected, and what screenshots crop to. `usePreviewEditorFrame` re-binds the editor hooks by changing the ref's object identity
+4. Wheel and gesture events that land on a frame never reach the app — the injected script forwards zoom gestures up with their coordinates and leaves plain scrolling to the page
+5. Full design: [docs/breakpoint-canvas.md](docs/breakpoint-canvas.md)
 
 ### Languages (Multilingual / i18n) Flow
 1. Cmd+K → "Languages" opens `LanguagesModal` (`useModal('i18n')`)
