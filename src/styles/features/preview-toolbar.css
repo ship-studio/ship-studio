@@ -141,9 +141,20 @@
 @container preview-toolbar (max-width: 820px) {
   /* The dimensions readout beside it opens the same viewport controls
      (presets + exact size), and ⌘K's "Set exact preview size…" reaches the
-     popover directly — so the icon strip is the cheapest thing to drop. */
-  .preview-breakpoint-tabs {
+     popover directly — so the device icons are the cheapest thing to drop.
+     "Every breakpoint" stays: it is how you reach the breakpoints once the
+     icons are gone, and dropping it would leave an empty bordered pill in
+     canvas mode, where the dimensions readout is hidden too. */
+  .preview-breakpoint-tab:not(.preview-breakpoint-tab--canvas),
+  .preview-breakpoint-tabs .tabs__indicator {
     display: none;
+  }
+
+  /* Nothing to be separated from any more. */
+  .preview-breakpoint-tab--canvas {
+    margin-left: 0;
+    border-left: none;
+    padding-left: 0;
   }
 }
 

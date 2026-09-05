@@ -788,7 +788,7 @@ window.addEventListener('gestureend',function(e){if(!ssCanvas)return;e.preventDe
 /* How much room the page has left to scroll. The canvas needs it to tell a
    gesture the page can use from one that belongs to the canvas: a frame showing
    its whole page has no scroll of its own, so the wheel over it is a pan. */
-function ssScrollRange(){return Math.max(0,(document.documentElement.scrollHeight||0)-window.innerHeight);}
+function ssScrollRange(){return Math.max(0,(document.documentElement.scrollHeight||0)-ssRealViewportHeight());}
 
 /* ── A whole page, at an honest viewport height ────────────────────────────
    The breakpoint canvas shows each page in full, which means the frame holding
@@ -832,6 +832,60 @@ function ssRewriteRules(rules){
     try{rule.style.cssText=ssResolveUnits(text);}catch(err){}
   }
 }
+/* A page can learn how tall its frame is three ways, and on this canvas the
+   frame is the whole document — so all three have to answer with the device
+   instead, or the page lays itself out for a viewport twenty screens tall.
+
+   1. CSS viewport units, rewritten below.
+   2. Percentage chains: `html,body{height:100%}` with an `h-full` section under
+      it stretches to the frame. Pinning the root height fixes every one of
+      them at once. Overflow goes with it: a root with a fixed height and a
+      hidden overflow becomes a scroller, and the frame would then show one
+      screen of a page it is meant to be showing all of.
+   3. `window.innerHeight` in JavaScript — a reveal footer's spacer, a
+      scroll-driven section. Left alone this is a runaway: the spacer grows, the
+      page gets longer, the frame is resized to match, and innerHeight grows
+      again. Measured on a real page it ran to the 24000px cap. */
+function ssPinRootHeight(){
+  if(!ssVH)return;
+  var pin=document.getElementById('ss-root-height');
+  if(!pin){
+    pin=document.createElement('style');pin.id='ss-root-height';
+    (document.head||document.documentElement).appendChild(pin);
+  }
+  pin.textContent='html{height:'+ssVH+'px!important;overflow:visible!important}'
+    +'body{overflow:visible!important}';
+}
+
+var ssViewportLied=false;
+/* The canvas's own code still needs the frame's REAL height — the wheel handler
+   decides from it whether the page has scroll left to spend. */
+var ssRealViewportHeight=function(){return window.innerHeight;};
+function ssLieAboutViewport(){
+  if(ssViewportLied||!ssVH)return;
+  ssViewportLied=true;
+  var own=Object.getOwnPropertyDescriptor(window,'innerHeight')
+    ||Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window),'innerHeight');
+  if(own&&own.get){var real=own.get;ssRealViewportHeight=function(){return real.call(window);};}
+  var read=function(){return ssVH;};
+  try{Object.defineProperty(window,'innerHeight',{get:read,configurable:true});}catch(err){}
+  try{Object.defineProperty(document.documentElement,'clientHeight',{get:read,configurable:true});}catch(err){}
+  if(window.visualViewport){
+    try{Object.defineProperty(window.visualViewport,'height',{get:read,configurable:true});}catch(err){}
+  }
+}
+
+/* The cost of that lie: anything deciding what is ON screen from the same
+   number now thinks only the first screen exists, and a hand-rolled lazy loader
+   never loads the rest of the page. Nothing below the fold would ever appear —
+   so the lazy ones are simply told to load. The whole page IS on screen here;
+   that is the entire point of the frame being this tall. */
+function ssLoadEverything(){
+  if(!ssVH)return;
+  var lazy=document.querySelectorAll('[loading="lazy"]');
+  for(var i=0;i<lazy.length;i++){try{lazy[i].setAttribute('loading','eager');}catch(err){}}
+}
+
 function ssRewriteViewportUnits(){
   if(!ssVH)return;
   var sheets=document.styleSheets;
@@ -903,7 +957,9 @@ function ssReportPage(){
 }
 function ssSyncPage(){
   if(ssVHTimer)clearTimeout(ssVHTimer);
-  ssVHTimer=setTimeout(function(){ssVHTimer=0;ssRewriteViewportUnits();ssReportPage();},200);
+  ssVHTimer=setTimeout(function(){
+    ssVHTimer=0;ssPinRootHeight();ssRewriteViewportUnits();ssLoadEverything();ssReportPage();
+  },200);
 }
 /* Watch for STYLESHEETS arriving, not for the page living its life. A canvas
    holds four of these pages at once; an observer over the whole document with
@@ -944,16 +1000,28 @@ var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
-/* A frame nobody is working in is a review surface, and a review surface does
-   not need to be animating. Four whole pages running their marketing animations
-   at once is most of what a breakpoint canvas costs; the frame the user IS in
-   stays live. Reversed the moment it becomes the active one. */
+/* A frame nobody is working in is a review surface. It should show the page
+   SETTLED — every reveal finished, every entrance landed — because that is the
+   state you are reviewing, and because a page that has finished animating costs
+   nothing to keep on screen. Four whole pages running their marketing
+   animations forever is most of what a breakpoint canvas costs.
+
+   So animations are made INSTANT rather than paused. Pausing freezes a
+   scroll-reveal half-drawn, which is worse than either extreme: you end up
+   reviewing a state the page never actually has. Iterations are capped at one
+   so a decorative loop runs once and stops rather than looping at 1ms.
+
+   The frame the user IS in is untouched, and this is reversed the moment a
+   frame becomes that one. */
 else if(d.type==='ss:passive'){
   var pv=document.getElementById('ss-passive-style');
   if(d.on){
     if(!pv){
       pv=document.createElement('style');pv.id='ss-passive-style';
-      pv.textContent='*,*::before,*::after{animation-play-state:paused!important;transition:none!important}';
+      pv.textContent='*,*::before,*::after{'
+        +'animation-duration:1ms!important;animation-delay:0s!important;'
+        +'animation-iteration-count:1!important;'
+        +'transition-duration:1ms!important;transition-delay:0s!important}';
       (document.head||document.documentElement).appendChild(pv);
     }
     var vids=document.querySelectorAll('video');
@@ -963,7 +1031,13 @@ else if(d.type==='ss:passive'){
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
-  if(ssVH){ssWatchPage();ssRewriteViewportUnits();ssPageH=0;ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;ssReportPage();}
+  if(ssVH){
+    ssLieAboutViewport();ssWatchPage();ssPinRootHeight();ssRewriteViewportUnits();ssLoadEverything();
+    /* The page read the real viewport before this message arrived — its scripts
+       ran first. A resize is how a page is told to measure again. */
+    try{window.dispatchEvent(new Event('resize'));}catch(err){}
+    ssPageH=0;ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;ssReportPage();
+  }
 }
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 

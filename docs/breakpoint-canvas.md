@@ -1,8 +1,10 @@
 # Breakpoint canvas
 
 Every breakpoint at once, side by side, instead of one resizable preview frame.
-Toggle it from the preview toolbar (the grid button at the end of the viewport
-controls) or with Cmd+K → "Show every breakpoint".
+It is the last option in the preview toolbar's viewport control — the same
+segmented control as Desktop/Laptop/Tablet/Mobile, because "all of them" is a
+viewport choice rather than a mode on top of one — or Cmd+K → "Show every
+breakpoint".
 
 Each frame is a real dev-server page. There is no second rendering path: an edit
 goes to source and reaches every frame through the dev server's own HMR.
@@ -50,7 +52,10 @@ back up with the point they happened at.
 | Where | What it owns |
 |---|---|
 | [src/lib/previewCanvas.ts](../src/lib/previewCanvas.ts) | Geometry and zoom maths, no DOM: layout, fit scale, device heights, the mount window, pointer anchoring, zoom stepping |
-| [src/components/preview/PreviewCanvas.tsx](../src/components/preview/PreviewCanvas.tsx) | The surface: two layers, frame lifecycle, page heights, the zoom control |
+| [src/components/preview/PreviewCanvas.tsx](../src/components/preview/PreviewCanvas.tsx) | The surface itself: two layers, what is mounted, the zoom control |
+| [src/hooks/useCanvasViewport.ts](../src/hooks/useCanvasViewport.ts) | How big the visible box is — and why measuring the wrong element runs the surface off to millions of pixels |
+| [src/hooks/useCanvasFrames.ts](../src/hooks/useCanvasFrames.ts) | The frames as live documents: the registry, what each has been told, how long its page is, what it hands back |
+| [src/hooks/useCanvasPlacement.ts](../src/hooks/useCanvasPlacement.ts) | Where the canvas sits and who decided that |
 | [src/hooks/useCanvasZoom.ts](../src/hooks/useCanvasZoom.ts) | Every way to zoom, and the anchoring correction |
 | [src/hooks/useCanvasPan.ts](../src/hooks/useCanvasPan.ts) | Space-drag and middle-drag |
 | [src/hooks/usePreviewEditorFrame.ts](../src/hooks/usePreviewEditorFrame.ts) | What the editor, the inspector and screenshots point at |
@@ -119,12 +124,21 @@ stable ref, so nothing about it changes.
 ### Messages
 
 Host → frame: `ss:canvas {on, vh}` — you are part of a canvas, and this is the
-viewport height to resolve your units against — plus the editor's existing `ss:*`
-protocol and `ss:selectAt {x, y}`.
+viewport height to resolve your units against — `ss:passive {on}` — nobody is
+working in you, hold still — plus the editor's existing `ss:*` protocol and
+`ss:selectAt {x, y}`.
 
 Frame → host: `ss:pageHeight {height}`, `ss:panBy {dx, dy}`, `ss:wheelZoom
 {deltaY, x, y}`, `ss:zoomBy {factor, x, y}` (WebKit pinch), and the editor's
 existing replies.
+
+A reported page height has to be **measured twice in a row** before it counts,
+and it is measured from where the content ends rather than from `scrollHeight`.
+Neither is fussiness: the frame is resized to whatever is reported, so a page
+whose layout answers to its own viewport height oscillates unless agreement is
+required, a `scrollHeight` on a stretched body just reports the frame's own
+height back, and a transient measured mid-load sticks — which is a frame with a
+screen of white space under a page that got shorter.
 
 Everything the canvas adds is off until `ss:canvas` arrives, so the ordinary
 single-frame preview is left completely alone — including having its gestures
@@ -133,10 +147,32 @@ frame's `load` handler says it a second time.
 
 ## Performance
 
-Every mounted frame is a full dev-server client with its own HMR socket, so
-frames more than a screen outside the visible canvas are unmounted (the active
-one never is). Scroll only reaches React when it has moved far enough to change
-which frames are mounted.
+Four whole pages at once is the expensive thing about this feature, and every
+one of these exists because it was measured. On a marketing page in the app, one
+ordinary preview frame costs ~20% CPU and ~420MB; four full-length copies of it
+came to 64% and 3.3GB before this work and 25% and 1.1GB after.
+
+- **A frame nobody is working in holds still** (`ss:passive`): animations
+  paused, transitions off, videos paused. Four copies of the same marketing
+  animation running forever was most of the cost. The active frame stays live.
+- **The in-frame observer watches `<head>` for stylesheets**, not the whole
+  document for attributes — a class toggled by a scroll animation was scheduling
+  a CSSOM walk and a forced layout, in every frame, continuously.
+- **Frames outside the mount window are unmounted** (the active one never is),
+  so working zoomed into one frame tears down the three you cannot see. Each is
+  a full dev-server client with its own HMR socket.
+- **The scaled layer is promoted only while the user is moving it**, so a zoom
+  is a compositor transform rather than tens of millions of pixels rasterised
+  again — and the hint is dropped 300ms after they stop.
+- **Each stage is `contain: strict`**, so a page reflowing inside one frame does
+  not invalidate layout across the canvas.
+- Scroll reaches React only when it has moved far enough to change which frames
+  are mounted, and a gesture forwarded out of a frame is coalesced to one scroll
+  write per animation frame.
+
+Everything the canvas adds to a preview page — unit rewriting, page-height
+watching, gesture forwarding — is off until `ss:canvas` arrives, so the ordinary
+single-frame preview costs exactly what it cost before this feature existed.
 
 ## Testing it
 
