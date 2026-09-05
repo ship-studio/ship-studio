@@ -754,12 +754,22 @@ function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeS
    the page. A cross-origin parent never sees them (the event is delivered here),
    so forward them up with the point they happened at, in this document's own
    pixels. Plain scrolling is left alone: scrolling a preview page is scrolling
-   a page. Harmless outside the breakpoint canvas — nothing listens. */
+   a page. Harmless outside the breakpoint canvas — nothing listens.
+   Two flavours, because a trackpad pinch is ctrl+wheel in Chromium and a
+   `gesture*` event in WebKit (which is what the app runs on macOS). */
 window.addEventListener('wheel',function(e){
   if(!e.ctrlKey&&!e.metaKey)return;
   e.preventDefault();
   try{window.parent.postMessage({type:'ss:wheelZoom',deltaY:e.deltaY,x:e.clientX,y:e.clientY},'*');}catch(err){}
 },{passive:false});
+var gzScale=1;
+window.addEventListener('gesturestart',function(e){e.preventDefault();gzScale=e.scale||1;},{passive:false});
+window.addEventListener('gesturechange',function(e){
+  e.preventDefault();
+  var now=e.scale||1,factor=gzScale>0?now/gzScale:1;gzScale=now;
+  try{window.parent.postMessage({type:'ss:zoomBy',factor:factor,x:e.clientX,y:e.clientY},'*');}catch(err){}
+},{passive:false});
+window.addEventListener('gestureend',function(e){e.preventDefault();gzScale=1;},{passive:false});
 
 window.addEventListener('message',function(e){
 

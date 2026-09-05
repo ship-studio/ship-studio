@@ -7,20 +7,20 @@ import {
   anchorScroll,
   clampZoom,
   fitScale,
-  frameHeight,
   layoutFrames,
   scrollToCenterFrame,
   stepZoom,
+  tallestFrame,
   visibleFrameIds,
   wheelZoom,
   type CanvasFrame,
 } from './previewCanvas';
 
 const FRAMES: CanvasFrame[] = [
-  { id: 'desktop', label: 'Desktop', width: 1440 },
-  { id: 'laptop', label: 'Laptop', width: 1024 },
-  { id: 'tablet', label: 'Tablet', width: 768 },
-  { id: 'mobile', label: 'Mobile', width: 375 },
+  { id: 'desktop', label: 'Desktop', width: 1440, height: 900 },
+  { id: 'laptop', label: 'Laptop', width: 1024, height: 700 },
+  { id: 'tablet', label: 'Tablet', width: 768, height: 1024 },
+  { id: 'mobile', label: 'Mobile', width: 375, height: 812 },
 ];
 
 describe('layoutFrames', () => {
@@ -61,26 +61,13 @@ describe('fitScale', () => {
   });
 });
 
-describe('frameHeight', () => {
-  it('grows the frame as the canvas shrinks so it still fills the pane', () => {
-    expect(frameHeight(800, 0.5)).toBe(1600);
+describe('tallestFrame', () => {
+  it('reports the tallest device on the canvas — what the surface has to hold', () => {
+    expect(tallestFrame(layoutFrames(FRAMES))).toBe(1024);
   });
 
-  it('fills the pane at the scale a four-frame canvas actually fits at', () => {
-    // 1440+1024+768+375 + gaps + padding fitted into a 1200px pane ≈ 0.31.
-    expect(frameHeight(980, 0.3145)).toBe(3116);
-  });
-
-  it('clamps a heavily zoomed-out canvas instead of asking for an absurd viewport', () => {
-    expect(frameHeight(800, 0.05)).toBe(3200);
-  });
-
-  it('keeps a floor so a short pane still renders a usable page', () => {
-    expect(frameHeight(200, 1)).toBe(480);
-  });
-
-  it('is safe before the pane is measured', () => {
-    expect(frameHeight(0, 0)).toBe(480);
+  it('is zero for an empty canvas', () => {
+    expect(tallestFrame(layoutFrames([]))).toBe(0);
   });
 });
 
@@ -242,5 +229,38 @@ describe('anchorScroll', () => {
   it('is a no-op for a nonsense scale', () => {
     const next = anchorScroll({ ...base, scrollLeft: 42, fromScale: 0, toScale: 1 });
     expect(next.scrollLeft).toBe(42);
+  });
+});
+
+describe('anchorScroll with a pan-slack origin', () => {
+  it('keeps the point under the pointer put, offset and all', () => {
+    const originX = 600;
+    const next = anchorScroll({
+      scrollLeft: 800,
+      scrollTop: 0,
+      pointerX: 200,
+      pointerY: 0,
+      fromScale: 0.5,
+      toScale: 1,
+      originX,
+      originY: 0,
+    });
+    // Canvas x under the pointer: (800 + 200 - 600) / 0.5 = 800. At scale 1 it
+    // must sit 200px into the visible canvas again, past the same origin.
+    expect(next.scrollLeft).toBe(originX + 800 - 200);
+  });
+
+  it('ignoring the origin would anchor somewhere else entirely', () => {
+    const params = {
+      scrollLeft: 800,
+      scrollTop: 0,
+      pointerX: 200,
+      pointerY: 0,
+      fromScale: 0.5,
+      toScale: 1,
+    };
+    expect(anchorScroll({ ...params, originX: 600 }).scrollLeft).not.toBe(
+      anchorScroll(params).scrollLeft
+    );
   });
 });

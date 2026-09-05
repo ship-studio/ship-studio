@@ -11,7 +11,7 @@
  * @module lib/previewCanvas
  */
 
-/** One device column on the canvas. */
+/** One device artboard on the canvas. */
 export interface CanvasFrame {
   /** Stable id — the preview breakpoint name (`desktop`, `mobile`, …). */
   id: string;
@@ -19,7 +19,26 @@ export interface CanvasFrame {
   label: string;
   /** The CSS width the page lays out at, in unscaled canvas pixels. */
   width: number;
+  /** The CSS height the page lays out at. A frame's height IS the viewport it
+   *  reports, so this has to be a plausible device height: a `100vh` hero is
+   *  exactly as tall as this number says it is. */
+  height: number;
 }
+
+/**
+ * Viewport heights to go with the preview's device widths. Ordinary screens,
+ * not the pane's dimensions — a frame sized from the pane would make every
+ * viewport-relative unit in the page a lie.
+ */
+export const DEVICE_HEIGHTS: Record<string, number> = {
+  desktop: 900,
+  laptop: 700,
+  tablet: 1024,
+  mobile: 812,
+};
+
+/** Height for a device the table doesn't name — a normal laptop screen. */
+export const DEFAULT_DEVICE_HEIGHT = 800;
 
 /** A frame placed on the canvas surface. */
 export interface FramePlacement extends CanvasFrame {
@@ -75,8 +94,6 @@ const PINCH_RESPONSE = 0.006;
 const MOUNT_MARGIN_SCREENS = 1;
 
 const MIN_SCALE = 0.05;
-const MIN_FRAME_HEIGHT_PX = 480;
-const MAX_FRAME_HEIGHT_PX = 3200;
 
 /**
  * Place frames left to right in the order given, separated by `gap`, with
@@ -106,19 +123,9 @@ export function fitScale(contentWidth: number, viewportWidth: number): number {
   return Math.max(MIN_SCALE, Math.min(1, usable / contentWidth));
 }
 
-/**
- * The CSS height each frame renders at. The frames are scaled along with the
- * rest of the surface, so a small scale needs a taller frame to fill the pane:
- * a four-frame canvas fitted into a laptop pane sits near 0.3, which is why the
- * ceiling is in the low thousands rather than something that looks tidier — a
- * lower one leaves the bottom third of the canvas empty. It is a safety valve
- * against a canvas zoomed out far enough to ask for an absurd viewport, not a
- * target.
- */
-export function frameHeight(viewportHeight: number, scale: number): number {
-  if (viewportHeight <= 0 || scale <= 0) return MIN_FRAME_HEIGHT_PX;
-  const raw = Math.round(viewportHeight / scale);
-  return Math.max(MIN_FRAME_HEIGHT_PX, Math.min(MAX_FRAME_HEIGHT_PX, raw));
+/** The tallest frame on the canvas — the surface has to hold it. */
+export function tallestFrame(layout: CanvasLayout): number {
+  return layout.placements.reduce((tallest, frame) => Math.max(tallest, frame.height), 0);
 }
 
 /**
@@ -189,15 +196,29 @@ export function anchorScroll(params: {
   pointerY: number;
   fromScale: number;
   toScale: number;
+  /** Where the frames start inside the surface (the pan slack). Constant across
+   *  a zoom, but it offsets every screen position, so leaving it out anchors
+   *  the zoom on the wrong point and the canvas drifts under the pointer. */
+  originX?: number;
+  originY?: number;
 }): { scrollLeft: number; scrollTop: number } {
-  const { scrollLeft, scrollTop, pointerX, pointerY, fromScale, toScale } = params;
+  const {
+    scrollLeft,
+    scrollTop,
+    pointerX,
+    pointerY,
+    fromScale,
+    toScale,
+    originX = 0,
+    originY = 0,
+  } = params;
   if (fromScale <= 0 || toScale <= 0) return { scrollLeft, scrollTop };
   // The canvas-space point currently under the pointer, put back under it.
-  const canvasX = (scrollLeft + pointerX) / fromScale;
-  const canvasY = (scrollTop + pointerY) / fromScale;
+  const canvasX = (scrollLeft + pointerX - originX) / fromScale;
+  const canvasY = (scrollTop + pointerY - originY) / fromScale;
   return {
-    scrollLeft: Math.max(0, canvasX * toScale - pointerX),
-    scrollTop: Math.max(0, canvasY * toScale - pointerY),
+    scrollLeft: Math.max(0, originX + canvasX * toScale - pointerX),
+    scrollTop: Math.max(0, originY + canvasY * toScale - pointerY),
   };
 }
 

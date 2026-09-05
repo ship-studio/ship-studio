@@ -5,10 +5,10 @@ import { PreviewCanvas } from './PreviewCanvas';
 import { CANVAS_PADDING_PX, MAX_ZOOM, wheelZoom, type CanvasFrame } from '../../lib/previewCanvas';
 
 const FRAMES: CanvasFrame[] = [
-  { id: 'desktop', label: 'Desktop', width: 1440 },
-  { id: 'laptop', label: 'Laptop', width: 1024 },
-  { id: 'tablet', label: 'Tablet', width: 768 },
-  { id: 'mobile', label: 'Mobile', width: 375 },
+  { id: 'desktop', label: 'Desktop', width: 1440, height: 900 },
+  { id: 'laptop', label: 'Laptop', width: 1024, height: 700 },
+  { id: 'tablet', label: 'Tablet', width: 768, height: 1024 },
+  { id: 'mobile', label: 'Mobile', width: 375, height: 812 },
 ];
 
 /** ResizeObserver callbacks registered by the component, so a test can play a
@@ -102,6 +102,22 @@ describe('PreviewCanvas', () => {
     expect(stages[0].style.width).toBe('1440px');
     expect(stages[3].style.width).toBe('375px');
     expect(stages[0].style.left).toBe('0px');
+  });
+
+  it("gives each frame its own device height, never the pane's", () => {
+    // The frame IS the viewport the page reports: a 100vh hero is exactly this
+    // tall. Deriving it from the pane or the zoom would make every vh unit lie.
+    const { container } = renderCanvas();
+    const stages = container.querySelectorAll<HTMLElement>('.preview-canvas-stage');
+    expect(stages[0].style.height).toBe('900px');
+    expect(stages[2].style.height).toBe('1024px');
+    expect(stages[3].style.height).toBe('812px');
+  });
+
+  it('reports the ACTIVE frame height for host chrome to clamp to', () => {
+    const onStageHeightChange = vi.fn();
+    renderCanvas({ activeFrameId: 'mobile', onStageHeightChange });
+    expect(onStageHeightChange).toHaveBeenLastCalledWith(812);
   });
 
   it('scales the surface down to fit rather than reflowing the pages', () => {

@@ -30,7 +30,7 @@ import { PreviewSizeControl } from './PreviewSizeControl';
 import { PreviewCanvas, type CanvasZoom } from './PreviewCanvas';
 import { usePreviewCapture } from '../../hooks/usePreviewCapture';
 import { usePreviewEditorFrame } from '../../hooks/usePreviewEditorFrame';
-import { type CanvasFrame } from '../../lib/previewCanvas';
+import { DEFAULT_DEVICE_HEIGHT, DEVICE_HEIGHTS, type CanvasFrame } from '../../lib/previewCanvas';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
@@ -398,6 +398,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         id: bp,
         label: BREAKPOINTS[bp].label,
         width: parseInt(BREAKPOINTS[bp].width, 10),
+        // A frame's height is the viewport the page sees, so it comes from the
+        // device, never from the pane.
+        height: DEVICE_HEIGHTS[bp] ?? DEFAULT_DEVICE_HEIGHT,
       })),
     []
   );
@@ -1582,21 +1585,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         </button>
 
         <div className="preview-breakpoints" data-education-id="breakpoints">
-          <ToggleButton
-            type="button"
-            className="preview-canvas-control"
-            variant={canvasMode ? 'secondary' : 'default'}
-            pressed={canvasMode}
-            onClick={toggleCanvasMode}
-            title={
-              canvasMode
-                ? 'Focus a single breakpoint'
-                : 'Show every breakpoint side by side on one canvas'
-            }
-            aria-label={canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint'}
-          >
-            <GridIcon size={14} />
-          </ToggleButton>
           <Tabs
             // On the canvas the tabs report the ACTIVE frame, and picking one
             // leaves the canvas focused on that single breakpoint.
@@ -1648,6 +1636,22 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 />
               );
             })()}
+
+          <ToggleButton
+            type="button"
+            className="preview-canvas-control"
+            variant={canvasMode ? 'secondary' : 'default'}
+            pressed={canvasMode}
+            onClick={toggleCanvasMode}
+            title={
+              canvasMode
+                ? 'Focus a single breakpoint'
+                : 'Show every breakpoint side by side on one canvas'
+            }
+            aria-label={canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint'}
+          >
+            <GridIcon size={14} />
+          </ToggleButton>
         </div>
       </div>
       <div

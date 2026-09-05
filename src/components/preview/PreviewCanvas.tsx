@@ -36,16 +36,24 @@ import {
   anchorScroll,
   clampZoom,
   fitScale,
-  frameHeight,
   layoutFrames,
   scrollToCenterFrame,
   stepZoom,
+  tallestFrame,
   visibleFrameIds,
   wheelZoom,
   type CanvasFrame,
 } from '../../lib/previewCanvas';
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
+
+/** WebKit's non-standard pinch events (Safari and every Tauri webview on
+ *  macOS). Not in lib.dom, so the shape we use is spelled out here. */
+interface GestureLikeEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
 
 /** Keyboard shortcuts must not fire while the user is typing somewhere. */
 const isTypingTarget = (target: EventTarget | null): boolean => {
@@ -122,12 +130,12 @@ export function PreviewCanvas({
   // across a zoom (which keeps pointer anchoring honest).
   const slackX = viewport.width * PAN_SLACK_RATIO;
   const slackY = viewport.height * PAN_SLACK_RATIO;
-  // Frame height is fixed at the FIT scale, not the current one: zooming must
-  // magnify the page, not hand it a different viewport. (A frame that shrank as
-  // you zoomed in would re-evaluate the page's own `vh` units and media queries
-  // under you.) Zooming in therefore makes the surface taller than the pane and
-  // the canvas pans vertically, exactly like any other design canvas.
-  const stageHeight = frameHeight(viewport.height - CANVAS_LABEL_PX - CANVAS_PADDING_PX, fitted);
+  // Every frame is a device: its own width AND its own height. A frame's height
+  // is the viewport the page reports, so it cannot be derived from the pane or
+  // the zoom — a `100vh` hero is exactly as tall as the frame says it is, and a
+  // frame sized from the pane makes every viewport-relative unit in the page a
+  // lie. The page scrolls inside its frame, like it does in a browser.
+  const stageHeight = tallestFrame(layout);
   const surfaceWidth = layout.contentWidth * scale + slackX * 2;
   const surfaceHeight = CANVAS_LABEL_PX + stageHeight * scale + CANVAS_PADDING_PX + slackY * 2;
 
@@ -215,9 +223,11 @@ export function PreviewCanvas({
     setActiveSrc(urlRef.current);
   }, [navSignal, activeFrameId, reloadToken]);
 
+  const activeFrameHeight =
+    layout.placements.find((frame) => frame.id === activeFrameId)?.height ?? stageHeight;
   useEffect(() => {
-    onStageHeightChange?.(stageHeight);
-  }, [stageHeight, onStageHeightChange]);
+    onStageHeightChange?.(activeFrameHeight);
+  }, [activeFrameHeight, onStageHeightChange]);
 
   // ── Zoom at the pointer ────────────────────────────────────
   // A zoom change goes through state, so the scroll correction that keeps the
@@ -250,10 +260,12 @@ export function PreviewCanvas({
         pointerY,
         fromScale: scale,
         toScale: nextScale,
+        originX: slackX,
+        originY: slackY,
       });
       onZoomChange(nextScale);
     },
-    [scale, onZoomChange]
+    [scale, onZoomChange, slackX, slackY]
   );
 
   /** Zoom about the middle of the canvas — for the buttons and the keyboard,
@@ -283,7 +295,37 @@ export function PreviewCanvas({
       zoomAt(wheelZoom(scale, event.deltaY), event.clientX - box.left, event.clientY - box.top);
     };
     node.addEventListener('wheel', onWheel, { passive: false });
-    return () => node.removeEventListener('wheel', onWheel);
+
+    // WebKit reports a trackpad pinch as its own gesture events rather than as
+    // ctrl+wheel, and the app runs on WebKit — without these, pinching over the
+    // canvas does nothing at all on macOS.
+    let gestureScale = 1;
+    const onGestureStart = (event: GestureLikeEvent) => {
+      event.preventDefault();
+      gestureScale = event.scale || 1;
+    };
+    const onGestureChange = (event: GestureLikeEvent) => {
+      event.preventDefault();
+      const now = event.scale || 1;
+      const factor = gestureScale > 0 ? now / gestureScale : 1;
+      gestureScale = now;
+      const box = node.getBoundingClientRect();
+      zoomAt(clampZoom(scale * factor), event.clientX - box.left, event.clientY - box.top);
+    };
+    const onGestureEnd = (event: GestureLikeEvent) => {
+      event.preventDefault();
+      gestureScale = 1;
+    };
+    node.addEventListener('gesturestart', onGestureStart as EventListener, { passive: false });
+    node.addEventListener('gesturechange', onGestureChange as EventListener, { passive: false });
+    node.addEventListener('gestureend', onGestureEnd as EventListener, { passive: false });
+
+    return () => {
+      node.removeEventListener('wheel', onWheel);
+      node.removeEventListener('gesturestart', onGestureStart as EventListener);
+      node.removeEventListener('gesturechange', onGestureChange as EventListener);
+      node.removeEventListener('gestureend', onGestureEnd as EventListener);
+    };
   }, [scale, zoomAt]);
 
   // A gesture that landed inside a frame: the frame forwarded it up (the parent
@@ -292,8 +334,16 @@ export function PreviewCanvas({
   // zoom still happens where the user's fingers are.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: string; deltaY?: number; x?: number; y?: number } | null;
-      if (data?.type !== 'ss:wheelZoom' || typeof data.deltaY !== 'number') return;
+      const data = event.data as {
+        type?: string;
+        deltaY?: number;
+        factor?: number;
+        x?: number;
+        y?: number;
+      } | null;
+      const wheeling = data?.type === 'ss:wheelZoom' && typeof data.deltaY === 'number';
+      const pinching = data?.type === 'ss:zoomBy' && typeof data.factor === 'number';
+      if (!wheeling && !pinching) return;
       const node = scrollRef.current;
       if (!node) return;
       // Only this canvas's own frames may drive it.
@@ -305,10 +355,13 @@ export function PreviewCanvas({
       const canvasBox = node.getBoundingClientRect();
       // Already the post-transform box, which is the space the pointer lives in.
       const frameBox = frame.getBoundingClientRect();
+      const next = wheeling
+        ? wheelZoom(scale, data?.deltaY ?? 0)
+        : clampZoom(scale * (data?.factor ?? 1));
       zoomAt(
-        wheelZoom(scale, data.deltaY),
-        frameBox.left - canvasBox.left + (data.x ?? 0) * scale,
-        frameBox.top - canvasBox.top + (data.y ?? 0) * scale
+        next,
+        frameBox.left - canvasBox.left + (data?.x ?? 0) * scale,
+        frameBox.top - canvasBox.top + (data?.y ?? 0) * scale
       );
     };
     window.addEventListener('message', onMessage);
@@ -472,7 +525,7 @@ export function PreviewCanvas({
                 style={{
                   left: `${placement.x}px`,
                   width: `${placement.width}px`,
-                  height: `${stageHeight}px`,
+                  height: `${placement.height}px`,
                 }}
               >
                 {isMounted(placement.id) ? (
@@ -505,7 +558,7 @@ export function PreviewCanvas({
                     left: `${slackX + placement.x * scale}px`,
                     top: `${slackY}px`,
                     width: `${placement.width * scale}px`,
-                    height: `${CANVAS_LABEL_PX + stageHeight * scale}px`,
+                    height: `${CANVAS_LABEL_PX + placement.height * scale}px`,
                   }}
                 >
                   <div className="preview-canvas-label" style={{ height: `${CANVAS_LABEL_PX}px` }}>
