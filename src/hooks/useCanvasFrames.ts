@@ -33,9 +33,14 @@ const announceCanvas = (frame: HTMLIFrameElement, on = true): void => {
 };
 
 /**
- * Tell a frame whether it is one nobody is working in. A passive frame is a
- * review surface: it holds still, so four live pages don't spend the machine's
- * whole budget animating at once.
+ * Tell a frame whether it is one nobody is working in — which is to say,
+ * whether it is a background tab, because that is how it is then treated:
+ * `hidden` is reported, and the JavaScript animation clock is suspended.
+ *
+ * Holding still is NOT this message's job. Every frame on a canvas holds still,
+ * active or not, and `ss:canvas` says so — a canvas is a surface you read and
+ * lay out against, and an animation there repaints a whole page forever for
+ * nothing. What being active buys a frame is the right to be EDITED.
  */
 const announcePassive = (frame: HTMLIFrameElement, passive: boolean): void => {
   try {

@@ -952,18 +952,35 @@ function ssPageHeight(){
   if(!bottom)bottom=Math.max(b.scrollHeight,b.offsetHeight);
   return Math.ceil(bottom+pad);
 }
-/* A height has to be measured TWICE in a row before it counts.
-   The frame is resized to whatever this reports, and a page whose layout
-   answers to its own viewport height reports a different number back — left
-   alone the two oscillate every couple of seconds. Requiring agreement kills
-   that: an alternating pair never repeats, so nothing is committed and the
-   frame holds still. It also stops a transient from sticking — measuring
-   mid-load, before fonts or images have settled, is how a frame ends up
-   locked at a height with a screen of white space at the bottom. The counter
-   is a backstop against a page that genuinely never settles. */
+/* A height has to be measured TWICE in a row before it counts, and a height
+   already committed once may never be committed again.
+
+   The two rules answer two different failures. Agreement throws out a
+   TRANSIENT: measuring mid-load, before fonts or images have settled, is how a
+   frame ends up locked at a height with a screen of white space at the bottom.
+
+   The visited list catches the FEEDBACK LOOP, which agreement cannot see. The
+   frame is resized to whatever is reported, so a page whose layout answers to
+   its own viewport height answers back with a different number — but it does
+   that in response to the resize, which is slower than the sampling. So each
+   height is comfortably measured twice before the reply arrives, agreement is
+   satisfied every time, and the frame walks A → B → A → B for as long as the
+   budget lasts. That is the frame the user sees changing size every couple of
+   seconds, and it stopping is the write counter running out, not the loop
+   being solved.
+
+   Coming back to a height that was already committed is the loop, exactly. The
+   frame settles on the TALLEST height of the cycle and stops reporting: too
+   tall shows a strip of background under the page, too short cuts content off,
+   and only one of those loses you something. */
 var ssPageSeen=0,ssPageAgreed=0,ssPageWrites=0,SS_PAGE_MAX_WRITES=40;
+var ssPageCommitted=[],ssPageLocked=false;
+function ssSendPage(h){
+  ssPageH=h;ssPageSeen=0;ssPageAgreed=0;
+  try{window.parent.postMessage({type:'ss:pageHeight',height:h},'*');}catch(err){}
+}
 function ssReportPage(){
-  if(!ssCanvas||!ssVH)return;
+  if(!ssCanvas||!ssVH||ssPageLocked)return;
   var h=ssPageHeight();
   if(!h)return;
   if(Math.abs(h-ssPageH)<4){ssPageSeen=0;return;}   /* already reported */
@@ -974,10 +991,82 @@ function ssReportPage(){
   }
   if(ssPageAgreed<2)return;
   if(ssPageWrites>=SS_PAGE_MAX_WRITES)return;
+  var tallest=h,revisited=false;
+  for(var i=0;i<ssPageCommitted.length;i++){
+    if(Math.abs(h-ssPageCommitted[i])<4)revisited=true;
+    if(ssPageCommitted[i]>tallest)tallest=ssPageCommitted[i];
+  }
+  if(revisited){
+    ssPageLocked=true;
+    if(Math.abs(tallest-ssPageH)>=4)ssSendPage(tallest);
+    return;
+  }
+  ssPageCommitted.push(h);
   ssPageWrites++;
-  ssPageH=h;ssPageSeen=0;ssPageAgreed=0;
-  try{window.parent.postMessage({type:'ss:pageHeight',height:h},'*');}catch(err){}
+  ssSendPage(h);
 }
+/* Every frame on a canvas holds still. Animations are made INSTANT rather than
+   paused: pausing freezes a scroll-reveal half-drawn, which is worse than
+   either extreme — you end up reviewing a state the page never actually has.
+   Iterations are capped at one so a decorative loop runs once and stops rather
+   than looping at 1ms, which would cost more than leaving it alone. */
+function ssHoldStill(on){
+  var pv=document.getElementById('ss-still-style');
+  if(on){
+    if(pv)return;
+    pv=document.createElement('style');pv.id='ss-still-style';
+    pv.textContent='*,*::before,*::after{'
+      +'animation-duration:1ms!important;animation-delay:0s!important;'
+      +'animation-iteration-count:1!important;'
+      +'transition-duration:1ms!important;transition-delay:0s!important}';
+    (document.head||document.documentElement).appendChild(pv);
+  }else if(pv&&pv.parentNode)pv.parentNode.removeChild(pv);
+}
+
+/* How long a frame is left running before it is treated as a background tab —
+   long enough for the page's entrance work to finish, short enough that four
+   of them are not animating while the user waits. */
+var SS_BACKGROUND_DELAY_MS=2500;
+/* A rAF loop schedules one callback at a time, so this only ever holds a handful.
+   The cap is for the page that schedules from a timer and would grow it forever. */
+var SS_RAF_HELD_MAX=64;
+var ssRafNative=null,ssRafHeld=[],ssBackgroundTimer=0,ssBackgrounded=false;
+function ssBackground(on){
+  if(ssBackgroundTimer){clearTimeout(ssBackgroundTimer);ssBackgroundTimer=0;}
+  if(on){
+    if(ssBackgrounded)return;
+    ssBackgroundTimer=setTimeout(function(){
+      ssBackgroundTimer=0;ssBackgrounded=true;
+      var vids=document.querySelectorAll('video');
+      for(var vi=0;vi<vids.length;vi++){try{vids[vi].pause();}catch(err){}}
+      try{
+        Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return 'hidden';}});
+        Object.defineProperty(document,'hidden',{configurable:true,get:function(){return true;}});
+        document.dispatchEvent(new Event('visibilitychange'));
+      }catch(err){}
+      if(!ssRafNative&&window.requestAnimationFrame){
+        ssRafNative=window.requestAnimationFrame;
+        window.requestAnimationFrame=function(cb){
+          if(ssRafHeld.length<SS_RAF_HELD_MAX)ssRafHeld.push(cb);
+          return 0;
+        };
+      }
+    },SS_BACKGROUND_DELAY_MS);
+    return;
+  }
+  if(!ssBackgrounded)return;
+  ssBackgrounded=false;
+  if(ssRafNative){window.requestAnimationFrame=ssRafNative;ssRafNative=null;}
+  try{
+    delete document.visibilityState;delete document.hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+  }catch(err){}
+  /* Restart whatever was mid-loop. Handing them back through rAF rather than
+     calling them here keeps them on the frame clock they asked for. */
+  var held=ssRafHeld;ssRafHeld=[];
+  for(var i=0;i<held.length;i++){try{window.requestAnimationFrame(held[i]);}catch(err){}}
+}
+
 function ssSyncPage(){
   if(ssVHTimer)clearTimeout(ssVHTimer);
   ssVHTimer=setTimeout(function(){
@@ -1026,44 +1115,43 @@ var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
-/* A frame nobody is working in is a review surface. It should show the page
-   SETTLED — every reveal finished, every entrance landed — because that is the
-   state you are reviewing, and because a page that has finished animating costs
-   nothing to keep on screen. Four whole pages running their marketing
-   animations forever is most of what a breakpoint canvas costs.
+/* A frame nobody is working in is a background tab, so it is told it is one.
 
-   So animations are made INSTANT rather than paused. Pausing freezes a
-   scroll-reveal half-drawn, which is worse than either extreme: you end up
-   reviewing a state the page never actually has. Iterations are capped at one
-   so a decorative loop runs once and stops rather than looping at 1ms.
+   The still stylesheet above stops CSS animation; this stops the other engine,
+   which is JavaScript. `requestAnimationFrame` is how a page runs a loop
+   forever, and nothing in CSS can reach it. Reporting `hidden` first is the
+   polite half — a page written to stop its own loops when the tab goes away
+   does exactly that, and does it better than we could from outside. Suspending
+   rAF is the backstop for pages that never learned. Callbacks are KEPT, not
+   dropped: a rAF loop schedules the next frame from inside the current one, so
+   discarding them would leave the page permanently dead once it came back.
 
-   The frame the user IS in is untouched, and this is reversed the moment a
-   frame becomes that one. */
-else if(d.type==='ss:passive'){
-  var pv=document.getElementById('ss-passive-style');
-  if(d.on){
-    if(!pv){
-      pv=document.createElement('style');pv.id='ss-passive-style';
-      pv.textContent='*,*::before,*::after{'
-        +'animation-duration:1ms!important;animation-delay:0s!important;'
-        +'animation-iteration-count:1!important;'
-        +'transition-duration:1ms!important;transition-delay:0s!important}';
-      (document.head||document.documentElement).appendChild(pv);
-    }
-    var vids=document.querySelectorAll('video');
-    for(var vi=0;vi<vids.length;vi++){try{vids[vi].pause();}catch(err){}}
-  }else if(pv&&pv.parentNode){pv.parentNode.removeChild(pv);}
-}
+   Not applied immediately. A page's entrance work runs through rAF too, and
+   freezing that mid-flight is the half-drawn state this whole treatment exists
+   to avoid — so the page is given a moment to finish arriving first. */
+else if(d.type==='ss:passive'){ssBackground(!!d.on);}
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
   if(ssVH){
+    /* Holding still is a property of being ON A CANVAS, not of being the frame
+       nobody is in. A canvas is a review surface: it is read, laid out against
+       its siblings and edited, and a 120-second ticker looping forever is no
+       part of any of that. The cost is the reason it matters — a frame here is
+       a WHOLE page, so an animation anywhere in it repaints every pixel of a
+       document that can be ten thousand pixels tall, and it does that forever.
+       Measured on one marketing page: the active frame alone doubled the CPU
+       of the entire preview, at rest, because it was the only frame still
+       allowed to animate. What a frame keeps by being active is the ability to
+       be EDITED, which is a different thing entirely. */
+    ssHoldStill(true);
     ssLieAboutViewport();ssWatchPage();ssPinRootHeight();ssRewriteViewportUnits();ssLoadEverything();
     /* The page read the real viewport before this message arrived — its scripts
        ran first. A resize is how a page is told to measure again. */
     try{window.dispatchEvent(new Event('resize'));}catch(err){}
-    ssPageH=0;ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;ssReportPage();
-  }
+    ssPageH=0;ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;
+    ssPageCommitted=[];ssPageLocked=false;ssReportPage();
+  }else{ssHoldStill(false);ssBackground(false);}
 }
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 

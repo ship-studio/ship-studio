@@ -347,6 +347,25 @@ mod tests {
     }
 
     #[test]
+    fn canvas_holds_every_frame_still_and_backgrounds_the_idle_ones() {
+        // Two separate treatments, and keeping them separate is the point.
+        // Holding still rides on `ss:canvas`, so EVERY frame gets it — a frame
+        // here is a whole page, and one exempted frame animating forever
+        // doubled the preview's idle CPU. Background-tab semantics ride on
+        // `ss:passive`, so only frames nobody is working in get them.
+        assert!(SELECT_SCRIPT.contains("ssHoldStill(true)"));
+        assert!(SELECT_SCRIPT.contains("ss-still-style"));
+        assert!(SELECT_SCRIPT.contains("animation-iteration-count:1!important"));
+        assert!(SELECT_SCRIPT.contains("ss:passive'){ssBackground("));
+        assert!(SELECT_SCRIPT.contains("visibilityState"));
+        assert!(SELECT_SCRIPT.contains("ssRafHeld"));
+        // A committed page height is never committed twice: that is the
+        // feedback loop the agreement rule cannot see.
+        assert!(SELECT_SCRIPT.contains("ssPageCommitted"));
+        assert!(SELECT_SCRIPT.contains("ssPageLocked"));
+    }
+
+    #[test]
     fn scrollbar_style_lands_at_head_start_before_site_styles() {
         // The scrollbar-hiding style must come *before* the site's own <link>/<style>
         // so a site that styles its scrollbars overrides us (no hijack).

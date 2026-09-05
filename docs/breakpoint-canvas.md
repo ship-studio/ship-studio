@@ -150,22 +150,33 @@ stable ref, so nothing about it changes.
 
 ### Messages
 
-Host → frame: `ss:canvas {on, vh}` — you are part of a canvas, and this is the
-viewport height to resolve your units against — `ss:passive {on}` — nobody is
-working in you, hold still — plus the editor's existing `ss:*` protocol and
-`ss:selectAt {x, y}`.
+Host → frame: `ss:canvas {on, vh}` — you are part of a canvas, this is the
+viewport height to resolve your units against, and hold still — `ss:passive
+{on}` — nobody is working in you, so you are a background tab — plus the
+editor's existing `ss:*` protocol and `ss:selectAt {x, y}`.
 
 Frame → host: `ss:pageHeight {height}`, `ss:panBy {dx, dy}`, `ss:wheelZoom
 {deltaY, x, y}`, `ss:zoomBy {factor, x, y}` (WebKit pinch), and the editor's
 existing replies.
 
 A reported page height has to be **measured twice in a row** before it counts,
-and it is measured from where the content ends rather than from `scrollHeight`.
-Neither is fussiness: the frame is resized to whatever is reported, so a page
-whose layout answers to its own viewport height oscillates unless agreement is
-required, a `scrollHeight` on a stretched body just reports the frame's own
-height back, and a transient measured mid-load sticks — which is a frame with a
-screen of white space under a page that got shorter.
+it may **never be committed twice**, and it is measured from where the content
+ends rather than from `scrollHeight`. Three rules, three different failures.
+
+Agreement throws out a transient measured mid-load, which otherwise sticks — a
+frame with a screen of white space under a page that got shorter. A
+`scrollHeight` on a stretched body just reports the frame's own height back.
+
+And the visited list catches the feedback loop, which agreement cannot see. The
+frame is resized to whatever is reported, so a page whose layout answers to its
+own viewport height answers back with a different number — but it does that in
+*response to the resize*, which is slower than the sampling. Each height is
+therefore measured twice before the reply lands, agreement is satisfied every
+time, and the frame walks A → B → A → B until the write budget runs out. That
+is a frame visibly changing size every couple of seconds, and it was mistaken
+for solved once already. Returning to a committed height IS the loop: the frame
+settles on the tallest height of the cycle and stops — too tall shows a strip of
+background, too short cuts content off, and only one of those loses anything.
 
 Everything the canvas adds is off until `ss:canvas` arrives, so the ordinary
 single-frame preview is left completely alone — including having its gestures
@@ -177,11 +188,27 @@ frame's `load` handler says it a second time.
 Four whole pages at once is the expensive thing about this feature, and every
 one of these exists because it was measured. On a marketing page in the app, one
 ordinary preview frame costs ~20% CPU and ~420MB; four full-length copies of it
-came to 64% and 3.3GB before this work and 25% and 1.1GB after.
+came to 64% and 3.3GB before this work and 25% and 1.1GB after. Measured again
+later on a heavier page, against the same page in an ordinary single frame: 32%
+with the canvas closed, 65% with it open, and the whole of that gap was the one
+frame still allowed to animate.
 
-- **A frame nobody is working in holds still** (`ss:passive`): animations
-  paused, transitions off, videos paused. Four copies of the same marketing
-  animation running forever was most of the cost. The active frame stays live.
+- **Every frame on a canvas holds still** (`ss:canvas`), the active one
+  included. This is the single biggest cost in the feature and the one that was
+  got wrong first: holding still was treated as the consolation prize for not
+  being the active frame, so the active frame — the largest document on the
+  canvas — was left animating. On one marketing page with three infinite CSS
+  animations, that one exemption **doubled the CPU of the whole preview at
+  rest**, 32% → 65%, because a frame here is a WHOLE page: an animation
+  anywhere in it repaints every pixel of a ten-thousand-pixel document, forever.
+  What an active frame keeps is the right to be edited, which is unrelated.
+- **A frame nobody is working in is a background tab** (`ss:passive`): it is
+  told it is `hidden` — which is enough for any page that stops its own loops
+  — and its `requestAnimationFrame` clock is then suspended, for the pages that
+  do not. Callbacks are held rather than dropped, because a rAF loop schedules
+  the next frame from inside the current one and discarding them would leave the
+  page dead when it came back. Videos are paused. None of it applies for the
+  first couple of seconds, so a page's entrance work finishes first.
 - **The in-frame observer watches `<head>` for stylesheets**, not the whole
   document for attributes — a class toggled by a scroll animation was scheduling
   a CSSOM walk and a forced layout, in every frame, continuously.
