@@ -292,6 +292,37 @@ describe('PreviewCanvas', () => {
     }
   });
 
+  it('tells each frame it is part of a canvas, and again after it reloads', () => {
+    const { container } = renderCanvas();
+    const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
+    const post = vi.fn();
+    Object.defineProperty(frame, 'contentWindow', {
+      configurable: true,
+      value: { postMessage: post },
+    });
+
+    // A reloaded document starts from the script's defaults — gesture
+    // forwarding and scroll reporting off — so the load handler says it again.
+    fireEvent.load(frame);
+    expect(post).toHaveBeenCalledWith({ type: 'ss:canvas', on: true }, '*');
+  });
+
+  it('takes it back when a frame goes away', () => {
+    const { container, unmount } = renderCanvas();
+    const posts = [...container.querySelectorAll<HTMLIFrameElement>('iframe')].map((frame) => {
+      const post = vi.fn();
+      Object.defineProperty(frame, 'contentWindow', {
+        configurable: true,
+        value: { postMessage: post },
+      });
+      return post;
+    });
+    unmount();
+    for (const post of posts) {
+      expect(post).toHaveBeenCalledWith({ type: 'ss:canvas', on: false }, '*');
+    }
+  });
+
   it('walks every other frame to the same point in the page', () => {
     const { container } = renderCanvas();
     const frames = [...container.querySelectorAll<HTMLIFrameElement>('iframe')];
