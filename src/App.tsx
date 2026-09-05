@@ -53,6 +53,7 @@ import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './l
 import { initDefaultAgent } from './lib/agent';
 import { sessionRegistry } from './lib/sessionRegistry';
 import { useCloseProject } from './hooks/useCloseProject';
+import { useProjectsViewCallbacks } from './hooks/useProjectsViewCallbacks';
 import { MonorepoPickerModal } from './components/dashboard/MonorepoPickerModal';
 import { ThumbnailConsentModal } from './components/preview/ThumbnailConsentModal';
 import { QuitConfirmModal } from './components/QuitConfirmModal';
@@ -1015,37 +1016,22 @@ function AppContents({ initialProjectPath }: AppProps) {
   );
 
   // Stable wrappers for async callbacks passed to ProjectsView (prevents memo-busting)
-  const handleSelectProjectCallback = useCallback(
-    (project: Project) => {
-      void handleSelectProject(project);
-    },
-    [handleSelectProject]
-  );
-
-  const handleImportLocalFolderCallback = useCallback(() => {
-    void handleImportLocalFolder();
-  }, [handleImportLocalFolder]);
-
-  const handleCloseCreateModal = useCallback(() => setShowCreateModal(false), [setShowCreateModal]);
-
-  const handleAuthTerminalExitForProjects = useCallback(
-    (exitCode: number | null) => void handleAuthTerminalExit(exitCode, currentProject?.path),
-    [handleAuthTerminalExit, currentProject?.path]
-  );
-
-  const handleSaveDevCommand = useCallback(
-    (cmd: string | null) => {
-      if (currentProject) void saveCustomDevCommand(currentProject.path, cmd);
-    },
-    [currentProject, saveCustomDevCommand]
-  );
-
-  const handleSavePortCallback = useCallback(
-    (port: number) => {
-      void handleSavePort(port);
-    },
-    [handleSavePort]
-  );
+  const {
+    handleSelectProjectCallback,
+    handleImportLocalFolderCallback,
+    handleCloseCreateModal,
+    handleAuthTerminalExitForProjects,
+    handleSaveDevCommand,
+    handleSavePortCallback,
+  } = useProjectsViewCallbacks({
+    currentProject,
+    handleSelectProject,
+    handleImportLocalFolder,
+    setShowCreateModal,
+    handleAuthTerminalExit,
+    saveCustomDevCommand,
+    handleSavePort,
+  });
 
   const lifecycleProps = useMemo(
     () => ({
