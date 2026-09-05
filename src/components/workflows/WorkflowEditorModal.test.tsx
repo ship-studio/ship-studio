@@ -63,4 +63,92 @@ describe('WorkflowEditorModal', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('listbox', { name: 'Templates' })).toBeInTheDocument();
   });
+
+  it('keeps a cadence the preset rail cannot express', async () => {
+    // An agent can write `every 20m` or `daily at 06:30`; the rail has no
+    // matching preset, so saving used to normalise it away and silently move
+    // when the workflow ran.
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const existing = {
+      id: '/p/demo::odd',
+      slug: 'odd',
+      name: 'Odd cadence',
+      icon: null,
+      description: '',
+      agentId: null,
+      projectPath: '/p/demo',
+      projectName: 'demo',
+      trigger: { kind: 'daily', atHour: 6, atMinute: 30 },
+      permission: 'read-only',
+      prompt: 'Look at something.',
+      severityFloor: 'info',
+      autoRun: true,
+      filePath: '/p/demo/.shipstudio/workflows/odd.md',
+      updatedAt: null,
+      nextRunAt: null,
+      isRunning: false,
+      runningSince: null,
+      runs: [],
+    } as const;
+
+    render(
+      <WorkflowEditorModal
+        workflow={existing as never}
+        projects={projects}
+        onClose={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+      />
+    );
+
+    await user.clear(screen.getByLabelText('Workflow name'));
+    await user.type(screen.getByLabelText('Workflow name'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    const draft = onSave.mock.calls[0]?.[2] as { trigger: { atHour: number; atMinute: number } };
+    expect(draft.trigger).toEqual({ kind: 'daily', atHour: 6, atMinute: 30 });
+  });
+
+  it('replaces the saved cadence once the trigger itself is changed', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const existing = {
+      id: '/p/demo::odd',
+      slug: 'odd',
+      name: 'Odd cadence',
+      icon: null,
+      description: '',
+      agentId: null,
+      projectPath: '/p/demo',
+      projectName: 'demo',
+      trigger: { kind: 'daily', atHour: 6, atMinute: 30 },
+      permission: 'read-only',
+      prompt: 'Look at something.',
+      severityFloor: 'info',
+      autoRun: true,
+      filePath: '/p/demo/.shipstudio/workflows/odd.md',
+      updatedAt: null,
+      nextRunAt: null,
+      isRunning: false,
+      runningSince: null,
+      runs: [],
+    } as const;
+
+    render(
+      <WorkflowEditorModal
+        workflow={existing as never}
+        projects={projects}
+        onClose={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Weekly' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    const draft = onSave.mock.calls[0]?.[2] as { trigger: { kind: string } };
+    expect(draft.trigger.kind).toBe('weekly');
+  });
 });

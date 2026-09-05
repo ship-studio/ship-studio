@@ -192,6 +192,12 @@ spawned rather than awaited so publishing a branch never sits behind an agent
 run. They fire during work — exactly when the app is open, so the honesty
 problem doesn't arise.
 
+Events keep the same single-flight rule as the tick: if any run is already in
+flight the event run is skipped and says so in the log, rather than putting a
+second agent on a working tree the first one is still reading. `run_workflow`
+only guards against the *same* workflow running twice, so this is checked
+before each event run rather than left to that.
+
 There is deliberately no `on project-open` trigger. It parses nowhere and fires
 nowhere: starting an agent run every time you open a project is a quota trap
 dressed as a convenience.

@@ -137,6 +137,24 @@ pub async fn fire_event(
     let matching = workflows_for_event(read_project_workflows(&project), event);
 
     for workflow in matching {
+        // The same single-flight rule the tick keeps. `run_workflow_from`
+        // only guards against the *same* workflow running twice, so without
+        // this a push could start an agent alongside a scheduled run already
+        // reading the same working tree — which is the thing the tick's guard
+        // exists to prevent. Checked per workflow, not once, because the loop
+        // awaits each run in turn.
+        match crate::commands::workflows::running_workflow_ids().await {
+            Ok(running) if !running.is_empty() => {
+                warn!(
+                    workflow = %workflow.name,
+                    ?running,
+                    "skipping an event-triggered run: another workflow is already in flight"
+                );
+                continue;
+            }
+            Ok(_) => {}
+            Err(err) => warn!(error = %err, "could not read in-flight workflows"),
+        }
         info!(workflow = %workflow.name, ?event, "event-triggered workflow firing");
         if let Err(err) = crate::commands::workflows::run_workflow_from(
             app.clone(),

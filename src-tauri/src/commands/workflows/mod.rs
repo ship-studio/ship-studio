@@ -104,6 +104,13 @@ impl WorkflowPermission {
     }
 }
 
+/// Interval bounds, shared by the phrase parser and by `bounded()` so the two
+/// paths into a trigger cannot drift apart. Five minutes is the floor because a
+/// tighter loop spends the user's own agent quota faster than they could
+/// notice; a week is the ceiling because past that a cadence is a calendar.
+pub const MIN_INTERVAL_MINUTES: u32 = 5;
+pub const MAX_INTERVAL_MINUTES: u32 = 10_080;
+
 /// Non-time triggers, all of which the app already observes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -163,6 +170,17 @@ impl WorkflowTrigger {
             WorkflowTrigger::Daily { .. } => "daily",
             WorkflowTrigger::Weekly { .. } => "weekly",
             WorkflowTrigger::Event { .. } => "event",
+        }
+    }
+
+    /// The same bounds the phrase parser applies, for a trigger that arrived
+    /// as a struct instead of a sentence.
+    pub fn bounded(self) -> Self {
+        match self {
+            WorkflowTrigger::Interval { every_minutes } => WorkflowTrigger::Interval {
+                every_minutes: every_minutes.clamp(MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES),
+            },
+            other => other,
         }
     }
 
@@ -268,7 +286,9 @@ fn parse_duration_minutes(raw: &str) -> Option<u32> {
     let minutes = value.checked_mul(multiplier)?;
     // A sub-5-minute loop would burn the user's agent quota faster than they
     // could notice, and a week-long one is a scheduling mistake, not an intent.
-    (5..=10_080).contains(&minutes).then_some(minutes)
+    (MIN_INTERVAL_MINUTES..=MAX_INTERVAL_MINUTES)
+        .contains(&minutes)
+        .then_some(minutes)
 }
 
 /// `09:00`, `9:00`, `0900`.

@@ -272,4 +272,18 @@ describe('InboxView', () => {
     }
     expect(openUrl).not.toHaveBeenCalled();
   });
+
+  it('drops the queued prompt when the project fails to open', async () => {
+    // The queue stays valid for three minutes. Left behind, it would type an
+    // instruction from a failed action into the next terminal that appears.
+    const user = userEvent.setup();
+    snapshot([item()]);
+    const onOpenProject = vi.fn().mockRejectedValue(new Error('project is gone'));
+    render(<InboxView onOpenProject={onOpenProject} />);
+
+    await user.click(screen.getByRole('button', { name: /Send to agent/ }));
+
+    await waitFor(() => expect(peekHandoff('/p/demo')).toBeNull());
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('Could not open'), 'error');
+  });
 });

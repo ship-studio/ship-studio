@@ -27,7 +27,7 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { trackEvent } from '../../lib/analytics';
 import { formatAge, type InboxItem, type Severity } from '../../lib/workflows';
-import { queueHandoff } from '../../lib/workflowHandoff';
+import { clearHandoff, peekHandoff, queueHandoff } from '../../lib/workflowHandoff';
 import type { Project } from '../../lib/project';
 import {
   getSnapshot,
@@ -181,7 +181,16 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
       });
       queueHandoff(item.projectPath, prompt);
       showToast(`Handing this to your agent in ${item.projectName}…`, 'info');
-      void onOpenProject({ name: item.projectName, path: item.projectPath, thumbnail: null });
+      // If the project never opens, the prompt must not sit in the queue: it
+      // stays valid for three minutes, and the next time that project is
+      // opened by hand it would type an instruction from an action that
+      // already failed.
+      void Promise.resolve(
+        onOpenProject({ name: item.projectName, path: item.projectPath, thumbnail: null })
+      ).catch((err: unknown) => {
+        if (peekHandoff(item.projectPath) === prompt) clearHandoff();
+        showToast(`Could not open ${item.projectName}: ${String(err)}`, 'error');
+      });
     },
     [onOpenProject, showToast]
   );

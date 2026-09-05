@@ -1,7 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WorkflowTemplatePicker } from './WorkflowTemplatePicker';
 import { browsableTemplates, type WorkflowTemplate } from '../../lib/workflowTemplates';
 
@@ -110,5 +110,26 @@ describe('WorkflowTemplatePicker', () => {
   it('never offers the blank template as a browsable choice', () => {
     render(<Harness />);
     expect(screen.queryByRole('option', { name: /Blank workflow/ })).not.toBeInTheDocument();
+  });
+
+  it('tells the host when a filter hides its selection', async () => {
+    // Otherwise the pane falls back to the first visible template while the
+    // host still holds the hidden one, and the primary button creates
+    // something other than what is on screen.
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<WorkflowTemplatePicker selectedId="tpl-security" onSelect={onSelect} />);
+
+    const filter = within(screen.getByRole('group', { name: 'Filter templates' }));
+    await user.click(filter.getByRole('button', { name: 'Content' }));
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalled());
+    const calls = onSelect.mock.calls;
+    const handed = calls[calls.length - 1]?.[0] as WorkflowTemplate;
+    expect(handed.category).toBe('Content');
+    expect(screen.getByRole('option', { name: new RegExp(handed.name) })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
   });
 });

@@ -31,8 +31,9 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
       </span>
       <span className="toast-message">{toast.message}</span>
       {toast.action && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="compact"
           className="toast-action"
           onClick={() => {
             toast.action?.onClick();
@@ -40,7 +41,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
           }}
         >
           {toast.action.label}
-        </button>
+        </Button>
       )}
       {toast.type === 'error' && (
         <Button

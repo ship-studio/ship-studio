@@ -130,6 +130,16 @@ const AGENT_OPTIONS = [
 ];
 
 interface Draft {
+  /**
+   * The workflow's trigger exactly as it was on disk.
+   *
+   * The preset rail can only express a handful of cadences, so an agent-written
+   * `every 20m`, `daily at 06:30`, or `weekly on thursday` has no preset that
+   * matches it. Saving used to normalise those away — editing the name of a
+   * workflow silently moved when it ran. This holds the original, and it is
+   * used unless the person actually touches the trigger controls.
+   */
+  savedTrigger: WorkflowTrigger | null;
   name: string;
   icon: string | null;
   description: string;
@@ -144,6 +154,7 @@ interface Draft {
 
 function draftFrom(workflow: Workflow): Draft {
   return {
+    savedTrigger: workflow.trigger,
     name: workflow.name,
     icon: workflow.icon,
     description: workflow.description,
@@ -159,6 +170,7 @@ function draftFrom(workflow: Workflow): Draft {
 
 function blankDraft(projectPath: string): Draft {
   return {
+    savedTrigger: null,
     name: '',
     icon: null,
     description: '',
@@ -203,16 +215,23 @@ export function WorkflowEditorModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [projectQuery, setProjectQuery] = useState('');
 
-  const trigger = TRIGGER_PRESETS[draft.trigger];
+  // The saved trigger wins while the preset still describes it, so a cadence
+  // the rail cannot express survives an edit to any other field.
+  const preset = TRIGGER_PRESETS[draft.trigger];
+  const trigger =
+    draft.savedTrigger && presetFor(draft.savedTrigger) === draft.trigger
+      ? draft.savedTrigger
+      : preset;
   const triggerShape = shapeFor(draft.trigger);
   const canAutoRun = trigger.kind !== 'manual';
 
   /** Switching shape keeps the current preset when it already fits. */
   const selectShape = (next: TriggerShape) => {
     if (next === shapeFor(draft.trigger)) return;
-    const preset: TriggerPreset =
+    const nextPreset: TriggerPreset =
       next === 'manual' ? 'manual' : next === 'event' ? DEFAULT_EVENT : DEFAULT_REPEATING;
-    setDraft({ ...draft, trigger: preset });
+    // Choosing a shape is choosing a new cadence, so the saved one is gone.
+    setDraft({ ...draft, trigger: nextPreset, savedTrigger: null });
   };
 
   const agentId = draft.agentId === DEFAULT_AGENT ? null : draft.agentId;
@@ -480,7 +499,9 @@ export function WorkflowEditorModal({
                   size="default"
                   className="workflow-segments-fill"
                   value={draft.trigger}
-                  onValueChange={(value) => setDraft({ ...draft, trigger: value })}
+                  onValueChange={(value) =>
+                    setDraft({ ...draft, trigger: value, savedTrigger: null })
+                  }
                   options={[
                     { value: '15m', label: 'Every 15m' },
                     { value: '30m', label: 'Every 30m' },
@@ -497,7 +518,9 @@ export function WorkflowEditorModal({
                   size="default"
                   className="workflow-segments-fill"
                   value={draft.trigger}
-                  onValueChange={(value) => setDraft({ ...draft, trigger: value })}
+                  onValueChange={(value) =>
+                    setDraft({ ...draft, trigger: value, savedTrigger: null })
+                  }
                   options={[
                     { value: 'push', label: 'After a push' },
                     { value: 'pr-opened', label: 'When a PR opens' },

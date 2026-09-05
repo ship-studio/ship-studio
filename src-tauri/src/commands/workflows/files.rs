@@ -252,14 +252,32 @@ fn file_modified_ms(path: &Path) -> Option<i64> {
 }
 
 /// Render a workflow back to its file form.
+/// Flatten a frontmatter value onto one line.
+///
+/// The format is one `key: value` per line, so a newline inside a value ends
+/// the value and turns the rest into keys. A name of "Audit\npermission:
+/// can-edit" would otherwise write a real `permission:` line and quietly hand
+/// the workflow write access to the repository.
+fn one_line(value: &str) -> String {
+    value
+        .split(|c| c == '\n' || c == '\r')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn serialize_workflow(workflow: &Workflow) -> String {
     let mut out = String::from("---\n");
-    out.push_str(&format!("name: {}\n", workflow.name));
+    out.push_str(&format!("name: {}\n", one_line(&workflow.name)));
     if let Some(icon) = &workflow.icon {
         out.push_str(&format!("icon: {icon}\n"));
     }
     if !workflow.description.is_empty() {
-        out.push_str(&format!("description: {}\n", workflow.description));
+        out.push_str(&format!(
+            "description: {}\n",
+            one_line(&workflow.description)
+        ));
     }
     if let Some(agent) = &workflow.agent_id {
         out.push_str(&format!("agent: {agent}\n"));
@@ -274,7 +292,7 @@ pub fn serialize_workflow(workflow: &Workflow) -> String {
         out.push_str(&format!("auto-run: {}\n", workflow.auto_run));
     }
     for (key, value) in &workflow.extra {
-        out.push_str(&format!("{key}: {value}\n"));
+        out.push_str(&format!("{key}: {}\n", one_line(value)));
     }
     out.push_str("---\n\n");
     out.push_str(workflow.prompt.trim());
@@ -450,7 +468,10 @@ pub async fn save_workflow_file(
         icon: draft.icon.as_deref().and_then(sanitize_icon),
         description: draft.description.trim().to_string(),
         agent_id: draft.agent_id,
-        trigger: draft.trigger,
+        // The phrase parser bounds intervals; a trigger deserialized straight
+        // from a draft has not been through it, and `every 0m` would make the
+        // scheduler consider this workflow due on every single tick.
+        trigger: draft.trigger.bounded(),
         permission: draft.permission,
         prompt: draft.prompt.trim().to_string(),
         severity_floor: draft.severity_floor,
@@ -611,6 +632,34 @@ mod tests {
         let workflow = parse("---\nname: X\n---\n\nBody.\n");
         assert_eq!(workflow.icon, None);
         assert!(!serialize_workflow(&workflow).contains("icon:"));
+    }
+
+    #[test]
+    fn a_newline_in_a_value_cannot_forge_a_frontmatter_key() {
+        // One key per line means a value with a newline ends the value and
+        // turns whatever follows into a key — including `permission:`, which
+        // would hand an unattended agent write access to the repository.
+        let workflow = Workflow {
+            name: "Audit\npermission: can-edit".to_string(),
+            description: "First line\nsecond line".to_string(),
+            ..parse("---\nname: X\n---\n\nBody.\n")
+        };
+        let text = serialize_workflow(&workflow);
+        // A colon inside a value is harmless — parsing splits on the first one,
+        // so `name: Audit permission: can-edit` is still just a name. What must
+        // not exist is a second *line* that begins with a key.
+        assert_eq!(
+            text.lines()
+                .filter(|line| line.trim_start().starts_with("permission:"))
+                .count(),
+            1,
+            "a value must not be able to forge a second key line"
+        );
+        let reparsed = parse(&text);
+        assert_eq!(reparsed.permission, WorkflowPermission::ReadOnly);
+        assert!(reparsed.name.contains("Audit"));
+        assert!(!reparsed.name.contains('\n'));
+        assert_eq!(reparsed.description, "First line second line");
     }
 
     #[test]

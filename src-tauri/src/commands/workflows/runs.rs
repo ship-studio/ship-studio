@@ -132,9 +132,14 @@ struct ReportedLocation {
     note: Option<String>,
 }
 
+/// The report envelope.
+///
+/// `findings` is deliberately **required**. With a default, every JSON object
+/// parses as an empty report — and since blocks are scanned from the end, a
+/// reply that closed with a config snippet or an example object would parse as
+/// "found nothing" and silently discard the real findings above it.
 #[derive(Debug, Clone, Deserialize)]
 struct Report {
-    #[serde(default)]
     findings: Vec<ReportedFinding>,
 }
 
@@ -1164,6 +1169,17 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].title, "Real finding");
         assert_eq!(findings[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn a_trailing_json_block_does_not_swallow_the_real_findings() {
+        // Blocks are scanned from the end, and `findings` used to default to
+        // empty — so any JSON object closing the reply parsed as "found
+        // nothing" and the real report above it was discarded.
+        let reply = "```json\n{\"findings\":[{\"title\":\"Real\",\"severity\":\"critical\"}]}\n```\n\nFor reference, the config I read:\n\n```json\n{\"compilerOptions\":{\"strict\":true}}\n```\n";
+        let findings = parse_findings(reply).expect("should find the report");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].title, "Real");
     }
 
     #[test]

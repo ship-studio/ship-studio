@@ -20,7 +20,7 @@
  * @module components/workflows/WorkflowTemplatePicker
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InfoIcon, ShieldCheckIcon, TerminalIcon, ActivityIcon } from '@/components/icons';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { formatTrigger, describeTriggerReality } from '../../lib/workflows';
@@ -68,6 +68,13 @@ export function WorkflowTemplatePicker({ selectedId, onSelect }: WorkflowTemplat
   const groups = useMemo(() => groupsFor(filter), [filter]);
   const flat = useMemo(() => groups.flatMap((group) => group.templates), [groups]);
   const selected = flat.find((template) => template.id === selectedId) ?? flat[0] ?? null;
+
+  // Filtering can hide the selection. The pane then falls back to the first
+  // visible template while the parent still holds the hidden one — so the
+  // button would create something other than what is on screen.
+  useEffect(() => {
+    if (selected && selected.id !== selectedId) onSelect(selected);
+  }, [selected, selectedId, onSelect]);
 
   const move = useCallback(
     (delta: number) => {
