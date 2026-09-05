@@ -85,6 +85,10 @@ function renderCanvas(overrides: Partial<Parameters<typeof PreviewCanvas>[0]> = 
 let restoreSize: (() => void) | null = null;
 
 beforeEach(() => {
+  // The canvas clamps its measurement to the window, so the stubbed pane has to
+  // fit inside one — jsdom's default is 1024x768.
+  window.innerWidth = 2400;
+  window.innerHeight = 1600;
   restoreSize = stubCanvasSize(1200, 800);
   vi.stubGlobal('ResizeObserver', TestResizeObserver);
 });

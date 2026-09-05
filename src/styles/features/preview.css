@@ -24,7 +24,13 @@
   --handle-size: 8px;
   flex: 1;
   display: grid;
-  grid-template-rows: auto 1fr 0;
+  /* `minmax(0, 1fr)`, never a bare `1fr`: a bare fr track keeps an automatic
+     MINIMUM of its content, so a tall child (the breakpoint canvas's surface)
+     grows the row past the container instead of being clipped by it — and a
+     child that sizes itself from the pane then has a feedback loop. The
+     `[data-logs='open']` variant below already spells it out for the same
+     reason. */
+  grid-template-rows: auto minmax(0, 1fr) 0;
   min-height: 0;
   overflow: hidden;
   position: relative;

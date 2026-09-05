@@ -217,8 +217,14 @@ export function PreviewCanvas({
   const measure = useCallback(() => {
     const root = rootRef.current;
     if (!root) return;
-    const width = root.clientWidth;
-    const height = root.clientHeight;
+    // Clamped to the window, which is the last word on how big a pane inside it
+    // can be. The canvas sizes its surface from this number and then lives
+    // inside the box it just sized, so any ancestor that fails to clip turns
+    // the pair into a feedback loop — one that ends at several million pixels
+    // and a user looking at grey. The clamp makes that arithmetically
+    // impossible, whatever a stylesheet upstream decides to do.
+    const width = Math.min(root.clientWidth, window.innerWidth || root.clientWidth);
+    const height = Math.min(root.clientHeight, window.innerHeight || root.clientHeight);
     setViewport((current) =>
       current.width === width && current.height === height ? current : { width, height }
     );
