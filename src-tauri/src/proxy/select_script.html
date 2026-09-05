@@ -750,6 +750,17 @@ function postSelRect(){if(selRectRaf)return;selRectRaf=requestAnimationFrame(fun
 
 function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeSet();postSelRect();}}
 
+/* Zoom gestures that land on this page belong to the canvas around it, not to
+   the page. A cross-origin parent never sees them (the event is delivered here),
+   so forward them up with the point they happened at, in this document's own
+   pixels. Plain scrolling is left alone: scrolling a preview page is scrolling
+   a page. Harmless outside the breakpoint canvas — nothing listens. */
+window.addEventListener('wheel',function(e){
+  if(!e.ctrlKey&&!e.metaKey)return;
+  e.preventDefault();
+  try{window.parent.postMessage({type:'ss:wheelZoom',deltaY:e.deltaY,x:e.clientX,y:e.clientY},'*');}catch(err){}
+},{passive:false});
+
 window.addEventListener('message',function(e){
 
 /* Only accept commands from the embedding app (our parent window) or same-window

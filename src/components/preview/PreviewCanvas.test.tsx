@@ -82,14 +82,25 @@ describe('PreviewCanvas', () => {
     const stages = container.querySelectorAll<HTMLElement>('.preview-canvas-stage');
     expect(stages[0].style.width).toBe('1440px');
     expect(stages[3].style.width).toBe('375px');
-    expect(stages[0].style.left).toBe(`${CANVAS_PADDING_PX}px`);
+    expect(stages[0].style.left).toBe('0px');
   });
 
   it('scales the surface down to fit rather than reflowing the pages', () => {
     const { container } = renderCanvas();
     const scaled = container.querySelector<HTMLElement>('.preview-canvas-scaled');
-    // 1440+1024+768+375 + 3 gaps + 2 paddings = 3815 canvas px into 1200 screen px.
-    expect(scaled?.style.transform).toBe('scale(0.3145478374836173)');
+    // 1440+1024+768+375 + 3 gaps = 3751 canvas px into 1200 - 2×32 screen px.
+    const expected = (1200 - CANVAS_PADDING_PX * 2) / 3751;
+    expect(scaled?.style.transform).toBe(`scale(${expected})`);
+  });
+
+  it('opens with room to pan on every side, and rests on the frames', () => {
+    const { container } = renderCanvas();
+    const scaled = container.querySelector<HTMLElement>('.preview-canvas-scaled')!;
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    // Half a screen of slack either side (PAN_SLACK_RATIO), and the canvas
+    // scrolled onto the content rather than sitting in the empty margin.
+    expect(scaled.style.left).toBe('600px');
+    expect(scroller.scrollLeft).toBe(600 - CANVAS_PADDING_PX);
   });
 
   it('labels every frame with its device name and width', () => {

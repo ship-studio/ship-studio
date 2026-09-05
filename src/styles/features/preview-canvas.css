@@ -42,12 +42,15 @@
   transform-origin: top left;
 }
 
+/* Square corners, deliberately. The stage is inside the scale transform and the
+   outline that frames it is not, so any radius would render at two different
+   sizes and leave a wedge of canvas showing at each corner. Artboards are
+   rectangles anyway. */
 .preview-canvas-stage {
   position: absolute;
   top: 0;
   overflow: hidden;
   background: var(--surface-app);
-  border-radius: var(--radius-card);
 }
 
 .preview-canvas-iframe {
@@ -73,7 +76,6 @@
 
 .preview-canvas-chrome {
   position: absolute;
-  top: 0;
   display: flex;
   flex-direction: column;
 }
@@ -111,7 +113,6 @@
   position: relative;
   flex: 1;
   border: 1px solid var(--accent-active);
-  border-radius: var(--radius-card);
 }
 
 /* The overlay layer is click-through so the active frame stays interactive;
@@ -127,7 +128,6 @@
   flex: 1;
   padding: 0;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
   background: transparent;
   cursor: pointer;
   pointer-events: auto;

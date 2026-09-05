@@ -39,8 +39,14 @@ export const CANVAS_GAP_PX = 48;
 /** Height reserved above each frame for its label row, in canvas pixels. */
 export const CANVAS_LABEL_PX = 32;
 
-/** Outer padding around the whole surface, in canvas pixels. */
+/** Breathing room between the outermost frames and the pane at Fit, in screen
+ *  pixels. */
 export const CANVAS_PADDING_PX = 32;
+
+/** How far past the content the canvas can be pushed, as a fraction of the
+ *  visible canvas. Without it the frames are pinned to the scroll extents and
+ *  the canvas feels stuck — a design canvas lets you shove the artwork around. */
+export const PAN_SLACK_RATIO = 0.5;
 
 /** Zoom bounds. Below the floor the frames stop being readable at all; above
  *  the ceiling a preview frame is magnified past any useful detail. */
@@ -51,8 +57,17 @@ export const MAX_ZOOM = 2;
  *  the same size at 20% as at 150%. */
 const ZOOM_STEP_RATIO = 1.25;
 
-/** How much wheel movement equals one full zoom step. */
-const WHEEL_PIXELS_PER_STEP = 120;
+/** Above this, a wheel event is a discrete mouse-wheel notch rather than a
+ *  trackpad gesture. The two arrive as the same event with wildly different
+ *  magnitudes — a notch is ~100+ at once, a pinch is a stream of small deltas —
+ *  and treating a notch as continuous makes a mouse wheel fly, while treating a
+ *  pinch as a notch makes the trackpad crawl. */
+const COARSE_WHEEL_DELTA = 50;
+
+/** Continuous zoom response, per pixel of trackpad movement. Tuned so a normal
+ *  pinch travels roughly the distance the fingers do — a gesture should feel
+ *  like dragging the canvas closer, not like a nudge or a jump. */
+const PINCH_RESPONSE = 0.006;
 
 /** How far a frame can sit outside the visible canvas and still stay mounted,
  *  as a multiple of the visible width. One screen of slack on each side keeps
@@ -68,15 +83,15 @@ const MAX_FRAME_HEIGHT_PX = 3200;
  * `CANVAS_PADDING_PX` of surface padding on each side.
  */
 export function layoutFrames(frames: CanvasFrame[], gap: number = CANVAS_GAP_PX): CanvasLayout {
-  let x = CANVAS_PADDING_PX;
+  let x = 0;
   const placements: FramePlacement[] = [];
   for (const frame of frames) {
     placements.push({ ...frame, x });
     x += frame.width + gap;
   }
-  // The trailing gap becomes the right-hand padding; drop it and add padding
-  // so an empty frame list still reports a sane (zero-content) width.
-  const contentWidth = frames.length === 0 ? 0 : x - gap + CANVAS_PADDING_PX;
+  // Frames and the gaps between them, nothing else: the room AROUND the frames
+  // is screen-space slack the component adds, not part of what has to fit.
+  const contentWidth = frames.length === 0 ? 0 : x - gap;
   return { placements, contentWidth };
 }
 
@@ -87,7 +102,8 @@ export function layoutFrames(frames: CanvasFrame[], gap: number = CANVAS_GAP_PX)
  */
 export function fitScale(contentWidth: number, viewportWidth: number): number {
   if (contentWidth <= 0 || viewportWidth <= 0) return 1;
-  return Math.max(MIN_SCALE, Math.min(1, viewportWidth / contentWidth));
+  const usable = Math.max(1, viewportWidth - CANVAS_PADDING_PX * 2);
+  return Math.max(MIN_SCALE, Math.min(1, usable / contentWidth));
 }
 
 /**
@@ -117,7 +133,9 @@ export function visibleFrameIds(
   layout: CanvasLayout,
   scale: number,
   scrollLeft: number,
-  viewportWidth: number
+  viewportWidth: number,
+  /** Screen-space offset of the frames within the scrollable surface. */
+  originX = 0
 ): string[] {
   if (scale <= 0) return layout.placements.map((placement) => placement.id);
   // An unmeasured pane (width 0) must not report "nothing is visible" — that
@@ -126,8 +144,8 @@ export function visibleFrameIds(
   if (viewportWidth <= 0) return layout.placements.map((placement) => placement.id);
 
   const margin = (viewportWidth / scale) * MOUNT_MARGIN_SCREENS;
-  const windowStart = scrollLeft / scale - margin;
-  const windowEnd = (scrollLeft + viewportWidth) / scale + margin;
+  const windowStart = (scrollLeft - originX) / scale - margin;
+  const windowEnd = (scrollLeft - originX + viewportWidth) / scale + margin;
 
   return layout.placements
     .filter((placement) => placement.x < windowEnd && placement.x + placement.width > windowStart)
@@ -145,12 +163,16 @@ export function stepZoom(zoom: number, direction: 'in' | 'out'): number {
 }
 
 /**
- * The zoom a wheel gesture asks for. Trackpad pinch and ctrl+wheel both arrive
- * as wheel events with `ctrlKey`, in wildly different magnitudes, so the delta
- * is treated as a fraction of a step rather than an absolute amount.
+ * The zoom a wheel gesture asks for. A trackpad pinch is continuous and
+ * proportional to the gesture; a mouse-wheel notch is one discrete step,
+ * whatever number of pixels the OS attaches to it.
  */
 export function wheelZoom(zoom: number, deltaY: number): number {
-  return clampZoom(zoom * Math.pow(ZOOM_STEP_RATIO, -deltaY / WHEEL_PIXELS_PER_STEP));
+  if (deltaY === 0) return zoom;
+  if (Math.abs(deltaY) >= COARSE_WHEEL_DELTA) {
+    return stepZoom(zoom, deltaY < 0 ? 'in' : 'out');
+  }
+  return clampZoom(zoom * Math.exp(-deltaY * PINCH_RESPONSE));
 }
 
 /**
@@ -187,11 +209,13 @@ export function scrollToCenterFrame(
   layout: CanvasLayout,
   frameId: string,
   scale: number,
-  viewportWidth: number
+  viewportWidth: number,
+  /** Screen-space offset of the frames within the scrollable surface. */
+  originX = 0
 ): number {
   const placement = layout.placements.find((candidate) => candidate.id === frameId);
   if (!placement || scale <= 0) return 0;
-  const centre = (placement.x + placement.width / 2) * scale;
-  const max = Math.max(0, layout.contentWidth * scale - viewportWidth);
+  const centre = originX + (placement.x + placement.width / 2) * scale;
+  const max = Math.max(0, originX * 2 + layout.contentWidth * scale - viewportWidth);
   return Math.max(0, Math.min(max, centre - viewportWidth / 2));
 }

@@ -32,6 +32,7 @@ import {
   CANVAS_PADDING_PX,
   MAX_ZOOM,
   MIN_ZOOM,
+  PAN_SLACK_RATIO,
   anchorScroll,
   clampZoom,
   fitScale,
@@ -116,18 +117,23 @@ export function PreviewCanvas({
 
   const fitted = fitScale(layout.contentWidth, viewport.width);
   const scale = zoom === 'fit' ? fitted : zoom;
+  // Room around the frames so the canvas can be pushed past its own content —
+  // screen-space, so it doesn't change what has to fit at Fit, and constant
+  // across a zoom (which keeps pointer anchoring honest).
+  const slackX = viewport.width * PAN_SLACK_RATIO;
+  const slackY = viewport.height * PAN_SLACK_RATIO;
   // Frame height is fixed at the FIT scale, not the current one: zooming must
   // magnify the page, not hand it a different viewport. (A frame that shrank as
   // you zoomed in would re-evaluate the page's own `vh` units and media queries
   // under you.) Zooming in therefore makes the surface taller than the pane and
   // the canvas pans vertically, exactly like any other design canvas.
   const stageHeight = frameHeight(viewport.height - CANVAS_LABEL_PX - CANVAS_PADDING_PX, fitted);
-  const surfaceWidth = layout.contentWidth * scale;
-  const surfaceHeight = CANVAS_LABEL_PX + stageHeight * scale + CANVAS_PADDING_PX;
+  const surfaceWidth = layout.contentWidth * scale + slackX * 2;
+  const surfaceHeight = CANVAS_LABEL_PX + stageHeight * scale + CANVAS_PADDING_PX + slackY * 2;
 
   const mounted = useMemo(
-    () => new Set(visibleFrameIds(layout, scale, scrollLeft, viewport.width)),
-    [layout, scale, scrollLeft, viewport.width]
+    () => new Set(visibleFrameIds(layout, scale, scrollLeft, viewport.width, slackX)),
+    [layout, scale, scrollLeft, viewport.width, slackX]
   );
   // The active frame is never torn down — the editor is bound to it, and a
   // scroll that unmounted it would silently drop the binding.
@@ -218,11 +224,16 @@ export function PreviewCanvas({
   // point under the cursor in place has to wait for the new layout: it is
   // parked here and applied in the layout effect below, before paint.
   const pendingAnchorRef = useRef<{ scrollLeft: number; scrollTop: number } | null>(null);
+  // Set when an anchored zoom has just placed the scroll position, so the
+  // fit-re-centring effect below (which runs later in the same commit) leaves
+  // it alone instead of yanking the view to the active frame.
+  const anchoredRef = useRef(false);
   useLayoutEffect(() => {
     const pending = pendingAnchorRef.current;
     const node = scrollRef.current;
     if (!pending || !node) return;
     pendingAnchorRef.current = null;
+    anchoredRef.current = true;
     node.scrollLeft = pending.scrollLeft;
     node.scrollTop = pending.scrollTop;
     setScrollLeft(node.scrollLeft);
@@ -273,6 +284,35 @@ export function PreviewCanvas({
     };
     node.addEventListener('wheel', onWheel, { passive: false });
     return () => node.removeEventListener('wheel', onWheel);
+  }, [scale, zoomAt]);
+
+  // A gesture that landed inside a frame: the frame forwarded it up (the parent
+  // never sees a cross-origin document's wheel events), with the point in that
+  // frame's own pixels. Map it back through the frame's on-screen box so the
+  // zoom still happens where the user's fingers are.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; deltaY?: number; x?: number; y?: number } | null;
+      if (data?.type !== 'ss:wheelZoom' || typeof data.deltaY !== 'number') return;
+      const node = scrollRef.current;
+      if (!node) return;
+      // Only this canvas's own frames may drive it.
+      let frame: HTMLIFrameElement | null = null;
+      for (const element of frameElsRef.current.values()) {
+        if (element && element.contentWindow === event.source) frame = element;
+      }
+      if (!frame) return;
+      const canvasBox = node.getBoundingClientRect();
+      // Already the post-transform box, which is the space the pointer lives in.
+      const frameBox = frame.getBoundingClientRect();
+      zoomAt(
+        wheelZoom(scale, data.deltaY),
+        frameBox.left - canvasBox.left + (data.x ?? 0) * scale,
+        frameBox.top - canvasBox.top + (data.y ?? 0) * scale
+      );
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, [scale, zoomAt]);
 
   // Cmd/Ctrl with +, - and 0 (fit). Cmd+1-9 belong to project switching, so
@@ -379,12 +419,38 @@ export function PreviewCanvas({
     const isFit = zoom === 'fit';
     if (previousFitRef.current === isFit) return;
     previousFitRef.current = isFit;
-    if (pendingAnchorRef.current) return;
+    // A gesture that just anchored itself at the pointer owns the scroll
+    // position — this is the "left Fit by pinching" case, and re-centring here
+    // would throw away the place the user zoomed into.
+    if (anchoredRef.current) {
+      anchoredRef.current = false;
+      return;
+    }
     const node = scrollRef.current;
     if (!node) return;
     const nextScale = isFit ? fitScale(layout.contentWidth, node.clientWidth) : zoom;
-    node.scrollLeft = scrollToCenterFrame(layout, activeFrameId, nextScale, node.clientWidth);
-  }, [zoom, layout, activeFrameId]);
+    node.scrollLeft = scrollToCenterFrame(
+      layout,
+      activeFrameId,
+      nextScale,
+      node.clientWidth,
+      slackX
+    );
+  }, [zoom, layout, activeFrameId, slackX]);
+
+  // The surface opens with half a screen of slack on every side, so the frames
+  // would start off screen; put the canvas on them. Runs once the pane has been
+  // measured, and again whenever the slack changes size under it (a resize).
+  const restedRef = useRef(false);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node || viewport.width <= 0) return;
+    if (restedRef.current) return;
+    restedRef.current = true;
+    node.scrollLeft = Math.max(0, slackX - CANVAS_PADDING_PX);
+    node.scrollTop = Math.max(0, slackY - CANVAS_PADDING_PX);
+    setScrollLeft(node.scrollLeft);
+  }, [viewport.width, slackX, slackY]);
 
   return (
     <div
@@ -408,7 +474,8 @@ export function PreviewCanvas({
             style={{
               width: `${layout.contentWidth}px`,
               height: `${stageHeight}px`,
-              top: `${CANVAS_LABEL_PX}px`,
+              left: `${slackX}px`,
+              top: `${slackY + CANVAS_LABEL_PX}px`,
               transform: `scale(${scale})`,
             }}
           >
@@ -449,7 +516,8 @@ export function PreviewCanvas({
                   key={placement.id}
                   className={`preview-canvas-chrome${isActive ? ' is-active' : ''}`}
                   style={{
-                    left: `${placement.x * scale}px`,
+                    left: `${slackX + placement.x * scale}px`,
+                    top: `${slackY}px`,
                     width: `${placement.width * scale}px`,
                     height: `${CANVAS_LABEL_PX + stageHeight * scale}px`,
                   }}

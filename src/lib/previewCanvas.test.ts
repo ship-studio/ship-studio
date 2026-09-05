@@ -27,16 +27,18 @@ describe('layoutFrames', () => {
   it('places frames left to right with a gap between them', () => {
     const { placements } = layoutFrames(FRAMES);
     expect(placements.map((p) => p.x)).toEqual([
-      CANVAS_PADDING_PX,
-      CANVAS_PADDING_PX + 1440 + CANVAS_GAP_PX,
-      CANVAS_PADDING_PX + 1440 + 1024 + CANVAS_GAP_PX * 2,
-      CANVAS_PADDING_PX + 1440 + 1024 + 768 + CANVAS_GAP_PX * 3,
+      0,
+      1440 + CANVAS_GAP_PX,
+      1440 + 1024 + CANVAS_GAP_PX * 2,
+      1440 + 1024 + 768 + CANVAS_GAP_PX * 3,
     ]);
   });
 
-  it('measures the surface as the frames plus inner gaps and outer padding', () => {
+  it('measures only the frames and the gaps between them', () => {
+    // The room AROUND the frames is screen-space slack the canvas adds; it is
+    // deliberately not part of what has to fit.
     const { contentWidth } = layoutFrames(FRAMES);
-    expect(contentWidth).toBe(1440 + 1024 + 768 + 375 + CANVAS_GAP_PX * 3 + CANVAS_PADDING_PX * 2);
+    expect(contentWidth).toBe(1440 + 1024 + 768 + 375 + CANVAS_GAP_PX * 3);
   });
 
   it('reports an empty surface for no frames', () => {
@@ -45,8 +47,8 @@ describe('layoutFrames', () => {
 });
 
 describe('fitScale', () => {
-  it('shrinks the surface to the visible width', () => {
-    expect(fitScale(4000, 1000)).toBe(0.25);
+  it('shrinks the surface to the visible width, less a margin either side', () => {
+    expect(fitScale(4000, 1000 + CANVAS_PADDING_PX * 2)).toBe(0.25);
   });
 
   it('never scales past true size', () => {
@@ -113,6 +115,14 @@ describe('visibleFrameIds', () => {
   it('mounts everything before the pane has been measured', () => {
     expect(visibleFrameIds(layout, 1, 0, 0)).toHaveLength(FRAMES.length);
   });
+
+  it('accounts for the slack the frames are offset by', () => {
+    // Scrolled to the frames' own start: the leftmost frame is in view.
+    const slack = 600;
+    expect(visibleFrameIds(layout, 1, slack, 1200, slack)).toContain('desktop');
+    // Scrolled a long way left of them: nothing is.
+    expect(visibleFrameIds(layout, 1, 0, 200, 100000)).toHaveLength(0);
+  });
 });
 
 describe('scrollToCenterFrame', () => {
@@ -122,6 +132,14 @@ describe('scrollToCenterFrame', () => {
     const scrollLeft = scrollToCenterFrame(layout, 'tablet', 1, 1000);
     const tablet = layout.placements[2];
     expect(scrollLeft).toBe(tablet.x + tablet.width / 2 - 500);
+  });
+
+  it('centres it through the slack offset too', () => {
+    const slack = 500;
+    const tablet = layout.placements[2];
+    expect(scrollToCenterFrame(layout, 'tablet', 1, 1000, slack)).toBe(
+      slack + tablet.x + tablet.width / 2 - 500
+    );
   });
 
   it('clamps to the start of the surface', () => {
@@ -165,14 +183,26 @@ describe('wheelZoom', () => {
     expect(wheelZoom(1, 120)).toBeCloseTo(0.8);
   });
 
-  it('scales with the size of the gesture', () => {
-    expect(wheelZoom(1, -60)).toBeLessThan(wheelZoom(1, -120));
-    expect(wheelZoom(1, -1)).toBeCloseTo(1, 1);
+  it('scales a trackpad gesture with its size', () => {
+    expect(wheelZoom(1, -5)).toBeLessThan(wheelZoom(1, -20));
+    expect(wheelZoom(1, -0.5)).toBeCloseTo(1, 1);
+  });
+
+  it('treats a mouse-wheel notch as exactly one step, however many pixels it claims', () => {
+    // A notch arrives as ~100+ pixels at once; through the continuous response
+    // that would be an enormous jump.
+    expect(wheelZoom(1, -120)).toBe(stepZoom(1, 'in'));
+    expect(wheelZoom(1, -400)).toBe(stepZoom(1, 'in'));
+    expect(wheelZoom(1, 120)).toBe(stepZoom(1, 'out'));
   });
 
   it('stays inside the range however hard the gesture is', () => {
-    expect(wheelZoom(1, -100000)).toBe(MAX_ZOOM);
-    expect(wheelZoom(1, 100000)).toBe(MIN_ZOOM);
+    expect(wheelZoom(MAX_ZOOM, -49)).toBe(MAX_ZOOM);
+    expect(wheelZoom(MIN_ZOOM, 49)).toBe(MIN_ZOOM);
+  });
+
+  it('does nothing for an empty gesture', () => {
+    expect(wheelZoom(0.7, 0)).toBe(0.7);
   });
 });
 
