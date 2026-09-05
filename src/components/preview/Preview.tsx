@@ -410,14 +410,22 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // the same as leaving it by the toggle. Not inside a state updater: React is
   // free to run one twice, and an analytics event is not something to send
   // twice.
-  const setCanvasEnabled = useCallback((next: boolean) => {
-    setCanvasMode((current) => {
-      if (current !== next) {
-        void trackEvent('preview_canvas_toggled', { enabled: next, $screen_name: 'Workspace' });
-      }
-      return next;
-    });
-  }, []);
+  const setCanvasEnabled = useCallback(
+    (next: boolean) => {
+      setCanvasMode((current) => {
+        if (current !== next) {
+          void trackEvent('preview_canvas_toggled', { enabled: next, $screen_name: 'Workspace' });
+        }
+        return next;
+      });
+      // Leaving the canvas remounts the single preview frame, and it would open
+      // at the path it was last TOLD to load — not where the canvas actually
+      // is. Follow the navigation the user did on the canvas.
+      if (!next && conn.currentPage !== conn.iframePath) conn.setIframePath(conn.currentPage);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- specific conn properties are listed; conn object changes on every render
+    [conn.currentPage, conn.iframePath, conn.setIframePath]
+  );
   const toggleCanvasMode = useCallback(
     () => setCanvasEnabled(!canvasMode),
     [canvasMode, setCanvasEnabled]
