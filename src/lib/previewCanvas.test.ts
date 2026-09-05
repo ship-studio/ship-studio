@@ -58,8 +58,13 @@ describe('frameHeight', () => {
     expect(frameHeight(800, 0.5)).toBe(1600);
   });
 
+  it('fills the pane at the scale a four-frame canvas actually fits at', () => {
+    // 1440+1024+768+375 + gaps + padding fitted into a 1200px pane ≈ 0.31.
+    expect(frameHeight(980, 0.3145)).toBe(3116);
+  });
+
   it('clamps a heavily zoomed-out canvas instead of asking for an absurd viewport', () => {
-    expect(frameHeight(800, 0.1)).toBe(2000);
+    expect(frameHeight(800, 0.05)).toBe(3200);
   });
 
   it('keeps a floor so a short pane still renders a usable page', () => {

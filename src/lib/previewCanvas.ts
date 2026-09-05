@@ -52,7 +52,7 @@ const MOUNT_MARGIN_SCREENS = 1;
 
 const MIN_SCALE = 0.05;
 const MIN_FRAME_HEIGHT_PX = 480;
-const MAX_FRAME_HEIGHT_PX = 2000;
+const MAX_FRAME_HEIGHT_PX = 3200;
 
 /**
  * Place frames left to right in the order given, separated by `gap`, with
@@ -83,9 +83,12 @@ export function fitScale(contentWidth: number, viewportWidth: number): number {
 
 /**
  * The CSS height each frame renders at. The frames are scaled along with the
- * rest of the surface, so a small scale needs a taller frame to fill the pane
- * — clamped at both ends so a fit-to-width canvas of four frames doesn't ask
- * four dev-server pages to lay out at an absurd viewport height.
+ * rest of the surface, so a small scale needs a taller frame to fill the pane:
+ * a four-frame canvas fitted into a laptop pane sits near 0.3, which is why the
+ * ceiling is in the low thousands rather than something that looks tidier — a
+ * lower one leaves the bottom third of the canvas empty. It is a safety valve
+ * against a canvas zoomed out far enough to ask for an absurd viewport, not a
+ * target.
  */
 export function frameHeight(viewportHeight: number, scale: number): number {
   if (viewportHeight <= 0 || scale <= 0) return MIN_FRAME_HEIGHT_PX;
