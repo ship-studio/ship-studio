@@ -517,6 +517,24 @@ mod tests {
     }
 
     #[test]
+    fn injected_scripts_contain_no_opening_head_or_html_tag() {
+        // `inject_at_head_start` scans the WHOLE response for the first `<head`,
+        // so a literal opening tag anywhere in an injected script — a comment
+        // included — makes the proxy splice its head-start snippet into the
+        // middle of that script instead of into the page.
+        for (name, script) in [("NAV_SCRIPT", NAV_SCRIPT), ("SELECT_SCRIPT", SELECT_SCRIPT)] {
+            assert!(
+                !script.contains("<head"),
+                "{name} contains a literal `<head`"
+            );
+            assert!(
+                !script.contains("<html"),
+                "{name} contains a literal `<html`"
+            );
+        }
+    }
+
+    #[test]
     fn nav_script_posts_alive_on_parse() {
         // Part of the blank-pane watchdog contract: every injected page proves
         // life immediately on parse, independent of navigation semantics.

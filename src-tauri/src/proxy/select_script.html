@@ -256,7 +256,7 @@ function clearRulePreview(key){
   if(key!=null)restore(key);else{for(var k in pvRuleLoc)restore(k);}
 }
 
-/* A stable structural identity for the element: its element-index path up to <html>.
+/* A stable structural identity for the element: its element-index path up to the root.
    Two siblings with the SAME tag+class still differ here, so the editor never aliases
    one onto the other; it's also stable across an HMR reload of the same tree. */
 function ssDomPath(el){var parts=[],e=el;while(e&&e!==document.documentElement){var p=e.parentElement;if(!p)break;var idx=0,sib=p.firstElementChild;while(sib&&sib!==e){idx++;sib=sib.nextElementSibling;}parts.unshift((e.tagName||'').toLowerCase()+':'+idx);e=p;}return parts.join('>');}
@@ -988,8 +988,10 @@ function ssSyncPage(){
    holds four of these pages at once; an observer over the whole document with
    attributes on fires on every class toggle a scroll animation makes, in every
    frame, and each firing schedules a walk of the CSSOM and a forced layout.
-   New styles land in <head> (a dev server's HMR included), which is all this
-   needs to see. */
+   New styles land in the document head (a dev server's HMR included), which is
+   all this needs to see. NB: no literal opening head/html tag may appear
+   anywhere in this file, comments included — the proxy splices its head-start
+   snippet at the first such string it finds in the whole response. */
 /* Started only when a canvas takes this frame over, and never otherwise: the
    ordinary single-frame preview must cost exactly what it cost before this
    feature existed. */
@@ -1113,7 +1115,7 @@ else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<select
 
 /* Variables editor live preview: set a custom property so every var() consumer updates
    instantly. Prefer editing the live :root rule in the CSSOM (HMR replaces the sheet and
-   supersedes it cleanly); fall back to an inline style on <html> when there's no :root
+   supersedes it cleanly); fall back to an inline style on the root element when there's no :root
    rule yet (e.g. adding the first variable) — that fallback is cleared on commit. */
 else if(d.type==='ss:setVar'){if(typeof d.name==='string'){var vv=String(d.value!=null?d.value:''),setOk=false;try{var rl=findRuleOwner(':root',null);if(rl){rl.owner.cssRules[rl.index].style.setProperty(d.name,vv);setOk=true;}}catch(e){}if(!setOk){try{document.documentElement.style.setProperty(d.name,vv);}catch(e){}}}}
 else if(d.type==='ss:clearVar'){if(typeof d.name==='string'){try{document.documentElement.style.removeProperty(d.name);}catch(e){}}else{var ds=document.documentElement.style;for(var vi=ds.length-1;vi>=0;vi--){var pn=ds[vi];if(pn&&pn.indexOf('--')===0)ds.removeProperty(pn);}}}
