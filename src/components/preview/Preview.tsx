@@ -29,8 +29,8 @@ import { AgentActivityOverlay } from './AgentActivityOverlay';
 import { PreviewSizeControl } from './PreviewSizeControl';
 import { PreviewCanvas, type CanvasZoom } from './PreviewCanvas';
 import { usePreviewCapture } from '../../hooks/usePreviewCapture';
+import { usePreviewEditorFrame } from '../../hooks/usePreviewEditorFrame';
 import { type CanvasFrame } from '../../lib/previewCanvas';
-import { setInspectSource } from '../../lib/inspectStore';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
@@ -403,10 +403,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     pages: conn.filteredPages.map((p) => p.route),
     navigate: conn.handlePageSelect,
     reload: conn.handleRefresh,
-    setViewport: (value) =>
-      typeof value === 'number'
-        ? resize.previewAtWidth(value)
-        : resize.handleBreakpointClick(value),
+    setViewport: (value) => {
+      // A viewport request means one width — leave the canvas so the change is
+      // actually visible instead of silently doing nothing behind four frames.
+      setCanvasMode(false);
+      if (typeof value === 'number') resize.previewAtWidth(value);
+      else resize.handleBreakpointClick(value);
+    },
     getViewportWidth: () => resize.customWidth,
   });
 
@@ -605,41 +608,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     renderedWidth > 0 &&
     renderedWidth < activeBreakpoint.minPx;
 
-  // The frame the visual editor talks to. In focus mode that is the single
-  // preview iframe (a stable ref — nothing about today's behaviour changes); on
-  // the canvas it is whichever frame is active, and the object identity changes
-  // with it so every editor hook re-runs its setup against the new frame.
-  const editorFrameRef = useMemo<RefObject<HTMLIFrameElement | null>>(
-    () => (canvasMode ? { current: canvasFrameEl } : iframeRef),
-    [canvasMode, canvasFrameEl]
-  );
-
-  // Switching frames leaves the previous one still showing the editor's
-  // selection layer, and its own hooks will never post to it again — so say
-  // goodbye explicitly.
-  const previousEditorFrameRef = useRef<HTMLIFrameElement | null>(null);
-  useEffect(() => {
-    const next = canvasMode ? canvasFrameEl : iframeRef.current;
-    const previous = previousEditorFrameRef.current;
-    previousEditorFrameRef.current = next;
-    if (!previous || previous === next) return;
-    try {
-      previous.contentWindow?.postMessage({ type: 'ss:deactivate' }, '*');
-    } catch {
-      // The frame may already be gone — nothing to clean up in that case.
-    }
-  }, [canvasMode, canvasFrameEl]);
-
-  // Point the inspector (console / network / Elements) at the active frame so
-  // four live frames don't produce four copies of every console line.
-  useEffect(() => {
-    if (!canvasMode) {
-      setInspectSource(null);
-      return;
-    }
-    setInspectSource(canvasFrameEl?.contentWindow ?? null);
-    return () => setInspectSource(null);
-  }, [canvasMode, canvasFrameEl]);
+  // Everything frame-bound — the visual editor, the inspector, screenshot
+  // cropping — follows the active frame through this one hook.
+  const editorFrameRef = usePreviewEditorFrame({
+    canvasMode,
+    canvasFrameEl,
+    focusFrameRef: iframeRef,
+    captureTargetRef: capture.iframeWrapperRef,
+  });
 
   // Visual editor (Next.js, Vite/React, Astro). Inert until the user toggles edit mode.
   const editor = useVisualEditor({

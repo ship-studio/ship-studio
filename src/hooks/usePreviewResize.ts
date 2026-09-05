@@ -32,7 +32,7 @@ export const RESIZE_HANDLE_PX = 8;
 
 interface UsePreviewResizeParams {
   /** Ref to the iframe wrapper element, used to read its offsetWidth during resize drag */
-  iframeWrapperRef: React.RefObject<HTMLDivElement | null>;
+  iframeWrapperRef: React.RefObject<HTMLElement | null>;
   /** Fired when the USER changes the canvas width (drag, device preset, or the
    *  pane auto-fitting) — but NOT when `previewAtWidth` sets it programmatically.
    *  Lets the editor drop a pinned breakpoint so it follows the width again. */

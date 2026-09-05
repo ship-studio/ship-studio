@@ -66,7 +66,12 @@ export function usePreviewCapture({
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
 
-  const iframeWrapperRef = useRef<HTMLDivElement | null>(null);
+  // The element whose on-screen rect a capture is cropped to. Normally the
+  // preview's iframe wrapper; on the breakpoint canvas the preview points it at
+  // the active frame, so a screenshot is of the breakpoint you're working at
+  // rather than of the whole zoomed-out canvas. `getBoundingClientRect` already
+  // reports the post-transform (visual) box, which is what the crop needs.
+  const iframeWrapperRef = useRef<HTMLElement | null>(null);
   const cropOverlayRef = useRef<HTMLDivElement>(null);
 
   // Shared helper: capture the current window and return the temp file path
