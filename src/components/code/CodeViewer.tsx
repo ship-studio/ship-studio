@@ -196,10 +196,6 @@ export function CodeViewer({
       onSendToAgent(formatted);
       onToast?.('Sent to agent', 'success');
     } else {
-      void trackEvent('code_snippet_copied', {
-        file_extension: fileExtensionForAnalytics(filePath),
-        line_count: lineCount,
-      });
       void copy(formatted);
     }
 

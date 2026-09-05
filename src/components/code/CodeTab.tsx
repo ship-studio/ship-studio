@@ -15,8 +15,7 @@ import { Button } from '../primitives/Button';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { IconButton } from '../primitives/IconButton';
 import { ResetIcon, SearchIcon, EditIcon } from '@/components/icons';
-import { type FileTreeNode, fileExtensionForAnalytics } from '../../lib/code';
-import { trackEvent, trackSearch } from '../../lib/analytics';
+import { type FileTreeNode } from '../../lib/code';
 import { useCommands } from '../../commands/useCommands';
 
 interface CodeTabProps {
@@ -54,20 +53,8 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     cancelPendingAction,
   } = useFileTree(projectPath);
 
-  const selectFile = useCallback(
-    (path: string) => {
-      void trackEvent('code_file_opened', {
-        file_extension: fileExtensionForAnalytics(path),
-      });
-      selectFileRaw(path);
-    },
-    [selectFileRaw]
-  );
-
-  const refreshTree = useCallback(() => {
-    void trackEvent('code_tree_refreshed');
-    refreshTreeRaw();
-  }, [refreshTreeRaw]);
+  const selectFile = selectFileRaw;
+  const refreshTree = refreshTreeRaw;
 
   // Expose the persisted edit-mode toggle in the command palette (the palette is
   // a contract — every user-facing feature registers its primary action).
@@ -156,10 +143,7 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
             autoCapitalize="off"
             spellCheck={false}
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              trackSearch('code_files', e.target.value);
-            }}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
         <div className="code-tab-sidebar-content">

@@ -22,7 +22,7 @@ import {
   isMcpInvalidInputError,
   isMcpExpectedFailure,
 } from '../../lib/mcp';
-import { trackEvent, trackSearch } from '../../lib/analytics';
+import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError, isAgentNotInstalledError } from '../../lib/errors';
 import { useModal } from '../../contexts/ModalContext';
@@ -304,10 +304,7 @@ export function McpModal({
                       placeholder="Filter servers..."
                       aria-label="Filter MCP servers"
                       value={searchQuery}
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        trackSearch('mcp_filter', e.target.value, 'MCP Modal');
-                      }}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="off"

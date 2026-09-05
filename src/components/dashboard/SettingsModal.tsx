@@ -197,7 +197,11 @@ export function SettingsModal({
     void setAnalyticsEnabled(newValue);
     if (newValue) {
       // Track re-enable (this fires before the backend disables, so it gets sent)
-      void trackEvent('analytics_enabled', { $screen_name: 'Settings' });
+      void trackEvent('setting_changed', {
+        setting: 'analytics',
+        value: true,
+        $screen_name: 'Settings',
+      });
     }
   }, [analyticsEnabled]);
 
@@ -212,8 +216,9 @@ export function SettingsModal({
     const newVisible = !calendarVisible;
     setLocalCalendarVisible(newVisible);
     void setCalendarHidden(!newVisible);
-    void trackEvent('calendar_visibility_toggled', {
-      visible: newVisible,
+    void trackEvent('setting_changed', {
+      setting: 'calendar_visible',
+      value: newVisible,
       $screen_name: 'Settings',
     });
     onCalendarHiddenChange?.(!newVisible);
@@ -248,8 +253,9 @@ export function SettingsModal({
     const newEnabled = !terminalGpuEnabled;
     setLocalTerminalGpuEnabled(newEnabled);
     void setTerminalGpuEnabled(newEnabled);
-    void trackEvent('terminal_gpu_toggled', {
-      enabled: newEnabled,
+    void trackEvent('setting_changed', {
+      setting: 'terminal_gpu',
+      value: newEnabled,
       $screen_name: 'Settings',
     });
   }, [terminalGpuEnabled]);
@@ -258,8 +264,9 @@ export function SettingsModal({
     const enabled = !compactWorkspaceToolbarEnabled;
     setLocalCompactWorkspaceToolbarEnabled(enabled);
     void setCompactWorkspaceToolbarEnabled(enabled);
-    void trackEvent('compact_workspace_toolbar_toggled', {
-      enabled,
+    void trackEvent('setting_changed', {
+      setting: 'compact_workspace_toolbar',
+      value: enabled,
       $screen_name: 'Settings',
     });
   }, [compactWorkspaceToolbarEnabled]);
@@ -268,8 +275,9 @@ export function SettingsModal({
     const newEnabled = !thumbnailsOn;
     setLocalThumbnailsOn(newEnabled);
     void setThumbnailsEnabled(newEnabled);
-    void trackEvent('thumbnails_toggled', {
-      enabled: newEnabled,
+    void trackEvent('setting_changed', {
+      setting: 'thumbnails',
+      value: newEnabled,
       $screen_name: 'Settings',
     });
   }, [thumbnailsOn]);
@@ -278,8 +286,9 @@ export function SettingsModal({
     const newEnabled = !spotifyWidgetEnabled;
     setLocalSpotifyWidgetEnabled(newEnabled);
     void setSpotifyWidgetEnabled(newEnabled);
-    void trackEvent('spotify_widget_toggled', {
-      enabled: newEnabled,
+    void trackEvent('setting_changed', {
+      setting: 'spotify_widget',
+      value: newEnabled,
       $screen_name: 'Settings',
     });
   }, [spotifyWidgetEnabled]);
@@ -295,7 +304,11 @@ export function SettingsModal({
         setLocalProjectsRoot(newRoot);
         setCustomRoot(true);
         onProjectsRootChanged?.();
-        void trackEvent('projects_root_changed', { is_custom: true, $screen_name: 'Settings' });
+        void trackEvent('setting_changed', {
+          setting: 'projects_root',
+          value: true,
+          $screen_name: 'Settings',
+        });
         showToast('Projects folder updated', 'success');
 
         // Offer to move any projects left behind in the previous folder.
@@ -331,7 +344,11 @@ export function SettingsModal({
       setLocalProjectsRoot(root);
       setCustomRoot(false);
       onProjectsRootChanged?.();
-      void trackEvent('projects_root_changed', { is_custom: false, $screen_name: 'Settings' });
+      void trackEvent('setting_changed', {
+        setting: 'projects_root',
+        value: false,
+        $screen_name: 'Settings',
+      });
       showToast('Reset to the default projects folder', 'success');
     } catch (err) {
       showToast(errMsg(err), 'error');

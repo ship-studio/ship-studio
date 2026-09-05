@@ -108,7 +108,6 @@ export function ConflictResolutionModal({
         await resolveConflict(projectPath, currentFile.filePath, currentConflictIndex, resolution);
         void trackEvent('conflict_resolved', {
           resolution,
-          file: currentFile.filePath,
           $screen_name: 'Conflict Resolution',
         });
 

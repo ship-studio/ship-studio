@@ -109,7 +109,7 @@ export function useCssVariables({
           );
           // Drop any inline fallback so the source value takes over once HMR injects it.
           post({ type: 'ss:clearVar', name: variable.name });
-          void trackEvent('visual_style_saved', { mode: 'css-code', variable: true });
+          void trackEvent('visual_edit_saved', { kind: 'variable', mode: 'css-code' });
         } catch (err) {
           logger.error('[CssVariables] save failed', {
             error: formatCommandError(asCommandError(err)),
@@ -141,7 +141,7 @@ export function useCssVariables({
       try {
         await addCssVariable(projectPath, file, name, value);
         post({ type: 'ss:setVar', name, value });
-        void trackEvent('visual_style_saved', { mode: 'css-code', variable_added: true });
+        void trackEvent('visual_edit_saved', { kind: 'variable', mode: 'css-code' });
         await reload();
       } catch (err) {
         logger.error('[CssVariables] add failed', {
@@ -179,11 +179,7 @@ export function useCssVariables({
         const result = await deleteCssVariable(projectPath, name, value, impact);
         onVariableDeleted?.(name, value);
         post({ type: 'ss:clearVar', name });
-        void trackEvent('visual_style_saved', {
-          mode: 'css-code',
-          variable_deleted: true,
-          replacements: result.usageCount,
-        });
+        void trackEvent('visual_edit_saved', { kind: 'variable', mode: 'css-code' });
         await reload();
         onToast(
           `Deleted ${name} and updated ${result.usageCount} ${result.usageCount === 1 ? 'usage' : 'usages'}.`,

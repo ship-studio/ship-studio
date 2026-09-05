@@ -124,11 +124,7 @@ export function PullRequestsTab({
     setMergingPr(prNumber);
     try {
       await mergePullRequest(projectPath, prNumber);
-      void trackEvent('pr_merged', {
-        head_ref: headRef,
-        base_ref: baseRef,
-        $screen_name: 'Workspace',
-      });
+      void trackEvent('pr_merged', { $screen_name: 'Workspace' });
       onToast?.('Pull request merged', 'success');
       await fetchPullRequests();
       onRefresh();
@@ -187,10 +183,7 @@ export function PullRequestsTab({
           await switchBranch(projectPath, postMergeInfo.baseBranch, true);
           await deleteBranch(projectPath, postMergeInfo.branchName, true);
         }
-        void trackEvent('post_merge_cleanup', {
-          deleted_branch: postMergeInfo.branchName,
-          $screen_name: 'Workspace',
-        });
+        void trackEvent('post_merge_cleanup', { $screen_name: 'Workspace' });
         onToast?.(
           `Switched to ${postMergeInfo.baseBranch} and deleted ${postMergeInfo.branchName}`,
           'success'
@@ -214,7 +207,7 @@ export function PullRequestsTab({
       await checkoutPullRequest(projectPath, prNumber);
       setCheckedOutHead(headRef);
       onBranchSwitch?.(headRef);
-      void trackEvent('pr_checked_out', { head_ref: headRef, $screen_name: 'Workspace' });
+      void trackEvent('pr_checked_out', { $screen_name: 'Workspace' });
       onToast?.(`Checked out branch ${headRef}`, 'success');
     } catch (e) {
       trackError('pr_checkout', e, 'Workspace');

@@ -9,9 +9,7 @@ import type { CommandCategory } from '../../commands/types';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { trackEvent, trackSearch, cancelTrackedSearch } from '../../lib/analytics';
-
-type DismissReason = 'command_run' | 'manual';
+import { trackEvent } from '../../lib/analytics';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -80,8 +78,6 @@ export function CommandPalette({
   // Analytics: track open duration and dismissal reason. The reason ref is set
   // by runSelected before it calls onClose so the close-side effect knows the
   // user invoked a command vs. dismissed via esc / click-outside.
-  const openedAtRef = useRef<number | null>(null);
-  const dismissReasonRef = useRef<DismissReason>('manual');
 
   const ranked = useRankedCommands({ kind: context, currentProjectName }, query);
 
@@ -110,25 +106,11 @@ export function CommandPalette({
       const pending = consumePendingTab();
       setActiveTabRaw(pending ?? 'all');
       inputRef.current?.focus();
-      openedAtRef.current = Date.now();
-      dismissReasonRef.current = 'manual';
       void trackEvent('palette_opened', {
         context,
         initial_tab: pending ?? 'all',
       });
     } else {
-      // Drop any pending debounced search — otherwise it fires *after* the
-      // palette is gone, attributing a search to a closed surface.
-      cancelTrackedSearch('palette');
-      // Fire close event before resetting state so we have the active tab.
-      if (openedAtRef.current !== null) {
-        void trackEvent('palette_closed', {
-          context,
-          dismissed_with: dismissReasonRef.current,
-          duration_ms: Date.now() - openedAtRef.current,
-        });
-        openedAtRef.current = null;
-      }
       setQuery('');
       setActiveTabRaw('all');
       setSelectedIdx(0);
@@ -152,24 +134,11 @@ export function CommandPalette({
 
   const tabs = context === 'project' ? PROJECT_TABS : HOME_TABS;
 
-  // Tab-switch tracking. `cause` distinguishes between explicit clicks and
-  // keyboard navigation so we can tell whether power users prefer arrows.
-  const setActiveTab = (next: TabId, cause: 'click' | 'keyboard') => {
-    if (next !== activeTab) {
-      void trackEvent('palette_tab_switched', {
-        from_tab: activeTab,
-        to_tab: next,
-        cause,
-        context,
-      });
-    }
+  const setActiveTab = (next: TabId, _cause: 'click' | 'keyboard') => {
     setActiveTabRaw(next);
   };
 
   const runSelected = (cmd: RankedCommand, position: number) => {
-    // Mark dismissal reason before close so the open/close effect tags the
-    // resulting palette_closed event correctly.
-    dismissReasonRef.current = 'command_run';
     const trimmedQuery = query.trim();
     void trackEvent('palette_command_run', {
       command_id: cmd.id,
@@ -178,7 +147,6 @@ export function CommandPalette({
       // with `total_results` so the metric is interpretable across queries.
       position,
       total_results: filtered.length,
-      query: trimmedQuery.slice(0, 100),
       query_length: trimmedQuery.length,
       had_query: trimmedQuery.length > 0,
       tab: activeTab,
@@ -249,11 +217,7 @@ export function CommandPalette({
           className="command-palette-input"
           placeholder={placeholderFor(context, currentProjectName)}
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            // Debounced (1s) — only the final query lands in PostHog.
-            trackSearch('palette', e.target.value);
-          }}
+          onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           autoComplete="off"
           autoCorrect="off"

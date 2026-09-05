@@ -827,19 +827,14 @@ export const WorkspaceView = memo(function WorkspaceView({
     ]
   );
 
-  // Wrap setters with click tracking. We read previous state from the closure
-  // (not a functional updater) to avoid double-firing under React StrictMode.
-  const setInspectTab = useCallback(
-    (tab: InspectTab) => {
-      if (inspectTab !== tab) {
-        void trackEvent('inspect_subtab_switched', { from_tab: inspectTab, to_tab: tab });
-      }
-      setInspectTabRaw(tab);
-    },
-    [inspectTab]
-  );
+  const setInspectTab = useCallback((tab: InspectTab) => {
+    setInspectTabRaw(tab);
+  }, []);
+  // Opening the inspect panel is the adoption signal for browser tools; the
+  // close and the sub-tab switches are not. Read previous state from the
+  // closure (not a functional updater) to avoid double-firing under StrictMode.
   const togglePreviewLogs = useCallback(() => {
-    void trackEvent('inspect_panel_toggled', { is_open: !showPreviewLogs });
+    if (!showPreviewLogs) void trackEvent('inspect_panel_opened');
     setShowPreviewLogs(!showPreviewLogs);
   }, [showPreviewLogs]);
 

@@ -38,13 +38,7 @@ interface BrowserToolsProps {
 }
 
 export function BrowserTools({ onSendToAgent, active = true }: BrowserToolsProps) {
-  const [tab, setTabRaw] = useState<InnerTab>('console');
-  const setTab = (next: InnerTab) => {
-    if (next !== tab) {
-      void trackEvent('browser_tools_subtab_switched', { from_tab: tab, to_tab: next });
-    }
-    setTabRaw(next);
-  };
+  const [tab, setTab] = useState<InnerTab>('console');
 
   const consoleEntries = useSyncExternalStore(
     inspectStore.subscribe,
@@ -68,13 +62,10 @@ export function BrowserTools({ onSendToAgent, active = true }: BrowserToolsProps
 
   const handleClear = () => {
     if (tab === 'console') {
-      void trackEvent('browser_tools_cleared', { tab: 'console' });
       inspectStore.clearConsole();
     } else if (tab === 'network') {
-      void trackEvent('browser_tools_cleared', { tab: 'network' });
       inspectStore.clearNetwork();
     } else if (tab === 'elements') {
-      void trackEvent('browser_tools_dom_refreshed');
       inspectStore.refreshDom();
     }
   };

@@ -13,7 +13,6 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { CheckIcon, CloseIcon, FileIcon, PendingCircleIcon, UploadIcon } from '@/components/icons';
@@ -281,10 +280,6 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
                               selected={selectedTemplate?.id === template.id && !hasZipTemplate}
                               onSelect={() => {
                                 handleTemplateSelect(template);
-                                void trackEvent('template_selected', {
-                                  template_id: template.id,
-                                  $screen_name: 'Create Project',
-                                });
                                 setSetAsDefaultChecked(false);
                               }}
                             />

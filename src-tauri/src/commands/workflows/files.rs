@@ -15,8 +15,74 @@ use super::{Severity, WorkflowPermission, WorkflowTrigger};
 use crate::errors::CommandError;
 use crate::utils::{classify_fs_error, validate_project_path};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Workflow ids seen by the last listing, so a file that appears on disk
+/// without the editor — the user's agent writing one through the bundled
+/// skill, a `git pull`, a hand-written file — can be reported as created.
+///
+/// `None` until the first listing, which seeds the set silently: everything
+/// already on disk at launch is old news. In-memory only, on purpose — a file
+/// that exists across launches is not being created.
+static KNOWN_WORKFLOWS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// A workflow was just written by the editor: the next listing must not
+/// report it as having appeared from a file.
+fn note_saved_by_form(id: &str) {
+    if let Ok(mut guard) = KNOWN_WORKFLOWS.lock() {
+        if let Some(known) = guard.as_mut() {
+            known.insert(id.to_string());
+        }
+    }
+}
+
+/// A workflow was just deleted by the editor: the next listing must not
+/// report the missing file as a deletion it discovered.
+fn note_deleted_by_form(id: &str) {
+    if let Ok(mut guard) = KNOWN_WORKFLOWS.lock() {
+        if let Some(known) = guard.as_mut() {
+            known.remove(id);
+        }
+    }
+}
+
+/// Report workflows that appeared or vanished on disk since the last listing.
+///
+/// Shape only — trigger kind, permission, agent — never the name, prompt or
+/// project. `source: "file"` is the honest label: it is almost always the
+/// agent skill, but a pull or a hand-written file looks identical from here.
+fn report_file_changes(workflows: &[Workflow]) {
+    let Ok(mut guard) = KNOWN_WORKFLOWS.lock() else {
+        return;
+    };
+    let current: HashSet<String> = workflows.iter().map(|w| w.id.clone()).collect();
+    let Some(known) = guard.as_mut() else {
+        *guard = Some(current);
+        return;
+    };
+    for workflow in workflows.iter().filter(|w| !known.contains(&w.id)) {
+        crate::commands::analytics::track_backend_event(
+            "workflow_created",
+            serde_json::json!({
+                "source": "file",
+                "trigger_kind": workflow.trigger.kind_name(),
+                "permission": workflow.permission.as_str(),
+                "agent": workflow.agent_id.as_deref().unwrap_or("default"),
+                "auto_run": workflow.auto_run,
+                "severity_floor": workflow.severity_floor.as_str(),
+            }),
+        );
+    }
+    for _gone in known.iter().filter(|id| !current.contains(*id)) {
+        crate::commands::analytics::track_backend_event(
+            "workflow_deleted",
+            serde_json::json!({ "source": "file" }),
+        );
+    }
+    *known = current;
+}
 
 /// A standing instruction, as the frontend sees it.
 ///
@@ -411,6 +477,8 @@ pub async fn list_all_workflows() -> Result<Vec<WorkflowView>, CommandError> {
             .to_lowercase()
             .cmp(&b.workflow.name.to_lowercase())
     });
+    let listed: Vec<Workflow> = views.iter().map(|v| v.workflow.clone()).collect();
+    report_file_changes(&listed);
     Ok(views)
 }
 
@@ -490,6 +558,7 @@ pub async fn save_workflow_file(
     // The write is the arming moment: a schedule saved now must count from
     // now, not from whenever the file happened to exist before.
     workflow.updated_at = file_modified_ms(&file_path);
+    note_saved_by_form(&workflow.id);
     Ok(workflow)
 }
 
@@ -501,7 +570,9 @@ pub async fn delete_workflow_file(project_path: String, slug: String) -> Result<
     let project = validate_project_path(&project_path)?;
     // Re-slugify rather than trusting the argument: `slug` reaches the
     // filesystem, and `../../etc/passwd` must not survive the trip.
-    let file_path = workflows_dir(&project).join(format!("{}.md", slugify(&slug)));
+    let slug = slugify(&slug);
+    let file_path = workflows_dir(&project).join(format!("{slug}.md"));
+    note_deleted_by_form(&format!("{}::{slug}", project.to_string_lossy()));
     match std::fs::remove_file(&file_path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

@@ -668,11 +668,6 @@ export function useDevServer(currentProjectPath: string | null) {
       }
       s.needsInstall = null;
 
-      void trackEvent('project_type_detected', {
-        project_type: detectedType,
-        project_name: projectName,
-        $screen_name: 'Workspace',
-      });
       logger.info(`[OpenProject] Detected project type: ${detectedType}`);
 
       if (detectedType === 'generic') {

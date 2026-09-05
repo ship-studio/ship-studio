@@ -254,7 +254,6 @@ export function useCssCascadeEditor({
           setSavingKeys(new Set());
         }
         setLoading(true);
-        void trackEvent('visual_element_selected', { mode: 'css-code', tag: d.signature.tagName });
         return;
       }
 
@@ -449,7 +448,7 @@ export function useCssCascadeEditor({
         );
         baselineInner.current[key] = newInner; // new drift baseline
         post({ type: 'ss:commitRulePreview', ruleKey: key });
-        void trackEvent('visual_style_saved', { mode: 'css-code' });
+        void trackEvent('visual_edit_saved', { kind: 'style', mode: 'css-code' });
       } catch (err) {
         // The source went stale under the card: body drift (a prior save's
         // formatting, an HMR re-read, an external edit) OR the rule no longer
@@ -537,7 +536,7 @@ export function useCssCascadeEditor({
         });
         delete bodiesRef.current[key];
         delete baselineInner.current[key];
-        void trackEvent('visual_style_saved', { mode: 'css-code', deleted: true });
+        void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssCascade] delete failed', {
           error: formatCommandError(asCommandError(err)),
@@ -570,7 +569,7 @@ export function useCssCascadeEditor({
         if (cond)
           setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, mediaText: cond } : r)));
         else onToast('Wrapped — reselect the element to keep editing.', 'success');
-        void trackEvent('visual_style_saved', { mode: 'css-code', wrapped: true });
+        void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssCascade] wrap failed', {
           error: formatCommandError(asCommandError(err)),
@@ -720,11 +719,7 @@ export function useCssCascadeEditor({
         }
         if (selTokenRef.current !== token) return; // element changed while writing
         pin(pinFile, innerText);
-        void trackEvent('visual_style_saved', {
-          mode: 'css-code',
-          created_rule: true,
-          conditional: condition != null,
-        });
+        void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         // A Tauri-rejected CommandError is a plain object — String(err) renders
         // "[object Object]", which both broke the already-exists detection below
@@ -813,7 +808,7 @@ export function useCssCascadeEditor({
         // is a no-op when the body matches its baseline, so this is safe to always schedule.
         clearTimeout(saveTimers.current[newKey]);
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
-        void trackEvent('visual_style_saved', { mode: 'css-code', renamed: true });
+        void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssCascade] rename failed', {
           error: formatCommandError(asCommandError(err)),
@@ -878,7 +873,7 @@ export function useCssCascadeEditor({
         // Re-arm a pending body save under the new key (deferred; no-op if unchanged).
         clearTimeout(saveTimers.current[newKey]);
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
-        void trackEvent('visual_style_saved', { mode: 'css-code', renamedAtRule: true });
+        void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssCascade] rename at-rule failed', {
           error: formatCommandError(asCommandError(err)),

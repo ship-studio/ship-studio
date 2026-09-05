@@ -211,7 +211,6 @@ export function CssEditorPanel({
   });
   const setViewMode = useCallback((next: 'visual' | 'code') => {
     setView(next);
-    void trackEvent('visual_view_switched', { mode: 'css', view: next });
     try {
       localStorage.setItem(VIEW_KEY, next);
     } catch {

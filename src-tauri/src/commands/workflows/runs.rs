@@ -819,6 +819,18 @@ async fn execute(
         permission = ?workflow.permission,
         "running workflow"
     );
+    // Paired with `workflow_run_finished`: a start with no finish is a run the
+    // app was quit out of, which the finish event alone can never show.
+    crate::commands::analytics::track_backend_event(
+        "workflow_run_started",
+        serde_json::json!({
+            "source": source.as_str(),
+            "trigger_kind": workflow.trigger.kind_name(),
+            "permission": workflow.permission.as_str(),
+            "agent": workflow.agent_id.as_deref().unwrap_or("default"),
+            "auto_run": workflow.auto_run,
+        }),
+    );
 
     // Start this run's activity log clean so the panel shows this run rather
     // than a confusing mix with the last one.
@@ -912,9 +924,24 @@ fn report_run(run: &WorkflowRun, workflow: &Workflow, source: RunSource) {
             },
             "findings": run.findings,
             "duration_ms": run.duration_ms,
+            "duration_bucket": duration_bucket(run.duration_ms),
             "tokens": run.tokens,
         }),
     );
+}
+
+/// Coarse run length for dashboards — "how long do runs take" wants a
+/// breakdown, not a distribution of raw milliseconds.
+fn duration_bucket(ms: i64) -> &'static str {
+    if ms < 30_000 {
+        "<30s"
+    } else if ms < 120_000 {
+        "30s-2m"
+    } else if ms < 600_000 {
+        "2m-10m"
+    } else {
+        ">10m"
+    }
 }
 
 type RunPayload = (Vec<ReportedFindingPublic>, Option<String>);
@@ -1161,6 +1188,17 @@ fn next_clock(now_ms_utc: i64, at_hour: u32, at_minute: u32, weekday: Option<u32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn duration_buckets_are_contiguous() {
+        assert_eq!(duration_bucket(0), "<30s");
+        assert_eq!(duration_bucket(29_999), "<30s");
+        assert_eq!(duration_bucket(30_000), "30s-2m");
+        assert_eq!(duration_bucket(119_999), "30s-2m");
+        assert_eq!(duration_bucket(120_000), "2m-10m");
+        assert_eq!(duration_bucket(599_999), "2m-10m");
+        assert_eq!(duration_bucket(600_000), ">10m");
+    }
 
     #[test]
     fn parses_the_last_fenced_json_block() {

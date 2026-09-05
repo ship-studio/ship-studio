@@ -667,7 +667,6 @@ export function usePreviewConnection({
 
   // Handlers
   const handleRefresh = useCallback(() => {
-    void trackEvent('preview_refreshed', { trigger: 'user' });
     if (iframePath === currentPage) {
       // Same URL — a src diff won't reload; request an imperative reload.
       setReloadToken((t) => t + 1);
@@ -679,12 +678,6 @@ export function usePreviewConnection({
 
   const handlePageSelect = useCallback(
     (route: string) => {
-      void trackEvent('preview_page_selected', {
-        // Strip dynamic-looking segments (numeric ids, uuids) so the cardinality
-        // doesn't explode while still keeping the route shape useful.
-        route_pattern: route.replace(/\/(\d+|[0-9a-f-]{8,})/g, '/:id').slice(0, 200),
-        depth: route.split('/').filter(Boolean).length,
-      });
       setCurrentPage(route);
       setShowPageDropdown(false);
       setPageSearch('');

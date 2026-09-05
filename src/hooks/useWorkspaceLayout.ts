@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { trackEvent, trackPageview } from '../lib/analytics';
+import { trackPageview } from '../lib/analytics';
 
 interface UseWorkspaceLayoutParams {
   /** Whether GitHub is connected for the current project */
@@ -38,31 +38,9 @@ export function useWorkspaceLayout({ isGitHubConnected }: UseWorkspaceLayoutPara
   // keep the raw value so the user's last selection comes back on reconnect.
   const [workspaceTabRaw, setWorkspaceTabRaw] = useState<WorkspaceTab>('preview');
 
-  // Wrap the raw setter with `workspace_tab_switched` so click tracking is
-  // automatic. Capture `workspaceTabRaw` from the closure rather than from
-  // a functional updater — functional updaters fire twice under React 18
-  // StrictMode and would double-count clicks in dev/tests. The closure is
-  // refreshed on every state change anyway.
-  //
-  // Tag the click with the *destination* screen so this event and the
-  // `$pageview` that follows agree on what screen the user is on. Without
-  // the explicit override, enrichProperties would attach the active screen
-  // (the *origin* tab), which makes "modal_opened on Workspace - Preview"
-  // look adjacent to "Pageview /workspace-code" in the timeline and
-  // confuses everyone reading the dashboard.
-  const setWorkspaceTab = useCallback(
-    (tab: WorkspaceTab) => {
-      if (workspaceTabRaw !== tab) {
-        void trackEvent('workspace_tab_switched', {
-          from_tab: workspaceTabRaw,
-          to_tab: tab,
-          $screen_name: TAB_SCREEN[tab],
-        });
-      }
-      setWorkspaceTabRaw(tab);
-    },
-    [workspaceTabRaw]
-  );
+  // Tab switches are recorded as the `$pageview` below, not as a separate
+  // click event — one screen change, one event.
+  const setWorkspaceTab = setWorkspaceTabRaw;
 
   const workspaceTab: WorkspaceTab =
     !isGitHubConnected && (workspaceTabRaw === 'branches' || workspaceTabRaw === 'prs')

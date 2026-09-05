@@ -223,7 +223,7 @@ export function useProjectBulkActions<T extends DashboardProject>({
 
       if (completed > 0) {
         void trackEvent(
-          confirm.action === 'delete' ? 'projects_bulk_deleted' : 'projects_bulk_removed_from_app',
+          confirm.action === 'delete' ? 'project_deleted' : 'project_removed_from_app',
           {
             count: completed,
             $screen_name: 'Dashboard',

@@ -148,7 +148,7 @@ export function useTextEditing({ iframeRef, projectPath, enabled, onToast }: Par
               prev?.status === 'resolved' ? { ...prev, text: next } : prev
             );
             post({ type: 'ss:commit' });
-            void trackEvent('visual_text_saved');
+            void trackEvent('visual_edit_saved', { kind: 'text' });
             onToast?.('Saved to source', 'success');
           } catch (err) {
             // CommandError rejections are plain objects — String() renders
@@ -202,7 +202,7 @@ export function useTextEditing({ iframeRef, projectPath, enabled, onToast }: Par
                   logger.warn('[TextEditing] stale text save recovered by re-resolving', {
                     error: formatCommandError(cmdErr),
                   });
-                  void trackEvent('visual_text_saved');
+                  void trackEvent('visual_edit_saved', { kind: 'text' });
                   onToast?.('Saved to source', 'success');
                   return;
                 }

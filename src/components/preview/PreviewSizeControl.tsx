@@ -71,10 +71,6 @@ export function PreviewSizeControl({
   }, [open, openPopover, openSignal]);
 
   useEffect(() => {
-    if (open) void trackEvent('preview_size_popover_opened');
-  }, [open]);
-
-  useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);

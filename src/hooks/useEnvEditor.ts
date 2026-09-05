@@ -368,7 +368,6 @@ export function useEnvEditor({
     setHasChanges(true);
     setShowPasteModal(false);
     setPasteContent('');
-    void trackEvent('env_vars_pasted', { var_count: parsed.length, $screen_name: 'Workspace' });
     onToast?.(`Added ${parsed.length} variable${parsed.length > 1 ? 's' : ''}`, 'success');
   };
 

@@ -118,12 +118,7 @@ export function useBranchManagement({
         // Update branch if changed (e.g., user switched via CLI/agent)
         if (branch && branch !== currentBranchRef.current) {
           setCurrentBranch(branch);
-          void trackEvent('branch_switched', {
-            source: 'external',
-            from_branch: currentBranchRef.current,
-            to_branch: branch,
-            $screen_name: 'Workspace',
-          });
+          void trackEvent('branch_switched', { source: 'external', $screen_name: 'Workspace' });
           // Refresh full branch list when branch changes
           void listBranches(projectPath)
             .then(setBranches)
@@ -132,11 +127,7 @@ export function useBranchManagement({
 
         // Detect external push: had changes before, now synced, same branch
         if (hadChangesRef.current && !hasChanges && branch === currentBranchRef.current) {
-          void trackEvent('branch_published', {
-            source: 'external',
-            branch: branch,
-            $screen_name: 'Workspace',
-          });
+          void trackEvent('branch_published', { source: 'external', $screen_name: 'Workspace' });
         }
         hadChangesRef.current = hasChanges;
 

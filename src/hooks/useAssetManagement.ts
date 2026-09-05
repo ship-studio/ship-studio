@@ -23,7 +23,7 @@ import {
 } from '../lib/assets';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { describeClipboardError, useCopyToClipboard } from './useCopyToClipboard';
-import { trackEvent, trackError, trackSearch } from '../lib/analytics';
+import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
 
 export interface UseAssetManagementParams {
@@ -107,7 +107,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       setCurrentPath('');
       setSearchQuery('');
       await loadAssets();
-      void trackEvent('assets_root_changed', { $screen_name: 'Workspace' });
+      void trackEvent('asset_managed', { action: 'change_root', $screen_name: 'Workspace' });
       onToast?.(`Assets folder set to ${saved}`, 'success');
     } catch (e) {
       trackError('assets_root_change', e, 'Workspace');
@@ -171,7 +171,11 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
         await uploadAsset(projectPath, currentPath || '/', file.name, fileData);
       }
       await loadAssets();
-      void trackEvent('asset_uploaded', { file_count: files.length, $screen_name: 'Workspace' });
+      void trackEvent('asset_managed', {
+        action: 'upload',
+        file_count: files.length,
+        $screen_name: 'Workspace',
+      });
       onToast?.(
         files.length === 1 ? `Uploaded ${files[0].name}` : `Uploaded ${files.length} files`,
         'success'
@@ -201,7 +205,8 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       // Second click - actually delete
       try {
         await deleteAsset(projectPath, asset.path);
-        void trackEvent('asset_deleted', {
+        void trackEvent('asset_managed', {
+          action: 'delete',
           is_folder: asset.isDirectory,
           $screen_name: 'Workspace',
         });
@@ -249,7 +254,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
 
     try {
       await renameAsset(projectPath, renameTarget.path, renameValue.trim());
-      void trackEvent('asset_renamed', { $screen_name: 'Workspace' });
+      void trackEvent('asset_managed', { action: 'rename', $screen_name: 'Workspace' });
       await loadAssets();
       onToast?.(`Renamed to ${renameValue.trim()}`, 'success');
     } catch (e) {
@@ -272,7 +277,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
 
     try {
       await createAssetFolder(projectPath, folderPath);
-      void trackEvent('asset_folder_created', { $screen_name: 'Workspace' });
+      void trackEvent('asset_managed', { action: 'create_folder', $screen_name: 'Workspace' });
       await loadAssets();
       onToast?.(`Created folder ${newFolderName.trim()}`, 'success');
     } catch (e) {
@@ -310,7 +315,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       });
       if (!destination) return; // user cancelled
       const saved = await exportAsset(projectPath, asset.path, destination, true);
-      void trackEvent('asset_downloaded', { $screen_name: 'Workspace' });
+      void trackEvent('asset_managed', { action: 'download', $screen_name: 'Workspace' });
       onToast?.(`Saved to ${saved}`, 'success');
     } catch (e) {
       trackError('asset_download', e, 'Workspace');
@@ -367,7 +372,6 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
   // --- Search handler with analytics ---
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
-    trackSearch('asset_search', value, 'Workspace');
   };
 
   return {

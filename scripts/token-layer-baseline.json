@@ -245,7 +245,7 @@
     {
       "path": "src/styles/features/account-select.css",
       "token": "--transition",
-      "count": 5,
+      "count": 4,
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
     },
     {

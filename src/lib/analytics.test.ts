@@ -5,8 +5,6 @@ import {
   setActiveScreen,
   setActiveProject,
   trackError,
-  trackSearch,
-  cancelTrackedSearch,
 } from './analytics';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -119,48 +117,6 @@ describe('analytics', () => {
     it('records error_type from the Error name', () => {
       trackError('cmd', new TypeError('bad'));
       expect(lastEventProps().error_type).toBe('TypeError');
-    });
-  });
-
-  describe('trackSearch', () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it('debounces and fires the trimmed query after 1s', () => {
-      trackSearch('palette', 'gi');
-      trackSearch('palette', 'git');
-      vi.advanceTimersByTime(1000);
-      const props = lastEventProps();
-      expect(props.search_type).toBe('palette');
-      expect(props.query).toBe('git');
-      expect(props.query_length).toBe(3);
-    });
-
-    it('caps the query at 100 chars', () => {
-      const huge = 'a'.repeat(500);
-      trackSearch('palette', huge);
-      vi.advanceTimersByTime(1000);
-      const props = lastEventProps();
-      expect((props.query as string).length).toBe(100);
-      expect(props.query_length).toBe(500);
-    });
-
-    it('cancelTrackedSearch drops a pending fire', () => {
-      trackSearch('palette', 'foo');
-      cancelTrackedSearch('palette');
-      vi.advanceTimersByTime(2000);
-      // No track_event call should have happened.
-      expect(invokeMock).not.toHaveBeenCalled();
-    });
-
-    it('skips empty queries', () => {
-      trackSearch('palette', '   ');
-      vi.advanceTimersByTime(2000);
-      expect(invokeMock).not.toHaveBeenCalled();
     });
   });
 });

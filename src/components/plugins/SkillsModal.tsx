@@ -24,7 +24,7 @@ import {
   type SkillSearchResult,
 } from '../../lib/skills';
 import { listAgentSkills } from '../../lib/claude';
-import { trackEvent, trackSearch } from '../../lib/analytics';
+import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useModal } from '../../contexts/ModalContext';
@@ -156,11 +156,6 @@ export function SkillsModal({
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
 
-    void trackEvent('skills_searched', {
-      query: searchQuery.trim(),
-      $screen_name: 'Skills Modal',
-    });
-
     setIsSearching(true);
     setSearchError(null);
     setSearchResults([]);
@@ -278,10 +273,7 @@ export function SkillsModal({
                       placeholder="Filter skills..."
                       aria-label="Filter installed skills"
                       value={installedSearchQuery}
-                      onChange={(e) => {
-                        setInstalledSearchQuery(e.target.value);
-                        trackSearch('skills_filter', e.target.value, 'Skills Modal');
-                      }}
+                      onChange={(e) => setInstalledSearchQuery(e.target.value)}
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="off"

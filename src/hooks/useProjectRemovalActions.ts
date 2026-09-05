@@ -58,7 +58,7 @@ export function useProjectRemovalActions({
     try {
       await deleteProject(project.path);
       await unpinAfter(project, 'delete');
-      void trackEvent('project_deleted', { $screen_name: 'Dashboard' });
+      void trackEvent('project_deleted', { count: 1, $screen_name: 'Dashboard' });
       setDeleteConfirm(null);
       removeProjectFromSelection(project.path);
       await loadAll();
@@ -82,6 +82,7 @@ export function useProjectRemovalActions({
       await removeProjectFromApp(project.path);
       await unpinAfter(project, 'remove');
       void trackEvent('project_removed_from_app', {
+        count: 1,
         is_external: project.is_external,
         $screen_name: 'Dashboard',
       });

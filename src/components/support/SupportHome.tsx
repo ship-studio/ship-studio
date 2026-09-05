@@ -79,10 +79,7 @@ export function SupportHome({ onNavigate }: SupportHomeProps) {
     searchTimer.current = setTimeout(() => {
       setIsSearching(true);
       searchArticles(value)
-        .then((results) => {
-          setArticles(results);
-          void trackEvent('support_article_searched', { query: value });
-        })
+        .then((results) => setArticles(results))
         .catch(() => setArticles([]))
         .finally(() => setIsSearching(false));
     }, 300);

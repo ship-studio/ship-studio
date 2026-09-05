@@ -183,7 +183,7 @@ export function useElementSettings({
         await applyElementHtml(projectPath, sig, oldHtml, newHtml);
         htmlRef.current = newHtml;
         setAttributes(parseAttributes(newHtml));
-        void trackEvent('visual_style_saved', { mode: 'css-code', attr_edit: true });
+        void trackEvent('visual_edit_saved', { kind: 'attribute', mode: 'css-code' });
       } catch (err) {
         reportSettingsFailure('attribute edit', err, onToast);
       } finally {
@@ -213,7 +213,7 @@ export function useElementSettings({
         await applyElementHtml(projectPath, sig, oldHtml, newHtml);
         htmlRef.current = newHtml;
         setAttributes(parseAttributes(newHtml));
-        void trackEvent('visual_style_saved', { mode: 'css-code', attr_edit: true });
+        void trackEvent('visual_edit_saved', { kind: 'attribute', mode: 'css-code' });
       } catch (err) {
         reportSettingsFailure('attribute rename', err, onToast);
       } finally {
@@ -289,7 +289,7 @@ export function useElementSettings({
           classes.length === 0 ? await insertFirstClass(n) : await writeClassAttr(next.join(' '));
         if (written) {
           setClasses(next);
-          void trackEvent('visual_class_added', { mode: 'css-code' });
+          void trackEvent('visual_edit_saved', { kind: 'class', mode: 'css-code' });
         }
       } catch (err) {
         reportSettingsFailure('add class', err, onToast);
@@ -307,7 +307,7 @@ export function useElementSettings({
         const next = classes.filter((c) => c !== name);
         if (await writeClassAttr(next.join(' '))) {
           setClasses(next);
-          void trackEvent('visual_class_removed', { mode: 'css-code' });
+          void trackEvent('visual_edit_saved', { kind: 'class', mode: 'css-code' });
         }
       } catch (err) {
         reportSettingsFailure('remove class', err, onToast);
@@ -335,7 +335,7 @@ export function useElementSettings({
         const next = classes.map((c) => (c === oldName ? n : c));
         if (await writeClassAttr(next.join(' '))) {
           setClasses(next);
-          void trackEvent('visual_class_renamed', { mode: 'css-code' });
+          void trackEvent('visual_edit_saved', { kind: 'class', mode: 'css-code' });
         }
       } catch (err) {
         // Same refusal ladder as the other settings mutations — by-design

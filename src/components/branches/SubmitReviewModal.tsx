@@ -121,7 +121,6 @@ export function SubmitReviewModal({
   // Track modal open
   useEffect(() => {
     // Branch name omitted on purpose — see PublishBranchDropdown for rationale.
-    void trackEvent('submit_review_opened', { $screen_name: 'Workspace' });
   }, [branchName]);
 
   const handleSubmit = async () => {
@@ -170,7 +169,6 @@ export function SubmitReviewModal({
         baseBranch
       );
       void trackEvent('pr_created', {
-        base_branch: baseBranch,
         used_ai: usedAi,
         title_length: prTitle.length,
         description_length: prDescription.length,
@@ -221,8 +219,6 @@ export function SubmitReviewModal({
     try {
       await mergePullRequest(projectPath, createdPr.number);
       void trackEvent('pr_merged', {
-        head_ref: branchName,
-        base_ref: baseBranch,
         from_submit_modal: true,
         $screen_name: 'Submit Review',
       });
@@ -257,11 +253,7 @@ export function SubmitReviewModal({
   const handleAskAgentToResolve = () => {
     if (!onSendToAgent) return;
     onSendToAgent(buildConflictPrompt(branchName, baseBranch));
-    void trackEvent('pr_conflict_sent_to_agent', {
-      head_ref: branchName,
-      base_ref: baseBranch,
-      $screen_name: 'Submit Review',
-    });
+    void trackEvent('pr_conflict_sent_to_agent', { $screen_name: 'Submit Review' });
     onToast?.('Asked the agent to resolve conflicts', 'success');
     onClose();
   };
@@ -269,11 +261,7 @@ export function SubmitReviewModal({
   const handleResolveMyself = () => {
     if (!onResolveConflicts) return;
     onResolveConflicts(branchName, baseBranch);
-    void trackEvent('pr_conflict_resolve_in_app', {
-      head_ref: branchName,
-      base_ref: baseBranch,
-      $screen_name: 'Submit Review',
-    });
+    void trackEvent('pr_conflict_resolve_in_app', { $screen_name: 'Submit Review' });
     onClose();
   };
 
@@ -290,10 +278,7 @@ export function SubmitReviewModal({
       }
       onBranchSwitch?.(baseBranch);
       await deleteBranch(projectPath, branchName, true);
-      void trackEvent('post_merge_cleanup', {
-        deleted_branch: branchName,
-        $screen_name: 'Submit Review',
-      });
+      void trackEvent('post_merge_cleanup', { $screen_name: 'Submit Review' });
       onToast?.(`Switched to ${baseBranch} and deleted ${branchName}`, 'success');
       onClose();
     } catch (e) {

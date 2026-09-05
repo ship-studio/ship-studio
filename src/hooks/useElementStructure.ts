@@ -283,7 +283,7 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
               ? [sel.signature.className, ...sel.signature.ancestorClasses].filter(Boolean)
               : sel.signature.ancestorClasses,
         });
-        void trackEvent('visual_element_inserted');
+        void trackEvent('visual_edit_saved', { kind: 'insert' });
         onToast?.(`Added ${meta?.label ?? kind}`, 'success');
       }),
     [projectPath, runAction, scheduleReselect, onToast]
@@ -301,7 +301,7 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
           text: sel.signature.text,
           ancestorClasses: sel.signature.ancestorClasses,
         });
-        void trackEvent('visual_element_duplicated');
+        void trackEvent('visual_edit_saved', { kind: 'duplicate' });
         onToast?.('Element duplicated', 'success');
       }),
     [projectPath, runAction, scheduleReselect, onToast]
@@ -316,7 +316,7 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
         const { html } = await resolveElementHtml(projectPath, sel.signature);
         await deleteElement(projectPath, sel.signature, html);
         setSelection(null);
-        void trackEvent('visual_element_deleted');
+        void trackEvent('visual_edit_saved', { kind: 'delete' });
         onToast?.(
           sel.count > 1 ? `Element deleted — affects ${sel.count} copies` : 'Element deleted',
           'success'

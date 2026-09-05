@@ -102,7 +102,14 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
   const handleToggleAutoRun = useCallback(
     (workflow: Workflow, autoRun: boolean) => {
       setAutoRun(workflow, autoRun)
-        .then(() => showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${workflow.name}`, 'info'))
+        .then(() => {
+          // Arming a schedule is the moment this feature becomes unattended.
+          void trackEvent('workflow_toggled', {
+            auto_run: autoRun,
+            trigger_kind: workflow.trigger.kind,
+          });
+          showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${workflow.name}`, 'info');
+        })
         .catch((err: unknown) => showToast(String(err), 'error'));
     },
     [showToast]
@@ -142,6 +149,9 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
       // question worth answering is whether people arm schedules or only ever
       // press Run.
       void trackEvent(slug === null ? 'workflow_created' : 'workflow_edited', {
+        // `file` is the other source: a workflow the user's agent wrote to
+        // disk, reported from the backend when it first lists it.
+        ...(slug === null ? { source: 'form' } : {}),
         trigger_kind: draft.trigger.kind,
         permission: draft.permission,
         agent: draft.agentId ?? 'default',
@@ -157,6 +167,11 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
   const handleDelete = useCallback(
     async (workflow: Workflow) => {
       await deleteWorkflow(workflow.projectPath, workflow.slug);
+      void trackEvent('workflow_deleted', {
+        source: 'form',
+        trigger_kind: workflow.trigger.kind,
+        auto_run: workflow.autoRun,
+      });
       setEditing(null);
       showToast(`Deleted ${workflow.name}`, 'info');
     },

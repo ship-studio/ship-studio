@@ -4,7 +4,6 @@
  * @module components/DashboardPreferencesCard
  */
 
-import { trackEvent } from '../../lib/analytics';
 import { HistoryIcon, SettingsIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 
@@ -38,10 +37,7 @@ export function DashboardPreferencesCard({
           width="hug"
           className="dashboard-card-row"
           data-education-id="settings-button"
-          onClick={() => {
-            void trackEvent('settings_opened', { $screen_name: 'Dashboard' });
-            onOpenSettings();
-          }}
+          onClick={onOpenSettings}
         >
           <div className="dashboard-card-row-icon">
             <SettingsIcon size={18} />
@@ -58,10 +54,7 @@ export function DashboardPreferencesCard({
           size="default"
           width="hug"
           className="dashboard-card-row"
-          onClick={() => {
-            void trackEvent('changelog_opened', { $screen_name: 'Dashboard' });
-            onOpenChangelog();
-          }}
+          onClick={onOpenChangelog}
         >
           <div className="dashboard-card-row-icon">
             <HistoryIcon size={14} />

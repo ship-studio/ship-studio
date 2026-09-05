@@ -2,13 +2,11 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { trackEvent } from '../lib/analytics';
 
 /**
  * Registered modal IDs. Add a string here when introducing a new modal so
@@ -58,14 +56,6 @@ interface ProviderProps {
   children: ReactNode;
 }
 
-/**
- * Modal IDs whose open/close events are *not* fired centrally. The command
- * palette has its own `palette_opened`/`palette_closed` with richer payload
- * (context, dismissal reason, search query) — duplicating it here would
- * inflate counts.
- */
-const MODAL_TRACKING_EXCLUDED: ReadonlySet<ModalId> = new Set(['commandPalette']);
-
 export function ModalProvider({ children }: ProviderProps) {
   const [openSet, setOpenSet] = useState<Set<ModalId>>(() => new Set());
   const callbacksRef = useRef(new Map<ModalId, Set<() => void>>());
@@ -75,10 +65,6 @@ export function ModalProvider({ children }: ProviderProps) {
   // depends on React 18 internals). Mutating both this ref *and* the state
   // setter keeps the source of truth consistent.
   const openSetRef = useRef<Set<ModalId>>(new Set());
-  // Open-timestamps so `modal_closed` can carry a duration. Uses
-  // `performance.now()` because it's monotonic — wall-clock changes (NTP,
-  // DST) won't yield negative durations.
-  const openedAtRef = useRef(new Map<ModalId, number>());
 
   const isOpen = useCallback((id: ModalId) => openSet.has(id), [openSet]);
 
@@ -88,13 +74,6 @@ export function ModalProvider({ children }: ProviderProps) {
     next.add(id);
     openSetRef.current = next;
     setOpenSet(next);
-    if (!MODAL_TRACKING_EXCLUDED.has(id)) {
-      openedAtRef.current.set(id, performance.now());
-      // Modal id is baked into the event name so PostHog's default events
-      // list is self-describing — no column add required to know which
-      // modal opened. `modal_id` stays in the payload too for filters.
-      void trackEvent(`modal_${id}_opened`, { modal_id: id });
-    }
   }, []);
 
   const close = useCallback((id: ModalId) => {
@@ -103,42 +82,7 @@ export function ModalProvider({ children }: ProviderProps) {
     next.delete(id);
     openSetRef.current = next;
     setOpenSet(next);
-    // Fire the analytics event *before* user-supplied close callbacks so
-    // a slow/throwing callback doesn't inflate `duration_ms` or skip the
-    // event entirely.
-    if (!MODAL_TRACKING_EXCLUDED.has(id)) {
-      const openedAt = openedAtRef.current.get(id);
-      openedAtRef.current.delete(id);
-      void trackEvent(`modal_${id}_closed`, {
-        modal_id: id,
-        // Explicit `undefined` check so a value of 0 (impossible in
-        // practice with performance.now()) wouldn't be treated as missing.
-        duration_ms: openedAt !== undefined ? Math.round(performance.now() - openedAt) : null,
-      });
-    }
     callbacksRef.current.get(id)?.forEach((fn) => fn());
-  }, []);
-
-  // Flush a `modal_closed` for any modals still open when the provider
-  // unmounts (app quit, hard reload). Without this, the open event has no
-  // close partner and duration is lost.
-  useEffect(() => {
-    // Snapshot the Map ref at mount-time so the cleanup doesn't read
-    // `openedAtRef.current` directly (lint flags ref reads in cleanup).
-    // The Map is mutated in place — never reassigned — so the captured
-    // reference stays current through the provider's lifetime.
-    const openedAtMap = openedAtRef.current;
-    return () => {
-      for (const id of openSetRef.current) {
-        if (MODAL_TRACKING_EXCLUDED.has(id)) continue;
-        const openedAt = openedAtMap.get(id);
-        void trackEvent(`modal_${id}_closed`, {
-          modal_id: id,
-          duration_ms: openedAt !== undefined ? Math.round(performance.now() - openedAt) : null,
-          reason: 'provider_unmount',
-        });
-      }
-    };
   }, []);
 
   const toggle = useCallback(

@@ -20,7 +20,13 @@
  */
 
 import { useCallback, useEffect } from 'react';
-import { consumeHandoff, peekHandoff } from '../lib/workflowHandoff';
+import {
+  consumeHandoff,
+  peekHandoff,
+  peekHandoffFinding,
+  trackFindingFix,
+  type HandoffFinding,
+} from '../lib/workflowHandoff';
 import { logger } from '../lib/logger';
 
 const RETRY_MS = 400;
@@ -57,8 +63,9 @@ interface HandoffDelivery {
    * Returns false while the project's terminal system is not ready yet.
    */
   startAgentWithPrompt: (projectPath: string, prompt: string) => boolean;
-  onDelivered?: () => void;
-  onFailed?: () => void;
+  /** Both callbacks receive the finding behind the prompt, for reporting. */
+  onDelivered?: (finding: HandoffFinding | null) => void;
+  onFailed?: (finding: HandoffFinding | null) => void;
   /** Stop immediately instead of retrying — the blocker will not clear itself. */
   failFast?: boolean;
 }
@@ -107,11 +114,17 @@ export function useFindingHandoff(
     currentProjectPath !== null && terminalTabCount >= maxTerminalTabs && maxTerminalTabs > 0;
 
   const onDelivered = useCallback(
-    () => showToast(HANDOFF_DELIVERED_MESSAGE, 'success'),
+    (finding: HandoffFinding | null) => {
+      trackFindingFix(finding, 'delivered');
+      showToast(HANDOFF_DELIVERED_MESSAGE, 'success');
+    },
     [showToast]
   );
   const onFailed = useCallback(
-    () => showToast(atCapacity ? HANDOFF_NO_ROOM_MESSAGE : HANDOFF_FAILED_MESSAGE, 'error'),
+    (finding: HandoffFinding | null) => {
+      trackFindingFix(finding, atCapacity ? 'no_room' : 'failed');
+      showToast(atCapacity ? HANDOFF_NO_ROOM_MESSAGE : HANDOFF_FAILED_MESSAGE, 'error');
+    },
     [showToast, atCapacity]
   );
 
@@ -140,17 +153,18 @@ export function useWorkflowHandoff(
       // every time the workspace simply wasn't ready yet.
       const prompt = peekHandoff(projectPath);
       if (prompt === null) return;
+      const finding = peekHandoffFinding(projectPath);
 
       if (failFast) {
         consumeHandoff();
         logger.warn('[Workflows] Cannot hand a finding over right now', { projectPath });
-        onFailed?.();
+        onFailed?.(finding);
         return;
       }
 
       if (startAgentWithPrompt(projectPath, prompt)) {
         consumeHandoff();
-        onDelivered?.();
+        onDelivered?.(finding);
         return;
       }
       if (Date.now() > deadline) {
@@ -158,7 +172,7 @@ export function useWorkflowHandoff(
         // terminal minutes from now.
         consumeHandoff();
         logger.warn('[Workflows] Gave up delivering a finding to an agent', { projectPath });
-        onFailed?.();
+        onFailed?.(finding);
         return;
       }
       timer = window.setTimeout(attempt, RETRY_MS);

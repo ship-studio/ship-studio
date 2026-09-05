@@ -391,7 +391,6 @@ export function useProjectLifecycle({
     startProjectSession();
 
     void trackEvent('project_opened', { $screen_name: 'Workspace' });
-    void trackEvent('project_session_started', { $screen_name: 'Workspace' });
     // The initial Workspace pageview is fired by useWorkspaceLayout's
     // workspaceTab effect once the resolved tab is known.
 
@@ -802,10 +801,6 @@ export function useProjectLifecycle({
       args: ['install'],
     });
     setInstallTerminalExited(false);
-    void trackEvent('install_dependencies_started', {
-      package_manager: packageManager,
-      $screen_name: 'Workspace',
-    });
   };
 
   const handleCloseInstallTerminal = () => {

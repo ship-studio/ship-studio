@@ -250,7 +250,6 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
     if (!updated || removed.length === 0) return;
     // Ship Studio never deletes files, so removed languages leave translated
     // content behind (which Astro keeps serving). Offer an optional cleanup.
-    void trackEvent('i18n_removal_cleanup_offered', { removed_count: removed.length });
     setPromptReview({
       description: `${removed.map(localeDisplayName).join(', ')} removed from the config. The translated files stay in your project${
         updated.framework === 'astro'

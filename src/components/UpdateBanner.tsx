@@ -186,7 +186,6 @@ export function UpdateBanner() {
   }, [availableUpdate]);
 
   const handleRestart = useCallback(async () => {
-    void trackEvent('update_restarted', { $screen_name: 'Project Sidebar' });
     try {
       const result = await restartApp();
       if (result === 'simulated') {

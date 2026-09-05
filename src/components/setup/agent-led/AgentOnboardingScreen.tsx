@@ -47,7 +47,7 @@ import { initDefaultAgent, getAgentById } from '../../../lib/agent';
 import { ClaudeIcon, CodexIcon, CursorIcon, OpencodeIcon } from '@/components/icons';
 import { usePolling } from '../../../hooks/usePolling';
 import { withTimeout, TimeoutError } from '../../../lib/withTimeout';
-import { trackEvent, trackPageview } from '../../../lib/analytics';
+import { trackEvent, setActiveScreen } from '../../../lib/analytics';
 import { logger } from '../../../lib/logger';
 
 type Phase = 'loading' | 'pick' | 'hosting' | 'guided' | 'complete';
@@ -134,7 +134,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
     initDefaultAgent(agentId);
     setChosenKey(binaryId as AgentCardKey);
     setDetailAgent(null);
-    trackPageview('Onboarding - Hosting Pick');
+    setActiveScreen('Onboarding - Hosting Pick');
     setPhase('hosting');
   }, []);
 
@@ -150,7 +150,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
     await setExternalAgentOptIn(true).catch((err: unknown) => {
       logger.warn('Failed to persist external agent opt-in', { error: String(err) });
     });
-    trackPageview('Onboarding - Hosting Pick');
+    setActiveScreen('Onboarding - Hosting Pick');
     setPhase('hosting');
   }, []);
 
@@ -192,7 +192,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
         host: host ?? 'skipped',
         demo: testMode.mock,
       });
-      trackPageview('Onboarding - Agent Guided Setup');
+      setActiveScreen('Onboarding - Agent Guided Setup');
       setPhase('guided');
     },
     [chosenKey, items, fireCompleted, testMode.mock, testMode.forceOnboarding]
@@ -233,7 +233,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
         setPhase('complete');
         return;
       }
-      trackPageview('Onboarding - Agent Pick');
+      setActiveScreen('Onboarding - Agent Pick');
       setPhase('pick');
     };
     void init();

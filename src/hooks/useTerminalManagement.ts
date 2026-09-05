@@ -352,7 +352,6 @@ export function useTerminalManagement(
         dispatchTerminalResize();
       }
       bump();
-      void trackEvent('terminal_tab_closed', { $screen_name: 'Workspace' });
     },
     [bump]
   );
@@ -532,7 +531,6 @@ export function useTerminalManagement(
     s.splitPaneSizes = null;
     bump();
     dispatchTerminalResize();
-    void trackEvent('split_view_disabled', { $screen_name: 'Workspace' });
   }, [bump, getCurrent]);
 
   const setSplitPaneTab = useCallback(

@@ -27,7 +27,12 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { trackEvent } from '../../lib/analytics';
 import { formatAge, type InboxItem, type Severity } from '../../lib/workflows';
-import { clearHandoff, peekHandoff, queueHandoff } from '../../lib/workflowHandoff';
+import {
+  clearHandoff,
+  peekHandoff,
+  queueHandoff,
+  trackFindingFix,
+} from '../../lib/workflowHandoff';
 import type { Project } from '../../lib/project';
 import {
   getSnapshot,
@@ -94,7 +99,16 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
 
   const handleSelect = useCallback((item: InboxItem) => {
     setSelectedId(item.id);
-    if (!item.read) void setItemRead(item.id, true);
+    if (!item.read) {
+      // The first read of a finding. Arrow-keying back through already-read
+      // items is browsing, not a decision, so it does not count again.
+      void trackEvent('workflow_finding_action', {
+        action: 'open',
+        severity: item.severity,
+        occurrences: item.occurrences,
+      });
+      void setItemRead(item.id, true);
+    }
   }, []);
 
   /** The finding to land on once the current one leaves the list. */
@@ -174,12 +188,10 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
     (item: InboxItem, prompt: string) => {
       if (!onOpenProject) return;
       // The action the whole feature is pointed at: a finding becoming work.
-      void trackEvent('workflow_finding_action', {
-        action: 'fix',
-        severity: item.severity,
-        occurrences: item.occurrences,
-      });
-      queueHandoff(item.projectPath, prompt);
+      // Reported once the handoff resolves (delivered / no room / failed), so
+      // one event carries the outcome instead of a click with no ending.
+      const finding = { severity: item.severity, occurrences: item.occurrences };
+      queueHandoff(item.projectPath, prompt, finding);
       // Says what is happening, not that it is done — the success toast comes
       // from the handoff itself, once an agent has actually started.
       showToast(`Opening ${item.projectName} and starting an agent…`, 'info');
@@ -191,6 +203,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
         onOpenProject({ name: item.projectName, path: item.projectPath, thumbnail: null })
       ).catch((err: unknown) => {
         if (peekHandoff(item.projectPath) === prompt) clearHandoff();
+        trackFindingFix(finding, 'failed');
         showToast(`Could not open ${item.projectName}: ${String(err)}`, 'error');
       });
     },

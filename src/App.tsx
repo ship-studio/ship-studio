@@ -44,6 +44,7 @@ import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { HomeSidebar } from './components/workspace/HomeSidebar';
 import { StandingWorkView } from './components/workspace/StandingWorkView';
 import { useFindingHandoff } from './hooks/useWorkflowHandoff';
+import { useAccountSelectNavigation } from './hooks/useAccountSelectNavigation';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
@@ -135,12 +136,12 @@ const loadingSpinner = <Spinner size="lg" style={{ color: 'var(--text-muted)' }}
 
 function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
+  const { openAccountSelect, accountSelectProps } = useAccountSelectNavigation(view, setView);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [compactWorkspaceToolbarEnabled, updateCompactWorkspaceToolbar] =
     useCompactWorkspaceToolbar();
   const toggleSidebar = useCallback(() => {
-    void trackEvent('sidebar_toggled', { is_hidden: !isSidebarHidden });
     setIsSidebarHidden(!isSidebarHidden);
   }, [isSidebarHidden]);
   const isCompact = useIsCompact();
@@ -528,9 +529,6 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   const openPalette = useOpenPalette();
   const openProjectPicker = useCallback(() => {
-    // Dedicated picker button only — Cmd+K palette opens are tracked by the
-    // palette itself in Phase 3, with `tab` as a property.
-    void trackEvent('project_picker_button_clicked');
     openPalette({ tab: 'project' });
   }, [openPalette]);
 
@@ -733,16 +731,11 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleRunInstall(currentProject.path, needsInstall.packageManager);
   }, [currentProject, needsInstall, handleRunInstall]);
 
-  // "Send to agent" from the Inbox — see hooks/useWorkflowHandoff. Only while
-  // the workspace is on screen: the home sidebar's Inbox link leaves the hot
-  // project and its tabs current, so a second finding for that project would
-  // change nothing the hook watches and sit queued until a tab was closed.
-  // Passing null off-workspace makes the flip back to 'workspace' re-arm it.
-  useFindingHandoff(
-    view === 'workspace' ? (currentProject?.path ?? null) : null,
-    terminalProps,
-    showToast
-  );
+  // "Send to agent" from the Inbox — see hooks/useWorkflowHandoff. Null while
+  // off-workspace: the Inbox link keeps the hot project current, so the flip
+  // back to 'workspace' is what re-arms delivery of a second finding.
+  const handoffPath = view === 'workspace' ? (currentProject?.path ?? null) : null;
+  useFindingHandoff(handoffPath, terminalProps, showToast);
 
   const devServerProps = useMemo(
     () => ({
@@ -999,9 +992,10 @@ function AppContents({ initialProjectPath }: AppProps) {
       onCloseProject: handleCloseProject,
       onSelectProjectTab: handleSelectProjectTab,
       isProjectDevServerRunning: isServerRunning,
-      onSwitchAccount: () => setView('account-select'),
+      onSwitchAccount: openAccountSelect,
     }),
     [
+      openAccountSelect,
       inboxUnread,
       openProjectPicker,
       isSidebarHidden,
@@ -1123,7 +1117,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     return (
       <>
         <div className="app">
-          <AccountSelectScreen onContinue={() => setView('projects')} />
+          <AccountSelectScreen {...accountSelectProps} />
         </div>
         <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
@@ -1167,7 +1161,7 @@ function AppContents({ initialProjectPath }: AppProps) {
               cleanupStatus={cleanupStatus}
               pinnedSet={pinnedProjects.pinnedSet}
               onTogglePin={(path, pinned) => void handleTogglePin(path, pinned)}
-              onSwitchAccount={() => setView('account-select')}
+              onSwitchAccount={openAccountSelect}
             />
           </div>
         </div>
@@ -1250,7 +1244,7 @@ function AppContents({ initialProjectPath }: AppProps) {
               isRestartingDevServer={false}
               devServerRunning={false}
               isProjectDevServerRunning={isServerRunning}
-              onSwitchAccount={() => setView('account-select')}
+              onSwitchAccount={openAccountSelect}
             />
             <div className="project-loading-body">
               {loadingSpinner}
@@ -1300,7 +1294,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         onSelectProjectTab={handleSelectProjectTab}
         onGoHome={handleBackToProjects}
         onOpenProjectPicker={openProjectPicker}
-        onSwitchAccount={() => setView('account-select')}
+        onSwitchAccount={openAccountSelect}
         isProjectDevServerRunning={isServerRunning}
         isSidebarHidden={isSidebarHidden}
         onToggleSidebar={toggleSidebar}

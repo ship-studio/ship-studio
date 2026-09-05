@@ -192,7 +192,6 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     try {
       const updated = await reorderPinsApi(orderedPaths);
       setPinnedPaths(updated);
-      void trackEvent('pins_reordered', { pin_count: updated.length });
     } catch (err) {
       logger.error('[usePinnedProjects] Failed to reorder pins', { error: String(err) });
       throw err;

@@ -118,7 +118,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
       try {
         await applyCssRuleText(projectPath, file, selector, null, oldInner, newInner);
         baselineRef.current[selector] = newInner;
-        void trackEvent('visual_style_saved', { mode: 'css-code', keyframes: true });
+        void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] save failed', {
           error: formatCommandError(asCommandError(err)),
@@ -169,7 +169,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         fileRef.current[selector] = file;
         bodiesRef.current[selector] = body;
         setAnimations((prev) => [...prev, { selector, name, file, body }]);
-        void trackEvent('visual_style_saved', { mode: 'css-code', keyframes_added: true });
+        void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] create failed', {
           error: formatCommandError(asCommandError(err)),
@@ -208,7 +208,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         setAnimations((prev) =>
           prev.map((a) => (a.selector === oldSelector ? { ...a, selector: newSelector, name } : a))
         );
-        void trackEvent('visual_style_saved', { mode: 'css-code', keyframes_renamed: true });
+        void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] rename failed', {
           error: formatCommandError(asCommandError(err)),
@@ -229,7 +229,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         setAnimations((prev) => prev.filter((a) => a.selector !== selector));
         delete bodiesRef.current[selector];
         delete baselineRef.current[selector];
-        void trackEvent('visual_style_saved', { mode: 'css-code', keyframes_deleted: true });
+        void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] delete failed', {
           error: formatCommandError(asCommandError(err)),

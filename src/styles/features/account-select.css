@@ -1,5 +1,8 @@
 /* ── Workspace (Account) Select Screen ───────────────────────────────────── */
 
+/* Same vocabulary as the dashboard hero and the onboarding agent picker: a
+   centred column, one display title, square pick-cards, a quiet footnote. */
+
 /* Drag region — fixed strip at the very top so the window is movable anywhere
  * on the screen, not just over content. Mirrors dashboard-drag-region. */
 .account-select-drag-region {
@@ -13,56 +16,92 @@
 }
 
 .account-select-screen {
-  display: flex;
-  flex-direction: column;
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 64px 24px var(--spacing-2xl);
-  flex: 1;
   position: relative;
-}
-
-.account-select-header {
   display: flex;
+  flex: 1;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 24px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--border-default);
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  /* Top clears the overlay titlebar; the hero adds its own breathing room. */
+  padding: 56px var(--spacing-xl) var(--spacing-2xl);
+  overflow-y: auto;
 }
 
-.account-select-title {
-  font-size: var(--font-size-h3);
-  font-weight: 600;
+/* "← Back" sits where the eye expects it, clear of the traffic lights. */
+.account-select-back {
+  position: absolute;
+  top: 52px;
+  left: var(--spacing-xl);
+  color: var(--text-muted);
+  /* Above the drag strip so it stays clickable. */
+  z-index: calc(var(--z-dropdown) + 1);
+}
+
+.account-select-back:hover {
   color: var(--text-primary);
 }
 
-/* Non-intrusive explainer beneath the header: what workspaces are (and aren't). */
+.account-select-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xl) 0;
+  margin-bottom: var(--spacing-lg);
+  text-align: center;
+}
+
+.account-select-hero-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* css-ok: matches the dashboard hero's 48px mark */
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-card);
+  background: var(--tint-subtle);
+  color: var(--text-secondary);
+}
+
+.account-select-title {
+  margin: 0;
+  color: var(--text-primary);
+}
+
 .account-select-subtitle {
-  max-width: 720px;
-  margin: -8px 0 28px;
-  font-size: var(--font-size-body-sm);
-  line-height: 1.6;
+  /* Explicit width so the box (not just the text inside it) is what the
+     flex column centres — WebKit's balanced wrap shrinks a fit-content box
+     and leaves it hugging the left of the column otherwise. */
+  width: 100%;
+  max-width: 520px;
+  margin: 0;
   color: var(--text-secondary);
-}
-
-.account-select-subtitle-muted {
-  color: var(--text-muted);
-}
-
-.account-select-subtitle strong {
-  color: var(--text-secondary);
-  font-weight: 600;
+  text-align: center;
+  text-wrap: balance;
 }
 
 .account-select-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  min-height: 240px;
+  min-height: 176px;
+  /* The spinner draws in currentColor. */
+  color: var(--text-muted);
+}
+
+.account-select-footnote {
+  width: 100%;
+  max-width: 520px;
+  margin: var(--spacing-2xl) 0 0;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.account-select-footnote strong {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .account-select-overlay {
@@ -75,95 +114,145 @@
   z-index: var(--z-modal-overlay);
 }
 
-/* ── Account Grid / Cards ─────────────────────────────────────────────────── */
+/* ── Workspace pick-cards ─────────────────────────────────────────────────── */
 
-.account-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+.account-pick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-md);
+  width: 100%;
 }
 
-.account-card {
+.account-pick-card {
+  position: relative;
+  /* css-ok: fixed square card size, not a spacing-scale value */
+  width: 176px;
+  height: 176px;
+}
+
+/* The whole tile is the button. */
+.account-pick-card-main {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Center content vertically too: cards stretch to equal height in the grid,
-     so without this the non-current cards (which lack the "Current" badge)
-     top-pack their avatar/name and leave dead space below — reading as
-     off-centre next to the taller current card. */
   justify-content: center;
-  gap: 12px;
-  padding: 28px 16px;
-  min-height: 188px;
+  gap: var(--spacing-2xs);
+  padding: var(--spacing-md);
   background: var(--surface-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font: inherit;
   cursor: pointer;
-  transition: border-color var(--transition);
-  position: relative;
+  text-align: center;
+  transition: all var(--transition-interaction);
 }
 
-.account-card:hover {
-  border-color: var(--text-muted);
-}
-
-.account-card.active {
+.account-pick-card-main:hover:not(:disabled) {
+  background: var(--surface-control);
   border-color: var(--accent-active);
+  transform: translateY(-1px); /* css-ok: hover lift, not spacing */
 }
 
-.account-card-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
+.account-pick-card-main:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--spacing-2xs);
+}
+
+.account-pick-card-main:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.account-pick-card.is-current .account-pick-card-main {
+  border-color: rgba(var(--accent-active-rgb), 0.5);
+}
+
+/* Identity tile: the workspace colour as a rounded square with its initial,
+   the same 48px footprint as the agent picker's icon tile. */
+.account-pick-card-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-h3);
+  /* css-ok: icon tile size */
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--spacing-md);
+  border-radius: var(--radius-card);
+  background: var(--account-color, var(--surface-control));
+  /* Button-like edge: the same hairline and shadow the Button primitive
+     wears, so the tile reads as a physical object rather than a flat swatch. */
+  border: var(--border-width-default) solid var(--tint-strong);
+  box-shadow: var(--shadow-button);
+  color: var(--text-white);
+  font-size: var(--font-size-h4);
   font-weight: 600;
-  color: var(--text-inverse);
   flex-shrink: 0;
 }
 
-.account-card-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
+.account-pick-card-avatar--new {
+  background: var(--tint-subtle);
+  color: var(--text-secondary);
 }
 
-.account-card-details {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.account-card-name {
+.account-pick-card-name {
+  max-width: 100%;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
-  font-size: var(--font-size-subhead);
-  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 160px;
 }
 
-.account-card-badge {
-  font-size: var(--font-size-body-sm);
-  font-weight: 500;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  background: rgba(var(--accent-success-rgb), 0.15);
-  color: var(--accent-success);
+.account-pick-card-desc {
+  max-width: 100%;
+  font-size: var(--font-size-badge);
+  color: var(--text-muted);
+  line-height: var(--line-height-compact);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--transition-interaction);
 }
 
-.account-card-settings {
+.account-pick-card-main:hover .account-pick-card-desc {
+  color: var(--text-secondary);
+}
+
+/* Quiet caption, no pill — as the agent picker marks "Ready". */
+.account-pick-card-status {
+  margin-top: var(--spacing-2xs);
+  font-size: var(--font-size-badge);
+  color: var(--accent-active);
+}
+
+/* Settings gear: a sibling of the tile button, shown on hover or focus so the
+   tile reads as one target at rest. */
+.account-pick-card-settings {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-interaction);
+}
+
+.account-pick-card:hover .account-pick-card-settings,
+.account-pick-card:focus-within .account-pick-card-settings {
+  opacity: 1;
+}
+
+/* The "new workspace" tile is an invitation, not an item: dashed and quieter. */
+.account-pick-card--new .account-pick-card-main {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+.account-pick-card--new .account-pick-card-main:hover:not(:disabled) {
+  background: var(--surface-panel);
+  color: var(--text-primary);
 }
 
 /* ── Account modal (New Workspace) shared body ───────────────────────────── */
@@ -478,21 +567,10 @@
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 
-@media (max-width: 700px) {
-  .account-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
-  }
-}
-
 @media (max-width: 550px) {
-  .account-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .account-select-header {
-    flex-wrap: wrap;
-    gap: 12px;
+  .account-pick-card {
+    /* css-ok: two tiles per row on a narrow window */
+    width: 156px;
+    height: 156px;
   }
 }

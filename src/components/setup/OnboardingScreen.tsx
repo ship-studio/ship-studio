@@ -18,7 +18,7 @@ import { AgentStep } from './steps/AgentStep';
 import { HostingStep } from './steps/HostingStep';
 import { CelebrationScreen } from './CelebrationScreen';
 import { OnboardingTerminal } from './OnboardingTerminal';
-import { trackEvent, trackPageview } from '../../lib/analytics';
+import { trackEvent, setActiveScreen } from '../../lib/analytics';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { logger } from '../../lib/logger';
@@ -133,7 +133,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     const stepDef = WIZARD_STEPS[stepIndex];
     if (!stepDef) return;
     fireSetupStartedOnce('wizard', currentStep);
-    trackPageview(`Onboarding - ${stepDef.title}`);
+    setActiveScreen(`Onboarding - ${stepDef.title}`);
     void trackEvent('setup_step_entered', {
       step_id: currentStep,
       step_index: stepIndex,
@@ -580,12 +580,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     if (activeItemId || terminalConfig) return;
     const currentIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
     if (currentIndex > 0) {
-      const prevStep = WIZARD_STEPS[currentIndex - 1].id;
-      void trackEvent('setup_step_navigated_back', {
-        from_step: currentStep,
-        to_step: prevStep,
-      });
-      setCurrentStep(prevStep);
+      setCurrentStep(WIZARD_STEPS[currentIndex - 1].id);
     }
   }, [currentStep, activeItemId, terminalConfig]);
 

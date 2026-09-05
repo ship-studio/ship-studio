@@ -838,10 +838,6 @@ export function Changelog({ className = '' }: ChangelogProps) {
 
   const handleRewind = useCallback(async () => {
     if (!rewindVersion) return;
-    void trackEvent('version_rewind_started', {
-      target_version: rewindVersion,
-      $screen_name: 'Dashboard',
-    });
     setRewindStage('downloading');
     setRewindError(null);
 

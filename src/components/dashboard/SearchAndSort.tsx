@@ -18,7 +18,6 @@ import {
   PlusIcon,
   PullIcon,
 } from '@/components/icons';
-import { trackEvent } from '../../lib/analytics';
 import type { ProjectViewMode } from './ProjectGridView';
 
 /** Dashboard project sort keys. */
@@ -88,10 +87,7 @@ export function SearchAndSort({
             className="dashboard-action-button text-style-control-semibold"
             leftIcon={<PlusIcon size={14} />}
             data-education-id="new-project-button"
-            onClick={() => {
-              void trackEvent('new_project_clicked', { $screen_name: 'Dashboard' });
-              onCreateProject();
-            }}
+            onClick={onCreateProject}
           >
             New Project
           </Button>
@@ -105,7 +101,6 @@ export function SearchAndSort({
               leftIcon={<PullIcon size={14} />}
               data-education-id="import-button"
               onClick={() => {
-                void trackEvent('import_button_clicked', { $screen_name: 'Dashboard' });
                 if (isGitHubAuthenticated) {
                   onImportProject();
                 } else if (onGitHubConnectForImport) {
@@ -124,10 +119,7 @@ export function SearchAndSort({
             width="hug"
             className="new-folder-btn"
             data-education-id="new-folder-button"
-            onClick={() => {
-              void trackEvent('new_folder_clicked', { $screen_name: 'Dashboard' });
-              onNewFolder();
-            }}
+            onClick={onNewFolder}
             title="New Folder"
             aria-label="New Folder"
             icon={<FolderPlusIcon size={14} />}

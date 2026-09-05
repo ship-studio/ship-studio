@@ -402,7 +402,6 @@ export function BranchesTab({
     setIsPruningWorktrees(true);
     try {
       await pruneWorktrees(mainWorktreePath);
-      void trackEvent('worktree_pruned', { $screen_name: 'Workspace' });
       onToast?.('Cleared stale worktree entries', 'success');
       onWorktreesChanged?.();
     } catch (e) {
@@ -531,7 +530,7 @@ export function BranchesTab({
         }
         throw e;
       }
-      void trackEvent('branch_created', { from_branch: fromBranch, $screen_name: 'Workspace' });
+      void trackEvent('branch_created', { $screen_name: 'Workspace' });
 
       // Switch to the new branch
       const result = await switchBranch(projectPath, branchName, false);
@@ -1135,10 +1134,7 @@ export function BranchesTab({
           baseBranch={createConflict.baseBranch}
           onCreated={(branchName) => {
             onBranchSwitch(branchName);
-            void trackEvent('branch_created', {
-              from_branch: createConflict.baseBranch,
-              $screen_name: 'Workspace',
-            });
+            void trackEvent('branch_created', { $screen_name: 'Workspace' });
             setCreateConflict(null);
             setNewBranchName('');
             onRefresh();
