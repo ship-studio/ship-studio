@@ -4,11 +4,11 @@
 #
 #   curl -fsSL https://ship.studio/install | bash
 #
-# Downloads the latest build, installs it to /Applications, and launches it.
-# Builds are Developer ID signed AND Apple-notarized, so the normal path is
-# simply downloading the DMG from https://ship.studio -- this script is the
-# power-user / scripted alternative (CI, dotfiles, fleet installs). It still
-# clears the quarantine flag as belt-and-braces for older, un-notarized builds.
+# Downloads the latest build, installs it to /Applications, clears the
+# Gatekeeper quarantine flag, and launches it -- no "unverified developer"
+# prompt. (Builds are code-signed with a Developer ID but not Apple-notarized;
+# running this script is your explicit consent to launch the app, which is what
+# lets us skip notarization.)
 #
 # Uses only tools that ship with macOS (curl, tar, ditto, xattr) -- no Python,
 # no Homebrew, nothing to install first.

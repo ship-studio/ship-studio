@@ -4,10 +4,6 @@ on:
   push:
     tags:
       - '*-win'
-  # Dry run: build + sign + verify the signature, publish nothing. Use it to
-  # prove the Artifact Signing secrets work before cutting a real -win tag:
-  #   gh workflow run release-windows.yml --ref <branch>
-  workflow_dispatch:
 
 jobs:
   build:
@@ -37,54 +33,6 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      # Code signing via Azure Artifact Signing (formerly Trusted Signing).
-      # A signed installer is what stops SmartScreen's "Windows protected your
-      # PC" wall and Chrome's "uncommon download" warning. Tauri calls the
-      # sign command for the app exe and again for the NSIS installer, so both
-      # carry the signature and the updater's UAC prompt shows the publisher.
-      # If the secrets are absent the build is NOT signed and the job annotates
-      # a warning — see RELEASING.md → Windows code signing.
-      - name: Configure Windows code signing
-        id: signing
-        shell: bash
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
-        run: |
-          missing=()
-          for v in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
-            [ -n "${!v}" ] || missing+=("$v")
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::warning::Windows build will NOT be code-signed. Missing secrets: ${missing[*]} (RELEASING.md → Windows code signing)."
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "args=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          cargo install artifact-signing-cli --locked
-          # Tauri merges this overlay onto tauri.conf.json (--config). The
-          # values are account identifiers, not credentials; the credentials
-          # are the AZURE_* env vars the CLI reads at sign time.
-          cat > "$RUNNER_TEMP/tauri.signing.conf.json" <<EOF
-          {
-            "bundle": {
-              "windows": {
-                "signCommand": {
-                  "cmd": "artifact-signing-cli",
-                  "args": ["-e", "$AZURE_SIGNING_ENDPOINT", "-a", "$AZURE_SIGNING_ACCOUNT", "-c", "$AZURE_SIGNING_PROFILE", "%1"]
-                }
-              }
-            }
-          }
-          EOF
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-          echo "args=--config $RUNNER_TEMP/tauri.signing.conf.json" >> "$GITHUB_OUTPUT"
-          echo "Code signing configured."
-
       - name: Use bash for package scripts
         run: npm config set script-shell "C:\Program Files\Git\bin\bash.exe"
 
@@ -102,19 +50,12 @@ jobs:
           # Admin-agent bug reporting (docs/error-reporting.md). Compiled in via
           # option_env! — if the secret is unset, reporting is a silent no-op.
           BUG_REPORT_SECRET: ${{ secrets.BUG_REPORT_SECRET }}
-          # Azure Artifact Signing credentials (read by artifact-signing-cli).
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
-          # On a dry run (workflow_dispatch) no tag is passed, so tauri-action
-          # only builds and never touches GitHub releases.
-          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          tagName: ${{ github.ref_name }}
           releaseName: 'Ship Studio ${{ github.ref_name }}'
           releaseBody: 'Windows release. See the main repository for full release notes.'
           releaseDraft: true
           prerelease: false
-          args: ${{ steps.signing.outputs.args }}
 
       - name: Find and stage updater artifacts
         shell: bash
@@ -136,19 +77,6 @@ jobs:
           echo "Found exe: $EXE_FILE"
           echo "Found sig: $SIG_FILE"
 
-          # Gate: when signing is configured, the installer must actually carry
-          # a valid Authenticode signature. Never ship an unsigned exe by accident.
-          if [ "${{ steps.signing.outputs.enabled }}" = "true" ]; then
-            STATUS=$(powershell -NoProfile -Command "(Get-AuthenticodeSignature '$EXE_FILE').Status")
-            SIGNER=$(powershell -NoProfile -Command "(Get-AuthenticodeSignature '$EXE_FILE').SignerCertificate.Subject")
-            echo "Authenticode status: $STATUS"
-            echo "Signer: $SIGNER"
-            if [ "$STATUS" != "Valid" ]; then
-              echo "::error::Installer signature is '$STATUS', expected 'Valid'. Refusing to publish an unsigned/invalid installer."
-              exit 1
-            fi
-          fi
-
           # Stable asset names for predictable download URLs
           mkdir -p artifacts
           cp "$EXE_FILE" "artifacts/ShipStudio_windows-x86_64-setup.exe"
@@ -166,7 +94,6 @@ jobs:
 
   create-manifest:
     needs: build
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
