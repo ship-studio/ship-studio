@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - '*-win'
+  # Dry run: build + sign + verify the signature, publish nothing. Use it to
+  # prove the Artifact Signing secrets work before cutting a real -win tag:
+  #   gh workflow run release-windows.yml --ref <branch>
+  workflow_dispatch:
 
 jobs:
   build:
@@ -103,7 +107,9 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
-          tagName: ${{ github.ref_name }}
+          # On a dry run (workflow_dispatch) no tag is passed, so tauri-action
+          # only builds and never touches GitHub releases.
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
           releaseName: 'Ship Studio ${{ github.ref_name }}'
           releaseBody: 'Windows release. See the main repository for full release notes.'
           releaseDraft: true
@@ -160,6 +166,7 @@ jobs:
 
   create-manifest:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
