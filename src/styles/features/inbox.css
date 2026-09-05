@@ -354,7 +354,10 @@
   margin: 0 0 var(--spacing-md);
 }
 
-.inbox-detail-body h3 {
+.inbox-detail-body h1,
+.inbox-detail-body h2,
+.inbox-detail-body h3,
+.inbox-detail-body h4 {
   margin: var(--spacing-xl) 0 var(--spacing-sm);
   color: var(--text-primary);
   font-size: var(--font-size-subhead);
@@ -362,8 +365,69 @@
   line-height: var(--line-height-compact);
 }
 
-.inbox-detail-body > h3:first-child {
+.inbox-detail-body > h1:first-child,
+.inbox-detail-body > h2:first-child,
+.inbox-detail-body > h3:first-child,
+.inbox-detail-body > h4:first-child {
   margin-top: 0;
+}
+
+/* Lists, links and quotes had no rules at all. The app's reset zeroes list
+   padding, so with `list-style-position: outside` every bullet hung to the
+   left of the text column — the markers sat outside the report's own left
+   edge. This body is the payoff of the whole feature and it is written by an
+   agent in ordinary markdown, so every ordinary markdown element has to land
+   somewhere sensible. */
+.inbox-detail-body ul,
+.inbox-detail-body ol {
+  margin: 0 0 var(--spacing-md);
+  padding-left: var(--spacing-lg);
+}
+
+.inbox-detail-body li {
+  margin-bottom: var(--spacing-2xs);
+}
+
+.inbox-detail-body li::marker {
+  color: var(--text-muted);
+}
+
+/* A nested list is a sub-point, not a new block. */
+.inbox-detail-body li > ul,
+.inbox-detail-body li > ol {
+  margin: var(--spacing-2xs) 0 0;
+}
+
+.inbox-detail-body li > p {
+  margin: 0 0 var(--spacing-2xs);
+}
+
+.inbox-detail-body a {
+  color: var(--accent-active);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-detail-body a:hover {
+  color: var(--accent-active-hover);
+}
+
+.inbox-detail-body blockquote {
+  margin: 0 0 var(--spacing-md);
+  padding-left: var(--spacing-md);
+  border-left: var(--border-width-default) solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.inbox-detail-body hr {
+  margin: var(--spacing-lg) 0;
+  border: 0;
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.inbox-detail-body img {
+  max-width: 100%;
+  border-radius: var(--radius-card);
 }
 
 .inbox-detail-body strong {

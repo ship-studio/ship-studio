@@ -21,6 +21,7 @@ import type { Severity, WorkflowPermission, WorkflowTrigger } from './workflows'
 
 export type WorkflowTemplateCategory =
   | 'Security'
+  | 'Experience'
   | 'Quality'
   | 'Content'
   | 'Maintenance'
@@ -29,6 +30,7 @@ export type WorkflowTemplateCategory =
 /** The categories, in the order the picker offers them. */
 export const TEMPLATE_CATEGORIES: WorkflowTemplateCategory[] = [
   'Security',
+  'Experience',
   'Quality',
   'Content',
   'Maintenance',
@@ -513,6 +515,259 @@ Report only changes that touch something this codebase actually does — a break
     },
   },
 
+  {
+    id: 'tpl-fresh-eyes',
+    icon: '👀',
+    name: 'Fresh eyes',
+    description: 'Walks your app like a first-time visitor and says where it got lost.',
+    detail:
+      'The one thing you cannot do for your own product. It arrives knowing nothing, tries to do the main thing your app is for, and reports where it hesitated — not bugs, confusion.',
+    category: 'Experience',
+    requires: 'the project open with its dev server running',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Open the running preview and use this app the way someone who has never seen it would. Work out what it is for from the screen in front of you, then try to do that thing.
+
+Report where you hesitated: a button whose label did not tell you what would happen, a screen with no obvious next step, a term used before it was explained, a form that failed without saying why, a moment you could not tell whether something had worked.
+
+Report confusion, not bugs. Say what you expected and what you got. Skip anything you only noticed by reading the source — if you had to look at the code, it does not count.`,
+    example: {
+      severity: 'warning',
+      title: 'Nothing tells you the project was created',
+      summary:
+        'After Create, the dialog closes to the same empty list — the new project appears further down, off-screen, with no confirmation.',
+    },
+  },
+  {
+    id: 'tpl-mobile',
+    icon: '📱',
+    name: 'Phone check',
+    description: 'Looks at your pages at phone width for the things that break there.',
+    detail:
+      'Everything is built at desktop width and checked on a phone in a hurry. This does the pass properly: overflow, tap targets, text that shrinks below readable, and menus that trap you.',
+    category: 'Experience',
+    requires: 'the project open with its dev server running',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Look at each page of the running preview at a phone viewport (around 390px wide).
+
+Report: anything overflowing horizontally, tap targets smaller than about 44px, text below 14px, content hidden behind a fixed header, a modal or menu you cannot scroll or dismiss, and images that force a sideways scroll.
+
+Name the page and the element. Ignore anything that is deliberately desktop-only, and ignore differences that are merely aesthetic.`,
+    example: {
+      severity: 'warning',
+      title: 'The pricing table scrolls sideways on a phone',
+      summary:
+        'Four columns at a fixed 240px each — the page scrolls horizontally and the last plan is off-screen.',
+      location: 'src/components/PricingTable.tsx:18',
+    },
+  },
+  {
+    id: 'tpl-dark-mode',
+    icon: '🌗',
+    name: 'Dark mode audit',
+    description: 'Finds what breaks in the theme you look at least often.',
+    detail:
+      'Theme bugs live in whichever mode you do not develop in, and they are always the same three: a hardcoded colour, a token used for the wrong role, and an image with a baked-in background.',
+    category: 'Experience',
+    trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },
+    permission: 'read-only',
+    prompt: `Find what breaks in the other theme: hardcoded colours that do not change with the theme, text and background pairs that lose contrast in one mode, borders that vanish, images or icons with a baked-in background, and shadows tuned for one mode only.
+
+Say which mode it breaks in and what it should use instead. Ignore anything intentionally fixed across both themes, such as brand colours.`,
+    example: {
+      severity: 'warning',
+      title: 'Empty-state illustrations have a white background baked in',
+      summary: 'Three PNGs sit as bright rectangles on the dark canvas.',
+      location: 'src/assets/graphics/empty-projects.png',
+    },
+  },
+  {
+    id: 'tpl-empty-states',
+    icon: '🫙',
+    name: 'Empty & error states',
+    description: 'Finds the screens nobody designed: no data, slow, offline, failed.',
+    detail:
+      'Every screen gets designed full and happy. This looks for the other four states — empty, loading, failed, and denied — and reports the ones that were never given a design at all.',
+    category: 'Experience',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Go through the screens and lists in this project and work out what each one shows when it has no data, when it is still loading, when the request fails, and when the user lacks permission.
+
+Report the ones that show nothing at all, a raw error object, a spinner with no way out, or a message that gives the user nothing to do next. Quote what is rendered today and say what it should say instead.
+
+Ignore internal or debug screens.`,
+    example: {
+      severity: 'warning',
+      title: 'A failed project list renders as a blank panel',
+      summary:
+        'The catch sets an error nothing reads, so a network failure looks identical to having no projects.',
+      location: 'src/components/dashboard/ProjectList.tsx:212',
+    },
+  },
+  {
+    id: 'tpl-forms',
+    icon: '📝',
+    name: 'Form audit',
+    description: 'Checks the forms you make money from, field by field.',
+    detail:
+      'Forms are where users quit. This checks the boring things that decide whether they finish: what happens on a bad value, whether the keyboard works, and whether a slow network double-charges anyone.',
+    category: 'Experience',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Go through every form in this project — sign-up, checkout, contact, settings — and check the things that decide whether people finish them.
+
+For each: does an invalid value get explained in words, next to the field it belongs to? Does Enter submit? Is there anything stopping a double submit on a slow connection? Do the inputs carry the right type and autocomplete attributes so a phone shows the right keyboard and a password manager can fill them? Does an error preserve what was typed?
+
+Report the failures with the file and field. Skip fields that are genuinely optional and unvalidated.`,
+    example: {
+      severity: 'critical',
+      title: 'Checkout can be submitted twice',
+      summary:
+        'The pay button is not disabled while the request is in flight — a double click on a slow connection charges twice.',
+      location: 'src/components/Checkout.tsx:64',
+    },
+  },
+  {
+    id: 'tpl-preflight',
+    icon: '🚦',
+    name: 'Before you deploy',
+    description: 'A pre-flight check to run in the minute before you ship.',
+    detail:
+      'The list you keep in your head and forget under pressure: debug flags, stray logging, secrets pointing at the wrong environment, and whether the thing even builds.',
+    category: 'Quality',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Run the checks worth doing in the minute before a deploy.
+
+Look for: debug or feature flags left on, console logging left in shipped code, TODOs added in the last few commits that block release, environment variables the code needs that production configuration does not set, API endpoints pointing at localhost or staging, and whether the build and type check pass.
+
+Report only what would actually matter in production, in the order you would fix it. Ignore cosmetic issues and anything that is deliberate. If everything is clean, say so in one line and file nothing else.`,
+    example: {
+      severity: 'critical',
+      title: 'The analytics endpoint still points at staging',
+      summary:
+        'NEXT_PUBLIC_API_URL falls back to the staging host, so a production build with the variable unset sends live traffic there.',
+      location: 'src/lib/config.ts:9',
+    },
+  },
+  {
+    id: 'tpl-i18n',
+    icon: '🌍',
+    name: 'Translation gaps',
+    description: 'Finds the strings that never made it into your other languages.',
+    detail:
+      'Adds up what each locale is missing and what has drifted since the source string changed — the two ways a translated site quietly goes half-English.',
+    category: 'Content',
+    trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },
+    permission: 'read-only',
+    prompt: `Compare this project's locale files against the default language and against the code.
+
+Report: keys missing from a locale, keys still holding the source-language text, hardcoded user-facing strings in components that never went through the translation layer, and keys nothing references any more.
+
+Group by locale and give counts. Ignore keys that are deliberately identical across languages, such as product names.`,
+    example: {
+      severity: 'warning',
+      title: 'German is missing 23 keys, all added since June',
+      summary:
+        'The whole billing flow falls back to English, including the payment error messages.',
+      location: 'src/locales/de.json',
+    },
+  },
+  {
+    id: 'tpl-images',
+    icon: '🖼️',
+    name: 'Image weight',
+    description: 'Finds the images making your pages slow to appear.',
+    detail:
+      'Almost always the single biggest thing you can fix on a marketing page, and almost always one file somebody dropped in at full resolution.',
+    category: 'Maintenance',
+    trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },
+    permission: 'read-only',
+    prompt: `Look at the images this project ships: their file sizes, their formats, and how they are loaded.
+
+Report images far larger than the space they are displayed in, anything still in PNG or JPEG that would be much smaller in a modern format, images missing width and height (so the page jumps as they load), and below-the-fold images loaded eagerly.
+
+Give the file size and the display size. Ignore anything under about 50 kB, and ignore icons and favicons.`,
+    example: {
+      severity: 'warning',
+      title: 'The hero image is 4.2 MB',
+      summary:
+        'A 4000px PNG displayed at 1200px wide, loaded eagerly on the landing page — most of the time before first paint.',
+      location: 'public/hero.png',
+    },
+  },
+  {
+    id: 'tpl-network',
+    icon: '🛰️',
+    name: 'What your pages load',
+    description: 'Watches the preview’s network traffic for weight, waste, and strangers.',
+    detail:
+      'Reads the preview’s own network activity — which Ship Studio can see and a static code review cannot. Third-party scripts, duplicate calls, and requests to domains you never chose all show up here and nowhere else.',
+    category: 'Security',
+    requires: 'the project open with its dev server running',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Load each page of the running preview and look at what it actually fetches.
+
+Report: requests to third-party domains, especially any that could see who your visitors are; the same data fetched more than once on one page; large responses that block first paint; requests that fail or 404 silently; and anything still hitting a staging or localhost host.
+
+Give the domain, the page, and the size or count. Ignore your own API and anything the framework requests in development only.`,
+    example: {
+      severity: 'warning',
+      title: 'The blog loads three analytics scripts, two of them unused',
+      summary:
+        'One was replaced in March and never removed. Together they add 210 kB and see every visitor’s IP and page path.',
+      location: 'src/app/layout.tsx:31',
+    },
+  },
+  {
+    id: 'tpl-simulator',
+    icon: '📲',
+    name: 'Simulator smoke test',
+    description: 'Runs your mobile app in the simulator and tries the main flow.',
+    detail:
+      'Uses the simulator Ship Studio already boots for mobile previews. It launches the app, walks the primary flow, and reports where it hung, crashed, or stopped making sense — the pass you keep meaning to do by hand.',
+    category: 'Experience',
+    requires: 'a mobile project with its simulator preview running',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Use the running simulator preview of this mobile app. Launch it cold, then walk the main flow a first-time user would: open, sign in or skip, reach the primary screen, and do the main thing the app is for.
+
+Report: crashes, screens that never finish loading, buttons that do nothing, text clipped by the notch or the home indicator, and anything that needed a scroll you would not have guessed was there.
+
+Say which step you were on. If the simulator is not running, report nothing and stop.`,
+    example: {
+      severity: 'critical',
+      title: 'The app hangs on a white screen after sign-in',
+      summary:
+        'The session token is read before the storage module is ready; a cold launch with a saved session never leaves the splash screen.',
+      location: 'app/(auth)/callback.tsx:22',
+    },
+  },
+  {
+    id: 'tpl-live-vs-local',
+    icon: '🚀',
+    name: 'Live vs local',
+    description: 'Compares what you published with what is in your repo now.',
+    detail:
+      'Ship Studio records what you published and where. This fetches the live site and holds it against the branch you are on, which is how you find the deploy that quietly failed a fortnight ago.',
+    category: 'Maintenance',
+    requires: 'the project published at least once',
+    trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },
+    permission: 'read-only',
+    prompt: `Find this project's published URL in .shipstudio/project.json, fetch the live site, and compare it against the current state of the repository.
+
+Report anything visibly out of date: copy, prices, or links that changed in the repo but not on the live site; pages that exist locally and 404 in production; and a live build older than the last commit on the default branch. Say which commit the live site appears to be from if you can tell.
+
+If no publish record exists, report nothing and stop. Ignore differences that are obviously environment-specific, such as analytics or feature flags.`,
+    example: {
+      severity: 'warning',
+      title: 'Production is eleven commits behind main',
+      summary:
+        'The pricing change from two weeks ago is not live — the deploy after it failed and nothing said so.',
+    },
+  },
   /* -------------------------------------------------------- escape hatch */
   {
     id: 'tpl-blank',

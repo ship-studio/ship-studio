@@ -8,7 +8,8 @@
  * @module components/workflows/RunHistoryModal
  */
 
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { AlertIcon } from '@/components/icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import {
   formatAgo,
@@ -33,8 +34,31 @@ const STATUS_LABEL: Record<WorkflowRun['status'], string> = {
 
 export function RunHistoryModal({ workflow, onClose }: RunHistoryModalProps) {
   const [selectedId, setSelectedId] = useState<string | null>(workflow.runs[0]?.id ?? null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const selected = workflow.runs.find((run) => run.id === selectedId) ?? workflow.runs[0] ?? null;
+
+  /** ↑/↓ through the runs, as in the Inbox. Reading is the job here too. */
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      event.preventDefault();
+      const index = workflow.runs.findIndex((run) => run.id === selected?.id);
+      const next =
+        workflow.runs[
+          Math.min(
+            workflow.runs.length - 1,
+            Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1))
+          )
+        ];
+      if (!next) return;
+      setSelectedId(next.id);
+      listRef.current
+        ?.querySelector<HTMLElement>(`[data-run-id="${CSS.escape(next.id)}"]`)
+        ?.focus();
+    },
+    [workflow.runs, selected]
+  );
 
   return (
     <ModalFrame
@@ -44,15 +68,28 @@ export function RunHistoryModal({ workflow, onClose }: RunHistoryModalProps) {
       className="run-history-modal"
     >
       <div className="run-history">
-        <div className="run-history-list" role="list">
+        {/* A listbox, not a list: `role="listitem"` on a button replaces the
+            button role and the row stops being announced as activatable. */}
+        <div
+          className="run-history-list"
+          role="listbox"
+          aria-label={`${workflow.name} runs`}
+          aria-activedescendant={selected ? `run-${selected.id}` : undefined}
+          ref={listRef}
+          onKeyDown={handleKeyDown}
+        >
           {workflow.runs.length === 0 && (
             <p className="run-history-empty text-style-hint">This workflow has not run yet.</p>
           )}
           {workflow.runs.map((run) => (
             <button
               key={run.id}
+              id={`run-${run.id}`}
+              data-run-id={run.id}
               type="button"
-              role="listitem"
+              role="option"
+              aria-selected={run.id === selected?.id}
+              tabIndex={run.id === selected?.id ? 0 : -1}
               className={`run-history-item${run.id === selected?.id ? ' is-selected' : ''}`}
               onClick={() => setSelectedId(run.id)}
             >
@@ -76,9 +113,23 @@ export function RunHistoryModal({ workflow, onClose }: RunHistoryModalProps) {
 
         <div className="run-history-transcript">
           {selected ? (
-            <pre className="run-history-transcript-body">
-              {selected.error ?? (selected.transcript || 'This run returned nothing.')}
-            </pre>
+            <>
+              {/* A failure is not a transcript. It gets said plainly, at the
+                  top, rather than being the only thing in a box labelled
+                  "what the agent replied". */}
+              {selected.error && (
+                <p className="run-history-error">
+                  <AlertIcon size={12} />
+                  <span>{selected.error}</span>
+                </p>
+              )}
+              <pre className="run-history-transcript-body">
+                {selected.transcript ||
+                  (selected.error
+                    ? 'The run failed before the agent replied.'
+                    : 'This run returned nothing.')}
+              </pre>
+            </>
           ) : (
             <p className="text-style-hint">Nothing to show.</p>
           )}

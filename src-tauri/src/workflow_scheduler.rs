@@ -134,16 +134,7 @@ pub async fn fire_event(
     event: crate::commands::workflows::WorkflowEvent,
 ) {
     let project = PathBuf::from(project_path);
-    let matching: Vec<Workflow> = read_project_workflows(&project)
-        .into_iter()
-        .filter(|workflow| {
-            workflow.auto_run
-                && matches!(
-                    workflow.trigger,
-                    crate::commands::workflows::WorkflowTrigger::Event { event: e } if e == event
-                )
-        })
-        .collect();
+    let matching = workflows_for_event(read_project_workflows(&project), event);
 
     for workflow in matching {
         info!(workflow = %workflow.name, ?event, "event-triggered workflow firing");
@@ -158,6 +149,27 @@ pub async fn fire_event(
             warn!(workflow = %workflow.name, error = %err, "event-triggered run failed");
         }
     }
+}
+
+/// The workflows a given event should start.
+///
+/// Split from the scan so the choice is testable: `on push` and `on pr` are
+/// two of the five trigger shapes, and nothing here proved they select
+/// anything at all — the same gap that let daily and weekly ship dead.
+fn workflows_for_event(
+    workflows: Vec<Workflow>,
+    event: crate::commands::workflows::WorkflowEvent,
+) -> Vec<Workflow> {
+    workflows
+        .into_iter()
+        .filter(|workflow| {
+            workflow.auto_run
+                && matches!(
+                    workflow.trigger,
+                    crate::commands::workflows::WorkflowTrigger::Event { event: e } if e == event
+                )
+        })
+        .collect()
 }
 
 /// Fire matching event workflows without making the caller wait.
@@ -243,6 +255,74 @@ mod tests {
         at_hour: 9,
         at_minute: 0,
     };
+
+    #[test]
+    fn a_push_starts_only_the_armed_push_workflows() {
+        use crate::commands::workflows::WorkflowEvent;
+        let day = 86_400_000;
+        let candidates = vec![
+            workflow(
+                "on-push",
+                WorkflowTrigger::Event {
+                    event: WorkflowEvent::Push,
+                },
+                true,
+                day,
+            ),
+            workflow(
+                "on-push-disarmed",
+                WorkflowTrigger::Event {
+                    event: WorkflowEvent::Push,
+                },
+                false,
+                day,
+            ),
+            workflow(
+                "on-pr",
+                WorkflowTrigger::Event {
+                    event: WorkflowEvent::PrOpened,
+                },
+                true,
+                day,
+            ),
+            workflow("daily", DAILY, true, day),
+            workflow("manual", WorkflowTrigger::Manual, true, day),
+        ];
+        let fired: Vec<String> = workflows_for_event(candidates, WorkflowEvent::Push)
+            .into_iter()
+            .map(|w| w.slug)
+            .collect();
+        assert_eq!(fired, vec!["on-push".to_string()]);
+    }
+
+    #[test]
+    fn a_pr_opening_does_not_start_the_push_workflows() {
+        use crate::commands::workflows::WorkflowEvent;
+        let day = 86_400_000;
+        let candidates = vec![
+            workflow(
+                "on-push",
+                WorkflowTrigger::Event {
+                    event: WorkflowEvent::Push,
+                },
+                true,
+                day,
+            ),
+            workflow(
+                "on-pr",
+                WorkflowTrigger::Event {
+                    event: WorkflowEvent::PrOpened,
+                },
+                true,
+                day,
+            ),
+        ];
+        let fired: Vec<String> = workflows_for_event(candidates, WorkflowEvent::PrOpened)
+            .into_iter()
+            .map(|w| w.slug)
+            .collect();
+        assert_eq!(fired, vec!["on-pr".to_string()]);
+    }
 
     #[test]
     fn a_daily_workflow_gets_picked_up_once_its_hour_has_passed() {

@@ -79,6 +79,17 @@ describe('WORKFLOW_TEMPLATES', () => {
     }
   });
 
+  it('avoids glyphs that disappear on a dark surface', () => {
+    // 🕶️ rendered as two grey dashes in the picker: the emoji is almost
+    // entirely black, and every surface this app has is dark.
+    const invisibleOnDark = ['🕶️', '🖤', '⚫', '◾', '▪️', '🎱', '🕳️'];
+    for (const template of WORKFLOW_TEMPLATES) {
+      expect(invisibleOnDark, `${template.id} uses a glyph that vanishes on dark`).not.toContain(
+        template.icon
+      );
+    }
+  });
+
   it('files every template under a category the picker offers', () => {
     for (const template of WORKFLOW_TEMPLATES) {
       expect(TEMPLATE_CATEGORIES).toContain(template.category);

@@ -152,8 +152,10 @@
   flex-shrink: 0;
 }
 
+/* An emoji at body size in a 20px box reads as a speck rather than as the
+   workflow's mark. This is the row's identity — it gets the box. */
 .workflow-row-icon {
-  font-size: var(--font-size-body-lg);
+  font-size: var(--font-size-h4);
   line-height: 1;
 }
 
@@ -733,7 +735,10 @@
 
 .run-history-modal {
   width: min(820px, 94vw);
-  max-height: 86vh;
+  /* Definite, not a max — see .workflow-template-modal. `.modal-frame-content`
+     is sized by its content, so the panes' `flex: 1` divided nothing and this
+     dialog rendered as a stub with a two-line transcript window. */
+  height: min(640px, 82vh);
   overflow: hidden;
 }
 
@@ -820,6 +825,23 @@
   color: var(--text-muted);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-compact);
+}
+
+/* Said plainly and first: a failed run's reason is the thing you opened this
+   for. */
+.run-history-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2xs);
+  margin: 0 0 var(--spacing-sm);
+  color: var(--accent-error);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+}
+
+.run-history-error svg {
+  flex-shrink: 0;
+  margin-top: var(--spacing-3xs);
 }
 
 .run-history-transcript {
