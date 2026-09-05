@@ -235,6 +235,34 @@ export function PreviewCanvas({
     onStageHeightChange?.(activeFrameHeight);
   }, [activeFrameHeight, onStageHeightChange]);
 
+  // Re-centring is a request, not a state: pressing Fit while already fitting
+  // has to work, because "I can't see anything" is exactly when it gets
+  // pressed. The tick makes the request; the ref makes sure it is honoured once
+  // rather than on every later zoom.
+  const recenterRef = useRef(false);
+  const [recenterTick, setRecenterTick] = useState(0);
+  const requestRecenter = useCallback(() => {
+    recenterRef.current = true;
+    setRecenterTick((tick) => tick + 1);
+  }, []);
+  useLayoutEffect(() => {
+    if (!recenterRef.current) return;
+    const node = scrollRef.current;
+    if (!node) return;
+    recenterRef.current = false;
+    const rest = restingScroll();
+    node.scrollLeft = rest.left;
+    node.scrollTop = rest.top;
+    setScrollLeft(node.scrollLeft);
+    // `scale` is a dependency because a fit request usually changes it, and the
+    // resting position has to be measured against the layout that produces.
+  }, [recenterTick, scale, restingScroll]);
+
+  const fitCanvas = useCallback(() => {
+    onZoomChange('fit');
+    requestRecenter();
+  }, [onZoomChange, requestRecenter]);
+
   const { zoomFromCentre, parkScroll, consumeAnchored } = useCanvasZoom({
     scrollRef,
     frameElsRef,
@@ -242,6 +270,7 @@ export function PreviewCanvas({
     slackX,
     slackY,
     onZoomChange,
+    onFit: fitCanvas,
     onScrollSettled: setScrollLeft,
   });
 
@@ -275,32 +304,21 @@ export function PreviewCanvas({
     onScrollSettled: setScrollLeft,
   });
 
-  // Only when Fit is switched on or off. A zoom gesture parks its own anchor
-  // (above), and re-centring on every tick would fight the pointer.
+  // Leaving Fit for an explicit zoom level with no gesture behind it (the
+  // readout, say) centres on the frame being worked in.
   const previousFitRef = useRef(zoom === 'fit');
   useEffect(() => {
     const isFit = zoom === 'fit';
     if (previousFitRef.current === isFit) return;
     previousFitRef.current = isFit;
+    if (isFit) return;
     // A gesture that just anchored itself at the pointer owns the scroll
-    // position — this is the "left Fit by pinching" case, and re-centring here
-    // would throw away the place the user zoomed into.
+    // position — re-centring would throw away the place the user zoomed into.
     if (consumeAnchored()) return;
     const node = scrollRef.current;
     if (!node) return;
-    if (isFit) {
-      // Fit shows everything; centre the lot rather than one frame of it.
-      // Measured after the layout the new scale produces, hence the frame.
-      requestAnimationFrame(() => {
-        const rest = restingScroll();
-        node.scrollLeft = rest.left;
-        node.scrollTop = rest.top;
-        setScrollLeft(node.scrollLeft);
-      });
-      return;
-    }
     node.scrollLeft = scrollToCenterFrame(layout, activeFrameId, zoom, node.clientWidth, slackX);
-  }, [zoom, layout, activeFrameId, slackX, restingScroll, consumeAnchored]);
+  }, [zoom, layout, activeFrameId, slackX, consumeAnchored]);
 
   // The frames sit `slack` into the surface, so any change in the slack moves
   // them under the viewport: on the first measurement (slack 0 → half a pane,
@@ -481,7 +499,7 @@ export function PreviewCanvas({
         <Button
           size="compact"
           variant={zoom === 'fit' ? 'secondary' : 'ghost'}
-          onClick={() => onZoomChange('fit')}
+          onClick={fitCanvas}
           aria-pressed={zoom === 'fit'}
           title={`Fit every breakpoint (${kbd('mod', '0')})`}
         >

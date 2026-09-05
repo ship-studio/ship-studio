@@ -50,7 +50,10 @@ interface UseCanvasZoomParams {
   /** Where the frames start inside the surface. */
   slackX: number;
   slackY: number;
-  onZoomChange: (zoom: number | 'fit') => void;
+  onZoomChange: (zoom: number) => void;
+  /** Fit the whole canvas — Cmd+0, and the same thing the Fit button does.
+   *  Owned by the canvas because fitting also re-centres. */
+  onFit: () => void;
   /** Called after a parked scroll position has been applied. */
   onScrollSettled: (scrollLeft: number) => void;
 }
@@ -75,6 +78,7 @@ export function useCanvasZoom({
   slackX,
   slackY,
   onZoomChange,
+  onFit,
   onScrollSettled,
 }: UseCanvasZoomParams): CanvasZoomControls {
   const pendingRef = useRef<{ scrollLeft: number; scrollTop: number } | null>(null);
@@ -242,12 +246,12 @@ export function useCanvasZoom({
         zoomFromCentre('out');
       } else if (event.key === '0') {
         event.preventDefault();
-        onZoomChange('fit');
+        onFit();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [zoomFromCentre, onZoomChange]);
+  }, [zoomFromCentre, onFit]);
 
   return { zoomAt, zoomFromCentre, parkScroll, consumeAnchored };
 }

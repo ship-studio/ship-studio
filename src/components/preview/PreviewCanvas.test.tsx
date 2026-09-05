@@ -376,6 +376,20 @@ describe('PreviewCanvas', () => {
     expect(onZoomChange).toHaveBeenCalledWith(1);
   });
 
+  it('re-centres on Fit even when it is already fitting', async () => {
+    const { container } = renderCanvas({ zoom: 'fit' });
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const rested = { left: scroller.scrollLeft, top: scroller.scrollTop };
+
+    // Drift the canvas away, as a stray pan or a resize could.
+    scroller.scrollLeft = 2000;
+    scroller.scrollTop = 2000;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fit' }));
+    expect(scroller.scrollLeft).toBe(rested.left);
+    expect(scroller.scrollTop).toBe(rested.top);
+  });
+
   it('steps the zoom in and out', async () => {
     const onZoomChange = vi.fn();
     renderCanvas({ zoom: 0.5, onZoomChange });
