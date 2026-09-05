@@ -37,6 +37,12 @@
   top: calc(100% + 8px);
   right: 0;
   width: var(--popover-source-control-width);
+  /* Width was pinned but height was not, so a long changed-files list or a
+     slow-arriving hosting status could grow the panel past the bottom of the
+     screen with no way to reach the actions. Same viewport clamp the sibling
+     `.branches-menu-popover` already uses. */
+  max-height: calc(100vh - var(--spacing-2xl) - var(--panel-header-h));
+  overflow-y: auto;
   background: var(--surface-panel);
   border: 1px solid var(--border-default);
   border-radius: 10px;
