@@ -33,48 +33,24 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   PAN_SLACK_RATIO,
-  anchorScroll,
-  clampZoom,
   fitScale,
   layoutFrames,
   scrollToCenterFrame,
-  stepZoom,
   tallestFrame,
   visibleFrameIds,
-  wheelZoom,
   zoomForFrame,
   type CanvasFrame,
 } from '../../lib/previewCanvas';
+import { useCanvasZoom } from '../../hooks/useCanvasZoom';
+import { useCanvasPan } from '../../hooks/useCanvasPan';
+import { useFrameScrollSync } from '../../hooks/useFrameScrollSync';
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
-
-/** How close two scroll fractions have to be to count as the same position.
- *  At 0.0005 that is half a pixel on a 1000px scroll range. */
-const SCROLL_ECHO_EPSILON = 0.0005;
-
-/** How long a broadcast position stays recognisable as our own echo. */
-const SCROLL_ECHO_WINDOW_MS = 500;
 
 /** How far the canvas must scroll before the mount window is recomputed. The
  *  window carries a screen of slack on each side, so nothing can scroll into
  *  view within this distance. */
 const SCROLL_RENDER_THRESHOLD_PX = 120;
-
-/** WebKit's non-standard pinch events (Safari and every Tauri webview on
- *  macOS). Not in lib.dom, so the shape we use is spelled out here. */
-interface GestureLikeEvent extends UIEvent {
-  scale: number;
-  clientX: number;
-  clientY: number;
-}
-
-/** Keyboard shortcuts must not fire while the user is typing somewhere. */
-const isTypingTarget = (target: EventTarget | null): boolean => {
-  const element = target as HTMLElement | null;
-  if (!element) return false;
-  if (element.isContentEditable) return true;
-  return /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName ?? '');
-};
 
 /** `'fit'` recomputes on every resize; a number is an explicit zoom level. */
 export type CanvasZoom = 'fit' | number;
@@ -259,206 +235,17 @@ export function PreviewCanvas({
     onStageHeightChange?.(activeFrameHeight);
   }, [activeFrameHeight, onStageHeightChange]);
 
-  // ── Zoom at the pointer ────────────────────────────────────
-  // A zoom change goes through state, so the scroll correction that keeps the
-  // point under the cursor in place has to wait for the new layout: it is
-  // parked here and applied in the layout effect below, before paint.
-  const pendingAnchorRef = useRef<{ scrollLeft: number; scrollTop: number } | null>(null);
-  // Set when an anchored zoom has just placed the scroll position, so the
-  // fit-re-centring effect below (which runs later in the same commit) leaves
-  // it alone instead of yanking the view to the active frame.
-  const anchoredRef = useRef(false);
-  useLayoutEffect(() => {
-    const pending = pendingAnchorRef.current;
-    const node = scrollRef.current;
-    if (!pending || !node) return;
-    pendingAnchorRef.current = null;
-    anchoredRef.current = true;
-    node.scrollLeft = pending.scrollLeft;
-    node.scrollTop = pending.scrollTop;
-    setScrollLeft(node.scrollLeft);
-  }, [scale]);
+  const { zoomFromCentre, parkScroll, consumeAnchored } = useCanvasZoom({
+    scrollRef,
+    frameElsRef,
+    scale,
+    slackX,
+    slackY,
+    onZoomChange,
+    onScrollSettled: setScrollLeft,
+  });
 
-  const zoomAt = useCallback(
-    (nextScale: number, pointerX: number, pointerY: number) => {
-      const node = scrollRef.current;
-      if (!node || nextScale === scale) return;
-      pendingAnchorRef.current = anchorScroll({
-        scrollLeft: node.scrollLeft,
-        scrollTop: node.scrollTop,
-        pointerX,
-        pointerY,
-        fromScale: scale,
-        toScale: nextScale,
-        originX: slackX,
-        // The frames start BELOW the label row, and that row is unscaled — leave
-        // it out and the anchor drifts vertically by exactly
-        // labelHeight × (1 − newScale / oldScale).
-        originY: slackY + CANVAS_LABEL_PX,
-      });
-      onZoomChange(nextScale);
-    },
-    [scale, onZoomChange, slackX, slackY]
-  );
-
-  /** Zoom about the middle of the canvas — for the buttons and the keyboard,
-   *  which have no pointer to zoom around. */
-  const zoomFromCentre = useCallback(
-    (direction: 'in' | 'out') => {
-      const node = scrollRef.current;
-      zoomAt(
-        stepZoom(scale, direction),
-        (node?.clientWidth ?? 0) / 2,
-        (node?.clientHeight ?? 0) / 2
-      );
-    },
-    [scale, zoomAt]
-  );
-
-  // Ctrl/Cmd+wheel and trackpad pinch (which the browser also reports as a wheel
-  // with ctrlKey). Registered by hand because it must be non-passive: without
-  // preventDefault the gesture zooms the whole app window instead.
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      const box = node.getBoundingClientRect();
-      zoomAt(wheelZoom(scale, event.deltaY), event.clientX - box.left, event.clientY - box.top);
-    };
-    node.addEventListener('wheel', onWheel, { passive: false });
-
-    // WebKit reports a trackpad pinch as its own gesture events rather than as
-    // ctrl+wheel, and the app runs on WebKit — without these, pinching over the
-    // canvas does nothing at all on macOS.
-    let gestureScale = 1;
-    const onGestureStart = (event: GestureLikeEvent) => {
-      event.preventDefault();
-      gestureScale = event.scale || 1;
-    };
-    const onGestureChange = (event: GestureLikeEvent) => {
-      event.preventDefault();
-      const now = event.scale || 1;
-      const factor = gestureScale > 0 ? now / gestureScale : 1;
-      gestureScale = now;
-      const box = node.getBoundingClientRect();
-      zoomAt(clampZoom(scale * factor), event.clientX - box.left, event.clientY - box.top);
-    };
-    const onGestureEnd = (event: GestureLikeEvent) => {
-      event.preventDefault();
-      gestureScale = 1;
-    };
-    node.addEventListener('gesturestart', onGestureStart as EventListener, { passive: false });
-    node.addEventListener('gesturechange', onGestureChange as EventListener, { passive: false });
-    node.addEventListener('gestureend', onGestureEnd as EventListener, { passive: false });
-
-    return () => {
-      node.removeEventListener('wheel', onWheel);
-      node.removeEventListener('gesturestart', onGestureStart as EventListener);
-      node.removeEventListener('gesturechange', onGestureChange as EventListener);
-      node.removeEventListener('gestureend', onGestureEnd as EventListener);
-    };
-  }, [scale, zoomAt]);
-
-  // A gesture that landed inside a frame: the frame forwarded it up (the parent
-  // never sees a cross-origin document's wheel events), with the point in that
-  // frame's own pixels. Map it back through the frame's on-screen box so the
-  // zoom still happens where the user's fingers are.
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as {
-        type?: string;
-        deltaY?: number;
-        factor?: number;
-        x?: number;
-        y?: number;
-      } | null;
-      const wheeling = data?.type === 'ss:wheelZoom' && typeof data.deltaY === 'number';
-      const pinching = data?.type === 'ss:zoomBy' && typeof data.factor === 'number';
-      if (!wheeling && !pinching) return;
-      const node = scrollRef.current;
-      if (!node) return;
-      // Only this canvas's own frames may drive it.
-      let frame: HTMLIFrameElement | null = null;
-      for (const element of frameElsRef.current.values()) {
-        if (element && element.contentWindow === event.source) frame = element;
-      }
-      if (!frame) return;
-      const canvasBox = node.getBoundingClientRect();
-      // Already the post-transform box, which is the space the pointer lives in.
-      const frameBox = frame.getBoundingClientRect();
-      const next = wheeling
-        ? wheelZoom(scale, data?.deltaY ?? 0)
-        : clampZoom(scale * (data?.factor ?? 1));
-      zoomAt(
-        next,
-        frameBox.left - canvasBox.left + (data?.x ?? 0) * scale,
-        frameBox.top - canvasBox.top + (data?.y ?? 0) * scale
-      );
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [scale, zoomAt]);
-
-  // Frames scroll together. Each one is a real viewport, so getting past the
-  // fold means scrolling — and scrolling four frames by hand to compare the
-  // same section is the whole thing this view exists to avoid. Position travels
-  // as a FRACTION of each page's scrollable range, because the same page is a
-  // different length at every width.
-  const lastBroadcastRef = useRef({ fraction: -1, at: 0 });
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: string; fraction?: number } | null;
-      if (data?.type !== 'ss:scroll' || typeof data.fraction !== 'number') return;
-      const fraction = data.fraction;
-
-      // A driven frame reports its new position once it settles, which is the
-      // position we just sent it. Rebroadcasting that is a loop that damps out
-      // but never quite stops, so recognise our own echo and drop it.
-      const last = lastBroadcastRef.current;
-      const echo =
-        Math.abs(fraction - last.fraction) < SCROLL_ECHO_EPSILON &&
-        Date.now() - last.at < SCROLL_ECHO_WINDOW_MS;
-      if (echo) return;
-      lastBroadcastRef.current = { fraction, at: Date.now() };
-
-      for (const element of frameElsRef.current.values()) {
-        // Not back to the frame that just moved — it is already there, and the
-        // round trip would fight the user's own scrolling.
-        if (!element || element.contentWindow === event.source) continue;
-        try {
-          element.contentWindow?.postMessage({ type: 'ss:scrollTo', fraction }, '*');
-        } catch {
-          // A frame mid-navigation can refuse; the next scroll catches it up.
-        }
-      }
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
-
-  // Cmd/Ctrl with +, - and 0 (fit). Cmd+1-9 belong to project switching, so
-  // 100% has no shortcut of its own — the readout in the zoom control is the
-  // way back to it.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey && !event.ctrlKey) return;
-      if (isTypingTarget(event.target)) return;
-      if (event.key === '=' || event.key === '+') {
-        event.preventDefault();
-        zoomFromCentre('in');
-      } else if (event.key === '-' || event.key === '_') {
-        event.preventDefault();
-        zoomFromCentre('out');
-      } else if (event.key === '0') {
-        event.preventDefault();
-        onZoomChange('fit');
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [zoomFromCentre, onZoomChange]);
+  useFrameScrollSync(frameElsRef);
 
   /** Activate a frame and bring it up to a workable size, centred. At Fit a
    *  four-frame canvas sits near 30%, which is fine for comparing and useless
@@ -470,75 +257,24 @@ export function PreviewCanvas({
       if (!node || !placement) return;
       const nextScale = zoomForFrame(placement.width, node.clientWidth);
       const frameHeightPx = CANVAS_LABEL_PX + placement.height * nextScale;
-      pendingAnchorRef.current = {
+      parkScroll({
         scrollLeft: Math.max(
           0,
           slackX + (placement.x + placement.width / 2) * nextScale - node.clientWidth / 2
         ),
         scrollTop: Math.max(0, slackY - Math.max(0, (node.clientHeight - frameHeightPx) / 2)),
-      };
+      });
       onActivateFrame(frameId);
       onZoomChange(nextScale);
     },
-    [layout, slackX, slackY, onActivateFrame, onZoomChange]
+    [layout, slackX, slackY, onActivateFrame, onZoomChange, parkScroll]
   );
 
-  // ── Pan ─────────────────────────────────────────────
-  // Space-drag and middle-drag, the two canvas idioms. Two-finger scrolling is
-  // the browser's own; a gesture that lands inside a frame comes back to us
-  // through the frame's own forwarder (above).
-  const [spaceHeld, setSpaceHeld] = useState(false);
-  const [panning, setPanning] = useState(false);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.repeat) return;
-      if (isTypingTarget(event.target)) return;
-      setSpaceHeld(true);
-    };
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (event.code === 'Space') setSpaceHeld(false);
-    };
-    // A window that loses focus mid-drag never delivers the keyup.
-    const onBlur = () => setSpaceHeld(false);
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    window.addEventListener('blur', onBlur);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('blur', onBlur);
-    };
-  }, []);
+  const { spaceHeld, panning, handlePanStart } = useCanvasPan({
+    scrollRef,
+    onScrollSettled: setScrollLeft,
+  });
 
-  const handlePanStart = useCallback(
-    (event: React.MouseEvent) => {
-      const node = scrollRef.current;
-      if (!node) return;
-      const middleButton = event.button === 1;
-      if (!middleButton && !(spaceHeld && event.button === 0)) return;
-      event.preventDefault();
-      setPanning(true);
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const startLeft = node.scrollLeft;
-      const startTop = node.scrollTop;
-      const onMove = (move: MouseEvent) => {
-        node.scrollLeft = startLeft - (move.clientX - startX);
-        node.scrollTop = startTop - (move.clientY - startY);
-      };
-      const onUp = () => {
-        setPanning(false);
-        setScrollLeft(node.scrollLeft);
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    },
-    [spaceHeld]
-  );
-
-  // Zooming in past "fit" can leave the active frame off screen; keep it centred.
   // Only when Fit is switched on or off. A zoom gesture parks its own anchor
   // (above), and re-centring on every tick would fight the pointer.
   const previousFitRef = useRef(zoom === 'fit');
@@ -549,10 +285,7 @@ export function PreviewCanvas({
     // A gesture that just anchored itself at the pointer owns the scroll
     // position — this is the "left Fit by pinching" case, and re-centring here
     // would throw away the place the user zoomed into.
-    if (anchoredRef.current) {
-      anchoredRef.current = false;
-      return;
-    }
+    if (consumeAnchored()) return;
     const node = scrollRef.current;
     if (!node) return;
     if (isFit) {
@@ -567,7 +300,7 @@ export function PreviewCanvas({
       return;
     }
     node.scrollLeft = scrollToCenterFrame(layout, activeFrameId, zoom, node.clientWidth, slackX);
-  }, [zoom, layout, activeFrameId, slackX, restingScroll]);
+  }, [zoom, layout, activeFrameId, slackX, restingScroll, consumeAnchored]);
 
   // The frames sit `slack` into the surface, so any change in the slack moves
   // them under the viewport: on the first measurement (slack 0 → half a pane,
@@ -730,7 +463,7 @@ export function PreviewCanvas({
           size="compact"
           variant="ghost"
           className="preview-canvas-zoom-readout"
-          onClick={() => onZoomChange(clampZoom(1))}
+          onClick={() => onZoomChange(1)}
           title="Zoom to 100%"
         >
           {Math.round(scale * 100)}%

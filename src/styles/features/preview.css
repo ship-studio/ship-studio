@@ -472,6 +472,26 @@
   box-shadow: var(--shadow-button);
 }
 
+/* The breakpoint-canvas toggle sits at the end of the breakpoints group and
+   reads as one of its controls: the size of a device tab, separated so it does
+   not read as a fifth device, and raised like the tab indicator when engaged. */
+.preview-breakpoints .preview-canvas-control.button {
+  /* Square: the same standard control box as the device tabs beside it. */
+  width: var(--control-height-standard);
+  min-width: var(--control-height-standard);
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  padding: 0;
+  margin-left: var(--spacing-2xs);
+  border-radius: var(--radius-control);
+}
+
+.preview-breakpoints .preview-canvas-control.button--secondary[aria-pressed='true'] {
+  background: var(--surface-control);
+  border-color: transparent;
+  box-shadow: var(--shadow-button);
+}
+
 .preview-zoom {
   display: flex;
   align-items: center;
