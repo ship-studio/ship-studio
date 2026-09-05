@@ -13,6 +13,7 @@ import {
   tallestFrame,
   visibleFrameIds,
   wheelZoom,
+  zoomForFrame,
   type CanvasFrame,
 } from './previewCanvas';
 
@@ -262,5 +263,24 @@ describe('anchorScroll with a pan-slack origin', () => {
     expect(anchorScroll({ ...params, originX: 600 }).scrollLeft).not.toBe(
       anchorScroll(params).scrollLeft
     );
+  });
+});
+
+describe('zoomForFrame', () => {
+  it('shows a frame at true size when the pane can hold it', () => {
+    expect(zoomForFrame(375, 1200)).toBe(1);
+  });
+
+  it('fits a frame wider than the pane, with a margin either side', () => {
+    expect(zoomForFrame(1440, 1200)).toBeCloseTo((1200 - 64) / 1440);
+  });
+
+  it('never magnifies past true size', () => {
+    expect(zoomForFrame(375, 4000)).toBe(1);
+  });
+
+  it('is safe before anything is measured', () => {
+    expect(zoomForFrame(0, 0)).toBe(1);
+    expect(zoomForFrame(1440, 0)).toBe(1);
   });
 });

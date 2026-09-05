@@ -223,6 +223,16 @@ export function anchorScroll(params: {
 }
 
 /**
+ * The zoom that shows one frame at its own size — or as close as the pane
+ * allows. Never magnifies past true size: a preview is worth most at 1:1.
+ */
+export function zoomForFrame(frameWidth: number, viewportWidth: number): number {
+  if (frameWidth <= 0 || viewportWidth <= 0) return 1;
+  const usable = Math.max(1, viewportWidth - CANVAS_PADDING_PX * 2);
+  return clampZoom(Math.min(1, usable / frameWidth));
+}
+
+/**
  * Scroll offset (screen pixels) that centres a frame in the visible canvas,
  * clamped to the scrollable range.
  */

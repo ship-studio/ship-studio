@@ -80,16 +80,32 @@
   flex-direction: column;
 }
 
+/* The label is the way in: it names the frame and, clicked, brings that frame
+   up to a size you can actually work at. */
 .preview-canvas-label {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
   padding: 0 var(--spacing-2xs);
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: var(--font-size-micro);
   letter-spacing: var(--tracking-micro);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
+  cursor: zoom-in;
+  pointer-events: auto;
+}
+
+.preview-canvas-label:hover .preview-canvas-label-name {
+  color: var(--text-primary);
+}
+
+.preview-canvas-label:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .preview-canvas-chrome.is-active .preview-canvas-label-name {

@@ -42,6 +42,7 @@ import {
   tallestFrame,
   visibleFrameIds,
   wheelZoom,
+  zoomForFrame,
   type CanvasFrame,
 } from '../../lib/previewCanvas';
 import { Button } from '../primitives/Button';
@@ -456,6 +457,29 @@ export function PreviewCanvas({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [zoomFromCentre, onZoomChange]);
 
+  /** Activate a frame and bring it up to a workable size, centred. At Fit a
+   *  four-frame canvas sits near 30%, which is fine for comparing and useless
+   *  for working — this is the way from one to the other. */
+  const zoomToFrame = useCallback(
+    (frameId: string) => {
+      const node = scrollRef.current;
+      const placement = layout.placements.find((frame) => frame.id === frameId);
+      if (!node || !placement) return;
+      const nextScale = zoomForFrame(placement.width, node.clientWidth);
+      const frameHeightPx = CANVAS_LABEL_PX + placement.height * nextScale;
+      pendingAnchorRef.current = {
+        scrollLeft: Math.max(
+          0,
+          slackX + (placement.x + placement.width / 2) * nextScale - node.clientWidth / 2
+        ),
+        scrollTop: Math.max(0, slackY - Math.max(0, (node.clientHeight - frameHeightPx) / 2)),
+      };
+      onActivateFrame(frameId);
+      onZoomChange(nextScale);
+    },
+    [layout, slackX, slackY, onActivateFrame, onZoomChange]
+  );
+
   // ── Pan ─────────────────────────────────────────────
   // Space-drag and middle-drag, the two canvas idioms. Two-finger scrolling is
   // the browser's own; a gesture that lands inside a frame comes back to us
@@ -641,10 +665,21 @@ export function PreviewCanvas({
                     height: `${CANVAS_LABEL_PX + placement.height * scale}px`,
                   }}
                 >
-                  <div className="preview-canvas-label" style={{ height: `${CANVAS_LABEL_PX}px` }}>
+                  <button
+                    type="button"
+                    className="preview-canvas-label"
+                    style={{ height: `${CANVAS_LABEL_PX}px` }}
+                    onClick={() => zoomToFrame(placement.id)}
+                    title={`${placement.label} — ${placement.width} × ${placement.height}. Click to work at this size.`}
+                    aria-label={`Zoom to ${placement.label}`}
+                  >
                     <span className="preview-canvas-label-name">{placement.label}</span>
-                    <span className="preview-canvas-label-width">{placement.width}px</span>
-                  </div>
+                    <span className="preview-canvas-label-width">
+                      {placement.width}
+                      <span aria-hidden> × </span>
+                      {placement.height}
+                    </span>
+                  </button>
                   {isActive ? (
                     <div className="preview-canvas-outline">{activeFrameOverlay?.(scale)}</div>
                   ) : (

@@ -155,11 +155,34 @@ describe('PreviewCanvas', () => {
     expect(scroller.scrollLeft).toBe(900 + (400 - 600));
   });
 
-  it('labels every frame with its device name and width', () => {
+  it('labels every frame with its device name and size', () => {
     renderCanvas();
     expect(screen.getByText('Desktop')).toBeInTheDocument();
-    expect(screen.getByText('1440px')).toBeInTheDocument();
-    expect(screen.getByText('375px')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom to Desktop' })).toHaveAttribute(
+      'title',
+      'Desktop — 1440 × 900. Click to work at this size.'
+    );
+    expect(screen.getByRole('button', { name: 'Zoom to Mobile' })).toHaveAttribute(
+      'title',
+      'Mobile — 375 × 812. Click to work at this size.'
+    );
+  });
+
+  it('brings a frame up to a workable size when its label is clicked', async () => {
+    const onZoomChange = vi.fn();
+    const onActivateFrame = vi.fn();
+    renderCanvas({ onZoomChange, onActivateFrame });
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom to Mobile' }));
+    expect(onActivateFrame).toHaveBeenCalledWith('mobile');
+    // 375px fits a 1200px pane easily, so it goes to true size.
+    expect(onZoomChange).toHaveBeenCalledWith(1);
+  });
+
+  it('fits a frame too wide for the pane instead of overflowing it', async () => {
+    const onZoomChange = vi.fn();
+    renderCanvas({ onZoomChange });
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom to Desktop' }));
+    expect(onZoomChange).toHaveBeenCalledWith((1200 - CANVAS_PADDING_PX * 2) / 1440);
   });
 
   it('outlines the active frame and puts an activation target on the others', () => {
