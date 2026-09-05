@@ -4,7 +4,9 @@ Every breakpoint at once, side by side, instead of one resizable preview frame.
 It is the last option in the preview toolbar's viewport control — the same
 segmented control as Desktop/Laptop/Tablet/Mobile, because "all of them" is a
 viewport choice rather than a mode on top of one — or Cmd+K → "Show every
-breakpoint".
+breakpoint". A pane too narrow for the icon strip gets the same list from the
+overflow button beside refresh: the strip is a choice, not a decoration, so it
+is replaced rather than dropped.
 
 Each frame is a real dev-server page. There is no second rendering path: an edit
 goes to source and reaches every frame through the dev server's own HMR.
@@ -31,11 +33,36 @@ and again on every edit.
 Measured on an eight-section test page: the desktop frame is 4907px of page with
 a 900px hero; the same page at 375px is 9811px with an 812px hero.
 
-Two limits, both rare and both visible rather than silent:
+A page can learn how tall its frame is three ways, and all three have to answer
+with the device or it lays itself out for a viewport twenty screens tall:
+
+1. **CSS viewport units**, rewritten as above.
+2. **Percentage chains.** `html,body{height:100%}` with an `h-full` section under
+   it stretches to the frame. The root height is pinned to the device, which
+   fixes every percentage at once. Measured on a real page: 9224px reported
+   where the page is genuinely 7027px at 1024×700, and the difference was a
+   screen and a half of white space in the middle of it.
+3. **`window.innerHeight` in JavaScript.** A reveal footer sizing a spacer from
+   it is a runaway — the spacer grows, the page gets longer, the frame is
+   resized to match, and it grows again, all the way to the 24000px cap. The
+   frame answers with the device instead.
+
+Known limits, stated rather than papered over:
 
 - **Height-based media queries** still evaluate against the real (tall) frame.
 - **`position: fixed`** pins to the whole page, so a fixed bar appears once
   instead of following the scroll — the same trade a full-page screenshot makes.
+- **Hand-rolled lazy loading** (`rect.top < innerHeight` rather than an
+  IntersectionObserver) will not reveal past the first screen, because the
+  number it asks is the one being lied to. Native `loading="lazy"` and the
+  `data-src` convention are released explicitly; IntersectionObserver reads the
+  real viewport and is unaffected. Telling the page the truth for a moment was
+  tried and rejected — the frame visibly jumps every time, and a height that
+  flickers is worse than an image that loads late.
+- **Scroll-LINKED motion** (parallax, progress bars) sits at its scroll-zero
+  value: the canvas scrolls, the page inside a frame does not. Scroll-triggered
+  *reveals* are fine — the whole page is inside the frame's viewport, so they
+  all fire, and passive frames complete them instantly.
 
 Because nothing scrolls *inside* a frame any more, there is no scroll to keep in
 sync between frames: the canvas itself is what moves.

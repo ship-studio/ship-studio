@@ -5,7 +5,7 @@
 Ship Studio is a desktop app for web developers that provides:
 - **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
 - **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
-- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, with synced scrolling and editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
+- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, each showing its whole page at an honest viewport height, with editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
 - **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
 - **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace
 - **Branch Management** - Create, switch, and manage git branches
@@ -337,11 +337,12 @@ Full design: [docs/workflows-inbox.md](docs/workflows-inbox.md).
 
 ### Breakpoint Canvas Flow
 
-1. The preview toolbar's grid toggle (or Cmd+K → "Show every breakpoint") swaps the single resizable frame for one frame per device width on a scaled, pannable canvas
-2. Each frame is a real dev-server page at its own device size — a frame's height IS the viewport the page reports, so it is never derived from the pane or the zoom (a `100vh` hero must be one screen tall). Seeing the rest of the page means scrolling, so the frames scroll together
-3. Exactly one frame is active: interactive, editor-bound, inspected, and what screenshots crop to. `usePreviewEditorFrame` re-binds the editor hooks by changing the ref's object identity
-4. Wheel and gesture events that land on a frame never reach the app — the injected script forwards zoom gestures up with their coordinates and leaves plain scrolling to the page
-5. Full design: [docs/breakpoint-canvas.md](docs/breakpoint-canvas.md)
+1. "Every breakpoint" is the last option in the preview toolbar's viewport control — the same segmented control as the devices — or Cmd+K → "Show every breakpoint". A pane too narrow for the icon strip gets the same list from the overflow button beside refresh
+2. Each frame shows its page IN FULL at its own device width. That should be impossible — an iframe's height is the viewport it reports — so the injected script makes the page believe it is on that device instead: viewport units rewritten, root height pinned (percentage chains), and `window.innerHeight` answered with the device (JS-driven sizing, which is otherwise a runaway)
+3. Exactly one frame is active: interactive, editor-bound, inspected, and what screenshots crop to. `usePreviewEditorFrame` re-binds the editor hooks by changing the ref's object identity. The others are review surfaces and are told to hold still (`ss:passive`) — animations complete instantly rather than running forever, which is most of what four live pages cost
+4. Wheel and gesture events that land on a frame never reach the app — the injected script forwards zoom gestures up with their coordinates, and hands up any wheel the page has no scroll left to spend so it pans the canvas
+5. Everything the canvas adds is off until `ss:canvas` arrives, so the ordinary single-frame preview costs exactly what it did before
+6. Full design, including the measured performance numbers and the known limits: [docs/breakpoint-canvas.md](docs/breakpoint-canvas.md)
 
 ### Languages (Multilingual / i18n) Flow
 1. Cmd+K → "Languages" opens `LanguagesModal` (`useModal('i18n')`)
