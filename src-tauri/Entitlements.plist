@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS code-signing entitlements for Ship Studio.
+
+  DO NOT STRIP com.apple.security.automation.apple-events.
+
+  Release builds are notarized and therefore run under the hardened runtime,
+  which blocks Apple Events outright unless this entitlement is present. Ship
+  Studio needs it for exactly one feature: the opt-in Spotify widget
+  (src-tauri/src/commands/spotify.rs), which reads "now playing" state and
+  drives play/pause/next/seek/volume via osascript against Spotify.app.
+
+  Without it the widget fails with -1743 in every shipped build and there is no
+  user-facing fix — the macOS Automation prompt never even appears, because the
+  process is not entitled to ask. Dev builds are ad-hoc signed and work without
+  it, so removing this will look harmless locally and only break in release.
+
+  The entitlement grants the ability to *ask*; the user still approves Spotify
+  automation in System Settings → Privacy & Security → Automation on first use.
+
+  Deliberately minimal: no App Sandbox keys, no other Apple Events scoping, and
+  nothing that affects the Windows or Linux bundles.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated macOS Info.plist (bundle.macOS.infoPlist in
+  tauri.conf.json; Tauri also auto-detects this filename).
+
+  NSAppleEventsUsageDescription is the string macOS shows in the Automation
+  permission prompt and in System Settings → Privacy & Security → Automation.
+  Without it, macOS terminates the process the first time it sends an Apple
+  Event instead of prompting — so this key is required alongside the
+  com.apple.security.automation.apple-events entitlement in Entitlements.plist.
+
+  Needed only by the opt-in Spotify widget
+  (src-tauri/src/commands/spotify.rs). Do not remove.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Ship Studio uses this to show and control what's playing in Spotify.</string>
+</dict>
+</plist>

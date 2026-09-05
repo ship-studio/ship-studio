@@ -34,7 +34,11 @@
       "fonts/*": "fonts/",
       "resources/scrcpy-server.jar": "scrcpy-server.jar"
     },
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "infoPlist": "Info.plist"
+    }
   },
   "plugins": {
     "updater": {

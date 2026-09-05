@@ -126,6 +126,26 @@ pub fn set_calendar_hidden(hidden: bool) -> Result<(), CommandError> {
     write_app_state(&state).map_err(CommandError::from)
 }
 
+/// Get whether the macOS Spotify widget is enabled.
+///
+/// Opt-in: defaults to `false` so no existing install starts talking to
+/// Spotify (or triggers a macOS Automation prompt) without being asked.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_spotify_widget_enabled() -> Result<bool, CommandError> {
+    let state = read_app_state();
+    Ok(state.spotify_widget_enabled.unwrap_or(false))
+}
+
+/// Set whether the macOS Spotify widget is enabled (persisted to app state).
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_spotify_widget_enabled(enabled: bool) -> Result<(), CommandError> {
+    let mut state = read_app_state();
+    state.spotify_widget_enabled = Some(enabled);
+    write_app_state(&state).map_err(CommandError::from)
+}
+
 /// Get whether the Slack community CTA is hidden on the dashboard.
 #[tauri::command]
 #[tracing::instrument]

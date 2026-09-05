@@ -851,6 +851,10 @@ pub struct AppState {
     /// Whether the Slack community CTA banner is hidden on the dashboard
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_cta_hidden: Option<bool>,
+    /// Whether the macOS Spotify widget is enabled. Opt-in, so `None`
+    /// (and every existing install) reads as disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spotify_widget_enabled: Option<bool>,
     /// Whether the dashboard home header is hidden
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_header_hidden: Option<bool>,
