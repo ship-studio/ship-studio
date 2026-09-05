@@ -38,8 +38,14 @@ export type CanvasZoom = 'fit' | number;
 interface PreviewCanvasProps {
   /** Frames to render, widest first. */
   frames: CanvasFrame[];
-  /** URL every frame loads. */
+  /** The page the canvas is showing. Passive frames follow it immediately —
+   *  including when the ACTIVE frame client-side-navigates to somewhere new. */
   url: string;
+  /** Changes only on a deliberate navigation (the page switcher, the locale
+   *  switcher), never on the active frame navigating itself. That distinction is
+   *  what keeps a link click inside the active frame from reloading the very
+   *  frame that just navigated. */
+  navSignal: string;
   /** The interactive/editable frame. */
   activeFrameId: string;
   /** Bumped by the preview's refresh action — remounts every frame. */
@@ -56,6 +62,7 @@ interface PreviewCanvasProps {
 export function PreviewCanvas({
   frames,
   url,
+  navSignal,
   activeFrameId,
   reloadToken,
   zoom,
@@ -148,6 +155,20 @@ export function PreviewCanvas({
   }, [activeFrameId, frameEpoch, onActiveFrameElement]);
   useEffect(() => () => onActiveFrameElement(null), [onActiveFrameElement]);
 
+  // The active frame's own src. Passive frames track `url` directly; the active
+  // frame is only re-pointed on a deliberate navigation, a refresh, or when the
+  // user activates a different frame — otherwise following its own client-side
+  // navigation back into its `src` would reload the page it just navigated to
+  // and throw away the app state the user is looking at.
+  const urlRef = useRef(url);
+  useEffect(() => {
+    urlRef.current = url;
+  });
+  const [activeSrc, setActiveSrc] = useState(url);
+  useEffect(() => {
+    setActiveSrc(urlRef.current);
+  }, [navSignal, activeFrameId, reloadToken]);
+
   // Zooming in past "fit" can leave the active frame off screen; keep it centred.
   const previousZoomRef = useRef(zoom);
   useEffect(() => {
@@ -190,7 +211,7 @@ export function PreviewCanvas({
                   <iframe
                     key={`${placement.id}:${reloadToken}`}
                     ref={registerFrame}
-                    src={url}
+                    src={placement.id === activeFrameId ? activeSrc : url}
                     className="preview-canvas-iframe"
                     title={`${placement.label} preview`}
                     data-tooltip-disabled

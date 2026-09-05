@@ -27,7 +27,10 @@ import { usePreviewConnection, SERVER_MAX_RETRIES } from '../../hooks/usePreview
 import { useAgentBridge } from '../../hooks/useAgentBridge';
 import { AgentActivityOverlay } from './AgentActivityOverlay';
 import { PreviewSizeControl } from './PreviewSizeControl';
+import { PreviewCanvas, type CanvasZoom } from './PreviewCanvas';
 import { usePreviewCapture } from '../../hooks/usePreviewCapture';
+import { type CanvasFrame } from '../../lib/previewCanvas';
+import { setInspectSource } from '../../lib/inspectStore';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
@@ -76,6 +79,7 @@ import {
   EditIcon,
   ExpandIcon,
   FullBreakpointIcon,
+  GridIcon,
   LaptopIcon,
   MobileIcon,
   PackageIcon,
@@ -351,6 +355,42 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onUserResize: () => setPinnedBreakpoint(null),
   });
 
+  // ── Breakpoint canvas ──────────────────────────────────────────────────────
+  // Every breakpoint at once, side by side, instead of one resizable frame.
+  // Exactly one canvas frame is active: it is interactive, the visual editor
+  // binds to it, and its width is the edit-target breakpoint.
+  const [canvasMode, setCanvasMode] = useState(false);
+  const [canvasZoom, setCanvasZoom] = useState<CanvasZoom>('fit');
+  const [canvasFrameId, setCanvasFrameId] = useState<Breakpoint>('desktop');
+  const [canvasFrameEl, setCanvasFrameEl] = useState<HTMLIFrameElement | null>(null);
+  // Device columns, widest first, straight off the toolbar's own presets so the
+  // canvas and the breakpoint tabs can never disagree about a width. `full` has
+  // no fixed width, so it isn't a column.
+  const canvasFrames = useMemo<CanvasFrame[]>(
+    () =>
+      PREVIEW_BREAKPOINTS.filter((bp) => bp !== 'full').map((bp) => ({
+        id: bp,
+        label: BREAKPOINTS[bp].label,
+        width: parseInt(BREAKPOINTS[bp].width, 10),
+      })),
+    []
+  );
+  const canvasFrameWidth =
+    canvasFrames.find((frame) => frame.id === canvasFrameId)?.width ?? canvasFrames[0].width;
+  const toggleCanvasMode = useCallback(() => {
+    setCanvasMode((on) => {
+      void trackEvent('preview_canvas_toggled', {
+        enabled: !on,
+        $screen_name: 'Workspace',
+      });
+      return !on;
+    });
+  }, []);
+  const activateCanvasFrame = useCallback((frameId: string) => {
+    setCanvasFrameId(frameId as Breakpoint);
+    void trackEvent('preview_canvas_frame_activated', { breakpoint: frameId });
+  }, []);
+
   // Agent preview bridge: an MCP server the workspace agent uses to read the
   // preview's console/network/DOM, click/type/scroll in it, navigate it,
   // resize its viewport, and take screenshots. (Below `resize` because the
@@ -537,27 +577,73 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // edit a layer the width wouldn't select on its own — e.g. Base at a wide canvas,
   // which must not force a shrink.
   const derivedBreakpoint = useMemo(() => {
-    const width = resize.customWidth ?? (resize.viewportWidth || 1280);
+    // On the breakpoint canvas the active frame IS the width being edited.
+    const width = canvasMode
+      ? canvasFrameWidth
+      : (resize.customWidth ?? (resize.viewportWidth || 1280));
     let active = breakpoints[0];
     for (const bp of breakpoints) if (bp.minPx <= width) active = bp;
     return active;
-  }, [resize.customWidth, resize.viewportWidth, breakpoints]);
+  }, [canvasMode, canvasFrameWidth, resize.customWidth, resize.viewportWidth, breakpoints]);
   // Keep a pin valid only while it still matches a known breakpoint (project switch).
-  const activeBreakpoint =
-    (pinnedBreakpoint && breakpoints.find((b) => b.name === pinnedBreakpoint.name)) ||
-    derivedBreakpoint;
+  // A pin means nothing on the canvas: every breakpoint is on screen, so the
+  // frame the user activated is the layer they mean to edit.
+  const activeBreakpoint = canvasMode
+    ? derivedBreakpoint
+    : (pinnedBreakpoint && breakpoints.find((b) => b.name === pinnedBreakpoint.name)) ||
+      derivedBreakpoint;
   // The selected edit breakpoint can exceed the width the canvas actually
   // renders at (e.g. a pinned wide layer while the canvas is narrower); edits
   // then apply but aren't visible, so the panel shows a note. A preset wider
   // than the pane does NOT trigger this: it renders at its true CSS width and
   // is only scaled down visually (previewScale), so its media queries hold.
+  // On the breakpoint canvas it can never happen — the layer is the frame.
   const renderedWidth = resize.customWidth ?? resize.viewportWidth;
   const breakpointTooWide =
-    activeBreakpoint.minPx > 0 && renderedWidth > 0 && renderedWidth < activeBreakpoint.minPx;
+    !canvasMode &&
+    activeBreakpoint.minPx > 0 &&
+    renderedWidth > 0 &&
+    renderedWidth < activeBreakpoint.minPx;
+
+  // The frame the visual editor talks to. In focus mode that is the single
+  // preview iframe (a stable ref — nothing about today's behaviour changes); on
+  // the canvas it is whichever frame is active, and the object identity changes
+  // with it so every editor hook re-runs its setup against the new frame.
+  const editorFrameRef = useMemo<RefObject<HTMLIFrameElement | null>>(
+    () => (canvasMode ? { current: canvasFrameEl } : iframeRef),
+    [canvasMode, canvasFrameEl]
+  );
+
+  // Switching frames leaves the previous one still showing the editor's
+  // selection layer, and its own hooks will never post to it again — so say
+  // goodbye explicitly.
+  const previousEditorFrameRef = useRef<HTMLIFrameElement | null>(null);
+  useEffect(() => {
+    const next = canvasMode ? canvasFrameEl : iframeRef.current;
+    const previous = previousEditorFrameRef.current;
+    previousEditorFrameRef.current = next;
+    if (!previous || previous === next) return;
+    try {
+      previous.contentWindow?.postMessage({ type: 'ss:deactivate' }, '*');
+    } catch {
+      // The frame may already be gone — nothing to clean up in that case.
+    }
+  }, [canvasMode, canvasFrameEl]);
+
+  // Point the inspector (console / network / Elements) at the active frame so
+  // four live frames don't produce four copies of every console line.
+  useEffect(() => {
+    if (!canvasMode) {
+      setInspectSource(null);
+      return;
+    }
+    setInspectSource(canvasFrameEl?.contentWindow ?? null);
+    return () => setInspectSource(null);
+  }, [canvasMode, canvasFrameEl]);
 
   // Visual editor (Next.js, Vite/React, Astro). Inert until the user toggles edit mode.
   const editor = useVisualEditor({
-    iframeRef,
+    iframeRef: editorFrameRef,
     projectPath,
     enabled: editorEnabled,
     activeBreakpoint,
@@ -575,7 +661,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // explanation.
   const cssEditorEnabled = conn.serverReady && qualifiedEditorMode === 'css';
   const cssEditor = useCssCascadeEditor({
-    iframeRef,
+    iframeRef: editorFrameRef,
     projectPath,
     enabled: cssEditorEnabled,
     cssModulesHint: projectType === 'nextjs',
@@ -583,7 +669,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   });
   // Settings tab (element tag/classes/attributes) — shares the cascade selection.
   const elementSettings = useElementSettings({
-    iframeRef,
+    iframeRef: editorFrameRef,
     projectPath,
     enabled: cssEditorEnabled,
     signature: cssEditor.selection?.signature ?? null,
@@ -594,7 +680,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const [cssScope, setCssScope] = useState<'style' | 'settings' | 'animations'>('style');
   // Project-global CSS variables are available from their own workspace panel.
   const cssVariables = useCssVariables({
-    iframeRef,
+    iframeRef: editorFrameRef,
     projectPath,
     enabled: editor.editMode || cssEditor.editMode || variablesPanelVisible,
     onToast,
@@ -620,7 +706,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // mounted once here, active whenever either editor's edit mode is on, so it
   // works for vanilla-CSS/Astro projects (cssEditor) as well as Tailwind.
   const textEditing = useTextEditing({
-    iframeRef,
+    iframeRef: editorFrameRef,
     projectPath,
     enabled: activeEditMode,
     onToast,
@@ -629,7 +715,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // editors the same way text editing is; drives the canvas toolbar and the
   // element tree's context menu.
   const structure = useElementStructure({
-    iframeRef,
+    iframeRef: editorFrameRef,
     projectPath,
     enabled: activeEditMode,
     onToast,
@@ -689,6 +775,31 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           ]
         : [],
     [cssEditorEnabled, cssEditorOn, cssToggleEditMode, openCssEditor, onToast]
+  );
+
+  // ── Cmd+K commands for the breakpoint canvas. Always available on a project:
+  // the canvas is a view of the preview, not an editor feature.
+  useCommands(
+    () => [
+      {
+        id: 'preview.breakpointCanvas',
+        title: canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint',
+        category: 'action' as const,
+        when: 'project' as const,
+        keywords: [
+          'breakpoint',
+          'canvas',
+          'responsive',
+          'side by side',
+          'devices',
+          'mobile',
+          'tablet',
+          'desktop',
+        ],
+        run: toggleCanvasMode,
+      },
+    ],
+    [canvasMode, toggleCanvasMode]
   );
 
   // ── Cmd+K commands for structural editing. Registered only while an edit mode
@@ -827,7 +938,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // subscription when the preview is ready so its initial request reaches the
   // injected script even when the Elements panel is already open.
   const elementTree = useElementTree({
-    iframeRef,
+    iframeRef: editorFrameRef,
     enabled: showTree && conn.serverReady,
   });
 
@@ -1446,10 +1557,30 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         </button>
 
         <div className="preview-breakpoints" data-education-id="breakpoints">
+          <ToggleButton
+            type="button"
+            className="preview-canvas-control"
+            variant={canvasMode ? 'secondary' : 'default'}
+            pressed={canvasMode}
+            onClick={toggleCanvasMode}
+            title={
+              canvasMode
+                ? 'Focus a single breakpoint'
+                : 'Show every breakpoint side by side on one canvas'
+            }
+            aria-label={canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint'}
+          >
+            <GridIcon size={14} />
+          </ToggleButton>
           <Tabs
-            value={resize.getActiveBreakpoint()}
+            // On the canvas the tabs report the ACTIVE frame, and picking one
+            // leaves the canvas focused on that single breakpoint.
+            value={canvasMode ? canvasFrameId : resize.getActiveBreakpoint()}
             mode="navigation"
-            onValueChange={(value) => resize.handleBreakpointClick(value as Breakpoint)}
+            onValueChange={(value) => {
+              setCanvasMode(false);
+              resize.handleBreakpointClick(value as Breakpoint);
+            }}
             className="preview-breakpoint-tabs"
           >
             <TabsList aria-label="Preview viewport sizes">
@@ -1468,7 +1599,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             </TabsList>
           </Tabs>
 
-          {iframeSize &&
+          {!canvasMode &&
+            iframeSize &&
             iframeSize.w > 0 &&
             iframeSize.h > 0 &&
             (() => {
@@ -1506,170 +1638,185 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             }`}
           />
         )}
-        <div
-          className={`preview-frame-grid${
-            resize.customWidth !== null && resize.customHeight !== null
-              ? ' preview-frame-grid--floating'
-              : ''
-          }${
-            // Dragged all the way out (the drag snaps `customWidth` to null):
-            // the handle collapses into the pane's own right edge instead of
-            // stacking another gutter and two borders beside it.
-            resize.customWidth === null ? ' preview-frame-grid--full-width' : ''
-          }`}
-          style={{
-            // A width wider than the pane keeps its true size in the iframe
-            // and shrinks visually via previewScale — the grid (and with it
-            // the wrapper, handles, crop overlay and drag math) stays at the
-            // VISUAL size so every parent-side measurement remains in screen
-            // space.
-            width:
-              resize.customWidth === null
-                ? 'calc(100% - 4px)'
-                : `${Math.round(resize.customWidth * resize.previewScale) + RESIZE_HANDLE_PX}px`,
-            maxWidth: 'calc(100% - 4px)',
-            // While Inspect is open the bottom resize handle is hidden, so
-            // we ignore (but preserve) the user's customHeight to avoid an
-            // unreachable floating-iframe state. The value comes back when
-            // Inspect closes and the handle returns.
-            height:
-              resize.customHeight === null || showLogs
-                ? '100%'
-                : `${resize.customHeight + RESIZE_HANDLE_PX}px`,
-            maxHeight: '100%',
-          }}
-        >
-          <div ref={setIframeWrapperEl} className="preview-iframe-wrapper">
-            <iframe
-              key={projectPath}
-              ref={iframeRef}
-              src={conn.serverReady ? conn.currentUrl : 'about:blank'}
-              className="preview-iframe"
-              title=""
-              data-tooltip-disabled
-              onLoad={conn.handleIframeLoad}
-              // Scale-to-fit (Chrome-DevTools style): lay the page out at the
-              // true breakpoint width and shrink the rendering to the wrapper.
-              // Height is inflated by 1/scale so the scaled result fills the
-              // wrapper exactly. In-iframe overlays (visual editor) live in
-              // the scaled coordinate space and need no mapping.
-              style={
-                resize.previewScale < 1 && resize.customWidth !== null
-                  ? {
-                      width: `${resize.customWidth}px`,
-                      height: `${100 / resize.previewScale}%`,
-                      transform: `scale(${resize.previewScale})`,
-                      transformOrigin: 'top left',
-                    }
-                  : undefined
-              }
-            />
-            {/* Structural-edit toolbar, tracking the canvas selection box */}
-            {activeEditMode && (
-              <ElementToolbar
-                selection={structure.selection}
-                bounds={iframeSize}
-                busy={structure.busy}
-                hidden={structure.textEditing}
-                onInsert={(position, kind) => void structure.insert(position, kind)}
-                onDuplicate={() => void structure.duplicate()}
-                onDelete={() => void structure.remove()}
-                openMenuRef={openInsertMenuRef}
+        {canvasMode ? (
+          <PreviewCanvas
+            frames={canvasFrames}
+            // Passive frames follow wherever the page actually is; `navSignal`
+            // changes only on a deliberate navigation, so a link click inside
+            // the active frame doesn't reload that same frame.
+            url={`${conn.baseUrl}${conn.currentPage === '/' ? '' : conn.currentPage}`}
+            navSignal={conn.iframePath}
+            activeFrameId={canvasFrameId}
+            reloadToken={conn.reloadToken}
+            zoom={canvasZoom}
+            onZoomChange={setCanvasZoom}
+            onActivateFrame={activateCanvasFrame}
+            onActiveFrameElement={setCanvasFrameEl}
+          />
+        ) : (
+          <div
+            className={`preview-frame-grid${
+              resize.customWidth !== null && resize.customHeight !== null
+                ? ' preview-frame-grid--floating'
+                : ''
+            }${
+              // Dragged all the way out (the drag snaps `customWidth` to null):
+              // the handle collapses into the pane's own right edge instead of
+              // stacking another gutter and two borders beside it.
+              resize.customWidth === null ? ' preview-frame-grid--full-width' : ''
+            }`}
+            style={{
+              // A width wider than the pane keeps its true size in the iframe
+              // and shrinks visually via previewScale — the grid (and with it
+              // the wrapper, handles, crop overlay and drag math) stays at the
+              // VISUAL size so every parent-side measurement remains in screen
+              // space.
+              width:
+                resize.customWidth === null
+                  ? 'calc(100% - 4px)'
+                  : `${Math.round(resize.customWidth * resize.previewScale) + RESIZE_HANDLE_PX}px`,
+              // While Inspect is open the bottom resize handle is hidden, so
+              // we ignore (but preserve) the user's customHeight to avoid an
+              // unreachable floating-iframe state. The value comes back when
+              // Inspect closes and the handle returns.
+              height:
+                resize.customHeight === null || showLogs
+                  ? '100%'
+                  : `${resize.customHeight + RESIZE_HANDLE_PX}px`,
+            }}
+          >
+            <div ref={setIframeWrapperEl} className="preview-iframe-wrapper">
+              <iframe
+                key={projectPath}
+                ref={iframeRef}
+                src={conn.serverReady ? conn.currentUrl : 'about:blank'}
+                className="preview-iframe"
+                title=""
+                data-tooltip-disabled
+                onLoad={conn.handleIframeLoad}
+                // Scale-to-fit (Chrome-DevTools style): lay the page out at the
+                // true breakpoint width and shrink the rendering to the wrapper.
+                // Height is inflated by 1/scale so the scaled result fills the
+                // wrapper exactly. In-iframe overlays (visual editor) live in
+                // the scaled coordinate space and need no mapping.
+                style={
+                  resize.previewScale < 1 && resize.customWidth !== null
+                    ? {
+                        width: `${resize.customWidth}px`,
+                        height: `${100 / resize.previewScale}%`,
+                        transform: `scale(${resize.previewScale})`,
+                        transformOrigin: 'top left',
+                      }
+                    : undefined
+                }
               />
-            )}
-            {/* Agent activity layer: glow + cursor + action chip while the
+              {/* Structural-edit toolbar, tracking the canvas selection box */}
+              {activeEditMode && (
+                <ElementToolbar
+                  selection={structure.selection}
+                  bounds={iframeSize}
+                  busy={structure.busy}
+                  hidden={structure.textEditing}
+                  onInsert={(position, kind) => void structure.insert(position, kind)}
+                  onDuplicate={() => void structure.duplicate()}
+                  onDelete={() => void structure.remove()}
+                  openMenuRef={openInsertMenuRef}
+                />
+              )}
+              {/* Agent activity layer: glow + cursor + action chip while the
                 workspace agent drives the preview through the agent bridge. */}
-            <AgentActivityOverlay />
-            {/* Blank-iframe watchdog overlay: the server is healthy top-level but
+              <AgentActivityOverlay />
+              {/* Blank-iframe watchdog overlay: the server is healthy top-level but
                 the page never proved it rendered inside the embedded iframe —
                 e.g. an auth redirect loop aborted the subframe load (issue #179). */}
-            {conn.iframeBlank && !isBranchSwitching && !isDevServerRestarting && (
-              <div
-                className="preview-iframe-error-overlay"
-                data-education-id="preview-iframe-error"
-              >
-                <h3>The page isn't rendering in the preview</h3>
-                <p>
-                  The dev server is up, but this page never painted inside the embedded preview.
-                  That usually means it failed in the iframe — commonly an auth-middleware redirect
-                  loop (e.g. Clerk development keys) — even though it may load fine in a normal
-                  browser.
-                </p>
-                <div className="preview-iframe-error-actions">
-                  <Button variant="secondary" onClick={conn.handleRefresh}>
-                    Retry
-                  </Button>
-                  {handleFixWithAgent && (
-                    <Button variant="primary" onClick={() => handleFixWithAgent('blank-iframe')}>
-                      Fix with agent
+              {conn.iframeBlank && !isBranchSwitching && !isDevServerRestarting && (
+                <div
+                  className="preview-iframe-error-overlay"
+                  data-education-id="preview-iframe-error"
+                >
+                  <h3>The page isn't rendering in the preview</h3>
+                  <p>
+                    The dev server is up, but this page never painted inside the embedded preview.
+                    That usually means it failed in the iframe — commonly an auth-middleware
+                    redirect loop (e.g. Clerk development keys) — even though it may load fine in a
+                    normal browser.
+                  </p>
+                  <div className="preview-iframe-error-actions">
+                    <Button variant="secondary" onClick={conn.handleRefresh}>
+                      Retry
                     </Button>
+                    {handleFixWithAgent && (
+                      <Button variant="primary" onClick={() => handleFixWithAgent('blank-iframe')}>
+                        Fix with agent
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Branch switching overlay */}
+              {isBranchSwitching && (
+                <div className="preview-branch-switching-overlay">
+                  <Spinner size="lg" style={{ color: 'var(--accent-active)' }} />
+                  <span>Switching branch...</span>
+                </div>
+              )}
+              {/* Dev server restarting overlay */}
+              {isDevServerRestarting && (
+                <div className="preview-branch-switching-overlay">
+                  <Spinner size="lg" style={{ color: 'var(--accent-active)' }} />
+                  <span>Restarting dev server...</span>
+                </div>
+              )}
+              {/* Crop selection overlay */}
+              {isCropMode && (
+                <div
+                  ref={capture.cropOverlayRef}
+                  className="crop-overlay"
+                  onMouseDown={capture.handleCropMouseDown}
+                  onMouseMove={capture.handleCropMouseMove}
+                  onMouseUp={() => void capture.handleCropMouseUp()}
+                  onMouseLeave={() => {
+                    if (capture.isSelecting) {
+                      void capture.handleCropMouseUp();
+                    }
+                  }}
+                >
+                  {/* Selection rectangle */}
+                  {/* Selection box with box-shadow creating the dark overlay */}
+                  {capture.selectionStart && capture.selectionEnd && (
+                    <div
+                      className="crop-selection"
+                      style={{
+                        left: Math.min(capture.selectionStart.x, capture.selectionEnd.x),
+                        top: Math.min(capture.selectionStart.y, capture.selectionEnd.y),
+                        width: Math.abs(capture.selectionEnd.x - capture.selectionStart.x),
+                        height: Math.abs(capture.selectionEnd.y - capture.selectionStart.y),
+                      }}
+                    />
+                  )}
+                  {/* Instructions */}
+                  {!capture.selectionStart && (
+                    <div className="crop-instructions">
+                      Click and drag to select area
+                      <span className="crop-hint">Press Esc to cancel</span>
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
-            {/* Branch switching overlay */}
-            {isBranchSwitching && (
-              <div className="preview-branch-switching-overlay">
-                <Spinner size="lg" style={{ color: 'var(--accent-active)' }} />
-                <span>Switching branch...</span>
-              </div>
-            )}
-            {/* Dev server restarting overlay */}
-            {isDevServerRestarting && (
-              <div className="preview-branch-switching-overlay">
-                <Spinner size="lg" style={{ color: 'var(--accent-active)' }} />
-                <span>Restarting dev server...</span>
-              </div>
-            )}
-            {/* Crop selection overlay */}
-            {isCropMode && (
-              <div
-                ref={capture.cropOverlayRef}
-                className="crop-overlay"
-                onMouseDown={capture.handleCropMouseDown}
-                onMouseMove={capture.handleCropMouseMove}
-                onMouseUp={() => void capture.handleCropMouseUp()}
-                onMouseLeave={() => {
-                  if (capture.isSelecting) {
-                    void capture.handleCropMouseUp();
-                  }
-                }}
-              >
-                {/* Selection rectangle */}
-                {/* Selection box with box-shadow creating the dark overlay */}
-                {capture.selectionStart && capture.selectionEnd && (
-                  <div
-                    className="crop-selection"
-                    style={{
-                      left: Math.min(capture.selectionStart.x, capture.selectionEnd.x),
-                      top: Math.min(capture.selectionStart.y, capture.selectionEnd.y),
-                      width: Math.abs(capture.selectionEnd.x - capture.selectionStart.x),
-                      height: Math.abs(capture.selectionEnd.y - capture.selectionStart.y),
-                    }}
-                  />
-                )}
-                {/* Instructions */}
-                {!capture.selectionStart && (
-                  <div className="crop-instructions">
-                    Click and drag to select area
-                    <span className="crop-hint">Press Esc to cancel</span>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+            {/* Right (horizontal) resize handle — height tracks iframe via grid */}
+            <div className="preview-resize-handle" onMouseDown={resize.handleResizeStart}>
+              <div className="preview-resize-handle-bar" />
+            </div>
+            {/* Bottom (vertical) resize handle — width tracks iframe via grid */}
+            <div
+              className="preview-resize-handle preview-resize-handle--vertical"
+              onMouseDown={resize.handleVerticalResizeStart}
+            >
+              <div className="preview-resize-handle-bar preview-resize-handle-bar--vertical" />
+            </div>
           </div>
-          {/* Right (horizontal) resize handle — height tracks iframe via grid */}
-          <div className="preview-resize-handle" onMouseDown={resize.handleResizeStart}>
-            <div className="preview-resize-handle-bar" />
-          </div>
-          {/* Bottom (vertical) resize handle — width tracks iframe via grid */}
-          <div
-            className="preview-resize-handle preview-resize-handle--vertical"
-            onMouseDown={resize.handleVerticalResizeStart}
-          >
-            <div className="preview-resize-handle-bar preview-resize-handle-bar--vertical" />
-          </div>
-        </div>
+        )}
       </div>
       {showLogs && (
         <PanelResizeHandle

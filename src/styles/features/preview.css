@@ -594,6 +594,13 @@
   /* Handle thickness — must match `RESIZE_HANDLE_PX` in usePreviewResize.ts.
      JS uses it for drag math, CSS uses it for grid track sizing. */
   --handle-size: 8px;
+  /* The grid never exceeds the pane: a selected width wider than the pane
+     renders at true size inside the iframe and is scaled down visually
+     (previewScale), so the grid itself stays within the visible area. The 4px
+     leaves the pane's own edge visible. JS supplies the width; these ceilings
+     are unconditional, so they live here. */
+  max-width: calc(100% - 4px);
+  max-height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--handle-size);
   grid-template-rows: minmax(0, 1fr) var(--handle-size);

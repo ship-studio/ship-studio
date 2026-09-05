@@ -87,8 +87,16 @@ const notify = () => {
 const isPreviewOrigin = (origin: string) =>
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
+/** When set, only this frame's telemetry is collected and only this frame is
+ *  asked for DOM snapshots. The breakpoint canvas runs several preview frames
+ *  at once; without this the inspector would interleave four copies of every
+ *  console line and pay for four DOM serializations. Null (focus mode, where
+ *  there is only one preview frame) accepts every preview-origin frame. */
+let inspectSource: Window | null = null;
+
 const handleMessage = (event: MessageEvent) => {
   if (!isPreviewOrigin(event.origin)) return;
+  if (inspectSource && event.source !== inspectSource) return;
   const data = event.data as ShimMessage | null;
   if (!data || typeof data !== 'object' || data.source !== CHANNEL) return;
 
@@ -167,6 +175,14 @@ if (typeof window !== 'undefined') {
 
 /** Broadcast a host command to any preview iframes. */
 const broadcastToPreviews = (type: string) => {
+  if (inspectSource) {
+    try {
+      inspectSource.postMessage({ source: HOST_CHANNEL, type }, '*');
+    } catch {
+      // ignore — the frame may have gone away between selection and broadcast
+    }
+    return;
+  }
   if (typeof document === 'undefined') return;
   const iframes = document.querySelectorAll('iframe');
   iframes.forEach((iframe) => {
@@ -188,6 +204,23 @@ const requestDomTree = () => broadcastToPreviews('request-dom-tree');
    that references like `inspectStore.subscribe` passed into
    useSyncExternalStore can't drift from `this`. The store has no
    instance state anyway — it closes over module-level vars. */
+/**
+ * Point the inspector at one preview frame (or `null` for "whichever preview
+ * frame is talking"). Switching frames clears the captured entries — they
+ * described a different document — and re-arms the DOM subscription on the new
+ * frame if Elements is watching.
+ */
+export const setInspectSource = (win: Window | null): void => {
+  if (inspectSource === win) return;
+  inspectSource = win;
+  consoleEntries = [];
+  networkEntries = [];
+  domSnapshot = null;
+  consoleId = 0;
+  if (domSubscriptionActive) broadcastToPreviews('subscribe-dom-tree');
+  notify();
+};
+
 export const inspectStore = {
   subscribe: (listener: () => void): (() => void) => {
     listeners.add(listener);

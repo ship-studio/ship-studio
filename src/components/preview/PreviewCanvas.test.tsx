@@ -38,6 +38,7 @@ function renderCanvas(overrides: Partial<Parameters<typeof PreviewCanvas>[0]> = 
   const props = {
     frames: FRAMES,
     url: 'http://localhost:3000/',
+    navSignal: '/',
     activeFrameId: 'desktop',
     reloadToken: 0,
     zoom: 'fit' as const,
@@ -155,6 +156,30 @@ describe('PreviewCanvas', () => {
     // Active frame stays mounted even though it is off screen.
     expect(container.querySelector('iframe[data-frame-id="mobile"]')).toBeTruthy();
     expect(container.querySelectorAll('.preview-canvas-placeholder').length).toBeGreaterThan(0);
+  });
+
+  it('follows an in-frame navigation in the passive frames but not the active one', () => {
+    const { container, rerender, props } = renderCanvas({ activeFrameId: 'desktop' });
+    // The active frame navigated itself: `url` moves on, `navSignal` does not.
+    rerender(<PreviewCanvas {...props} url="http://localhost:3000/pricing" />);
+    expect(container.querySelector('iframe[data-frame-id="desktop"]')?.getAttribute('src')).toBe(
+      'http://localhost:3000/'
+    );
+    expect(container.querySelector('iframe[data-frame-id="mobile"]')?.getAttribute('src')).toBe(
+      'http://localhost:3000/pricing'
+    );
+  });
+
+  it('moves every frame on a deliberate navigation', () => {
+    const { container, rerender, props } = renderCanvas({ activeFrameId: 'desktop' });
+    act(() => {
+      rerender(
+        <PreviewCanvas {...props} url="http://localhost:3000/pricing" navSignal="/pricing" />
+      );
+    });
+    for (const frame of container.querySelectorAll('iframe')) {
+      expect(frame.getAttribute('src')).toBe('http://localhost:3000/pricing');
+    }
   });
 
   it('offers zoom levels and reports the choice', async () => {
