@@ -291,7 +291,10 @@ export function PreviewCanvas({
         fromScale: scale,
         toScale: nextScale,
         originX: slackX,
-        originY: slackY,
+        // The frames start BELOW the label row, and that row is unscaled — leave
+        // it out and the anchor drifts vertically by exactly
+        // labelHeight × (1 − newScale / oldScale).
+        originY: slackY + CANVAS_LABEL_PX,
       });
       onZoomChange(nextScale);
     },

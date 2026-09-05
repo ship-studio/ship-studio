@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PreviewCanvas } from './PreviewCanvas';
-import { CANVAS_PADDING_PX, MAX_ZOOM, wheelZoom, type CanvasFrame } from '../../lib/previewCanvas';
+import { PreviewCanvas, type CanvasZoom } from './PreviewCanvas';
+import {
+  CANVAS_LABEL_PX,
+  CANVAS_PADDING_PX,
+  MAX_ZOOM,
+  PAN_SLACK_RATIO,
+  anchorScroll,
+  stepZoom,
+  wheelZoom,
+  type CanvasFrame,
+} from '../../lib/previewCanvas';
 
 const FRAMES: CanvasFrame[] = [
   { id: 'desktop', label: 'Desktop', width: 1440, height: 900 },
@@ -402,6 +412,59 @@ describe('PreviewCanvas', () => {
     scroller.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(onZoomChange).toHaveBeenCalledWith(0.625);
+  });
+
+  it('anchors the zoom past the label row, not at the top of the surface', () => {
+    // The frames sit below an unscaled label row. Anchoring at the surface top
+    // instead drifts vertically by labelHeight × (1 − newScale / oldScale) —
+    // small, constant, and maddening. Needs a real zoom to land, so the zoom
+    // state lives in a wrapper the way it does in the preview.
+    function Stateful() {
+      const [zoom, setZoom] = useState<CanvasZoom>(0.5);
+      return (
+        <PreviewCanvas
+          frames={FRAMES}
+          url="http://localhost:3000/"
+          navSignal="/"
+          activeFrameId="desktop"
+          reloadToken={0}
+          zoom={zoom}
+          onZoomChange={setZoom}
+          onActivateFrame={() => {}}
+          onActiveFrameElement={() => {}}
+        />
+      );
+    }
+    const { container } = render(<Stateful />);
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    scroller.scrollLeft = 700;
+    scroller.scrollTop = 200;
+
+    act(() => {
+      scroller.dispatchEvent(
+        new WheelEvent('wheel', {
+          deltaY: -120,
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+          clientX: 400,
+          clientY: 300,
+        })
+      );
+    });
+
+    const expected = anchorScroll({
+      scrollLeft: 700,
+      scrollTop: 200,
+      pointerX: 400,
+      pointerY: 300,
+      fromScale: 0.5,
+      toScale: stepZoom(0.5, 'in'),
+      originX: 1200 * PAN_SLACK_RATIO,
+      originY: 800 * PAN_SLACK_RATIO + CANVAS_LABEL_PX,
+    });
+    expect(scroller.scrollLeft).toBe(expected.scrollLeft);
+    expect(scroller.scrollTop).toBe(expected.scrollTop);
   });
 
   it('leaves a plain wheel alone so the canvas scrolls normally', () => {
