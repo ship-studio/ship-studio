@@ -46,21 +46,34 @@ git push origin main && git push origin vX.Y.Z
 
 When you push a tag starting with `v`, GitHub Actions will:
 
-1. **Build** the app for both ARM64 (Apple Silicon) and Intel Macs
-2. **Sign** the app with the Apple Developer certificate
-3. **Create** signed update bundles (`.tar.gz` + `.sig`)
-4. **Read** release notes from `RELEASE_NOTES.md`
-5. **Generate** `latest.json` manifest with notes and download URLs
-6. **Upload** artifacts to both repos
-7. **Auto-publish** the public releases repo release
+1. **Build** one universal app (Apple Silicon + Intel in a single binary)
+2. **Sign** it with the Developer ID certificate (hardened runtime)
+3. **Notarize** the app with Apple and staple the ticket, then notarize + staple the DMG
+4. **Verify** the result (`codesign`, `stapler validate`, `spctl --assess`) — the job fails if the DMG would show any Gatekeeper dialog
+5. **Create** signed update bundles (`.tar.gz` + `.sig`)
+6. **Read** release notes from `RELEASE_NOTES.md`
+7. **Generate** `latest.json` (both `darwin-aarch64` and `darwin-x86_64` point at the universal bundle)
+8. **Upload** artifacts to both repos
+9. **Auto-publish** the public releases repo release
+
+Public macOS assets: `ShipStudio_darwin-universal.dmg` (the download the site should link), plus
+`ShipStudio_darwin-aarch64.dmg` / `ShipStudio_darwin-x86_64.dmg` (identical bytes, kept so old links resolve).
+
+### Why notarization is mandatory
+
+An un-notarized app on macOS 15+ opens to "Apple could not verify … is free of malware" with no
+Open button; the only escape is System Settings → Privacy & Security → Open Anyway. Right-click →
+Open no longer bypasses it. So the workflow refuses to build unless every notarization secret is
+present, and refuses to publish unless `spctl` accepts the DMG. Do not weaken either gate; fix the
+account instead.
 
 ## Why Two Repos?
 
 The main `ship-studio/ship-studio` repo is **private** to protect source code. However, the auto-updater needs public URLs to download updates. The `ship-studio/releases` repo is **public** and only contains:
 
 - `latest.json` - Version manifest for auto-updater (includes release notes)
-- `ShipStudio_darwin-aarch64.app.tar.gz` - ARM64 update bundle
-- `ShipStudio_darwin-x86_64.app.tar.gz` - Intel update bundle
+- `ShipStudio_darwin-universal.app.tar.gz` - universal update bundle (served for both arch keys)
+- `ShipStudio_darwin-universal.dmg` (+ legacy `-aarch64` / `-x86_64` copies) - user downloads
 
 No source code is exposed.
 
@@ -70,14 +83,53 @@ These secrets must be configured in the main repo's GitHub settings:
 
 | Secret | Purpose |
 |--------|---------|
-| `APPLE_CERTIFICATE` | Base64-encoded .p12 certificate for code signing |
-| `APPLE_CERTIFICATE_PASSWORD` | Password for the certificate |
-| `APPLE_API_ISSUER` | App Store Connect API issuer ID (for notarization) |
-| `APPLE_API_KEY` | App Store Connect API key ID (for notarization) |
-| `APPLE_API_KEY_CONTENT` | Base64-encoded .p8 private key file (for notarization) |
+| `APPLE_CERTIFICATE` | Base64-encoded .p12 of the **Developer ID Application** certificate |
+| `APPLE_CERTIFICATE_PASSWORD` | Password for the .p12 |
+| `APPLE_API_ISSUER` | App Store Connect API issuer ID (notarization) |
+| `APPLE_API_KEY` | App Store Connect API key ID (notarization) |
+| `APPLE_API_KEY_CONTENT` | Base64-encoded .p8 private key (notarization) |
 | `TAURI_SIGNING_PRIVATE_KEY` | Private key for update bundle signing |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the signing key |
 | `RELEASES_PAT` | Personal Access Token with `public_repo` scope for cross-repo access |
+| `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | Service principal that may sign with the Artifact Signing certificate profile (Windows) |
+| `AZURE_SIGNING_ENDPOINT` | Artifact Signing regional endpoint, e.g. `https://eus.codesigning.azure.net` (Windows) |
+| `AZURE_SIGNING_ACCOUNT` / `AZURE_SIGNING_PROFILE` | Artifact Signing account name and certificate profile name (Windows) |
+
+### Setting up the Apple secrets (one-time, per Apple Developer account)
+
+The macOS pipeline signs and notarizes under whichever Apple Developer Program account these
+secrets belong to. Everything below happens at <https://developer.apple.com/account> and takes
+about 15 minutes once the membership is active.
+
+1. **Developer ID Application certificate** → Certificates, IDs & Profiles → Certificates → `+` →
+   *Developer ID Application*. Create the CSR in Keychain Access (Certificate Assistant → Request a
+   Certificate From a Certificate Authority → Saved to disk). Download the `.cer`, double-click to
+   add it to the login keychain, then in Keychain Access right-click the certificate (with its
+   private key) → Export → `.p12` with a password.
+   ```bash
+   base64 -i ShipStudio.p12 | pbcopy     # → APPLE_CERTIFICATE
+   ```
+   The password → `APPLE_CERTIFICATE_PASSWORD`.
+2. **App Store Connect API key** → <https://appstoreconnect.apple.com/access/integrations/api> →
+   Team Keys → `+` → name "Ship Studio CI", access **Developer** (enough to notarize). Download the
+   `.p8` (only offered once).
+   ```bash
+   base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy   # → APPLE_API_KEY_CONTENT
+   ```
+   The Key ID → `APPLE_API_KEY`; the Issuer ID shown at the top of the page → `APPLE_API_ISSUER`.
+3. Set all five in the main repo: Settings → Secrets and variables → Actions.
+
+Verify locally before tagging (optional but cheap):
+```bash
+xcrun notarytool history --key AuthKey_XXXXXXXXXX.p8 --key-id <KEY_ID> --issuer <ISSUER_ID>
+```
+A 403 here means the account's Program License Agreement is not accepted or the membership is not
+active — fix that in the developer account; no code change helps.
+
+> History: builds up to v1.0.0 were signed with a Memberstack Inc. Developer ID (team J335CB82MX)
+> and, from 40b6a1a1 on, not notarized at all because that team's agreement lapsed. The bundle
+> identifier stays `com.memberstack.shipstudio` regardless of which team signs — changing it would
+> move every user's app data directory.
 
 ## Verification Checklist
 
@@ -94,6 +146,34 @@ After the workflow completes:
 - [ ] Test auto-updater shows update available in-app
 
 ## Windows Releases
+
+### Windows code signing (Azure Artifact Signing)
+
+An unsigned installer hits SmartScreen's "Windows protected your PC" wall and Chrome's
+"uncommon download" warning, so Windows builds are Authenticode-signed with
+[Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/) (formerly Trusted
+Signing; ~$10/month, no hardware token, SmartScreen reputation from day one). The workflow signs
+the app exe and the NSIS installer through Tauri's `bundle.windows.signCommand`, using the
+[`artifact-signing-cli`](https://crates.io/crates/artifact-signing-cli) wrapper, and then fails the
+release if `Get-AuthenticodeSignature` on the installer is anything but `Valid`.
+
+If the `AZURE_*` secrets are absent the build still succeeds **unsigned**, with a workflow warning —
+acceptable for a dry run, never for a public release.
+
+One-time setup in the Azure portal (individual developers: US/Canada only; the identity check is a
+phone ID scan through Microsoft Authenticator and can complete the same day):
+
+1. Create an **Artifact Signing account** (Basic SKU, a US region such as *East US* →
+   endpoint `https://eus.codesigning.azure.net`). Name → `AZURE_SIGNING_ACCOUNT`.
+2. **Identity validation** → Individual → Public. It is prefilled from the Azure billing account,
+   so the billing account's legal name/address must match your government ID. Complete the
+   Verified ID flow when the status flips to *Action Required*.
+3. **Certificate profile** → Public Trust, bound to that identity. Name → `AZURE_SIGNING_PROFILE`.
+4. **Service principal for CI**: Microsoft Entra ID → App registrations → New → note the
+   Application (client) ID and Directory (tenant) ID; Certificates & secrets → New client secret.
+   Then on the Artifact Signing account → Access control (IAM) → Add role assignment →
+   *Artifact Signing Certificate Profile Signer* → that app. These become `AZURE_CLIENT_ID`,
+   `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`.
 
 Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags (`'!*-win'`), so the two build pipelines are independent, but both publish to the shared `ship-studio/releases` public repo. As of v0.6.8 the Windows public release **auto-publishes**, exactly like macOS — there is no longer a manual publish step (see History below).
 
@@ -113,7 +193,8 @@ The version a `-win` build ships comes from the source files (`package.json` etc
 
 After the workflow completes (~15–25 min for the Windows build):
 
-- [ ] A **published** (not draft) release exists in `ship-studio/releases` with 2 Windows artifacts (`-setup.exe`, `-setup.exe.sig`), 2 manifests (`latest-windows.json`, carried-forward `latest.json`), and 2 carried-forward macOS DMGs (`ShipStudio_darwin-aarch64.dmg`, `ShipStudio_darwin-x86_64.dmg`)
+- [ ] A **published** (not draft) release exists in `ship-studio/releases` with 2 Windows artifacts (`-setup.exe`, `-setup.exe.sig`), 2 manifests (`latest-windows.json`, carried-forward `latest.json`), and the carried-forward macOS DMGs (`ShipStudio_darwin-*.dmg`)
+- [ ] The workflow log's "Find and stage updater artifacts" step shows `Authenticode status: Valid` (not a signing warning)
 - [ ] `latest-windows.json` is valid and has a `windows-x86_64` platform entry:
   ```bash
   curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest-windows.json | jq
