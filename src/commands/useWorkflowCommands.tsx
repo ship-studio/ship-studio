@@ -10,7 +10,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { BellIcon, CheckIcon, PlusIcon, ZapIcon } from '@/components/icons';
+import { BellIcon, CheckIcon, PlusIcon, ActivityIcon } from '@/components/icons';
 import { useCommands } from './useCommands';
 import { getSnapshot, markAllRead, subscribe, unreadCount } from '../lib/workflowsStore';
 import type { AppView } from '../lib/types';
@@ -29,7 +29,7 @@ export function useWorkflowCommands({ setView, showToast }: UseWorkflowCommandsP
       {
         id: 'workflows.open',
         title: 'Workflows',
-        icon: <ZapIcon size={14} />,
+        icon: <ActivityIcon size={14} />,
         category: 'navigation',
         keywords: ['schedule', 'automation', 'cron', 'recurring', 'checks'],
         run: () => setView('workflows'),

@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { InfoIcon, ShieldCheckIcon, TerminalIcon, ZapIcon } from '@/components/icons';
+import { InfoIcon, ShieldCheckIcon, TerminalIcon, ActivityIcon } from '@/components/icons';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { formatTrigger, describeTriggerReality } from '../../lib/workflows';
 import {
@@ -266,7 +266,7 @@ function TemplatePreview({ template }: { template: WorkflowTemplate }) {
           Runs your own agent on the plan you already pay for
         </span>
         <span className="workflow-template-fact">
-          <ZapIcon size={12} />
+          <ActivityIcon size={12} />
           {describeTriggerReality(template.trigger)}
         </span>
       </div>

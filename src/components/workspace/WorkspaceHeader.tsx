@@ -38,7 +38,7 @@ import {
   ImageIcon,
   PanelLeftIcon,
   VariablesIcon,
-  ZapIcon,
+  ActivityIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -207,7 +207,7 @@ export function WorkspaceNavigation({
         <IconButton
           variant="ghost"
           className="workspace-titlebar-home"
-          icon={<ZapIcon size={12} />}
+          icon={<ActivityIcon size={12} />}
           onClick={onGoWorkflows}
           title="Workflows"
           aria-label="Workflows"

@@ -28,7 +28,6 @@ import {
   SlackIcon,
   NewWorkspaceIcon,
   SwitchWorkspaceIcon,
-  ZapIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -866,7 +865,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               <IconButton
                 variant="ghost"
                 className={`workspace-sidebar-home ${activeNav === 'workflows' ? 'is-active' : ''}`}
-                icon={<ZapIcon size={12} />}
+                icon={<ActivityIcon size={12} />}
                 onClick={onGoWorkflows}
                 disabled={activeNav === 'workflows'}
                 aria-current={activeNav === 'workflows' ? 'page' : undefined}

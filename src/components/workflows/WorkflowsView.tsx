@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { usePolling } from '../../hooks/usePolling';
-import { PlusIcon, ZapIcon } from '@/components/icons';
+import { PlusIcon, ActivityIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { EmptyState } from '../primitives/EmptyState';
 import { Spinner } from '../primitives/Spinner';
@@ -228,13 +228,13 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
               </div>
             ) : error ? (
               <EmptyState
-                icon={<ZapIcon size={28} />}
+                icon={<ActivityIcon size={28} />}
                 title="Could not read your workflows"
                 description={error}
               />
             ) : workflows.length === 0 ? (
               <EmptyState
-                icon={<ZapIcon size={28} />}
+                icon={<ActivityIcon size={28} />}
                 title="No workflows yet"
                 description="A workflow is an instruction and a project. Press Run whenever you want it, or put it on a schedule that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox. You can also just ask your agent to make you one."
                 action={
