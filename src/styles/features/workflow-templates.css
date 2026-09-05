@@ -77,12 +77,17 @@
 .workflow-template-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  /* Between groups. The gap does the separating, so a hidden label costs
+     nothing. */
+  gap: var(--spacing-md);
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  /* The first group's label carries the top space, so the list starts flush. */
-  padding: 0 var(--spacing-sm) var(--spacing-md);
+  /* The list owns its own inset. It briefly did not — the first group's label
+     carried the top space — and filtering to one category hides the labels, so
+     the first row sat flush against the dialog's top border. Spacing must not
+     depend on an element that is sometimes not there. */
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-md);
   border-right: var(--border-width-default) solid var(--border-subtle);
   /* Same treatment as the Inbox list: WKWebView otherwise paints a permanent
      light track that doubles up with the pane divider. */
@@ -107,7 +112,7 @@
    on their own. */
 .workflow-template-group-label {
   display: block;
-  padding: var(--spacing-md) var(--spacing-sm) var(--spacing-2xs);
+  padding: 0 var(--spacing-sm) var(--spacing-2xs);
   color: var(--text-muted);
 }
 
@@ -169,19 +174,32 @@
 
 /* ---- the preview ---- */
 
+/* Two parts: a scrolling report, and a footer of guarantees that cannot be
+   scrolled away. The facts were previously inside the scroller, pinned with
+   `margin-top: auto` — which pins only while there is spare room. On a laptop
+   window the prompt filled the pane and the honest line about what a schedule
+   promises was clipped by the pane's own edge. */
 .workflow-template-preview {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
   min-width: 0;
+  min-height: 0;
+}
+
+.workflow-template-preview-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  min-height: 0;
+  flex: 1 1 0;
   overflow-y: auto;
-  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-lg);
   /* Same as .inbox-detail-scroll: WKWebView paints a permanent light track
      otherwise, which sits right on the dialog's own edge. */
   scrollbar-width: none;
 }
 
-.workflow-template-preview::-webkit-scrollbar {
+.workflow-template-preview-scroll::-webkit-scrollbar {
   display: none;
 }
 
@@ -346,15 +364,15 @@
 
 /* ---- the three standing facts ---- */
 
-/* Pinned to the foot of the pane. These three sentences are true of every
-   template, so they belong in one fixed place rather than floating wherever
-   the prompt above them happens to end. */
+/* The foot of the pane, outside the scroller. These three sentences are true
+   of every template, and one of them is the honest limit of what a schedule
+   promises — a guarantee you have to scroll to find is not one. */
 .workflow-template-facts {
   display: flex;
   flex-direction: column;
+  flex: none;
   gap: var(--spacing-xs);
-  margin-top: auto;
-  padding-top: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
   border-top: var(--border-width-default) solid var(--border-subtle);
 }
 

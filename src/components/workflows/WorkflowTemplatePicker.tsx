@@ -182,73 +182,82 @@ export function WorkflowTemplatePicker({ selectedId, onSelect }: WorkflowTemplat
 function TemplatePreview({ template }: { template: WorkflowTemplate }) {
   return (
     <div className="workflow-template-preview">
-      <div className="workflow-template-preview-head">
-        <span className="workflow-template-preview-icon" aria-hidden>
-          {template.icon}
-        </span>
-        <div className="workflow-template-preview-title">
-          <h4 className="workflow-template-preview-name">{template.name}</h4>
-          <span className="workflow-template-preview-meta">
-            <span>{template.category}</span>
-            <span aria-hidden>·</span>
-            <span>{formatTrigger(template.trigger)}</span>
+      {/* The scrolling half. Everything that varies in length lives here so
+          the guarantees below it cannot be pushed off the bottom. */}
+      <div className="workflow-template-preview-scroll">
+        <div className="workflow-template-preview-head">
+          <span className="workflow-template-preview-icon" aria-hidden>
+            {template.icon}
           </span>
+          <div className="workflow-template-preview-title">
+            <h4 className="workflow-template-preview-name">{template.name}</h4>
+            <span className="workflow-template-preview-meta">
+              <span>{template.category}</span>
+              <span aria-hidden>·</span>
+              <span>{formatTrigger(template.trigger)}</span>
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* The row beside this already says what the workflow is for; repeating
-          that in bigger type teaches nothing. This says how it decides what is
-          worth telling you. */}
-      <p className="workflow-template-preview-description">
-        {template.detail ?? template.description}
-      </p>
-
-      {template.requires && (
-        <p className="workflow-template-requires">
-          <InfoIcon size={12} />
-          <span>Needs {template.requires}.</span>
+        {/* The row beside this already says what the workflow is for; repeating
+            that in bigger type teaches nothing. This says how it decides what is
+            worth telling you. */}
+        <p className="workflow-template-preview-description">
+          {template.detail ?? template.description}
         </p>
-      )}
 
-      {template.example && (
+        {template.requires && (
+          <p className="workflow-template-requires">
+            <InfoIcon size={12} />
+            <span>Needs {template.requires}.</span>
+          </p>
+        )}
+
+        {template.example && (
+          <section className="workflow-template-section">
+            <span className="workflow-template-section-label text-style-label">
+              What lands in your Inbox
+            </span>
+            {/* Built to look like the real thing, because it is the real thing's
+                shape — severity, one-line summary, the file it points at. */}
+            <div className="workflow-template-example">
+              <span
+                className="workflow-template-example-severity"
+                data-severity={template.example.severity}
+                aria-hidden
+              />
+              <div className="workflow-template-example-body">
+                <span className="workflow-template-example-title">{template.example.title}</span>
+                <span className="workflow-template-example-summary">
+                  {template.example.summary}
+                </span>
+                {template.example.location && (
+                  <code className="workflow-template-example-location">
+                    {template.example.location}
+                  </code>
+                )}
+              </div>
+            </div>
+            <span className="workflow-template-example-note text-style-hint">
+              An example, not a real finding — yours will come from your own code.
+            </span>
+          </section>
+        )}
+
         <section className="workflow-template-section">
           <span className="workflow-template-section-label text-style-label">
-            What lands in your Inbox
+            What it tells the agent
           </span>
-          {/* Built to look like the real thing, because it is the real thing's
-              shape — severity, one-line summary, the file it points at. */}
-          <div className="workflow-template-example">
-            <span
-              className="workflow-template-example-severity"
-              data-severity={template.example.severity}
-              aria-hidden
-            />
-            <div className="workflow-template-example-body">
-              <span className="workflow-template-example-title">{template.example.title}</span>
-              <span className="workflow-template-example-summary">{template.example.summary}</span>
-              {template.example.location && (
-                <code className="workflow-template-example-location">
-                  {template.example.location}
-                </code>
-              )}
-            </div>
-          </div>
-          <span className="workflow-template-example-note text-style-hint">
-            An example, not a real finding — yours will come from your own code.
+          <pre className="workflow-template-prompt">{template.prompt}</pre>
+          <span className="workflow-template-prompt-note text-style-hint">
+            Yours to edit on the next step, and any time after.
           </span>
         </section>
-      )}
+      </div>
 
-      <section className="workflow-template-section">
-        <span className="workflow-template-section-label text-style-label">
-          What it tells the agent
-        </span>
-        <pre className="workflow-template-prompt">{template.prompt}</pre>
-        <span className="workflow-template-prompt-note text-style-hint">
-          Yours to edit on the next step, and any time after.
-        </span>
-      </section>
-
+      {/* Outside the scroller on purpose: these three are true of every
+          template and one of them is the honest limit of what a schedule
+          promises. A guarantee you have to scroll to find is not one. */}
       <div className="workflow-template-facts">
         <span className="workflow-template-fact">
           <ShieldCheckIcon size={12} />
