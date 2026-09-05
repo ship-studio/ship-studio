@@ -129,11 +129,52 @@ fn write_identity(identity: &BridgeIdentity) {
     }
     match serde_json::to_string_pretty(identity) {
         Ok(json) => {
-            if let Err(e) = std::fs::write(&path, json) {
+            // The file holds the bridge's bearer token — the only thing standing
+            // between a local process and the preview tools. Create it owner-only
+            // rather than writing first and chmod-ing after: the default umask
+            // would otherwise leave the token world-readable for the window
+            // between the write and the fix-up.
+            let write_result = {
+                #[cfg(unix)]
+                {
+                    use std::io::Write;
+                    use std::os::unix::fs::OpenOptionsExt;
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .mode(0o600)
+                        .open(&path)
+                        .and_then(|mut f| f.write_all(json.as_bytes()))
+                }
+                #[cfg(not(unix))]
+                {
+                    std::fs::write(&path, json)
+                }
+            };
+
+            if let Err(e) = write_result {
                 tracing::warn!(
                     "[AgentBridge] Could not persist bridge identity (registrations will rotate next run): {}",
                     e
                 );
+                return;
+            }
+
+            // `mode` above only applies when the file is *created*, so anyone
+            // upgrading from a build that wrote this at umask still has a
+            // world-readable token sitting on disk. Normalize every time.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Err(e) =
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                {
+                    tracing::warn!(
+                        "[AgentBridge] Could not restrict bridge identity permissions — the token may be readable by other local users: {}",
+                        e
+                    );
+                }
             }
         }
         Err(e) => tracing::warn!("[AgentBridge] Could not serialize bridge identity: {}", e),

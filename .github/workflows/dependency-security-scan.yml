@@ -1,0 +1,392 @@
+name: Dependency Security Scan
+
+# ============================================================================
+# Dependency Security Scan
+# ----------------------------------------------------------------------------
+# Builds a Software Bill of Materials with Syft, scans it with Grype, and
+# reports every known vulnerability in the dependency tree — npm (pnpm-lock),
+# Rust (Cargo.lock), and the GitHub Actions pinned in this very directory.
+#
+# WHAT BLOCKS A MERGE
+#   Critical only, to start. See "Why High doesn't block yet" below — this is a
+#   deliberate calibration choice, not an oversight. Flip FAIL_ON_HIGH to
+#   'true' once the build-tooling backlog is cleared.
+#
+# There is no in-repo exceptions mechanism. A failed check is meant to be
+# overridden only through GitHub's branch protection bypass, by someone with
+# that permission, with the reason recorded in the PR.
+#
+# NO INSTALL STEP — THIS IS DELIBERATE
+#   Syft catalogs pnpm-lock.yaml and Cargo.lock directly. Measured on this repo
+#   with node_modules deleted: 1,325 components (615 npm + 682 cargo + 23
+#   actions). Installing first would add minutes and change nothing, and the
+#   lockfile is the more honest input for a dependency gate anyway — it's the
+#   tree you declared, not whatever the resolver happened to produce today.
+#
+# Adapted from a workflow shared by Pat Ramsey. Changes from his original:
+# dropped the Node/PHP/Composer install half (see above; this repo has no
+# composer.json and uses pnpm, which his package-manager detection didn't
+# cover), dropped an unused `yq` step that sudo-wgot a binary into
+# /usr/local/bin with no checksum, replaced the third-party sticky-comment
+# action with the preinstalled gh CLI, and pinned every action to a SHA.
+# ============================================================================
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 7 * * *' # 07:00 UTC daily
+  workflow_dispatch:
+
+# --------------------------------------------------------------------------
+# Which severities block the job.
+#
+# Why High doesn't block yet: Grype scans the whole lockfile and can't tell a
+# dependency that ships inside the Tauri binary from one that only ever runs on
+# a build machine. This repo started at 1 Critical + 34 High, essentially all of
+# it build tooling — `pnpm audit --prod` reported zero at the same moment.
+# Bumping what semver allowed cleared the Critical and took High to 22, so the
+# gate is green today on Critical alone.
+#
+# The 22 that remain are transitive dev-tooling deps (brace-expansion,
+# minimatch, picomatch, browserslist, js-yaml, flatted, ws…) held back by their
+# parents' version ranges. Clearing them needs `pnpm.overrides` entries, which
+# force a version and can break the parent — worth doing deliberately, not as a
+# drive-by. The one exception that genuinely ships is rustls-webpki 0.102.8
+# (rustls 0.22 <- sentry 0.34), which has no in-semver fix; it needs a sentry
+# 0.34 -> 0.49 upgrade, a real piece of work on the crash-reporting path.
+#
+# So: block on Critical, report High loudly, and flip FAIL_ON_HIGH to 'true'
+# once that backlog is cleared. That's the goal, not a maybe.
+# --------------------------------------------------------------------------
+env:
+  FAIL_ON_CRITICAL: 'true'
+  FAIL_ON_HIGH: 'false'
+  SYFT_VERSION: v1.45.1 # pinned: older versions mis-parse some lockfile formats
+  GRYPE_VERSION: v0.114.0 # pinned: keeps the DB schema/endpoint predictable
+
+permissions:
+  contents: read
+  pull-requests: write # the sticky PR comment; nothing else needs write
+
+# Cancels an in-progress run when a new commit lands on the same PR. Scheduled
+# runs are excluded so a nightly scan is never cancelled mid-run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+jobs:
+  security-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15 # caps a hung step (most likely the vuln DB download)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false # nothing here talks to git; don't leave the token in .git/config
+
+      # ------------------------------------------------------------------
+      # SBOM generation (Syft)
+      # ------------------------------------------------------------------
+      # This SBOM exists only to feed the Grype scan below. It is not
+      # retained as an artifact and is unrelated to any release SBOM process.
+      # ------------------------------------------------------------------
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          syft-version: ${{ env.SYFT_VERSION }}
+
+      - name: Generate SBOM
+        run: |
+          set -euo pipefail
+          echo "Generating Software Bill of Materials..."
+          syft . -o cyclonedx-json=sbom.cdx.json -o table=sbom-table.txt
+
+          count_ecosystem() {
+            jq --arg p "pkg:$1/" '[.components[] | select((.purl // "") | startswith($p))] | length' sbom.cdx.json
+          }
+
+          TOTAL=$(jq '.components | length' sbom.cdx.json)
+          NPM=$(count_ecosystem npm)
+          CARGO=$(count_ecosystem cargo)
+          echo "Components — total: $TOTAL, npm: $NPM, cargo: $CARGO"
+
+          # If cataloguing silently fails — a lockfile Syft stopped
+          # understanding, a rename, a checkout that didn't fetch everything —
+          # the scan below reports a reassuring zero vulnerabilities, which is
+          # the worst outcome a security gate can produce. Fail loudly instead.
+          #
+          # Checked per ecosystem, not just in total: this repo has ~680 Rust
+          # crates, so a single total-count floor would still be cleared with
+          # the entire npm tree missing. Floors are deliberately far below the
+          # real counts (~615 npm / ~682 cargo) so ordinary churn never trips
+          # them — they catch "gone", not "smaller".
+          FAILED=0
+          if [ "$NPM" -lt 200 ]; then
+            echo "::error::Only $NPM npm components catalogued — expected ~600. Syft is not seeing pnpm-lock.yaml; treat this as a scan failure, not a clean result."
+            FAILED=1
+          fi
+          if [ "$CARGO" -lt 200 ]; then
+            echo "::error::Only $CARGO cargo components catalogued — expected ~680. Syft is not seeing src-tauri/Cargo.lock; treat this as a scan failure, not a clean result."
+            FAILED=1
+          fi
+          [ "$FAILED" -eq 0 ] || exit 1
+
+      # ------------------------------------------------------------------
+      # Vulnerability scan (Grype)
+      # ------------------------------------------------------------------
+
+      - name: Install Grype
+        uses: anchore/scan-action/download-grype@64a33b277ea7a1215a3c142735a1091341939ff5 # v4
+        with:
+          grype-version: ${{ env.GRYPE_VERSION }}
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +%F)" >> "$GITHUB_OUTPUT"
+
+      # Keyed by date so the DB is downloaded once a day rather than every run.
+      # restore-keys lets a new day start from yesterday's copy and update the
+      # delta, instead of a cold ~200MB download (the likeliest timeout cause).
+      - name: Cache Grype vulnerability database
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/grype/db
+          key: grype-db-${{ steps.date.outputs.date }}
+          restore-keys: |
+            grype-db-
+
+      - name: Update Grype vulnerability database
+        run: |
+          set -euo pipefail
+          # Grype rejects any database older than 5 days.
+          grype db update
+          grype db status
+
+      - name: Scan for vulnerabilities
+        id: grype_scan
+        run: |
+          set -euo pipefail
+          echo "Scanning SBOM for known vulnerabilities..."
+
+          # grype logs progress to stderr; keep that out of the JSON file.
+          set +e
+          grype sbom:sbom.cdx.json \
+            -o table=grype-results-table.txt \
+            -o json=grype-results.json \
+            2> grype-stderr.log
+          GRYPE_EXIT=$?
+          set -e
+
+          echo "----- grype stderr -----"
+          cat grype-stderr.log || true
+          echo "------------------------"
+
+          # Fail loudly rather than silently reporting zero vulnerabilities if
+          # the scan itself never ran.
+          if [ "$GRYPE_EXIT" -ne 0 ]; then
+            echo "::error::grype exited with code $GRYPE_EXIT — see stderr above"
+            exit 1
+          fi
+          if [ ! -s grype-results.json ] || ! jq -e '.matches' grype-results.json >/dev/null 2>&1; then
+            echo "::error::grype-results.json is empty or invalid — SBOM generation or scan failed"
+            exit 1
+          fi
+
+          count_sev() {
+            jq --arg s "$1" '[.matches[] | select(.vulnerability.severity == $s)] | length' grype-results.json
+          }
+
+          {
+            echo "critical_count=$(count_sev Critical)"
+            echo "high_count=$(count_sev High)"
+            echo "medium_count=$(count_sev Medium)"
+            echo "low_count=$(count_sev Low)"
+            echo "total_count=$(jq '.matches | length' grype-results.json)"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "=== Vulnerability Summary ==="
+          echo "Critical: $(count_sev Critical)"
+          echo "High:     $(count_sev High)"
+          echo "Medium:   $(count_sev Medium)"
+          echo "Low:      $(count_sev Low)"
+          echo "Total:    $(jq '.matches | length' grype-results.json)"
+
+      # ------------------------------------------------------------------
+      # Report
+      # ------------------------------------------------------------------
+      # Built once and used twice: posted as a sticky PR comment, and written
+      # to the run summary so scheduled runs (which have no PR to comment on)
+      # are still readable without digging through step logs.
+      # ------------------------------------------------------------------
+
+      - name: Build report
+        id: report
+        env:
+          # Passed through env rather than interpolated straight into the
+          # script. These particular values are jq-produced integers, but
+          # "step outputs go in env:" is the habit that stops the day one of
+          # them isn't.
+          CRITICAL: ${{ steps.grype_scan.outputs.critical_count }}
+          HIGH: ${{ steps.grype_scan.outputs.high_count }}
+          MEDIUM: ${{ steps.grype_scan.outputs.medium_count }}
+          LOW: ${{ steps.grype_scan.outputs.low_count }}
+          TOTAL: ${{ steps.grype_scan.outputs.total_count }}
+        run: |
+          set -euo pipefail
+
+          BLOCKING=0
+          [ "$FAIL_ON_CRITICAL" = "true" ] && BLOCKING=$((BLOCKING + CRITICAL))
+          [ "$FAIL_ON_HIGH" = "true" ] && BLOCKING=$((BLOCKING + HIGH))
+
+          if [ "$TOTAL" -eq 0 ]; then
+            STATUS=":white_check_mark: **No known vulnerabilities**"
+          elif [ "$BLOCKING" -eq 0 ]; then
+            STATUS=":warning: **Vulnerabilities found (none blocking)**"
+          else
+            STATUS=":x: **Blocking vulnerabilities found**"
+          fi
+
+          # Leading marker identifies the comment to update on re-runs.
+          {
+            echo "<!-- dependency-security-scan -->"
+            echo "## :shield: Dependency Security Scan"
+            echo ""
+            echo "$STATUS"
+            echo ""
+            echo "| Severity | Count | Blocks merge |"
+            echo "|----------|-------|--------------|"
+            echo "| :red_circle: Critical | ${CRITICAL} | $([ "$FAIL_ON_CRITICAL" = "true" ] && echo yes || echo no) |"
+            echo "| :orange_circle: High | ${HIGH} | $([ "$FAIL_ON_HIGH" = "true" ] && echo yes || echo no) |"
+            echo "| :yellow_circle: Medium | ${MEDIUM} | no |"
+            echo "| :white_circle: Low | ${LOW} | no |"
+            echo "| **Total** | **${TOTAL}** | |"
+          } > report.md
+
+          # The actionable part: Critical/High that actually have a fix
+          # published. A wall of 66 advisory rows gets ignored; a short list of
+          # "bump this to that" gets acted on.
+          #
+          # Grouped one row per package@version, because a single package
+          # routinely carries several advisories with different fix versions
+          # (brace-expansion 1.1.12 had three: 1.1.16, 1.1.17, 1.1.18). Listing
+          # all three invites bumping to the lowest and still being vulnerable,
+          # so take the highest — compared componentwise as numbers, since a
+          # string sort puts 1.1.9 above 1.1.18.
+          FIXABLE=$(jq -r '
+            [ .matches[]
+              | select(.vulnerability.severity == "Critical" or .vulnerability.severity == "High")
+              | select((.vulnerability.fix.versions // []) | length > 0)
+              | { name: .artifact.name, version: .artifact.version, type: .artifact.type,
+                  sev: .vulnerability.severity, fixes: .vulnerability.fix.versions } ]
+            | group_by(.name + "@" + .version)
+            | map({
+                name: .[0].name, version: .[0].version, type: .[0].type,
+                sev: (if any(.[]; .sev == "Critical") then "Critical" else "High" end),
+                n: length,
+                fix: ( [ .[].fixes[] ] | unique
+                       | sort_by(split(".") | map(tonumber? // 0)) | last )
+              })
+            | sort_by(if .sev == "Critical" then 0 else 1 end, .type, .name)
+            | .[] | "| \(.sev) | `\(.name)` \(.version) | \(.type) | **\(.fix)** | \(.n) |"
+          ' grype-results.json)
+
+          if [ -n "$FIXABLE" ]; then
+            {
+              echo ""
+              echo "### Fixes available"
+              echo ""
+              echo "| Severity | Package | Ecosystem | Upgrade to | Advisories |"
+              echo "|----------|---------|-----------|------------|------------|"
+              echo "$FIXABLE"
+            } >> report.md
+          fi
+
+          if [ "$TOTAL" -gt 0 ]; then
+            {
+              echo ""
+              echo "<details><summary>Full Grype output</summary>"
+              echo ""
+              echo '```'
+              cat grype-results-table.txt
+              echo '```'
+              echo ""
+              echo "</details>"
+            } >> report.md
+          fi
+
+          {
+            echo ""
+            echo "> Scans the full lockfile, so build-only tooling (vite, vitest, rollup…) is"
+            echo "> reported alongside dependencies that ship inside the app. Rust crates and"
+            echo "> runtime npm packages are the ones that reach users."
+            echo ""
+            echo "---"
+            echo "<sub>Syft \`${SYFT_VERSION}\` + Grype \`${GRYPE_VERSION}\` · no exceptions file — override via branch protection bypass, with the reason in the PR.</sub>"
+          } >> report.md
+
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Sticky comment via the preinstalled gh CLI: find our marked comment and
+      # edit it, otherwise create one. Keeps a third-party action out of the
+      # workflow whose entire job is dependency trust.
+      #
+      # continue-on-error: a PR from a fork gets a read-only GITHUB_TOKEN, so
+      # commenting fails. That must not turn into a red security check — the
+      # gate itself is the "Evaluate" step below.
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq 'map(select(.body | startswith("<!-- dependency-security-scan -->"))) | .[0].id // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "Updating existing comment $EXISTING"
+            gh api -X PATCH "repos/$REPO/issues/comments/$EXISTING" -F body=@report.md >/dev/null
+          else
+            echo "Creating new comment"
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" -F body=@report.md >/dev/null
+          fi
+
+      # ------------------------------------------------------------------
+      # Pass/fail decision
+      # ------------------------------------------------------------------
+
+      - name: Evaluate scan results
+        env:
+          CRITICAL: ${{ steps.grype_scan.outputs.critical_count }}
+          HIGH: ${{ steps.grype_scan.outputs.high_count }}
+        run: |
+          set -euo pipefail
+          SHOULD_FAIL=false
+
+          if [ "$FAIL_ON_CRITICAL" = "true" ] && [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::$CRITICAL critical vulnerability(ies) found."
+            SHOULD_FAIL=true
+          fi
+
+          if [ "$FAIL_ON_HIGH" = "true" ] && [ "$HIGH" -gt 0 ]; then
+            echo "::error::$HIGH high vulnerability(ies) found."
+            SHOULD_FAIL=true
+          fi
+
+          if [ "$FAIL_ON_HIGH" != "true" ] && [ "$HIGH" -gt 0 ]; then
+            echo "::warning::$HIGH high-severity vulnerability(ies) found (not blocking — see FAIL_ON_HIGH in this workflow)."
+          fi
+
+          if [ "$SHOULD_FAIL" = "true" ]; then
+            echo "Scan failed. Update the affected packages, or have someone with"
+            echo "branch protection bypass permission merge with a documented reason."
+            exit 1
+          fi
+
+          echo "Security scan passed."
