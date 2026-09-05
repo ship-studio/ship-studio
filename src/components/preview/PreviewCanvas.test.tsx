@@ -11,6 +11,22 @@ const FRAMES: CanvasFrame[] = [
   { id: 'mobile', label: 'Mobile', width: 375 },
 ];
 
+/** ResizeObserver callbacks registered by the component, so a test can play a
+ *  pane resize. */
+const resizeObserverCallbacks: (() => void)[] = [];
+
+class TestResizeObserver {
+  constructor(private readonly callback: () => void) {
+    resizeObserverCallbacks.push(callback);
+  }
+  observe() {}
+  disconnect() {
+    const index = resizeObserverCallbacks.indexOf(this.callback);
+    if (index >= 0) resizeObserverCallbacks.splice(index, 1);
+  }
+  unobserve() {}
+}
+
 /** jsdom reports 0 for every layout box; give the scroll container a size so the
  *  canvas computes a real fit scale instead of the unmeasured fallback. */
 function stubCanvasSize(width: number, height: number) {
@@ -54,11 +70,14 @@ let restoreSize: (() => void) | null = null;
 
 beforeEach(() => {
   restoreSize = stubCanvasSize(1200, 800);
+  vi.stubGlobal('ResizeObserver', TestResizeObserver);
 });
 
 afterEach(() => {
   restoreSize?.();
   restoreSize = null;
+  resizeObserverCallbacks.length = 0;
+  vi.unstubAllGlobals();
 });
 
 describe('PreviewCanvas', () => {
@@ -93,14 +112,30 @@ describe('PreviewCanvas', () => {
     expect(scaled?.style.transform).toBe(`scale(${expected})`);
   });
 
-  it('opens with room to pan on every side, and rests on the frames', () => {
+  it('opens with room to pan on every side, and lands on the frames', () => {
     const { container } = renderCanvas();
     const scaled = container.querySelector<HTMLElement>('.preview-canvas-scaled')!;
     const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
     // Half a screen of slack either side (PAN_SLACK_RATIO), and the canvas
-    // scrolled onto the content rather than sitting in the empty margin.
+    // scrolled by exactly that, so it opens on the content rather than in the
+    // empty margin beside it.
     expect(scaled.style.left).toBe('600px');
-    expect(scroller.scrollLeft).toBe(600 - CANVAS_PADDING_PX);
+    expect(scroller.scrollLeft).toBe(600);
+  });
+
+  it('keeps the view put when the pane resizes under it', () => {
+    const { container } = renderCanvas();
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    scroller.scrollLeft = 900;
+
+    // The pane narrows: the slack shrinks with it, moving the frames within the
+    // surface. The scroll position has to follow, or the canvas drifts.
+    act(() => {
+      restoreSize?.();
+      restoreSize = stubCanvasSize(800, 800);
+      resizeObserverCallbacks.forEach((run) => run());
+    });
+    expect(scroller.scrollLeft).toBe(900 + (400 - 600));
   });
 
   it('labels every frame with its device name and width', () => {

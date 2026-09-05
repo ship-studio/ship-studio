@@ -419,19 +419,24 @@ export function PreviewCanvas({
     );
   }, [zoom, layout, activeFrameId, slackX]);
 
-  // The surface opens with half a screen of slack on every side, so the frames
-  // would start off screen; put the canvas on them. Runs once the pane has been
-  // measured, and again whenever the slack changes size under it (a resize).
-  const restedRef = useRef(false);
+  // The frames sit `slack` into the surface, so any change in the slack moves
+  // them under the viewport: on the first measurement (slack 0 → half a pane,
+  // which is what lands the canvas on the frames instead of in the empty margin
+  // beside them) and on every window resize after that. Compensating by the
+  // delta keeps whatever the user was looking at where it was — and, unlike a
+  // one-shot "scroll onto the content", it cannot miss its moment and leave the
+  // canvas stranded in the void.
+  const appliedSlackRef = useRef({ x: 0, y: 0 });
   useLayoutEffect(() => {
     const node = scrollRef.current;
-    if (!node || viewport.width <= 0) return;
-    if (restedRef.current) return;
-    restedRef.current = true;
-    node.scrollLeft = Math.max(0, slackX - CANVAS_PADDING_PX);
-    node.scrollTop = Math.max(0, slackY - CANVAS_PADDING_PX);
+    if (!node) return;
+    const applied = appliedSlackRef.current;
+    if (applied.x === slackX && applied.y === slackY) return;
+    appliedSlackRef.current = { x: slackX, y: slackY };
+    node.scrollLeft += slackX - applied.x;
+    node.scrollTop += slackY - applied.y;
     setScrollLeft(node.scrollLeft);
-  }, [viewport.width, slackX, slackY]);
+  }, [slackX, slackY]);
 
   return (
     <div
