@@ -134,8 +134,10 @@
    above). Each tier drops the lowest-priority control that still has another
    way in, so the row degrades in a defined order instead of overlapping.
    Order of sacrifice: breakpoint icon strip → undo/redo → open-in-browser and
-   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen
-   and the dimensions readout survive at every width. */
+   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen,
+   the dimensions readout and the breakpoint-canvas toggle survive at every
+   width — the canvas is how you reach the breakpoints once the icon strip is
+   gone. */
 @container preview-toolbar (max-width: 820px) {
   /* The dimensions readout beside it opens the same viewport controls
      (presets + exact size), and ⌘K's "Set exact preview size…" reaches the

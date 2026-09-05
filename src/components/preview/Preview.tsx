@@ -1647,6 +1647,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <ToggleButton
             type="button"
             className="preview-canvas-control"
+            data-education-id="breakpoint-canvas"
             variant={canvasMode ? 'secondary' : 'default'}
             pressed={canvasMode}
             onClick={toggleCanvasMode}
