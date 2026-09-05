@@ -89,9 +89,12 @@ const COARSE_WHEEL_DELTA = 50;
 const PINCH_RESPONSE = 0.006;
 
 /** How far a frame can sit outside the visible canvas and still stay mounted,
- *  as a multiple of the visible width. One screen of slack on each side keeps
- *  a slow scroll from tearing frames down and reloading them immediately. */
-const MOUNT_MARGIN_SCREENS = 1;
+ *  as a multiple of the visible width. Enough that a nudge of a scroll cannot
+ *  tear a frame down and reload it, and no more: every mounted frame is a whole
+ *  live page — its own dev-server client, its own animations — and at a working
+ *  zoom the three frames you are not in are the difference between a canvas
+ *  that keeps up and one that does not. */
+const MOUNT_MARGIN_SCREENS = 0.35;
 
 /**
  * Place frames left to right in the order given, separated by `gap`, with

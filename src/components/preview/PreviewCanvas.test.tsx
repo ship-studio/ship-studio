@@ -363,6 +363,25 @@ describe('PreviewCanvas', () => {
     }
   });
 
+  it('tells the frames nobody is working in to hold still', () => {
+    const { container, rerender, props } = renderCanvas({ activeFrameId: 'desktop' });
+    const posts = new Map<string, ReturnType<typeof vi.fn>>();
+    for (const frame of container.querySelectorAll<HTMLIFrameElement>('iframe')) {
+      const post = vi.fn();
+      Object.defineProperty(frame, 'contentWindow', {
+        configurable: true,
+        value: { postMessage: post },
+      });
+      posts.set(frame.dataset.frameId!, post);
+    }
+
+    // Four whole pages animating at once is most of what a canvas costs; only
+    // the frame being worked in stays live.
+    rerender(<PreviewCanvas {...props} activeFrameId="mobile" />);
+    expect(posts.get('mobile')).toHaveBeenCalledWith({ type: 'ss:passive', on: false }, '*');
+    expect(posts.get('desktop')).toHaveBeenCalledWith({ type: 'ss:passive', on: true }, '*');
+  });
+
   it('grows a frame to the whole page inside it', () => {
     const { container } = renderCanvas();
     const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;

@@ -63,6 +63,19 @@ const announceCanvas = (frame: HTMLIFrameElement, on = true): void => {
   }
 };
 
+/**
+ * Tell a frame whether it is one nobody is working in. A passive frame is a
+ * review surface: it holds still, so four live pages don't spend the machine's
+ * whole budget animating at once.
+ */
+const announcePassive = (frame: HTMLIFrameElement, passive: boolean): void => {
+  try {
+    frame.contentWindow?.postMessage({ type: 'ss:passive', on: passive }, '*');
+  } catch {
+    // Mid-navigation; the next announcement covers it.
+  }
+};
+
 /** A page longer than this is a runaway (an infinite scroller, a feedback loop
  *  between the frame's height and the page's own layout), not a page. */
 const MAX_PAGE_HEIGHT_PX = 24000;
@@ -396,6 +409,15 @@ export function PreviewCanvas({
     };
   }, []);
 
+  // Which frame is live and which are holding still. Re-announced whenever the
+  // active frame changes or a frame (re)mounts, because a reloaded document
+  // starts out live again.
+  useEffect(() => {
+    for (const [frameId, element] of frameElsRef.current.entries()) {
+      if (element) announcePassive(element, frameId !== activeFrameId);
+    }
+  }, [activeFrameId, frameEpoch]);
+
   // Report the active frame's element upward whenever the binding could have
   // changed — a different frame, a remount, or the canvas going away.
   useEffect(() => {
@@ -639,7 +661,10 @@ export function PreviewCanvas({
                     data-tooltip-disabled
                     data-frame-id={placement.id}
                     data-viewport-height={deviceHeights.get(placement.id) ?? placement.height}
-                    onLoad={(event) => announceCanvas(event.currentTarget)}
+                    onLoad={(event) => {
+                      announceCanvas(event.currentTarget);
+                      announcePassive(event.currentTarget, placement.id !== activeFrameId);
+                    }}
                   />
                 ) : (
                   <div className="preview-canvas-placeholder" aria-hidden />
@@ -698,7 +723,12 @@ export function PreviewCanvas({
                             : undefined;
                         onActivateFrame(placement.id, point);
                       }}
-                      title={`Work at ${placement.label} — ${placement.width} × ${placement.height}`}
+                      // No tooltip: this target is the whole frame, and a
+                      // frame is taller than the pane — the tooltip would be
+                      // placed against a box whose top edge is somewhere off
+                      // the canvas, and land on the toolbar. The label above
+                      // the frame already says what it is.
+                      data-tooltip-disabled
                       aria-label={`Work at ${placement.label}, ${placement.width} pixels`}
                     />
                   )}

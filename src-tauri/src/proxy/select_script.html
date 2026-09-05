@@ -881,13 +881,27 @@ function ssReportPage(){
 }
 function ssSyncPage(){
   if(ssVHTimer)clearTimeout(ssVHTimer);
-  ssVHTimer=setTimeout(function(){ssVHTimer=0;ssRewriteViewportUnits();ssReportPage();},60);
+  ssVHTimer=setTimeout(function(){ssVHTimer=0;ssRewriteViewportUnits();ssReportPage();},200);
 }
+/* Watch for STYLESHEETS arriving, not for the page living its life. A canvas
+   holds four of these pages at once; an observer over the whole document with
+   attributes on fires on every class toggle a scroll animation makes, in every
+   frame, and each firing schedules a walk of the CSSOM and a forced layout.
+   New styles land in <head> (a dev server's HMR included), which is all this
+   needs to see. */
 if(window.MutationObserver){
-  new MutationObserver(ssSyncPage).observe(document.documentElement,
-    {childList:true,subtree:true,attributes:true,attributeFilter:['style','class','href']});
+  new MutationObserver(ssSyncPage).observe(document.head||document.documentElement,
+    {childList:true,subtree:true});
 }
+/* Everything else that changes a page's length — fonts landing, images sizing,
+   content revealed on load — happens early and then stops. A few checks over
+   the first few seconds cover it without watching forever. */
 window.addEventListener('load',ssSyncPage);
+var ssSettleTicks=0;
+var ssSettle=setInterval(function(){
+  if(++ssSettleTicks>10||!ssCanvas&&ssSettleTicks>4){clearInterval(ssSettle);return;}
+  ssReportPage();
+},500);
 
 window.addEventListener('message',function(e){
 
@@ -900,6 +914,22 @@ var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
+/* A frame nobody is working in is a review surface, and a review surface does
+   not need to be animating. Four whole pages running their marketing animations
+   at once is most of what a breakpoint canvas costs; the frame the user IS in
+   stays live. Reversed the moment it becomes the active one. */
+else if(d.type==='ss:passive'){
+  var pv=document.getElementById('ss-passive-style');
+  if(d.on){
+    if(!pv){
+      pv=document.createElement('style');pv.id='ss-passive-style';
+      pv.textContent='*,*::before,*::after{animation-play-state:paused!important;transition:none!important}';
+      (document.head||document.documentElement).appendChild(pv);
+    }
+    var vids=document.querySelectorAll('video');
+    for(var vi=0;vi<vids.length;vi++){try{vids[vi].pause();}catch(err){}}
+  }else if(pv&&pv.parentNode){pv.parentNode.removeChild(pv);}
+}
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
