@@ -880,10 +880,23 @@ function ssLieAboutViewport(){
    never loads the rest of the page. Nothing below the fold would ever appear —
    so the lazy ones are simply told to load. The whole page IS on screen here;
    that is the entire point of the frame being this tall. */
+/* Anything holding back until it is scrolled to. Run repeatedly while the page
+   settles, not once: a framework renders its images after this script has
+   already said hello, so a single pass at announce time sees none of them. */
 function ssLoadEverything(){
   if(!ssVH)return;
   var lazy=document.querySelectorAll('[loading="lazy"]');
   for(var i=0;i<lazy.length;i++){try{lazy[i].setAttribute('loading','eager');}catch(err){}}
+  /* The hand-rolled convention, which no amount of `loading` helps. */
+  var held=document.querySelectorAll('img[data-src],source[data-srcset],img[data-srcset]');
+  for(var j=0;j<held.length;j++){
+    var el=held[j];
+    try{
+      var src=el.getAttribute('data-src'),set=el.getAttribute('data-srcset');
+      if(set&&!el.getAttribute('srcset'))el.setAttribute('srcset',set);
+      if(src&&el.getAttribute('src')!==src)el.setAttribute('src',src);
+    }catch(err){}
+  }
 }
 
 /* Known limit, stated rather than papered over: a page that rolls its own lazy
@@ -995,6 +1008,7 @@ function ssWatchPage(){
   var ticks=0;
   var settle=setInterval(function(){
     if(++ticks>24){clearInterval(settle);return;}
+    ssLoadEverything();
     ssReportPage();
   },400);
 }

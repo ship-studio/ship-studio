@@ -74,8 +74,12 @@
   order: 10;
 }
 
-.preview-toolbar > .preview-viewport-overflow {
+/* The dropdown wraps its own trigger, so the toolbar orders the SLOT around it
+   — ordering the button itself leaves the wrapper at order 0, which puts it
+   before the page switcher at the far left of the bar. */
+.preview-toolbar > .preview-viewport-slot {
   order: 11;
+  display: none;
 }
 
 .preview-toolbar > .preview-fullscreen-btn:not(.preview-history-btn) {
@@ -85,9 +89,6 @@
 /* The overflow button only exists for panes too narrow for the icon strip; at
    every other width the strip IS the control and a second one would be two
    ways to do the same thing sitting next to each other. */
-.preview-viewport-overflow {
-  display: none;
-}
 
 .preview-toolbar > .preview-tree-btn {
   order: 13;
@@ -163,8 +164,8 @@
     display: none;
   }
 
-  .preview-viewport-overflow {
-    display: inline-flex;
+  .preview-toolbar > .preview-viewport-slot {
+    display: block;
   }
 }
 

@@ -1623,43 +1623,45 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         {/* The same viewport choices as the strip below, for when the pane is
             too narrow to show it. Only one of the two is ever visible — see
             the density tiers in preview-toolbar.css. */}
-        <Dropdown
-          menuClassName="preview-viewport-menu"
-          portal
-          align="right"
-          trigger={(props) => (
-            <button
-              {...props}
-              type="button"
-              className="preview-viewport-overflow"
-              title="Viewport"
-              aria-label="Viewport"
-            >
-              <MoreHorizontalIcon size={14} />
-            </button>
-          )}
-        >
-          {PREVIEW_BREAKPOINTS.map((bp) => (
-            <DropdownItem
-              key={bp}
-              icon={<BreakpointIcon type={bp} />}
-              active={!canvasMode && resize.getActiveBreakpoint() === bp}
-              onSelect={() => {
-                setCanvasEnabled(false);
-                resize.handleBreakpointClick(bp);
-              }}
-            >
-              {BREAKPOINTS[bp].label}
-            </DropdownItem>
-          ))}
-          <DropdownItem
-            icon={<GridIcon size={14} />}
-            active={canvasMode}
-            onSelect={() => setCanvasEnabled(true)}
+        <div className="preview-viewport-slot">
+          <Dropdown
+            menuClassName="preview-viewport-menu"
+            portal
+            align="right"
+            trigger={(props) => (
+              <button
+                {...props}
+                type="button"
+                className="preview-viewport-overflow"
+                title="Viewport"
+                aria-label="Viewport"
+              >
+                <MoreHorizontalIcon size={14} />
+              </button>
+            )}
           >
-            Every breakpoint
-          </DropdownItem>
-        </Dropdown>
+            {PREVIEW_BREAKPOINTS.map((bp) => (
+              <DropdownItem
+                key={bp}
+                icon={<BreakpointIcon type={bp} />}
+                active={!canvasMode && resize.getActiveBreakpoint() === bp}
+                onSelect={() => {
+                  setCanvasEnabled(false);
+                  resize.handleBreakpointClick(bp);
+                }}
+              >
+                {BREAKPOINTS[bp].label}
+              </DropdownItem>
+            ))}
+            <DropdownItem
+              icon={<GridIcon size={14} />}
+              active={canvasMode}
+              onSelect={() => setCanvasEnabled(true)}
+            >
+              Every breakpoint
+            </DropdownItem>
+          </Dropdown>
+        </div>
 
         <button
           type="button"

@@ -211,10 +211,11 @@
   color: var(--text-muted);
 }
 
-/* Refresh + fullscreen + tree toggle — matched icon buttons */
+/* Refresh + fullscreen + tree toggle + viewport overflow — matched icon buttons */
 .preview-refresh,
 .preview-fullscreen-btn,
-.preview-tree-btn {
+.preview-tree-btn,
+.preview-viewport-overflow {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -232,7 +233,8 @@
 
 .preview-refresh:hover:not(:disabled),
 .preview-fullscreen-btn:hover:not(:disabled),
-.preview-tree-btn:hover:not(:disabled) {
+.preview-tree-btn:hover:not(:disabled),
+.preview-viewport-overflow:hover:not(:disabled) {
   background: var(--surface-control);
   color: var(--text-primary);
 }
