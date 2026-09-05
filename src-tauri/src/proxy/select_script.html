@@ -819,6 +819,10 @@ if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
 else if(d.type==='ss:canvas'){ssCanvas=!!d.on;}
+/* A wheel that landed on a frame the user isn't working in yet. Deliberately
+   does NOT hold off reporting: this scroll is the user's, and the canvas wants
+   to hear about it so the other frames follow. */
+else if(d.type==='ss:scrollBy'){window.scrollBy(0,d.dy||0);}
 else if(d.type==='ss:scrollTo'){
   ssScrollHold=Date.now()+150;
   var smax=ssScrollRange();

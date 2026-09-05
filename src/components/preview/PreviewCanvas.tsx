@@ -204,6 +204,40 @@ export function PreviewCanvas({
     []
   );
 
+  // A frame is a page, whether or not it is the one being worked in — so a
+  // vertical wheel over any of them scrolls the pages (the sync then moves the
+  // rest), rather than panning the canvas out from under the pointer. Sent to
+  // the ACTIVE frame because everything follows it anyway. Horizontal gestures
+  // are left to the canvas, which is what they mean here.
+  //
+  // Registered by hand: React's own wheel listener is passive, and this one has
+  // to preventDefault.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const activeFrameIdRef = useRef(activeFrameId);
+  useEffect(() => {
+    activeFrameIdRef.current = activeFrameId;
+  }, [activeFrameId]);
+  useEffect(() => {
+    const node = overlayRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return; // a zoom, handled elsewhere
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('.preview-canvas-activate')) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      const active = frameElsRef.current.get(activeFrameIdRef.current);
+      if (!active?.contentWindow) return;
+      event.preventDefault();
+      try {
+        active.contentWindow.postMessage({ type: 'ss:scrollBy', dy: event.deltaY }, '*');
+      } catch {
+        // A frame mid-navigation can refuse; the gesture is simply lost.
+      }
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, []);
+
   // ONE stable ref callback for every frame — a per-frame closure would be a
   // new function on each render, and React would detach and re-attach a live
   // iframe (unbinding and rebinding the editor) for no reason. The frame it
@@ -426,7 +460,7 @@ export function PreviewCanvas({
 
           {/* Unscaled layer: labels, frame outlines, and the activation targets.
               Kept out of the transform so they stay legible and crisp at any zoom. */}
-          <div className="preview-canvas-overlay">
+          <div className="preview-canvas-overlay" ref={overlayRef}>
             {layout.placements.map((placement) => {
               const isActive = placement.id === activeFrameId;
               return (

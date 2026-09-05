@@ -323,6 +323,51 @@ describe('PreviewCanvas', () => {
     }
   });
 
+  it('scrolls the pages when the wheel is over a frame, not the canvas', () => {
+    const { container } = renderCanvas({ activeFrameId: 'desktop' });
+    const active = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
+    const post = vi.fn();
+    Object.defineProperty(active, 'contentWindow', {
+      configurable: true,
+      value: { postMessage: post },
+    });
+    const target = screen.getByRole('button', { name: 'Work at Mobile, 375 pixels' });
+
+    const event = new WheelEvent('wheel', {
+      deltaY: 120,
+      deltaX: 0,
+      bubbles: true,
+      cancelable: true,
+    });
+    target.dispatchEvent(event);
+
+    // Sent to the ACTIVE frame; the sync then walks the others to match.
+    expect(post).toHaveBeenCalledWith({ type: 'ss:scrollBy', dy: 120 }, '*');
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('leaves a sideways gesture to the canvas', () => {
+    const { container } = renderCanvas({ activeFrameId: 'desktop' });
+    const active = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
+    const post = vi.fn();
+    Object.defineProperty(active, 'contentWindow', {
+      configurable: true,
+      value: { postMessage: post },
+    });
+    const target = screen.getByRole('button', { name: 'Work at Mobile, 375 pixels' });
+
+    const event = new WheelEvent('wheel', {
+      deltaY: 10,
+      deltaX: 120,
+      bubbles: true,
+      cancelable: true,
+    });
+    target.dispatchEvent(event);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('walks every other frame to the same point in the page', () => {
     const { container } = renderCanvas();
     const frames = [...container.querySelectorAll<HTMLIFrameElement>('iframe')];
