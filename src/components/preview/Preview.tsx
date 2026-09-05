@@ -406,15 +406,22 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   );
   const canvasFrameWidth =
     canvasFrames.find((frame) => frame.id === canvasFrameId)?.width ?? canvasFrames[0].width;
-  const toggleCanvasMode = useCallback(() => {
-    setCanvasMode((on) => {
-      void trackEvent('preview_canvas_toggled', {
-        enabled: !on,
-        $screen_name: 'Workspace',
-      });
-      return !on;
+  // One way in and out, so leaving the canvas by picking a breakpoint counts
+  // the same as leaving it by the toggle. Not inside a state updater: React is
+  // free to run one twice, and an analytics event is not something to send
+  // twice.
+  const setCanvasEnabled = useCallback((next: boolean) => {
+    setCanvasMode((current) => {
+      if (current !== next) {
+        void trackEvent('preview_canvas_toggled', { enabled: next, $screen_name: 'Workspace' });
+      }
+      return next;
     });
   }, []);
+  const toggleCanvasMode = useCallback(
+    () => setCanvasEnabled(!canvasMode),
+    [canvasMode, setCanvasEnabled]
+  );
   // Where the activating click landed inside the newly activated frame, held until the
   // editor has finished binding to it (below).
   const pendingCanvasSelectRef = useRef<{ x: number; y: number } | null>(null);
@@ -439,7 +446,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     setViewport: (value) => {
       // A viewport request means one width — leave the canvas so the change is
       // actually visible instead of silently doing nothing behind four frames.
-      setCanvasMode(false);
+      setCanvasEnabled(false);
       if (typeof value === 'number') resize.previewAtWidth(value);
       else resize.handleBreakpointClick(value);
     },
@@ -1591,7 +1598,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             value={canvasMode ? canvasFrameId : resize.getActiveBreakpoint()}
             mode="navigation"
             onValueChange={(value) => {
-              setCanvasMode(false);
+              setCanvasEnabled(false);
               resize.handleBreakpointClick(value as Breakpoint);
             }}
             className="preview-breakpoint-tabs"
