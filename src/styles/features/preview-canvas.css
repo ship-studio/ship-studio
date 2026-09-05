@@ -1,0 +1,143 @@
+/* Breakpoint canvas — every breakpoint rendered side by side on one scaled,
+   scrollable surface. See src/components/preview/PreviewCanvas.tsx.
+
+   Geometry (frame positions, widths, the scale transform) is computed in JS
+   from lib/previewCanvas.ts and applied inline; this file owns appearance
+   only. The two layers are deliberate: the scaled layer holds the real pages,
+   the overlay layer holds labels and outlines at screen scale so they stay
+   legible and crisp at 25% zoom. */
+
+.preview-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface-control);
+}
+
+.preview-canvas-surface {
+  position: relative;
+  /* JS sizes this to the scaled content, so the scroll container's own
+     scrollbars describe the real canvas extent. */
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.preview-canvas-scaled {
+  position: absolute;
+  left: 0;
+  transform-origin: top left;
+}
+
+.preview-canvas-stage {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  background: var(--surface-app);
+  border-radius: var(--radius-card);
+}
+
+.preview-canvas-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--surface-app);
+}
+
+/* A frame scrolled out of the mount window. Deliberately quiet — it is not a
+   loading state, it is a frame the canvas chose not to keep running. */
+.preview-canvas-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--surface-panel);
+}
+
+.preview-canvas-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.preview-canvas-chrome {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-canvas-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-2xs);
+  font-size: var(--font-size-micro);
+  letter-spacing: var(--tracking-micro);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.preview-canvas-chrome.is-active .preview-canvas-label-name {
+  color: var(--text-primary);
+}
+
+.preview-canvas-label-name {
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.preview-canvas-label-width {
+  color: var(--text-faint);
+}
+
+/* The active frame's border. Drawn in the overlay so it stays 1px at any zoom
+   instead of thinning out with the scale transform. */
+.preview-canvas-outline {
+  flex: 1;
+  border: 1px solid var(--accent-active);
+  border-radius: var(--radius-card);
+}
+
+/* Inactive frames sit behind a transparent target: one click makes the frame
+   active (and interactive) rather than reaching a link in a page the user is
+   only reviewing. */
+.preview-canvas-activate {
+  flex: 1;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: border-color var(--transition-interaction);
+}
+
+.preview-canvas-activate:hover {
+  border-color: var(--border-strong);
+  background: rgba(var(--accent-active-rgb), 0.06);
+}
+
+.preview-canvas-activate:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Floating zoom control, pinned to the canvas rather than the toolbar so it
+   sits next to the thing it scales. */
+.preview-canvas-zoom {
+  position: sticky;
+  bottom: var(--spacing-md);
+  left: 100%;
+  z-index: var(--z-floating-panel);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-3xs);
+  width: max-content;
+  margin-right: var(--spacing-md);
+  padding: var(--spacing-3xs);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+}

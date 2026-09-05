@@ -56,6 +56,7 @@
 @import './features/preview.css';
 @import './features/preview-toolbar.css';
 @import './features/preview-size.css';
+@import './features/preview-canvas.css';
 @import './features/agent-activity.css';
 @import './features/thumbnail-consent.css';
 @import './features/visual-editor/panel.css';
