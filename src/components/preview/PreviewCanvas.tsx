@@ -194,12 +194,7 @@ export function PreviewCanvas({
   // Whether the position on screen is the user's doing. Until it is, the canvas
   // keeps re-centring itself on every measurement.
   const userMovedRef = useRef(false);
-  // Programmatic scrolls fire `scroll` like any other, so they are marked as
-  // they happen — otherwise the canvas would decide the user had taken over the
-  // moment it centred itself.
-  const programmaticUntilRef = useRef(0);
   const parkScrollNow = useCallback((node: HTMLDivElement, left: number, top: number) => {
-    programmaticUntilRef.current = performance.now() + 200;
     node.scrollLeft = left;
     node.scrollTop = top;
   }, []);
@@ -242,6 +237,18 @@ export function PreviewCanvas({
     scrollRef.current = node;
   }, []);
 
+  // Ownership is taken by INPUT, never by a `scroll` event. The browser fires
+  // those for its own reasons — including adjusting the offset when the content
+  // grows, which is exactly what happens as the frames learn how long their
+  // pages are. Reading that as "the user has placed the canvas" freezes it
+  // wherever the growth left it, which on a first open is nowhere useful.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.addEventListener('wheel', markUserMoved, { passive: true });
+    return () => node.removeEventListener('wheel', markUserMoved);
+  }, [markUserMoved]);
+
   // Two sources, because the first one can lie. A pane measured during the
   // commit that mounts it has not necessarily reached its final size, and the
   // canvas that gets built from that measurement is the one the user opens.
@@ -271,7 +278,6 @@ export function PreviewCanvas({
   const scrollRafRef = useRef<number | null>(null);
   const handleScroll = useCallback(() => {
     if (scrollRafRef.current !== null) return;
-    if (performance.now() > programmaticUntilRef.current) userMovedRef.current = true;
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = null;
       const next = scrollRef.current?.scrollLeft ?? 0;
