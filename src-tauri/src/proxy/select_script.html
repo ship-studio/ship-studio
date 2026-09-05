@@ -763,9 +763,17 @@ function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeS
 var ssCanvas=false;
 window.addEventListener('wheel',function(e){
   if(!ssCanvas)return;
-  if(!e.ctrlKey&&!e.metaKey)return;
+  if(e.ctrlKey||e.metaKey){
+    e.preventDefault();
+    try{window.parent.postMessage({type:'ss:wheelZoom',deltaY:e.deltaY,x:e.clientX,y:e.clientY},'*');}catch(err){}
+    return;
+  }
+  /* A frame showing its whole page has nothing left to scroll, so the gesture
+     belongs to the canvas behind it — but a cross-origin parent never sees it,
+     and WebKit does not chain the scroll out of the frame either. Hand it up. */
+  if(ssScrollRange()>0)return;
   e.preventDefault();
-  try{window.parent.postMessage({type:'ss:wheelZoom',deltaY:e.deltaY,x:e.clientX,y:e.clientY},'*');}catch(err){}
+  try{window.parent.postMessage({type:'ss:panBy',dx:e.deltaX,dy:e.deltaY},'*');}catch(err){}
 },{passive:false});
 var gzScale=1;
 window.addEventListener('gesturestart',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=e.scale||1;},{passive:false});
@@ -777,35 +785,98 @@ window.addEventListener('gesturechange',function(e){
 },{passive:false});
 window.addEventListener('gestureend',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=1;},{passive:false});
 
-/* Scroll position, reported up and driven from up. The breakpoint canvas keeps
-   its frames in step so you can walk the whole page at every width at once —
-   each frame is a real viewport (a 100vh hero is one screen tall, as it should
-   be), and scrolling is what gets you past the fold. Reported as a fraction of
-   the scrollable range, because the same page is a different length at every
-   width. `ssScrollHold` keeps a driven scroll from echoing back out. */
-/* Throttled on the clock, not on animation frames: a frame that stops being
-   painted (backgrounded, or scrolled off the canvas) never runs its rAF
-   callback, and a rAF-latched guard would then stay closed forever and kill the
-   sync for that frame permanently. The trailing timer guarantees the final
-   resting position always goes out. */
-var ssScrollHold=0,ssScrollLast=0,ssScrollTimer=0,SS_SCROLL_MS=40;
+/* How much room the page has left to scroll. The canvas needs it to tell a
+   gesture the page can use from one that belongs to the canvas: a frame showing
+   its whole page has no scroll of its own, so the wheel over it is a pan. */
 function ssScrollRange(){return Math.max(0,(document.documentElement.scrollHeight||0)-window.innerHeight);}
-function ssScrollReport(){
-  ssScrollLast=Date.now();
-  var max=ssScrollRange();
-  try{window.parent.postMessage({type:'ss:scroll',top:window.scrollY,fraction:max>0?window.scrollY/max:0},'*');}catch(err){}
+
+/* ── A whole page, at an honest viewport height ────────────────────────────
+   The breakpoint canvas shows each page in full, which means the frame holding
+   it is as tall as the document. That alone would be a lie: `100vh` is whatever
+   the frame is tall, so a hero written as one screen would become one *page*
+   tall — the exact thing that makes these canvases useless.
+
+   So the viewport units are rewritten to the pixels they would have resolved to
+   on the device the frame is standing in for. It is done in the CSSOM rather
+   than by appending overrides, because an override cannot win against every
+   selector that might have set a height, and a unit is not something CSS lets
+   you redefine. Re-run on mutation, because a dev server injects its styles
+   after load and on every edit.
+
+   Known limits, both rare and both visible rather than silent: height-based
+   media queries still evaluate against the real (tall) frame, and `position:
+   fixed` pins to the whole page, so a fixed bar appears once rather than
+   following the scroll. */
+var ssVH=0,ssPageH=0,ssVHTimer=0;
+var SS_VIEWPORT_UNIT=/(-?\d*\.?\d+)(svh|lvh|dvh|vmin|vmax|vh)\b/gi;
+function ssResolveUnits(text){
+  return text.replace(SS_VIEWPORT_UNIT,function(all,num,unit){
+    var n=parseFloat(num);if(!isFinite(n))return all;
+    var w=window.innerWidth||ssVH,basis;
+    switch(unit.toLowerCase()){
+      case 'vmin':basis=Math.min(w,ssVH);break;
+      case 'vmax':basis=Math.max(w,ssVH);break;
+      default:basis=ssVH;
+    }
+    return (n*basis/100)+'px';
+  });
 }
-window.addEventListener('scroll',function(){
-  if(!ssCanvas)return;
-  if(Date.now()<ssScrollHold)return;
-  var since=Date.now()-ssScrollLast;
-  if(since>=SS_SCROLL_MS){ssScrollReport();return;}
-  if(ssScrollTimer)return;
-  ssScrollTimer=setTimeout(function(){
-    ssScrollTimer=0;
-    if(Date.now()>=ssScrollHold)ssScrollReport();
-  },SS_SCROLL_MS-since);
-},{passive:true});
+function ssRewriteRules(rules){
+  for(var i=0;i<rules.length;i++){
+    var rule=rules[i];
+    if(rule.cssRules&&rule.cssRules.length){ssRewriteRules(rule.cssRules);continue;}
+    if(!rule.style)continue;
+    var text=rule.style.cssText;
+    if(!text||text.search(SS_VIEWPORT_UNIT)<0){SS_VIEWPORT_UNIT.lastIndex=0;continue;}
+    SS_VIEWPORT_UNIT.lastIndex=0;
+    try{rule.style.cssText=ssResolveUnits(text);}catch(err){}
+  }
+}
+function ssRewriteViewportUnits(){
+  if(!ssVH)return;
+  var sheets=document.styleSheets;
+  for(var i=0;i<sheets.length;i++){
+    var rules=null;
+    try{rules=sheets[i].cssRules;}catch(err){rules=null;} /* a genuinely foreign sheet */
+    if(rules)ssRewriteRules(rules);
+  }
+  var inline=document.querySelectorAll('[style]');
+  for(var j=0;j<inline.length;j++){
+    var raw=inline[j].getAttribute('style');
+    if(!raw)continue;
+    SS_VIEWPORT_UNIT.lastIndex=0;
+    if(raw.search(SS_VIEWPORT_UNIT)<0){SS_VIEWPORT_UNIT.lastIndex=0;continue;}
+    SS_VIEWPORT_UNIT.lastIndex=0;
+    try{inline[j].setAttribute('style',ssResolveUnits(raw));}catch(err){}
+  }
+}
+/* The document's own height, which is NOT the frame's: the frame is about to be
+   resized to whatever this says, so measuring the viewport would just measure
+   the last answer. `body` is content-driven, and the one case where it isn't
+   (`body{height:100%}`) settles after a single round because the frame is then
+   exactly as tall as its content. */
+function ssPageHeight(){
+  var b=document.body;if(!b)return 0;
+  var style=window.getComputedStyle(b);
+  return Math.ceil(Math.max(b.scrollHeight,b.offsetHeight)
+    +parseFloat(style.marginTop||'0')+parseFloat(style.marginBottom||'0'));
+}
+function ssReportPage(){
+  if(!ssCanvas||!ssVH)return;
+  var h=ssPageHeight();
+  if(!h||Math.abs(h-ssPageH)<4)return;
+  ssPageH=h;
+  try{window.parent.postMessage({type:'ss:pageHeight',height:h},'*');}catch(err){}
+}
+function ssSyncPage(){
+  if(ssVHTimer)clearTimeout(ssVHTimer);
+  ssVHTimer=setTimeout(function(){ssVHTimer=0;ssRewriteViewportUnits();ssReportPage();},60);
+}
+if(window.MutationObserver){
+  new MutationObserver(ssSyncPage).observe(document.documentElement,
+    {childList:true,subtree:true,attributes:true,attributeFilter:['style','class','href']});
+}
+window.addEventListener('load',ssSyncPage);
 
 window.addEventListener('message',function(e){
 
@@ -818,16 +889,10 @@ var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 /* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
 else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
-else if(d.type==='ss:canvas'){ssCanvas=!!d.on;}
-/* A wheel that landed on a frame the user isn't working in yet. Deliberately
-   does NOT hold off reporting: this scroll is the user's, and the canvas wants
-   to hear about it so the other frames follow. */
-else if(d.type==='ss:scrollBy'){window.scrollBy(0,d.dy||0);}
-else if(d.type==='ss:scrollTo'){
-  ssScrollHold=Date.now()+150;
-  var smax=ssScrollRange();
-  var target=typeof d.fraction==='number'?d.fraction*smax:(d.top||0);
-  window.scrollTo(0,Math.max(0,Math.min(smax,target)));
+else if(d.type==='ss:canvas'){
+  ssCanvas=!!d.on;
+  ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
+  if(ssVH){ssRewriteViewportUnits();ssPageH=0;ssReportPage();}
 }
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 

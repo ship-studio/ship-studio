@@ -1,10 +1,19 @@
 /**
  * Zoom for the breakpoint canvas: every way in, and one way of applying it.
  *
- * The hard part isn't the arithmetic, it's the anchoring. A zoom goes through
- * React state, so the scroll correction that keeps the point under the pointer
- * in place has to wait for the layout the new scale produces — it is parked
- * here and applied in a layout effect, before paint.
+ * The hard part isn't the arithmetic, it's that a gesture outruns React. A
+ * trackpad pinch delivers events far faster than the canvas re-renders, so
+ * nothing here may read the zoom level from a render: the live scale lives in a
+ * ref, each event compounds on the one before it, and the scroll correction
+ * that keeps the point under the pointer in place chains the same way — parked
+ * here and applied in a layout effect, before paint. Reading `scale` from the
+ * closure instead makes a whole pinch collapse into its last event, which is
+ * what "zooming barely works" looks like.
+ *
+ * For the same reason the listeners are registered exactly once. A listener set
+ * that is torn down and rebuilt whenever the scale changes loses the gesture
+ * baseline it was accumulating, and the next event of a pinch already in flight
+ * measures itself against nothing.
  *
  * The other hard part is that a gesture over a frame never reaches this window:
  * frames are cross-origin documents and get their own wheel and gesture events.
@@ -84,10 +93,34 @@ export function useCanvasZoom({
   const pendingRef = useRef<{ scrollLeft: number; scrollTop: number } | null>(null);
   const anchoredRef = useRef(false);
 
+  // The scale the NEXT gesture event should measure itself against — which is
+  // the one the last event asked for, not the one React has rendered.
+  const liveScaleRef = useRef(scale);
+  const slackRef = useRef({ x: slackX, y: slackY });
+
   const settledRef = useRef(onScrollSettled);
   useEffect(() => {
     settledRef.current = onScrollSettled;
   }, [onScrollSettled]);
+
+  const changeRef = useRef(onZoomChange);
+  useEffect(() => {
+    changeRef.current = onZoomChange;
+  }, [onZoomChange]);
+
+  const fitRef = useRef(onFit);
+  useEffect(() => {
+    fitRef.current = onFit;
+  }, [onFit]);
+
+  // Every commit, not just the ones that changed the scale: whatever is on
+  // screen is the truth the next gesture builds on, including when the owner
+  // clamped or ignored what the last one asked for. The slack rides along —
+  // it moves with the pane, and the anchor arithmetic is measured against it.
+  useLayoutEffect(() => {
+    liveScaleRef.current = scale;
+    slackRef.current = { x: slackX, y: slackY };
+  });
 
   useLayoutEffect(() => {
     const pending = pendingRef.current;
@@ -113,40 +146,47 @@ export function useCanvasZoom({
   const zoomAt = useCallback(
     (nextScale: number, pointerX: number, pointerY: number) => {
       const node = scrollRef.current;
-      if (!node || nextScale === scale) return;
+      const fromScale = liveScaleRef.current;
+      if (!node || nextScale === fromScale) return;
+      // Chain onto a correction that hasn't been applied yet: two pinch events
+      // inside one frame both have to move the canvas, and the second one's
+      // starting point is where the first one asked to be, not where the DOM
+      // still is.
+      const base = pendingRef.current ?? { scrollLeft: node.scrollLeft, scrollTop: node.scrollTop };
+      const { x: originX, y: originY } = slackRef.current;
       pendingRef.current = anchorScroll({
-        scrollLeft: node.scrollLeft,
-        scrollTop: node.scrollTop,
+        ...base,
         pointerX,
         pointerY,
-        fromScale: scale,
+        fromScale,
         toScale: nextScale,
-        originX: slackX,
+        originX,
         // The frames start BELOW the label row, and that row is unscaled — leave
         // it out and the anchor drifts vertically by exactly
         // labelHeight × (1 − newScale / oldScale).
-        originY: slackY + CANVAS_LABEL_PX,
+        originY: originY + CANVAS_LABEL_PX,
       });
-      onZoomChange(nextScale);
+      liveScaleRef.current = nextScale;
+      changeRef.current(nextScale);
     },
-    [scale, slackX, slackY, onZoomChange, scrollRef]
+    [scrollRef]
   );
 
   const zoomFromCentre = useCallback(
     (direction: 'in' | 'out') => {
       const node = scrollRef.current;
       zoomAt(
-        stepZoom(scale, direction),
+        stepZoom(liveScaleRef.current, direction),
         (node?.clientWidth ?? 0) / 2,
         (node?.clientHeight ?? 0) / 2
       );
     },
-    [scale, zoomAt, scrollRef]
+    [zoomAt, scrollRef]
   );
 
   // Gestures that land on the canvas itself. Registered by hand because they
   // must be non-passive: without preventDefault the gesture zooms the whole app
-  // window instead of the canvas.
+  // window instead of the canvas. Registered ONCE — see the module note.
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
@@ -155,7 +195,11 @@ export function useCanvasZoom({
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       const box = node.getBoundingClientRect();
-      zoomAt(wheelZoom(scale, event.deltaY), event.clientX - box.left, event.clientY - box.top);
+      zoomAt(
+        wheelZoom(liveScaleRef.current, event.deltaY),
+        event.clientX - box.left,
+        event.clientY - box.top
+      );
     };
 
     // WebKit reports a trackpad pinch as its own gesture events rather than as
@@ -172,7 +216,11 @@ export function useCanvasZoom({
       const factor = gestureScale > 0 ? now / gestureScale : 1;
       gestureScale = now;
       const box = node.getBoundingClientRect();
-      zoomAt(clampZoom(scale * factor), event.clientX - box.left, event.clientY - box.top);
+      zoomAt(
+        clampZoom(liveScaleRef.current * factor),
+        event.clientX - box.left,
+        event.clientY - box.top
+      );
     };
     const onGestureEnd = (event: GestureLikeEvent) => {
       event.preventDefault();
@@ -189,7 +237,7 @@ export function useCanvasZoom({
       node.removeEventListener('gesturechange', onGestureChange as EventListener);
       node.removeEventListener('gestureend', onGestureEnd as EventListener);
     };
-  }, [scale, zoomAt, scrollRef]);
+  }, [zoomAt, scrollRef]);
 
   // Gestures that landed inside a frame, forwarded up by the injected script
   // with the point in that frame's own pixels. Mapped back through the frame's
@@ -216,21 +264,22 @@ export function useCanvasZoom({
       }
       if (!frame) return;
 
+      const live = liveScaleRef.current;
       const canvasBox = node.getBoundingClientRect();
       // Already the post-transform box, which is the space the pointer lives in.
       const frameBox = frame.getBoundingClientRect();
       const next = wheeling
-        ? wheelZoom(scale, data?.deltaY ?? 0)
-        : clampZoom(scale * (data?.factor ?? 1));
+        ? wheelZoom(live, data?.deltaY ?? 0)
+        : clampZoom(live * (data?.factor ?? 1));
       zoomAt(
         next,
-        frameBox.left - canvasBox.left + (data?.x ?? 0) * scale,
-        frameBox.top - canvasBox.top + (data?.y ?? 0) * scale
+        frameBox.left - canvasBox.left + (data?.x ?? 0) * live,
+        frameBox.top - canvasBox.top + (data?.y ?? 0) * live
       );
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [scale, zoomAt, scrollRef, frameElsRef]);
+  }, [zoomAt, scrollRef, frameElsRef]);
 
   // ⌘/Ctrl with +, − and 0 (fit). ⌘1–9 belong to project switching, so 100% has
   // no shortcut of its own — the readout in the zoom control is the way back.
@@ -246,12 +295,12 @@ export function useCanvasZoom({
         zoomFromCentre('out');
       } else if (event.key === '0') {
         event.preventDefault();
-        onFit();
+        fitRef.current();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [zoomFromCentre, onFit]);
+  }, [zoomFromCentre]);
 
   return { zoomAt, zoomFromCentre, parkScroll, consumeAnchored };
 }

@@ -25,6 +25,8 @@ interface UseCanvasPanParams {
   scrollRef: RefObject<HTMLDivElement | null>;
   /** Called with the resting scroll position when a drag ends. */
   onScrollSettled: (scrollLeft: number) => void;
+  /** The user has taken the canvas position into their own hands. */
+  onPan?: () => void;
 }
 
 export interface CanvasPan {
@@ -36,7 +38,7 @@ export interface CanvasPan {
   handlePanStart: (event: React.MouseEvent) => void;
 }
 
-export function useCanvasPan({ scrollRef, onScrollSettled }: UseCanvasPanParams): CanvasPan {
+export function useCanvasPan({ scrollRef, onScrollSettled, onPan }: UseCanvasPanParams): CanvasPan {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
 
@@ -75,6 +77,10 @@ export function useCanvasPan({ scrollRef, onScrollSettled }: UseCanvasPanParams)
       const startLeft = node.scrollLeft;
       const startTop = node.scrollTop;
       const onMove = (move: MouseEvent) => {
+        // Reported as it happens, not on release: a drag in progress is already
+        // the user placing the canvas, and something that resizes the pane
+        // mid-drag must not put it back.
+        onPan?.();
         node.scrollLeft = startLeft - (move.clientX - startX);
         node.scrollTop = startTop - (move.clientY - startY);
       };
@@ -87,7 +93,7 @@ export function useCanvasPan({ scrollRef, onScrollSettled }: UseCanvasPanParams)
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     },
-    [spaceHeld, scrollRef, onScrollSettled]
+    [spaceHeld, scrollRef, onScrollSettled, onPan]
   );
 
   return { spaceHeld, panning, handlePanStart };

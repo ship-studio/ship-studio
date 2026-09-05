@@ -150,13 +150,37 @@ describe('PreviewCanvas', () => {
     expect(scroller.scrollLeft).toBe(600 - 32);
   });
 
-  it('keeps the view put when the pane resizes under it', () => {
+  it('re-centres on every measurement until the user moves it', () => {
+    // The pane's FIRST measured size cannot be trusted — a webview commits the
+    // mount before the pane has settled — so a canvas nobody has touched is
+    // centred again every time it is told a size, not once at the beginning.
     const { container } = renderCanvas();
     const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
     scroller.scrollLeft = 900;
 
+    act(() => {
+      restoreSize?.();
+      restoreSize = stubCanvasSize(800, 800);
+      resizeObserverCallbacks.forEach((run) => run());
+    });
+    // Centred for the new pane: 400px of slack, 800px of pane, and Fit puts
+    // 736px of content in it.
+    expect(scroller.scrollLeft).toBe(400 - 32);
+  });
+
+  it("keeps the view put once the position is the user's", () => {
+    const { container } = renderCanvas();
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    // A pan is the user taking the canvas position into their own hands.
+    fireEvent.keyDown(window, { code: 'Space' });
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 350, clientY: 100 });
+    fireEvent.mouseMove(document, { clientX: 340, clientY: 100 });
+    fireEvent.mouseUp(document);
+    fireEvent.keyUp(window, { code: 'Space' });
+    scroller.scrollLeft = 900;
+
     // The pane narrows: the slack shrinks with it, moving the frames within the
-    // surface. The scroll position has to follow, or the canvas drifts.
+    // surface. The scroll position follows, rather than being reset.
     act(() => {
       restoreSize?.();
       restoreSize = stubCanvasSize(800, 800);
@@ -302,9 +326,10 @@ describe('PreviewCanvas', () => {
     });
 
     // A reloaded document starts from the script's defaults — gesture
-    // forwarding and scroll reporting off — so the load handler says it again.
+    // forwarding and viewport-unit rewriting off — so the load handler says it
+    // again, including the viewport height the frame stands in for.
     fireEvent.load(frame);
-    expect(post).toHaveBeenCalledWith({ type: 'ss:canvas', on: true }, '*');
+    expect(post).toHaveBeenCalledWith({ type: 'ss:canvas', on: true, vh: 900 }, '*');
   });
 
   it('takes it back when a frame goes away', () => {
@@ -319,130 +344,63 @@ describe('PreviewCanvas', () => {
     });
     unmount();
     for (const post of posts) {
-      expect(post).toHaveBeenCalledWith({ type: 'ss:canvas', on: false }, '*');
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'ss:canvas', on: false }),
+        '*'
+      );
     }
   });
 
-  it('scrolls the pages when the wheel is over a frame, not the canvas', () => {
-    const { container } = renderCanvas({ activeFrameId: 'desktop' });
-    const active = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
-    const post = vi.fn();
-    Object.defineProperty(active, 'contentWindow', {
-      configurable: true,
-      value: { postMessage: post },
-    });
-    const target = screen.getByRole('button', { name: 'Work at Mobile, 375 pixels' });
-
-    const event = new WheelEvent('wheel', {
-      deltaY: 120,
-      deltaX: 0,
-      bubbles: true,
-      cancelable: true,
-    });
-    target.dispatchEvent(event);
-
-    // Sent to the ACTIVE frame; the sync then walks the others to match.
-    expect(post).toHaveBeenCalledWith({ type: 'ss:scrollBy', dy: 120 }, '*');
-    expect(event.defaultPrevented).toBe(true);
-  });
-
-  it('leaves a sideways gesture to the canvas', () => {
-    const { container } = renderCanvas({ activeFrameId: 'desktop' });
-    const active = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
-    const post = vi.fn();
-    Object.defineProperty(active, 'contentWindow', {
-      configurable: true,
-      value: { postMessage: post },
-    });
-    const target = screen.getByRole('button', { name: 'Work at Mobile, 375 pixels' });
-
-    const event = new WheelEvent('wheel', {
-      deltaY: 10,
-      deltaX: 120,
-      bubbles: true,
-      cancelable: true,
-    });
-    target.dispatchEvent(event);
-
-    expect(post).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
-  });
-
-  it('walks every other frame to the same point in the page', () => {
+  it('grows a frame to the whole page inside it', () => {
     const { container } = renderCanvas();
-    const frames = [...container.querySelectorAll<HTMLIFrameElement>('iframe')];
-    const source = frames[0];
-    const posts = frames.map((frame) => {
-      const post = vi.fn();
-      Object.defineProperty(frame, 'contentWindow', {
-        configurable: true,
-        value: frame === source ? source.contentWindow : { postMessage: post },
-      });
-      return post;
-    });
+    const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
+    const stage = frame.closest<HTMLElement>('.preview-canvas-stage')!;
+    // The device height is the starting guess and the floor.
+    expect(stage.style.height).toBe('900px');
 
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        source: source.contentWindow,
-        data: { type: 'ss:scroll', top: 900, fraction: 0.42 },
-      })
-    );
-
-    // Every frame but the one that moved — sending it back where it already is
-    // would fight the user's own scrolling.
-    expect(posts[0]).not.toHaveBeenCalled();
-    for (const post of posts.slice(1)) {
-      expect(post).toHaveBeenCalledWith({ type: 'ss:scrollTo', fraction: 0.42 }, '*');
-    }
-  });
-
-  it('drops its own echo instead of looping frames back and forth', () => {
-    const { container } = renderCanvas();
-    const frames = [...container.querySelectorAll<HTMLIFrameElement>('iframe')];
-    const posts = frames.map((frame) => {
-      const post = vi.fn();
-      Object.defineProperty(frame, 'contentWindow', {
-        configurable: true,
-        value: { postMessage: post },
-      });
-      return post;
-    });
-
-    const report = (source: unknown, fraction: number) =>
+    act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          source: source as MessageEventSource,
-          data: { type: 'ss:scroll', fraction },
+          data: { type: 'ss:pageHeight', height: 5200 },
+          source: frame.contentWindow,
         })
       );
-
-    report(frames[0].contentWindow, 0.42);
-    expect(posts[1]).toHaveBeenCalledTimes(1);
-
-    // The frames we just drove report back the position we sent them. That is
-    // our own echo, not a new scroll.
-    report(frames[1].contentWindow, 0.42);
-    report(frames[2].contentWindow, 0.4200001);
-    expect(posts[0]).not.toHaveBeenCalled();
-    expect(posts[1]).toHaveBeenCalledTimes(1);
-
-    // A real move still gets through.
-    report(frames[1].contentWindow, 0.8);
-    expect(posts[0]).toHaveBeenCalledWith({ type: 'ss:scrollTo', fraction: 0.8 }, '*');
+    });
+    expect(stage.style.height).toBe('5200px');
   });
 
-  it('ignores a scroll report without a position', () => {
+  it('ignores a page height from a frame that is not on this canvas', () => {
     const { container } = renderCanvas();
-    const frame = container.querySelector<HTMLIFrameElement>('iframe')!;
-    const post = vi.fn();
-    Object.defineProperty(container.querySelectorAll('iframe')[1], 'contentWindow', {
-      configurable: true,
-      value: { postMessage: post },
+    const stage = container.querySelector<HTMLElement>('.preview-canvas-stage')!;
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'ss:pageHeight', height: 5200 },
+          source: window,
+        })
+      );
     });
-    window.dispatchEvent(
-      new MessageEvent('message', { source: frame.contentWindow, data: { type: 'ss:scroll' } })
-    );
-    expect(post).not.toHaveBeenCalled();
+    expect(stage.style.height).toBe('900px');
+  });
+
+  it('pans the canvas with a gesture a frame could not use', () => {
+    const { container } = renderCanvas();
+    const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const before = { left: scroller.scrollLeft, top: scroller.scrollTop };
+
+    // A frame showing its whole page has nothing left to scroll, so it hands
+    // the wheel up and the canvas moves instead.
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'ss:panBy', dx: 40, dy: 120 },
+          source: frame.contentWindow,
+        })
+      );
+    });
+    expect(scroller.scrollLeft).toBe(before.left + 40);
+    expect(scroller.scrollTop).toBe(before.top + 120);
   });
 
   it('reads out the current zoom, and returns to true size when it is clicked', async () => {
@@ -468,11 +426,34 @@ describe('PreviewCanvas', () => {
 
   it('steps the zoom in and out', async () => {
     const onZoomChange = vi.fn();
-    renderCanvas({ zoom: 0.5, onZoomChange });
+    // Zoom is owned by the caller, so a step is measured against what the
+    // caller last rendered — which is how a controlled component behaves and
+    // how a gesture arriving faster than a render stays honest.
+    const { props, rerender } = renderCanvas({ zoom: 0.5, onZoomChange });
     await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(onZoomChange).toHaveBeenLastCalledWith(0.625);
+    rerender(<PreviewCanvas {...props} zoom={0.625} />);
     await userEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
-    expect(onZoomChange).toHaveBeenLastCalledWith(0.4);
+    expect(onZoomChange).toHaveBeenLastCalledWith(0.5);
+  });
+
+  it('compounds gestures that arrive faster than it can render', () => {
+    const onZoomChange = vi.fn();
+    const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
+    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+
+    // A trackpad delivers a pinch far faster than React re-renders. Every event
+    // has to build on the one before it: measuring each against the zoom last
+    // RENDERED collapses the whole gesture into its final event, which is what
+    // a canvas that "barely zooms" is doing.
+    for (let i = 0; i < 3; i += 1) {
+      fireEvent.wheel(scroller, { deltaY: -8, ctrlKey: true, clientX: 600, clientY: 400 });
+    }
+    expect(onZoomChange).toHaveBeenCalledTimes(3);
+    const asked = onZoomChange.mock.calls.map(([value]) => value as number);
+    expect(asked[1]).toBeGreaterThan(asked[0]);
+    expect(asked[2]).toBeGreaterThan(asked[1]);
+    expect(asked[2]).toBeCloseTo(0.5 * Math.exp(0.006 * 8 * 3), 5);
   });
 
   it('stops stepping at the ends of the zoom range', () => {
@@ -573,7 +554,9 @@ describe('PreviewCanvas', () => {
     fireEvent.keyDown(window, { key: '=', metaKey: true });
     expect(onZoomChange).toHaveBeenLastCalledWith(0.625);
     fireEvent.keyDown(window, { key: '-', metaKey: true });
-    expect(onZoomChange).toHaveBeenLastCalledWith(0.4);
+    // Back where it started: the second step measures itself against what the
+    // first one asked for, not against the zoom still on screen.
+    expect(onZoomChange).toHaveBeenLastCalledWith(0.5);
     fireEvent.keyDown(window, { key: '0', metaKey: true });
     expect(onZoomChange).toHaveBeenLastCalledWith('fit');
   });
