@@ -22,6 +22,9 @@ import GenericAgentSvg from '../../assets/icons/old-icons/generic-agent.svg?reac
 import CollaboratorsSvg from '../../assets/icons/old-icons/collaborators.svg?react';
 import PackageSvg from '../../assets/icons/old-icons/package.svg?react';
 import PlaySvg from '../../assets/icons/old-icons/play.svg?react';
+import PauseSvg from '../../assets/icons/old-icons/pause.svg?react';
+import SkipNextSvg from '../../assets/icons/old-icons/skip-next.svg?react';
+import SkipPreviousSvg from '../../assets/icons/old-icons/skip-previous.svg?react';
 import { createIcon } from './icon-base';
 
 export const LoginIcon = createIcon(LoginSvg, {
@@ -201,6 +204,24 @@ export const PackageIcon = createIcon(PackageSvg, {
 export const PlayIcon = createIcon(PlaySvg, {
   name: 'PlayIcon',
   source: 'icons/old-icons/play.svg',
+  kind: 'ui',
+  defaultSize: 12,
+});
+export const PauseIcon = createIcon(PauseSvg, {
+  name: 'PauseIcon',
+  source: 'icons/old-icons/pause.svg',
+  kind: 'ui',
+  defaultSize: 12,
+});
+export const SkipNextIcon = createIcon(SkipNextSvg, {
+  name: 'SkipNextIcon',
+  source: 'icons/old-icons/skip-next.svg',
+  kind: 'ui',
+  defaultSize: 12,
+});
+export const SkipPreviousIcon = createIcon(SkipPreviousSvg, {
+  name: 'SkipPreviousIcon',
+  source: 'icons/old-icons/skip-previous.svg',
   kind: 'ui',
   defaultSize: 12,
 });

@@ -34,6 +34,9 @@ import {
   setCompactWorkspaceToolbarEnabled,
   getThumbnailsEnabled,
   setThumbnailsEnabled,
+  getSpotifyWidgetEnabled,
+  setSpotifyWidgetEnabled,
+  SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT,
   getProjectsRoot,
   isCustomProjectsRoot,
   pickProjectsRoot,
@@ -43,6 +46,7 @@ import {
   type MovableProjects,
 } from '../../lib/settings';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { isMac } from '../../lib/setup';
 import { MoveToFolderIcon } from '@/components/icons';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useOpenModal } from '../../contexts/ModalContext';
@@ -91,6 +95,7 @@ export function SettingsModal({
   const [terminalGpuEnabled, setLocalTerminalGpuEnabled] = useState(true);
   const [compactWorkspaceToolbarEnabled, setLocalCompactWorkspaceToolbarEnabled] = useState(false);
   const [thumbnailsOn, setLocalThumbnailsOn] = useState(true);
+  const [spotifyWidgetEnabled, setLocalSpotifyWidgetEnabled] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general');
   const [loading, setLoading] = useState(true);
   const [savingAppIcon, setSavingAppIcon] = useState(false);
@@ -114,6 +119,7 @@ export function SettingsModal({
         gpuEnabled,
         compactToolbarEnabled,
         thumbnails,
+        spotifyEnabled,
         root,
         custom,
       ] = await Promise.all([
@@ -125,6 +131,7 @@ export function SettingsModal({
         getTerminalGpuEnabled(),
         getCompactWorkspaceToolbarEnabled(),
         getThumbnailsEnabled(),
+        isMac() ? getSpotifyWidgetEnabled() : Promise.resolve(false),
         getProjectsRoot().catch(() => ''),
         isCustomProjectsRoot(),
       ]);
@@ -139,6 +146,7 @@ export function SettingsModal({
         // `null` = not asked yet; the toggle reflects the default-on behavior
         // (the first auto-capture will show the in-app explainer).
         setLocalThumbnailsOn(thumbnails !== false);
+        setLocalSpotifyWidgetEnabled(spotifyEnabled);
         setLocalProjectsRoot(root);
         setCustomRoot(custom);
         setLoading(false);
@@ -167,6 +175,20 @@ export function SettingsModal({
     window.addEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
     return () =>
       window.removeEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
+  }, []);
+
+  // The sidebar (which renders the widget) isn't a child of this modal, so a
+  // toggle flip elsewhere (or a second Settings instance) needs this to stay
+  // in sync rather than going stale until the next open.
+  useEffect(() => {
+    const handleSpotifyWidgetChanged = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail;
+      if (typeof detail === 'boolean') setLocalSpotifyWidgetEnabled(detail);
+    };
+
+    window.addEventListener(SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT, handleSpotifyWidgetChanged);
+    return () =>
+      window.removeEventListener(SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT, handleSpotifyWidgetChanged);
   }, []);
 
   const handleToggle = useCallback(() => {
@@ -251,6 +273,16 @@ export function SettingsModal({
       $screen_name: 'Settings',
     });
   }, [thumbnailsOn]);
+
+  const handleSpotifyWidgetToggle = useCallback(() => {
+    const newEnabled = !spotifyWidgetEnabled;
+    setLocalSpotifyWidgetEnabled(newEnabled);
+    void setSpotifyWidgetEnabled(newEnabled);
+    void trackEvent('spotify_widget_toggled', {
+      enabled: newEnabled,
+      $screen_name: 'Settings',
+    });
+  }, [spotifyWidgetEnabled]);
 
   // Persist a new projects root, then offer to move existing projects over.
   const applyNewRoot = useCallback(
@@ -549,6 +581,29 @@ export function SettingsModal({
                       </span>
                     </button>
                   </div>
+                  {isMac() && (
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-row-label">Spotify controls</span>
+                        <span className="settings-row-description">
+                          Show what's playing in Spotify in the sidebar, with play/pause and skip
+                          controls. macOS will ask permission to control Spotify the first time.
+                        </span>
+                      </div>
+                      <button
+                        className={`settings-toggle ${spotifyWidgetEnabled ? 'on' : 'off'}`}
+                        onClick={handleSpotifyWidgetToggle}
+                        disabled={loading}
+                        role="switch"
+                        aria-label="Spotify controls"
+                        aria-checked={spotifyWidgetEnabled}
+                      >
+                        <span className="settings-toggle-track">
+                          <span className="settings-toggle-thumb" />
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="settings-row">
                   <div className="settings-row-info">

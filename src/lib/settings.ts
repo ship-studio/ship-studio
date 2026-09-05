@@ -13,6 +13,10 @@ export const DASHBOARD_VISIBILITY_CHANGED_EVENT = 'shipstudio:dashboard-visibili
 /** Event fired after the workspace toolbar layout preference is persisted. */
 export const COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT =
   'shipstudio:compact-workspace-toolbar-changed';
+/** Event fired after the Spotify widget opt-in preference is persisted. The
+ *  sidebar (which renders the widget) isn't a child of the Settings modal
+ *  (which owns the toggle), so this is how the toggle reaches it live. */
+export const SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT = 'shipstudio:spotify-widget-enabled-changed';
 
 /** The app icons available for the macOS Dock. */
 export const APP_ICON_OPTIONS = [
@@ -175,6 +179,29 @@ export async function setCompactWorkspaceToolbarEnabled(enabled: boolean): Promi
     await invoke('set_compact_workspace_toolbar_enabled', { enabled });
     window.dispatchEvent(
       new CustomEvent<boolean>(COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT, { detail: enabled })
+    );
+  } catch {
+    // Silently fail, matching the other non-critical UI preferences.
+  }
+}
+
+// ============ Spotify widget (macOS-only, opt-in) ============
+
+/** Whether the Spotify "now playing" sidebar widget is enabled. Defaults to false — opt-in. */
+export async function getSpotifyWidgetEnabled(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('get_spotify_widget_enabled');
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the Spotify widget opt-in and notify the active window immediately. */
+export async function setSpotifyWidgetEnabled(enabled: boolean): Promise<void> {
+  try {
+    await invoke('set_spotify_widget_enabled', { enabled });
+    window.dispatchEvent(
+      new CustomEvent<boolean>(SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT, { detail: enabled })
     );
   } catch {
     // Silently fail, matching the other non-critical UI preferences.
