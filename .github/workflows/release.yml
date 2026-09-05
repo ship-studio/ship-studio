@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
       - '!*-win'
+  # Dry run: build, sign, notarize and verify — but publish nothing. Use it to
+  # prove the Apple account can notarize before cutting a real tag:
+  #   gh workflow run release.yml --ref <branch>
+  workflow_dispatch:
 
 jobs:
   # Run tests before building release artifacts
@@ -138,7 +142,9 @@ jobs:
           # option_env! — if the secret is unset, reporting is a silent no-op.
           BUG_REPORT_SECRET: ${{ secrets.BUG_REPORT_SECRET }}
         with:
-          tagName: ${{ github.ref_name }}
+          # On a dry run (workflow_dispatch) no tag is passed, so tauri-action
+          # only builds and never touches GitHub releases.
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
           releaseName: 'Ship Studio v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
@@ -209,6 +215,7 @@ jobs:
 
   create-manifest:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
