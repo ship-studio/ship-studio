@@ -105,17 +105,35 @@ jobs:
           echo "Generating Software Bill of Materials..."
           syft . -o cyclonedx-json=sbom.cdx.json -o table=sbom-table.txt
 
-          COMPONENT_COUNT=$(jq '.components | length' sbom.cdx.json)
-          echo "Total components detected: $COMPONENT_COUNT"
+          count_ecosystem() {
+            jq --arg p "pkg:$1/" '[.components[] | select((.purl // "") | startswith($p))] | length' sbom.cdx.json
+          }
 
-          # A near-empty SBOM means cataloguing silently failed (a lockfile
-          # format Syft stopped understanding, say). Scanning it would report a
-          # reassuring zero vulnerabilities, which is the worst possible
-          # outcome for a security gate — fail loudly instead.
-          if [ "$COMPONENT_COUNT" -lt 100 ]; then
-            echo "::error::Only $COMPONENT_COUNT components catalogued — expected 1000+. Syft is not seeing the lockfiles; treat this as a scan failure, not a clean result."
-            exit 1
+          TOTAL=$(jq '.components | length' sbom.cdx.json)
+          NPM=$(count_ecosystem npm)
+          CARGO=$(count_ecosystem cargo)
+          echo "Components — total: $TOTAL, npm: $NPM, cargo: $CARGO"
+
+          # If cataloguing silently fails — a lockfile Syft stopped
+          # understanding, a rename, a checkout that didn't fetch everything —
+          # the scan below reports a reassuring zero vulnerabilities, which is
+          # the worst outcome a security gate can produce. Fail loudly instead.
+          #
+          # Checked per ecosystem, not just in total: this repo has ~680 Rust
+          # crates, so a single total-count floor would still be cleared with
+          # the entire npm tree missing. Floors are deliberately far below the
+          # real counts (~615 npm / ~682 cargo) so ordinary churn never trips
+          # them — they catch "gone", not "smaller".
+          FAILED=0
+          if [ "$NPM" -lt 200 ]; then
+            echo "::error::Only $NPM npm components catalogued — expected ~600. Syft is not seeing pnpm-lock.yaml; treat this as a scan failure, not a clean result."
+            FAILED=1
           fi
+          if [ "$CARGO" -lt 200 ]; then
+            echo "::error::Only $CARGO cargo components catalogued — expected ~680. Syft is not seeing src-tauri/Cargo.lock; treat this as a scan failure, not a clean result."
+            FAILED=1
+          fi
+          [ "$FAILED" -eq 0 ] || exit 1
 
       # ------------------------------------------------------------------
       # Vulnerability scan (Grype)
