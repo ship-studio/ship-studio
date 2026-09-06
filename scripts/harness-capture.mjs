@@ -38,7 +38,8 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const HARNESS_ORIGIN = 'http://127.0.0.1:1425';
+const HARNESS_PORT = Number(process.env.SHIPSTUDIO_HARNESS_PORT ?? 1425);
+const HARNESS_ORIGIN = `http://127.0.0.1:${HARNESS_PORT}`;
 const CDP_PORT = 9333;
 const VIEWPORT = { width: 1440, height: 900 };
 const CHROME = [
@@ -71,6 +72,46 @@ const wantScenarios = !flag('--commands') || flag('--all');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hash = (buf) => createHash('sha1').update(buf).digest('hex').slice(0, 12);
+
+/**
+ * Confirm the harness on the port is serving THIS checkout.
+ *
+ * "Something answers on 1425" is not "my harness is up". Several worktrees live
+ * on this machine, `strictPort` means only one harness can hold the port, and a
+ * capture that attaches to a neighbour's server produces a full set of
+ * screenshots labelled with this checkout's scenario names — real images, wrong
+ * tree, no warning. Refusing to guess is the whole point of the tool, so it
+ * refuses here too.
+ */
+async function assertHarnessIsThisCheckout() {
+  const expected = process.cwd();
+  let identity;
+  try {
+    const res = await fetch(`${HARNESS_ORIGIN}/__harness/identity`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    identity = await res.json();
+  } catch (e) {
+    throw new Error(
+      `Something is listening on ${HARNESS_ORIGIN} but it does not answer ` +
+        `/__harness/identity (${e.message}).\n` +
+        `That is either a stale harness from before this check existed, or an ` +
+        `unrelated server. Restart the harness in this checkout, or set ` +
+        `SHIPSTUDIO_HARNESS_PORT to a free port in both shells.`
+    );
+  }
+
+  if (path.resolve(identity.root) !== path.resolve(expected)) {
+    throw new Error(
+      `The harness on ${HARNESS_ORIGIN} is serving a different checkout.\n` +
+        `  it is serving : ${identity.root}\n` +
+        `  you are in    : ${expected}\n` +
+        `Capturing anyway would screenshot that tree and label the images with ` +
+        `this one's scenarios. Stop that harness, or run both with different ` +
+        `SHIPSTUDIO_HARNESS_PORT values.`
+    );
+  }
+  return identity;
+}
 
 async function waitForServer(url, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -258,11 +299,14 @@ async function capture({ url, file, clipSelector }) {
 
 const mark = (r) => (r.crashed || !r.ready ? '✗' : r.unmocked.length ? '!' : '✓');
 
-function renderReport({ scenarios, commands, skipped }) {
+function renderReport({ scenarios, commands, skipped, meta }) {
   const lines = [
     '# Ship Studio UI harness — capture report',
     '',
     `Captured ${new Date().toISOString()} at ${VIEWPORT.width}×${VIEWPORT.height}.`,
+    '',
+    `Checkout: \`${meta.checkout}\``,
+    `HEAD: \`${meta.head}\``,
     '',
     'Regenerate: `pnpm harness` in one shell, then `node scripts/harness-capture.mjs --all`.',
     '',
@@ -336,8 +380,10 @@ function renderReport({ scenarios, commands, skipped }) {
 async function main() {
   if (!CHROME) throw new Error('No Chrome/Chromium found. Install Google Chrome.');
   await waitForServer(`${HARNESS_ORIGIN}/harness.html`).catch(() => {
-    throw new Error('The harness is not running. Start it with:  pnpm harness');
+    throw new Error(`The harness is not running on ${HARNESS_ORIGIN}. Start it with:  pnpm harness`);
   });
+  // Before anything is captured: prove the server belongs to this checkout.
+  const identity = await assertHarnessIsThisCheckout();
 
   const chrome = spawn(
     CHROME,
@@ -447,6 +493,10 @@ async function main() {
 
   const report = {
     capturedAt: new Date().toISOString(),
+    // Recorded so a screenshot can be traced to the tree it came from. An
+    // image with no provenance is not evidence.
+    checkout: identity.root,
+    head: identity.head,
     viewport: VIEWPORT,
     scenarios: scenarioResults,
     commands: commandResults,
@@ -455,7 +505,12 @@ async function main() {
   await writeFile(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(
     path.join(outDir, 'report.md'),
-    renderReport({ scenarios: scenarioResults, commands: commandResults, skipped })
+    renderReport({
+      scenarios: scenarioResults,
+      commands: commandResults,
+      skipped,
+      meta: { checkout: identity.root, head: identity.head },
+    })
   );
 
   const all = [...scenarioResults, ...commandResults];

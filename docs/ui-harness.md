@@ -67,6 +67,40 @@ palette gates on where you are. Non-visual and navigational commands are skipped
 via `SKIP_COMMANDS` in the runner, and every skip is listed in the report so the
 list cannot quietly hide a broken feature.
 
+## Provenance: which tree did these screenshots come from?
+
+The capture runner refuses to screenshot a harness that is serving a different
+checkout, and every report records the checkout path and HEAD it came from.
+
+This exists because of a real failure. The runner originally checked only that
+*something* answered on the harness port. On a machine running several
+worktrees — four agent sessions and five worktrees, on the day this was
+written — a capture attached to a neighbour's harness, screenshotted their
+tree, and wrote seventy-one green checkmarks plus a report captioned with
+*this* checkout's scenario names. Real images, wrong tree, no warning. Someone
+was one screenshot away from reporting ten deployment states verified against a
+build that did not contain the feature.
+
+That is worse than any bug the harness was built to catch, because every other
+failure here is loud: a missing fixture badges red, a crash fails the run, an
+unsettled frame is marked unstable. This one wrote ✓.
+
+So the harness now serves `/__harness/identity` (absolute repo root + git HEAD)
+and the runner compares it against the directory it was invoked from, aborting
+with both paths named. Two shapes of failure are caught: a server that cannot
+answer the endpoint at all (stale, or unrelated), and one that answers with a
+different root.
+
+To run harnesses from several worktrees at once, give each its own port:
+
+```bash
+SHIPSTUDIO_HARNESS_PORT=1426 pnpm harness &
+SHIPSTUDIO_HARNESS_PORT=1426 node scripts/harness-capture.mjs --all
+```
+
+`strictPort` is deliberately still on: a harness that silently moved to another
+port would reintroduce exactly the ambiguity this section is about.
+
 ## The one rule that makes it trustworthy
 
 **A command with no fixture is never given a plausible default.**
@@ -171,5 +205,5 @@ itself.
 | `src/harness/freeze.css` | Capture determinism |
 | `src/harness/scenarios/` | The fixture layers above |
 | `src/harness/stubs/` | Inert `tauri-pty`, screenshots, updater |
-| `scripts/harness-capture.mjs` | Headless capture, `report.md`, `report.json` |
+| `scripts/harness-capture.mjs` | Headless capture, identity guard, `report.md`, `report.json` |
 | `.claude/skills/ui-harness/SKILL.md` | So an agent discovers this without being told |
