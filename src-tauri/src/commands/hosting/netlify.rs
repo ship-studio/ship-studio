@@ -238,8 +238,19 @@ pub async fn find_for_commit(
     // the query parameter early — so `fix#123` would silently ask Netlify for
     // the deploys of a branch called `fix`, and get a confident answer about
     // the wrong branch. `sha` needs no such care: it is hex by construction.
+    // One page, deliberately. Netlify has no server-side commit filter, so this
+    // is a bounded scan of the branch's most recent deploys — 100 is its page
+    // maximum and costs the same request as 30 did.
+    //
+    // A commit further back than that answers `NotFound`, which the UI renders
+    // as "no deploy reported yet" and never as a failure or a false success —
+    // the scan degrades to "we don't know", which is the honest direction. It
+    // matters because the question this asks is always about a commit the user
+    // just pushed, which sits at the top of this list. Full pagination is
+    // recorded as a limitation in docs/internal/hosting-provider-matrix.md
+    // rather than left for someone to discover.
     let url = format!(
-        "{API}/sites/{site}/deploys?branch={branch}&per_page=30",
+        "{API}/sites/{site}/deploys?branch={branch}&per_page=100",
         site = link.project_id,
         branch = urlencoding::encode(branch),
     );

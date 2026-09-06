@@ -86,6 +86,29 @@ we write must classify 401 _and_ 403 as rejection, never as healthy.
 - Still unconfirmed: how a canceled or `ignore`-command build appears in the
   `state` enum. Needs a deliberately canceled build to observe.
 
+### Known limitation: neither list is paginated
+
+Netlify paginates with `page` / `per_page` and returns the first page when
+`page` is omitted. This adapter requests one page for both list calls and
+follows no `Link` header, which has two consequences worth stating rather than
+leaving to be discovered:
+
+- **`find_for_commit` scans one page of 100 deploys on the branch.** A commit
+  further back than that answers `NotFound`. The degradation is in the honest
+  direction — the UI shows "no deploy reported yet", never a failure and never
+  another commit's status — and the question is always about a commit the user
+  has just pushed, which sits at the top of the list. Vercel needs none of this
+  because it filters by `sha` server-side; Netlify has no such filter, so a
+  bounded scan is the shape of the thing.
+- **`list_projects` shows the first 100 sites.** An account with more than that
+  has sites the link picker cannot offer, and there is no in-app way around it.
+  This is the more user-visible of the two and the better candidate for the
+  first follow-up.
+
+Both are limitations, not defects: neither shows a wrong deployment, a wrong
+site, or a wrong status. Full pagination is a loop plus a stopping rule for each
+call, and is deliberately not in the change that introduced this adapter.
+
 ## Cloudflare Pages — verified
 
 Verified against a live account and a real deployment. A disposable Pages
