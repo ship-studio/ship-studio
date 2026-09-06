@@ -1,0 +1,357 @@
+.canvas-comments-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+}
+.canvas-comments-header,
+.canvas-comments-row,
+.canvas-comments-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.canvas-comments-header,
+.canvas-comments-footer {
+  padding: var(--spacing-md);
+}
+.canvas-comments-header {
+  justify-content: space-between;
+  border-bottom: var(--border-width-default) solid var(--border-default);
+  cursor: move;
+}
+.canvas-comments-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+.canvas-comments-count {
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-body);
+  line-height: calc(var(--spacing-md) + var(--spacing-2xs));
+}
+.canvas-comments-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+.canvas-comments-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+.canvas-comments-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  border-top: var(--border-width-default) solid var(--border-default);
+}
+.canvas-comments-panel label,
+.canvas-comment-bubble label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+.canvas-comments-panel select,
+.canvas-comments-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-sm);
+  font: inherit;
+}
+.canvas-comments-panel textarea {
+  resize: vertical;
+}
+:is(.canvas-comments-panel, .canvas-comment-bubble) :is(select, textarea, input):focus-visible {
+  outline: var(--border-width-default) solid var(--accent-active);
+  outline-offset: var(--spacing-xs);
+}
+:is(.canvas-comments-panel, .canvas-comment-bubble) input[type='checkbox'] {
+  accent-color: var(--accent-active);
+  width: var(--spacing-md);
+  height: var(--spacing-md);
+  margin: 0;
+  flex: none;
+  cursor: pointer;
+}
+.canvas-comment-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+.canvas-comments-context {
+  padding: var(--spacing-sm);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.canvas-comments-context code {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+.canvas-comments-row {
+  justify-content: space-between;
+}
+.canvas-comments-row .button {
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+}
+.canvas-comments-actions {
+  flex-wrap: wrap;
+  margin-top: var(--spacing-sm);
+}
+.canvas-comments-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  margin: 0;
+}
+.canvas-comments-scroll > .canvas-comments-hint {
+  margin-bottom: var(--spacing-md);
+}
+.canvas-comments-error {
+  display: block;
+  color: var(--accent-error);
+  font-size: var(--font-size-body-sm);
+}
+.canvas-comments-group h3 {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  overflow-wrap: anywhere;
+  margin: var(--spacing-md) 0 var(--spacing-sm);
+}
+.canvas-comment-card {
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  background: var(--surface-control);
+}
+.canvas-comment-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  margin: var(--spacing-sm) 0;
+}
+.canvas-comment-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+/* The same number the pin draws in the preview, so "comment 2" means one thing
+   in the panel, on the page, and in the prompt handed to the agent. */
+.canvas-comment-pin {
+  flex: none;
+  width: var(--spacing-lg);
+  height: var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+}
+.canvas-comment-card[data-status='sent'] .canvas-comment-pin {
+  background: transparent;
+  color: var(--accent-active);
+  box-shadow: inset 0 0 0 var(--border-width-default) var(--accent-active);
+}
+.canvas-comment-card__target {
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-start;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+}
+.canvas-comment-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xs) var(--spacing-sm);
+}
+/* A sent note is done, not pending — recede it so the backlog reads at a glance. */
+.canvas-comment-card[data-status='sent'] {
+  background: transparent;
+}
+.canvas-comment-card[data-status='sent'] .canvas-comment-body {
+  color: var(--text-secondary);
+}
+.canvas-comments-sent {
+  color: var(--accent-active);
+  font-size: var(--font-size-body-sm);
+}
+.canvas-comments-agent {
+  gap: var(--spacing-xs);
+}
+.canvas-comments-empty {
+  padding: var(--spacing-lg) var(--spacing-sm);
+}
+.canvas-comments-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-default);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-control);
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+}
+
+/* DockablePanel's default child fills the surface; these three rows share it. */
+.canvas-comments-panel > .canvas-comments-header,
+.canvas-comments-panel > .canvas-comments-footer {
+  height: auto;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.canvas-comments-panel > .canvas-comments-scroll {
+  height: auto;
+  box-sizing: border-box;
+}
+
+.canvas-comments-context .canvas-comments-tag {
+  color: var(--accent-active);
+}
+.canvas-comments-target-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── Pinned notes ───────────────────────────────────────────────────────────
+   The comments layer sits over the preview frame in screen pixels. It must not
+   swallow clicks meant for the page — only the pins and an open note do. */
+.canvas-comment-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-floating-panel);
+}
+.canvas-comment-pin-marker {
+  position: absolute;
+  width: var(--spacing-xl);
+  height: var(--spacing-xl);
+  box-sizing: border-box;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+  color: var(--text-on-accent);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+  /* Centred on the element's top-left corner, the way a map pin marks a point. */
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-interaction);
+}
+.canvas-comment-pin-marker:hover,
+.canvas-comment-pin-marker[data-open] {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+.canvas-comment-pin-marker[data-status='sent'] {
+  background: var(--surface-panel);
+  color: var(--accent-active);
+  box-shadow:
+    inset 0 0 0 2px var(--accent-active),
+    var(--shadow-sm); /* css-ok: 2px ring reads as a pin outline at 22px; 1px disappears */
+}
+.canvas-comment-bubble {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  pointer-events: auto;
+}
+.canvas-comment-bubble__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+.canvas-comment-bubble__target {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+.canvas-comment-bubble[data-status='sent'] .canvas-comment-body {
+  color: var(--text-secondary);
+}
+.canvas-comment-bubble .canvas-comments-actions {
+  margin-top: 0;
+  justify-content: flex-end;
+}
+/* Jump list in the batch bar: reaching a pin that is off-screen or on another route. */
+.canvas-comments-jump {
+  list-style: none;
+  margin: var(--spacing-sm) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+.canvas-comments-jump__item {
+  justify-content: flex-start;
+  gap: var(--spacing-sm);
+}
+.canvas-comments-jump__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

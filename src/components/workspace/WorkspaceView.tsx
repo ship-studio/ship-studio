@@ -1,3 +1,4 @@
+import { commentAgents } from '../../lib/commentAgents';
 /**
  * Workspace view component.
  *
@@ -64,6 +65,7 @@ import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
 import { sessionRegistry } from '../../lib/sessionRegistry';
 import { defaultWorkspaceTab, workspacePreviewCapabilities } from './workspaceViewState';
+import { useWorkspaceComments } from '../../hooks/useWorkspaceComments';
 import '../../styles/features/notifications.css';
 
 // ---------------------------------------------------------------------------
@@ -764,6 +766,12 @@ export const WorkspaceView = memo(function WorkspaceView({
       void handleStartDevServer();
     }
   }, [handleStartDevServer, setIsPreviewHidden, setWorkspaceTab, variablesPanelOpen]);
+  const comments = useWorkspaceComments({
+    isWebProject,
+    setIsPreviewHidden,
+    setWorkspaceTab,
+    startDevServer: handleStartDevServer,
+  });
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
       setIsPreviewHidden(false);
@@ -1053,6 +1061,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     variablesPanelVisible: variablesPanelOpen,
     variablesPanelAvailable: isWebProject,
     onToggleVariablesPanel: toggleVariablesPanel,
+    ...comments.header,
     modes: modesNode,
     headerExtras: (
       <PluginsDropdown
@@ -1296,6 +1305,16 @@ export const WorkspaceView = memo(function WorkspaceView({
                   }
                   right={
                     <WorkspacePreviewPane
+                      activeCommentAgentId={activeTerminalTab}
+                      commentsOpen={comments.open}
+                      onCommentsOpenChange={comments.setOpen}
+                      onCommentsPendingCountChange={comments.setPendingCount}
+                      commentAgents={commentAgents(
+                        currentProject.path,
+                        terminal,
+                        tabTitles,
+                        setIsAgentPanelHidden
+                      )}
                       currentProject={currentProject}
                       previewRef={previewRef}
                       workspaceTab={workspaceTab}

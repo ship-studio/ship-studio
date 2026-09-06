@@ -32,7 +32,6 @@ import { usePreviewCapture } from '../../hooks/usePreviewCapture';
 import { usePreviewEditorFrame } from '../../hooks/usePreviewEditorFrame';
 import { DEFAULT_DEVICE_HEIGHT, DEVICE_HEIGHTS, type CanvasFrame } from '../../lib/previewCanvas';
 import { Button } from '../primitives/Button';
-import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
 import { ToggleButton } from '../primitives/ToggleButton';
 import {
@@ -42,13 +41,11 @@ import {
   type Breakpoint,
 } from '../../hooks/usePreviewResize';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { DevServerLogs } from '../terminal/DevServerLogs';
 import { DevServerStatus } from '../terminal/DevServerStatus';
 import { stripAnsi } from '../../lib/ansi';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { trackEvent } from '../../lib/analytics';
-import { BrowserTools } from './BrowserTools';
-import { HealthTabPanel, type HealthTabPanelRef } from '../code/HealthTabPanel';
+import { type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useVisualEditor } from '../../hooks/useVisualEditor';
 import { useTextEditing } from '../../hooks/useTextEditing';
@@ -74,7 +71,6 @@ import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocale
 import {
   CompactIcon,
   ChevronIcon,
-  CloseIcon,
   DesktopIcon,
   EditIcon,
   ExpandIcon,
@@ -95,7 +91,11 @@ import { Spinner } from '../primitives/Spinner';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { DockablePanel } from '../primitives/DockablePanel';
 import { TREE_PANEL_MIN_WIDTH_PX, maxDockedPanelWidth } from './panelSizing';
-import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
+import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
+import { InspectPanel, type InspectTab } from './InspectPanel';
+export type { InspectTab } from './InspectPanel';
+import { useCanvasCommentsLayer } from '../comments/CanvasComments';
+import type { CommentAgent } from '../../lib/canvasComments';
 import { pathLocale, switchPathLocale } from '../../lib/i18n';
 import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
@@ -144,6 +144,13 @@ const scaleSelection = (
 
 /** Props for the Preview component */
 interface PreviewProps {
+  commentBranch?: string | null;
+  commentAgents?: CommentAgent[];
+  activeCommentAgentId?: number;
+  /** Comments open state lives in the workspace header, which owns the toggle. */
+  commentsOpen?: boolean;
+  onCommentsOpenChange?: (open: boolean) => void;
+  onCommentsPendingCountChange?: (count: number) => void;
   /** Dev server port (default: 3000) */
   port?: number;
   /** Absolute path to the project directory */
@@ -285,6 +292,12 @@ const EDITOR_PANEL_DEFAULT_VERSION_KEY = 'cssPanelDockedWidthDefault';
 
 export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   {
+    commentBranch = null,
+    commentAgents = [],
+    activeCommentAgentId,
+    commentsOpen = false,
+    onCommentsOpenChange,
+    onCommentsPendingCountChange,
     port = 3000,
     projectPath,
     onServerReady,
@@ -772,6 +785,24 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const openInsertMenuRef = useRef<(() => void) | null>(null);
   const toggleActiveEditor =
     editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
+
+  // Comments bind to the frame the user is actually in, the same one the editor
+  // binds to — on a canvas that is the active frame, not the focus frame.
+  const comments = useCanvasCommentsLayer({
+    projectPath,
+    branch: commentBranch,
+    iframeRef: editorFrameRef,
+    agents: commentAgents,
+    activeAgentId: activeCommentAgentId,
+    open: commentsOpen,
+    onOpenChange: onCommentsOpenChange ?? (() => undefined),
+    onPendingCountChange: onCommentsPendingCountChange,
+    currentPage: conn.currentPage,
+    navigate: conn.handlePageSelect,
+    available: conn.serverReady && !isBranchSwitching && !isCropMode,
+    editing: activeEditMode,
+    stopEditing: toggleActiveEditor,
+  });
 
   // ── Cmd+K commands for the native CSS editor (vanilla-CSS projects only). The panel
   // is opened by toggling edit mode; the view state lets a command land straight on
@@ -1339,26 +1370,29 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   if (conn.isLoading || conn.isStopped || conn.hasError) {
     return (
-      <DevServerStatus
-        // A known-dead process escalates straight to the error card — polling
-        // a port nothing listens on can only end in the same place, minutes
-        // later, so don't make the user sit through the retry loop.
-        phase={
-          conn.isStopped ? 'stopped' : conn.hasError || serverProcessGone ? 'error' : 'loading'
-        }
-        isStaticProject={isStaticProject}
-        port={port}
-        retryCount={conn.retryCount}
-        maxRetries={SERVER_MAX_RETRIES}
-        devServerOutput={devServerOutput}
-        onStop={conn.stopConnecting}
-        onRetry={conn.handleRetry}
-        processExited={serverProcessGone || conn.serverStale}
-        exitCode={devServerUnexpectedExit?.exitCode ?? null}
-        onRestartServer={onRestartDevServer}
-        onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
-        onInput={onDevServerInput}
-      />
+      <>
+        {comments.bar}
+        <DevServerStatus
+          // A known-dead process escalates straight to the error card — polling
+          // a port nothing listens on can only end in the same place, minutes
+          // later, so don't make the user sit through the retry loop.
+          phase={
+            conn.isStopped ? 'stopped' : conn.hasError || serverProcessGone ? 'error' : 'loading'
+          }
+          isStaticProject={isStaticProject}
+          port={port}
+          retryCount={conn.retryCount}
+          maxRetries={SERVER_MAX_RETRIES}
+          devServerOutput={devServerOutput}
+          onStop={conn.stopConnecting}
+          onRetry={conn.handleRetry}
+          processExited={serverProcessGone || conn.serverStale}
+          exitCode={devServerUnexpectedExit?.exitCode ?? null}
+          onRestartServer={onRestartDevServer}
+          onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
+          onInput={onDevServerInput}
+        />
+      </>
     );
   }
 
@@ -1475,6 +1509,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 </span>
               </Tooltip>
             )}
+
+            {comments.bar}
 
             {onToggleLogs && (
               <ToggleButton
@@ -1773,26 +1809,32 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onActivateFrame={activateCanvasFrame}
               onActiveFrameElement={setCanvasFrameEl}
               onStageHeightChange={setCanvasFrameStageHeight}
-              activeFrameOverlay={(scale) =>
-                activeEditMode ? (
-                  <ElementToolbar
-                    // The frame reports the selection box in its OWN pixels; the
-                    // toolbar draws at screen scale, so both the rect and the
-                    // bounds it is clamped to come through the canvas scale.
-                    selection={scaleSelection(structure.selection, scale)}
-                    bounds={{
-                      w: canvasFrameWidth * scale,
-                      h: canvasFrameStageHeight * scale,
-                    }}
-                    busy={structure.busy}
-                    hidden={structure.textEditing}
-                    onInsert={(position, kind) => void structure.insert(position, kind)}
-                    onDuplicate={() => void structure.duplicate()}
-                    onDelete={() => void structure.remove()}
-                    openMenuRef={openInsertMenuRef}
-                  />
-                ) : null
-              }
+              activeFrameOverlay={(scale) => (
+                <>
+                  {comments.pins(scale, {
+                    w: canvasFrameWidth * scale,
+                    h: canvasFrameStageHeight * scale,
+                  })}
+                  {activeEditMode ? (
+                    <ElementToolbar
+                      // The frame reports the selection box in its OWN pixels; the
+                      // toolbar draws at screen scale, so both the rect and the
+                      // bounds it is clamped to come through the canvas scale.
+                      selection={scaleSelection(structure.selection, scale)}
+                      bounds={{
+                        w: canvasFrameWidth * scale,
+                        h: canvasFrameStageHeight * scale,
+                      }}
+                      busy={structure.busy}
+                      hidden={structure.textEditing}
+                      onInsert={(position, kind) => void structure.insert(position, kind)}
+                      onDuplicate={() => void structure.duplicate()}
+                      onDelete={() => void structure.remove()}
+                      openMenuRef={openInsertMenuRef}
+                    />
+                  ) : null}
+                </>
+              )}
             />
           </>
         ) : (
@@ -1852,6 +1894,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                     : undefined
                 }
               />
+              {/* Pinned comments, tracking their elements in the live frame */}
+              {!canvasMode && comments.pins(1, iframeSize)}
               {/* Structural-edit toolbar, tracking the canvas selection box */}
               {activeEditMode && (
                 <ElementToolbar
@@ -2212,129 +2256,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           )}
         </>
       )}
-    </div>
-  );
-});
-
-export type InspectTab = 'logs' | 'browser' | 'health';
-
-interface InspectPanelProps {
-  hidden: boolean;
-  projectPath: string;
-  devServerOutput: string;
-  devServerOutputVersion: number;
-  onClose?: () => void;
-  onSendToAgent?: (text: string) => void;
-  /** Controlled tab. When set, the component is fully controlled. */
-  activeTab?: InspectTab;
-  onActiveTabChange?: (tab: InspectTab) => void;
-  healthPanelRef?: RefObject<HealthTabPanelRef | null>;
-  onHealthOutput?: (data: string) => void;
-  /** Type into the dev-server PTY — answers interactive CLI prompts. */
-  onDevServerInput?: (data: string) => void;
-  /** Sync the dev-server PTY size to the logs terminal. */
-  onDevServerResize?: (cols: number, rows: number) => void;
-}
-
-const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function InspectPanel(
-  {
-    hidden,
-    projectPath,
-    devServerOutput,
-    devServerOutputVersion,
-    onClose,
-    onSendToAgent,
-    activeTab: activeTabProp,
-    onActiveTabChange,
-    healthPanelRef,
-    onHealthOutput,
-    onDevServerInput,
-    onDevServerResize,
-  },
-  ref
-) {
-  const [activeTabLocal, setActiveTabLocal] = useState<InspectTab>('logs');
-  const activeTab = activeTabProp ?? activeTabLocal;
-  const setActiveTab = onActiveTabChange ?? setActiveTabLocal;
-
-  return (
-    <div ref={ref} className="preview-logs-panel" aria-hidden={hidden}>
-      <Tabs value={activeTab} onValueChange={(next) => setActiveTab(next as InspectTab)}>
-        <div className="preview-logs-header">
-          {/* The underline appearance is the primitive's own — the strip used
-              to be a segmented pill list with a hand-rolled underline layered
-              over it, which is why the active tab never matched its
-              neighbours. */}
-          <TabsList
-            className="preview-logs-tabs"
-            variant="stretch"
-            appearance="underline"
-            aria-label="Preview diagnostics"
-          >
-            <TabsTab value="logs" className="preview-logs-tab">
-              Server Logs
-            </TabsTab>
-            <TabsTab value="browser" className="preview-logs-tab">
-              Browser Tools
-            </TabsTab>
-            <TabsTab value="health" className="preview-logs-tab">
-              Health
-            </TabsTab>
-          </TabsList>
-          {onClose && (
-            <IconButton
-              variant="ghost"
-              size="compact"
-              className="preview-logs-close"
-              icon={<CloseIcon size={14} />}
-              onClick={onClose}
-              title="Hide panel"
-              aria-label="Hide panel"
-            />
-          )}
-        </div>
-        {/* Both tab contents stay mounted and stack in the same grid cell.
-            Toggling `is-active` swaps visibility via CSS (opacity) so
-            DevServerLogs doesn't re-init xterm and BrowserTools keeps its
-            scroll/state; TabsPanel makes inactive slots inert. */}
-        <div className="preview-logs-body">
-          <TabsPanel
-            value="logs"
-            keepMounted
-            className={`preview-logs-slot ${activeTab === 'logs' ? 'is-active' : ''}`}
-          >
-            <DevServerLogs
-              output={devServerOutput}
-              outputVersion={devServerOutputVersion}
-              onSendToAgent={onSendToAgent}
-              onInput={onDevServerInput}
-              onResize={onDevServerResize}
-            />
-          </TabsPanel>
-          <TabsPanel
-            value="browser"
-            keepMounted
-            className={`preview-logs-slot ${activeTab === 'browser' ? 'is-active' : ''}`}
-          >
-            <BrowserTools
-              onSendToAgent={onSendToAgent}
-              active={!hidden && activeTab === 'browser'}
-            />
-          </TabsPanel>
-          <TabsPanel
-            value="health"
-            keepMounted
-            className={`preview-logs-slot ${activeTab === 'health' ? 'is-active' : ''}`}
-          >
-            <HealthTabPanel
-              ref={healthPanelRef}
-              projectPath={projectPath}
-              onAskClaude={onSendToAgent}
-              onHealthOutput={onHealthOutput}
-            />
-          </TabsPanel>
-        </div>
-      </Tabs>
     </div>
   );
 });

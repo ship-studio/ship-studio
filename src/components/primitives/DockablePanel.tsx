@@ -39,6 +39,8 @@ interface DockablePanelProps {
   placeholderRef?: RefObject<HTMLDivElement | null>;
   /** Floating panels such as the colour picker can be movable without being resizable. */
   resizable?: boolean;
+  /** Keep compact floating tools fully visible after moves and viewport changes. */
+  keepWithinViewport?: boolean;
   /** Optional layer override for a docked, body-portaled surface. */
   dockedZIndex?: CSSProperties['zIndex'];
 }
@@ -81,14 +83,25 @@ function readSize(key: string): Size | null {
   return null;
 }
 
-function clampPosition(point: Point, size: Size): Point {
-  return {
+function clampPosition(point: Point, size: Size, contain = false): Point {
+  const next = {
     left: Math.max(
       VIEWPORT_GUTTER,
-      Math.min(point.left, window.innerWidth - Math.min(size.width, MIN_VISIBLE_HEADER))
+      Math.min(
+        point.left,
+        window.innerWidth -
+          (contain ? size.width + VIEWPORT_GUTTER : Math.min(size.width, MIN_VISIBLE_HEADER))
+      )
     ),
-    top: Math.max(VIEWPORT_GUTTER, Math.min(point.top, window.innerHeight - MIN_VISIBLE_HEADER)),
+    top: Math.max(
+      VIEWPORT_GUTTER,
+      Math.min(
+        point.top,
+        window.innerHeight - (contain ? size.height + VIEWPORT_GUTTER : MIN_VISIBLE_HEADER)
+      )
+    ),
   };
+  return next.left === point.left && next.top === point.top ? point : next;
 }
 
 /**
@@ -115,6 +128,7 @@ export function DockablePanel({
   surfaceClassName,
   placeholderRef,
   resizable = true,
+  keepWithinViewport = false,
   dockedZIndex,
 }: DockablePanelProps) {
   const internalPlaceholderRef = useRef<HTMLDivElement>(null);
@@ -123,7 +137,7 @@ export function DockablePanel({
   const savedSizeRef = useRef(initialSavedSize);
   const [dockStyle, setDockStyle] = useState<CSSProperties>();
   const [position, setPosition] = useState<Point>(() =>
-    clampPosition(readPosition(positionKey, initialPosition), floatingSize)
+    clampPosition(readPosition(positionKey, initialPosition), floatingSize, keepWithinViewport)
   );
   const [stackOrder, setStackOrder] = useState(0);
   const [floatingPanelSize, setFloatingPanelSize] = useState<Size>(
@@ -215,10 +229,12 @@ export function DockablePanel({
   }, [docked, floatingPanelSize, sizeKey]);
 
   useEffect(() => {
-    const handleResize = () => setPosition((current) => clampPosition(current, floatingSize));
+    const handleResize = () =>
+      setPosition((current) => clampPosition(current, floatingSize, keepWithinViewport));
+    if (keepWithinViewport) handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [floatingSize]);
+  }, [floatingSize, keepWithinViewport]);
 
   const bringToFront = useCallback(() => {
     nextFloatingPanelOrder = (nextFloatingPanelOrder % MAX_FLOATING_PANEL_STACK_ORDER) + 1;
@@ -257,10 +273,14 @@ export function DockablePanel({
       const drag = dragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
       setPosition(
-        clampPosition({ left: event.clientX - drag.dx, top: event.clientY - drag.dy }, floatingSize)
+        clampPosition(
+          { left: event.clientX - drag.dx, top: event.clientY - drag.dy },
+          floatingSize,
+          keepWithinViewport
+        )
       );
     },
-    [floatingSize]
+    [floatingSize, keepWithinViewport]
   );
 
   const handlePointerUp = useCallback(
