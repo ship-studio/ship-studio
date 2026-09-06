@@ -17,6 +17,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "harness": "vite --config vite.harness.config.ts",
+    "harness:capture": "node scripts/harness-capture.mjs --all",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "test": "vitest",
