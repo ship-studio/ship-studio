@@ -49,5 +49,25 @@ export interface Scenario {
    * banner) rather than as backend data.
    */
   storage?: Record<string, string>;
+  /**
+   * A selector that must be present for this capture to mean anything.
+   *
+   * A scenario is a claim about a surface. When that surface stops rendering —
+   * the feature is not on this branch, the component was renamed, a capture
+   * attached to the wrong tree — the run still produces a clean screenshot of
+   * *something*, captioned with this scenario's name, and nothing says the
+   * subject is missing. A fixture written before or after its subject exists
+   * has an expiry date, and this is what marks it.
+   *
+   * Missing means the capture failed, not that the screen is empty.
+   */
+  requires?: string;
+  /**
+   * A Cmd+K command run once the app has settled, to navigate to the surface
+   * this scenario is about. Reuses the same plumbing as `?command=`; a
+   * scenario that needs a panel or modal open should say so here rather than
+   * relying on the app's default view happening to show it.
+   */
+  command?: string;
   commands: CommandMap;
 }

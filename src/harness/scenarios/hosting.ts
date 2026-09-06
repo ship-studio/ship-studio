@@ -115,6 +115,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(found(deployment({ phase: 'building' }, 'Building'))),
@@ -128,6 +131,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
@@ -145,6 +151,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       // Netlify on purpose. Vercel has no state between building and ready —
@@ -166,6 +175,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
@@ -185,6 +197,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
@@ -204,6 +219,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       // Cloudflare, because Vercel cannot produce this phase: its
@@ -234,6 +252,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status({
@@ -257,6 +278,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(null, { auth: { kind: 'rejected' }, lookup: null }),
@@ -269,6 +293,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: { ...workspaceCommands, get_hosting_status: unlinkedHostingStatus },
   },
   {
@@ -279,6 +306,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(null, {

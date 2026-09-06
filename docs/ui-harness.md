@@ -31,6 +31,14 @@ node scripts/harness-capture.mjs hosting-       # filter by id prefix
 node scripts/harness-capture.mjs --out /tmp/a   # capture somewhere else
 ```
 
+A full run owns the output directory and clears it, so nothing stale can be
+mistaken for current. A **filtered** run does not: it overwrites only what it
+captures, leaves the rest of the directory alone, and stamps `report.md` with a
+"Partial run" banner naming the filter. Otherwise re-capturing one scenario
+would delete the set a reviewer is halfway through, and the report replacing
+theirs would describe four files while the directory quietly held two runs at
+once.
+
 Interactively, open `http://127.0.0.1:1425/harness.html?scenario=<id>`. A
 switcher at the bottom lists every scenario and states what the screen is
 supposed to look like. Useful query parameters:
@@ -66,6 +74,107 @@ Commands are enumerated separately in the home and project contexts, because the
 palette gates on where you are. Non-visual and navigational commands are skipped
 via `SKIP_COMMANDS` in the runner, and every skip is listed in the report so the
 list cannot quietly hide a broken feature.
+
+## Provenance: which tree did these screenshots come from?
+
+The capture runner refuses to screenshot a harness that is serving a different
+checkout, and every report records the checkout path and HEAD it came from.
+
+This exists because of a real failure. The runner originally checked only that
+*something* answered on the harness port. On a machine running several
+worktrees — four agent sessions and five worktrees, on the day this was
+written — a capture attached to a neighbour's harness, screenshotted their
+tree, and wrote seventy-one green checkmarks plus a report captioned with
+*this* checkout's scenario names. Real images, wrong tree, no warning. Someone
+was one screenshot away from reporting ten deployment states verified against a
+build that did not contain the feature.
+
+That is worse than any bug the harness was built to catch, because every other
+failure here is loud: a missing fixture badges red, a crash fails the run, an
+unsettled frame is marked unstable. This one wrote ✓.
+
+So the harness now serves `/__harness/identity` (absolute repo root + git HEAD)
+and the runner compares it against the directory it was invoked from, aborting
+with both paths named. Two shapes of failure are caught: a server that cannot
+answer the endpoint at all (stale, or unrelated), and one that answers with a
+different root.
+
+The check runs before **every** capture, not once at startup. `strictPort`
+frees the port the moment a harness dies, so a server can be replaced partway
+through a run — and when that happened, `ready` and `stable` both reported
+healthy for pages serving a different product entirely. Those signals describe
+the page that answered; neither can tell you it was the wrong page. If the root
+or HEAD changes mid-run the sweep aborts and names the scenario it stopped at,
+so captures taken before that point stay usable.
+
+To run harnesses from several worktrees at once, give each its own port:
+
+```bash
+SHIPSTUDIO_HARNESS_PORT=1426 pnpm harness &
+SHIPSTUDIO_HARNESS_PORT=1426 node scripts/harness-capture.mjs --all
+```
+
+`strictPort` is deliberately still on: a harness that silently moved to another
+port would reintroduce exactly the ambiguity this section is about.
+
+## A scenario must prove its subject is on screen
+
+A scenario declares `requires: '<selector>'`, and the capture fails if nothing
+matches it.
+
+A scenario is a claim about a surface. When that surface stops rendering — the
+feature is not on this branch, a component was renamed, the click that opens a
+popover silently stopped working, the capture attached to the wrong tree — the
+run still produces a clean screenshot of *something*, captioned with this
+scenario's name, and nothing says the subject is missing. Every hosting
+scenario requires `.publish-dropdown-menu`, so a popover that fails to open is
+a failure rather than a tidy picture of the workspace labelled "deployed and
+openable".
+
+This is the general form of a lesson that cost two sessions an evening: a
+fixture written before or after its subject exists has an expiry date, and
+nothing in a repo marks it. `requires` marks it.
+
+Adding it found two of this repo's own scenarios reviewing nothing: `conflicts`
+and `prs-open` carried populated fixtures but never navigated to the surface
+they describe, so both were photographing the Preview tab. Both now reach their
+subject and assert it.
+
+## Fixtures that fail
+
+A scenario's `commands` may hold a function, and a function that throws rejects
+the call — `rejectsWith('…')` from `src/harness/reject.ts`.
+
+This matters more than it sounds. Several of this app's surfaces are only
+reachable through a failed call, so a fixture layer that can only resolve
+confines the harness to every feature's happy path. The merge-conflict panel is
+the clearest case: nothing opens it on success. It appears when `pull_and_merge`
+rejects with a message containing `MERGE_CONFLICT:`, which is what the
+`conflicts` scenario now does.
+
+Worth knowing while writing such a scenario: `branch.resolveConflicts` in the
+Cmd+K palette **cannot** open that panel. Its `when` predicate reads
+`hasConflicts`, which `WorkspaceView.tsx:845` wires to `showConflictResolution`
+— the flag that means the panel is already visible. The command therefore only
+appears once you no longer need it, and its handler then re-sets a flag that is
+already true. That is a product bug, reported separately; it is recorded here
+so nobody spends an afternoon assuming their fixture is at fault.
+
+## Text being cut off
+
+`report.md` lists every visible element whose content is wider than its box
+(`text-overflow: ellipsis` or a line clamp, with `scrollWidth > clientWidth`),
+per capture.
+
+This is reported, never failed — plenty of truncation is deliberate. It exists
+because truncation is technically visible in a screenshot and practically
+invisible to a reviewer: a sentence clipped in a 184px column ends in a few
+pixels of "…", and it is entirely possible to read a set of captures twice,
+conclude they pass, and have missed that every status line lost its informative
+half. That is a real account of what happened, not a hypothetical. The list
+turns "look carefully" into something the runner can point at.
+
+Check what got cut, not just that something did.
 
 ## The one rule that makes it trustworthy
 
@@ -158,6 +267,19 @@ itself.
 - It proves the UI renders a given backend answer correctly. It does not prove
   that any provider or backend ever sends that answer.
 
+## How an agent finds this
+
+The entry point is the **"Looking at the UI" section of `CLAUDE.md`**, which is
+tracked and loaded for every agent working in this repo, plus the pointer in
+`CONTRIBUTING.md` and this document.
+
+`.claude/skills/ui-harness/SKILL.md` is tracked too, so an agent that reads
+skills finds it without being told. That required narrowing `.gitignore` from
+`.claude/` to `.claude/*` with a `!.claude/skills/` exception — local state
+(`settings.local.json`, the worktrees) stays out of the repo, instructions for
+whoever works here next do not. A skill that lives on one machine is not
+documentation.
+
 ## Files
 
 | Path | Role |
@@ -171,5 +293,5 @@ itself.
 | `src/harness/freeze.css` | Capture determinism |
 | `src/harness/scenarios/` | The fixture layers above |
 | `src/harness/stubs/` | Inert `tauri-pty`, screenshots, updater |
-| `scripts/harness-capture.mjs` | Headless capture, `report.md`, `report.json` |
+| `scripts/harness-capture.mjs` | Headless capture, identity guard, `report.md`, `report.json` |
 | `.claude/skills/ui-harness/SKILL.md` | So an agent discovers this without being told |
