@@ -62,6 +62,20 @@ export function compactAge(at: number, now = Date.now()): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+/**
+ * Capitalise a borrowed sentence that is about to start a line.
+ *
+ * Used only where the borrowed text is prose — a provider's humanised skip
+ * reason ("the commit message asked Cloudflare to skip it"). Deliberately not
+ * used on a transport error, which begins with a lowercase acronym and becomes
+ * "Dns error: …" if you capitalise it; that one is joined with a dash instead,
+ * so it never has to start a sentence.
+ */
+function capitalized(text?: string): string | undefined {
+  if (!text) return undefined;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** When the deployment happened, phrased for a sentence. */
 function when(deployment?: Deployment): string {
   const at = deployment?.ready_at || deployment?.created_at;
@@ -210,9 +224,12 @@ export function copyFor(
       return {
         title,
         status: `${statusWord(state.deployment, 'Skipped')}${env}${when(state.deployment)}`,
-        hint: detailSentence(state.detail)
-          ? `${host} skipped it: ${detailSentence(state.detail)}`
-          : `${host} chose not to build this push.`,
+        // The reason stands alone. Prefixing it with "<host> skipped it:"
+        // produced "Cloudflare skipped it: the commit message asked Cloudflare
+        // to skip it" — the provider's own humanised reason already names
+        // itself, and the status word and the brand mark have both said
+        // "skipped" before the eye reaches this line.
+        hint: capitalized(detailSentence(state.detail)) ?? `${host} chose not to build this push.`,
         action: dashboardLabelFor(state),
       };
 

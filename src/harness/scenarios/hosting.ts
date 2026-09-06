@@ -42,6 +42,15 @@ const netlifyLink = {
   linked_at: 1_757_000_000_000,
 };
 
+const cloudflareLink = {
+  provider: 'cloudflare' as const,
+  project_id: 'shipstudio-harness-testbed',
+  scope_id: 'acct_harness0000000000000000000',
+  project_name: 'shipstudio-harness-testbed',
+  source: 'user_picked' as const,
+  linked_at: 1_757_000_000_000,
+};
+
 /** One provider row, with the lookup the scenario is about. */
 const status = (lookup: unknown, over: Record<string, unknown> = {}) => ({
   commit,
@@ -189,20 +198,31 @@ export const hostingScenarios: Scenario[] = [
   },
   {
     id: 'hosting-skipped',
-    title: 'Push popover — commit deliberately not built',
+    title: 'Push popover — commit deliberately not built (Cloudflare)',
     looksRightWhen:
-      'Explains that the provider chose not to build, and shows the provider’s own reason rather than guessing one.',
+      'Explains that the provider chose not to build, in the provider’s own reason rather than a guessed one. Also the only scenario with no “Open in …” button, because Cloudflare’s API returns no link to the deployment — the column stays reserved rather than collapsing.',
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
+      // Cloudflare, because Vercel cannot produce this phase: its
+      // `phase_from_ready_state` maps five readyStates and none of them is a
+      // skip. Skipped comes from Netlify's `skipped` flag or Cloudflare's
+      // `is_skipped`, and only Cloudflare carries a machine-readable
+      // `skip_reason` for the sentence below (`humanize_skip_reason`).
       get_hosting_status: status(
         found(
           deployment({ phase: 'skipped' }, 'Skipped', {
-            detail: { detail: 'skipped_because', reason: '[skip ci] in commit message' },
+            detail: {
+              detail: 'skipped_because',
+              reason: 'the commit message asked Cloudflare to skip it',
+            },
+            // Cloudflare's deployments endpoint returns no dashboard link.
+            dashboard_url: null,
           })
-        )
+        ),
+        { link: cloudflareLink, token_source: 'cli_file' }
       ),
     },
   },
