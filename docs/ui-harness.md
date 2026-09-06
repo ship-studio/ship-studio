@@ -267,6 +267,19 @@ itself.
 - It proves the UI renders a given backend answer correctly. It does not prove
   that any provider or backend ever sends that answer.
 
+## How an agent finds this
+
+The entry point is the **"Looking at the UI" section of `CLAUDE.md`**, which is
+tracked and loaded for every agent working in this repo, plus the pointer in
+`CONTRIBUTING.md` and this document.
+
+There is deliberately no skill file in the repo: `.gitignore` excludes
+`.claude/` (see the "Claude Code skills" comment there), so anything written
+under it would exist on one machine and nowhere else — which is the failure
+this document spends a section warning about. A local `.claude/skills/` copy is
+fine as a personal convenience; it is not a way to ship instructions to anyone
+else.
+
 ## Files
 
 | Path | Role |
@@ -281,4 +294,3 @@ itself.
 | `src/harness/scenarios/` | The fixture layers above |
 | `src/harness/stubs/` | Inert `tauri-pty`, screenshots, updater |
 | `scripts/harness-capture.mjs` | Headless capture, identity guard, `report.md`, `report.json` |
-| `.claude/skills/ui-harness/SKILL.md` | So an agent discovers this without being told |
