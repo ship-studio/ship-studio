@@ -205,3 +205,52 @@ it('reports the selected element separately, so the composer can follow it', asy
   // viewport instead of staying on the element being commented on.
   expect(last.sel?.id).toBe('selection');
 });
+
+it('pins a note to the element it was made about, not a plausible neighbour', async () => {
+  // A pin on the WRONG element still looks like a pin in a reasonable place, so
+  // it survives being looked at — a screenshot cannot catch it. What can is
+  // asserting the reported rect belongs to the element that was clicked, when
+  // every candidate has a rect distinct enough to tell them apart.
+  const rects: Record<string, DOMRect> = {
+    hero: { x: 10, y: 20, left: 10, top: 20, width: 300, height: 100 } as DOMRect,
+    next: { x: 10, y: 400, left: 10, top: 400, width: 300, height: 100 } as DOMRect,
+  };
+  const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element
+  ) {
+    return rects[this.id] ?? ({ x: 0, y: 0, left: 0, top: 0, width: 0, height: 0 } as DOMRect);
+  });
+  try {
+    send({ type: 'sync', enabled: true, picking: true, notes: [], accent: 'blue', ink: 'white' });
+    document
+      .querySelector('#next')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const selected = posted.mock.calls
+      .map(([d]) => d as { type: string; target?: { selector: string; text: string; tag: string } })
+      .filter((d) => d.type === 'selected')
+      .pop()!;
+    expect(selected.target!.selector).toBe('#next');
+
+    // Now save it and let the frame place it, with the sibling still present as
+    // something a loose selector could drift onto.
+    send({
+      type: 'sync',
+      enabled: true,
+      picking: false,
+      notes: [{ id: 'n', number: 1, status: 'pending', target: selected.target }],
+      accent: 'blue',
+      ink: 'white',
+    });
+    await new Promise((r) => requestAnimationFrame(r));
+    const placed = posted.mock.calls
+      .map(([d]) => d as { type: string; at?: { id: string; x: number; y: number }[] })
+      .filter((d) => d.type === 'locations')
+      .pop()!;
+    expect(placed.at).toHaveLength(1);
+    // #next's box, not #hero's — off by this and the pin sits on the wrong
+    // section while looking entirely correct.
+    expect(placed.at![0]).toMatchObject({ id: 'n', x: 10, y: 400 });
+  } finally {
+    spy.mockRestore();
+  }
+});
