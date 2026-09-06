@@ -13,11 +13,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { HostingUrls } from './HostingUrls';
 import type { Deployment } from '../../lib/hosting';
 
-function deployment(urls: Partial<Deployment['urls']>): Deployment {
+function deployment(
+  urls: Partial<Deployment['urls']>,
+  environment: Deployment['environment'] = 'production'
+): Deployment {
   return {
     id: 'dpl_1',
+    status_label: 'Ready',
     phase: { phase: 'ready' },
-    environment: 'production',
+    environment,
     branch: 'main',
     commit_sha: 'abc1234',
     urls: { aliases: [], ...urls },
@@ -29,11 +33,28 @@ const SITE = 'https://pepper-cayenne-accessories.vercel.app';
 const BUILD = 'https://pepper-cayenne-accessories-myos1awic-juliangalluzzo.vercel.app';
 
 describe('HostingUrls', () => {
-  it('labels the site and the build so they cannot be confused', () => {
+  it("names the addresses the way Vercel names them", () => {
+    // "Site" and "Build" were this app's own words. Vercel calls one the
+    // production domain and the other the deployment URL.
     render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
 
-    expect(screen.getByText('Site')).toBeInTheDocument();
-    expect(screen.getByText('Build')).toBeInTheDocument();
+    expect(screen.getByText('Domain')).toBeInTheDocument();
+    expect(screen.getByText('Deployment')).toBeInTheDocument();
+  });
+
+  it('never offers the production domain from a preview', () => {
+    // The change isn't there. Showing production beside a preview is an
+    // invitation to click the wrong one and conclude the deploy did nothing.
+    render(
+      <HostingUrls
+        deployment={deployment({ site: SITE, deployment: BUILD }, 'preview')}
+        onOpen={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Domain')).not.toBeInTheDocument();
+    expect(screen.getByText('Deployment')).toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('surfaces the site address, not just the build permalink', () => {
@@ -45,7 +66,7 @@ describe('HostingUrls', () => {
 
     expect(
       screen.getByRole('button', {
-        name: 'Open the live site — pepper-cayenne-accessories.vercel.app',
+        name: 'Open the production domain — pepper-cayenne-accessories.vercel.app',
       })
     ).toBeInTheDocument();
   });
@@ -54,8 +75,8 @@ describe('HostingUrls', () => {
     render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
 
     // A bare "Open" can't say which of two addresses it means.
-    expect(screen.getByLabelText(/Open the live site/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Open this exact build/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Open the production domain/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Open this deployment/)).toBeInTheDocument();
   });
 
   it('opens when the address text itself is clicked, not only the icon', () => {
@@ -64,7 +85,7 @@ describe('HostingUrls', () => {
     const onOpen = vi.fn();
     render(<HostingUrls deployment={deployment({ site: SITE })} onOpen={onOpen} />);
 
-    fireEvent.click(screen.getByText('Site'));
+    fireEvent.click(screen.getByText('Domain'));
     expect(onOpen).toHaveBeenCalledWith(SITE);
   });
 
@@ -79,10 +100,10 @@ describe('HostingUrls', () => {
     const onOpen = vi.fn();
     render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={onOpen} />);
 
-    fireEvent.click(screen.getByLabelText(/Open the live site/));
+    fireEvent.click(screen.getByLabelText(/Open the production domain/));
     expect(onOpen).toHaveBeenCalledWith(SITE);
 
-    fireEvent.click(screen.getByLabelText(/Open this exact build/));
+    fireEvent.click(screen.getByLabelText(/Open this deployment/));
     expect(onOpen).toHaveBeenCalledWith(BUILD);
   });
 
@@ -91,8 +112,8 @@ describe('HostingUrls', () => {
     // row, not the same string twice.
     render(<HostingUrls deployment={deployment({ site: SITE, deployment: SITE })} onOpen={vi.fn()} />);
 
-    expect(screen.getByText('Site')).toBeInTheDocument();
-    expect(screen.queryByText('Build')).not.toBeInTheDocument();
+    expect(screen.getByText('Domain')).toBeInTheDocument();
+    expect(screen.queryByText('Deployment')).not.toBeInTheDocument();
   });
 
   it('shows the build alone when the site address is unknown', () => {
@@ -101,8 +122,8 @@ describe('HostingUrls', () => {
     // "Build", never presented as the site.
     render(<HostingUrls deployment={deployment({ deployment: BUILD })} onOpen={vi.fn()} />);
 
-    expect(screen.queryByText('Site')).not.toBeInTheDocument();
-    expect(screen.getByText('Build')).toBeInTheDocument();
+    expect(screen.queryByText('Domain')).not.toBeInTheDocument();
+    expect(screen.getByText('Deployment')).toBeInTheDocument();
   });
 
   it('renders nothing rather than an empty frame when there are no addresses', () => {
@@ -119,7 +140,7 @@ describe('HostingUrls', () => {
 
     // The label names the host without a scheme; the click still carries one.
     const button = screen.getByRole('button', {
-      name: 'Open the live site — pepper-cayenne-accessories.vercel.app',
+      name: 'Open the production domain — pepper-cayenne-accessories.vercel.app',
     });
     fireEvent.click(button);
     expect(onOpen).toHaveBeenCalledWith(SITE);

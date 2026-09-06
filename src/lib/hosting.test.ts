@@ -25,6 +25,7 @@ const NOW = 1_700_000_000_000;
 function deployment(phase: DeploymentPhase, overrides: Partial<Deployment> = {}): Deployment {
   return {
     id: 'dpl_1',
+    status_label: 'Ready',
     phase,
     environment: 'production',
     branch: 'main',

@@ -417,6 +417,7 @@ mod tests {
             lookup: Some(Lookup::Found {
                 deployment: Deployment {
                     id: "dpl_1".into(),
+                    status_label: "Ready".into(),
                     phase,
                     detail: None,
                     environment: Environment::Production,

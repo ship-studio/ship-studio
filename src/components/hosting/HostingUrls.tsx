@@ -1,19 +1,25 @@
 /**
- * The addresses a deployment produced, each said plainly.
+ * The addresses a deployment produced, named the way the provider names them.
  *
- * Two URLs matter and they are not interchangeable:
+ * Vercel's own vocabulary: a project has a **production domain**, and each
+ * deployment gets its own **deployment URL** ("Each time you deploy, Vercel
+ * generates a unique URL"). "Site" and "Build" were words this app invented,
+ * and neither told you which one had your change on it.
  *
- * - **Site** — the project's production domain. What people visit, and what
- *   the owner would call "the site". It is a property of the *project* and on
- *   Vercel lives on a different endpoint from the deployment entirely.
- * - **Build** — this deployment's immutable permalink. Always resolves to this
- *   exact commit even after newer deploys, which is what makes it useful for
- *   checking what you just shipped, and what makes it wrong to present as the
- *   site's address.
+ * What is shown depends on where the deployment went, because that is what
+ * decides which address is worth clicking:
  *
- * Showing one unlabelled URL meant showing a per-build permalink and calling
- * it the site. Each row is labelled so it is never ambiguous which is which,
- * and each gets its own open control so "open" always has one meaning.
+ * - A **production** deploy shows the production domain first — your change is
+ *   live there — with the commit permalink under it for pinning this exact
+ *   version.
+ * - A **preview** deploy shows only its own URL. The production domain does
+ *   *not* contain this change, so offering it invites clicking the wrong one.
+ *
+ * There is deliberately no branch URL. Vercel documents the shape of one
+ * (`<project>-git-<branch>-<scope>.vercel.app`) but does not return it on the
+ * deployment, and the same docs note it is truncated past 63 characters and
+ * mangled by anti-phishing rules — which is exactly why the previous
+ * implementation's assembled preview links 404'd.
  */
 
 import { MiddleTruncate } from '../primitives/MiddleTruncate';
@@ -27,25 +33,40 @@ interface Row {
   description: string;
 }
 
-function rowsFor(deployment?: Deployment): Row[] {
+export function rowsFor(deployment?: Deployment): Row[] {
   if (!deployment) return [];
+
+  // A preview never reached production, so the production domain would be a
+  // link to somebody else's change sitting directly under yours.
+  if (deployment.environment === 'preview') {
+    return deployment.urls.deployment
+      ? [
+          {
+            label: 'Deployment',
+            url: deployment.urls.deployment,
+            description: 'Open this preview deployment',
+          },
+        ]
+      : [];
+  }
+
   const rows: Row[] = [];
 
   if (deployment.urls.site) {
     rows.push({
-      label: 'Site',
+      label: 'Domain',
       url: deployment.urls.site,
-      description: 'Open the live site',
+      description: 'Open the production domain',
     });
   }
 
-  // Only worth its own row when it is actually a different address. On a
-  // project with no custom domain these can coincide.
+  // Only worth its own row when it is a different address — a project with no
+  // custom domain can have these coincide.
   if (deployment.urls.deployment && deployment.urls.deployment !== deployment.urls.site) {
     rows.push({
-      label: 'Build',
+      label: 'Deployment',
       url: deployment.urls.deployment,
-      description: 'Open this exact build',
+      description: 'Open this deployment',
     });
   }
 

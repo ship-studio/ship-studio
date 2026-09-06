@@ -156,26 +156,32 @@ struct RawUserInner {
 // Reducers
 // --------------------------------------------------------------------------
 
-/// Map Vercel's `readyState` onto the shared lifecycle.
+/// Map Vercel's `readyState` onto the shared lifecycle used for behaviour.
 ///
-/// `alias_assigned` distinguishes "built" from "actually serving": a READY
-/// deployment whose aliases haven't been attached yet is still finishing, and
-/// calling it live would be premature.
-fn phase_from_ready_state(raw: &str, alias_assigned: bool) -> DeploymentPhase {
+/// Only for deciding what to poll and which colour the dot is — the words the
+/// user reads come from `status_label`, which is Vercel's own.
+fn phase_from_ready_state(raw: &str) -> DeploymentPhase {
     match raw.to_ascii_uppercase().as_str() {
-        "QUEUED" => DeploymentPhase::Queued,
-        "INITIALIZING" => DeploymentPhase::Queued,
+        "QUEUED" | "INITIALIZING" => DeploymentPhase::Queued,
         "BUILDING" => DeploymentPhase::Building,
-        "READY" if !alias_assigned => DeploymentPhase::Publishing,
         "READY" => DeploymentPhase::Ready,
         "ERROR" => DeploymentPhase::Failed,
         "CANCELED" | "CANCELLED" => DeploymentPhase::Canceled,
-        // Documented on the list endpoint but not the detail one, and not a
-        // state a user's own push produces. Surfaced honestly rather than
-        // guessed at.
         other => DeploymentPhase::Unknown {
             raw: other.to_string(),
         },
+    }
+}
+
+/// Vercel's status word, as Vercel writes it: `READY` becomes "Ready".
+///
+/// Not translated into a synonym. The dashboard says "Ready" and so does this,
+/// so there is no vocabulary to reconcile when someone looks at both.
+fn status_label(raw: &str) -> String {
+    let mut chars = raw.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+        None => "Unknown".to_string(),
     }
 }
 
@@ -205,20 +211,13 @@ fn with_scheme(host: &str) -> String {
 /// naming pattern — the plugin's constructed preview URLs 404 whenever a name
 /// pushes the alias past Vercel's 63-character limit.
 fn to_deployment(raw: RawDeployment) -> Deployment {
-    // `aliasAssigned` is authoritative where the endpoint sends it (the list);
-    // on the detail response the presence of aliases says the same thing.
-    let alias_assigned = raw
-        .alias_assigned
-        .as_ref()
-        .map(AliasAssigned::is_assigned)
-        .unwrap_or(!raw.alias.is_empty());
     let ready_state = raw
         .ready_state
         .as_deref()
         .or(raw.state.as_deref())
         .unwrap_or("");
 
-    let phase = phase_from_ready_state(ready_state, alias_assigned);
+    let phase = phase_from_ready_state(ready_state);
     let detail = if matches!(phase, DeploymentPhase::Ready) {
         detail_from_substate(raw.ready_substate.as_deref())
     } else {
@@ -239,6 +238,7 @@ fn to_deployment(raw: RawDeployment) -> Deployment {
 
     Deployment {
         id: raw.uid,
+        status_label: status_label(ready_state),
         phase,
         detail,
         environment,
@@ -329,9 +329,7 @@ pub async fn find_for_commit(
         }
 
         found.urls.site = site.clone();
-        // A single "open" goes to the address people visit, falling back to
-        // this build's permalink only when the site's isn't known.
-        found.urls.primary = site.or(found.urls.deployment.clone());
+        found.urls.primary = primary_for(&found, site.clone());
 
         return Ok(Lookup::Found { deployment: found });
     }
@@ -339,7 +337,7 @@ pub async fn find_for_commit(
     let mut latest = latest_for_branch(link, token, branch).await.ok().flatten();
     if let Some(deployment) = latest.as_mut() {
         deployment.urls.site = site.clone();
-        deployment.urls.primary = site.or(deployment.urls.deployment.clone());
+        deployment.urls.primary = primary_for(deployment, site.clone());
     }
 
     Ok(Lookup::NotFound {
@@ -408,6 +406,18 @@ pub async fn list_projects(
             scope_name: None,
         })
         .collect())
+}
+
+/// The one address a single "open" should go to.
+///
+/// A preview deployment never reached production, so sending someone to the
+/// production domain from a feature branch would open a page that does not
+/// contain the change they just pushed.
+fn primary_for(deployment: &Deployment, site: Option<String>) -> Option<String> {
+    match deployment.environment {
+        Environment::Preview => deployment.urls.deployment.clone(),
+        Environment::Production => site.or_else(|| deployment.urls.deployment.clone()),
+    }
 }
 
 /// The address people visit.
@@ -534,45 +544,41 @@ mod tests {
 
     #[test]
     fn ready_state_maps_onto_the_shared_lifecycle() {
+        assert_eq!(phase_from_ready_state("QUEUED"), DeploymentPhase::Queued);
         assert_eq!(
-            phase_from_ready_state("QUEUED", true),
+            phase_from_ready_state("INITIALIZING"),
             DeploymentPhase::Queued
         );
         assert_eq!(
-            phase_from_ready_state("INITIALIZING", true),
-            DeploymentPhase::Queued
-        );
-        assert_eq!(
-            phase_from_ready_state("BUILDING", true),
+            phase_from_ready_state("BUILDING"),
             DeploymentPhase::Building
         );
+        assert_eq!(phase_from_ready_state("READY"), DeploymentPhase::Ready);
+        assert_eq!(phase_from_ready_state("ERROR"), DeploymentPhase::Failed);
         assert_eq!(
-            phase_from_ready_state("READY", true),
-            DeploymentPhase::Ready
-        );
-        assert_eq!(
-            phase_from_ready_state("ERROR", true),
-            DeploymentPhase::Failed
-        );
-        assert_eq!(
-            phase_from_ready_state("CANCELED", true),
+            phase_from_ready_state("CANCELED"),
             DeploymentPhase::Canceled
         );
     }
 
     #[test]
-    fn a_ready_deployment_without_aliases_is_still_finishing() {
-        assert_eq!(
-            phase_from_ready_state("READY", false),
-            DeploymentPhase::Publishing
-        );
+    fn the_status_word_is_vercels_own() {
+        // "Ready" is what the dashboard says, so it is what this says. The
+        // previous mapping invented "Live" and a "Publishing" state Vercel
+        // does not have, leaving two vocabularies to reconcile.
+        assert_eq!(status_label("READY"), "Ready");
+        assert_eq!(status_label("BUILDING"), "Building");
+        assert_eq!(status_label("ERROR"), "Error");
+        assert_eq!(status_label("CANCELED"), "Canceled");
+        assert_eq!(status_label("QUEUED"), "Queued");
+        assert_eq!(status_label(""), "Unknown");
     }
 
     #[test]
     fn an_unrecognized_state_is_surfaced_not_guessed() {
         // The failure mode this prevents: a new provider state silently
         // rendering as success or failure.
-        let phase = phase_from_ready_state("SOME_NEW_STATE", true);
+        let phase = phase_from_ready_state("SOME_NEW_STATE");
         assert_eq!(
             phase,
             DeploymentPhase::Unknown {
@@ -629,27 +635,13 @@ mod tests {
     }
 
     #[test]
-    fn the_list_endpoint_is_live_but_has_no_urls_to_offer_yet() {
-        // It reports `aliasAssigned` but sends no aliases, so the phase is
-        // trustworthy while the links still require the detail call.
+    fn the_list_endpoint_is_ready_but_has_no_urls_to_offer_yet() {
+        // The status is trustworthy from the list; the addresses still need
+        // the detail call, because the list carries no aliases at all.
         let list: RawList = serde_json::from_str(list_fixture()).unwrap();
         let d = to_deployment(list.deployments.into_iter().next().unwrap());
         assert_eq!(d.phase, DeploymentPhase::Ready);
         assert!(d.urls.aliases.is_empty());
-    }
-
-    #[test]
-    fn a_built_deployment_whose_aliases_are_not_attached_is_still_finishing() {
-        // `aliasAssigned: false` is the difference between "built" and
-        // "serving"; calling it live here would be premature.
-        let body = r#"{"deployments":[{
-            "uid":"dpl_2","url":"two.vercel.app","readyState":"READY",
-            "aliasAssigned":false,"target":"production","createdAt":2,
-            "meta":{"githubCommitSha":"def","githubCommitRef":"main"}
-        }]}"#;
-        let list: RawList = serde_json::from_str(body).unwrap();
-        let d = to_deployment(list.deployments.into_iter().next().unwrap());
-        assert_eq!(d.phase, DeploymentPhase::Publishing);
     }
 
     #[test]
@@ -666,6 +658,7 @@ mod tests {
         let d = to_deployment(raw);
 
         assert_eq!(d.phase, DeploymentPhase::Ready);
+        assert_eq!(d.status_label, "Ready");
         assert_eq!(d.urls.aliases.len(), 2);
         // A deployment record alone can only offer its own permalink; the
         // site's address is attached by the caller from the project's domains.

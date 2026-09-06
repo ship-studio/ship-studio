@@ -90,6 +90,8 @@ export interface DeploymentUrls {
 
 export interface Deployment {
   id: string;
+  /** The provider's own status word, shown verbatim ("Ready", not a synonym). */
+  status_label: string;
   phase: DeploymentPhase;
   detail?: DeploymentDetail | null;
   environment: Environment;

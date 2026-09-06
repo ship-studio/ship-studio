@@ -1,15 +1,19 @@
 /**
  * Every user-facing string in the hosting section.
  *
- * Centralised for two reasons. First, so the vocabulary can be tested: the
- * section it replaces surfaced Vercel's own words — "Prod", "READY", "Queued",
- * "scope", "Deploy" as a noun — which describe a build pipeline rather than
- * anything the user did. Second, so the two lines of every row are written
- * together and stay the right length for a 320px popover.
- *
  * The rule the copy follows: **line 1 names what the user shipped, line 2 says
- * what happened to it.** "Ready" answers "is Vercel's pipeline done". It does
- * not answer "did my change go live", which is the actual question.
+ * what the provider says happened to it** — in the provider's own words.
+ *
+ * An earlier version translated those words, on the theory that "Ready" is
+ * pipeline jargon. That was a mistake. This is a UI over what Vercel returns,
+ * and inventing synonyms only means a user comparing this against the Vercel
+ * dashboard has two vocabularies to reconcile. Status words come from
+ * `deployment.status_label`, which is the provider's; environments are
+ * Production and Preview, which is what all three providers call them.
+ *
+ * What this module still owns is the sentence around those words — the
+ * timestamp, which provider, and the states that have no provider status at
+ * all because nothing was found or no credential exists.
  *
  * @module lib/hostingCopy
  */
@@ -45,14 +49,31 @@ function when(deployment?: Deployment): string {
   return at ? ` · ${formatRelativeTime(at)}` : '';
 }
 
-/**
- * Only a preview is worth naming. Production is what a push to the default
- * branch does, so saying so adds a word the reader already knows and — in a
- * 320px popover — pushes the timestamp off the end of the line. A preview is
- * the surprising case, and the one where knowing changes what you do next.
- */
+/** Vercel's own two environments, capitalised as its dashboard capitalises them. */
 function environmentLabel(deployment?: Deployment): string {
-  return deployment?.environment === 'preview' ? ' · Preview' : '';
+  if (!deployment) return '';
+  return deployment.environment === 'production' ? ' · Production' : ' · Preview';
+}
+
+/**
+ * The provider's status word. Falls back only when a deployment predates the
+ * field or a provider sends nothing.
+ */
+function statusWord(deployment: Deployment | undefined, fallback: string): string {
+  return deployment?.status_label?.trim() || fallback;
+}
+
+/**
+ * What the row's own button opens, named for where the deployment went. A
+ * preview never reached production, so "Open domain" would be wrong on a
+ * feature branch.
+ */
+function openLabelFor(deployment?: Deployment): string | undefined {
+  if (!deployment) return undefined;
+  if (deployment.environment === 'preview') {
+    return deployment.urls.deployment ? 'Open preview' : undefined;
+  }
+  return deployment.urls.site ? 'Open domain' : undefined;
 }
 
 function detailSuffix(detail?: DeploymentDetail | null): string {
@@ -109,50 +130,48 @@ export function copyFor(
     case 'queued':
       return {
         title,
-        status: `Waiting to build on ${host}${when(state.deployment)}${sha}`,
-        hint: 'Links appear when the build finishes.',
+        status: `${statusWord(state.deployment, 'Queued')}${environmentLabel(
+          state.deployment
+        )}${when(state.deployment)}${sha}`,
         action: state.deployment?.dashboard_url ? 'View' : undefined,
       };
 
     case 'building':
-      return {
-        title,
-        status: `Building on ${host}${when(state.deployment)}`,
-        hint: 'Links appear when the build finishes.',
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
-      };
-
     case 'publishing':
       return {
         title,
-        status: `Almost live on ${host} — finishing up`,
+        status: `${statusWord(state.deployment, 'Building')}${environmentLabel(
+          state.deployment
+        )}${when(state.deployment)}`,
         action: state.deployment?.dashboard_url ? 'View' : undefined,
       };
 
     case 'ready':
       return {
         title,
-        status: `Live on ${host}${when(state.deployment)}${environmentLabel(
+        status: `${statusWord(state.deployment, 'Ready')}${environmentLabel(
           state.deployment
-        )}${detailSuffix(state.detail)}`,
-        // No hint: the addresses get their own labelled rows below, where
-        // "Site" and "Build" can be told apart. One unlabelled URL here was
-        // how a per-build permalink ended up presented as the site.
-        action: state.deployment?.urls.site ? 'Open site' : undefined,
+        )}${when(state.deployment)}${detailSuffix(state.detail)}`,
+        // No hint: the addresses get their own labelled rows below.
+        action: openLabelFor(state.deployment),
       };
 
     case 'failed':
       return {
         title,
-        status: `Build failed on ${host}${when(state.deployment)}`,
+        status: `${statusWord(state.deployment, 'Error')}${environmentLabel(
+          state.deployment
+        )}${when(state.deployment)}`,
         hint: state.deployment?.error_message?.split('\n')[0],
-        action: state.deployment?.dashboard_url ? 'Details' : undefined,
+        action: state.deployment?.dashboard_url ? 'View logs' : undefined,
       };
 
     case 'canceled':
       return {
         title,
-        status: `Canceled on ${host}${detailSuffix(state.detail)}`,
+        status: `${statusWord(state.deployment, 'Canceled')}${environmentLabel(
+          state.deployment
+        )}${detailSuffix(state.detail)}`,
         action: state.deployment?.dashboard_url ? 'View' : undefined,
       };
 
@@ -247,12 +266,15 @@ export function copyFor(
 }
 
 /**
- * Words that mean something inside a provider's own product and nothing to the
- * person who pushed a commit. Asserted against every string this module can
- * produce; provider names and "Production"/"Preview" are deliberately allowed.
+ * Not a ban on the provider's vocabulary — this app deliberately uses it, so
+ * that "Ready" here and "Ready" on the dashboard are the same word.
+ *
+ * What stays banned is the shape nobody writes for a reader: SHOUTED enum
+ * values straight off the wire, API field names, and internal abbreviations.
+ * "Ready" is fine; `READY`, `readyState` and `prod` are not.
  */
 export const BANNED_JARGON =
-  /\b(prod|READY|BUILDING|QUEUED|CANCELED|INITIALIZING|scope|alias|uid|teamId|substate|readyState|deployment_trigger)\b/;
+  /\b(prod|READY|BUILDING|QUEUED|CANCELED|INITIALIZING|ERROR|scope|alias|uid|teamId|substate|readyState|aliasAssigned|deployment_trigger)\b/;
 
 /** Which provider each state's copy is about, for the icon. */
 export function providerFor(state: SectionState): HostingProvider | undefined {

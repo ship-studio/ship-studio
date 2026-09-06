@@ -127,13 +127,23 @@ export function HostingRow({ state, commitSubject, shortSha, onAction }: Props) 
   );
 }
 
-/** The third line: hints and links, also a fixed height. */
+/**
+ * The third line, when a state has something extra to say.
+ *
+ * It used to be always present at a fixed height, reserving space so the
+ * section stayed one size across every state. That stopped being worth its
+ * cost: the section's height now legitimately varies with how many addresses a
+ * deployment has, and the reserved line left a visible empty band under the
+ * common live state, which has no hint. Collapsing when empty costs a 28px
+ * change between states that genuinely differ — a real event, not data
+ * arriving mid-read, which was the shift worth preventing.
+ */
 export function HostingLinks({ state, hint }: { state: SectionState; hint?: string }) {
+  if (!hint) return null;
+
   return (
     <div className="hosting-links" data-state={state.kind}>
-      {hint ? (
-        <span className="hosting-links-hint">{hint}</span>
-      ) : null}
+      <span className="hosting-links-hint">{hint}</span>
     </div>
   );
 }

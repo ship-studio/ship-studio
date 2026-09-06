@@ -45,6 +45,7 @@ const ALL_KINDS: SectionStateKind[] = [
 function deployment(): Deployment {
   return {
     id: 'dpl_1',
+    status_label: 'Ready',
     phase: { phase: 'ready' },
     environment: 'production',
     branch: 'main',
@@ -144,10 +145,26 @@ describe('hosting copy', () => {
     }
   });
 
-  it('leads with what the user shipped, not the integration state', () => {
+  it('leads with what the user shipped, then what the provider says', () => {
     const copy = copyFor(stateFor('ready'), 'Fix the nav');
     expect(copy.title).toBe('Fix the nav');
-    expect(copy.status).toMatch(/Live on Vercel/);
+    // Vercel's own word, not a synonym — so this and the Vercel dashboard
+    // never disagree about what a deployment is called.
+    expect(copy.status).toMatch(/^Ready · Production/);
+  });
+
+  it("uses the provider's status word rather than one of its own", () => {
+    const building = {
+      ...stateFor('building'),
+      deployment: { ...deployment(), status_label: 'Building' },
+    };
+    expect(copyFor(building, 'Fix the nav').status).toMatch(/^Building/);
+
+    const errored = {
+      ...stateFor('failed'),
+      deployment: { ...deployment(), status_label: 'Error' },
+    };
+    expect(copyFor(errored, 'Fix the nav').status).toMatch(/^Error/);
   });
 
   it('prefers the local commit subject over the provider message', () => {

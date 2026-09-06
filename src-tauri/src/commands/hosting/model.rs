@@ -214,6 +214,15 @@ pub struct DeploymentUrls {
 pub struct Deployment {
     pub id: String,
     pub phase: DeploymentPhase,
+    /// The provider's own word for this status, shown to the user verbatim.
+    ///
+    /// `phase` drives behaviour (what to poll, what colour the dot is);
+    /// this drives copy. Keeping them separate means the UI can say exactly
+    /// what Vercel's dashboard says — "Ready", not a synonym this app made up
+    /// — while the polling logic stays provider-agnostic. It also means each
+    /// provider gets to keep its own vocabulary instead of being flattened
+    /// into a shared one that matches none of them.
+    pub status_label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<DeploymentDetail>,
     pub environment: Environment,
