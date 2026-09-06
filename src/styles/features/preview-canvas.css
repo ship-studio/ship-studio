@@ -1,11 +1,18 @@
-/* Breakpoint canvas — every breakpoint rendered side by side on one scaled,
-   scrollable surface. See src/components/preview/PreviewCanvas.tsx.
+/* Breakpoint canvas — every breakpoint rendered side by side on one scaled
+   surface. See src/components/preview/PreviewCanvas.tsx.
 
-   Geometry (frame positions, widths, the scale transform) is computed in JS
+   Geometry (frame positions, widths, the camera's transforms) is computed in JS
    from lib/previewCanvas.ts and applied inline; this file owns appearance
-   only. The two layers are deliberate: the scaled layer holds the real pages,
-   the overlay layer holds labels and outlines at screen scale so they stay
-   legible and crisp at 25% zoom. */
+   only. The layers are deliberate:
+
+   - `.preview-canvas` is a fixed window that does NOT scroll. Scrolling was the
+     old model and it is what made the canvas feel slow: it put position in
+     `scrollLeft`, which cannot move without layout.
+   - `.preview-canvas-world` is the one thing a gesture moves — a single
+     composited translate carrying everything else with it.
+   - The scaled layer inside it holds the real pages; the overlay layer holds
+     labels and outlines at screen scale so they stay legible and crisp at 25%
+     zoom. */
 
 /* Taken out of flow on purpose. The canvas is a surface millions of pixels
    across at full zoom, and an in-flow child of that size pushes every ancestor
@@ -22,33 +29,40 @@
   min-height: 0;
 }
 
+/* The window. It clips and it does not scroll: the camera decides what is in
+   view, and a native scroll would fight it for the same gesture. `touch-action`
+   and `overscroll-behavior` stop the webview treating a two-finger gesture as a
+   swipe of the app around the canvas. */
 .preview-canvas {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
   background: var(--surface-control);
 }
 
-.preview-canvas-surface {
-  position: relative;
-  /* JS sizes this to the scaled content, so the scroll container's own
-     scrollbars describe the real canvas extent. */
-  min-width: 100%;
-  min-height: 100%;
+/* The moved layer: everything on the canvas is inside it and it carries a
+   single `translate3d`. Promoted for the whole time the canvas is open rather
+   than only during a gesture — promoting and demoting a layer this size costs a
+   full raster at each end, which is a hitch at the start and end of every pan,
+   and holding it is what lets a pan be composited from the first event of the
+   gesture rather than the second frame of it. */
+.preview-canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  will-change: transform;
 }
 
 .preview-canvas-scaled {
   position: absolute;
+  top: 0;
   left: 0;
   transform-origin: top left;
-}
-
-/* Only while the user is moving it. Four whole pages is tens of millions of
-   pixels; promoting them lets a zoom be a compositor transform instead of a
-   re-raster, but a hint this large is not something to leave on at rest. */
-.preview-canvas-root.is-interacting .preview-canvas-scaled {
-  will-change: transform;
 }
 
 /* Square corners, deliberately. The stage is inside the scale transform and the
@@ -82,9 +96,18 @@
   background: var(--surface-panel);
 }
 
+/* A zero-sized origin, not a box: its children are placed absolutely from the
+   top-left of the frames, in screen pixels at the committed scale. The camera
+   scales this layer by the ratio between the live and committed scale while a
+   zoom is in flight, so labels and outlines track the pages instead of sliding
+   off them, and land back at exactly 1 — crisp — when the zoom settles. */
 .preview-canvas-overlay {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: top left;
   pointer-events: none;
 }
 
@@ -169,6 +192,19 @@
   background: rgba(var(--accent-active-rgb), 0.06);
 }
 
+/* While the canvas is being moved, the frames are scenery. A pan that sweeps
+   the pointer across three of them should not light each one up in turn, and a
+   transition running on every frame it crosses is work for nothing at exactly
+   the moment the canvas has none to spare. */
+.preview-canvas-root.is-interacting .preview-canvas-activate {
+  transition: none;
+}
+
+.preview-canvas-root.is-interacting .preview-canvas-activate:hover {
+  border-color: var(--border-default);
+  background: transparent;
+}
+
 .preview-canvas-activate:focus-visible {
   outline: var(--focus-ring-width) solid var(--accent-focus);
   outline-offset: var(--focus-ring-offset);
@@ -225,13 +261,13 @@
    as the feature glitching. Not animated on purpose: growing four enormous
    layers over 300ms is the same jump, drawn out, and re-rastered every frame.
    `useCanvasReveal` owns the deadline that guarantees this always lifts. */
-.preview-canvas-root.is-measuring .preview-canvas-surface {
+.preview-canvas-root.is-measuring .preview-canvas-world {
   opacity: 0;
 }
 
 /* Opacity rather than visibility or display: the pages must keep laying out
    and painting while hidden, because being laid out is precisely what is being
    waited for. */
-.preview-canvas-surface {
+.preview-canvas-world {
   transition: opacity var(--transition-interaction);
 }

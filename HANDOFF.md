@@ -1,9 +1,45 @@
 # Breakpoint canvas — handoff
 
-**2026-09-05 return handoff:** Read [HANDOFF-CODEX.md](HANDOFF-CODEX.md) first.
-The laptop root cause is now confirmed in the app: a 10px scrollbar flips the
-1024px width breakpoint. A candidate fix is built but awaits app verification
-and the full CI gates. The hypotheses in §3 below are superseded by that trace.
+**2026-09-05, later that evening — both open items are closed. §3 and §6 below
+are history; read this block instead.**
+
+**§3, the laptop frame, is fixed and verified in the running app.** The cause is
+the one [HANDOFF-CODEX.md](HANDOFF-CODEX.md) traced — a 10px scrollbar flips the
+1024px width breakpoint — but that session's cure did not work. Hiding the
+scrollbar with CSS *inside* the page (`scrollbar-width:none`,
+`html::-webkit-scrollbar{display:none}`) was rebuilt, relaunched and measured:
+the laptop still reported **13163**. The gutter is reserved before any of the
+page's own stylesheets get a say. That CSS has been reverted.
+
+What works is host-side and one attribute: the canvas frames are
+`scrolling="no"`. A frame shows its whole page and never scrolls, so it should
+never have been scroll-*able*. Measured in the app afterwards, every frame
+matches what the same page measures in Safari:
+
+| frame | before | after | Safari |
+|---|---|---|---|
+| Desktop | 9576 | **9596** | 9596 |
+| Laptop | 13163 | **8527** | 8527 |
+| Tablet | 12243 | **12117** | 12117 |
+| Mobile | 10716 | **10716** | 10716 |
+
+**§6, "less fluid than Figma", is addressed structurally.** The canvas no longer
+scrolls. Position and zoom live in a camera ref (`useCanvasCamera`); a gesture
+moves it, one animation frame writes one composited `translate3d`, and React is
+told only once the gesture settles. The old shape made every event of a pinch a
+render that rewrote layout-affecting styles and then forced layout, on a surface
+holding four live cross-origin pages. Panning is now also a single code path
+wherever the pointer is, which is what made the canvas change character as the
+pointer crossed a frame edge. See "A gesture outruns React — so it does not go
+through it" in [docs/breakpoint-canvas.md](docs/breakpoint-canvas.md).
+
+Still open, and honestly: **the fluidity work has not been measured against the
+old build.** It is verified to work — every frame renders, pans, zooms, fits and
+zooms-to-frame correctly in the app, and the canvas costs ~1.3% CPU over an
+ordinary single preview with resident memory unchanged whether it is open or
+closed — but there is no before/after frame-time number, because producing one
+means rebuilding the old shape to race it. The claim rests on what the code
+does, not on a measurement of how it feels.
 
 Written 2026-09-05 by the previous agent. One open bug, one open quality gap,
 and the rig you need to work on either without guessing. Read §1 and §7 before

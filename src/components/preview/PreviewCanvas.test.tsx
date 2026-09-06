@@ -66,6 +66,42 @@ function stubCanvasSize(width: number, height: number) {
   };
 }
 
+/** The camera, read back out of the transform the canvas actually wrote.
+ *  There is no scroll position to inspect any more: the canvas does not
+ *  scroll, it moves one transformed layer, and `x`/`y` mean exactly what
+ *  `scrollLeft`/`scrollTop` used to. */
+function cameraOf(container: HTMLElement, pane = { width: 1200, height: 800 }) {
+  const world = container.querySelector<HTMLElement>('.preview-canvas-world')!;
+  const match = /translate3d\((-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(world.style.transform);
+  const tx = match ? Number(match[1]) : 0;
+  const ty = match ? Number(match[2]) : 0;
+  return {
+    x: pane.width * PAN_SLACK_RATIO - tx,
+    y: pane.height * PAN_SLACK_RATIO + CANVAS_LABEL_PX - ty,
+  };
+}
+
+/** A gesture writes the transform on the next animation frame — that
+ *  coalescing is the point of the camera, so a test that reads the DOM has to
+ *  wait for it the same way the screen does. */
+async function nextFrame() {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  });
+}
+
+/** Move the canvas the way a trackpad does. Nothing can be assigned any more:
+ *  a position is either gestured or decided by the canvas itself. */
+async function panCanvas(container: HTMLElement, dx: number, dy: number) {
+  const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
+  act(() => {
+    viewport.dispatchEvent(
+      new WheelEvent('wheel', { deltaX: dx, deltaY: dy, bubbles: true, cancelable: true })
+    );
+  });
+  await nextFrame();
+}
+
 function renderCanvas(overrides: Partial<Parameters<typeof PreviewCanvas>[0]> = {}) {
   const props = {
     frames: FRAMES,
@@ -150,14 +186,11 @@ describe('PreviewCanvas', () => {
 
   it('opens with room to pan on every side, and the frames centred in the pane', () => {
     const { container } = renderCanvas();
-    const scaled = container.querySelector<HTMLElement>('.preview-canvas-scaled')!;
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    // Half a screen of slack either side (PAN_SLACK_RATIO)...
-    expect(scaled.style.left).toBe('600px');
-    // ...and the canvas resting on the frames with the leftover pane split
-    // evenly around them, rather than jammed against the top-left corner.
-    // Fit puts 1136px of content in a 1200px pane, so 32px each side.
-    expect(scroller.scrollLeft).toBe(600 - 32);
+    // Half a screen of slack either side (PAN_SLACK_RATIO) is 600px, and the
+    // canvas rests 32px short of it: Fit puts 1136px of content in a 1200px
+    // pane, so the leftover is split evenly around the frames rather than the
+    // canvas being jammed against the top-left corner.
+    expect(cameraOf(container).x).toBe(600 - 32);
   });
 
   it('re-centres on every measurement until the user moves it', () => {
@@ -165,17 +198,16 @@ describe('PreviewCanvas', () => {
     // mount before the pane has settled — so a canvas nobody has touched is
     // centred again every time it is told a size, not once at the beginning.
     const { container } = renderCanvas();
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    scroller.scrollLeft = 900;
+    expect(cameraOf(container).x).toBe(600 - 32);
 
     act(() => {
       restoreSize?.();
       restoreSize = stubCanvasSize(800, 800);
       resizeObserverCallbacks.forEach((run) => run());
     });
-    // Centred for the new pane: 400px of slack, 800px of pane, and Fit puts
-    // 736px of content in it.
-    expect(scroller.scrollLeft).toBe(400 - 32);
+    // Centred again for the new pane: 400px of slack, 800px of pane, and Fit
+    // puts 736px of content in it.
+    expect(cameraOf(container, { width: 800, height: 800 }).x).toBe(400 - 32);
   });
 
   it('stays hidden until the frames know how tall they are', async () => {
@@ -212,12 +244,14 @@ describe('PreviewCanvas', () => {
     });
   });
 
-  const panALittle = (scroller: HTMLElement) => {
+  const panALittle = async (container: HTMLElement) => {
+    const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
     fireEvent.keyDown(window, { code: 'Space' });
-    fireEvent.mouseDown(scroller, { button: 0, clientX: 350, clientY: 300 });
+    fireEvent.mouseDown(viewport, { button: 0, clientX: 350, clientY: 300 });
     fireEvent.mouseMove(document, { clientX: 340, clientY: 290 });
     fireEvent.mouseUp(document);
     fireEvent.keyUp(window, { code: 'Space' });
+    await nextFrame();
   };
 
   it('gives an axis back when a zoom stops needing it', async () => {
@@ -228,55 +262,54 @@ describe('PreviewCanvas', () => {
     // empty beside them. Rule 3 stays quiet because nothing is LOST; the
     // canvas is merely useless, which it has no rule against.
     const { props, container, rerender } = renderCanvas({ zoom: 0.6 });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    panALittle(scroller); // the position is now the user's, so rule 1 is off
-    scroller.scrollLeft = 100;
+    await panALittle(container); // the position is now the user's, so rule 1 is off
 
-    rerender(<PreviewCanvas {...props} zoom={0.05} />);
+    act(() => {
+      rerender(<PreviewCanvas {...props} zoom={0.05} />);
+    });
 
     // 3751 canvas px at 5% is 188px of content in a 1200px pane, so the frames
     // sit in the middle of it rather than jammed against the left edge.
     const contentWidth = 3751 * 0.05;
     const expected = 1200 * PAN_SLACK_RATIO - (1200 - contentWidth) / 2;
-    await waitFor(() => expect(scroller.scrollLeft).toBeCloseTo(expected, 1));
+    await waitFor(() => expect(cameraOf(container).x).toBeCloseTo(expected, 1));
   });
 
   it('leaves an axis alone while the frames still fill it', async () => {
     // The pages stay far taller than the pane, so a zoom must not throw away
     // whatever part of them the user had come to look at.
     const { props, container, rerender } = renderCanvas({ zoom: 1 });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    panALittle(scroller);
-    scroller.scrollTop = 5000;
+    await panALittle(container);
+    const before = cameraOf(container);
 
-    rerender(<PreviewCanvas {...props} zoom={0.9} />);
+    act(() => {
+      rerender(<PreviewCanvas {...props} zoom={0.9} />);
+    });
 
     // 1024px tall at 90% still overflows an 800px pane, so nothing moves.
-    await waitFor(() => expect(scroller.scrollLeft).toBeGreaterThanOrEqual(0));
-    expect(scroller.scrollTop).toBe(5000);
+    await nextFrame();
+    expect(cameraOf(container).y).toBeCloseTo(before.y, 5);
   });
 
-  it("keeps the view put once the position is the user's", () => {
+  it("keeps the view put once the position is the user's", async () => {
     // Not at Fit: Fit is a standing instruction to show everything, so it
     // re-fits through a resize no matter who moved the canvas last.
     const { container } = renderCanvas({ zoom: 0.2 });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
     // A pan is the user taking the canvas position into their own hands.
-    fireEvent.keyDown(window, { code: 'Space' });
-    fireEvent.mouseDown(scroller, { button: 0, clientX: 350, clientY: 100 });
-    fireEvent.mouseMove(document, { clientX: 340, clientY: 100 });
-    fireEvent.mouseUp(document);
-    fireEvent.keyUp(window, { code: 'Space' });
-    scroller.scrollLeft = 900;
+    await panALittle(container);
+    const before = cameraOf(container);
 
     // The pane narrows: the slack shrinks with it, moving the frames within the
-    // surface. The scroll position follows, rather than being reset.
+    // surface. The camera follows, rather than being reset.
     act(() => {
       restoreSize?.();
       restoreSize = stubCanvasSize(800, 800);
       resizeObserverCallbacks.forEach((run) => run());
     });
-    expect(scroller.scrollLeft).toBe(900 + (400 - 600));
+    expect(cameraOf(container, { width: 800, height: 800 }).x).toBeCloseTo(
+      before.x + (400 - 600),
+      5
+    );
   });
 
   it('labels every frame with its device name and size', () => {
@@ -495,11 +528,10 @@ describe('PreviewCanvas', () => {
   it('pans the canvas with a gesture a frame could not use', async () => {
     const { container } = renderCanvas();
     const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    const before = { left: scroller.scrollLeft, top: scroller.scrollTop };
+    const before = cameraOf(container);
 
     // A frame showing its whole page has nothing left to scroll, so it hands
-    // the wheel up and the canvas moves instead — coalesced into one scroll
+    // the wheel up and the canvas moves instead — coalesced into one transform
     // write per frame, so the assertion waits for that frame.
     act(() => {
       window.dispatchEvent(
@@ -509,11 +541,9 @@ describe('PreviewCanvas', () => {
         })
       );
     });
-    await act(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-    });
-    expect(scroller.scrollLeft).toBe(before.left + 40);
-    expect(scroller.scrollTop).toBe(before.top + 120);
+    await nextFrame();
+    expect(cameraOf(container).x).toBe(before.x + 40);
+    expect(cameraOf(container).y).toBe(before.y + 120);
   });
 
   it('reads out the current zoom, and returns to true size when it is clicked', async () => {
@@ -525,16 +555,15 @@ describe('PreviewCanvas', () => {
 
   it('re-centres on Fit even when it is already fitting', async () => {
     const { container } = renderCanvas({ zoom: 'fit' });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    const rested = { left: scroller.scrollLeft, top: scroller.scrollTop };
+    const rested = cameraOf(container);
 
-    // Drift the canvas away, as a stray pan or a resize could.
-    scroller.scrollLeft = 2000;
-    scroller.scrollTop = 2000;
+    // Push the canvas away, the way a stray flick of the trackpad does.
+    await panCanvas(container, 400, 300);
+    expect(cameraOf(container).x).not.toBe(rested.x);
 
     await userEvent.click(screen.getByRole('button', { name: 'Fit' }));
-    expect(scroller.scrollLeft).toBe(rested.left);
-    expect(scroller.scrollTop).toBe(rested.top);
+    expect(cameraOf(container).x).toBeCloseTo(rested.x, 5);
+    expect(cameraOf(container).y).toBeCloseTo(rested.y, 5);
   });
 
   it('steps the zoom in and out', async () => {
@@ -544,29 +573,31 @@ describe('PreviewCanvas', () => {
     // how a gesture arriving faster than a render stays honest.
     const { props, rerender } = renderCanvas({ zoom: 0.5, onZoomChange });
     await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(onZoomChange).toHaveBeenLastCalledWith(0.625);
-    rerender(<PreviewCanvas {...props} zoom={0.625} />);
+    // Published once the gesture settles, not once per event of it.
+    await waitFor(() => expect(onZoomChange).toHaveBeenLastCalledWith(0.625));
+    act(() => {
+      rerender(<PreviewCanvas {...props} zoom={0.625} />);
+    });
     await userEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
-    expect(onZoomChange).toHaveBeenLastCalledWith(0.5);
+    await waitFor(() => expect(onZoomChange).toHaveBeenLastCalledWith(0.5));
   });
 
-  it('compounds gestures that arrive faster than it can render', () => {
+  it('compounds gestures that arrive faster than it can render', async () => {
     const onZoomChange = vi.fn();
     const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
 
-    // A trackpad delivers a pinch far faster than React re-renders. Every event
-    // has to build on the one before it: measuring each against the zoom last
-    // RENDERED collapses the whole gesture into its final event, which is what
-    // a canvas that "barely zooms" is doing.
+    // A trackpad delivers a pinch far faster than React re-renders, so the
+    // gesture is not allowed to go through one: each event builds on the live
+    // camera, and the owner is told once at the end. Measuring each event
+    // against the zoom last RENDERED would collapse the whole gesture into its
+    // final event — which is what a canvas that "barely zooms" is doing.
     for (let i = 0; i < 3; i += 1) {
-      fireEvent.wheel(scroller, { deltaY: -8, ctrlKey: true, clientX: 600, clientY: 400 });
+      fireEvent.wheel(viewport, { deltaY: -8, ctrlKey: true, clientX: 600, clientY: 400 });
     }
-    expect(onZoomChange).toHaveBeenCalledTimes(3);
-    const asked = onZoomChange.mock.calls.map(([value]) => value as number);
-    expect(asked[1]).toBeGreaterThan(asked[0]);
-    expect(asked[2]).toBeGreaterThan(asked[1]);
-    expect(asked[2]).toBeCloseTo(0.5 * Math.exp(0.006 * 8 * 3), 5);
+    expect(onZoomChange).not.toHaveBeenCalled();
+    await waitFor(() => expect(onZoomChange).toHaveBeenCalledTimes(1));
+    expect(onZoomChange.mock.calls[0][0]).toBeCloseTo(0.5 * Math.exp(0.006 * 8 * 3), 5);
   });
 
   it('stops stepping at the ends of the zoom range', () => {
@@ -583,10 +614,10 @@ describe('PreviewCanvas', () => {
     expect(screen.getByRole('button', { name: 'Fit' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('zooms on ⌘+wheel, keeping the point under the pointer in place', () => {
+  it('zooms on ⌘+wheel, keeping the point under the pointer in place', async () => {
     const onZoomChange = vi.fn();
     const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
     const event = new WheelEvent('wheel', {
       deltaY: -120,
       metaKey: true,
@@ -594,13 +625,13 @@ describe('PreviewCanvas', () => {
       cancelable: true,
     });
     act(() => {
-      scroller.dispatchEvent(event);
+      viewport.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
-    expect(onZoomChange).toHaveBeenCalledWith(0.625);
+    await waitFor(() => expect(onZoomChange).toHaveBeenCalledWith(0.625));
   });
 
-  it('anchors the zoom past the label row, not at the top of the surface', () => {
+  it('anchors the zoom past the label row, not at the top of the surface', async () => {
     // The frames sit below an unscaled label row. Anchoring at the surface top
     // instead drifts vertically by labelHeight × (1 − newScale / oldScale) —
     // small, constant, and maddening. Needs a real zoom to land, so the zoom
@@ -622,12 +653,14 @@ describe('PreviewCanvas', () => {
       );
     }
     const { container } = render(<Stateful />);
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    scroller.scrollLeft = 700;
-    scroller.scrollTop = 200;
+    const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
+    // Somewhere that is not the resting position, so a vertical drift would
+    // show up rather than being absorbed by the centring rules.
+    await panCanvas(container, 120, 90);
+    const before = cameraOf(container);
 
     act(() => {
-      scroller.dispatchEvent(
+      viewport.dispatchEvent(
         new WheelEvent('wheel', {
           deltaY: -120,
           metaKey: true,
@@ -638,10 +671,11 @@ describe('PreviewCanvas', () => {
         })
       );
     });
+    await nextFrame();
 
     const expected = anchorScroll({
-      scrollLeft: 700,
-      scrollTop: 200,
+      scrollLeft: before.x,
+      scrollTop: before.y,
       pointerX: 400,
       pointerY: 300,
       fromScale: 0.5,
@@ -649,31 +683,46 @@ describe('PreviewCanvas', () => {
       originX: 1200 * PAN_SLACK_RATIO,
       originY: 800 * PAN_SLACK_RATIO + CANVAS_LABEL_PX,
     });
-    expect(scroller.scrollLeft).toBe(expected.scrollLeft);
-    expect(scroller.scrollTop).toBe(expected.scrollTop);
+    expect(cameraOf(container).x).toBeCloseTo(expected.scrollLeft, 5);
+    expect(cameraOf(container).y).toBeCloseTo(expected.scrollTop, 5);
   });
 
-  it('leaves a plain wheel alone so the canvas scrolls normally', () => {
+  it('pans on a plain wheel rather than zooming, wherever it came from', async () => {
+    // The canvas owns the wheel now. It used to let the scroll container have
+    // it, which is why panning changed character depending on whether the
+    // pointer was over a live frame (whose wheel the canvas has to forward by
+    // hand) or over the background (which the browser scrolled natively).
     const onZoomChange = vi.fn();
     const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    const event = new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true });
-    act(() => {
-      scroller.dispatchEvent(event);
+    const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const before = cameraOf(container);
+    const event = new WheelEvent('wheel', {
+      deltaX: 30,
+      deltaY: -120,
+      bubbles: true,
+      cancelable: true,
     });
-    expect(event.defaultPrevented).toBe(false);
+    act(() => {
+      viewport.dispatchEvent(event);
+    });
+    await nextFrame();
+    expect(event.defaultPrevented).toBe(true);
+    expect(cameraOf(container).x).toBe(before.x + 30);
+    expect(cameraOf(container).y).toBe(before.y - 120);
     expect(onZoomChange).not.toHaveBeenCalled();
   });
 
-  it('zooms with ⌘+ / ⌘- and fits with ⌘0', () => {
+  it('zooms with ⌘+ / ⌘- and fits with ⌘0', async () => {
     const onZoomChange = vi.fn();
     renderCanvas({ zoom: 0.5, onZoomChange });
     fireEvent.keyDown(window, { key: '=', metaKey: true });
-    expect(onZoomChange).toHaveBeenLastCalledWith(0.625);
-    fireEvent.keyDown(window, { key: '-', metaKey: true });
-    // Back where it started: the second step measures itself against what the
-    // first one asked for, not against the zoom still on screen.
-    expect(onZoomChange).toHaveBeenLastCalledWith(0.5);
+    fireEvent.keyDown(window, { key: '=', metaKey: true });
+    // Two steps, not one: the second measures itself against what the first
+    // asked for rather than against the zoom still on screen.
+    await waitFor(() =>
+      expect(onZoomChange).toHaveBeenLastCalledWith(stepZoom(stepZoom(0.5, 'in'), 'in'))
+    );
+    // Fit is a decision, not a gesture, so it is published immediately.
     fireEvent.keyDown(window, { key: '0', metaKey: true });
     expect(onZoomChange).toHaveBeenLastCalledWith('fit');
   });
@@ -688,19 +737,20 @@ describe('PreviewCanvas', () => {
     input.remove();
   });
 
-  it('arms panning while space is held, and drags the canvas', () => {
+  it('arms panning while space is held, and drags the canvas', async () => {
     const { container } = renderCanvas({ zoom: 1 });
     const root = container.querySelector<HTMLElement>('.preview-canvas-root')!;
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    scroller.scrollLeft = 400;
+    const viewport = container.querySelector<HTMLElement>('.preview-canvas')!;
+    const before = cameraOf(container);
 
     fireEvent.keyDown(window, { code: 'Space' });
     expect(root.className).toContain('is-pannable');
 
-    fireEvent.mouseDown(scroller, { button: 0, clientX: 300, clientY: 100 });
+    fireEvent.mouseDown(viewport, { button: 0, clientX: 300, clientY: 100 });
     expect(root.className).toContain('is-panning');
     fireEvent.mouseMove(document, { clientX: 250, clientY: 100 });
-    expect(scroller.scrollLeft).toBe(450);
+    await nextFrame();
+    expect(cameraOf(container).x).toBe(before.x + 50);
     fireEvent.mouseUp(document);
     expect(root.className).not.toContain('is-panning');
 
@@ -716,7 +766,7 @@ describe('PreviewCanvas', () => {
     expect(root.className).not.toContain('is-panning');
   });
 
-  it('zooms at a gesture a frame forwards up, mapped back to where it happened', () => {
+  it('zooms at a gesture a frame forwards up, mapped back to where it happened', async () => {
     const onZoomChange = vi.fn();
     const { container } = renderCanvas({ zoom: 0.5, onZoomChange });
     const frame = container.querySelector<HTMLIFrameElement>('iframe[data-frame-id="desktop"]')!;
@@ -728,7 +778,7 @@ describe('PreviewCanvas', () => {
         })
       );
     });
-    expect(onZoomChange).toHaveBeenCalledWith(wheelZoom(0.5, -10));
+    await waitFor(() => expect(onZoomChange).toHaveBeenCalledWith(wheelZoom(0.5, -10)));
   });
 
   it('ignores a forwarded gesture from a window that is not one of its frames', () => {
@@ -753,12 +803,14 @@ describe('PreviewCanvas', () => {
 
   it('centres the active frame when the zoom level changes', () => {
     const { container, rerender, props } = renderCanvas({ activeFrameId: 'mobile' });
-    const scroller = container.querySelector<HTMLElement>('.preview-canvas')!;
-    const scrollTo = vi.spyOn(scroller, 'scrollLeft', 'set');
+    const before = cameraOf(container);
     act(() => {
       rerender(<PreviewCanvas {...props} activeFrameId="mobile" zoom={1} />);
     });
-    expect(scrollTo).toHaveBeenCalled();
-    expect(scrollTo.mock.calls[0][0]).toBeGreaterThan(0);
+    // Mobile is the last frame on the surface, so bringing it to the middle of
+    // the pane at 1:1 moves the camera a long way right of where Fit rested it.
+    const after = cameraOf(container);
+    expect(after.x).toBeGreaterThan(before.x);
+    expect(after.x).toBeGreaterThan(0);
   });
 });

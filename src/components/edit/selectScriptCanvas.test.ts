@@ -13,16 +13,17 @@ afterAll(() => {
   vi.useRealTimers();
 });
 
-it('keeps root scrollbar gutters out of a canvas without changing nested scrollers', async () => {
+it('pins the root height for a canvas without touching the site around it', async () => {
   document.body.innerHTML = '<main><div id="scroller">Nested content</div></main>';
   const siteStyle = document.createElement('style');
   siteStyle.textContent = `
     html { scrollbar-width: auto; scrollbar-gutter: stable; }
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
     #scroller { height: 100px; overflow: auto; scrollbar-width: thin; }
   `;
   document.head.appendChild(siteStyle);
   const originalSiteCss = siteStyle.sheet!.cssRules[0].cssText;
+  // Everything the canvas adds is off until it is told it is on a canvas, so
+  // the ordinary single-frame preview costs exactly what it did before.
   expect(document.getElementById('ss-root-height')).toBeNull();
 
   const announce = () => {
@@ -35,18 +36,15 @@ it('keeps root scrollbar gutters out of a canvas without changing nested scrolle
   const pin = document.querySelector<HTMLStyleElement>('#ss-root-height')!;
   const rules = Array.from(pin.sheet!.cssRules) as CSSStyleRule[];
   const root = rules.find((rule) => rule.selectorText === 'html')!.style;
-  expect(root.getPropertyValue('scrollbar-width')).toBe('none');
-  expect(root.getPropertyPriority('scrollbar-width')).toBe('important');
-  expect(root.getPropertyValue('scrollbar-gutter')).toBe('auto');
-  expect(root.getPropertyPriority('scrollbar-gutter')).toBe('important');
+  // The device height, not the frame's: that is what makes a page laid out in
+  // a 13,000px frame still believe `100vh` is one screen.
+  expect(root.getPropertyValue('height')).toBe('700px');
+  expect(root.getPropertyPriority('height')).toBe('important');
   // Overflow must remain visible: clipping the root to its device height would
   // remove the page below the first screen, even with a full-height iframe.
   expect(root.getPropertyValue('overflow')).toBe('visible');
-  const scrollbar = rules.find((rule) => rule.selectorText === 'html::-webkit-scrollbar')!;
-  expect(scrollbar.style.getPropertyValue('display')).toBe('none');
-  expect(scrollbar.style.getPropertyPriority('display')).toBe('important');
-  expect(scrollbar.style.getPropertyValue('width')).toBe('0');
-  expect(scrollbar.style.getPropertyPriority('width')).toBe('important');
+  // The site's own stylesheet is read, never rewritten, and nested scrollers
+  // keep their own scrolling and their own scrollbars.
   expect(siteStyle.sheet!.cssRules[0].cssText).toBe(originalSiteCss);
   expect(getComputedStyle(document.getElementById('scroller')!).overflow).toBe('auto');
   expect(getComputedStyle(document.getElementById('scroller')!).scrollbarWidth).toBe('thin');

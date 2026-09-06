@@ -1,5 +1,16 @@
 # Canvas investigation — return handoff to the original agent
 
+> **Resolved 2026-09-05, later the same evening. Read this first.**
+> The diagnosis in this document is correct and the measurements below stand.
+> The *candidate fix* does not work: the scrollbar CSS added to
+> `ssPinRootHeight()` was rebuilt, relaunched and measured in the app, and the
+> laptop frame still reported 13163. It has been reverted, and its test rewritten
+> to cover what the pin actually does. The working fix is host-side —
+> `scrolling="no"` on the canvas frames — and is verified against Safari's
+> numbers. See the block at the top of [HANDOFF.md](HANDOFF.md).
+> The diagnostic processes and ports listed at the end of this file are all gone;
+> the temporary tools under `/private/tmp` may or may not still exist.
+
 Written 2026-09-05, approximately 20:18 EDT. The user explicitly asked to hand
 this session back to you. **The root cause is confirmed in the app. A candidate
 fix is in source and built, but its behavior in the app is NOT yet verified.

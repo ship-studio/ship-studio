@@ -914,16 +914,7 @@ function ssPinRootHeight(){
      With `body` positioned, those elements resolve against the content instead,
      which is what the page meant on a real device anyway — there, the viewport
      is a screen, not the whole document. */
-  /* The full-page frame must keep its labelled WIDTH while its height settles.
-     A site's custom scrollbar can otherwise consume width only while the page
-     overflows. WebKit also subtracts that gutter from width media queries: at
-     1024px a 10px scrollbar flips the laptop below its breakpoint, making its
-     page taller; growing the frame removes the scrollbar and makes it shorter
-     again. Keep root scrollbars out of layout, including a reserved gutter.
-     Nested scrollers retain the site's styling and their own scroll behavior. */
-  var css='html{height:'+ssVH+'px!important;overflow:visible!important;'
-    +'scrollbar-width:none!important;scrollbar-gutter:auto!important}'
-    +'html::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}'
+  var css='html{height:'+ssVH+'px!important;overflow:visible!important}'
     +'body{overflow:visible!important;position:relative!important}';
   /* Only write when it would actually differ, and it almost never does — the
      device height does not change. This is not a micro-optimisation, it is the

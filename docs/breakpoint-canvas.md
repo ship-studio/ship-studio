@@ -47,6 +47,24 @@ with the device or it lays itself out for a viewport twenty screens tall:
    resized to match, and it grows again, all the way to the 24000px cap. The
    frame answers with the device instead.
 
+There is a fourth, and it is about **width**, which is why it took so long to
+find. A frame is a scrollable viewport, and a frame opens at its device height —
+which the page overflows until it has been measured. WebKit puts a scrollbar
+there, and **subtracts it from the width media queries are evaluated at**: a
+1024px laptop frame is asked at 1014px, drops below its own `64rem` breakpoint,
+lays itself out taller, the frame grows to match, the scrollbar goes away, and
+the breakpoint comes back. A real two-state cycle, and the canvas settles on the
+taller member of it. On one marketing page the laptop frame reported 13163px of
+page that is genuinely 8527px — 4636px of empty canvas under it, which is what
+the bug looked like from the outside.
+
+So the frames are **not scrollable at all** (`scrolling="no"`), which is the
+truth anyway: a frame shows its whole page and never scrolls. Hiding the
+scrollbar from inside the page does not work — the gutter is reserved before any
+stylesheet of the page's gets a say. The fix is host-side, one attribute, and it
+moved every frame onto the number the same page measures in Safari: 9596, 8527,
+12117 and 10716 for desktop, laptop, tablet and mobile.
+
 Known limits, stated rather than papered over:
 
 - **Height-based media queries** still evaluate against the real (tall) frame.
@@ -79,40 +97,86 @@ back up with the point they happened at.
 | Where | What it owns |
 |---|---|
 | [src/lib/previewCanvas.ts](../src/lib/previewCanvas.ts) | Geometry and zoom maths, no DOM: layout, fit scale, device heights, the mount window, pointer anchoring, zoom stepping |
-| [src/components/preview/PreviewCanvas.tsx](../src/components/preview/PreviewCanvas.tsx) | The surface itself: two layers, what is mounted, the zoom control |
+| [src/components/preview/PreviewCanvas.tsx](../src/components/preview/PreviewCanvas.tsx) | The surface itself: the three layers, what is mounted, the zoom control |
 | [src/hooks/useCanvasViewport.ts](../src/hooks/useCanvasViewport.ts) | How big the visible box is — and why measuring the wrong element runs the surface off to millions of pixels |
 | [src/hooks/useCanvasFrames.ts](../src/hooks/useCanvasFrames.ts) | The frames as live documents: the registry, what each has been told, how long its page is, what it hands back |
+| [src/hooks/useCanvasCamera.ts](../src/hooks/useCanvasCamera.ts) | Where the canvas is looking, and the only thing a gesture moves |
 | [src/hooks/useCanvasPlacement.ts](../src/hooks/useCanvasPlacement.ts) | Where the canvas sits and who decided that |
-| [src/hooks/useCanvasZoom.ts](../src/hooks/useCanvasZoom.ts) | Every way to zoom, and the anchoring correction |
+| [src/hooks/useCanvasGestures.ts](../src/hooks/useCanvasGestures.ts) | Wheel, trackpad and keyboard: pan, zoom, and the anchoring correction |
 | [src/hooks/useCanvasPan.ts](../src/hooks/useCanvasPan.ts) | Space-drag and middle-drag |
 | [src/hooks/usePreviewEditorFrame.ts](../src/hooks/usePreviewEditorFrame.ts) | What the editor, the inspector and screenshots point at |
 | [src-tauri/src/proxy/select_script.html](../src-tauri/src/proxy/select_script.html) | The in-frame half: viewport-unit rewriting, page height, gesture forwarding, `ss:selectAt` |
 
-### Two layers, deliberately
+### Three layers, deliberately
 
-The **scaled layer** holds the pages at their true CSS widths — the canvas is
-only visually transformed, so media queries fire at the labelled width. The
-**overlay layer** is unscaled and holds labels, frame outlines and the
-structural-edit toolbar, so they stay legible and crisp at 25%.
+The **world** is the only thing a gesture moves: one `translate3d` carrying
+everything else. The **scaled layer** inside it holds the pages at their true
+CSS widths — the canvas is only visually transformed, so media queries fire at
+the labelled width. The **overlay layer** holds labels, frame outlines and the
+structural-edit toolbar at screen scale, so they stay legible and crisp at 25%.
+
+The overlay sits inside the world rather than beside it, so a pan carries it
+along for free instead of re-rendering it. It is laid out in screen pixels at
+the *committed* scale, and while a zoom is in flight the camera scales the whole
+layer by the ratio between the live scale and that one — approximately right
+mid-pinch, exactly right and crisp the moment it settles.
 
 Anything host-side positioned from a frame's own coordinates has to come through
 the canvas scale, and past the label row: the frames start below it, and it is
 not scaled. Leaving the label out of the anchor origin drifts a zoom vertically
 by exactly `labelHeight × (1 − newScale / oldScale)`.
 
-### A gesture outruns React
+### A gesture outruns React — so it does not go through it
 
-A trackpad delivers a pinch far faster than the canvas re-renders. Nothing in
-the zoom path may therefore read the zoom level from a render: the live scale is
-a ref, each event compounds on the one before it, and the scroll correction that
-holds the point under the pointer chains the same way. Measuring each event
-against the last *rendered* scale collapses a whole gesture into its final
-event, which is what a canvas that "barely zooms" is doing.
+The canvas **does not scroll**. It used to, and that was the single biggest
+thing wrong with how it felt.
+
+A native scroll container puts the position in `scrollLeft` and the zoom in
+React state, so every event of a gesture became a render that rewrote
+layout-affecting styles — the surface's `width`/`height`, and every frame's
+`left`/`top`/`width`/`height` in the overlay — and then wrote `scrollLeft`,
+which forces layout synchronously. On a surface holding four live cross-origin
+pages that is a full layout per event, tens of times a second, and no amount of
+tuning inside that shape makes it feel like a design tool. Design tools do not
+do it: during a gesture they move one composited transform and touch nothing
+else, and layout happens once, at the end.
+
+So there is a **camera** — `x`, `y`, `scale` — and it lives in a ref:
+
+- Events accumulate and **one animation frame** writes the transforms. Sixty
+  events between two frames cost a couple of style writes, not sixty layouts.
+- **React is told when the gesture settles** (140ms after the last event). That
+  is when the mount window is recomputed and the overlay is laid out crisp. The
+  zoom readout is kept truthful in the meantime by writing its text node
+  directly, which costs nothing and needs no render.
+- `x` and `y` mean exactly what `scrollLeft` and `scrollTop` meant, so every
+  piece of geometry in `lib/previewCanvas.ts` — resting position, pointer
+  anchoring, the mount window — is unchanged and still describes this camera.
+
+Two traps, both of which have been fallen into and are now guarded by tests:
+
+- **Never adopt the rendered scale merely because it differs from the live
+  one.** Mid-gesture they always differ, and the first event of a gesture causes
+  a render of its own — so adopting on every render rewinds each gesture to the
+  value on screen and the rest of it goes nowhere. It is adopted only when the
+  rendered scale actually *changed*.
+- **A decision supersedes a gesture that has not settled.** Press Fit within
+  140ms of a pinch and the pinch's pending publish would otherwise arrive a beat
+  later and undo it. Anything that places a scale outright — Fit, the readout,
+  zoom-to-frame — cancels the pending one.
 
 For the same reason the gesture listeners are registered once. A listener set
 rebuilt whenever the scale changes throws away the gesture baseline it was
 accumulating, and the next event of a pinch already in flight has nothing to
 measure itself against.
+
+One consequence worth stating: because the canvas owns the wheel, panning is the
+**same code path wherever the pointer is**. It used to be two — the browser
+scrolled the container natively when the pointer was over the background, and
+the injected script forwarded the wheel by hand when it was over a live frame —
+so the canvas changed character as the pointer crossed a frame edge. macOS keeps
+delivering wheel events through the momentum phase after the fingers lift, so a
+flick still coasts.
 
 ### A canvas you cannot lose
 
@@ -233,14 +297,17 @@ frame still allowed to animate.
 - **Frames outside the mount window are unmounted** (the active one never is),
   so working zoomed into one frame tears down the three you cannot see. Each is
   a full dev-server client with its own HMR socket.
-- **The scaled layer is promoted only while the user is moving it**, so a zoom
-  is a compositor transform rather than tens of millions of pixels rasterised
-  again — and the hint is dropped 300ms after they stop.
+- **The world is promoted for the whole time the canvas is open.** Promoting and
+  demoting a layer this size costs a full raster at each end — a hitch at the
+  start and the end of every pan — and holding it is what lets a pan be
+  composited from the first event of a gesture rather than the second frame of
+  it. It was previously toggled per gesture, back when the canvas cost 3.3GB;
+  measured now, resident memory is the same with the canvas open and closed.
 - **Each stage is `contain: strict`**, so a page reflowing inside one frame does
   not invalidate layout across the canvas.
-- Scroll reaches React only when it has moved far enough to change which frames
-  are mounted, and a gesture forwarded out of a frame is coalesced to one scroll
-  write per animation frame.
+- **A gesture reaches React once, when it settles** — plus once more mid-pan if
+  the camera travels a quarter of a screen, so frames it is heading towards are
+  mounted before they arrive.
 
 Everything the canvas adds to a preview page — unit rewriting, page-height
 watching, gesture forwarding — is off until `ss:canvas` arrives, so the ordinary
@@ -251,7 +318,12 @@ single-frame preview costs exactly what it cost before this feature existed.
 `src/lib/previewCanvas.test.ts` covers the geometry and zoom maths;
 `src/components/preview/PreviewCanvas.test.tsx` covers frame lifecycle, page
 heights, zoom input (including gestures that arrive faster than a render),
-panning, re-centring and the editor binding.
+panning, re-centring and the editor binding. Its assertions read the camera back
+out of the transform the canvas actually wrote, because there is no scroll
+position to inspect any more.
+`src/components/edit/selectScriptCanvas.test.ts` runs the real injected script
+in jsdom and holds it to pinning the root height without touching the site's own
+stylesheet or its nested scrollers.
 
 The parts that only exist in a browser — pointer anchoring against real layout,
 viewport-unit rewriting, and the injected script's own behaviour — were verified

@@ -1,6 +1,6 @@
 /**
  * Breakpoint canvas — every responsive breakpoint rendered at once, side by
- * side, on one scaled and scrollable surface.
+ * side, on one scaled surface you can push around.
  *
  * Each frame is a real dev-server page laid out at its true CSS width (the
  * canvas is only visually scaled, so media queries fire at the labelled width),
@@ -14,6 +14,28 @@
  *
  * Frames scrolled far outside the visible canvas are unmounted — each mounted
  * frame is a full dev-server client with its own HMR socket.
+ *
+ * ## The canvas does not scroll
+ *
+ * It used to, and that was the single biggest thing wrong with how it felt. A
+ * native scroll container means position is `scrollLeft`, zoom is React state,
+ * and therefore every event of a gesture is a render that rewrites
+ * layout-affecting styles and then forces layout — on a surface holding four
+ * live cross-origin pages.
+ *
+ * Instead there is a **camera** (`useCanvasCamera`) and one transformed layer.
+ * A gesture moves the camera, the camera writes a transform, and React is told
+ * once the gesture settles. Panning is a single composited `translate3d`;
+ * nothing relayouts and the frames' rasters are reused. Two structural
+ * consequences show up in the markup below:
+ *
+ * - The overlay (labels, outlines, activation targets) lives INSIDE the moved
+ *   layer, so panning carries it along for free instead of re-rendering it.
+ *   It is laid out in screen pixels at the committed scale and the camera
+ *   corrects it by a ratio mid-zoom, which is why it goes crisp when a zoom
+ *   settles rather than being re-laid-out on every event of one.
+ * - There is no scroll container to clamp the position, so the camera clamps
+ *   itself against the same extents the scrollbars used to describe.
  *
  * @module components/preview/PreviewCanvas
  */
@@ -29,7 +51,6 @@ import {
 } from 'react';
 import {
   CANVAS_LABEL_PX,
-  CANVAS_PADDING_PX,
   MAX_ZOOM,
   MIN_ZOOM,
   PAN_SLACK_RATIO,
@@ -43,17 +64,18 @@ import {
 } from '../../lib/previewCanvas';
 import { useCanvasFrames } from '../../hooks/useCanvasFrames';
 import { useCanvasViewport } from '../../hooks/useCanvasViewport';
-import { useCanvasZoom } from '../../hooks/useCanvasZoom';
+import { useCanvasCamera, type CameraPosition } from '../../hooks/useCanvasCamera';
+import { useCanvasGestures } from '../../hooks/useCanvasGestures';
 import { useCanvasPan } from '../../hooks/useCanvasPan';
 import { useCanvasPlacement } from '../../hooks/useCanvasPlacement';
 import { useCanvasReveal } from '../../hooks/useCanvasReveal';
 import { Button } from '../primitives/Button';
 import { kbd } from '../../lib/shortcuts';
 
-/** How far the canvas must scroll before the mount window is recomputed. The
- *  window carries a screen of slack on each side, so nothing can scroll into
- *  view within this distance. */
-const SCROLL_RENDER_THRESHOLD_PX = 120;
+/** How far the camera must travel before the mount window is recomputed. The
+ *  window carries a screen of slack on each side, so nothing can come into view
+ *  within this distance. */
+const MOUNT_WINDOW_THRESHOLD_PX = 120;
 
 /** `'fit'` recomputes on every resize; a number is an explicit zoom level. */
 export type CanvasZoom = 'fit' | number;
@@ -87,8 +109,8 @@ interface PreviewCanvasProps {
    *  chrome can be clamped to the same box. */
   onStageHeightChange?: (height: number) => void;
   /** Host chrome drawn over the active frame — the structural-edit toolbar.
-   *  Rendered in the unscaled overlay at the frame's screen position, and given
-   *  the scale so it can map the frame's own coordinates into screen space. */
+   *  Rendered in the overlay at the frame's screen position, and given the
+   *  scale so it can map the frame's own coordinates into screen space. */
   activeFrameOverlay?: (scale: number) => ReactNode;
 }
 
@@ -105,15 +127,23 @@ export function PreviewCanvas({
   onStageHeightChange,
   activeFrameOverlay,
 }: PreviewCanvasProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // The visible canvas box, and the scroll offset — together they decide the
-  // fit scale, where the canvas rests, and which frames stay mounted.
+  // The visible canvas box, and where the camera has settled — together they
+  // decide the fit scale, where the canvas rests, and which frames stay mounted.
   const { setRootEl, viewport } = useCanvasViewport();
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const [cameraX, setCameraX] = useState(0);
 
-  const setScrollEl = useCallback((node: HTMLDivElement | null) => {
-    scrollRef.current = node;
+  const setRoot = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node;
+      setRootEl(node);
+    },
+    [setRootEl]
+  );
+  const setViewportEl = useCallback((node: HTMLDivElement | null) => {
+    viewportRef.current = node;
   }, []);
 
   // The frames have to be wired up before the canvas knows how big they make it
@@ -122,53 +152,15 @@ export function PreviewCanvas({
   // from placement is handed over afterwards, through this.
   const markMovedRef = useRef<() => void>(() => {});
 
-  // Scroll drives the mount window, and nothing else — so it only has to reach
-  // React when it has moved far enough to change which frames are mounted.
-  // rAF-throttled on top of that, so a flung scrollbar can't queue a render per
-  // frame while four live pages are already asking for the main thread.
-  const scrollRafRef = useRef<number | null>(null);
-  const handleScroll = useCallback(() => {
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const next = scrollRef.current?.scrollLeft ?? 0;
-      setScrollLeft((previous) =>
-        Math.abs(next - previous) >= SCROLL_RENDER_THRESHOLD_PX ? next : previous
-      );
-    });
-  }, []);
-  useEffect(
-    () => () => {
-      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
-    },
-    []
-  );
+  const isFit = zoom === 'fit';
 
-  // A gesture a frame could not use: it pans the canvas instead. Coalesced,
-  // because a trackpad delivers these faster than the canvas can paint and each
-  // one written straight to `scrollLeft` is its own scroll and its own repaint
-  // of everything on the surface.
-  const panPendingRef = useRef({ dx: 0, dy: 0 });
-  const panRafRef = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
-    },
-    []
-  );
+  // Everything below needs the layout, and the layout needs the frames, so the
+  // frames are wired up first and the camera is given a callback that reads
+  // them later.
+  const cameraRef = useRef<{ panBy: (dx: number, dy: number) => void }>({ panBy: () => {} });
   const panBy = useCallback((dx: number, dy: number) => {
     markMovedRef.current();
-    panPendingRef.current.dx += dx;
-    panPendingRef.current.dy += dy;
-    if (panRafRef.current !== null) return;
-    panRafRef.current = requestAnimationFrame(() => {
-      panRafRef.current = null;
-      const scroller = scrollRef.current;
-      if (!scroller) return;
-      scroller.scrollLeft += panPendingRef.current.dx;
-      scroller.scrollTop += panPendingRef.current.dy;
-      panPendingRef.current = { dx: 0, dy: 0 };
-    });
+    cameraRef.current.panBy(dx, dy);
   }, []);
 
   const { frameElsRef, registerFrame, handleFrameLoad, pageHeights } = useCanvasFrames({
@@ -197,7 +189,6 @@ export function PreviewCanvas({
     [frames]
   );
 
-  const isFit = zoom === 'fit';
   const fitted = fitScale(layout.contentWidth, viewport.width);
   const scale = isFit ? fitted : zoom;
   // Room around the frames so the canvas can be pushed past its own content —
@@ -211,27 +202,66 @@ export function PreviewCanvas({
   // frame sized from the pane makes every viewport-relative unit in the page a
   // lie. The page scrolls inside its frame, like it does in a browser.
   const tallestFrameHeight = tallestFrame(layout);
-  const surfaceWidth = layout.contentWidth * scale + slackX * 2;
-  const surfaceHeight =
-    CANVAS_LABEL_PX + tallestFrameHeight * scale + CANVAS_PADDING_PX + slackY * 2;
 
   // The frames' on-screen extent, which is what "centred" is measured against.
   const contentWidthPx = layout.contentWidth * scale;
   const contentHeightPx = CANVAS_LABEL_PX + tallestFrameHeight * scale;
 
-  const { markUserMoved, releaseToCanvas, interacting, restingScroll, parkScrollNow } =
-    useCanvasPlacement({
-      scrollRef,
-      viewport,
+  const bounds = useMemo(
+    () => ({
       slackX,
       slackY,
-      contentWidthPx,
-      contentHeightPx,
-      isFit,
-      scale,
-      geometryToken: layout,
-      onScrollSettled: setScrollLeft,
-    });
+      contentWidth: layout.contentWidth,
+      tallestHeight: tallestFrameHeight,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+    }),
+    [slackX, slackY, layout.contentWidth, tallestFrameHeight, viewport.width, viewport.height]
+  );
+
+  // Where a gesture ends up. The mount window only has to be recomputed when
+  // the camera has gone far enough to change it, and the zoom level is only
+  // published when the gesture actually changed it — otherwise a long pan would
+  // quietly turn Fit into a fixed zoom level.
+  const handleSettle = useCallback(
+    (camera: CameraPosition, { scaleChanged }: { scaleChanged: boolean }) => {
+      setCameraX((previous) =>
+        Math.abs(camera.x - previous) >= MOUNT_WINDOW_THRESHOLD_PX ? camera.x : previous
+      );
+      if (scaleChanged && camera.scale !== scale) onZoomChange(camera.scale);
+    },
+    [scale, onZoomChange]
+  );
+
+  const {
+    controls: camera,
+    interacting,
+    setWorldEl,
+    setScaledEl,
+    setOverlayEl,
+    setReadoutEl,
+  } = useCanvasCamera({
+    committedScale: scale,
+    bounds,
+    onSettle: handleSettle,
+  });
+  useEffect(() => {
+    cameraRef.current = camera;
+  }, [camera]);
+
+  const { markUserMoved, releaseToCanvas, restingCamera } = useCanvasPlacement({
+    camera,
+    interacting,
+    rootRef,
+    viewport,
+    slackX,
+    slackY,
+    contentWidthPx,
+    contentHeightPx,
+    isFit,
+    scale,
+    geometryToken: layout,
+  });
   useEffect(() => {
     markMovedRef.current = markUserMoved;
   }, [markUserMoved]);
@@ -246,8 +276,8 @@ export function PreviewCanvas({
   const revealed = useCanvasReveal(unmeasured, reloadToken);
 
   const mounted = useMemo(
-    () => new Set(visibleFrameIds(layout, scale, scrollLeft, viewport.width, slackX)),
-    [layout, scale, scrollLeft, viewport.width, slackX]
+    () => new Set(visibleFrameIds(layout, scale, cameraX, viewport.width, slackX)),
+    [layout, scale, cameraX, viewport.width, slackX]
   );
   // The active frame is never torn down — the editor is bound to it, and a
   // scroll that unmounted it would silently drop the binding.
@@ -288,70 +318,77 @@ export function PreviewCanvas({
   }, []);
   useLayoutEffect(() => {
     if (!recenterRef.current) return;
-    const node = scrollRef.current;
-    if (!node) return;
     recenterRef.current = false;
-    const rest = restingScroll();
-    parkScrollNow(node, rest.left, rest.top);
-    setScrollLeft(node.scrollLeft);
+    camera.place(restingCamera());
+    camera.commit();
     // `scale` is a dependency because a fit request usually changes it, and the
     // resting position has to be measured against the layout that produces.
-  }, [recenterTick, scale, restingScroll, parkScrollNow]);
+  }, [recenterTick, scale, restingCamera, camera]);
 
   const fitCanvas = useCallback(() => {
     // Fit hands the canvas back to the canvas: it is centred again, and it
-    // stays centred through anything that resizes the pane afterwards.
+    // stays centred through anything that resizes the pane afterwards. The
+    // scale is placed as well as published, so a pinch that has not settled yet
+    // cannot come back a beat later and undo it.
     releaseToCanvas();
+    camera.place({ scale: fitted });
     onZoomChange('fit');
     requestRecenter();
-  }, [releaseToCanvas, onZoomChange, requestRecenter]);
+  }, [releaseToCanvas, onZoomChange, requestRecenter, camera, fitted]);
+
+  const { zoomFromCentre, consumeAnchored } = useCanvasGestures({
+    viewportRef,
+    camera,
+    frameElsRef,
+    onUserMoved: markUserMoved,
+    onFit: fitCanvas,
+  });
 
   const zoomToLevel = useCallback(
     (next: number) => {
       markUserMoved();
+      camera.place({ scale: next });
       onZoomChange(next);
     },
-    [markUserMoved, onZoomChange]
+    [markUserMoved, onZoomChange, camera]
   );
-
-  const { zoomFromCentre, parkScroll, consumeAnchored } = useCanvasZoom({
-    scrollRef,
-    frameElsRef,
-    scale,
-    slackX,
-    slackY,
-    onZoomChange: zoomToLevel,
-    onFit: fitCanvas,
-    onScrollSettled: setScrollLeft,
-  });
 
   /** Activate a frame and bring it up to a workable size, centred. At Fit a
    *  four-frame canvas sits near 30%, which is fine for comparing and useless
    *  for working — this is the way from one to the other. */
   const zoomToFrame = useCallback(
     (frameId: string) => {
-      const node = scrollRef.current;
       const placement = layout.placements.find((frame) => frame.id === frameId);
-      if (!node || !placement) return;
+      if (!placement) return;
       markUserMoved();
-      const nextScale = zoomForFrame(placement.width, node.clientWidth);
+      const nextScale = zoomForFrame(placement.width, viewport.width);
       const frameHeightPx = CANVAS_LABEL_PX + placement.height * nextScale;
-      parkScroll({
-        scrollLeft: Math.max(
+      camera.place({
+        scale: nextScale,
+        x: Math.max(
           0,
-          slackX + (placement.x + placement.width / 2) * nextScale - node.clientWidth / 2
+          slackX + (placement.x + placement.width / 2) * nextScale - viewport.width / 2
         ),
-        scrollTop: Math.max(0, slackY - Math.max(0, (node.clientHeight - frameHeightPx) / 2)),
+        y: Math.max(0, slackY - Math.max(0, (viewport.height - frameHeightPx) / 2)),
       });
       onActivateFrame(frameId);
       onZoomChange(nextScale);
     },
-    [layout, slackX, slackY, onActivateFrame, onZoomChange, parkScroll, markUserMoved]
+    [
+      layout,
+      slackX,
+      slackY,
+      viewport.width,
+      viewport.height,
+      onActivateFrame,
+      onZoomChange,
+      camera,
+      markUserMoved,
+    ]
   );
 
   const { spaceHeld, panning, handlePanStart } = useCanvasPan({
-    scrollRef,
-    onScrollSettled: setScrollLeft,
+    camera,
     onPan: markUserMoved,
   });
 
@@ -359,44 +396,37 @@ export function PreviewCanvas({
   // readout, say) centres on the frame being worked in.
   const previousFitRef = useRef(zoom === 'fit');
   useEffect(() => {
-    const isFit = zoom === 'fit';
-    if (previousFitRef.current === isFit) return;
-    previousFitRef.current = isFit;
-    if (isFit) return;
-    // A gesture that just anchored itself at the pointer owns the scroll
-    // position — re-centring would throw away the place the user zoomed into.
+    const nowFit = zoom === 'fit';
+    if (previousFitRef.current === nowFit) return;
+    previousFitRef.current = nowFit;
+    if (nowFit) return;
+    // A gesture that just anchored itself at the pointer owns the camera —
+    // re-centring would throw away the place the user zoomed into.
     if (consumeAnchored()) return;
-    const node = scrollRef.current;
-    if (!node) return;
-    node.scrollLeft = scrollToCenterFrame(layout, activeFrameId, zoom, node.clientWidth, slackX);
-  }, [zoom, layout, activeFrameId, slackX, consumeAnchored]);
+    camera.place({
+      x: scrollToCenterFrame(layout, activeFrameId, zoom, viewport.width, slackX),
+    });
+    camera.commit();
+  }, [zoom, layout, activeFrameId, slackX, viewport.width, consumeAnchored, camera]);
 
   return (
     <div
-      ref={setRootEl}
+      ref={setRoot}
       className={`preview-canvas-root${spaceHeld ? ' is-pannable' : ''}${
         panning ? ' is-panning' : ''
       }${interacting ? ' is-interacting' : ''}${revealed ? '' : ' is-measuring'}`}
     >
-      <div
-        className="preview-canvas"
-        ref={setScrollEl}
-        onScroll={handleScroll}
-        onMouseDown={handlePanStart}
-      >
-        <div
-          className="preview-canvas-surface"
-          style={{ width: `${surfaceWidth}px`, height: `${surfaceHeight}px` }}
-        >
+      <div className="preview-canvas" ref={setViewportEl} onMouseDown={handlePanStart}>
+        {/* The moved layer. Everything on the canvas is inside it, so a pan is
+            one composited transform and nothing else on the page moves. */}
+        <div className="preview-canvas-world" ref={setWorldEl}>
           {/* Scaled layer: the real pages, laid out at their true CSS widths. */}
           <div
             className="preview-canvas-scaled"
+            ref={setScaledEl}
             style={{
               width: `${layout.contentWidth}px`,
               height: `${tallestFrameHeight}px`,
-              left: `${slackX}px`,
-              top: `${slackY + CANVAS_LABEL_PX}px`,
-              transform: `scale(${scale})`,
             }}
           >
             {layout.placements.map((placement) => (
@@ -415,6 +445,16 @@ export function PreviewCanvas({
                     ref={registerFrame}
                     src={placement.id === activeFrameId ? activeSrc : url}
                     className="preview-canvas-iframe"
+                    // A canvas frame shows its WHOLE page, so it never scrolls
+                    // — and it must not be scroll-ABLE either. A frame opens at
+                    // its device height, which the page overflows until it has
+                    // been measured, and WebKit subtracts the scrollbar that
+                    // appears from the width it evaluates media queries at: at
+                    // 1024 the laptop drops below its own breakpoint, lays out
+                    // taller, and the frame grows — which removes the scrollbar
+                    // and puts it back. That two-state cycle is why one frame
+                    // reported thousands of pixels more page than it had.
+                    scrolling="no"
                     title={`${placement.label} preview`}
                     data-tooltip-disabled
                     data-frame-id={placement.id}
@@ -429,8 +469,10 @@ export function PreviewCanvas({
           </div>
 
           {/* Unscaled layer: labels, frame outlines, and the activation targets.
-              Kept out of the transform so they stay legible and crisp at any zoom. */}
-          <div className="preview-canvas-overlay">
+              Laid out in screen pixels at the committed scale so they stay
+              legible and crisp; the camera scales this layer by the ratio while
+              a zoom is in flight, and back to exactly 1 when it settles. */}
+          <div className="preview-canvas-overlay" ref={setOverlayEl}>
             {layout.placements.map((placement) => {
               const isActive = placement.id === activeFrameId;
               return (
@@ -438,8 +480,8 @@ export function PreviewCanvas({
                   key={placement.id}
                   className={`preview-canvas-chrome${isActive ? ' is-active' : ''}`}
                   style={{
-                    left: `${slackX + placement.x * scale}px`,
-                    top: `${slackY}px`,
+                    left: `${placement.x * scale}px`,
+                    top: `${-CANVAS_LABEL_PX}px`,
                     width: `${placement.width * scale}px`,
                     height: `${CANVAS_LABEL_PX + placement.height * scale}px`,
                   }}
@@ -506,7 +548,8 @@ export function PreviewCanvas({
           &minus;
         </Button>
         {/* The readout doubles as the way back to true size — there is no
-            Cmd+1 to spare for it. */}
+            Cmd+1 to spare for it. Its text is written by the camera during a
+            gesture, so it keeps up with a pinch without a render. */}
         <Button
           size="compact"
           variant="ghost"
@@ -514,7 +557,7 @@ export function PreviewCanvas({
           onClick={() => zoomToLevel(1)}
           title="Zoom to 100%"
         >
-          {Math.round(scale * 100)}%
+          <span ref={setReadoutEl}>{Math.round(scale * 100)}%</span>
         </Button>
         <Button
           size="compact"

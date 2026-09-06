@@ -1,17 +1,23 @@
 /**
  * Dragging the breakpoint canvas around: space-drag and middle-drag, the two
- * canvas idioms. Two-finger scrolling is the browser's own and needs nothing
- * from us.
+ * canvas idioms. Wheel and trackpad panning is `useCanvasGestures`.
  *
  * Space is tracked as a held state rather than handled on the drag itself,
  * because holding it also has to lift the frames out of the way (a live page
  * would otherwise swallow a drag that crossed into it) and change the cursor —
  * both of which have to happen before the mouse goes down.
  *
+ * The drag moves the camera by the delta since the LAST move event rather than
+ * by the distance from where the drag began. Both describe the same path, but
+ * only the incremental form composes with a camera that is also being clamped
+ * at the canvas edges: measured from the start, a drag that ran into an edge
+ * and came back would jump by however far it had been held.
+ *
  * @module hooks/useCanvasPan
  */
 
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { CanvasCameraControls } from './useCanvasCamera';
 
 /** Space must not arm panning while the user is typing somewhere. */
 const isTypingTarget = (target: EventTarget | null): boolean => {
@@ -22,9 +28,8 @@ const isTypingTarget = (target: EventTarget | null): boolean => {
 };
 
 interface UseCanvasPanParams {
-  scrollRef: RefObject<HTMLDivElement | null>;
-  /** Called with the resting scroll position when a drag ends. */
-  onScrollSettled: (scrollLeft: number) => void;
+  /** The camera the drag moves. */
+  camera: CanvasCameraControls;
   /** The user has taken the canvas position into their own hands. */
   onPan?: () => void;
 }
@@ -38,7 +43,7 @@ export interface CanvasPan {
   handlePanStart: (event: React.MouseEvent) => void;
 }
 
-export function useCanvasPan({ scrollRef, onScrollSettled, onPan }: UseCanvasPanParams): CanvasPan {
+export function useCanvasPan({ camera, onPan }: UseCanvasPanParams): CanvasPan {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
 
@@ -65,35 +70,32 @@ export function useCanvasPan({ scrollRef, onScrollSettled, onPan }: UseCanvasPan
 
   const handlePanStart = useCallback(
     (event: React.MouseEvent) => {
-      const node = scrollRef.current;
-      if (!node) return;
       const middleButton = event.button === 1;
       if (!middleButton && !(spaceHeld && event.button === 0)) return;
       event.preventDefault();
       setPanning(true);
 
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const startLeft = node.scrollLeft;
-      const startTop = node.scrollTop;
+      let lastX = event.clientX;
+      let lastY = event.clientY;
       const onMove = (move: MouseEvent) => {
         // Reported as it happens, not on release: a drag in progress is already
         // the user placing the canvas, and something that resizes the pane
         // mid-drag must not put it back.
         onPan?.();
-        node.scrollLeft = startLeft - (move.clientX - startX);
-        node.scrollTop = startTop - (move.clientY - startY);
+        camera.panBy(lastX - move.clientX, lastY - move.clientY);
+        lastX = move.clientX;
+        lastY = move.clientY;
       };
       const onUp = () => {
         setPanning(false);
-        onScrollSettled(node.scrollLeft);
+        camera.commit();
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     },
-    [spaceHeld, scrollRef, onScrollSettled, onPan]
+    [spaceHeld, camera, onPan]
   );
 
   return { spaceHeld, panning, handlePanStart };
