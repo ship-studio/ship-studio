@@ -94,6 +94,28 @@ describe('HostingRow geometry', () => {
     }
   });
 
+  it('shows exactly one indicator while checking', () => {
+    // The loading state used to draw the provider mark *and* a spinner in the
+    // same slot. With no provider known yet the mark is a bare outlined
+    // circle, so it rendered as two concentric rings — read as a broken double
+    // spinner rather than as loading.
+    const { container } = render(<HostingRow state={{ kind: 'checking' }} />);
+    const icon = container.querySelector('[data-slot="icon"]');
+
+    expect(icon?.querySelectorAll('.hosting-row-globe')).toHaveLength(0);
+    expect(icon?.querySelectorAll('.hosting-row-dot')).toHaveLength(0);
+    expect(icon?.children).toHaveLength(1);
+  });
+
+  it('never uses native title tooltips, which paint over the row below', () => {
+    for (const kind of ALL_KINDS) {
+      const { container } = render(
+        <HostingRow state={stateFor(kind)} commitSubject="Fix the nav" />
+      );
+      expect(container.querySelectorAll('[title]')).toHaveLength(0);
+    }
+  });
+
   it('hides an unavailable action rather than dropping the column', () => {
     const { container } = render(
       <HostingRow state={{ kind: 'not_found_yet', provider: 'vercel' }} />

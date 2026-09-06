@@ -206,7 +206,16 @@ fn to_deployment(raw: RawDeployment) -> Deployment {
 
     let aliases: Vec<String> = raw.alias.iter().map(|a| with_scheme(a)).collect();
     let deployment_url = raw.url.as_deref().map(with_scheme);
-    let primary = aliases.first().cloned().or_else(|| deployment_url.clone());
+    // Vercel returns several aliases in no useful order: a project's stable
+    // domain sits alongside per-deployment hosts carrying a generated hash and
+    // the account name. The shortest is reliably the one a human would
+    // recognise and the only one that fits the row. Still chosen from what the
+    // API returned — never assembled.
+    let primary = aliases
+        .iter()
+        .min_by_key(|a| a.len())
+        .cloned()
+        .or_else(|| deployment_url.clone());
 
     let environment = match raw.target.as_deref() {
         Some("production") => Environment::Production,
@@ -513,6 +522,45 @@ mod tests {
             d.urls.primary.as_deref(),
             Some("https://acme-saas-tau.vercel.app")
         );
+    }
+
+    #[test]
+    fn the_primary_url_is_the_one_a_human_would_recognise() {
+        // Vercel lists a project's stable domain alongside per-deployment hosts
+        // carrying a generated hash and the account name. Taking whichever came
+        // first surfaced the unreadable one.
+        let body = r#"{
+            "uid":"dpl_1","url":"short.vercel.app","readyState":"READY","target":"production",
+            "createdAt":1,
+            "alias":[
+              "pepper-cayenne-accessories-myos1awic-juliangalluzzo.vercel.app",
+              "pepper-cayenne.vercel.app"
+            ],
+            "meta":{"githubCommitSha":"abc","githubCommitRef":"main"}
+        }"#;
+        let raw: RawDeployment = serde_json::from_str(body).unwrap();
+        let d = to_deployment(raw);
+
+        assert_eq!(
+            d.urls.primary.as_deref(),
+            Some("https://pepper-cayenne.vercel.app")
+        );
+        // The long one is still available; it just isn't what we lead with.
+        assert_eq!(d.urls.aliases.len(), 2);
+    }
+
+    #[test]
+    fn alias_assigned_accepts_the_timestamp_form_vercel_actually_sends() {
+        // A live response returned the epoch-millisecond assignment time where
+        // the docs imply a boolean, which failed the whole lookup.
+        let body = r#"{"deployments":[{
+            "uid":"dpl_3","url":"x.vercel.app","readyState":"READY",
+            "aliasAssigned":1787594676951,"target":"production","createdAt":3,
+            "meta":{"githubCommitSha":"abc","githubCommitRef":"main"}
+        }]}"#;
+        let list: RawList = serde_json::from_str(body).unwrap();
+        let d = to_deployment(list.deployments.into_iter().next().unwrap());
+        assert_eq!(d.phase, DeploymentPhase::Ready);
     }
 
     #[test]

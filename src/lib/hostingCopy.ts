@@ -46,13 +46,13 @@ function when(deployment?: Deployment): string {
 }
 
 /**
- * Where each environment is serving. "Production" and "Preview" are the two
- * words users actually see in every provider's own dashboard, so they are kept
- * — unlike "prod", which is nobody's word.
+ * Only a preview is worth naming. Production is what a push to the default
+ * branch does, so saying so adds a word the reader already knows and — in a
+ * 320px popover — pushes the timestamp off the end of the line. A preview is
+ * the surprising case, and the one where knowing changes what you do next.
  */
 function environmentLabel(deployment?: Deployment): string {
-  if (!deployment) return '';
-  return deployment.environment === 'production' ? ' · Production' : ' · Preview';
+  return deployment?.environment === 'preview' ? ' · Preview' : '';
 }
 
 /**

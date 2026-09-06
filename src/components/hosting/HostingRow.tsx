@@ -83,24 +83,34 @@ export function HostingRow({ state, commitSubject, shortSha, onAction }: Props) 
   return (
     <div className="hosting-row" data-state={state.kind}>
       <div className="hosting-row-icon" data-slot="icon">
-        <ProviderMark provider={state.provider} />
+        {/* While checking, the slot holds the spinner alone. Drawing the
+            provider mark underneath it meant a bare outlined circle with a
+            spinner on top — two concentric rings, which read as a broken
+            double spinner rather than as loading. */}
         {state.kind === 'checking' ? (
-          <Spinner size="sm" className="hosting-row-spinner" />
-        ) : tone === 'none' ? null : (
-          <span
-            className={`hosting-row-dot hosting-row-dot--${tone}${
-              pulsing ? ' hosting-row-dot--pulsing' : ''
-            }`}
-            aria-hidden="true"
-          />
+          <Spinner size="sm" />
+        ) : (
+          <>
+            <ProviderMark provider={state.provider} />
+            {tone === 'none' ? null : (
+              <span
+                className={`hosting-row-dot hosting-row-dot--${tone}${
+                  pulsing ? ' hosting-row-dot--pulsing' : ''
+                }`}
+                aria-hidden="true"
+              />
+            )}
+          </>
         )}
       </div>
 
+      {/* No `title` attributes: a native tooltip paints an opaque box over the
+          row below it, and it lags a state change — so the loading placeholder
+          was still hovering over a row that had already resolved. Copy is
+          written to fit instead. */}
       <div className="hosting-row-text" data-slot="text">
-        <div className="hosting-row-title" title={copy.title}>
-          {copy.title}
-        </div>
-        <div className="hosting-row-status" title={copy.status}>
+        <div className="hosting-row-title">{copy.title}</div>
+        <div className="hosting-row-status">
           {copy.status}
           {state.isStale ? <span className="hosting-row-stale"> · not just checked</span> : null}
         </div>
@@ -123,9 +133,7 @@ export function HostingLinks({ state, hint }: { state: SectionState; hint?: stri
   return (
     <div className="hosting-links" data-state={state.kind}>
       {hint ? (
-        <span className="hosting-links-hint" title={hint}>
-          {hint}
-        </span>
+        <span className="hosting-links-hint">{hint}</span>
       ) : null}
     </div>
   );
