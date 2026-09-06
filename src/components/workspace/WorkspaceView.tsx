@@ -1061,10 +1061,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     variablesPanelVisible: variablesPanelOpen,
     variablesPanelAvailable: isWebProject,
     onToggleVariablesPanel: toggleVariablesPanel,
-    commentsVisible: comments.open,
-    commentsAvailable: comments.available,
-    commentsPendingCount: comments.pendingCount,
-    onToggleComments: comments.toggle,
+    ...comments.header,
     modes: modesNode,
     headerExtras: (
       <PluginsDropdown

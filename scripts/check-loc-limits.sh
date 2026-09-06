@@ -73,10 +73,12 @@ echo "Components (.tsx limit 1200):"
 #
 # Raised 1500 -> 1520 for the pinned-comments toggle. The file was sitting at
 # exactly 1500 beforehand, so the extraction this guard asks for was done first:
-# the open/pending state lives in useWorkspaceComments, and what is left here is
-# the wiring that only this component can do — the header toggle group and the
-# three props the preview pane needs. Next growth should extract again, not
-# bump this.
+# the open/pending state lives in useWorkspaceComments.
+#
+# That note said the next growth should extract again rather than bump this, and
+# when the conflicts-palette fix pushed the file two lines over, it did: the
+# header's four comment props are now one group shaped by the hook and spread
+# here. The ceiling has not moved since. Keep it that way.
 check_file src/components/workspace/WorkspaceView.tsx 1520
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700

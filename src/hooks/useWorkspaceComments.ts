@@ -43,9 +43,13 @@ export function useWorkspaceComments({
   return {
     open: commentsOpen,
     setOpen: setCommentsOpen,
-    pendingCount: commentsPendingCount,
     setPendingCount: setCommentsPendingCount,
-    available: isWebProject,
-    toggle: toggleComments,
+    /** The header's prop group, shaped here so WorkspaceView just spreads it. */
+    header: {
+      commentsVisible: commentsOpen,
+      commentsAvailable: isWebProject,
+      commentsPendingCount,
+      onToggleComments: toggleComments,
+    },
   };
 }
