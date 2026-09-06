@@ -1,3 +1,4 @@
+import { commentAgents } from '../../lib/commentAgents';
 /**
  * Workspace view component.
  *
@@ -1288,6 +1289,13 @@ export const WorkspaceView = memo(function WorkspaceView({
                   }
                   right={
                     <WorkspacePreviewPane
+                      activeCommentAgentId={activeTerminalTab}
+                      commentAgents={commentAgents(
+                        currentProject.path,
+                        terminal,
+                        tabTitles,
+                        setIsAgentPanelHidden
+                      )}
                       currentProject={currentProject}
                       previewRef={previewRef}
                       workspaceTab={workspaceTab}

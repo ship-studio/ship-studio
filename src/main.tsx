@@ -187,6 +187,8 @@ const OS_SKIP_SELECTOR = [
   '.inbox-list',
   '.workflow-row-activity',
   '.inbox-detail-pane',
+  // Comments replace draft/list children often; preserve React's DOM ownership.
+  '.canvas-comments-panel',
 ].join(', ');
 
 function initScrollbars() {

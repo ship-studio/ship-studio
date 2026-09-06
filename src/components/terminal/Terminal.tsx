@@ -1,3 +1,4 @@
+import { assertPromptReady, bracketedPrompt } from '../../lib/terminalPrompt';
 /**
  * Terminal component that embeds Claude Code CLI in an xterm.js terminal.
  *
@@ -22,6 +23,7 @@ import {
   openPtySession,
   attachPtySession,
   writePtySessionLogged,
+  writePtySession,
   resizePtySessionLogged,
   killPtySession,
   detachPtySession,
@@ -115,6 +117,8 @@ export interface TerminalHandle {
   write: (data: string) => void;
   /** Paste text into the terminal */
   paste: (data: string) => void;
+  /** Paste one reviewed batch without Enter; resolves only after the PTY accepts it. */
+  pastePrompt?: (data: string) => Promise<void>;
   /** Kill the PTY process */
   kill: () => void;
   /** Whether the agent process has exited and the tab is showing the
@@ -1281,6 +1285,24 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
           (terminalRef.current as any).paste(data);
         }
+      },
+      pastePrompt: async (data: string) => {
+        const sid = ptyRef.current?.sessionId;
+        if (!sid || exitedRef.current || !terminalRef.current)
+          throw new Error('This terminal is not ready. Your comments are still pending.');
+        if (!terminalRef.current.modes.bracketedPasteMode)
+          throw new Error('Open an agent prompt in this terminal before sending comments.');
+        const term = terminalRef.current;
+        const screen = Array.from(
+          { length: term.rows },
+          (_, row) =>
+            term.buffer.active
+              .getLine(term.buffer.active.viewportY + row)
+              ?.translateToString(true) ?? ''
+        ).join('\n');
+        assertPromptReady(screen, lastStatusRef.current === 'thinking');
+        await writePtySession(sid, bracketedPrompt(data));
+        terminalRef.current.focus();
       },
       kill: () => {
         // Imperative kill — used by `closeAllTerminalsForProject` and the
