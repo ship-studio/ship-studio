@@ -4,10 +4,12 @@ import { readFileSync } from 'node:fs';
 
 import { checkDocPaths } from './check-doc-paths.mjs';
 
-test('every repo path docs/ui-harness.md points at is in the repo', () => {
-  const problems = checkDocPaths({
-    'docs/ui-harness.md': readFileSync('docs/ui-harness.md', 'utf-8'),
-  });
+const DOCS = ['docs/ui-harness.md', 'docs/verifying-your-own-work.md'];
+
+test('every repo path these docs point at is in the repo', () => {
+  const problems = checkDocPaths(
+    Object.fromEntries(DOCS.map((d) => [d, readFileSync(d, 'utf-8')]))
+  );
   assert.deepEqual(
     problems,
     [],

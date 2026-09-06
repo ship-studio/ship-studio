@@ -7,6 +7,7 @@ Thanks for your interest in contributing to Ship Studio! This guide will help yo
 > - Read the [Code of Conduct](CODE_OF_CONDUCT.md) — it sets the bar for how we collaborate.
 > - For deeper context on the *patterns* the codebase has standardised on, read [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) and the **"How to Do Things in Ship Studio"** section of [CLAUDE.md](CLAUDE.md). New code that bypasses those primitives will get flagged in review.
 > - If you found a security issue, **do not file a public issue** — see [SECURITY.md](SECURITY.md) for private reporting.
+> - Before you report something verified, read [docs/verifying-your-own-work.md](docs/verifying-your-own-work.md) — a short list of checks that pass while proving nothing.
 > - Want to *see* a UI change instead of describing it? `pnpm harness` boots the real frontend in a browser against a fixture backend and `pnpm harness:capture` screenshots ~70 app states — see [docs/ui-harness.md](docs/ui-harness.md).
 > - Want to fork and ship your own build? See [docs/FORKING.md](docs/FORKING.md).
 
