@@ -34,8 +34,8 @@ pub mod vercel;
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use model::{
-    now_ms, Auth, DeploymentSnapshot, DetectedLink, HostingLink, HostingProjectChoice,
-    HostingProvider, HostingStatus, Lookup, ProviderStatus, TokenCheck,
+    now_ms, Auth, BuildLog, Deployment, DeploymentSnapshot, DetectedLink, HostingLink,
+    HostingProjectChoice, HostingProvider, HostingStatus, Lookup, ProviderStatus, TokenCheck,
 };
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -286,6 +286,73 @@ pub async fn clear_hosting_link(
     link::write_metadata(&project, meta)?;
     invalidate_project(&project_path);
     Ok(())
+}
+
+/// The recent deployment history for a project, newest first.
+///
+/// The same data the provider's dashboard leads with, so a user can see the
+/// shape of the last few pushes without leaving the app.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn list_recent_deployments(
+    project_path: String,
+    provider: HostingProvider,
+    limit: Option<u32>,
+) -> Result<Vec<Deployment>, CommandError> {
+    let project = validate_project_path(&project_path)?;
+    let link = link::effective_links(&project)
+        .into_iter()
+        .find(|l| l.provider == provider)
+        .ok_or_else(|| {
+            CommandError::expected(format!(
+                "This project isn't linked to {}.",
+                provider.label()
+            ))
+        })?;
+
+    let resolved = credentials::token_for(provider, &project).ok_or_else(|| {
+        CommandError::NotAuthenticated {
+            service: provider.label().to_string(),
+        }
+    })?;
+
+    provider::list_recent(&link, &resolved.token, limit.unwrap_or(10))
+        .await
+        .map_err(|e| e.into_command_error(provider.label()))
+}
+
+/// A deployment's build output.
+///
+/// This is the call that makes the provider's dashboard unnecessary for the
+/// case people actually go there for: the deployments API reports that a build
+/// failed, and only the log says why.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_deployment_log(
+    project_path: String,
+    provider: HostingProvider,
+    deployment_id: String,
+) -> Result<BuildLog, CommandError> {
+    let project = validate_project_path(&project_path)?;
+    let link = link::effective_links(&project)
+        .into_iter()
+        .find(|l| l.provider == provider)
+        .ok_or_else(|| {
+            CommandError::expected(format!(
+                "This project isn't linked to {}.",
+                provider.label()
+            ))
+        })?;
+
+    let resolved = credentials::token_for(provider, &project).ok_or_else(|| {
+        CommandError::NotAuthenticated {
+            service: provider.label().to_string(),
+        }
+    })?;
+
+    provider::fetch_logs(&link, &resolved.token, &deployment_id)
+        .await
+        .map_err(|e| e.into_command_error(provider.label()))
 }
 
 /// Check a stored credential without asking about any deployment.

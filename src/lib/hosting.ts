@@ -99,6 +99,21 @@ export interface Deployment {
   ready_at?: number | null;
 }
 
+export type LogStream = 'stdout' | 'stderr';
+
+export interface LogLine {
+  at: number;
+  stream: LogStream;
+  text: string;
+}
+
+export interface BuildLog {
+  deployment_id: string;
+  lines: LogLine[];
+  /** The provider capped what it returned, so this isn't the whole log. */
+  truncated: boolean;
+}
+
 export type Lookup =
   | { kind: 'found'; deployment: Deployment }
   | { kind: 'not_found'; latest_on_branch?: Deployment | null };
@@ -167,6 +182,27 @@ export function setHostingLink(projectPath: string, link: HostingLink): Promise<
 
 export function clearHostingLink(projectPath: string, provider: HostingProvider): Promise<void> {
   return invoke('clear_hosting_link', { projectPath, provider });
+}
+
+/** Recent deployments for a project, newest first. */
+export function listRecentDeployments(
+  projectPath: string,
+  provider: HostingProvider,
+  limit?: number,
+): Promise<Deployment[]> {
+  return invoke<Deployment[]>('list_recent_deployments', { projectPath, provider, limit });
+}
+
+/**
+ * A deployment's build output — the reason a failure happened, which the
+ * deployments endpoints themselves don't carry.
+ */
+export function getDeploymentLog(
+  projectPath: string,
+  provider: HostingProvider,
+  deploymentId: string,
+): Promise<BuildLog> {
+  return invoke<BuildLog>('get_deployment_log', { projectPath, provider, deploymentId });
 }
 
 export function verifyHostingToken(

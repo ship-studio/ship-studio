@@ -18,8 +18,8 @@
 
 use super::http::{get_json, HostingHttpError};
 use super::model::{
-    Deployment, DeploymentDetail, DeploymentPhase, DeploymentUrls, Environment, HostingLink,
-    HostingProjectChoice, Lookup,
+    BuildLog, Deployment, DeploymentDetail, DeploymentPhase, DeploymentUrls, Environment,
+    HostingLink, HostingProjectChoice, LogLine, LogStream, Lookup,
 };
 use serde::Deserialize;
 
@@ -298,6 +298,15 @@ pub async fn find_for_commit(
                 found = detailed;
             }
         }
+
+        // A failed build is the one case where the deployments API alone sends
+        // the user to the provider's dashboard: it reports the failure without
+        // the reason. One extra call, only on failure, buys the reason.
+        if matches!(found.phase, DeploymentPhase::Failed) && found.error_message.is_none() {
+            if let Ok(log) = fetch_logs(link, token, &found.id).await {
+                found.error_message = log.likely_error();
+            }
+        }
         return Ok(Lookup::Found { deployment: found });
     }
 
@@ -371,6 +380,84 @@ pub async fn list_projects(
             scope_name: None,
         })
         .collect())
+}
+
+/// One line of build output as Vercel sends it.
+#[derive(Debug, Deserialize)]
+struct RawEvent {
+    #[serde(default)]
+    created: Option<u64>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
+}
+
+/// Vercel caps a single events response; beyond this we tell the user the log
+/// is partial rather than pretending it is complete.
+const LOG_LIMIT: usize = 1000;
+
+/// Fetch a deployment's build output.
+///
+/// This is the endpoint that makes the provider dashboard unnecessary: the
+/// deployments API says a build failed, but only the event stream says why.
+pub async fn fetch_logs(
+    link: &HostingLink,
+    token: &str,
+    deployment_id: &str,
+) -> Result<BuildLog, HostingHttpError> {
+    let scope = scope_query(link);
+    let scope = scope
+        .strip_prefix('&')
+        .map(|s| format!("&{s}"))
+        .unwrap_or_default();
+    let url =
+        format!("{API}/v3/deployments/{deployment_id}/events?limit={LOG_LIMIT}{scope}");
+
+    let raw: Vec<RawEvent> = get_json(&url, token).await?;
+    let truncated = raw.len() >= LOG_LIMIT;
+
+    let lines = raw
+        .into_iter()
+        .filter_map(|e| {
+            let text = e.text?;
+            let trimmed = text.trim_end();
+            if trimmed.is_empty() {
+                return None;
+            }
+            Some(LogLine {
+                at: e.created.unwrap_or(0),
+                stream: match e.kind.as_deref() {
+                    Some("stderr") => LogStream::Stderr,
+                    _ => LogStream::Stdout,
+                },
+                text: trimmed.to_string(),
+            })
+        })
+        .collect();
+
+    Ok(BuildLog {
+        deployment_id: deployment_id.to_string(),
+        lines,
+        truncated,
+    })
+}
+
+/// The most recent deployments on this project, newest first.
+pub async fn list_recent(
+    link: &HostingLink,
+    token: &str,
+    limit: u32,
+) -> Result<Vec<Deployment>, HostingHttpError> {
+    let scope = scope_query(link);
+    let url = format!(
+        "{API}/v6/deployments?projectId={project}{scope}&limit={limit}",
+        project = link.project_id,
+    );
+    let list: RawList = get_json(&url, token).await?;
+    let mut out: Vec<Deployment> = list.deployments.into_iter().map(to_deployment).collect();
+    out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(out)
 }
 
 /// Confirm a token works and say who it belongs to.

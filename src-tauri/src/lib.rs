@@ -661,6 +661,8 @@ pub fn run() {
             commands::hosting::set_hosting_link,
             commands::hosting::clear_hosting_link,
             commands::hosting::verify_hosting_token,
+            commands::hosting::list_recent_deployments,
+            commands::hosting::get_deployment_log,
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,

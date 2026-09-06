@@ -226,6 +226,61 @@ pub struct Deployment {
     pub ready_at: Option<u64>,
 }
 
+/// Which stream a build-log line came from. `stderr` is not the same as "an
+/// error" — build tools warn on it constantly — but it is where the failure
+/// usually is when there was one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogStream {
+    Stdout,
+    Stderr,
+}
+
+/// One line of a provider's build output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogLine {
+    pub at: u64,
+    pub stream: LogStream,
+    pub text: String,
+}
+
+/// A deployment's build output, as far as the provider will give it to us.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildLog {
+    pub deployment_id: String,
+    pub lines: Vec<LogLine>,
+    /// True when the provider capped what it returned, so the UI can say the
+    /// log is partial rather than implying this is all of it.
+    pub truncated: bool,
+}
+
+impl BuildLog {
+    /// The line most likely to explain a failure, for the one-line summary the
+    /// popover shows before anyone opens the full log.
+    ///
+    /// Heuristic, and deliberately conservative: build tools write to `stderr`
+    /// constantly without failing, so this looks for the last line that reads
+    /// like an error and returns nothing when it can't find one. Showing no
+    /// summary is better than confidently surfacing a deprecation warning as
+    /// the reason a build failed.
+    pub fn likely_error(&self) -> Option<String> {
+        const MARKERS: [&str; 8] = [
+            "error", "failed", "cannot find", "not found", "unexpected", "exited with",
+            "syntaxerror", "typeerror",
+        ];
+
+        self.lines
+            .iter()
+            .rev()
+            .find(|line| {
+                let lower = line.text.to_lowercase();
+                // A bare "warning: ..." on stderr is not the failure.
+                !lower.starts_with("warning") && MARKERS.iter().any(|m| lower.contains(m))
+            })
+            .map(|line| line.text.clone())
+    }
+}
+
 /// The result of asking "what happened to this commit?".
 ///
 /// `NotFound` is deliberately not an error and never becomes `Failed`. No
@@ -364,6 +419,59 @@ pub fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn log(lines: &[(LogStream, &str)]) -> BuildLog {
+        BuildLog {
+            deployment_id: "dpl_1".into(),
+            lines: lines
+                .iter()
+                .map(|(stream, text)| LogLine {
+                    at: 0,
+                    stream: *stream,
+                    text: (*text).to_string(),
+                })
+                .collect(),
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn the_error_summary_finds_the_actual_failure() {
+        let build = log(&[
+            (LogStream::Stdout, "Installing dependencies..."),
+            (LogStream::Stdout, "Compiling"),
+            (LogStream::Stderr, "Error: Cannot find module './missing'"),
+            (LogStream::Stdout, "Build failed"),
+        ]);
+        assert_eq!(
+            build.likely_error().as_deref(),
+            Some("Build failed"),
+            "the last error-shaped line wins, since it is closest to the failure"
+        );
+    }
+
+    #[test]
+    fn the_error_summary_ignores_a_build_that_merely_warned() {
+        // The failure mode worth preventing: a successful build that wrote
+        // deprecation notices to stderr must not produce a "reason it failed".
+        let build = log(&[
+            (LogStream::Stderr, "warning: 'foo' is deprecated"),
+            (LogStream::Stderr, "Warning: peer dependency unmet"),
+            (LogStream::Stdout, "Build completed in 12s"),
+        ]);
+        assert_eq!(build.likely_error(), None);
+    }
+
+    #[test]
+    fn the_error_summary_says_nothing_rather_than_guessing() {
+        let build = log(&[
+            (LogStream::Stdout, "Running build"),
+            (LogStream::Stdout, "Done"),
+        ]);
+        assert_eq!(build.likely_error(), None);
+
+        assert_eq!(log(&[]).likely_error(), None);
+    }
 
     #[test]
     fn terminal_phases_stop_the_fast_poll() {

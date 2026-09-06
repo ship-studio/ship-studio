@@ -6,7 +6,7 @@
 //! surprise in the one path nobody remembered.
 
 use super::http::HostingHttpError;
-use super::model::{HostingLink, HostingProjectChoice, HostingProvider, Lookup};
+use super::model::{BuildLog, Deployment, HostingLink, HostingProjectChoice, HostingProvider, Lookup};
 use super::vercel;
 
 /// Placeholder for a provider whose adapter has not landed yet. Returns a
@@ -27,6 +27,35 @@ pub async fn find_for_commit(
 ) -> Result<Lookup, HostingHttpError> {
     match link.provider {
         HostingProvider::Vercel => vercel::find_for_commit(link, token, sha, branch).await,
+        HostingProvider::Cloudflare | HostingProvider::Netlify => {
+            Err(not_yet_implemented(link.provider))
+        }
+    }
+}
+
+/// A deployment's build output — the reason a failure happened, which the
+/// deployments endpoints do not carry.
+pub async fn fetch_logs(
+    link: &HostingLink,
+    token: &str,
+    deployment_id: &str,
+) -> Result<BuildLog, HostingHttpError> {
+    match link.provider {
+        HostingProvider::Vercel => vercel::fetch_logs(link, token, deployment_id).await,
+        HostingProvider::Cloudflare | HostingProvider::Netlify => {
+            Err(not_yet_implemented(link.provider))
+        }
+    }
+}
+
+/// Recent deployments on this project, newest first.
+pub async fn list_recent(
+    link: &HostingLink,
+    token: &str,
+    limit: u32,
+) -> Result<Vec<Deployment>, HostingHttpError> {
+    match link.provider {
+        HostingProvider::Vercel => vercel::list_recent(link, token, limit).await,
         HostingProvider::Cloudflare | HostingProvider::Netlify => {
             Err(not_yet_implemented(link.provider))
         }
