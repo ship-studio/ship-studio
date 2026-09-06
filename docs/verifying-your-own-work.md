@@ -55,9 +55,9 @@ about the rendered result ("this should produce a populated list") fails.
 
 **Prove the test detects the bug.** The fix came with three tests, and their
 author reinstated the old field and watched two of them fail before trusting
-them. That is the only method used across a long night of this that actually
-demonstrates a test detects what it claims to. Everyone else watched tests pass
-and inferred coverage from it.
+them — rather than watching tests pass and inferring coverage, which is what
+everyone else did. That is the right instinct, and it is still not sufficient;
+see the next section, which is about this method's own hole.
 
 ## A second, worse category
 
@@ -96,6 +96,35 @@ gh api repos/<owner>/<repo>/commits/<sha>/status \
   --jq '.statuses[] | "\(.context) | \(.state) | \(.description)"'
 ```
 
+## The recommended method has its own hole
+
+> Reinstating a defect proves *a* test detects it. It does not prove *which
+> assertion* does.
+
+An assertion written as `expect(container.textContent).not.toMatch(/your host/i)`
+was inert from the moment it was typed: the component renders through a portal,
+so `container.textContent` is `''` and the assertion passes whatever the modal
+says.
+
+Its author had verified that test by the method above — reinstated the bug,
+watched the test fail. **It did fail.** On the `waitFor` above it, not on the
+assertion believed to be doing the work. A correct observation, recorded as
+proof of something adjacent to what it showed. The same shape as everything
+else here, this time inside the remedy.
+
+The stronger form:
+
+- Reinstate each defect **separately**, not all at once.
+- Confirm precisely the expected tests fail — not "some tests failed".
+- Confirm the failure is **on the assertion you believe is load-bearing**, not
+  merely somewhere in the test body.
+
+A related habit, from the same session, twice in one night: having fixed one
+instance of a defect, they searched for siblings and found another — a fixture
+claiming a phase its provider cannot emit, and later a status vocabulary
+corrected in one component and not the other showing the same deployment. Fixing
+the instance and recording it as the class is its own species of this.
+
 ## The four that cost the most
 
 **A screenshot with no provenance.** A capture runner checked that *something*
@@ -131,9 +160,9 @@ dangerous variant: it ends the investigation.
   and grep the content, not `[ -f path ]`.
 - **State what a result is about.** "Green" is meaningless; "green on
   `4dc4fff4`, which is my HEAD" is a claim someone can check.
-- **Make a check fail on purpose before trusting it.** Reintroduce the bug and
-  watch the test go red. If you have not seen it fail, you know it passes — not
-  that it detects anything.
+- **Make a check fail on purpose before trusting it** — one defect at a time,
+  and confirm the failure lands on the assertion you think is load-bearing. If
+  you have not seen it fail, you know it passes, not that it detects anything.
 - **Prefer checks that cannot pass vacuously.** A guard over an empty set, a
   selector that matches page chrome, an assertion on a value nobody reads.
 - **Open the artifact.** A green tick on a screenshot means it was captured, not
