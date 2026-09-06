@@ -85,6 +85,16 @@ without ever completing.
 
 **A green check whose description says it did not run is not a green check.**
 
+There is a second way to end up merging an unreviewed commit, and it needs no
+outage at all. When branch protection requires branches to be up to date, every
+pull request behind the first must rebase before it can merge — and the rebase
+produces a new commit that the completed review does not follow. Whether that
+matters is a race between the reviewer re-running and you pressing merge.
+
+Of four merges checked on one evening, two carried a completed review on the
+commit they actually merged from and two did not. So: **read the description on
+the SHA in front of you, not on the one you remember being reviewed.**
+
 This document carried that tick too. It is being held until a review actually
 runs, on the same reasoning: a page about checks that do not check should not
 arrive on one.
