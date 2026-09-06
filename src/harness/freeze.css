@@ -1,0 +1,40 @@
+/*
+ * Capture determinism.
+ *
+ * Spinners, blinking cursors, and CSS transitions mean two runs of the same
+ * scenario disagree on pixels for reasons that have nothing to do with the
+ * app being wrong. That makes every screenshot unfalsifiable — a real
+ * regression is indistinguishable from a spinner caught at a different angle.
+ *
+ * Applied only under the harness, and only when `?freeze` is not turned off,
+ * so the interactive harness can still be used to watch motion.
+ */
+
+[data-harness-freeze] *,
+[data-harness-freeze] *::before,
+[data-harness-freeze] *::after {
+  animation-play-state: paused !important;
+  animation-delay: -1ms !important;
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0ms !important;
+  transition-delay: 0ms !important;
+  caret-color: transparent !important;
+}
+
+/* xterm draws its own cursor rather than using caret-color. */
+[data-harness-freeze] .xterm-cursor-layer,
+[data-harness-freeze] .xterm-cursor,
+[data-harness-freeze] .xterm-cursor-blink {
+  visibility: hidden !important;
+}
+
+/*
+ * OverlayScrollbars draws its own scrollbar elements and auto-hides them on a
+ * timer, so whether a thumb is painted depends on when the frame was taken.
+ * Chrome's --hide-scrollbars flag doesn't reach these because they are ordinary
+ * DOM nodes.
+ */
+[data-harness-freeze] .os-scrollbar {
+  visibility: hidden !important;
+}
