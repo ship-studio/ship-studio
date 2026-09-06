@@ -649,9 +649,6 @@ pub fn run() {
             commands::github::list_collaborator_repos,
             commands::github::detect_package_manager,
             // Publishing
-            commands::publishing::publish_to_github,
-            commands::publishing::publish_to_staging,
-            commands::publishing::publish_to_production,
             commands::publishing::publish_branch,
             // Hosting — which provider a project deploys to, and whether the
             // pushed commit actually went live.

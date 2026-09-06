@@ -17,7 +17,7 @@ Ship Studio is a desktop app for web developers that provides:
 - **Plugins, Skills & MCP** - Extend the app with plugins; install agent skills and configure MCP servers
 - **Command Palette** - Cmd+K palette; every user-facing feature registers its actions here (see "New feature → contribute commands")
 - **IDE Integration** - Open projects in VS Code or Cursor with one click
-- **Vercel Deployment** - Publish to staging/production via Vercel integration
+- **Hosting Status** - After a push, see whether *that commit* deployed on Vercel, Cloudflare Pages or Netlify, with the build error when it didn't (see "Hosting Flow")
 - **Auto-Updates** - Automatic update detection and installation
 
 ## Core Principles
@@ -33,8 +33,13 @@ Ship Studio is a desktop app for web developers that provides:
 
 ### Data Storage
 - Project metadata is stored in `.shipstudio/project.json` within each project
-- This file stores: last_opened timestamp, publish records (staging/production with URL, state, publishedAt)
-- Vercel project linking info is in `.vercel/project.json` (managed by Vercel CLI)
+- This file stores: last_opened timestamp, and the project's hosting link (provider, project id, scope)
+- Schema v4 replaced the old `publish` block (staging/production URL + state + timestamp). It carried
+  no commit SHA, provider or deployment id, so it could not say *which* push it described — and it was
+  written from assumption rather than from a provider's answer. Deployment state is not cached in the
+  repo at all now; it is fetched per commit into a short-lived in-memory cache
+- Provider links are read from the CLIs' own files (`.vercel/project.json`, `.netlify/state.json`) or
+  set explicitly by the user; a link is never inferred from a folder merely existing
 - Only trust data that was explicitly saved - don't infer state from file existence alone
 
 ## Architecture
@@ -51,6 +56,7 @@ Ship Studio is a desktop app for web developers that provides:
 Command modules in `src-tauri/src/commands/`. Domains with submodules are directories:
 - `git/` - Git operations (branches, status, stash, sync) with TTL caching
 - `health/` - Project health checks (dependency audit, diagnostics)
+- `hosting/` - Native hosting status: per-provider adapters (Vercel, Cloudflare Pages, Netlify) over one provider-agnostic model, plus credential discovery, commit lookup and build logs
 - `ide/` - VS Code/Cursor launch, preview screenshots
 - `plugins/` - Plugin lifecycle and storage
 - `projects/` - Project CRUD: detection, metadata, dev-server config, pins, sessions, templates, UI state, window registry
@@ -79,7 +85,7 @@ Single-file domains:
 - `monorepo.rs` - Workspace detection for pnpm/yarn/npm monorepos
 - `proxy.rs` - Preview proxy control (the proxy itself lives in `src-tauri/src/proxy/`)
 - `pty_session.rs` - Long-lived backend-owned PTY sessions (e.g. mobile builds)
-- `publishing.rs` - Vercel deployment workflow and publish record tracking
+- `publishing.rs` - Pushing the current branch to origin, and the git-push error taxonomy
 - `pull_requests.rs` - PR listing and creation via `gh` CLI
 - `settings.rs` - App-level settings persistence
 - `snapshots.rs` - Project snapshots / backups (rewind)
@@ -111,6 +117,7 @@ Single-file domains:
 - `preview/` - Live preview, browser tools, device mirror (mobile), locale switcher, screenshots
 - `branches/` - Git/branch UI: branches/PR tabs, conflict resolution, diff, publish controls, GitHub button
 - `code/` - Code mode: viewer, file tree, code tab, health panel
+- `hosting/` - The Push popover's Hosting section: the fixed-geometry row, the address rows, the connect and link-picker flows, and the Deployments panel
 - `plugins/` - Plugin manager/slots/dropdown, MCP and Skills modals
 - `workflows/` - Workflows list, row, editor, template picker, run history
 - `inbox/` - Findings list and the report reader
@@ -147,6 +154,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `fonts.ts` - Font loading utilities for the terminal
 - `git.ts` - Git operations wrapper (status, commits, branches)
 - `github.ts` - GitHub operations (auth, push, clone) and publishing flow
+- `hosting.ts` / `hostingCopy.ts` - Hosting: the TS mirror of the Rust model, the invoke wrappers, the `deriveSectionState` reducer, and every user-facing string in the section (written to fit a 184px column — see the Hosting Flow)
 - `i18n.ts` - Multilingual support: status/config wrappers, full-ISO language search, locale path helpers for the preview switcher, and agent prompt builders (translate, App Router next-intl setup, removal cleanup)
 - `logger.ts` - Structured frontend logging
 - `mcp.ts` / `skills.ts` / `plugins.ts` / `plugin-loader.ts` - Agent extensions and the plugin system
@@ -346,10 +354,40 @@ These names predate the layered token system. Product code must use the canonica
 ## Common Patterns
 
 ### Publishing Flow
-1. User clicks Publish in PublishBranchDropdown
-2. Backend pushes to GitHub (staging or main branch)
-3. Vercel auto-deploys via GitHub integration
-4. Result (URL, state, timestamp) is saved to `.shipstudio/project.json`
+1. User clicks Push in `PublishBranchDropdown`
+2. `publish_branch` commits any pending changes and pushes the **current** branch to origin
+3. Whatever the project's host does next is the host's business — we push, we don't deploy
+
+That last point is the change: publishing used to push `HEAD:staging` or `HEAD:main` and then
+record `{ url, state, publishedAt }` into `.shipstudio/project.json`. The state was assumed rather
+than observed (a literal `"QUEUED"`), the URL was empty or assembled from the project name, and
+nothing invalidated it. Deployment truth is now *asked for*, per commit, by the Hosting Flow below.
+
+### Hosting Flow
+
+Answers one question: **did the commit I just pushed actually deploy?**
+
+1. `get_hosting_status` resolves the pushed commit (`origin/<branch>`), reads the project's link
+   (`.vercel/project.json`, `.netlify/state.json`, or one the user picked), and asks that provider
+   for a deployment **matching that SHA** — never "the most recent deployment", which answers a
+   different question and is what the old plugin did
+2. Credentials come from the keychain first, then the provider CLI's own login file. A rejected
+   token (401 **or** 403) is `Auth::Rejected` and renders as a broken connection — never as healthy,
+   and never as data
+3. `deriveSectionState` (`src/lib/hosting.ts`) folds auth, link, transport and timing into exactly
+   one state. Order encodes the honesty rules: nothing pushed beats everything; auth problems beat
+   data; a missing deployment is only ever "not found", never "failed"
+4. The row prints the provider's own status word (`status_label`) verbatim — "Ready", "Uploading",
+   "Pending review" — so this and the provider's dashboard never disagree. We own the sentence
+   around those words, not the words
+5. Copy is written to fit: the row's two upper lines get a 184px ellipsised column with no tooltip,
+   so anything longer than ~32 characters belongs on the third line, which wraps. A unit test holds
+   every string to that budget and the UI harness reports anything that still overflows
+6. A failure fetches its own build log and shows the error line, which is the thing people open the
+   dashboard for
+
+Verified against live accounts for all three providers, with what is observed versus assumed
+recorded in [docs/internal/hosting-provider-matrix.md](docs/internal/hosting-provider-matrix.md).
 
 ### Pull Request Flow
 1. User clicks "Submit for Review" on a branch
