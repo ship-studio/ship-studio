@@ -11,7 +11,7 @@
  * and mutation; on a breakpoint canvas those pixels are then scaled to the
  * screen, exactly as the structural toolbar scales its selection box.
  */
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TrashIcon, CloseIcon } from '@/components/icons';
@@ -47,29 +47,24 @@ interface Props {
   composerAt?: { x: number; y: number } | null;
 }
 
-/** Keep a card fully inside the frame, and flip it left when it would overflow. */
-function place(
-  x: number,
-  y: number,
-  bounds: { w: number; h: number } | null,
-  height: number
-): { left: number; top: number } {
+/**
+ * An open note sits beside its pin and stays there.
+ *
+ * It is deliberately NOT clamped into the frame's viewport: a card is anchored
+ * to a place on the page, so when the page scrolls it leaves with its element,
+ * the way the pin does. Clamping made it stick to the top of the frame while
+ * its pin scrolled away, which reads as a floating panel rather than a note on
+ * a thing. The only adjustment is horizontal — flipping to the other side of
+ * the pin when the card would otherwise run off the right edge.
+ */
+function place(x: number, y: number, bounds: { w: number; h: number } | null) {
   const w = bounds?.w ?? Infinity;
-  const h = bounds?.h ?? Infinity;
   const flip = x + GAP + CARD_WIDTH > w;
-  const left = flip ? Math.max(GAP, x - GAP - CARD_WIDTH) : x + GAP;
-  const top = Math.min(Math.max(GAP, y - PIN_RADIUS), Math.max(GAP, h - height - GAP));
-  return { left, top };
+  return { left: flip ? x - GAP - CARD_WIDTH : x + GAP, top: y - PIN_RADIUS };
 }
 
 export function CommentPins(props: Props) {
   const { comments, placements, scale, bounds, openId } = props;
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [cardHeight, setCardHeight] = useState(160);
-  useLayoutEffect(() => {
-    if (cardRef.current) setCardHeight(cardRef.current.offsetHeight);
-  }, [openId, comments]);
-
   const byId = new Map(comments.map((c) => [c.id, c]));
   const open = openId ? comments.find((c) => c.id === openId) : undefined;
   const openAt = openId ? placements.find((p) => p.id === openId) : undefined;
@@ -104,13 +99,9 @@ export function CommentPins(props: Props) {
 
       {open && openAt && (
         <div
-          ref={cardRef}
           className="canvas-comment-bubble"
           data-status={open.status}
-          style={{
-            width: CARD_WIDTH,
-            ...place(openAt.x * scale, openAt.y * scale, bounds, cardHeight),
-          }}
+          style={{ width: CARD_WIDTH, ...place(openAt.x * scale, openAt.y * scale, bounds) }}
         >
           <div className="canvas-comment-bubble__head">
             {open.status === 'pending' && (
@@ -162,7 +153,7 @@ export function CommentPins(props: Props) {
           className="canvas-comment-bubble canvas-comment-bubble--composing"
           style={{
             width: CARD_WIDTH,
-            ...place(props.composerAt.x * scale, props.composerAt.y * scale, bounds, 320),
+            ...place(props.composerAt.x * scale, props.composerAt.y * scale, bounds),
           }}
         >
           {props.composer}

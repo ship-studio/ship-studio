@@ -79,6 +79,18 @@
   font-family: var(--font-code);
 }
 
+/* Multi-line variant. A textarea sizes by rows and grows, so it gives up the
+   fixed control height and the tabular figures, and keeps everything else —
+   surface, border, radius, focus ring — identical to the single-line field. */
+.ss-text-field--multiline {
+  height: auto;
+  padding: var(--spacing-sm) var(--text-field-padding-inline);
+  line-height: var(--line-height-body);
+  font-variant-numeric: normal;
+  resize: vertical;
+  width: 100%;
+}
+
 .ss-text-field:focus {
   outline: var(--text-field-border-width) solid var(--accent-active);
   outline-offset: calc(-1 * var(--text-field-border-width));

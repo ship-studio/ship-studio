@@ -59,7 +59,8 @@
   gap: var(--spacing-sm);
   border-top: var(--border-width-default) solid var(--border-default);
 }
-.canvas-comments-panel label {
+.canvas-comments-panel label,
+.canvas-comment-bubble label {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
@@ -79,12 +80,17 @@
 .canvas-comments-panel textarea {
   resize: vertical;
 }
-.canvas-comments-panel :is(select, textarea, input):focus-visible {
+:is(.canvas-comments-panel, .canvas-comment-bubble) :is(select, textarea, input):focus-visible {
   outline: var(--border-width-default) solid var(--accent-active);
   outline-offset: var(--spacing-xs);
 }
-.canvas-comments-panel input[type='checkbox'] {
+:is(.canvas-comments-panel, .canvas-comment-bubble) input[type='checkbox'] {
   accent-color: var(--accent-active);
+  width: var(--spacing-md);
+  height: var(--spacing-md);
+  margin: 0;
+  flex: none;
+  cursor: pointer;
 }
 .canvas-comment-composer {
   display: flex;

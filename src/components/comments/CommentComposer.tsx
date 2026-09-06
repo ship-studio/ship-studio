@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ToggleButton } from '../primitives/ToggleButton';
 import { Button } from '../primitives/Button';
+import { TextArea } from '../primitives/TextField';
 import {
   COMMENT_DEVICES,
   commentScopeDevices,
@@ -41,23 +42,21 @@ export function CommentComposer({ target, existing, onSave, onCancel }: Props) {
         </span>
       </div>
       <p className="canvas-comments-hint">Click another element to change the target.</p>
-      <label>
-        <textarea
-          aria-label="What should change?"
-          autoFocus
-          value={body}
-          maxLength={8000}
-          rows={3}
-          placeholder="Please make this 80vh instead of 100vh."
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              e.preventDefault();
-              if (body.trim()) onSave(body, scope);
-            }
-          }}
-        />
-      </label>
+      <TextArea
+        aria-label="What should change?"
+        autoFocus
+        value={body}
+        maxLength={8000}
+        rows={3}
+        placeholder="Please make this 80vh instead of 100vh."
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (body.trim()) onSave(body, scope);
+          }
+        }}
+      />
       <fieldset className="canvas-comments-scope">
         <legend>Apply to · choose one or more</legend>
         <div className="canvas-comments-sizes">

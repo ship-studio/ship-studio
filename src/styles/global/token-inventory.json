@@ -1631,7 +1631,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--text-field-suffix-width",
@@ -4286,7 +4286,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 11
+      "consumerCount": 12
     },
     {
       "name": "--line-height-heading",
@@ -4493,7 +4493,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 338
+      "consumerCount": 339
     },
     {
       "name": "--spacing-md",
@@ -4502,7 +4502,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 270
+      "consumerCount": 272
     },
     {
       "name": "--spacing-lg",
