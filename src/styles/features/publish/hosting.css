@@ -123,6 +123,65 @@
   visibility: hidden;
 }
 
+/* The addresses this deployment produced. Each row is a fixed height so the
+   section's height depends only on how many URLs exist — which is a property
+   of the deployment, not of loading. */
+.hosting-urls {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--spacing-2xs);
+}
+
+.hosting-url {
+  display: grid;
+  grid-template-columns: var(--hosting-url-label-w) minmax(0, 1fr) var(--hosting-url-open-w);
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: var(--hosting-url-h);
+}
+
+.hosting-url-label {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.hosting-url-value {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Revealed on hover/focus. `opacity` and not `display` or `visibility`:
+   nothing here may reflow, and the button's column is reserved either way, so
+   the row is the same height and width whether or not the pointer is on it. */
+.hosting-url-open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hosting-url-open-w);
+  height: var(--hosting-url-open-w);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--transition-interaction),
+    color var(--transition-interaction);
+}
+
+.hosting-url:hover .hosting-url-open,
+.hosting-url-open:focus-visible {
+  opacity: 1;
+}
+
+.hosting-url-open:hover {
+  color: var(--text-primary);
+}
+
 /* Third line. Fixed height whether or not there's a hint, so a state that has
    one and a state that doesn't are the same size. */
 .hosting-links {

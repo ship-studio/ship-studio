@@ -117,6 +117,27 @@ struct RawProject {
     name: String,
 }
 
+/// A domain attached to the project. `git_branch` marks a branch-specific
+/// alias; `redirect` marks one that only forwards elsewhere. Neither is the
+/// site's address.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawDomain {
+    name: String,
+    #[serde(default)]
+    verified: Option<bool>,
+    #[serde(default)]
+    git_branch: Option<String>,
+    #[serde(default)]
+    redirect: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawDomainList {
+    #[serde(default)]
+    domains: Vec<RawDomain>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RawUser {
     #[serde(default)]
@@ -206,16 +227,10 @@ fn to_deployment(raw: RawDeployment) -> Deployment {
 
     let aliases: Vec<String> = raw.alias.iter().map(|a| with_scheme(a)).collect();
     let deployment_url = raw.url.as_deref().map(with_scheme);
-    // Vercel returns several aliases in no useful order: a project's stable
-    // domain sits alongside per-deployment hosts carrying a generated hash and
-    // the account name. The shortest is reliably the one a human would
-    // recognise and the only one that fits the row. Still chosen from what the
-    // API returned — never assembled.
-    let primary = aliases
-        .iter()
-        .min_by_key(|a| a.len())
-        .cloned()
-        .or_else(|| deployment_url.clone());
+    // `site` is filled in by the caller from the project's domains — it is not
+    // on this record. Until then the build permalink is the only thing we can
+    // honestly offer.
+    let primary = deployment_url.clone();
 
     let environment = match raw.target.as_deref() {
         Some("production") => Environment::Production,
@@ -236,6 +251,7 @@ fn to_deployment(raw: RawDeployment) -> Deployment {
             .map(|m| m.trim().to_string())
             .filter(|m| !m.is_empty()),
         urls: DeploymentUrls {
+            site: None,
             deployment: deployment_url,
             aliases,
             primary,
@@ -287,6 +303,10 @@ pub async fn find_for_commit(
         b_prod.cmp(&a_prod).then(b.created_at.cmp(&a.created_at))
     });
 
+    // The site's address is a project property on a separate endpoint, so it
+    // is fetched once here and attached to whatever deployment we return.
+    let site = fetch_site_url(link, token).await.ok().flatten();
+
     if let Some(mut found) = candidates.into_iter().next() {
         // Only worth a second call once it is live: that is the only moment
         // aliases exist and the only moment the user wants a link to click.
@@ -310,12 +330,14 @@ pub async fn find_for_commit(
         return Ok(Lookup::Found { deployment: found });
     }
 
+    let mut latest = latest_for_branch(link, token, branch).await.ok().flatten();
+    if let Some(deployment) = latest.as_mut() {
+        deployment.urls.site = site.clone();
+        deployment.urls.primary = site.or(deployment.urls.deployment.clone());
+    }
+
     Ok(Lookup::NotFound {
-        latest_on_branch: latest_for_branch(link, token, branch)
-            .await
-            .ok()
-            .flatten()
-            .map(Box::new),
+        latest_on_branch: latest.map(Box::new),
     })
 }
 
@@ -382,6 +404,41 @@ pub async fn list_projects(
         .collect())
 }
 
+/// The address people visit.
+///
+/// A custom domain wins over the generated `*.vercel.app` when there is one —
+/// it is what the owner would say the site's address is. Unverified domains
+/// are skipped: Vercel will list a domain the moment it is added, long before
+/// DNS resolves, and offering a link that does not load is worse than offering
+/// the one that does.
+fn pick_site_domain(domains: Vec<RawDomain>) -> Option<String> {
+    let usable: Vec<RawDomain> = domains
+        .into_iter()
+        .filter(|d| d.verified.unwrap_or(false) && d.git_branch.is_none() && d.redirect.is_none())
+        .collect();
+
+    let custom = usable
+        .iter()
+        .find(|d| !d.name.ends_with(".vercel.app"))
+        .map(|d| d.name.clone());
+
+    custom.or_else(|| usable.first().map(|d| d.name.clone()))
+}
+
+/// The project's production domain, which is not on the deployment record.
+pub async fn fetch_site_url(
+    link: &HostingLink,
+    token: &str,
+) -> Result<Option<String>, HostingHttpError> {
+    let scope = scope_query(link);
+    let url = format!(
+        "{API}/v9/projects/{project}/domains?limit=50{scope}",
+        project = link.project_id,
+    );
+    let list: RawDomainList = get_json(&url, token).await?;
+    Ok(pick_site_domain(list.domains).map(|d| with_scheme(&d)))
+}
+
 /// One line of build output as Vercel sends it.
 #[derive(Debug, Deserialize)]
 struct RawEvent {
@@ -411,8 +468,7 @@ pub async fn fetch_logs(
         .strip_prefix('&')
         .map(|s| format!("&{s}"))
         .unwrap_or_default();
-    let url =
-        format!("{API}/v3/deployments/{deployment_id}/events?limit={LOG_LIMIT}{scope}");
+    let url = format!("{API}/v3/deployments/{deployment_id}/events?limit={LOG_LIMIT}{scope}");
 
     let raw: Vec<RawEvent> = get_json(&url, token).await?;
     let truncated = raw.len() >= LOG_LIMIT;
@@ -605,35 +661,86 @@ mod tests {
 
         assert_eq!(d.phase, DeploymentPhase::Ready);
         assert_eq!(d.urls.aliases.len(), 2);
+        // A deployment record alone can only offer its own permalink; the
+        // site's address is attached by the caller from the project's domains.
         assert_eq!(
             d.urls.primary.as_deref(),
-            Some("https://acme-saas-tau.vercel.app")
+            Some("https://acme-saas-fi9rttan8-native-073e1cec.vercel.app")
+        );
+        assert_eq!(d.urls.site, None);
+    }
+
+    #[test]
+    fn the_site_address_is_the_project_domain_not_a_build_permalink() {
+        // The bug this pins: every deployment's `url` is a per-build permalink
+        // carrying a generated hash and the account name. It is not the site,
+        // it is unrecognisable, and it does not fit anywhere. The address
+        // people visit lives on the project's domains endpoint.
+        let domains = vec![
+            RawDomain {
+                name: "pepper-cayenne-accessories.vercel.app".into(),
+                verified: Some(true),
+                git_branch: None,
+                redirect: None,
+            },
+            RawDomain {
+                name: "preview.example.com".into(),
+                verified: Some(true),
+                git_branch: Some("dev".into()),
+                redirect: None,
+            },
+        ];
+        assert_eq!(
+            pick_site_domain(domains).as_deref(),
+            Some("pepper-cayenne-accessories.vercel.app"),
+            "a branch-specific alias is not the site's address"
         );
     }
 
     #[test]
-    fn the_primary_url_is_the_one_a_human_would_recognise() {
-        // Vercel lists a project's stable domain alongside per-deployment hosts
-        // carrying a generated hash and the account name. Taking whichever came
-        // first surfaced the unreadable one.
-        let body = r#"{
-            "uid":"dpl_1","url":"short.vercel.app","readyState":"READY","target":"production",
-            "createdAt":1,
-            "alias":[
-              "pepper-cayenne-accessories-myos1awic-juliangalluzzo.vercel.app",
-              "pepper-cayenne.vercel.app"
-            ],
-            "meta":{"githubCommitSha":"abc","githubCommitRef":"main"}
-        }"#;
-        let raw: RawDeployment = serde_json::from_str(body).unwrap();
-        let d = to_deployment(raw);
-
+    fn a_custom_domain_beats_the_generated_one() {
+        let domains = vec![
+            RawDomain {
+                name: "acme-saas.vercel.app".into(),
+                verified: Some(true),
+                git_branch: None,
+                redirect: None,
+            },
+            RawDomain {
+                name: "peppercayenne.com".into(),
+                verified: Some(true),
+                git_branch: None,
+                redirect: None,
+            },
+        ];
         assert_eq!(
-            d.urls.primary.as_deref(),
-            Some("https://pepper-cayenne.vercel.app")
+            pick_site_domain(domains).as_deref(),
+            Some("peppercayenne.com"),
+            "the owner would call the custom domain the site's address"
         );
-        // The long one is still available; it just isn't what we lead with.
-        assert_eq!(d.urls.aliases.len(), 2);
+    }
+
+    #[test]
+    fn an_unverified_or_redirecting_domain_is_never_offered() {
+        // Vercel lists a domain the moment it is added, long before DNS
+        // resolves. Linking to one that does not load is worse than linking to
+        // the generated address that does.
+        let domains = vec![
+            RawDomain {
+                name: "not-live-yet.com".into(),
+                verified: Some(false),
+                git_branch: None,
+                redirect: None,
+            },
+            RawDomain {
+                name: "old-domain.com".into(),
+                verified: Some(true),
+                git_branch: None,
+                redirect: Some("https://new.com".into()),
+            },
+        ];
+        assert_eq!(pick_site_domain(domains), None);
+        assert_eq!(pick_site_domain(Vec::new()), None);
     }
 
     #[test]

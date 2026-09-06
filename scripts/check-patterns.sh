@@ -128,11 +128,16 @@ echo
 
 # 3d. The hosting section's fixed geometry. Its whole purpose is that the Push
 # popover stops resizing while deployment status loads, so nothing in that
-# stylesheet may change box metrics on hover or focus — the previous, plugin-
+# stylesheet may change *layout* on hover or focus — the previous, plugin-
 # rendered version grew ~105px under the user's cursor because the host revealed
-# hidden actions on :hover. Enforced here rather than in a unit test because
-# Vitest stubs CSS imports to an empty string, so a test asserting on stylesheet
-# text passes against nothing.
+# hidden actions on :hover.
+#
+# `opacity` and `visibility` are deliberately NOT banned: neither reflows, so
+# revealing a control in space that was already reserved for it is exactly the
+# right way to do a hover affordance. Only the properties that move things are
+# listed. Enforced here rather than in a unit test because Vitest stubs CSS
+# imports to an empty string, so a test asserting on stylesheet text passes
+# against nothing.
 echo "Checking hosting section geometry…"
 HOSTING_CSS=src/styles/features/publish/hosting.css
 if [ ! -f "$HOSTING_CSS" ]; then
@@ -141,7 +146,7 @@ else
   HOSTING_BODY=$(perl -0pe 's{/\*.*?\*/}{}gs' "$HOSTING_CSS")
   HOSTING_OFFENDERS=$(printf '%s' "$HOSTING_BODY" | awk '
     /:hover|:focus-within/ { inrule = 1 }
-    inrule && /(^|[ \t;{])(display|height|padding|margin|visibility)[ \t]*:/ { print; inrule = 0 }
+    inrule && /(^|[ \t;{])(display|height|width|padding|margin|gap|font-size)[ \t]*:/ { print; inrule = 0 }
     /}/ { inrule = 0 }
   ')
   HOSTING_MISSING=""

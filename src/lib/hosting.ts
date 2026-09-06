@@ -79,8 +79,12 @@ export type DeploymentDetail =
   | { detail: 'superseded_by_newer' };
 
 export interface DeploymentUrls {
+  /** The address people visit — the project's production domain. */
+  site?: string | null;
+  /** This build's immutable permalink. Always this commit, never "current". */
   deployment?: string | null;
   aliases: string[];
+  /** Site if known, else this build. */
   primary?: string | null;
 }
 

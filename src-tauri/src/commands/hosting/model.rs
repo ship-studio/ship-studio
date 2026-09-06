@@ -187,13 +187,24 @@ pub enum DeploymentDetail {
 /// response body.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DeploymentUrls {
-    /// This specific deployment's immutable URL.
+    /// The address people actually visit — the project's production domain.
+    ///
+    /// This is a property of the *project*, not of a deployment, and on Vercel
+    /// it lives on a different endpoint entirely. Reading it off the deployment
+    /// record is why this section spent a day showing an unrecognisable
+    /// per-build permalink and calling it the site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
+    /// This specific build's immutable URL. Always resolves to this exact
+    /// commit, even after newer deploys — which is what makes it useful, and
+    /// also what makes it the wrong thing to show as "your site".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployment: Option<String>,
     /// Every alias the provider reported for it.
     #[serde(default)]
     pub aliases: Vec<String>,
-    /// The one to open when the user clicks through, chosen by the adapter.
+    /// What a single "open" should go to: the site if we know it, else this
+    /// build. Kept so callers that want one URL don't re-derive the rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary: Option<String>,
 }
@@ -265,8 +276,14 @@ impl BuildLog {
     /// the reason a build failed.
     pub fn likely_error(&self) -> Option<String> {
         const MARKERS: [&str; 8] = [
-            "error", "failed", "cannot find", "not found", "unexpected", "exited with",
-            "syntaxerror", "typeerror",
+            "error",
+            "failed",
+            "cannot find",
+            "not found",
+            "unexpected",
+            "exited with",
+            "syntaxerror",
+            "typeerror",
         ];
 
         self.lines

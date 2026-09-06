@@ -14,6 +14,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { useHostingStatus } from '../../hooks/useHostingStatus';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { HostingRow, HostingLinks } from './HostingRow';
+import { HostingUrls } from './HostingUrls';
 import { HostingTokenModal } from './HostingTokenModal';
 import { HostingLinkPicker } from './HostingLinkPicker';
 import { useOpenModal } from '../../contexts/ModalContext';
@@ -61,14 +62,18 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
 
   const copy = copyFor(state, status?.commit.subject, status?.commit.short_sha);
 
-  const handleAction = useCallback(() => {
-    const openExternal = (url?: string | null) => {
+  const openExternal = useCallback(
+    (url?: string | null) => {
       if (!url) return;
       void openUrl(url).catch((err) => {
         logger.warn('hosting: failed to open url', { error: String(err) });
         showToast("Couldn't open that link", 'error');
       });
-    };
+    },
+    [showToast]
+  );
+
+  const handleAction = useCallback(() => {
 
     switch (state.kind) {
       case 'ready':
@@ -99,7 +104,7 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
       default:
         return;
     }
-  }, [state, refresh, showToast, openDeployments]);
+  }, [state, refresh, openExternal, openDeployments]);
 
   return (
     <>
@@ -113,6 +118,7 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
           shortSha={status?.commit.short_sha}
           onAction={handleAction}
         />
+        <HostingUrls deployment={state.deployment} onOpen={openExternal} />
         <HostingLinks state={state} hint={copy.hint} />
       </section>
 

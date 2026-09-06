@@ -1,0 +1,110 @@
+/**
+ * The addresses, and which is which.
+ *
+ * The bug these pin: the section showed one unlabelled URL, taken from the
+ * deployment record. That record's `url` is a per-build permalink carrying a
+ * generated hash and the account name — so the section displayed something
+ * unrecognisable, never showed the address people actually visit, and gave no
+ * way to tell which kind of URL it was.
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { HostingUrls } from './HostingUrls';
+import type { Deployment } from '../../lib/hosting';
+
+function deployment(urls: Partial<Deployment['urls']>): Deployment {
+  return {
+    id: 'dpl_1',
+    phase: { phase: 'ready' },
+    environment: 'production',
+    branch: 'main',
+    commit_sha: 'abc1234',
+    urls: { aliases: [], ...urls },
+    created_at: Date.now(),
+  };
+}
+
+const SITE = 'https://pepper-cayenne-accessories.vercel.app';
+const BUILD = 'https://pepper-cayenne-accessories-myos1awic-juliangalluzzo.vercel.app';
+
+describe('HostingUrls', () => {
+  it('labels the site and the build so they cannot be confused', () => {
+    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+
+    expect(screen.getByText('Site')).toBeInTheDocument();
+    expect(screen.getByText('Build')).toBeInTheDocument();
+  });
+
+  it('surfaces the site address, not just the build permalink', () => {
+    // Asserted through the accessible name: the visible text goes through
+    // MiddleTruncate, which measures with canvas and so collapses to an
+    // ellipsis under jsdom's zero-width layout. The address itself is what
+    // matters here, and it reaches the user either way.
+    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Open the live site — pepper-cayenne-accessories.vercel.app',
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('gives each address its own open control, each saying what it opens', () => {
+    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+
+    // A bare "Open" can't say which of two addresses it means.
+    expect(screen.getByLabelText(/Open the live site/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Open this exact build/)).toBeInTheDocument();
+  });
+
+  it('opens the address its own control belongs to', () => {
+    const onOpen = vi.fn();
+    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={onOpen} />);
+
+    fireEvent.click(screen.getByLabelText(/Open the live site/));
+    expect(onOpen).toHaveBeenCalledWith(SITE);
+
+    fireEvent.click(screen.getByLabelText(/Open this exact build/));
+    expect(onOpen).toHaveBeenCalledWith(BUILD);
+  });
+
+  it('does not repeat one address under two labels', () => {
+    // A project whose site domain is also the deployment URL should show one
+    // row, not the same string twice.
+    render(<HostingUrls deployment={deployment({ site: SITE, deployment: SITE })} onOpen={vi.fn()} />);
+
+    expect(screen.getByText('Site')).toBeInTheDocument();
+    expect(screen.queryByText('Build')).not.toBeInTheDocument();
+  });
+
+  it('shows the build alone when the site address is unknown', () => {
+    // Honest degradation: if the project's domains couldn't be read, the
+    // permalink is still real and still worth offering — but it is labelled
+    // "Build", never presented as the site.
+    render(<HostingUrls deployment={deployment({ deployment: BUILD })} onOpen={vi.fn()} />);
+
+    expect(screen.queryByText('Site')).not.toBeInTheDocument();
+    expect(screen.getByText('Build')).toBeInTheDocument();
+  });
+
+  it('renders nothing rather than an empty frame when there are no addresses', () => {
+    const { container } = render(<HostingUrls deployment={deployment({})} onOpen={vi.fn()} />);
+    expect(container.querySelector('.hosting-urls')).not.toBeInTheDocument();
+
+    const { container: noDeployment } = render(<HostingUrls onOpen={vi.fn()} />);
+    expect(noDeployment.querySelector('.hosting-urls')).not.toBeInTheDocument();
+  });
+
+  it('strips the scheme for display but opens the full URL', () => {
+    const onOpen = vi.fn();
+    render(<HostingUrls deployment={deployment({ site: SITE })} onOpen={onOpen} />);
+
+    // The label names the host without a scheme; the click still carries one.
+    const button = screen.getByRole('button', {
+      name: 'Open the live site — pepper-cayenne-accessories.vercel.app',
+    });
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledWith(SITE);
+  });
+});

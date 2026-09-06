@@ -6,7 +6,9 @@
 //! surprise in the one path nobody remembered.
 
 use super::http::HostingHttpError;
-use super::model::{BuildLog, Deployment, HostingLink, HostingProjectChoice, HostingProvider, Lookup};
+use super::model::{
+    BuildLog, Deployment, HostingLink, HostingProjectChoice, HostingProvider, Lookup,
+};
 use super::vercel;
 
 /// Placeholder for a provider whose adapter has not landed yet. Returns a
