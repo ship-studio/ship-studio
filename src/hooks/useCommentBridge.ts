@@ -36,9 +36,11 @@ export function useCommentBridge({
       type: 'sync',
       enabled,
       picking,
+      // The frame draws a numbered pin per note, so it needs the ordinal and
+      // the status that decides whether the pin reads as open or done.
       notes: notes
         .filter((n) => n.status !== 'resolved')
-        .map((n) => ({ id: n.id, target: n.target })),
+        .map((n) => ({ id: n.id, number: n.number, status: n.status, target: n.target })),
       accent: styles.getPropertyValue('--accent-active').trim(),
       scrim: styles.getPropertyValue('--overlay-30').trim(),
       ink: styles.getPropertyValue('--bg-primary').trim(),

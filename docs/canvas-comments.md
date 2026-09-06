@@ -11,8 +11,12 @@ and dims the surrounding canvas. The target stays clear while writing the note.
 The compact floating panel can be moved or closed without changing the
 preview viewport. While composing, the backlog and send controls are hidden. Click
 another element to retarget without losing draft text; Escape clears the canvas
-highlight, and the next click selects a fresh target. Notes are grouped by route without numbered canvas pins or visible counts. All pending notes
-start selected; uncheck notes to hold them for later. Review the generated prompt
+highlight, and the next click selects a fresh target. Each saved note draws a **numbered pin** on its element in the preview, and the panel
+shows the same number. Clicking a pin opens that note; hovering one outlines its element.
+Pins are placed from a live rect on every scroll, resize and DOM change, so they follow
+their element instead of drifting, and a pin whose element has scrolled out of view is
+clamped to the edge rather than disappearing. A sent note's pin is outlined rather than
+filled. Notes are grouped by route. All pending notes start selected; uncheck notes to hold them for later. Review the generated prompt
 and choose the destination terminal before sending. Sending pastes one bracketed
 batch into that terminal. It does not press Enter. The user starts the request in
 the terminal and reviews its results before deleting comments with the trash icon.
@@ -40,11 +44,24 @@ It captures route (including query/hash), a unique CSS selector, tag, classes,
 text, nearby heading, ancestors, viewport dimensions, and the element rectangle.
 Source attributes are included only when present, labelled as hints. Screenshot attachments are not part of canvas comments.
 
-The prompt preserves the user's exact text in a `userRequest` field and separates
-`applyTo` from `capturedViewport`. Each note retains a UUID for agent reference. Captured
-DOM text is explicitly labelled untrusted reference data. The agent must verify
-the project, branch, and target, flag ambiguities/conflicts, test the changes, and
-report results by comment ID. Source hints/selectors are not treated as proof.
+The prompt is one numbered section per comment, following the convention these
+visual-feedback tools have settled on (Agentation is the reference): a heading naming
+the element the way a person would — `### 2. section · Welcome home` rather than an
+nth-of-type selector — then **Page**, **Location** (a readable `main > div > section`
+ancestry), **Selector**, **Applies to**, the **Comment ID**, and the user's words last
+under **Feedback**. The number is the one drawn on the pin, so the user and the agent
+can say "comment 2" and mean the same element.
+
+**Context sent** chooses how much each comment carries: *compact* is one line per note,
+*standard* is the fields above, *detailed* adds classes, nearby heading, text, the
+element rect with its captured viewport, and any source hint.
+
+What is deliberately not borrowed from a clipboard-based tool is a bare markdown dump.
+Ship Studio pastes this into a live agent terminal rather than the clipboard, so the
+preamble stays: only **Feedback** is a user request, every other field is captured page
+content labelled untrusted reference data, `applyTo` is separate from the captured
+viewport, and the agent must verify project, branch and target, flag ambiguities and
+conflicts, test, and report by comment ID. Source hints and selectors are not proof.
 
 Selecting a saved note locates its target in the preview. A selector must match
 a unique element with the same tag and captured text. If the target has changed,

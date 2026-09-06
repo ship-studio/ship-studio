@@ -14,6 +14,7 @@ import {
   type CanvasComment,
   type CommentTarget,
   type CommentAgent,
+  type CommentDetail,
 } from '../../lib/canvasComments';
 import '../../styles/features/canvas-comments.css';
 
@@ -43,13 +44,14 @@ export function CanvasComments(props: CanvasCommentsProps) {
   const [agentId, setAgentId] = useState<number | null>(props.activeAgentId ?? null);
   const [locating, setLocating] = useState<CanvasComment>();
   const [batchId, setBatchId] = useState(() => crypto.randomUUID());
+  const [detail, setDetail] = useState<CommentDetail>('standard');
   const sendingRef = useRef(false);
   const { showToast } = useOptionalToast();
   const store = useCanvasComments(props.projectPath, props.branch ?? '');
   const selected = store.comments.filter((c) => c.status === 'pending' && !excluded.has(c.id));
   const agent = props.agents.find((a) => a.id === agentId);
   const prompt = selected.length
-    ? formatCommentBatch(props.projectPath, props.branch ?? '', selected, batchId)
+    ? formatCommentBatch(props.projectPath, props.branch ?? '', selected, batchId, detail)
     : '';
   const { copy } = useCopyToClipboard({
     onCopy: () => showToast('Comment batch copied', 'success'),
@@ -109,7 +111,7 @@ export function CanvasComments(props: CanvasCommentsProps) {
         const batch = readComments(store.prefix).filter(
           (c) => c.status === 'pending' && !excluded.has(c.id)
         );
-        const text = formatCommentBatch(props.projectPath, props.branch, batch, batchId);
+        const text = formatCommentBatch(props.projectPath, props.branch, batch, batchId, detail);
         await agent.send(text);
         const sentAt = new Date().toISOString();
         const saved = batch.map((c) =>
@@ -193,6 +195,8 @@ export function CanvasComments(props: CanvasCommentsProps) {
               showToast('Comment deleted', 'success');
             }
           }}
+          detail={detail}
+          setDetail={setDetail}
           onSend={() => void send.execute()}
           onCopy={() => void copy(prompt)}
           sending={send.isLoading}

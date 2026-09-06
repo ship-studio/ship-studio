@@ -1,7 +1,7 @@
 <script>(function () {
   if (window.__ssCommentsInit) return;
   window.__ssCommentsInit = true;
-  var enabled = false, picking = false, selected = null, hovered = null, notes = [], host = null, root = null, hover = null, raf = 0;
+  var enabled = false, picking = false, selected = null, hovered = null, notes = [], host = null, root = null, hover = null, raf = 0, pins = {};
   function send(data) { window.parent.postMessage(Object.assign({ channel: 'ss:comments' }, data), '*'); }
   function page() { return location.pathname + location.search + location.hash; }
   function own(el) { return el === host || (host && host.contains(el)); }
@@ -28,11 +28,18 @@
   }
   function ensure() {
     if (host && host.isConnected) return;
+    pins = {};
     host = document.createElement('div'); host.setAttribute('data-ss-overlay', 'comments');
     host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647';
     root = host.attachShadow({ mode: 'open' });
     var style = document.createElement('style');
-    style.textContent = '.outline{position:fixed;box-sizing:border-box;border:2px solid var(--cc-accent);box-shadow:0 0 0 100vmax var(--cc-scrim);pointer-events:none}.outline[hidden]{display:none}';
+    style.textContent = '.outline{position:fixed;box-sizing:border-box;border:2px solid var(--cc-accent);box-shadow:0 0 0 100vmax var(--cc-scrim);pointer-events:none}.outline[hidden]{display:none}'
+      + '.pin{position:fixed;width:22px;height:22px;box-sizing:border-box;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+      + 'background:var(--cc-accent);color:var(--cc-ink);font:600 11px/1 ui-sans-serif,system-ui,sans-serif;'
+      + 'transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;user-select:none;'
+      + 'box-shadow:0 2px 6px rgba(0,0,0,.35),inset 0 0 0 1px rgba(0,0,0,.15)}'
+      + '.pin:hover{transform:translate(-50%,-50%) scale(1.15)}'
+      + '.pin[data-status="sent"]{background:transparent;color:var(--cc-accent);box-shadow:inset 0 0 0 2px var(--cc-accent)}';
     root.appendChild(style); document.documentElement.appendChild(host);
     hover = document.createElement('div'); hover.className = 'outline'; hover.hidden = true; root.appendChild(hover);
   }
@@ -51,16 +58,40 @@
     if (el.tagName.toLowerCase() !== t.tag || (t.text && text(el) !== t.text)) return null;
     return el;
   }
+  /* A pin marks where a note was left, carrying the same number the panel and
+     the agent prompt use. It is placed from a live rect every time the page
+     scrolls, resizes or mutates, so it never drifts from its element. */
+  function pin(n, el) {
+    var mark = pins[n.id];
+    if (!mark) {
+      mark = document.createElement('div'); mark.className = 'pin';
+      mark.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); send({ type: 'open', id: n.id }); }, true);
+      mark.addEventListener('pointerenter', function () { outline(el); });
+      mark.addEventListener('pointerleave', function () { outline(picking ? hovered || selected : selected); });
+      root.appendChild(mark); pins[n.id] = mark;
+    }
+    var r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) { mark.hidden = true; return; }
+    mark.hidden = false;
+    mark.textContent = String(n.number);
+    mark.title = 'Comment ' + n.number;
+    mark.setAttribute('data-status', n.status || 'pending');
+    /* Clamp inside the viewport so a pin on an element at the very edge, or one
+       scrolled off, still reads instead of being half-drawn or invisible. */
+    mark.style.left = Math.min(Math.max(r.left, 13), innerWidth - 13) + 'px';
+    mark.style.top = Math.min(Math.max(r.top, 13), innerHeight - 13) + 'px';
+  }
   function render() {
     raf = 0;
     if (!enabled) return;
     ensure();
-    var missing = [];
+    var missing = [], live = {};
     notes.filter(function (n) { return n.target.page === page(); }).forEach(function (n) {
       var el = resolve(n.target);
       if (!el) { missing.push(n.id); return; }
-
+      live[n.id] = true; pin(n, el);
     });
+    Object.keys(pins).forEach(function (id) { if (!live[id]) { pins[id].remove(); delete pins[id]; } });
     outline(picking ? hovered || selected : selected); send({ type: 'locations', missing: missing, page: page() });
   }
   function schedule() { if (enabled && !raf) raf = requestAnimationFrame(render); }
@@ -69,7 +100,7 @@
     var d = e.data;
     if (d.type === 'sync') {
       enabled = !!d.enabled; picking = !!d.picking; notes = Array.isArray(d.notes) ? d.notes : [];
-      if (!enabled) { if (host) host.remove(); selected = null; hovered = null; return; }
+      if (!enabled) { if (host) host.remove(); pins = {}; selected = null; hovered = null; return; }
       ensure(); host.style.setProperty('--cc-accent', d.accent); host.style.setProperty('--cc-ink', d.ink); host.style.setProperty('--cc-scrim', d.scrim); schedule(); send({ type: 'ready', page: page() });
     } else if (d.type === 'parent' && enabled && selected && selected.parentElement && selected !== document.body) {
       selected = selected.parentElement; outline(selected); send({ type: 'selected', target: target(selected) });

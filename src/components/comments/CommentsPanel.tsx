@@ -4,12 +4,15 @@ import { DockablePanel } from '../primitives/DockablePanel';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { EmptyState } from '../primitives/EmptyState';
+import { SegmentedControl } from '../primitives/SegmentedControl';
 import { TrashIcon, CloseIcon, CommentIcon } from '@/components/icons';
 import {
-  commentTargetLabel,
+  commentElementName,
   commentScopeLabel,
+  COMMENT_DETAILS,
   type CanvasComment,
   type CommentAgent,
+  type CommentDetail,
 } from '../../lib/canvasComments';
 
 interface Props {
@@ -31,6 +34,8 @@ interface Props {
   onDelete: (comment: CanvasComment) => void;
   onSend: () => void;
   onCopy: () => void;
+  detail: CommentDetail;
+  setDetail: (detail: CommentDetail) => void;
   sending: boolean;
   disabled: boolean;
   message: string;
@@ -131,14 +136,17 @@ export function CommentsPanel(props: Props) {
                             onChange={() => props.toggle(c.id)}
                           />
                         )}
+                        <span className="canvas-comment-pin" aria-hidden>
+                          {c.number}
+                        </span>
                         <Button
                           variant="ghost"
                           size="compact"
                           className="canvas-comment-card__target"
-                          title={`Find ${commentTargetLabel(c.target)} in the preview`}
+                          title={`Find ${commentElementName(c.target)} in the preview`}
                           onClick={() => props.onLocate(c)}
                         >
-                          {commentTargetLabel(c.target)}
+                          {commentElementName(c.target)}
                         </Button>
                       </div>
                       <p className="canvas-comment-body">{c.body}</p>
@@ -184,6 +192,18 @@ export function CommentsPanel(props: Props) {
               {props.prompt || 'Select pending comments to preview the prompt.'}
             </pre>
           )}
+          <label className="canvas-comments-agent">
+            <span className="canvas-comments-hint">Context sent</span>
+            <SegmentedControl<CommentDetail>
+              aria-label="Context sent"
+              value={props.detail}
+              onValueChange={props.setDetail}
+              options={COMMENT_DETAILS.map((d) => ({
+                value: d,
+                label: d[0].toUpperCase() + d.slice(1),
+              }))}
+            />
+          </label>
           <label className="canvas-comments-agent">
             <span className="canvas-comments-hint">Send to</span>
             <select
