@@ -65,6 +65,7 @@ import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
 import { sessionRegistry } from '../../lib/sessionRegistry';
 import { defaultWorkspaceTab, workspacePreviewCapabilities } from './workspaceViewState';
+import { useWorkspaceComments } from '../../hooks/useWorkspaceComments';
 import '../../styles/features/notifications.css';
 
 // ---------------------------------------------------------------------------
@@ -742,8 +743,6 @@ export const WorkspaceView = memo(function WorkspaceView({
   const elementTreeAvailable =
     workspaceTab === 'preview' && !isPreviewHidden && elementTreePreviewAvailable;
   const elementTreePanelVisible = elementTreeAvailable && elementTreeVisible;
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [commentsPendingCount, setCommentsPendingCount] = useState(0);
   const [variablesPanelVisible, setVariablesPanelVisible] = useState(false);
   const [variablesPanelPinned, , toggleVariablesPanelPinned] = useLocalStorageFlag(
     'variablesPanelPinned',
@@ -763,18 +762,12 @@ export const WorkspaceView = memo(function WorkspaceView({
       void handleStartDevServer();
     }
   }, [handleStartDevServer, setIsPreviewHidden, setWorkspaceTab, variablesPanelOpen]);
-  // Comments are placed by clicking the live preview, so the toggle brings the
-  // preview forward and starts the dev server the same way Variables does.
-  const commentsAvailable = isWebProject;
-  const toggleComments = useCallback(() => {
-    const shouldOpen = !commentsOpen;
-    setCommentsOpen(shouldOpen);
-    if (shouldOpen) {
-      setIsPreviewHidden(false);
-      setWorkspaceTab('preview');
-      void handleStartDevServer();
-    }
-  }, [commentsOpen, handleStartDevServer, setIsPreviewHidden, setWorkspaceTab]);
+  const comments = useWorkspaceComments({
+    isWebProject,
+    setIsPreviewHidden,
+    setWorkspaceTab,
+    startDevServer: handleStartDevServer,
+  });
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
       setIsPreviewHidden(false);
@@ -1060,10 +1053,10 @@ export const WorkspaceView = memo(function WorkspaceView({
     variablesPanelVisible: variablesPanelOpen,
     variablesPanelAvailable: isWebProject,
     onToggleVariablesPanel: toggleVariablesPanel,
-    commentsVisible: commentsOpen,
-    commentsAvailable: commentsAvailable,
-    commentsPendingCount,
-    onToggleComments: toggleComments,
+    commentsVisible: comments.open,
+    commentsAvailable: comments.available,
+    commentsPendingCount: comments.pendingCount,
+    onToggleComments: comments.toggle,
     modes: modesNode,
     headerExtras: (
       <PluginsDropdown
@@ -1308,9 +1301,9 @@ export const WorkspaceView = memo(function WorkspaceView({
                   right={
                     <WorkspacePreviewPane
                       activeCommentAgentId={activeTerminalTab}
-                      commentsOpen={commentsOpen}
-                      onCommentsOpenChange={setCommentsOpen}
-                      onCommentsPendingCountChange={setCommentsPendingCount}
+                      commentsOpen={comments.open}
+                      onCommentsOpenChange={comments.setOpen}
+                      onCommentsPendingCountChange={comments.setPendingCount}
                       commentAgents={commentAgents(
                         currentProject.path,
                         terminal,
