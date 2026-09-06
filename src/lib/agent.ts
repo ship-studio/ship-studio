@@ -111,6 +111,188 @@ export const CURSOR: AgentConfig = {
   installHint: 'Make sure Cursor CLI is installed: curl https://cursor.com/install -fsS | bash',
 };
 
+/** GitHub Copilot CLI agent configuration. */
+export const COPILOT: AgentConfig = {
+  id: 'copilot',
+  displayName: 'GitHub Copilot',
+  binaryName: 'copilot',
+  processName: 'copilot',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting GitHub Copilot...',
+  notFoundMessage: 'Error starting GitHub Copilot',
+  installHint:
+    'Make sure Copilot CLI is installed: curl -fsSL https://gh.io/copilot-install | bash',
+};
+
+/** Pi agent configuration. */
+export const PI: AgentConfig = {
+  id: 'pi',
+  displayName: 'Pi',
+  binaryName: 'pi',
+  processName: 'pi',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Pi...',
+  notFoundMessage: 'Error starting Pi',
+  installHint: 'Make sure Pi is installed: curl -fsSL https://pi.dev/install.sh | sh',
+};
+
+/** Hermes Agent configuration. */
+export const HERMES: AgentConfig = {
+  id: 'hermes',
+  displayName: 'Hermes',
+  binaryName: 'hermes',
+  processName: 'hermes',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Hermes...',
+  notFoundMessage: 'Error starting Hermes',
+  installHint:
+    'Make sure Hermes is installed: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash',
+};
+
+/** Devin CLI agent configuration. */
+export const DEVIN: AgentConfig = {
+  id: 'devin',
+  displayName: 'Devin',
+  binaryName: 'devin',
+  processName: 'devin',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Devin...',
+  notFoundMessage: 'Error starting Devin',
+  installHint:
+    'Make sure Devin CLI is installed: curl -fsSL https://cli.devin.ai/install.sh | bash',
+};
+
+/** Grok Build agent configuration. */
+export const GROK: AgentConfig = {
+  id: 'grok',
+  displayName: 'Grok',
+  binaryName: 'grok',
+  processName: 'grok',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Grok...',
+  notFoundMessage: 'Error starting Grok',
+  installHint: 'Make sure Grok CLI is installed: curl -fsSL https://x.ai/cli/install.sh | bash',
+};
+
+/** Kimi Code agent configuration. */
+export const KIMI_CODE: AgentConfig = {
+  id: 'kimi-code',
+  displayName: 'Kimi Code',
+  binaryName: 'kimi',
+  processName: 'kimi',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Kimi Code...',
+  notFoundMessage: 'Error starting Kimi Code',
+  installHint:
+    'Make sure Kimi Code is installed: curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash',
+};
+
+/** Antigravity CLI agent configuration. */
+export const ANTIGRAVITY_CLI: AgentConfig = {
+  id: 'antigravity-cli',
+  displayName: 'Antigravity',
+  binaryName: 'agy',
+  processName: 'agy',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Antigravity...',
+  notFoundMessage: 'Error starting Antigravity',
+  installHint:
+    'Make sure Antigravity CLI is installed: curl -fsSL https://antigravity.google/cli/install.sh | bash',
+};
+
+/** Jcode agent configuration. */
+export const JCODE: AgentConfig = {
+  id: 'jcode',
+  displayName: 'Jcode',
+  binaryName: 'jcode',
+  processName: 'jcode',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Jcode...',
+  notFoundMessage: 'Error starting Jcode',
+  installHint: 'Make sure Jcode is installed: curl -fsSL https://jcode.sh/install | bash',
+};
+
+/** Droid (Factory) agent configuration. */
+export const DROID: AgentConfig = {
+  id: 'droid',
+  displayName: 'Droid',
+  binaryName: 'droid',
+  processName: 'droid',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Droid...',
+  notFoundMessage: 'Error starting Droid',
+  installHint: 'Make sure Droid is installed: curl -fsSL https://app.factory.ai/cli | sh',
+};
+
+/** Amp (AmpCode) agent configuration. */
+export const AMP: AgentConfig = {
+  id: 'amp',
+  displayName: 'Amp',
+  binaryName: 'amp',
+  processName: 'amp',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Amp...',
+  notFoundMessage: 'Error starting Amp',
+  installHint: 'Make sure Amp is installed: curl -fsSL https://ampcode.com/install.sh | bash',
+};
+
+/** Qwen Code agent configuration. */
+export const QWEN: AgentConfig = {
+  id: 'qwen',
+  displayName: 'Qwen',
+  binaryName: 'qwen',
+  processName: 'qwen',
+  autoAcceptFlag: null,
+  additionalDirFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Qwen...',
+  notFoundMessage: 'Error starting Qwen',
+  installHint:
+    'Make sure Qwen is installed: curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash',
+};
+
 /** Raw terminal (shell) configuration — not an AI agent. */
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
@@ -128,10 +310,43 @@ export const TERMINAL: AgentConfig = {
 };
 
 /** All available agents (AI coding assistants). */
-export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE, CURSOR];
+export const ALL_AGENTS: AgentConfig[] = [
+  CLAUDE_CODE,
+  CODEX,
+  OPENCODE,
+  CURSOR,
+  COPILOT,
+  PI,
+  HERMES,
+  DEVIN,
+  GROK,
+  KIMI_CODE,
+  ANTIGRAVITY_CLI,
+  JCODE,
+  DROID,
+  AMP,
+  QWEN,
+];
 
 /** All options available in the tab dropdown (agents + terminal). */
-export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE, CURSOR, TERMINAL];
+export const ALL_TAB_OPTIONS: AgentConfig[] = [
+  CLAUDE_CODE,
+  CODEX,
+  OPENCODE,
+  CURSOR,
+  COPILOT,
+  PI,
+  HERMES,
+  DEVIN,
+  GROK,
+  KIMI_CODE,
+  ANTIGRAVITY_CLI,
+  JCODE,
+  DROID,
+  AMP,
+  QWEN,
+  TERMINAL,
+];
 
 /** In-memory cache for the default agent ID. Null means unset (falls back to Claude Code). */
 let defaultAgentId: string | null = null;

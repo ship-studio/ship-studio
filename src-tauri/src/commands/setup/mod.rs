@@ -77,13 +77,54 @@ const ALL_ITEMS: &[&str] = &[
     "opencode_auth",
     "cursor",
     "cursor_auth",
+    "copilot",
+    "copilot_auth",
+    "pi",
+    "pi_auth",
+    "hermes",
+    "hermes_auth",
+    "devin",
+    "devin_auth",
+    "grok",
+    "grok_auth",
+    "kimi-code",
+    "kimi-code_auth",
+    "antigravity-cli",
+    "antigravity-cli_auth",
+    "jcode",
+    "jcode_auth",
+    "droid",
+    "droid_auth",
+    "amp",
+    "amp_auth",
+    "qwen",
+    "qwen_auth",
     "vercel",
     "vercel_auth",
 ];
 
 /// Tool items (not auth)
 const TOOL_ITEMS: &[&str] = &[
-    "homebrew", "node", "git", "gh", "claude", "codex", "opencode", "cursor", "vercel",
+    "homebrew",
+    "node",
+    "git",
+    "gh",
+    "claude",
+    "codex",
+    "opencode",
+    "cursor",
+    "copilot",
+    "pi",
+    "hermes",
+    "devin",
+    "grok",
+    "kimi-code",
+    "antigravity-cli",
+    "jcode",
+    "droid",
+    "amp",
+    "qwen",
+    "vercel",
 ];
 
 // ============ App State Persistence (shared helpers) ============
@@ -255,7 +296,7 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
         // Vercel installed and authed (for testing hosting step)
         "vercel-ready" => vec!["vercel", "vercel_auth"],
 
-        // Only Codex installed (no Claude, no Opencode, no Cursor)
+        // Only Codex installed (no Claude, no Opencode, no Cursor, no new agents)
         "codex-only" => ALL_ITEMS
             .iter()
             .filter(|&&item| {
@@ -265,11 +306,33 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "opencode_auth"
                     && item != "cursor"
                     && item != "cursor_auth"
+                    && item != "copilot"
+                    && item != "copilot_auth"
+                    && item != "pi"
+                    && item != "pi_auth"
+                    && item != "hermes"
+                    && item != "hermes_auth"
+                    && item != "devin"
+                    && item != "devin_auth"
+                    && item != "grok"
+                    && item != "grok_auth"
+                    && item != "kimi-code"
+                    && item != "kimi-code_auth"
+                    && item != "antigravity-cli"
+                    && item != "antigravity-cli_auth"
+                    && item != "jcode"
+                    && item != "jcode_auth"
+                    && item != "droid"
+                    && item != "droid_auth"
+                    && item != "amp"
+                    && item != "amp_auth"
+                    && item != "qwen"
+                    && item != "qwen_auth"
             })
             .copied()
             .collect(),
 
-        // Only Opencode installed (no Claude, no Codex, no Cursor)
+        // Only Opencode installed (no Claude, no Codex, no Cursor, no new agents)
         "opencode-only" => ALL_ITEMS
             .iter()
             .filter(|&&item| {
@@ -279,6 +342,28 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "codex_auth"
                     && item != "cursor"
                     && item != "cursor_auth"
+                    && item != "copilot"
+                    && item != "copilot_auth"
+                    && item != "pi"
+                    && item != "pi_auth"
+                    && item != "hermes"
+                    && item != "hermes_auth"
+                    && item != "devin"
+                    && item != "devin_auth"
+                    && item != "grok"
+                    && item != "grok_auth"
+                    && item != "kimi-code"
+                    && item != "kimi-code_auth"
+                    && item != "antigravity-cli"
+                    && item != "antigravity-cli_auth"
+                    && item != "jcode"
+                    && item != "jcode_auth"
+                    && item != "droid"
+                    && item != "droid_auth"
+                    && item != "amp"
+                    && item != "amp_auth"
+                    && item != "qwen"
+                    && item != "qwen_auth"
             })
             .copied()
             .collect(),
@@ -487,25 +572,58 @@ mod tests {
     }
 
     #[test]
-    fn all_items_contains_15_items_including_all_agents_and_vercel() {
-        assert_eq!(ALL_ITEMS.len(), 15);
+    fn all_items_contains_37_items_including_all_agents_and_vercel() {
+        assert_eq!(ALL_ITEMS.len(), 37);
+        assert!(ALL_ITEMS.contains(&"copilot"));
+        assert!(ALL_ITEMS.contains(&"copilot_auth"));
         assert!(ALL_ITEMS.contains(&"codex"));
         assert!(ALL_ITEMS.contains(&"codex_auth"));
         assert!(ALL_ITEMS.contains(&"opencode"));
         assert!(ALL_ITEMS.contains(&"opencode_auth"));
         assert!(ALL_ITEMS.contains(&"cursor"));
         assert!(ALL_ITEMS.contains(&"cursor_auth"));
+        assert!(ALL_ITEMS.contains(&"pi"));
+        assert!(ALL_ITEMS.contains(&"pi_auth"));
+        assert!(ALL_ITEMS.contains(&"hermes"));
+        assert!(ALL_ITEMS.contains(&"hermes_auth"));
+        assert!(ALL_ITEMS.contains(&"devin"));
+        assert!(ALL_ITEMS.contains(&"devin_auth"));
+        assert!(ALL_ITEMS.contains(&"grok"));
+        assert!(ALL_ITEMS.contains(&"grok_auth"));
+        assert!(ALL_ITEMS.contains(&"kimi-code"));
+        assert!(ALL_ITEMS.contains(&"kimi-code_auth"));
+        assert!(ALL_ITEMS.contains(&"antigravity-cli"));
+        assert!(ALL_ITEMS.contains(&"antigravity-cli_auth"));
+        assert!(ALL_ITEMS.contains(&"jcode"));
+        assert!(ALL_ITEMS.contains(&"jcode_auth"));
+        assert!(ALL_ITEMS.contains(&"droid"));
+        assert!(ALL_ITEMS.contains(&"droid_auth"));
+        assert!(ALL_ITEMS.contains(&"amp"));
+        assert!(ALL_ITEMS.contains(&"amp_auth"));
+        assert!(ALL_ITEMS.contains(&"qwen"));
+        assert!(ALL_ITEMS.contains(&"qwen_auth"));
         assert!(ALL_ITEMS.contains(&"vercel"));
         assert!(ALL_ITEMS.contains(&"vercel_auth"));
     }
 
     #[test]
-    fn tool_items_contains_9_items_including_all_agents_and_vercel() {
-        assert_eq!(TOOL_ITEMS.len(), 9);
+    fn tool_items_contains_20_items_including_all_agents_and_vercel() {
+        assert_eq!(TOOL_ITEMS.len(), 20);
+        assert!(TOOL_ITEMS.contains(&"copilot"));
         assert!(TOOL_ITEMS.contains(&"codex"));
         assert!(TOOL_ITEMS.contains(&"claude"));
         assert!(TOOL_ITEMS.contains(&"opencode"));
         assert!(TOOL_ITEMS.contains(&"cursor"));
+        assert!(TOOL_ITEMS.contains(&"pi"));
+        assert!(TOOL_ITEMS.contains(&"hermes"));
+        assert!(TOOL_ITEMS.contains(&"devin"));
+        assert!(TOOL_ITEMS.contains(&"grok"));
+        assert!(TOOL_ITEMS.contains(&"kimi-code"));
+        assert!(TOOL_ITEMS.contains(&"antigravity-cli"));
+        assert!(TOOL_ITEMS.contains(&"jcode"));
+        assert!(TOOL_ITEMS.contains(&"droid"));
+        assert!(TOOL_ITEMS.contains(&"amp"));
+        assert!(TOOL_ITEMS.contains(&"qwen"));
         assert!(TOOL_ITEMS.contains(&"vercel"));
     }
 
