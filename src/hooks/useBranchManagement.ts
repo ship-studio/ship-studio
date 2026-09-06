@@ -28,6 +28,7 @@ import {
   isMissingUpstreamError,
   isRecognizedGitFailure,
 } from '../lib/errors';
+import { hasConflicts } from '../lib/conflicts';
 import { trackEvent, trackError } from '../lib/analytics';
 import type { PreviewHandle } from '../components/preview/Preview';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
@@ -64,6 +65,11 @@ export function useBranchManagement({
 
   // Conflict resolution modal state
   const [showConflictResolution, setShowConflictResolution] = useState(false);
+  // Whether the repository is actually mid-merge. Distinct from
+  // `showConflictResolution`, which is only whether the resolution UI is on
+  // screen — a distinction that matters because anything gated on "are there
+  // conflicts" must be true BEFORE the panel opens, not after it.
+  const [repoHasConflicts, setRepoHasConflicts] = useState(false);
 
   // Pull-latest state (the small sync button beside the branch indicator)
   const [isPulling, setIsPulling] = useState(false);
@@ -109,10 +115,14 @@ export function useBranchManagement({
   const checkGitStatus = useCallback(
     async (projectPath: string) => {
       try {
-        const [branch, hasChanges, files] = await Promise.all([
+        const [branch, hasChanges, files, conflicted] = await Promise.all([
           getCurrentBranch(projectPath).catch(() => null),
           invoke<boolean>('check_git_has_changes', { projectPath }).catch(() => false),
           getChangedFiles(projectPath).catch(() => []),
+          // A merge can be started outside the app — by the user in a terminal,
+          // or by their agent — so this is polled like the branch itself rather
+          // than only being set by the flows in this file.
+          hasConflicts(projectPath).catch(() => false),
         ]);
 
         // Update branch if changed (e.g., user switched via CLI/agent)
@@ -133,6 +143,7 @@ export function useBranchManagement({
 
         setHasUncommittedChanges(hasChanges);
         setChangedFiles(files);
+        setRepoHasConflicts(conflicted);
       } catch (e) {
         // Silently ignore errors during periodic checks
         logger.warn('Error checking git status', { error: e });
@@ -417,6 +428,7 @@ export function useBranchManagement({
     gitError,
     setGitError,
     showConflictResolution,
+    repoHasConflicts,
     setShowConflictResolution,
 
     // Functions

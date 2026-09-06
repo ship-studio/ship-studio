@@ -18,6 +18,10 @@ vi.mock('../lib/git', () => ({
   getChangedFiles: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock('../lib/conflicts', () => ({
+  hasConflicts: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
@@ -62,6 +66,7 @@ describe('useBranchManagement', () => {
   let branches: typeof import('../lib/branches');
   let git: typeof import('../lib/git');
   let core: typeof import('@tauri-apps/api/core');
+  let conflicts: typeof import('../lib/conflicts');
 
   beforeEach(async () => {
     vi.useFakeTimers();
@@ -71,8 +76,10 @@ describe('useBranchManagement', () => {
     branches = await import('../lib/branches');
     git = await import('../lib/git');
     core = await import('@tauri-apps/api/core');
+    conflicts = await import('../lib/conflicts');
 
     // Default mock responses
+    vi.mocked(conflicts.hasConflicts).mockResolvedValue(false);
     vi.mocked(branches.getCurrentBranch).mockResolvedValue('main');
     vi.mocked(branches.listBranches).mockResolvedValue([defaultBranch]);
     vi.mocked(branches.listPullRequests).mockResolvedValue([]);
@@ -99,6 +106,7 @@ describe('useBranchManagement', () => {
     expect(result.current.changedFiles).toEqual([]);
     expect(result.current.gitError).toBeNull();
     expect(result.current.showConflictResolution).toBe(false);
+    expect(result.current.repoHasConflicts).toBe(false);
   });
 
   describe('fetchBranchInfo', () => {
@@ -234,6 +242,37 @@ describe('useBranchManagement', () => {
       expect(result.current.currentBranch).toBe('feature');
       // listBranches should have been called at least once more to refresh
       expect(vi.mocked(branches.listBranches).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+
+    it('reports a merge started outside the app, without opening the panel', async () => {
+      // A merge can be started in a terminal or by the agent. Anything gated on
+      // "are there conflicts" has to know that BEFORE the resolution UI opens —
+      // which is the whole reason this is separate from showConflictResolution.
+      vi.mocked(conflicts.hasConflicts).mockResolvedValue(true);
+
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.checkGitStatus('/test/path');
+      });
+
+      expect(result.current.repoHasConflicts).toBe(true);
+      // Noticing a merge must not take over the screen on a 10s poll.
+      expect(result.current.showConflictResolution).toBe(false);
+    });
+
+    it('does not claim conflicts when the check itself fails', async () => {
+      vi.mocked(conflicts.hasConflicts).mockRejectedValue(new Error('not a git repo'));
+
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.checkGitStatus('/test/path');
+      });
+
+      expect(result.current.repoHasConflicts).toBe(false);
     });
   });
 
