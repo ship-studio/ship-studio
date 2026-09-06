@@ -34,6 +34,17 @@ export interface ConflictedFile {
 }
 
 /**
+ * Whether the working tree currently has unmerged paths.
+ *
+ * The cheap question, for callers that only need to know a merge is in
+ * progress — the command palette asks it on the branch poll. `getConflictInfo`
+ * parses every hunk of every conflicted file and is for the resolution UI.
+ */
+export async function hasConflicts(projectPath: string): Promise<boolean> {
+  return invoke<boolean>('has_conflicts', { projectPath });
+}
+
+/**
  * Get information about all conflicted files in the repository.
  * Parses conflict markers and extracts content for each side.
  */

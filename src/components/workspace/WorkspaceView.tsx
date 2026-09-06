@@ -245,6 +245,9 @@ interface BranchProps {
   ) => void;
   showConflictResolution: boolean;
   setShowConflictResolution: (show: boolean) => void;
+  /** Whether the repository is mid-merge, as opposed to whether the resolution
+   *  panel is on screen. Polled, so a merge started in a terminal counts. */
+  repoHasConflicts: boolean;
   fetchBranchInfo: (projectPath: string) => Promise<void>;
   checkGitStatus: (projectPath: string) => Promise<void>;
   handleBranchSwitch: (branchName: string) => Promise<void>;
@@ -586,6 +589,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     setGitError,
     showConflictResolution,
     setShowConflictResolution,
+    repoHasConflicts,
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
@@ -842,7 +846,11 @@ export const WorkspaceView = memo(function WorkspaceView({
   useWorkspaceCommands({
     currentBranch,
     hasUncommittedChanges,
-    hasConflicts: showConflictResolution,
+    // The repository's actual state, not whether the panel happens to be open.
+    // Gating the palette entry on the panel meant "Resolve merge conflicts"
+    // only appeared once you had already found your way to the resolution UI,
+    // which is precisely when you no longer need a shortcut to it.
+    hasConflicts: repoHasConflicts,
     setWorkspaceTab,
     setShowSubmitReview,
     handleResolveConflicts: () => void handleResolveConflicts(),

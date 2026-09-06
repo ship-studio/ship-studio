@@ -136,6 +136,36 @@ pub fn non_text_mergeable_reason(path: &std::path::Path) -> Option<String> {
     }
 }
 
+/// Whether the working tree currently has any unmerged paths.
+///
+/// Deliberately separate from `get_conflict_info`, which reads and parses every
+/// conflicted file. Callers that only need to know *whether* a merge is in
+/// progress — the command palette, a status badge — ask this on a timer, and
+/// making them pay to parse every hunk of every conflict on each tick would
+/// cost most in exactly the state where the app is already busy. This is one
+/// `git diff` and a byte check.
+#[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path))]
+pub async fn has_conflicts(project_path: String) -> Result<bool, CommandError> {
+    let validated_path = validate_project_path(&project_path)?;
+
+    let output = crate::utils::git_command_in(&validated_path)?
+        .args(["diff", "--name-only", "--diff-filter=U"])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    // A repository that is not mid-merge answers successfully with nothing. A
+    // failure means the question could not be asked, which is not the same as
+    // "no conflicts" — report it rather than returning a comfortable `false`
+    // that would hide the palette entry exactly when it is needed.
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err((format!("Failed to check for conflicted files: {stderr}")).into());
+    }
+
+    Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
 /// Get information about all conflicted files in the repository
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
