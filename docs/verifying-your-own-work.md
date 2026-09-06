@@ -96,6 +96,27 @@ gh api repos/<owner>/<repo>/commits/<sha>/status \
   --jq '.statuses[] | "\(.context) | \(.state) | \(.description)"'
 ```
 
+## It happens in tests that have been green for months
+
+```rust
+assert!(started.elapsed() < std::time::Duration::from_millis(500),
+        "non-contention failures must not be retried");
+```
+
+The claim is *"this failure was not retried"*. The measurement is wall-clock
+elapsed time, on the reasoning that a retry would cost at least 600ms of
+backoff. A cheap proxy for an expensive truth — the same substitution as
+everything else here, sitting in a passing test for months.
+
+It failed on a loaded CI runner where a single process spawn can exceed 500ms
+on its own; the same job logged two unrelated tests running over sixty seconds.
+The behaviour under test was almost certainly correct. The proxy was not.
+
+Note the shape, because it is what makes this kind survive: the proxy holds on
+an unloaded machine and only lies under contention, so it looks stable right up
+until the moment it matters. Counting attempts instead of timing them measures
+the claim itself.
+
 ## The recommended method has its own hole
 
 > Reinstating a defect proves *a* test detects it. It does not prove *which
@@ -165,9 +186,15 @@ dangerous variant: it ends the investigation.
   you have not seen it fail, you know it passes, not that it detects anything.
 - **Prefer checks that cannot pass vacuously.** A guard over an empty set, a
   selector that matches page chrome, an assertion on a value nobody reads.
-- **Open the artifact.** A green tick on a screenshot means it was captured, not
-  that the screen is right. Nothing above was found by a report; every one was
-  found by a person looking at the thing.
+- **Open the artifact.** A green tick on a screenshot means it was captured,
+  not that the screen is right. Nothing above was found by a report; every one
+  was found by a person looking at the thing — most often at a surface no
+  artifact had ever shown them.
+- **Ask, and go and look when asked.** Two of these were found because one
+  person asked another whether they still had doubts, and that person went and
+  checked instead of answering from memory. This is the more expensive habit,
+  because it needs someone to think to ask; looking at what you shipped needs
+  nobody's prompting and found more of them.
 - **Say "locally verified, CI has not seen this" when that is the case.** It
   costs nothing and it is usually the whole question.
 
