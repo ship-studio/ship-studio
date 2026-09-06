@@ -17,6 +17,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "harness": "vite --config vite.harness.config.ts",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "test": "vitest",
