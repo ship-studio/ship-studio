@@ -3809,7 +3809,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 592
+      "consumerCount": 593
     },
     {
       "name": "--text-faint",
@@ -4151,7 +4151,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 216
+      "consumerCount": 217
     },
     {
       "name": "--font-size-body-sm",
