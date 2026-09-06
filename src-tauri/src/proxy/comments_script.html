@@ -73,8 +73,17 @@
       var r = el.getBoundingClientRect();
       at.push({ id: n.id, x: r.left, y: r.top, width: r.width, height: r.height });
     });
+    /* The element being commented on is not a saved note yet, so it needs its
+       own live rect — otherwise the composer holds a fixed screen position and
+       rides along with the viewport instead of staying on its element. */
+    var target = picking ? selected : null;
+    var sel = null;
+    if (target && target.isConnected) {
+      var sr = target.getBoundingClientRect();
+      sel = { id: 'selection', x: sr.left, y: sr.top, width: sr.width, height: sr.height };
+    }
     outline(picking ? hovered || selected : selected);
-    send({ type: 'locations', missing: missing, at: at, page: page() });
+    send({ type: 'locations', missing: missing, at: at, sel: sel, page: page() });
   }
   function schedule() { if (enabled && !raf) raf = requestAnimationFrame(render); }
   window.addEventListener('message', function (e) {

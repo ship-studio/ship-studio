@@ -257,31 +257,6 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.canvas-comments-scope {
-  border: none;
-  padding: 0;
-  margin: 0;
-  min-width: 0;
-}
-.canvas-comments-scope legend {
-  color: var(--text-muted);
-  font-size: var(--font-size-body-sm);
-  padding: 0;
-  margin-bottom: var(--spacing-sm);
-}
-.canvas-comments-sizes {
-  display: flex;
-  gap: var(--spacing-xs);
-}
-.canvas-comments-sizes .button {
-  flex: 1;
-  padding-inline: var(--spacing-xs);
-}
-.canvas-comments-sizes .button[aria-pressed='true'] {
-  color: var(--accent-active);
-  border-color: var(--accent-active);
-  opacity: 1;
-}
 
 /* ── Pinned notes ───────────────────────────────────────────────────────────
    The comments layer sits over the preview frame in screen pixels. It must not

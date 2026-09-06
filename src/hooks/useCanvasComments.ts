@@ -5,7 +5,6 @@ import {
   readComments,
   saveComment,
   type CanvasComment,
-  type CommentScope,
   type CommentTarget,
 } from '../lib/canvasComments';
 import { useOptionalToast } from '../contexts/ToastContext';
@@ -53,14 +52,13 @@ export function useCanvasComments(project: string, branch: string) {
       return false;
     }
   };
-  const add = (target: CommentTarget, body: string, scope: CommentScope) => {
+  const add = (target: CommentTarget, body: string) => {
     if (error || !body.trim()) return false;
     return save(() => ({
       id: crypto.randomUUID(),
       number: Math.max(0, ...readComments(prefix).map((c) => c.number)) + 1,
       target,
       body,
-      scope,
       status: 'pending',
       createdAt: new Date().toISOString(),
     }));

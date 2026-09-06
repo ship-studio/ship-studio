@@ -28,7 +28,6 @@ const base: CanvasComment = {
   number: 1,
   target,
   body: 'Make it 80vh',
-  scope: 'Desktop',
   status: 'pending',
   createdAt: '2026-09-06',
 };
@@ -193,29 +192,24 @@ it('switches targets without losing the note and keeps the composer compact', as
   expect(readComments(prefix)[0].body).toBe('Keep this draft');
 });
 
-it('selects tablet and mobile together and restores them when editing', async () => {
+it('asks only for the note, and carries the viewport it was written at', async () => {
   const { select, send, locate } = setup();
   await select();
+  // No size picker: the viewport the user was on is the context.
+  expect(screen.queryByRole('button', { name: 'Tablet' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'All sizes' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Apply to/)).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('What should change?'), {
     target: { value: 'Reduce heading size' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Tablet' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Mobile' }));
-  expect(screen.getByRole('button', { name: 'Tablet' })).toHaveAttribute('aria-pressed', 'true');
-  expect(screen.getByRole('button', { name: 'Mobile' })).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(screen.getByRole('button', { name: 'Save comment' }));
-  expect(readComments(prefix)[0].scope).toEqual(['Tablet', 'Mobile']);
-  expect(send).not.toHaveBeenCalled();
-  // The saved note is read on its pin, not in a list.
+  await waitFor(() => expect(readComments(prefix)).toHaveLength(1));
   const saved = readComments(prefix)[0];
+  expect(saved.scope).toBeUndefined();
+  expect(saved.target.viewport).toEqual({ width: 1440, height: 900 });
+  expect(send).not.toHaveBeenCalled();
   await openPin(locate, [saved], saved.number);
-  expect(screen.getByText(/Applies to Tablet \+ Mobile/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-  expect(screen.getByRole('button', { name: 'Tablet' })).toHaveAttribute('aria-pressed', 'true');
-  expect(screen.getByRole('button', { name: 'Mobile' })).toHaveAttribute('aria-pressed', 'true');
-  fireEvent.click(screen.getByRole('button', { name: 'All sizes' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Save comment' }));
-  expect(readComments(prefix)[0].scope).toBe('All sizes');
+  expect(screen.getByText(/Seen at 1440 × 900/)).toBeInTheDocument();
 });
 
 it('deletes a comment permanently with the trash control and preserves other notes', async () => {

@@ -171,19 +171,18 @@ export function useCanvasCommentsLayer(props: CanvasCommentsProps): {
       target={draft}
       existing={editingNote}
       onCancel={cancelDraft}
-      onSave={(body, scope) => {
+      onSave={(body) => {
         if (!props.branch) return false;
         const ok = editingNote
           ? store.update(editingNote.id, {
               body,
-              scope,
               target: draft,
               status: 'pending',
               sentAt: undefined,
               sentTo: undefined,
               batchId: undefined,
             })
-          : store.add(draft, body, scope);
+          : store.add(draft, body);
         if (ok) {
           cancelDraft();
           bridge.post({ type: 'clear' });
@@ -283,7 +282,9 @@ export function useCanvasCommentsLayer(props: CanvasCommentsProps): {
               : bridge.post({ type: 'clear' })
           }
           composer={composer}
-          composerAt={draft ? { x: draft.rect.x, y: draft.rect.y } : null}
+          // The live rect while it is available; the rect captured at click
+          // time only covers the first paint before the frame reports again.
+          composerAt={draft ? (bridge.selectedAt ?? { x: draft.rect.x, y: draft.rect.y }) : null}
         />
       ) : null,
   };

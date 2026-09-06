@@ -17,7 +17,7 @@ import { IconButton } from '../primitives/IconButton';
 import { TrashIcon, CloseIcon } from '@/components/icons';
 import {
   commentElementName,
-  commentScopeLabel,
+  commentViewportLabel,
   type CanvasComment,
   type CommentPlacement,
 } from '../../lib/canvasComments';
@@ -123,7 +123,7 @@ export function CommentPins(props: Props) {
             />
           </div>
           <p className="canvas-comment-body">{open.body}</p>
-          <span className="canvas-comments-hint">Applies to {commentScopeLabel(open.scope)}</span>
+          <span className="canvas-comments-hint">Seen at {commentViewportLabel(open.target)}</span>
           {open.status === 'sent' && (
             <span className="canvas-comments-sent">Sent to {open.sentTo}</span>
           )}

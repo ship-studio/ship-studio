@@ -33,6 +33,8 @@ export function useCommentBridge({
   // Where each note's element sits in the frame's own pixels. The app draws the
   // pins and cards from this rather than the frame drawing them itself.
   const [placements, setPlacements] = useState<CommentPlacement[]>([]);
+  // The element being commented on, before it is a saved note.
+  const [selectedAt, setSelectedAt] = useState<CommentPlacement | null>(null);
   const post = useCallback(
     (data: object) => {
       iframeRef.current?.contentWindow?.postMessage({ channel: 'ss:comments-host', ...data }, '*');
@@ -71,6 +73,7 @@ export function useCommentBridge({
       setReady(false);
       setFramePage(null);
       setPlacements([]);
+      setSelectedAt(null);
       sync();
     };
     const message = (e: MessageEvent) => {
@@ -81,6 +84,7 @@ export function useCommentBridge({
         id?: unknown;
         missing?: unknown;
         at?: unknown;
+        sel?: unknown;
         page?: unknown;
       } | null;
       if (e.source !== frame?.contentWindow || !enabled || d?.channel !== 'ss:comments') return;
@@ -92,8 +96,10 @@ export function useCommentBridge({
       if (d.type === 'escape') onEscape();
       if (d.type === 'locations' && Array.isArray(d.missing))
         setMissing(d.missing.filter((id: unknown) => typeof id === 'string'));
-      if (d.type === 'locations')
+      if (d.type === 'locations') {
         setPlacements(Array.isArray(d.at) ? d.at.filter(isCommentPlacement) : []);
+        setSelectedAt(isCommentPlacement(d.sel) ? d.sel : null);
+      }
       if (d.type === 'missing' && typeof d.id === 'string') {
         const id = d.id;
         setMissing((ids) => [...ids, id]);
@@ -107,5 +113,5 @@ export function useCommentBridge({
     };
   }, [iframeRef, enabled, sync, onSelect, onOpen, onEscape]);
   useEffect(() => () => post({ type: 'sync', enabled: false }), [post]);
-  return { ready, framePage, missing, placements, post };
+  return { ready, framePage, missing, placements, selectedAt, post };
 }

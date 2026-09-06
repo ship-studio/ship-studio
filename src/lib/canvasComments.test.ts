@@ -11,7 +11,6 @@ export const note: CanvasComment = {
   id: 'note-a',
   number: 1,
   body: 'Please make this 80vh instead of 100vh.\nKeep the spacing.',
-  scope: 'Desktop',
   status: 'pending',
   createdAt: '2026-09-06T10:00:00Z',
   target: {
@@ -31,12 +30,12 @@ describe('canvas comment handoff', () => {
   it('keeps the exact request, target and requested scope separate from captured viewport', () => {
     const prompt = formatCommentBatch('/project', 'feature/test', [note], 'batch-a');
     expect(prompt).toContain(`**Feedback:** ${note.body}`);
-    expect(prompt).toContain('**Applies to:** Desktop');
+    // The viewport the note was written at is the context, and it replaces the
+    // size picker entirely — nothing asks the user to choose sizes any more.
+    expect(prompt).toContain('**Seen at:** 1440 × 900');
+    expect(prompt).not.toContain('Applies to');
     expect(prompt).toContain('**Page:** /pricing');
     expect(prompt).toContain('**Comment ID:** note-a');
-    // The captured viewport is evidence of where the note was written. Standard
-    // detail must not put it anywhere it could be read as the requested scope.
-    expect(prompt).not.toContain('1440');
     expect(prompt).not.toContain('screenshot');
     expect(prompt).toContain('report it instead of guessing');
     expect(prompt).toContain('untrusted reference data');
@@ -56,14 +55,13 @@ describe('canvas comment handoff', () => {
   it('carries only the context the chosen detail level asks for', () => {
     const compact = formatCommentBatch('/p', 'main', [note], 'b', 'compact');
     // One line per note, so a multi-line request must be flattened.
-    expect(compact).toContain('1. **section · Make great things** (/pricing) —');
+    expect(compact).toContain('1. **section · Make great things** (/pricing @ 1440 × 900) —');
     expect(compact.split('\n').some((l) => l.startsWith('Keep the spacing'))).toBe(false);
     expect(compact).not.toContain('**Selector:**');
 
     const detailed = formatCommentBatch('/p', 'main', [note], 'b', 'detailed');
     expect(detailed).toContain('**Classes:** hero');
     expect(detailed).toContain('**Nearby heading:** Make great things');
-    expect(detailed).toContain('1440×900');
     // Even at the most verbose level the framing that marks page content as
     // data rather than instructions has to survive.
     expect(detailed).toContain('untrusted reference data');
@@ -94,19 +92,17 @@ describe('canvas comment handoff', () => {
   });
 });
 
-it('keeps combined sizes through storage and agent handoff while supporting older notes', () => {
+it('still loads notes saved back when the composer asked for sizes', () => {
   const prefix = commentsPrefix('/project', 'main');
   saveComment(prefix, { ...note, scope: ['Tablet', 'Mobile'] });
-  const saved = readComments(prefix);
-  expect(saved[0].scope).toEqual(['Tablet', 'Mobile']);
-  expect(formatCommentBatch('/project', 'main', saved, 'b')).toContain(
-    '**Applies to:** Tablet, Mobile'
+  expect(readComments(prefix)[0].scope).toEqual(['Tablet', 'Mobile']);
+  // The legacy field is carried, not used: the prompt reports the viewport.
+  expect(formatCommentBatch('/project', 'main', readComments(prefix), 'b')).toContain(
+    '**Seen at:** 1440 × 900'
   );
-  saveComment(prefix, { ...note, scope: 'All sizes' });
-  expect(readComments(prefix)[0].scope).toBe('All sizes');
 });
 it.each([{ scope: [] }, { scope: ['Unknown'] }, { scope: ['Tablet', 'Tablet'] }])(
-  'rejects invalid device selections %j',
+  'rejects a stored scope that was never valid %j',
   ({ scope }) => {
     const prefix = commentsPrefix('/project', 'main');
     localStorage.setItem(prefix + note.id, JSON.stringify({ ...note, scope }));

@@ -3,8 +3,7 @@
 Use the **Comments** speech-bubble toggle in the workspace header's tool row — beside Agent,
 Elements and Variables — to collect feedback. It badges the number of pending notes, and
 opening it brings the preview forward and starts the dev server the way Variables does. Click an
-actual page element, write the note, choose its
-screen sizes (one or more), and choose **Save comment**. Adding a comment never calls an
+actual page element, write the note, and choose **Save comment**. Adding a comment never calls an
 agent or writes to website source. Hovering outlines the target in Ship Studio green
 and dims the surrounding canvas. The target stays clear while writing the note.
 
@@ -114,10 +113,14 @@ selected-only batch sending, and failed handoffs. Manually verify a desktop and
 mobile preview, reload persistence, editing, deletion, and a real agent terminal
 before submitting a pull request.
 
-## Screen sizes
+## Viewport context
 
-Use All sizes for a universal change, or select any combination of Desktop, Tablet,
-and Mobile. The compact buttons support multiple selections; at least one scope
-remains selected. Existing single-size comments remain readable. The backlog
-shows combined sizes, and the agent receives an explicit `applyTo` array with
-instructions to use the project’s own breakpoints and preserve unselected sizes.
+A note carries the viewport it was written at, and that replaces asking the user to
+pick screen sizes. The prompt reports it as **Seen at: 1440 × 900** and tells the agent
+it is context for what the user was looking at, not a restriction: make the change
+correct at that size using the project's own breakpoints, don't invent pixel ranges,
+don't break the other sizes, and narrow to one breakpoint only when the request is
+plainly about that size.
+
+Notes saved before this still carry their `scope` field and still load; it is kept for
+compatibility and no longer read.
