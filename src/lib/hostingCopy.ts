@@ -55,6 +55,15 @@ function environmentLabel(deployment?: Deployment): string {
   return deployment.environment === 'production' ? ' · Production' : ' · Preview';
 }
 
+/**
+ * A URL trimmed to what fits a 320px popover: no scheme, no trailing slash.
+ * The value still comes from the provider — this only shortens what's shown.
+ */
+function displayUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
 function detailSuffix(detail?: DeploymentDetail | null): string {
   if (!detail) return '';
   switch (detail.detail) {
@@ -135,6 +144,10 @@ export function copyFor(
         status: `Live on ${host}${when(state.deployment)}${environmentLabel(
           state.deployment
         )}${detailSuffix(state.detail)}`,
+        // The third line is reserved in every state to keep the row height
+        // fixed, so the live state fills it with the thing you'd actually want
+        // to read — the address it's serving on — rather than leaving a hole.
+        hint: displayUrl(state.deployment?.urls.primary),
         action: state.deployment?.urls.primary ? 'Open' : undefined,
       };
 

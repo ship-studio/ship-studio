@@ -65,10 +65,33 @@ struct RawDeployment {
     alias: Vec<String>,
     /// The list endpoint's answer to "are the aliases attached yet", which is
     /// the only way to tell "built" from "serving" without the detail call.
+    ///
+    /// Its type is not stable: a live response returned the epoch-millisecond
+    /// timestamp of the assignment (`1787594676951`) where the docs imply a
+    /// boolean. Both are accepted, and anything else is treated as "unknown"
+    /// rather than failing the whole lookup over one field.
     #[serde(default)]
-    alias_assigned: Option<bool>,
+    alias_assigned: Option<AliasAssigned>,
     #[serde(default)]
     meta: RawMeta,
+}
+
+/// `aliasAssigned` arrives as either a flag or the timestamp at which the
+/// aliases were attached. A timestamp means they are attached.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum AliasAssigned {
+    Flag(bool),
+    At(u64),
+}
+
+impl AliasAssigned {
+    fn is_assigned(&self) -> bool {
+        match self {
+            AliasAssigned::Flag(v) => *v,
+            AliasAssigned::At(ts) => *ts > 0,
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -163,7 +186,11 @@ fn with_scheme(host: &str) -> String {
 fn to_deployment(raw: RawDeployment) -> Deployment {
     // `aliasAssigned` is authoritative where the endpoint sends it (the list);
     // on the detail response the presence of aliases says the same thing.
-    let alias_assigned = raw.alias_assigned.unwrap_or(!raw.alias.is_empty());
+    let alias_assigned = raw
+        .alias_assigned
+        .as_ref()
+        .map(AliasAssigned::is_assigned)
+        .unwrap_or(!raw.alias.is_empty());
     let ready_state = raw
         .ready_state
         .as_deref()
