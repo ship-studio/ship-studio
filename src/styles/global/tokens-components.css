@@ -73,6 +73,14 @@
   --size-source-control-popover: 320px;
   --size-source-control-branch: 140px;
 
+  /* Hosting section geometry. These are fixed on purpose: the row must be the
+     same height in every state so the popover never resizes as deployment
+     status arrives. */
+  --size-hosting-row: 56px;
+  --size-hosting-links: 28px;
+  --size-hosting-icon-slot: 24px;
+  --size-hosting-action: 72px;
+
   --property-surface: var(--color-blue-700);
   --property-surface-hover: var(--color-blue-600);
   --property-border: var(--color-blue-700);
@@ -213,6 +221,10 @@
   --extension-state-error-border: color-mix(in srgb, var(--accent-error-deep) 30%, transparent);
   --popover-color-picker-width: var(--size-color-picker-width);
   --popover-source-control-width: var(--size-source-control-popover);
+  --hosting-row-h: var(--size-hosting-row);
+  --hosting-links-h: var(--size-hosting-links);
+  --hosting-icon-slot: var(--size-hosting-icon-slot);
+  --hosting-action-w: var(--size-hosting-action);
   --source-control-branch-max-width: var(--size-source-control-branch);
   --z-dropdown: 100;
   /* Pane separators (split-pane, docked preview panels). Above a docked panel

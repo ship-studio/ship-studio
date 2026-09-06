@@ -13,7 +13,13 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listPlugins, updatePlugin, isExpectedPluginFailure, PluginInfo } from '../lib/plugins';
+import {
+  listPlugins,
+  updatePlugin,
+  isExpectedPluginFailure,
+  NATIVE_HOSTING_IDS,
+  PluginInfo,
+} from '../lib/plugins';
 import { loadPluginModule, unloadPluginModule, PluginModule } from '../lib/plugin-loader';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
@@ -145,7 +151,13 @@ export function usePlugins(
       setIsLoading(true);
       try {
         const installed = await listPlugins(path);
-        const enabled = installed.filter((p) => p.enabled);
+        // Hosting is a native feature now. Superseded plugins are skipped at
+        // load time rather than at render, because merely not rendering one
+        // still runs its activation and its background git/CLI timers — which
+        // was most of what made the old hosting integration expensive.
+        const enabled = installed.filter(
+          (p) => p.enabled && !NATIVE_HOSTING_IDS.includes(p.manifest.id)
+        );
         const failed: PluginFailure[] = [];
 
         // Skip plugins with unsupported API versions

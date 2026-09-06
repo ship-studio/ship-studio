@@ -17,6 +17,10 @@ import type { PluginModule } from '../lib/plugin-loader';
 vi.mock('../lib/plugins', () => ({
   listPlugins: vi.fn(),
   updatePlugin: vi.fn(),
+  // The hook reads this to skip plugins superseded by native hosting; the
+  // fixtures here are unrelated plugins, so an empty list keeps them loading.
+  NATIVE_HOSTING_IDS: [] as string[],
+  isExpectedPluginFailure: () => false,
 }));
 
 vi.mock('../lib/plugin-loader', () => ({

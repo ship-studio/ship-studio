@@ -80,6 +80,7 @@
 @import './features/browser-tools.css';
 @import './features/github.css';
 @import './features/publish/dropdown.css';
+@import './features/publish/hosting.css';
 @import './features/publish/rows.css';
 @import './features/publish/states.css';
 @import './features/publish/toasts.css';

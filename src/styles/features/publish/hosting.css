@@ -1,0 +1,143 @@
+/* Hosting section — fixed geometry.
+ *
+ * Every rule here exists to keep the row the same height in all 18 states. The
+ * section this replaced grew ~85px when deployment data arrived and another
+ * ~105px when the pointer entered it, because the host revealed the plugin's
+ * hidden actions on `:hover`. Nothing below may change `display`, `height`,
+ * `padding`, `margin`, or `visibility` on hover — asserted by a test that reads
+ * this file. */
+
+.hosting-row {
+  display: grid;
+  grid-template-columns: var(--hosting-icon-slot) minmax(0, 1fr) var(--hosting-action-w);
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: var(--hosting-row-h);
+}
+
+/* Fixed square so a brand mark, a spinner, and a status dot all occupy exactly
+   the same footprint — the same trick SetupItem uses for its six statuses. */
+.hosting-row-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hosting-icon-slot);
+  height: var(--hosting-icon-slot);
+  color: var(--text-secondary);
+}
+
+.hosting-row-globe {
+  width: 12px;
+  height: 12px;
+  border: var(--stroke-1) solid var(--text-muted);
+  border-radius: var(--radius-full);
+}
+
+.hosting-row-spinner {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+}
+
+.hosting-row-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border: var(--stroke-2) solid var(--surface-panel);
+  border-radius: var(--radius-full);
+}
+
+.hosting-row-dot--success {
+  background: var(--accent-success);
+}
+
+.hosting-row-dot--progress {
+  background: var(--accent-warning);
+}
+
+.hosting-row-dot--error {
+  background: var(--accent-error);
+}
+
+.hosting-row-dot--muted {
+  background: var(--text-muted);
+}
+
+.hosting-row-dot--hollow {
+  background: transparent;
+  border-color: var(--text-muted);
+}
+
+/* The "it worked" signal must persist. The previous implementation faded its
+   success dot to zero opacity after 5s and left it invisible forever. */
+.hosting-row-dot--pulsing {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.hosting-row-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  gap: var(--spacing-3xs);
+}
+
+/* Both lines are single-line and ellipsised. A wrapping status line is how the
+   old panel changed height depending on how long an account name happened to
+   be; the full text stays available via the title attribute. */
+.hosting-row-title,
+.hosting-row-status {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hosting-row-title {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  line-height: 16px;
+}
+
+.hosting-row-status {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: 14px;
+}
+
+.hosting-row-stale {
+  color: var(--text-faint);
+}
+
+/* Always occupies its column, even with no action to offer, so the text column
+   never widens or narrows between states. */
+.hosting-row-action {
+  display: flex;
+  justify-content: flex-end;
+  width: var(--hosting-action-w);
+}
+
+.hosting-row-action[data-empty='true'] {
+  visibility: hidden;
+}
+
+/* Third line. Fixed height whether or not there's a hint, so a state that has
+   one and a state that doesn't are the same size. */
+.hosting-links {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: var(--hosting-links-h);
+  overflow: hidden;
+}
+
+.hosting-links-hint {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

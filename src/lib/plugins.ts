@@ -78,6 +78,17 @@ export const VERCEL_PLUGIN_REPO = 'https://github.com/ship-studio/plugin-vercel'
  */
 export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
 
+/**
+ * Hosting providers the app now handles itself (see `components/hosting`).
+ *
+ * A plugin claiming one of these is superseded and is skipped at load time —
+ * not merely hidden — so its activation hook and background timers never run.
+ * The installed copy is left alone on disk; some are dev-linked checkouts, and
+ * deleting one is not ours to do silently. The Plugin Manager labels them and
+ * offers removal.
+ */
+export const NATIVE_HOSTING_IDS = ['vercel', 'cloudflare', 'netlify'];
+
 const REGISTRY_URL =
   'https://raw.githubusercontent.com/ship-studio/plugin-registry/main/registry.json';
 

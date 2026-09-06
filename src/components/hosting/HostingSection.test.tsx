@@ -1,0 +1,158 @@
+/**
+ * The layout-shift invariant, plus the copy rules.
+ *
+ * jsdom has no layout engine, so "the row is always 56px" cannot be asserted
+ * directly. It is pinned two ways instead:
+ *
+ * 1. **Structurally, here** — every state renders the same three slots, the
+ *    action column is present in the DOM even when there is nothing to click,
+ *    and a scripted transition preserves node identity rather than remounting.
+ * 2. **In the stylesheet, by `pnpm check:patterns`** — the heights are
+ *    token-driven and no rule inside the section may change box metrics on
+ *    hover, which is what made the previous implementation grow ~105px under
+ *    the cursor. That half lives with the other CSS policy checks because
+ *    Vitest stubs CSS imports to an empty string, so asserting on stylesheet
+ *    text from a unit test silently passes against nothing.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { render } from '@testing-library/react';
+import { HostingRow } from './HostingRow';
+import { copyFor, BANNED_JARGON, titleFor } from '../../lib/hostingCopy';
+import type { Deployment, SectionState, SectionStateKind } from '../../lib/hosting';
+
+const ALL_KINDS: SectionStateKind[] = [
+  'checking',
+  'not_pushed',
+  'queued',
+  'building',
+  'publishing',
+  'ready',
+  'failed',
+  'canceled',
+  'skipped',
+  'gated',
+  'unknown',
+  'not_found_yet',
+  'not_found',
+  'no_token',
+  'token_rejected',
+  'no_link',
+  'offline',
+  'rate_limited',
+];
+
+function deployment(): Deployment {
+  return {
+    id: 'dpl_1',
+    phase: { phase: 'ready' },
+    environment: 'production',
+    branch: 'main',
+    commit_sha: 'abc123',
+    urls: { aliases: [], primary: 'https://example.vercel.app' },
+    dashboard_url: 'https://vercel.com/x/y',
+    created_at: Date.now() - 60_000,
+  };
+}
+
+function stateFor(kind: SectionStateKind): SectionState {
+  return { kind, provider: 'vercel', deployment: deployment() };
+}
+
+describe('HostingRow geometry', () => {
+  it.each(ALL_KINDS)('renders the same three slots in the %s state', (kind) => {
+    const { container } = render(<HostingRow state={stateFor(kind)} commitSubject="Fix the nav" />);
+
+    const row = container.querySelector('.hosting-row');
+    expect(row).toBeInTheDocument();
+    expect(row?.querySelector('[data-slot="icon"]')).toBeInTheDocument();
+    expect(row?.querySelector('[data-slot="text"]')).toBeInTheDocument();
+    // Present in every state — hidden, never removed, so the column keeps
+    // its width and the text column never reflows.
+    expect(row?.querySelector('[data-slot="action"]')).toBeInTheDocument();
+  });
+
+  it.each(ALL_KINDS)('always renders exactly two lines of text in %s', (kind) => {
+    const { container } = render(<HostingRow state={stateFor(kind)} commitSubject="Fix the nav" />);
+
+    expect(container.querySelectorAll('.hosting-row-title')).toHaveLength(1);
+    expect(container.querySelectorAll('.hosting-row-status')).toHaveLength(1);
+  });
+
+  it('keeps the same DOM nodes across a full deployment lifecycle', () => {
+    // A remount is a repaint, and a repaint is where a height jump hides.
+    const { container, rerender } = render(
+      <HostingRow state={stateFor('checking')} commitSubject="Fix the nav" />
+    );
+    const firstRow = container.querySelector('.hosting-row');
+    const firstText = container.querySelector('.hosting-row-text');
+
+    for (const kind of ['not_found_yet', 'queued', 'building', 'publishing', 'ready'] as const) {
+      rerender(<HostingRow state={stateFor(kind)} commitSubject="Fix the nav" />);
+      expect(container.querySelector('.hosting-row')).toBe(firstRow);
+      expect(container.querySelector('.hosting-row-text')).toBe(firstText);
+    }
+  });
+
+  it('hides an unavailable action rather than dropping the column', () => {
+    const { container } = render(
+      <HostingRow state={{ kind: 'not_found_yet', provider: 'vercel' }} />
+    );
+    const action = container.querySelector('[data-slot="action"]');
+    expect(action).toBeInTheDocument();
+    expect(action).toHaveAttribute('data-empty', 'true');
+  });
+});
+
+describe('hosting copy', () => {
+  it('never leaks provider jargon in any state', () => {
+    for (const kind of ALL_KINDS) {
+      const copy = copyFor(stateFor(kind), 'Fix the nav', 'abc123a');
+      for (const line of [copy.title, copy.status, copy.hint, copy.action]) {
+        if (!line) continue;
+        expect(line, `${kind}: "${line}"`).not.toMatch(BANNED_JARGON);
+      }
+    }
+  });
+
+  it('never mentions plugins', () => {
+    for (const kind of ALL_KINDS) {
+      const copy = copyFor(stateFor(kind), 'Fix the nav');
+      expect(`${copy.title} ${copy.status} ${copy.hint ?? ''}`).not.toMatch(/plugin/i);
+    }
+  });
+
+  it('leads with what the user shipped, not the integration state', () => {
+    const copy = copyFor(stateFor('ready'), 'Fix the nav');
+    expect(copy.title).toBe('Fix the nav');
+    expect(copy.status).toMatch(/Live on Vercel/);
+  });
+
+  it('prefers the local commit subject over the provider message', () => {
+    // Netlify returned null for both `commit_message` and `title` on a real
+    // production deploy, so git is the reliable source.
+    const withProviderMessage = { ...deployment(), commit_message: 'from the API' };
+    expect(titleFor('from git', withProviderMessage)).toBe('from git');
+    expect(titleFor(null, withProviderMessage)).toBe('from the API');
+    expect(titleFor(null, undefined)).toBe('Your latest push');
+  });
+
+  it('describes a missing deployment without claiming it failed', () => {
+    const copy = copyFor({ kind: 'not_found', provider: 'vercel' }, 'Fix the nav');
+    expect(copy.status).not.toMatch(/fail/i);
+    expect(copy.status).toMatch(/hasn't reported/);
+  });
+
+  it('explains an expired CLI login in terms of the CLI', () => {
+    const copy = copyFor(
+      { kind: 'token_rejected', provider: 'vercel', tokenSource: 'cli_file' },
+      'Fix the nav'
+    );
+    expect(copy.status).toMatch(/CLI's login has expired/);
+  });
+
+  it('reassures that deploys still run when we simply cannot see them', () => {
+    const copy = copyFor({ kind: 'no_token', provider: 'vercel' });
+    expect(copy.hint).toMatch(/Deploys still run/);
+  });
+});
