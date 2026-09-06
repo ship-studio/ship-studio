@@ -58,6 +58,23 @@ describe('HostingUrls', () => {
     expect(screen.getByLabelText(/Open this exact build/)).toBeInTheDocument();
   });
 
+  it('opens when the address text itself is clicked, not only the icon', () => {
+    // The icon is a hover affordance. A row that reads like a link has to
+    // behave like one when you click the part you were reading.
+    const onOpen = vi.fn();
+    render(<HostingUrls deployment={deployment({ site: SITE })} onOpen={onOpen} />);
+
+    fireEvent.click(screen.getByText('Site'));
+    expect(onOpen).toHaveBeenCalledWith(SITE);
+  });
+
+  it('exposes one control per address, not two', () => {
+    // The icon lives inside the row's button; announcing it separately would
+    // give screen readers and keyboard users the same action twice.
+    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+    expect(screen.getAllByRole('button')).toHaveLength(2);
+  });
+
   it('opens the address its own control belongs to', () => {
     const onOpen = vi.fn();
     render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={onOpen} />);

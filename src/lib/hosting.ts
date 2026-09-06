@@ -264,7 +264,15 @@ export interface SectionState {
   transportError?: string;
   retryAfterSecs?: number;
   tokenSource?: TokenSource;
-  /** True when the answer came from cache and is older than a poll interval. */
+  /**
+   * The answer hasn't been rechecked recently.
+   *
+   * Not shown next to a settled deployment: whether a twelve-day-old build was
+   * re-confirmed eight seconds ago is not information anyone wants, and saying
+   * so truncated to "· not ju…" in a 320px row is worse than saying nothing.
+   * Staleness only earns space where it changes what you'd believe — the
+   * `offline` state, whose copy already names when it last succeeded.
+   */
   isStale?: boolean;
 }
 

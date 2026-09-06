@@ -69,21 +69,27 @@ export function HostingUrls({ deployment, onOpen }: Props) {
   return (
     <div className="hosting-urls">
       {rows.map((row) => (
-        <div className="hosting-url" key={row.label}>
+        /* The whole row is the control. An address that looks like a link
+           should open when you click it, rather than sending you hunting for
+           a small icon at the end of the line. */
+        <button
+          type="button"
+          className="hosting-url"
+          key={row.label}
+          onClick={() => onOpen(row.url)}
+          aria-label={`${row.description} — ${displayHost(row.url)}`}
+        >
           <span className="hosting-url-label">{row.label}</span>
           {/* Middle-truncated, not end-truncated: a build permalink's tail
               carries the domain, so cutting the end leaves an address you
               can't identify at all. */}
           <MiddleTruncate className="hosting-url-value" text={displayHost(row.url)} />
-          <button
-            type="button"
-            className="hosting-url-open"
-            onClick={() => onOpen(row.url)}
-            aria-label={`${row.description} — ${displayHost(row.url)}`}
-          >
+          {/* Decorative: the row itself is the button, so this must not be a
+              second tab stop announcing the same action twice. */}
+          <span className="hosting-url-open" aria-hidden="true">
             <ExternalLinkIcon size={12} />
-          </button>
-        </div>
+          </span>
+        </button>
       ))}
     </div>
   );

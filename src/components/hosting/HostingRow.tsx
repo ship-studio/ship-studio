@@ -112,7 +112,6 @@ export function HostingRow({ state, commitSubject, shortSha, onAction }: Props) 
         <div className="hosting-row-title">{copy.title}</div>
         <div className="hosting-row-status">
           {copy.status}
-          {state.isStale ? <span className="hosting-row-stale"> · not just checked</span> : null}
         </div>
       </div>
 

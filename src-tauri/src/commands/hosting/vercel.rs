@@ -327,6 +327,12 @@ pub async fn find_for_commit(
                 found.error_message = log.likely_error();
             }
         }
+
+        found.urls.site = site.clone();
+        // A single "open" goes to the address people visit, falling back to
+        // this build's permalink only when the site's isn't known.
+        found.urls.primary = site.or(found.urls.deployment.clone());
+
         return Ok(Lookup::Found { deployment: found });
     }
 
@@ -694,6 +700,28 @@ mod tests {
             pick_site_domain(domains).as_deref(),
             Some("pepper-cayenne-accessories.vercel.app"),
             "a branch-specific alias is not the site's address"
+        );
+    }
+
+    /// The success path must attach the site address, not just the not-found
+    /// path. It silently did not for one build: the domain was fetched and
+    /// then dropped, so a live deployment showed only its build permalink.
+    #[test]
+    fn the_found_path_attaches_the_site_address() {
+        let source = include_str!("vercel.rs");
+        let found_branch = source
+            .split("if let Some(mut found) = candidates.into_iter().next() {")
+            .nth(1)
+            .expect("find_for_commit still has a found branch");
+        let body = found_branch
+            .split("return Ok(Lookup::Found")
+            .next()
+            .expect("the found branch still returns");
+
+        assert!(
+            body.contains("found.urls.site = site"),
+            "a found deployment must carry the site address, or the section \
+             shows only an unrecognisable per-build permalink"
         );
     }
 

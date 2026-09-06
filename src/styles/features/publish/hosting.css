@@ -107,10 +107,6 @@
   line-height: 14px;
 }
 
-.hosting-row-stale {
-  color: var(--text-faint);
-}
-
 /* Always occupies its column, even with no action to offer, so the text column
    never widens or narrows between states. */
 .hosting-row-action {
@@ -133,6 +129,12 @@
 }
 
 .hosting-url {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   display: grid;
   grid-template-columns: var(--hosting-url-label-w) minmax(0, 1fr) var(--hosting-url-open-w);
   align-items: center;
@@ -152,8 +154,12 @@
   font-size: var(--font-size-body-sm);
 }
 
+.hosting-url:hover .hosting-url-value {
+  color: var(--text-primary);
+}
+
 /* Revealed on hover/focus. `opacity` and not `display` or `visibility`:
-   nothing here may reflow, and the button's column is reserved either way, so
+   nothing here may reflow, and the icon's column is reserved either way, so
    the row is the same height and width whether or not the pointer is on it. */
 .hosting-url-open {
   display: flex;
@@ -161,25 +167,14 @@
   justify-content: center;
   width: var(--hosting-url-open-w);
   height: var(--hosting-url-open-w);
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   opacity: 0;
-  transition:
-    opacity var(--transition-interaction),
-    color var(--transition-interaction);
+  transition: opacity var(--transition-interaction);
 }
 
 .hosting-url:hover .hosting-url-open,
-.hosting-url-open:focus-visible {
+.hosting-url:focus-visible .hosting-url-open {
   opacity: 1;
-}
-
-.hosting-url-open:hover {
-  color: var(--text-primary);
 }
 
 /* Third line. Fixed height whether or not there's a hint, so a state that has

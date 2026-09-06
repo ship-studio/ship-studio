@@ -105,9 +105,12 @@ export function useHostingStatus({ projectPath, open, pushedAt }: Options): Resu
     return next;
   }, [projectPath]);
 
+  // Measured against the settled cadence, not the active one: a finished
+  // deployment is polled every 30s by design, so judging it against the 4s
+  // build interval marked it stale between every ordinary tick.
   const state = deriveSectionState(status, {
     pushedAt,
-    stalenessMs: ACTIVE_INTERVAL_MS * 2,
+    stalenessMs: SETTLED_INTERVAL_MS * 2,
   });
 
   const enabled = open && windowActive && Boolean(projectPath) && shouldPoll(state.kind);
