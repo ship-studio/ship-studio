@@ -1,5 +1,10 @@
 # Breakpoint canvas — handoff
 
+**2026-09-05 return handoff:** Read [HANDOFF-CODEX.md](HANDOFF-CODEX.md) first.
+The laptop root cause is now confirmed in the app: a 10px scrollbar flips the
+1024px width breakpoint. A candidate fix is built but awaits app verification
+and the full CI gates. The hypotheses in §3 below are superseded by that trace.
+
 Written 2026-09-05 by the previous agent. One open bug, one open quality gap,
 and the rig you need to work on either without guessing. Read §1 and §7 before
 touching anything.
