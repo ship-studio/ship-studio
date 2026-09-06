@@ -74,9 +74,21 @@
   order: 10;
 }
 
+/* The dropdown wraps its own trigger, so the toolbar orders the SLOT around it
+   — ordering the button itself leaves the wrapper at order 0, which puts it
+   before the page switcher at the far left of the bar. */
+.preview-toolbar > .preview-viewport-slot {
+  order: 11;
+  display: none;
+}
+
 .preview-toolbar > .preview-fullscreen-btn:not(.preview-history-btn) {
   order: 12;
 }
+
+/* The overflow button only exists for panes too narrow for the icon strip; at
+   every other width the strip IS the control and a second one would be two
+   ways to do the same thing sitting next to each other. */
 
 .preview-toolbar > .preview-tree-btn {
   order: 13;
@@ -134,14 +146,26 @@
    above). Each tier drops the lowest-priority control that still has another
    way in, so the row degrades in a defined order instead of overlapping.
    Order of sacrifice: breakpoint icon strip → undo/redo → open-in-browser and
-   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen
-   and the dimensions readout survive at every width. */
+   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen,
+   the dimensions readout and the breakpoint-canvas toggle survive at every
+   width — the canvas is how you reach the breakpoints once the icon strip is
+   gone. */
 @container preview-toolbar (max-width: 820px) {
-  /* The dimensions readout beside it opens the same viewport controls
-     (presets + exact size), and ⌘K's "Set exact preview size…" reaches the
-     popover directly — so the icon strip is the cheapest thing to drop. */
+  /* The icon strip is the cheapest thing to drop — but it is a *choice*, not a
+     decoration, so it is replaced rather than removed: the overflow button
+     beside refresh opens the same viewport list, canvas included. Hiding the
+     strip on its own used to leave an empty bordered pill behind, because the
+     dimensions readout inside it is hidden in canvas mode too. */
+  .preview-toolbar > .preview-breakpoints:not(:has(.preview-size-wrap)) {
+    display: none;
+  }
+
   .preview-breakpoint-tabs {
     display: none;
+  }
+
+  .preview-toolbar > .preview-viewport-slot {
+    display: block;
   }
 }
 

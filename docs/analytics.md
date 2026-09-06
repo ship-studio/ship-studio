@@ -132,6 +132,8 @@ events but does not emit pageviews — the `setup_*` funnel below is the record.
 | `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back`, `fallback_success` (fullpage only, present when `fell_back`) |
 | `preview_breakpoint_changed` | `breakpoint` |
 | `preview_size_applied` | `width`, `has_height` (exact size set from the dimensions popover) |
+| `preview_canvas_toggled` | `enabled` — the breakpoint canvas (every breakpoint side by side) was turned on or off |
+| `preview_canvas_frame_activated` | `breakpoint` (`desktop`/`laptop`/`tablet`/`mobile`) — a canvas frame was made the active, editable one |
 | `preview_fix_with_agent` | `has_logs`, `is_static`, `reason` (`server-down`/`blank-iframe`), `process_gone` |
 | `preview_connect_stopped` | `retry_count` — the preview gave up connecting; a fault signal |
 | `inspect_panel_opened` | — (the dev-logs / browser-tools panel was opened; closes and sub-tab switches are not recorded) |

@@ -195,6 +195,11 @@ export const educationContent: Record<string, EducationItem> = {
     description:
       'See how your website looks on different devices - desktop, tablet, or mobile phone.',
   },
+  'breakpoint-canvas': {
+    title: 'Every Breakpoint at Once',
+    description:
+      'Lay all four device sizes side by side instead of switching between them. The frames scroll together, so you can walk the whole page at every width. Click a frame to work in it, or its label to zoom in. Pinch or ⌘-scroll to zoom, space-drag to pan.',
+  },
   'compact-button': {
     title: 'Compact Mode',
     description:

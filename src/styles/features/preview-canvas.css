@@ -1,0 +1,273 @@
+/* Breakpoint canvas — every breakpoint rendered side by side on one scaled
+   surface. See src/components/preview/PreviewCanvas.tsx.
+
+   Geometry (frame positions, widths, the camera's transforms) is computed in JS
+   from lib/previewCanvas.ts and applied inline; this file owns appearance
+   only. The layers are deliberate:
+
+   - `.preview-canvas` is a fixed window that does NOT scroll. Scrolling was the
+     old model and it is what made the canvas feel slow: it put position in
+     `scrollLeft`, which cannot move without layout.
+   - `.preview-canvas-world` is the one thing a gesture moves — a single
+     composited translate carrying everything else with it.
+   - The scaled layer inside it holds the real pages; the overlay layer holds
+     labels and outlines at screen scale so they stay legible and crisp at 25%
+     zoom. */
+
+/* Taken out of flow on purpose. The canvas is a surface millions of pixels
+   across at full zoom, and an in-flow child of that size pushes every ancestor
+   that forgets to clip — pane, grid row, split pane — until the canvas is
+   sizing the very box it measures itself by and the frames end up below the
+   fold with nothing left to scroll. Out of flow it contributes no height to
+   anything, so no stylesheet upstream can be talked into growing.
+   `.preview-viewport` is the positioned ancestor. */
+.preview-canvas-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The window. It clips and it does not scroll: the camera decides what is in
+   view, and a native scroll would fight it for the same gesture. `touch-action`
+   and `overscroll-behavior` stop the webview treating a two-finger gesture as a
+   swipe of the app around the canvas. */
+.preview-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  background: var(--surface-control);
+}
+
+/* The moved layer: everything on the canvas is inside it and it carries a
+   single `translate3d`. Promoted for the whole time the canvas is open rather
+   than only during a gesture — promoting and demoting a layer this size costs a
+   full raster at each end, which is a hitch at the start and end of every pan,
+   and holding it is what lets a pan be composited from the first event of the
+   gesture rather than the second frame of it. */
+.preview-canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.preview-canvas-scaled {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+/* Square corners, deliberately. The stage is inside the scale transform and the
+   outline that frames it is not, so any radius would render at two different
+   sizes and leave a wedge of canvas showing at each corner. Artboards are
+   rectangles anyway. */
+.preview-canvas-stage {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  background: var(--surface-app);
+  /* Every dimension of a stage is set from JS, and nothing inside one can
+     affect anything outside it — so the browser is told not to look. Without
+     it, a page reflowing inside one frame invalidates layout across the whole
+     canvas. */
+  contain: strict;
+}
+
+.preview-canvas-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--surface-app);
+}
+
+/* A frame scrolled out of the mount window. Deliberately quiet — it is not a
+   loading state, it is a frame the canvas chose not to keep running. */
+.preview-canvas-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--surface-panel);
+}
+
+/* A zero-sized origin, not a box: its children are placed absolutely from the
+   top-left of the frames, in screen pixels at the committed scale. The camera
+   scales this layer by the ratio between the live and committed scale while a
+   zoom is in flight, so labels and outlines track the pages instead of sliding
+   off them, and land back at exactly 1 — crisp — when the zoom settles. */
+.preview-canvas-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.preview-canvas-chrome {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The label is the way in: it names the frame and, clicked, brings that frame
+   up to a size you can actually work at. */
+.preview-canvas-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-2xs);
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: var(--font-size-micro);
+  letter-spacing: var(--tracking-micro);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: zoom-in;
+  pointer-events: auto;
+}
+
+.preview-canvas-label:hover .preview-canvas-label-name {
+  color: var(--text-primary);
+}
+
+.preview-canvas-label:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.preview-canvas-chrome.is-active .preview-canvas-label-name {
+  color: var(--text-primary);
+}
+
+.preview-canvas-label-name {
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.preview-canvas-label-width {
+  color: var(--text-faint);
+}
+
+/* The active frame's border. Drawn in the overlay so it stays 1px at any zoom
+   instead of thinning out with the scale transform. It also hosts the host-side
+   editor chrome (the structural-edit toolbar), which is positioned from the
+   frame's own coordinates scaled into screen space. */
+.preview-canvas-outline {
+  position: relative;
+  flex: 1;
+  border: 1px solid var(--accent-active);
+}
+
+/* The overlay layer is click-through so the active frame stays interactive;
+   anything deliberately placed in it takes its clicks back. */
+.preview-canvas-outline > * {
+  pointer-events: auto;
+}
+
+/* Inactive frames sit behind a transparent target: one click makes the frame
+   active (and interactive) rather than reaching a link in a page the user is
+   only reviewing. */
+.preview-canvas-activate {
+  flex: 1;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: border-color var(--transition-interaction);
+}
+
+.preview-canvas-activate:hover {
+  border-color: var(--border-strong);
+  background: rgba(var(--accent-active-rgb), 0.06);
+}
+
+/* While the canvas is being moved, the frames are scenery. A pan that sweeps
+   the pointer across three of them should not light each one up in turn, and a
+   transition running on every frame it crosses is work for nothing at exactly
+   the moment the canvas has none to spare. */
+.preview-canvas-root.is-interacting .preview-canvas-activate {
+  transition: none;
+}
+
+.preview-canvas-root.is-interacting .preview-canvas-activate:hover {
+  border-color: var(--border-default);
+  background: transparent;
+}
+
+.preview-canvas-activate:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Floating zoom control, pinned to the canvas rather than the toolbar so it
+   sits next to the thing it scales. */
+.preview-canvas-zoom {
+  position: absolute;
+  right: var(--spacing-md);
+  bottom: var(--spacing-md);
+  z-index: var(--z-floating-panel);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-3xs);
+  padding: var(--spacing-3xs);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+}
+
+/* Fixed width so stepping through zoom levels doesn't shuffle the buttons
+   either side of the readout. */
+.preview-canvas-zoom-readout {
+  min-width: 52px;
+}
+
+/* Space held: the canvas is ready to be dragged. The cursor lives on the root
+   so it covers the frames too — an iframe would otherwise show its own. */
+.preview-canvas-root.is-pannable,
+.preview-canvas-root.is-pannable .preview-canvas {
+  cursor: grab;
+}
+
+.preview-canvas-root.is-panning,
+.preview-canvas-root.is-panning .preview-canvas {
+  cursor: grabbing;
+}
+
+/* While panning, the frames must not swallow the drag — a mouse that crosses
+   into an iframe would otherwise strand the gesture. Space alone does the same,
+   so a space-drag can start over a frame. */
+.preview-canvas-root.is-pannable .preview-canvas-scaled,
+.preview-canvas-root.is-panning .preview-canvas-scaled {
+  pointer-events: none;
+}
+
+/* Held back until the frames have been measured. A frame starts at its device
+   height because that is the only honest guess before the page inside it has
+   been laid out, so the first measurement moves all four from one screen to a
+   whole page at once. Shown after, the canvas appears once and already right;
+   shown before, that correction is the first thing the user sees and it reads
+   as the feature glitching. Not animated on purpose: growing four enormous
+   layers over 300ms is the same jump, drawn out, and re-rastered every frame.
+   `useCanvasReveal` owns the deadline that guarantees this always lifts. */
+.preview-canvas-root.is-measuring .preview-canvas-world {
+  opacity: 0;
+}
+
+/* Opacity rather than visibility or display: the pages must keep laying out
+   and painting while hidden, because being laid out is precisely what is being
+   waited for. */
+.preview-canvas-world {
+  transition: opacity var(--transition-interaction);
+}

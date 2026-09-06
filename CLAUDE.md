@@ -5,7 +5,7 @@
 Ship Studio is a desktop app for web developers that provides:
 - **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
 - **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
-- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects
+- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, each showing its whole page at an honest viewport height, with editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
 - **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
 - **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace
 - **Branch Management** - Create, switch, and manage git branches
@@ -151,6 +151,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `logger.ts` - Structured frontend logging
 - `mcp.ts` / `skills.ts` / `plugins.ts` / `plugin-loader.ts` - Agent extensions and the plugin system
 - `mobile.ts` / `androidMirror.ts` - Mobile app preview and device mirror
+- `previewCanvas.ts` - Breakpoint-canvas geometry and zoom maths (layout, fit scale, device heights, mount window, pointer anchoring) — see `docs/breakpoint-canvas.md`
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
 - `workflows.ts` / `workflowsStore.ts` / `workflowHandoff.ts` / `workflowTemplates.ts` - Workflows & Inbox: types mirroring the Rust shapes, the store over the Tauri commands, the queue that carries a finding's prompt into a workspace terminal, and the template library the new-workflow picker is built from
@@ -333,6 +334,16 @@ These names predate the layered token system. Product code must use the canonica
 5. In the Inbox, "Fix in \<project\>" queues the suggested prompt (`lib/workflowHandoff.ts`), opens the workspace, and `useWorkflowHandoff` types it once a terminal exists
 
 Full design: [docs/workflows-inbox.md](docs/workflows-inbox.md).
+
+### Breakpoint Canvas Flow
+
+1. "Every breakpoint" is the last option in the preview toolbar's viewport control — the same segmented control as the devices — or Cmd+K → "Show every breakpoint". A pane too narrow for the icon strip gets the same list from the overflow button beside refresh
+2. Each frame shows its page IN FULL at its own device width. That should be impossible — an iframe's height is the viewport it reports — so the injected script makes the page believe it is on that device instead: viewport units rewritten, root height pinned (percentage chains), and `window.innerHeight` answered with the device (JS-driven sizing, which is otherwise a runaway)
+3. Exactly one frame is active: interactive, editor-bound, inspected, and what screenshots crop to. `usePreviewEditorFrame` re-binds the editor hooks by changing the ref's object identity. What the others give up is only editability — **every** frame on a canvas holds still (`ss:canvas`), because a frame here is a whole page and an animation anywhere in it repaints the lot, forever; exempting the active frame alone doubled the preview's idle CPU on a real page. A frame nobody is in is additionally told it is a background tab (`ss:passive`): `hidden` is reported and its rAF clock suspended
+4. Wheel and gesture events that land on a frame never reach the app — the injected script forwards zoom gestures up with their coordinates, and hands up any wheel the page has no scroll left to spend so it pans the canvas
+5. The canvas itself does not scroll. A gesture moves a **camera** (`useCanvasCamera`) which writes one composited transform per animation frame and tells React only once the gesture settles; a native scroll container put position in `scrollLeft` and forced a full layout of four live pages on every event of a pinch. Frames are `scrolling="no"` — a frame's scrollbar is subtracted from the width its media queries are evaluated at, which flipped the 1024px frame below its own breakpoint and made it measure thousands of pixels too tall
+6. Everything the canvas adds is off until `ss:canvas` arrives, so the ordinary single-frame preview costs exactly what it did before
+7. Full design, including the measured performance numbers and the known limits: [docs/breakpoint-canvas.md](docs/breakpoint-canvas.md)
 
 ### Languages (Multilingual / i18n) Flow
 1. Cmd+K → "Languages" opens `LanguagesModal` (`useModal('i18n')`)

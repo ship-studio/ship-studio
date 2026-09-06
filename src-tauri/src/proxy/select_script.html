@@ -256,7 +256,7 @@ function clearRulePreview(key){
   if(key!=null)restore(key);else{for(var k in pvRuleLoc)restore(k);}
 }
 
-/* A stable structural identity for the element: its element-index path up to <html>.
+/* A stable structural identity for the element: its element-index path up to the root.
    Two siblings with the SAME tag+class still differ here, so the editor never aliases
    one onto the other; it's also stable across an HMR reload of the same tree. */
 function ssDomPath(el){var parts=[],e=el;while(e&&e!==document.documentElement){var p=e.parentElement;if(!p)break;var idx=0,sib=p.firstElementChild;while(sib&&sib!==e){idx++;sib=sib.nextElementSibling;}parts.unshift((e.tagName||'').toLowerCase()+':'+idx);e=p;}return parts.join('>');}
@@ -750,6 +750,485 @@ function postSelRect(){if(selRectRaf)return;selRectRaf=requestAnimationFrame(fun
 
 function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeSet();postSelRect();}}
 
+/* Zoom gestures that land on this page belong to the canvas around it, not to
+   the page. A cross-origin parent never sees them (the event is delivered here),
+   so forward them up with the point they happened at, in this document's own
+   pixels. Plain scrolling is left alone: scrolling a preview page is scrolling
+   a page. Harmless outside the breakpoint canvas — nothing listens.
+   Two flavours, because a trackpad pinch is ctrl+wheel in Chromium and a
+   `gesture*` event in WebKit (which is what the app runs on macOS). */
+/* Off until the breakpoint canvas says otherwise (`ss:canvas`). On the single
+   preview frame there is no canvas to zoom, so none of this should touch the
+   page's own gestures — including swallowing them. */
+var ssCanvas=false;
+window.addEventListener('wheel',function(e){
+  if(!ssCanvas)return;
+  if(e.ctrlKey||e.metaKey){
+    e.preventDefault();
+    try{window.parent.postMessage({type:'ss:wheelZoom',deltaY:e.deltaY,x:e.clientX,y:e.clientY},'*');}catch(err){}
+    return;
+  }
+  /* A frame showing its whole page has nothing left to scroll, so the gesture
+     belongs to the canvas behind it — but a cross-origin parent never sees it,
+     and WebKit does not chain the scroll out of the frame either. Hand it up. */
+  if(ssScrollRange()>0)return;
+  e.preventDefault();
+  /* Shift+wheel is how a mouse pans sideways. Some engines hand it over as
+     deltaX already; the ones that don't would otherwise pan a frame vertically
+     while the same gesture over the canvas behind it panned sideways. */
+  var dx=e.deltaX,dy=e.deltaY;
+  if(e.shiftKey&&!dx){dx=dy;dy=0;}
+  try{window.parent.postMessage({type:'ss:panBy',dx:dx,dy:dy},'*');}catch(err){}
+},{passive:false});
+
+/* Middle-drag is the other mouse idiom for panning a canvas, and the frame
+   swallows it: the host binds it on mousedown, which never arrives because the
+   press landed in a cross-origin document. Space-drag has no such problem —
+   holding space lifts the frames out of the way with `pointer-events:none`
+   before the button goes down — but nothing can lift them for a gesture whose
+   first event IS the button going down. So the frame runs the drag itself and
+   reports it, negated: dragging down moves the canvas up, the way dragging
+   paper does. */
+var ssDragging=false;
+window.addEventListener('mousedown',function(e){
+  if(!ssCanvas||e.button!==1)return;
+  e.preventDefault();
+  ssDragging=true;
+},true);
+window.addEventListener('mousemove',function(e){
+  if(!ssDragging)return;
+  e.preventDefault();
+  try{window.parent.postMessage(
+    {type:'ss:panBy',dx:-(e.movementX||0),dy:-(e.movementY||0)},'*');}catch(err){}
+},true);
+window.addEventListener('mouseup',function(e){
+  if(!ssDragging||e.button!==1)return;
+  ssDragging=false;
+},true);
+/* The pointer leaving the frame mid-drag ends it here; the host cannot be
+   handed a drag it never started. */
+window.addEventListener('mouseleave',function(){ssDragging=false;},true);
+/* Middle-click pastes on X11 and opens links in some builds. Neither belongs
+   to a page being panned. */
+window.addEventListener('auxclick',function(e){
+  if(ssCanvas&&e.button===1)e.preventDefault();
+},true);
+var gzScale=1;
+window.addEventListener('gesturestart',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=e.scale||1;},{passive:false});
+window.addEventListener('gesturechange',function(e){
+  if(!ssCanvas)return;
+  e.preventDefault();
+  var now=e.scale||1,factor=gzScale>0?now/gzScale:1;gzScale=now;
+  try{window.parent.postMessage({type:'ss:zoomBy',factor:factor,x:e.clientX,y:e.clientY},'*');}catch(err){}
+},{passive:false});
+window.addEventListener('gestureend',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=1;},{passive:false});
+
+/* How much room the page has left to scroll. The canvas needs it to tell a
+   gesture the page can use from one that belongs to the canvas: a frame showing
+   its whole page has no scroll of its own, so the wheel over it is a pan. */
+function ssScrollRange(){return Math.max(0,(document.documentElement.scrollHeight||0)-ssRealViewportHeight());}
+
+/* ── A whole page, at an honest viewport height ────────────────────────────
+   The breakpoint canvas shows each page in full, which means the frame holding
+   it is as tall as the document. That alone would be a lie: `100vh` is whatever
+   the frame is tall, so a hero written as one screen would become one *page*
+   tall — the exact thing that makes these canvases useless.
+
+   So the viewport units are rewritten to the pixels they would have resolved to
+   on the device the frame is standing in for. It is done in the CSSOM rather
+   than by appending overrides, because an override cannot win against every
+   selector that might have set a height, and a unit is not something CSS lets
+   you redefine. Re-run on mutation, because a dev server injects its styles
+   after load and on every edit.
+
+   Known limits, both rare and both visible rather than silent: height-based
+   media queries still evaluate against the real (tall) frame, and `position:
+   fixed` pins to the whole page, so a fixed bar appears once rather than
+   following the scroll. */
+var ssVH=0,ssPageH=0,ssVHTimer=0;
+var SS_VIEWPORT_UNIT=/(-?\d*\.?\d+)(svh|lvh|dvh|vmin|vmax|vh)\b/gi;
+function ssResolveUnits(text){
+  return text.replace(SS_VIEWPORT_UNIT,function(all,num,unit){
+    var n=parseFloat(num);if(!isFinite(n))return all;
+    var w=window.innerWidth||ssVH,basis;
+    switch(unit.toLowerCase()){
+      case 'vmin':basis=Math.min(w,ssVH);break;
+      case 'vmax':basis=Math.max(w,ssVH);break;
+      default:basis=ssVH;
+    }
+    return (n*basis/100)+'px';
+  });
+}
+function ssRewriteRules(rules){
+  for(var i=0;i<rules.length;i++){
+    var rule=rules[i];
+    /* Recurse AND fall through. A grouping rule (`@media`, `@supports`) has
+       only children, but a nested style rule has both its own declarations and
+       children — and `continue`ing here skipped every declaration it owned.
+       Nested CSS is not exotic any more: it is what Tailwind v4 emits, so a
+       whole modern stylesheet's `vh` was going through untouched. */
+    if(rule.cssRules&&rule.cssRules.length)ssRewriteRules(rule.cssRules);
+    if(!rule.style)continue;
+    var text=rule.style.cssText;
+    if(!text||text.search(SS_VIEWPORT_UNIT)<0){SS_VIEWPORT_UNIT.lastIndex=0;continue;}
+    SS_VIEWPORT_UNIT.lastIndex=0;
+    try{rule.style.cssText=ssResolveUnits(text);}catch(err){}
+  }
+}
+/* A page can learn how tall its frame is three ways, and on this canvas the
+   frame is the whole document — so all three have to answer with the device
+   instead, or the page lays itself out for a viewport twenty screens tall.
+
+   1. CSS viewport units, rewritten below.
+   2. Percentage chains: `html,body{height:100%}` with an `h-full` section under
+      it stretches to the frame. Pinning the root height fixes every one of
+      them at once. Overflow goes with it: a root with a fixed height and a
+      hidden overflow becomes a scroller, and the frame would then show one
+      screen of a page it is meant to be showing all of.
+   3. `window.innerHeight` in JavaScript — a reveal footer's spacer, a
+      scroll-driven section. Left alone this is a runaway: the spacer grows, the
+      page gets longer, the frame is resized to match, and innerHeight grows
+      again. Measured on a real page it ran to the 24000px cap. */
+function ssPinRootHeight(){
+  if(!ssVH)return;
+  var pin=document.getElementById('ss-root-height');
+  if(!pin){
+    pin=document.createElement('style');pin.id='ss-root-height';
+    (document.head||document.documentElement).appendChild(pin);
+  }
+  /* `body` is made a containing block, and that is not cosmetic — it is what
+     stops the frame's own height from re-entering the measurement.
+
+     Pinning `html` fixes percentage chains rooted at `html`. It does nothing
+     for an absolutely positioned element with no positioned ancestor, because
+     that resolves against the INITIAL containing block, and the initial
+     containing block is the viewport — which here is the frame, the very thing
+     about to be resized to whatever we measure. A single `position:absolute;
+     inset:0` child is then a ratchet: its bottom is the frame height, so the
+     page measures a little taller than the frame, so the frame grows, so it
+     measures taller again. It never repeats a value, so nothing that watches
+     for a repeat can see it; it just walks until the write budget runs out,
+     which is a frame visibly resizing for half a minute and then settling
+     several hundred pixels too tall.
+
+     With `body` positioned, those elements resolve against the content instead,
+     which is what the page meant on a real device anyway — there, the viewport
+     is a screen, not the whole document. */
+  var css='html{height:'+ssVH+'px!important;overflow:visible!important}'
+    +'body{overflow:visible!important;position:relative!important}';
+  /* Only write when it would actually differ, and it almost never does — the
+     device height does not change. This is not a micro-optimisation, it is the
+     thing that stops this function from driving the page in a circle: the style
+     it writes lives in the HEAD, assigning `textContent` replaces a child text
+     node, and the head is exactly what the settle observer watches. Writing
+     unconditionally meant every pass scheduled the next one, at 5Hz, forever,
+     in every frame — and each pass invalidated every style in the document
+     (`html{...!important}`), walked every stylesheet, and forced a layout of a
+     document ten thousand pixels tall. That, not animation, was what made an
+     idle canvas cost three times an idle preview. */
+  if(pin.textContent!==css)pin.textContent=css;
+}
+
+var ssViewportLied=false;
+/* The canvas's own code still needs the frame's REAL height — the wheel handler
+   decides from it whether the page has scroll left to spend. */
+var ssRealViewportHeight=function(){return window.innerHeight;};
+function ssLieAboutViewport(){
+  if(ssViewportLied||!ssVH)return;
+  ssViewportLied=true;
+  var own=Object.getOwnPropertyDescriptor(window,'innerHeight')
+    ||Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window),'innerHeight');
+  if(own&&own.get){var real=own.get;ssRealViewportHeight=function(){return real.call(window);};}
+  var read=function(){return ssVH;};
+  try{Object.defineProperty(window,'innerHeight',{get:read,configurable:true});}catch(err){}
+  try{Object.defineProperty(document.documentElement,'clientHeight',{get:read,configurable:true});}catch(err){}
+  if(window.visualViewport){
+    try{Object.defineProperty(window.visualViewport,'height',{get:read,configurable:true});}catch(err){}
+  }
+}
+
+/* The cost of that lie: anything deciding what is ON screen from the same
+   number now thinks only the first screen exists, and a hand-rolled lazy loader
+   never loads the rest of the page. Nothing below the fold would ever appear —
+   so the lazy ones are simply told to load. The whole page IS on screen here;
+   that is the entire point of the frame being this tall. */
+/* Anything holding back until it is scrolled to. Run repeatedly while the page
+   settles, not once: a framework renders its images after this script has
+   already said hello, so a single pass at announce time sees none of them. */
+function ssLoadEverything(){
+  if(!ssVH)return;
+  var lazy=document.querySelectorAll('[loading="lazy"]');
+  for(var i=0;i<lazy.length;i++){try{lazy[i].setAttribute('loading','eager');}catch(err){}}
+  /* The hand-rolled convention, which no amount of `loading` helps. */
+  var held=document.querySelectorAll('img[data-src],source[data-srcset],img[data-srcset]');
+  for(var j=0;j<held.length;j++){
+    var el=held[j];
+    try{
+      var src=el.getAttribute('data-src'),set=el.getAttribute('data-srcset');
+      if(set&&!el.getAttribute('srcset'))el.setAttribute('srcset',set);
+      if(src&&el.getAttribute('src')!==src)el.setAttribute('src',src);
+    }catch(err){}
+  }
+}
+
+/* Known limit, stated rather than papered over: a page that rolls its own lazy
+   loading — `rect.top < innerHeight` rather than an IntersectionObserver — will
+   not load anything below the first screen, because the number it is asking is
+   the one being lied about. Telling it the truth for a moment and firing a
+   scroll was tried and rejected: the page re-lays-out around the real frame
+   height and the frame visibly jumps every time. A wrong height that flickers
+   is worse than an image that has not loaded. Native `loading="lazy"` is
+   handled above, and IntersectionObserver — which is what a framework's own
+   lazy image uses — reads the real viewport and is unaffected. */
+
+function ssRewriteViewportUnits(){
+  if(!ssVH)return;
+  var sheets=document.styleSheets;
+  for(var i=0;i<sheets.length;i++){
+    var rules=null;
+    try{rules=sheets[i].cssRules;}catch(err){rules=null;} /* a genuinely foreign sheet */
+    if(rules)ssRewriteRules(rules);
+  }
+  var inline=document.querySelectorAll('[style]');
+  for(var j=0;j<inline.length;j++){
+    var raw=inline[j].getAttribute('style');
+    if(!raw)continue;
+    SS_VIEWPORT_UNIT.lastIndex=0;
+    if(raw.search(SS_VIEWPORT_UNIT)<0){SS_VIEWPORT_UNIT.lastIndex=0;continue;}
+    SS_VIEWPORT_UNIT.lastIndex=0;
+    try{inline[j].setAttribute('style',ssResolveUnits(raw));}catch(err){}
+  }
+}
+/* The document's own height, which is NOT the frame's: the frame is about to be
+   resized to whatever this says, so measuring the viewport would just measure
+   the last answer. `body` is content-driven, and the one case where it isn't
+   (`body{height:100%}`) settles after a single round because the frame is then
+   exactly as tall as its content. */
+function ssPageHeight(){
+  var b=document.body;if(!b)return 0;
+  var style=window.getComputedStyle(b);
+  /* The BOTTOM margin only. The children's rects are measured from the document
+     origin, which is above body's top margin, so that margin is already inside
+     every number below — adding it here counted it twice, and eight stray
+     pixels a round is all a feedback loop needs to keep walking. */
+  var pad=parseFloat(style.marginBottom||'0')
+    +parseFloat(style.paddingBottom||'0')+parseFloat(style.borderBottomWidth||'0');
+  /* Measured from where the CONTENT ends, not from `scrollHeight`. The frame is
+     about to be resized to this answer, and a body stretched to its viewport
+     (`html,body{height:100%}`) reports the frame's own height back — which
+     would leave a frame that grew once unable to ever shrink again, i.e. a
+     screen of white space under a page that got shorter.
+
+     Viewport-positioned elements are skipped, because the "viewport" here is
+     the frame, and the frame is the thing being measured. `fixed` is the
+     obvious one. `sticky` matters too: while stuck, its rect reports where it
+     is PARKED rather than where it lives, so a frame that happens to be
+     scrolled measures it too low down. */
+  var bottom=0,kids=b.children;
+  for(var i=0;i<kids.length;i++){
+    var el=kids[i];
+    var pos=window.getComputedStyle(el).position;
+    if(pos==='fixed'||pos==='sticky')continue;
+    var y=el.getBoundingClientRect().bottom+window.scrollY;
+    if(y>bottom)bottom=y;
+  }
+  if(!bottom)bottom=Math.max(b.scrollHeight,b.offsetHeight);
+  return Math.ceil(bottom+pad);
+}
+/* A height has to be measured TWICE in a row before it counts, and a height
+   already committed once may never be committed again.
+
+   The two rules answer two different failures. Agreement throws out a
+   TRANSIENT: measuring mid-load, before fonts or images have settled, is how a
+   frame ends up locked at a height with a screen of white space at the bottom.
+
+   The visited list catches the FEEDBACK LOOP, which agreement cannot see. The
+   frame is resized to whatever is reported, so a page whose layout answers to
+   its own viewport height answers back with a different number — but it does
+   that in response to the resize, which is slower than the sampling. So each
+   height is comfortably measured twice before the reply arrives, agreement is
+   satisfied every time, and the frame walks A → B → A → B for as long as the
+   budget lasts. That is the frame the user sees changing size every couple of
+   seconds, and it stopping is the write counter running out, not the loop
+   being solved.
+
+   Coming back to a height that was already committed is the loop, exactly. The
+   frame settles on the TALLEST height of the cycle and stops reporting: too
+   tall shows a strip of background under the page, too short cuts content off,
+   and only one of those loses you something. */
+var ssPageSeen=0,ssPageAgreed=0,ssPageWrites=0,SS_PAGE_MAX_WRITES=40;
+var ssPageCommitted=[],ssPageLocked=false;
+function ssSendPage(h){
+  ssPageH=h;ssPageSeen=0;ssPageAgreed=0;
+  try{window.parent.postMessage({type:'ss:pageHeight',height:h},'*');}catch(err){}
+}
+function ssReportPage(){
+  if(!ssCanvas||!ssVH||ssPageLocked)return;
+  var h=ssPageHeight();
+  if(!h)return;
+  if(Math.abs(h-ssPageH)<4){ssPageSeen=0;return;}   /* already reported */
+  if(Math.abs(h-ssPageSeen)<4){
+    ssPageAgreed++;
+  }else{
+    ssPageSeen=h;ssPageAgreed=1;return;             /* first sighting */
+  }
+  if(ssPageAgreed<2)return;
+  if(ssPageWrites>=SS_PAGE_MAX_WRITES)return;
+  var tallest=h,revisited=false;
+  for(var i=0;i<ssPageCommitted.length;i++){
+    if(Math.abs(h-ssPageCommitted[i])<4)revisited=true;
+    if(ssPageCommitted[i]>tallest)tallest=ssPageCommitted[i];
+  }
+  /* The other shape a feedback loop takes, and the one that actually bit: not a
+     cycle but a RATCHET, each answer a little taller than the last. It never
+     repeats a value, so the visited list above is blind to it. Its signature is
+     that the step is CONSTANT — the page is not settling, it is being handed
+     back its own frame height plus a fixed offset. Real settling (a font
+     swapping, an image getting its size) moves by whatever that content is
+     worth, so equal steps three times running is not something a page does by
+     accident. */
+  var n=ssPageCommitted.length,ratchet=false;
+  if(!revisited&&n>=3){
+    var d1=h-ssPageCommitted[n-1],d2=ssPageCommitted[n-1]-ssPageCommitted[n-2],
+        d3=ssPageCommitted[n-2]-ssPageCommitted[n-3];
+    if(d1>0&&Math.abs(d1-d2)<2&&Math.abs(d2-d3)<2)ratchet=true;
+  }
+  /* The two loops settle at opposite ends, and it matters which.
+     A CYCLE alternates between real layouts, so the tallest is the one that
+     shows all of the page — too tall costs a strip of background, too short
+     cuts content off. A RATCHET is the page being handed back its own inflated
+     frame height, so every step after the run began is that inflation and the
+     honest answer is the height BEFORE it started. */
+  if(revisited||ratchet){
+    ssPageLocked=true;
+    var settled=ratchet?ssPageCommitted[n-3]:tallest;
+    if(Math.abs(settled-ssPageH)>=4)ssSendPage(settled);
+    return;
+  }
+  ssPageCommitted.push(h);
+  ssPageWrites++;
+  ssSendPage(h);
+}
+/* Every frame on a canvas holds still. Animations are made INSTANT rather than
+   paused: pausing freezes a scroll-reveal half-drawn, which is worse than
+   either extreme — you end up reviewing a state the page never actually has.
+   Iterations are capped at one so a decorative loop runs once and stops rather
+   than looping at 1ms, which would cost more than leaving it alone. */
+function ssHoldStill(on){
+  var pv=document.getElementById('ss-still-style');
+  if(on){
+    if(pv)return;
+    pv=document.createElement('style');pv.id='ss-still-style';
+    pv.textContent='*,*::before,*::after{'
+      +'animation-duration:1ms!important;animation-delay:0s!important;'
+      +'animation-iteration-count:1!important;'
+      +'transition-duration:1ms!important;transition-delay:0s!important}';
+    (document.head||document.documentElement).appendChild(pv);
+  }else if(pv&&pv.parentNode)pv.parentNode.removeChild(pv);
+}
+
+/* How long a frame is left running before it is treated as a background tab —
+   long enough for the page's entrance work to finish, short enough that four
+   of them are not animating while the user waits. */
+var SS_BACKGROUND_DELAY_MS=2500;
+/* A rAF loop schedules one callback at a time, so this only ever holds a handful.
+   The cap is for the page that schedules from a timer and would grow it forever. */
+var SS_RAF_HELD_MAX=64;
+var ssRafNative=null,ssRafHeld=[],ssBackgroundTimer=0,ssBackgrounded=false;
+function ssBackground(on){
+  if(ssBackgroundTimer){clearTimeout(ssBackgroundTimer);ssBackgroundTimer=0;}
+  if(on){
+    if(ssBackgrounded)return;
+    ssBackgroundTimer=setTimeout(function(){
+      ssBackgroundTimer=0;ssBackgrounded=true;
+      var vids=document.querySelectorAll('video');
+      for(var vi=0;vi<vids.length;vi++){try{vids[vi].pause();}catch(err){}}
+      try{
+        Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return 'hidden';}});
+        Object.defineProperty(document,'hidden',{configurable:true,get:function(){return true;}});
+        document.dispatchEvent(new Event('visibilitychange'));
+      }catch(err){}
+      if(!ssRafNative&&window.requestAnimationFrame){
+        ssRafNative=window.requestAnimationFrame;
+        window.requestAnimationFrame=function(cb){
+          if(ssRafHeld.length<SS_RAF_HELD_MAX)ssRafHeld.push(cb);
+          return 0;
+        };
+      }
+    },SS_BACKGROUND_DELAY_MS);
+    return;
+  }
+  if(!ssBackgrounded)return;
+  ssBackgrounded=false;
+  if(ssRafNative){window.requestAnimationFrame=ssRafNative;ssRafNative=null;}
+  try{
+    delete document.visibilityState;delete document.hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+  }catch(err){}
+  /* Restart whatever was mid-loop. Handing them back through rAF rather than
+     calling them here keeps them on the frame clock they asked for. */
+  var held=ssRafHeld;ssRafHeld=[];
+  for(var i=0;i<held.length;i++){try{window.requestAnimationFrame(held[i]);}catch(err){}}
+}
+
+/* Our own injected styles live in the head, so they are mutations in the very
+   subtree being watched for them. A mutation that touches nothing but our own
+   elements tells us nothing we did not already know, and acting on it is how
+   this observer ends up feeding itself. */
+var SS_OWN_STYLE_IDS={'ss-root-height':1,'ss-still-style':1,'ss-preview':1,'ss-passive-style':1};
+function ssOwnNode(node){
+  if(!node)return false;
+  if(node.nodeType===3)return ssOwnNode(node.parentNode);   /* the style's text */
+  return !!(node.id&&SS_OWN_STYLE_IDS[node.id]);
+}
+function ssOnHeadMutations(records){
+  for(var i=0;i<records.length;i++){
+    var r=records[i];
+    if(!ssOwnNode(r.target)){ssSyncPage();return;}
+    var added=r.addedNodes;
+    for(var j=0;j<added.length;j++){
+      if(!ssOwnNode(added[j])){ssSyncPage();return;}
+    }
+  }
+}
+
+function ssSyncPage(){
+  if(ssVHTimer)clearTimeout(ssVHTimer);
+  ssVHTimer=setTimeout(function(){
+    ssVHTimer=0;ssPinRootHeight();ssRewriteViewportUnits();ssLoadEverything();ssReportPage();
+  },200);
+}
+/* Watch for STYLESHEETS arriving, not for the page living its life. A canvas
+   holds four of these pages at once; an observer over the whole document with
+   attributes on fires on every class toggle a scroll animation makes, in every
+   frame, and each firing schedules a walk of the CSSOM and a forced layout.
+   New styles land in the document head (a dev server's HMR included), which is
+   all this needs to see. NB: no literal opening head/html tag may appear
+   anywhere in this file, comments included — the proxy splices its head-start
+   snippet at the first such string it finds in the whole response. */
+/* Started only when a canvas takes this frame over, and never otherwise: the
+   ordinary single-frame preview must cost exactly what it cost before this
+   feature existed. */
+var ssPageWatching=false;
+function ssWatchPage(){
+  if(ssPageWatching)return;
+  ssPageWatching=true;
+  if(window.MutationObserver){
+    new MutationObserver(ssOnHeadMutations).observe(document.head||document.documentElement,
+      {childList:true,subtree:true});
+  }
+  window.addEventListener('load',ssSyncPage);
+  /* Everything else that changes a page's length — fonts landing, images
+     sizing, content revealed on load — happens early and then stops. A few
+     checks over the first few seconds cover it without watching forever. */
+  var ticks=0;
+  var settle=setInterval(function(){
+    if(++ticks>24){clearInterval(settle);return;}
+    ssLoadEverything();
+    ssReportPage();
+  },400);
+}
+
 window.addEventListener('message',function(e){
 
 /* Only accept commands from the embedding app (our parent window) or same-window
@@ -759,6 +1238,46 @@ window.addEventListener('message',function(e){
 if(e.source&&e.source!==window.parent&&e.source!==window)return;
 var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
+/* Select whatever sits at a point, in this document's own CSS pixels. The breakpoint canvas uses it so that clicking a frame the user isn't working in yet both activates it AND selects what they aimed at, instead of spending the click on activation. */
+else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoint(d.x,d.y);var pick=at&&editable(at);if(pick)selectEl(pick);}
+/* A frame nobody is working in is a background tab, so it is told it is one.
+
+   The still stylesheet above stops CSS animation; this stops the other engine,
+   which is JavaScript. `requestAnimationFrame` is how a page runs a loop
+   forever, and nothing in CSS can reach it. Reporting `hidden` first is the
+   polite half — a page written to stop its own loops when the tab goes away
+   does exactly that, and does it better than we could from outside. Suspending
+   rAF is the backstop for pages that never learned. Callbacks are KEPT, not
+   dropped: a rAF loop schedules the next frame from inside the current one, so
+   discarding them would leave the page permanently dead once it came back.
+
+   Not applied immediately. A page's entrance work runs through rAF too, and
+   freezing that mid-flight is the half-drawn state this whole treatment exists
+   to avoid — so the page is given a moment to finish arriving first. */
+else if(d.type==='ss:passive'){ssBackground(!!d.on);}
+else if(d.type==='ss:canvas'){
+  ssCanvas=!!d.on;
+  ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
+  if(ssVH){
+    /* Holding still is a property of being ON A CANVAS, not of being the frame
+       nobody is in. A canvas is a review surface: it is read, laid out against
+       its siblings and edited, and a 120-second ticker looping forever is no
+       part of any of that. The cost is the reason it matters — a frame here is
+       a WHOLE page, so an animation anywhere in it repaints every pixel of a
+       document that can be ten thousand pixels tall, and it does that forever.
+       Measured on one marketing page: the active frame alone doubled the CPU
+       of the entire preview, at rest, because it was the only frame still
+       allowed to animate. What a frame keeps by being active is the ability to
+       be EDITED, which is a different thing entirely. */
+    ssHoldStill(true);
+    ssLieAboutViewport();ssWatchPage();ssPinRootHeight();ssRewriteViewportUnits();ssLoadEverything();
+    /* The page read the real viewport before this message arrived — its scripts
+       ran first. A resize is how a page is told to measure again. */
+    try{window.dispatchEvent(new Event('resize'));}catch(err){}
+    ssPageH=0;ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;
+    ssPageCommitted=[];ssPageLocked=false;ssReportPage();
+  }else{ssHoldStill(false);ssBackground(false);}
+}
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 
 /* Parent's verdict on whether the current selection's text is editable in source. If
@@ -809,7 +1328,7 @@ else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<select
 
 /* Variables editor live preview: set a custom property so every var() consumer updates
    instantly. Prefer editing the live :root rule in the CSSOM (HMR replaces the sheet and
-   supersedes it cleanly); fall back to an inline style on <html> when there's no :root
+   supersedes it cleanly); fall back to an inline style on the root element when there's no :root
    rule yet (e.g. adding the first variable) — that fallback is cleared on commit. */
 else if(d.type==='ss:setVar'){if(typeof d.name==='string'){var vv=String(d.value!=null?d.value:''),setOk=false;try{var rl=findRuleOwner(':root',null);if(rl){rl.owner.cssRules[rl.index].style.setProperty(d.name,vv);setOk=true;}}catch(e){}if(!setOk){try{document.documentElement.style.setProperty(d.name,vv);}catch(e){}}}}
 else if(d.type==='ss:clearVar'){if(typeof d.name==='string'){try{document.documentElement.style.removeProperty(d.name);}catch(e){}}else{var ds=document.documentElement.style;for(var vi=ds.length-1;vi>=0;vi--){var pn=ds[vi];if(pn&&pn.indexOf('--')===0)ds.removeProperty(pn);}}}

@@ -33,6 +33,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useFrameRebind } from './useFrameRebind';
 import { twMerge } from 'tailwind-merge';
 import {
   resolveClassnameSource,
@@ -411,6 +412,16 @@ export function useVisualEditor({
     },
     [post, setEditTarget, setLiveClass]
   );
+
+  // Moved to another preview frame (the breakpoint canvas): the selection
+  // belonged to the frame we left, and the new one has nothing marked.
+  useFrameRebind(iframeRef, () => {
+    setSelection(null);
+    setLiveClass('');
+    setImageTarget(null);
+    setEditTarget({ kind: 'element' });
+    selectedSigRef.current = null;
+  });
 
   // Activate/deactivate the in-iframe selection layer (external-system sync), and
   // keep it active across HMR reloads (each reload resets the script to inert).

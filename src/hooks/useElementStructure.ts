@@ -36,6 +36,7 @@ import {
 } from '../lib/edit-structure';
 import { resolveElementHtml } from '../lib/edit-html';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import { useFrameRebind } from './useFrameRebind';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 
@@ -148,6 +149,15 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
   );
+
+  // Moved to another preview frame (the breakpoint canvas): the toolbar's
+  // selection box belongs to the frame we left.
+  useFrameRebind(iframeRef, () => {
+    setSelection(null);
+    setTextEditing(false);
+    pendingReselectRef.current = null;
+    pendingActionRef.current = null;
+  });
 
   // Drop all transient state when edit mode closes.
   useEffect(() => {

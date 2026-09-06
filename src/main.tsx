@@ -187,6 +187,14 @@ const OS_SKIP_SELECTOR = [
   '.inbox-list',
   '.workflow-row-activity',
   '.inbox-detail-pane',
+  // The breakpoint canvas is a design surface, not a document: it scrolls
+  // itself, positions its own content, and reads its own box to decide the fit
+  // scale and how far the canvas may be pushed past its frames. Relocating its
+  // children into a viewport wrapper breaks both halves of that — the scroll
+  // offsets are written to a node that no longer scrolls, and the host stops
+  // clipping, so the canvas's own height feeds back into the size it measures
+  // itself by and the surface runs away to millions of pixels.
+  '.preview-canvas',
 ].join(', ');
 
 function initScrollbars() {

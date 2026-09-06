@@ -24,7 +24,13 @@
   --handle-size: 8px;
   flex: 1;
   display: grid;
-  grid-template-rows: auto 1fr 0;
+  /* `minmax(0, 1fr)`, never a bare `1fr`: a bare fr track keeps an automatic
+     MINIMUM of its content, so a tall child (the breakpoint canvas's surface)
+     grows the row past the container instead of being clipped by it — and a
+     child that sizes itself from the pane then has a feedback loop. The
+     `[data-logs='open']` variant below already spells it out for the same
+     reason. */
+  grid-template-rows: auto minmax(0, 1fr) 0;
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -205,10 +211,11 @@
   color: var(--text-muted);
 }
 
-/* Refresh + fullscreen + tree toggle — matched icon buttons */
+/* Refresh + fullscreen + tree toggle + viewport overflow — matched icon buttons */
 .preview-refresh,
 .preview-fullscreen-btn,
-.preview-tree-btn {
+.preview-tree-btn,
+.preview-viewport-overflow {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -226,7 +233,8 @@
 
 .preview-refresh:hover:not(:disabled),
 .preview-fullscreen-btn:hover:not(:disabled),
-.preview-tree-btn:hover:not(:disabled) {
+.preview-tree-btn:hover:not(:disabled),
+.preview-viewport-overflow:hover:not(:disabled) {
   background: var(--surface-control);
   color: var(--text-primary);
 }
@@ -472,6 +480,15 @@
   box-shadow: var(--shadow-button);
 }
 
+/* "Every breakpoint" is the last tab in the same control as the devices, but it
+   is not a device — a hairline says so without making it look like a mode
+   toggle sitting on top of whichever device is selected. */
+.preview-breakpoint-tab--canvas {
+  margin-left: var(--spacing-2xs);
+  border-left: 1px solid var(--border-subtle);
+  padding-left: var(--spacing-2xs);
+}
+
 .preview-zoom {
   display: flex;
   align-items: center;
@@ -594,6 +611,13 @@
   /* Handle thickness — must match `RESIZE_HANDLE_PX` in usePreviewResize.ts.
      JS uses it for drag math, CSS uses it for grid track sizing. */
   --handle-size: 8px;
+  /* The grid never exceeds the pane: a selected width wider than the pane
+     renders at true size inside the iframe and is scaled down visually
+     (previewScale), so the grid itself stays within the visible area. The 4px
+     leaves the pane's own edge visible. JS supplies the width; these ceilings
+     are unconditional, so they live here. */
+  max-width: calc(100% - 4px);
+  max-height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--handle-size);
   grid-template-rows: minmax(0, 1fr) var(--handle-size);

@@ -347,6 +347,31 @@ mod tests {
     }
 
     #[test]
+    fn canvas_holds_every_frame_still_and_backgrounds_the_idle_ones() {
+        // Two separate treatments, and keeping them separate is the point.
+        // Holding still rides on `ss:canvas`, so EVERY frame gets it — a frame
+        // here is a whole page, and one exempted frame animating forever
+        // doubled the preview's idle CPU. Background-tab semantics ride on
+        // `ss:passive`, so only frames nobody is working in get them.
+        assert!(SELECT_SCRIPT.contains("ssHoldStill(true)"));
+        assert!(SELECT_SCRIPT.contains("ss-still-style"));
+        assert!(SELECT_SCRIPT.contains("animation-iteration-count:1!important"));
+        assert!(SELECT_SCRIPT.contains("ss:passive'){ssBackground("));
+        assert!(SELECT_SCRIPT.contains("visibilityState"));
+        assert!(SELECT_SCRIPT.contains("ssRafHeld"));
+        // A committed page height is never committed twice: that is the
+        // feedback loop the agreement rule cannot see.
+        assert!(SELECT_SCRIPT.contains("ssPageCommitted"));
+        assert!(SELECT_SCRIPT.contains("ssPageLocked"));
+        // ...and the ratchet, which never repeats a value at all, so the
+        // visited list is blind to it. Cause and backstop both.
+        assert!(SELECT_SCRIPT.contains("position:relative!important"));
+        assert!(SELECT_SCRIPT.contains("ratchet"));
+        // The settle observer must not be able to feed itself.
+        assert!(SELECT_SCRIPT.contains("if(pin.textContent!==css)"));
+    }
+
+    #[test]
     fn scrollbar_style_lands_at_head_start_before_site_styles() {
         // The scrollbar-hiding style must come *before* the site's own <link>/<style>
         // so a site that styles its scrollbars overrides us (no hijack).
@@ -514,6 +539,24 @@ mod tests {
         assert!(page.contains("shipstudio:alive"));
         assert!(page.contains("shipstudio:navigate"));
         assert!(page.contains("shipstudio:error"));
+    }
+
+    #[test]
+    fn injected_scripts_contain_no_opening_head_or_html_tag() {
+        // `inject_at_head_start` scans the WHOLE response for the first `<head`,
+        // so a literal opening tag anywhere in an injected script — a comment
+        // included — makes the proxy splice its head-start snippet into the
+        // middle of that script instead of into the page.
+        for (name, script) in [("NAV_SCRIPT", NAV_SCRIPT), ("SELECT_SCRIPT", SELECT_SCRIPT)] {
+            assert!(
+                !script.contains("<head"),
+                "{name} contains a literal `<head`"
+            );
+            assert!(
+                !script.contains("<html"),
+                "{name} contains a literal `<html`"
+            );
+        }
     }
 
     #[test]
