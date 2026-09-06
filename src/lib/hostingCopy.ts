@@ -210,7 +210,7 @@ export function copyFor(
         title: `${host} didn't accept the saved sign-in`,
         status:
           state.tokenSource === 'cli_file'
-            ? `The ${host} CLI's login has expired.`
+            ? `Its command-line login has expired.`
             : 'The saved token may have expired or been revoked.',
         hint: 'Connect again to keep seeing deployment status.',
         action: 'Connect',

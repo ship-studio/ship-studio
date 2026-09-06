@@ -148,7 +148,7 @@ describe('hosting copy', () => {
       { kind: 'token_rejected', provider: 'vercel', tokenSource: 'cli_file' },
       'Fix the nav'
     );
-    expect(copy.status).toMatch(/CLI's login has expired/);
+    expect(copy.status).toMatch(/command-line login has expired/);
   });
 
   it('reassures that deploys still run when we simply cannot see them', () => {
