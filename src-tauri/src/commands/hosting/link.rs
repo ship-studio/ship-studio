@@ -78,10 +78,14 @@ pub fn read_metadata(project: &Path) -> HostingMetadata {
 /// Persist the hosting block, leaving every other field of the metadata file
 /// untouched.
 pub fn write_metadata(project: &Path, hosting: HostingMetadata) -> Result<(), CommandError> {
-    let mut metadata = crate::commands::projects::read_project_metadata_sync(project)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    // The read error propagates rather than being swallowed. `.ok().flatten()`
+    // turned "this file is corrupt or unreadable" into "there is no metadata",
+    // and the save below then wrote a *default* file over it — so connecting a
+    // host to a project whose metadata had been damaged would silently discard
+    // its pins, dev-server config and session state. `None` here still means
+    // genuinely absent, which is the only case that may safely default.
+    let mut metadata =
+        crate::commands::projects::read_project_metadata_sync(project)?.unwrap_or_default();
     metadata.hosting = Some(hosting);
     crate::commands::projects::save_project_metadata(project, &metadata)
 }

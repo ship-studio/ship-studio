@@ -127,6 +127,12 @@ export function DeploymentsModal({ projectPath }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
+    // No state is cleared here on purpose. Everything in this component is
+    // scoped to one project, and `WorkspaceModals` keys it by `projectPath`
+    // so a switch remounts it — which discards all of it at once, rather than
+    // relying on this effect to remember every field. Clearing by hand also
+    // trips `react-hooks/set-state-in-effect`, and the rule is right: the fix
+    // for "this state belongs to a different prop" is a key, not a reset.
     void getHostingStatus(projectPath)
       .then((status) => {
         if (!cancelled) setProvider(status.providers[0]?.link.provider ?? null);

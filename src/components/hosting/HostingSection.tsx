@@ -40,18 +40,41 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
 
   const [connecting, setConnecting] = useState<HostingProvider | null>(null);
   const [picking, setPicking] = useState(false);
-  // Which workspace's keychain the token belongs to — the project's, matching
-  // how git push authenticates, not whichever workspace happens to be active.
-  const [accountId, setAccountId] = useState(DEFAULT_ACCOUNT_ID);
+  /**
+   * Which workspace's keychain the token belongs to — the project's, matching
+   * how git push authenticates, not whichever workspace happens to be active.
+   *
+   * `null` means "not resolved yet", and it is deliberately not the same value
+   * as `DEFAULT_ACCOUNT_ID`. Starting at Default meant that between mounting
+   * and the lookup returning — and, worse, across a `projectPath` change, when
+   * the *previous* project's id was still in state — a `no_token` row could
+   * open the connect modal against an account this project does not belong to,
+   * saving the credential into the wrong workspace's keychain and notifying
+   * the wrong workspace's terminals. Default is the answer for a project that
+   * has no tag, not the answer for a project we have not asked about.
+   */
+  const [account, setAccount] = useState<{ path: string; id: string } | null>(null);
+
+  /**
+   * Derived, not reset. Storing the path the answer belongs to means a stale
+   * id cannot outlive its project: the moment `projectPath` changes this is
+   * `null` again, with no effect needing to remember to clear it. Same shape
+   * as the log cache in `DeploymentsModal`, and it keeps the effect free of a
+   * synchronous `setState` that `react-hooks/set-state-in-effect` would
+   * rightly reject.
+   */
+  const accountId = account?.path === projectPath ? account.id : null;
 
   useEffect(() => {
     let cancelled = false;
     void getProjectAccountId(projectPath)
       .then((id) => {
-        if (!cancelled) setAccountId(id);
+        if (!cancelled) setAccount({ path: projectPath, id });
       })
       .catch(() => {
-        // Falls back to Default, which is where an untagged project lives.
+        // An untagged project genuinely lives in Default. A failed lookup is
+        // the one case where that is an answer rather than a guess.
+        if (!cancelled) setAccount({ path: projectPath, id: DEFAULT_ACCOUNT_ID });
       });
     return () => {
       cancelled = true;
@@ -118,7 +141,9 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
         <HostingLinks state={state} hint={copy.hint} />
       </section>
 
-      {connecting ? (
+      {/* Gated on a resolved account: a token saved against the wrong
+          workspace is worse than a connect button that waits a moment. */}
+      {connecting && accountId ? (
         <HostingTokenModal
           provider={connecting}
           accountId={accountId}

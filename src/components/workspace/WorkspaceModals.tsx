@@ -244,7 +244,13 @@ export function WorkspaceModals({
         onCreatePR={onBackupCreatePR}
       />
 
-      <DeploymentsModal projectPath={projectPath} />
+      {/* Keyed by path so switching projects remounts it. Every piece of state
+          in there — provider, deployments, selection, build log — belongs to
+          one project, and a remount discards all of it without the component
+          having to remember to. Clearing them by hand left the previous
+          project's deploys on screen under the new project's name whenever a
+          field was missed. */}
+      <DeploymentsModal key={projectPath} projectPath={projectPath} />
 
       <AssetsPanel projectPath={projectPath} />
 

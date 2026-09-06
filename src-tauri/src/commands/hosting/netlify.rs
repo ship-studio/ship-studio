@@ -233,9 +233,15 @@ pub async fn find_for_commit(
     sha: &str,
     branch: &str,
 ) -> Result<Lookup, HostingHttpError> {
+    // Percent-encoded, because a branch name is the one value in this URL the
+    // user chooses. Git allows `&` and `#` in a refname, and either one ends
+    // the query parameter early — so `fix#123` would silently ask Netlify for
+    // the deploys of a branch called `fix`, and get a confident answer about
+    // the wrong branch. `sha` needs no such care: it is hex by construction.
     let url = format!(
         "{API}/sites/{site}/deploys?branch={branch}&per_page=30",
         site = link.project_id,
+        branch = urlencoding::encode(branch),
     );
     let raw: Vec<RawDeploy> = get_json(&url, token).await?;
 

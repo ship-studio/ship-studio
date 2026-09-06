@@ -22,6 +22,10 @@ import { ModalProvider, useModal } from '../../contexts/ModalContext';
 import { DeploymentsModal } from './DeploymentsModal';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+// `?raw` rather than node:fs — `src` carries no node type declarations, and
+// Vite resolves this at build time, so the assertion cannot drift from the file
+// it claims to be reading.
+import workspaceModalsSource from '../workspace/WorkspaceModals.tsx?raw';
 
 /** Opens the modal on mount, the way the palette command does. */
 function OpenIt({ children }: { children: ReactNode }) {
@@ -137,5 +141,76 @@ describe('DeploymentsModal', () => {
     });
     expect(screen.getByText(/Deployments — Vercel/)).toBeInTheDocument();
     expect(screen.queryByText(/doesn’t deploy anywhere yet/i)).not.toBeInTheDocument();
+  });
+
+  it("drops the previous project's deployments when the path changes", async () => {
+    // Everything in this component is scoped to one project, so the reset is a
+    // remount rather than a pile of clears the component must remember to
+    // keep in step. `WorkspaceModals` supplies the key; this renders the same
+    // composition, because testing the component without it would assert a
+    // guarantee the product does not actually have.
+    mockIPC((cmd, args) => {
+      const path = (args as { projectPath?: string })?.projectPath;
+      if (cmd === 'get_hosting_status') {
+        if (path === '/project/b') return UNLINKED;
+        return {
+          ...UNLINKED,
+          providers: [
+            {
+              link: { provider: 'vercel', project_id: 'prj_a', source: 'vercel_cli_file' },
+              auth: { kind: 'ok' },
+              fetched_at: Date.now(),
+              from_cache: false,
+            },
+          ],
+        };
+      }
+      if (cmd === 'list_recent_deployments') {
+        return [
+          {
+            id: 'dpl_a',
+            status_label: 'Ready',
+            phase: { phase: 'ready' },
+            environment: 'production',
+            commit_sha: 'aaa1111',
+            commit_message: 'Project A deploy',
+            urls: { aliases: [] },
+            created_at: Date.now() - 60_000,
+          },
+        ];
+      }
+      if (cmd === 'get_deployment_log') {
+        return { deployment_id: 'dpl_a', lines: [], truncated: false };
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+
+    const tree = (path: string) => (
+      <ModalProvider>
+        <OpenIt>
+          <DeploymentsModal key={path} projectPath={path} />
+        </OpenIt>
+      </ModalProvider>
+    );
+
+    const { rerender } = render(tree('/project/a'));
+    await waitFor(() => {
+      expect(screen.getByText('Project A deploy')).toBeInTheDocument();
+    });
+
+    rerender(tree('/project/b'));
+    await waitFor(() => {
+      expect(screen.getByText(/doesn\u2019t deploy anywhere yet/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Project A deploy')).not.toBeInTheDocument();
+  });
+
+  it('is keyed by project path where it is actually rendered', () => {
+    // The test above proves the remount clears everything; it cannot prove the
+    // product asks for one. Removing the key would leave that test green and
+    // put the previous project's deploys back on screen under the new
+    // project's name, so the call site is asserted directly.
+    const source = workspaceModalsSource;
+    expect(source).toMatch(/<DeploymentsModal\s+key=\{projectPath\}/);
   });
 });

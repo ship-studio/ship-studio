@@ -10,7 +10,7 @@
  *    the only path for Cloudflare Pages, which leaves nothing on disk.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
@@ -56,6 +56,15 @@ export function HostingLinkPicker({
   const [projects, setProjects] = useState<HostingProjectChoice[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  /**
+   * Which provider request is current. Pick Vercel, go back, pick Netlify, and
+   * Vercel's slower response could still land last — storing Vercel's projects
+   * while the header says Netlify. Choosing a row then wrote a Vercel project
+   * id as the project's *Netlify* link, and a stale `NotAuthenticated` opened
+   * the token flow for the wrong provider. Both persist wrong data from a
+   * request the user had already abandoned.
+   */
+  const requestRef = useRef(0);
 
   const confirmDetected = useCallback(
     async (link: DetectedLink) => {
@@ -81,12 +90,17 @@ export function HostingLinkPicker({
 
   const choose = useCallback(
     async (next: HostingProvider) => {
+      const generation = ++requestRef.current;
+      const isCurrent = () => requestRef.current === generation;
+
       setProvider(next);
       setProjects(null);
       setLoading(true);
       try {
-        setProjects(await listHostingProjects(projectPath, next));
+        const list = await listHostingProjects(projectPath, next);
+        if (isCurrent()) setProjects(list);
       } catch (err) {
+        if (!isCurrent()) return;
         const error = asCommandError(err);
         // A missing credential is the expected first-run state, not a failure
         // worth a red toast — hand the user straight to the connect flow.
@@ -97,7 +111,7 @@ export function HostingLinkPicker({
         showToast(formatCommandError(error), 'error');
         setProvider(null);
       } finally {
-        setLoading(false);
+        if (isCurrent()) setLoading(false);
       }
     },
     [projectPath, onNeedsToken, showToast]
@@ -198,7 +212,21 @@ export function HostingLinkPicker({
         ) : null}
 
         <div className="connect-modal-actions">
-          <Button variant="secondary" onClick={provider ? () => setProvider(null) : onClose}>
+          {/* Going back invalidates the in-flight request too, so an abandoned
+              provider's response can never land behind the user. */}
+          <Button
+            variant="secondary"
+            onClick={
+              provider
+                ? () => {
+                    requestRef.current += 1;
+                    setProvider(null);
+                    setProjects(null);
+                    setLoading(false);
+                  }
+                : onClose
+            }
+          >
             {provider ? 'Back' : 'Cancel'}
           </Button>
         </div>
