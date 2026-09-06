@@ -85,7 +85,17 @@ interface Props {
  */
 export function DeploymentsModal({ projectPath }: Props) {
   const { isOpen, close } = useModal('deployments');
-  const [provider, setProvider] = useState<HostingProvider | null>(null);
+  /**
+   * Three states, not two. `undefined` is "we haven't asked yet", `null` is
+   * "asked, and this project deploys nowhere".
+   *
+   * Collapsing those into one `null` is what made this panel claim to be
+   * loading forever: the fetch below bails on a falsy provider, so
+   * `deployments` stayed null, and null renders "Loading…". Every project
+   * without a hosting link — which is every project before you connect one —
+   * opened this to a spinner for a request that was never going to be made.
+   */
+  const [provider, setProvider] = useState<HostingProvider | null | undefined>(undefined);
   const { showToast } = useOptionalToast();
   const [deployments, setDeployments] = useState<Deployment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -100,7 +110,11 @@ export function DeploymentsModal({ projectPath }: Props) {
   } | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  const name = provider ? PROVIDER_LABELS[provider] : 'your host';
+  // No "your host" placeholder in a heading: until we know the provider the
+  // honest title is just "Deployments", and once we know there isn't one the
+  // panel says so in its body rather than in its name.
+  const name = provider ? PROVIDER_LABELS[provider] : null;
+  const title = name ? `Deployments — ${name}` : 'Deployments';
   const selected = deployments?.find((d) => d.id === selectedId) ?? deployments?.[0] ?? null;
 
   const forSelected = selected && logEntry?.id === selected.id ? logEntry : null;
@@ -199,25 +213,32 @@ export function DeploymentsModal({ projectPath }: Props) {
   if (!isOpen) return null;
 
   return (
-    <ModalFrame
-      isOpen
-      onClose={close}
-      title={`Deployments — ${name}`}
-      className="deployments-modal"
-    >
+    <ModalFrame isOpen onClose={close} title={title} className="deployments-modal">
       <div className="deployments">
         <div
           className="deployments-list"
           role="listbox"
-          aria-label={`Recent ${name} deployments`}
+          aria-label={name ? `Recent ${name} deployments` : 'Recent deployments'}
           aria-activedescendant={selected ? `deployment-${selected.id}` : undefined}
           ref={listRef}
           onKeyDown={handleKeyDown}
         >
-          {deployments === null && <p className="deployments-empty text-style-hint">Loading…</p>}
+          {/* "Loading" is claimed only while a request is actually outstanding.
+              A project that deploys nowhere gets told so, because the request
+              that would fill this list is never going to be made. */}
+          {provider === undefined && <p className="deployments-empty text-style-hint">Loading…</p>}
+          {provider === null && (
+            <p className="deployments-empty text-style-hint">
+              This project doesn’t deploy anywhere yet. Connect a host in the Push menu and
+              deployments will show up here.
+            </p>
+          )}
+          {provider && deployments === null && (
+            <p className="deployments-empty text-style-hint">Loading…</p>
+          )}
           {deployments?.length === 0 && (
             <p className="deployments-empty text-style-hint">
-              {loadError ?? `${name} has no deployments for this project yet.`}
+              {loadError ?? `${name ?? 'This host'} has no deployments for this project yet.`}
             </p>
           )}
           {deployments?.map((deployment) => (
