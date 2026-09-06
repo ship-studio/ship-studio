@@ -31,6 +31,14 @@ node scripts/harness-capture.mjs hosting-       # filter by id prefix
 node scripts/harness-capture.mjs --out /tmp/a   # capture somewhere else
 ```
 
+A full run owns the output directory and clears it, so nothing stale can be
+mistaken for current. A **filtered** run does not: it overwrites only what it
+captures, leaves the rest of the directory alone, and stamps `report.md` with a
+"Partial run" banner naming the filter. Otherwise re-capturing one scenario
+would delete the set a reviewer is halfway through, and the report replacing
+theirs would describe four files while the directory quietly held two runs at
+once.
+
 Interactively, open `http://127.0.0.1:1425/harness.html?scenario=<id>`. A
 switcher at the bottom lists every scenario and states what the screen is
 supposed to look like. Useful query parameters:

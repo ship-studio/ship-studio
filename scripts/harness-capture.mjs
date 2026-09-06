@@ -404,6 +404,15 @@ function renderReport({ scenarios, commands, skipped, meta }) {
     '# Ship Studio UI harness — capture report',
     '',
     `Captured ${new Date().toISOString()} at ${VIEWPORT.width}×${VIEWPORT.height}.`,
+    ...(meta.filter
+      ? [
+          '',
+          `> **Partial run** — filtered to ids starting \`${meta.filter}\`. Only the`,
+          '> captures listed below were taken. Other images in this directory are',
+          '> from an earlier run and may no longer reflect the code. Re-run without',
+          '> a filter for a directory that is consistent end to end.',
+        ]
+      : []),
     '',
     `Checkout: \`${meta.checkout}\``,
     `HEAD: \`${meta.head}\``,
@@ -535,7 +544,15 @@ async function main() {
   );
   await waitForServer(`http://127.0.0.1:${CDP_PORT}/json/version`);
 
-  await rm(outDir, { recursive: true, force: true });
+  // A full run owns the directory and clears it, so nothing stale survives to
+  // be mistaken for current. A *filtered* run must not: it would delete images
+  // a reviewer is halfway through reading, and the report that replaced them
+  // would describe a handful of files while the rest of the directory silently
+  // became a mix of two runs. Filtered runs overwrite only what they capture
+  // and say so at the top of the report.
+  if (!filter) {
+    await rm(outDir, { recursive: true, force: true });
+  }
   await mkdir(outDir, { recursive: true });
 
   // Ask the running harness what exists, so this script never keeps a second,
@@ -633,6 +650,8 @@ async function main() {
     // image with no provenance is not evidence.
     checkout: identity.root,
     head: identity.head,
+    // Non-null means this report describes only part of the directory.
+    filter: filter || null,
     viewport: VIEWPORT,
     scenarios: scenarioResults,
     commands: commandResults,
@@ -645,7 +664,7 @@ async function main() {
       scenarios: scenarioResults,
       commands: commandResults,
       skipped,
-      meta: { checkout: identity.root, head: identity.head },
+      meta: { checkout: identity.root, head: identity.head, filter: filter || null },
     })
   );
 
