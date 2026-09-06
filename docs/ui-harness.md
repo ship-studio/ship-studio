@@ -91,6 +91,14 @@ with both paths named. Two shapes of failure are caught: a server that cannot
 answer the endpoint at all (stale, or unrelated), and one that answers with a
 different root.
 
+The check runs before **every** capture, not once at startup. `strictPort`
+frees the port the moment a harness dies, so a server can be replaced partway
+through a run — and when that happened, `ready` and `stable` both reported
+healthy for pages serving a different product entirely. Those signals describe
+the page that answered; neither can tell you it was the wrong page. If the root
+or HEAD changes mid-run the sweep aborts and names the scenario it stopped at,
+so captures taken before that point stay usable.
+
 To run harnesses from several worktrees at once, give each its own port:
 
 ```bash
@@ -100,6 +108,22 @@ SHIPSTUDIO_HARNESS_PORT=1426 node scripts/harness-capture.mjs --all
 
 `strictPort` is deliberately still on: a harness that silently moved to another
 port would reintroduce exactly the ambiguity this section is about.
+
+## Text being cut off
+
+`report.md` lists every visible element whose content is wider than its box
+(`text-overflow: ellipsis` or a line clamp, with `scrollWidth > clientWidth`),
+per capture.
+
+This is reported, never failed — plenty of truncation is deliberate. It exists
+because truncation is technically visible in a screenshot and practically
+invisible to a reviewer: a sentence clipped in a 184px column ends in a few
+pixels of "…", and it is entirely possible to read a set of captures twice,
+conclude they pass, and have missed that every status line lost its informative
+half. That is a real account of what happened, not a hypothetical. The list
+turns "look carefully" into something the runner can point at.
+
+Check what got cut, not just that something did.
 
 ## The one rule that makes it trustworthy
 

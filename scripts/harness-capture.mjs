@@ -83,13 +83,56 @@ const hash = (buf) => createHash('sha1').update(buf).digest('hex').slice(0, 12);
  * tree, no warning. Refusing to guess is the whole point of the tool, so it
  * refuses here too.
  */
+async function fetchIdentity() {
+  const res = await fetch(`${HARNESS_ORIGIN}/__harness/identity`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Re-check between captures.
+ *
+ * Checking once at startup is not enough: `strictPort` frees the port the
+ * instant a harness dies, so a server can be replaced *mid-run* and every
+ * capture after that point silently belongs to another tree. That is not
+ * hypothetical — it happened, and `ready` and `stable` both agreed with each
+ * other about a page serving a different product, because those signals only
+ * describe the page that answered, never which page ought to have.
+ */
+async function assertStillSameCheckout(expected, label) {
+  let identity;
+  try {
+    identity = await fetchIdentity();
+  } catch (e) {
+    throw new Error(
+      `The harness stopped answering /__harness/identity partway through ` +
+        `(at "${label}": ${e.message}). Captures before this point are fine; ` +
+        `anything after would be of whatever took the port. Aborting.`
+    );
+  }
+  if (path.resolve(identity.root) !== path.resolve(expected.root)) {
+    throw new Error(
+      `The harness changed underneath this run (at "${label}").\n` +
+        `  started against : ${expected.root}\n` +
+        `  now serving     : ${identity.root}\n` +
+        `A server was replaced mid-run. Aborting rather than captioning ` +
+        `another tree's screenshots with this one's scenario names.`
+    );
+  }
+  if (identity.head !== expected.head) {
+    throw new Error(
+      `The harness's HEAD moved during this run (at "${label}"): ` +
+        `${expected.head.slice(0, 12)} -> ${identity.head.slice(0, 12)}. ` +
+        `Half these captures would be of a different commit. Aborting.`
+    );
+  }
+}
+
 async function assertHarnessIsThisCheckout() {
   const expected = process.cwd();
   let identity;
   try {
-    const res = await fetch(`${HARNESS_ORIGIN}/__harness/identity`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    identity = await res.json();
+    identity = await fetchIdentity();
   } catch (e) {
     throw new Error(
       `Something is listening on ${HARNESS_ORIGIN} but it does not answer ` +
@@ -219,7 +262,48 @@ const closeTarget = (id) =>
  * Load one harness URL, wait for it to settle, capture it, and report what the
  * page knows about itself.
  */
-async function capture({ url, file, clipSelector }) {
+/**
+ * Elements whose text is being cut off.
+ *
+ * Truncation is technically visible in a screenshot and practically invisible
+ * to a reviewer: a sentence clipped at 184px ends in a "…" a few pixels wide,
+ * and it is entirely possible to read a set of captures twice, conclude they
+ * pass, and have missed that every status line lost its informative half.
+ * Listing them turns "look carefully" into something the runner can point at.
+ *
+ * Reported, never failed — plenty of truncation is deliberate. Credit to the
+ * session that hit this the hard way and proposed the check.
+ */
+const CLIPPED_TEXT_PROBE = `(() => {
+  const out = [];
+  for (const el of document.querySelectorAll('*')) {
+    if (out.length >= 25) break;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    const ellipsis = cs.textOverflow === 'ellipsis';
+    const clampedLines = cs.webkitLineClamp && cs.webkitLineClamp !== 'none';
+    if (!ellipsis && !clampedLines) continue;
+    const overflowsX = el.scrollWidth > el.clientWidth + 1;
+    const overflowsY = clampedLines && el.scrollHeight > el.clientHeight + 1;
+    if (!overflowsX && !overflowsY) continue;
+    const text = (el.textContent || '').trim().replace(/\\s+/g, ' ');
+    if (!text) continue;
+    out.push({
+      text: text.slice(0, 120),
+      chars: text.length,
+      shownPx: Math.round(el.clientWidth),
+      neededPx: Math.round(el.scrollWidth),
+      where: el.className && typeof el.className === 'string'
+        ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.')
+        : el.tagName.toLowerCase(),
+    });
+  }
+  return JSON.stringify(out);
+})()`;
+
+async function capture({ url, file, clipSelector, identity, label }) {
   const { page, targetId } = await newPage(url);
   try {
     const ready = await waitFor(page, 'window.__harnessReady', 25_000, `${file} to settle`)
@@ -250,6 +334,12 @@ async function capture({ url, file, clipSelector }) {
       if (box) clip = JSON.parse(box);
       else missingClip = clipSelector;
     }
+
+    // The page is settled and about to be photographed: confirm the server
+    // still belongs to this checkout before the image is written.
+    if (identity) await assertStillSameCheckout(identity, label ?? file);
+
+    const clipped = JSON.parse(await page.eval(CLIPPED_TEXT_PROBE).catch(() => '[]'));
 
     // Capture a *stable* frame rather than whichever frame happened to be on
     // screen. Polling hooks re-render on their own schedule, so a single shot
@@ -289,6 +379,7 @@ async function capture({ url, file, clipSelector }) {
       ...state,
       ...(missingClip ? { missingClip } : {}),
       imageHash: hash(buf),
+      clipped,
       console: page.console.slice(0, 8),
     };
   } finally {
@@ -350,6 +441,26 @@ function renderReport({ scenarios, commands, skipped, meta }) {
         ...noChange.map((r) => `- \`${r.id}\` — ${r.title}`),
         ''
       );
+    }
+  }
+
+  const withClipped = [...scenarios, ...commands].filter((r) => r.clipped?.length);
+  if (withClipped.length) {
+    lines.push(
+      '## Text being cut off',
+      '',
+      'Elements whose content is wider than the box drawn for it. Not a',
+      'failure — plenty of truncation is deliberate — but a clipped sentence',
+      'is a few pixels of "…" in a screenshot and is very easy to read past.',
+      'Check that what got cut is not the informative half.',
+      ''
+    );
+    for (const r of withClipped) {
+      lines.push(`**\`${r.id}\`**`, '');
+      for (const c of r.clipped.slice(0, 8)) {
+        lines.push(`- \`${c.where}\` ${c.shownPx}px shown / ${c.neededPx}px needed — "${c.text}"`);
+      }
+      lines.push('');
     }
   }
 
@@ -430,6 +541,8 @@ async function main() {
         url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${s.id}`,
         file: path.join(outDir, `${s.id}.png`),
         clipSelector: s.clipSelector,
+        identity,
+        label: s.id,
       });
       scenarioResults.push({ ...s, ...r });
       process.stdout.write(`${mark(r)} ${s.id}\n`);
@@ -450,6 +563,8 @@ async function main() {
       const base = await capture({
         url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}`,
         file: path.join(outDir, 'commands', `_baseline-${ctx.name}.png`),
+        identity,
+        label: `baseline-${ctx.name}`,
       });
 
       const listPage = await newPage(
@@ -477,6 +592,8 @@ async function main() {
         const r = await capture({
           url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}&command=${encodeURIComponent(cmd.id)}`,
           file: path.join(outDir, 'commands', `${cmd.id}.png`),
+          identity,
+          label: cmd.id,
         });
         commandResults.push({
           ...cmd,
