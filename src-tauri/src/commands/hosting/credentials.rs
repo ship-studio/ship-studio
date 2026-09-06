@@ -59,10 +59,7 @@ fn cli_token(provider: HostingProvider) -> Option<String> {
     match provider {
         HostingProvider::Vercel => vercel_cli_token(),
         HostingProvider::Netlify => netlify_cli_token(),
-        // Wrangler stores nothing until the user logs in, and recent versions
-        // keep it in the OS keyring rather than a readable file. There is no
-        // file to borrow, so Cloudflare always needs a real token.
-        HostingProvider::Cloudflare => None,
+        HostingProvider::Cloudflare => wrangler_cli_token(),
     }
 }
 
@@ -113,6 +110,82 @@ fn vercel_cli_token() -> Option<String> {
         return Some(token);
     }
     None
+}
+
+/// Where wrangler keeps its OAuth credentials.
+///
+/// **Not** `~/.config/.wrangler` on macOS, which is what the documentation's
+/// XDG-style description implies — an actual `wrangler login` on macOS wrote
+/// to `~/Library/Preferences/.wrangler/config/default.toml`. Both are tried,
+/// plus the Windows location.
+fn wrangler_config_paths() -> Vec<PathBuf> {
+    let Some(home) = home() else {
+        return Vec::new();
+    };
+    let mut paths = Vec::new();
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        paths.push(PathBuf::from(xdg).join(".wrangler/config/default.toml"));
+    }
+    paths.push(home.join("Library/Preferences/.wrangler/config/default.toml"));
+    paths.push(home.join(".config/.wrangler/config/default.toml"));
+    paths.push(home.join("AppData/Roaming/xdg.config/.wrangler/config/default.toml"));
+    paths
+}
+
+/// Read wrangler's OAuth token, honouring its expiry.
+///
+/// Short-lived like Vercel's: a token observed straight after `wrangler login`
+/// carried an `expiration_time` one hour out. It is borrowed for convenience
+/// and never depended on — an expired one is skipped so the UI asks for a real
+/// token rather than showing a rejection the user cannot explain.
+fn wrangler_cli_token() -> Option<String> {
+    for path in wrangler_config_paths() {
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(token) = toml_string(&raw, "oauth_token") else {
+            continue;
+        };
+        if let Some(expires) = toml_string(&raw, "expiration_time") {
+            if iso_is_past(&expires) {
+                tracing::debug!(
+                    "wrangler token at {} has expired; not using it",
+                    path.display()
+                );
+                continue;
+            }
+        }
+        return Some(token);
+    }
+    None
+}
+
+/// Pull one quoted value out of a flat TOML file.
+///
+/// Deliberately not a TOML parser: this reads exactly two keys from a file the
+/// app does not own, and a dependency for that would be a poor trade.
+fn toml_string(raw: &str, key: &str) -> Option<String> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .find_map(|line| {
+            let (name, value) = line.split_once('=')?;
+            if name.trim() != key {
+                return None;
+            }
+            let value = value.trim().trim_matches('"').trim();
+            (!value.is_empty()).then(|| value.to_string())
+        })
+}
+
+/// Whether an ISO-8601 instant is in the past.
+fn iso_is_past(value: &str) -> bool {
+    match super::model::iso_to_ms(Some(value)) {
+        Some(at) => at <= super::model::now_ms(),
+        // An unparseable expiry is treated as still valid: the provider will
+        // reject the token if it is not, and that path already explains itself.
+        None => false,
+    }
 }
 
 /// Documented locations of the Netlify CLI's `config.json`, per platform, plus
@@ -228,8 +301,48 @@ mod tests {
     }
 
     #[test]
-    fn cloudflare_never_borrows_a_cli_token() {
-        assert!(cli_token(HostingProvider::Cloudflare).is_none());
+    fn wrangler_credentials_are_read_from_the_path_it_actually_writes() {
+        // The documentation describes an XDG-style location; a real
+        // `wrangler login` on macOS wrote somewhere else entirely, so both are
+        // tried rather than trusting the docs.
+        let paths = wrangler_config_paths();
+        assert!(
+            paths
+                .iter()
+                .any(|p| p.ends_with("Library/Preferences/.wrangler/config/default.toml")),
+            "the macOS path wrangler actually uses must be tried"
+        );
+        assert!(
+            paths
+                .iter()
+                .any(|p| p.ends_with(".config/.wrangler/config/default.toml")),
+            "the documented path must still be tried"
+        );
+    }
+
+    #[test]
+    fn a_flat_toml_value_is_read_without_a_parser() {
+        let raw = concat!(
+            "oauth_token = \"abc123\"\n",
+            "expiration_time = \"2026-09-06T04:17:18.337Z\"\n",
+            "# oauth_token = \"commented-out\"\n",
+            "scopes = [ \"account:read\" ]\n"
+        );
+        assert_eq!(toml_string(raw, "oauth_token").as_deref(), Some("abc123"));
+        assert_eq!(
+            toml_string(raw, "expiration_time").as_deref(),
+            Some("2026-09-06T04:17:18.337Z")
+        );
+        assert_eq!(toml_string(raw, "missing"), None);
+    }
+
+    #[test]
+    fn an_expired_wrangler_token_is_skipped_not_offered() {
+        assert!(iso_is_past("2020-01-01T00:00:00.000Z"));
+        assert!(!iso_is_past("2099-01-01T00:00:00.000Z"));
+        // An expiry we cannot read is not treated as expired — the provider
+        // will reject it if it is, and that path already explains itself.
+        assert!(!iso_is_past("not a date"));
     }
 
     #[test]

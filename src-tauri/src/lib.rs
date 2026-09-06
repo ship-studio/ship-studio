@@ -132,7 +132,7 @@ pub fn run() {
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    commands::workflows::install_workflows_skill();
+                    commands::skills::install_bundled_skills();
                     workflow_scheduler::spawn(handle);
                 });
             }

@@ -11,7 +11,7 @@ Last verified: 2026-09-05.
 | ---------- | -------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Vercel     | `~/Library/Application Support/com.vercel.cli/auth.json`         | **~7 hours** (`expiresAt` seconds, plus `refreshToken`) | **No** — short-lived OAuth access token. Refreshing it means implementing Vercel's OAuth flow against a file the docs say must not be edited manually. |
 | Netlify    | `~/Library/Preferences/netlify/config.json` → `users.<userId>.auth.token` | none present                                          | Opportunistically, yes                                                                                                                             |
-| Cloudflare | `~/.config/.wrangler/config/default.toml`                        | n/a                                                   | Absent unless the user has run wrangler; newer versions use the OS keyring                                                                          |
+| Cloudflare | `~/Library/Preferences/.wrangler/config/default.toml` on macOS — **not** the documented `~/.config/.wrangler` | **~1 hour** (`expiration_time`, ISO-8601, plus a `refresh_token`) | Opportunistically, but it lapses within the hour |
 
 **Consequence.** Credential resolution is a fallback chain, not a paste-wall:
 
@@ -95,7 +95,17 @@ Deserialisation is deliberately permissive so a wrong guess costs one line of
 copy rather than the whole lookup, but this provider should not be considered
 working until someone runs it with a real token.
 
-Specifically unconfirmed:
+**Verified since:** `wrangler login` was completed on this machine and the
+account and Pages endpoints were exercised for real.
+
+- `GET /accounts` returns the documented `{success, result}` envelope. Verified.
+- `GET /accounts/{id}/pages/projects` returns the same envelope. Verified —
+  though it returned **zero projects**, so the project shape is still unseen.
+- **The credential path in Cloudflare's own docs is wrong for macOS.** An
+  actual `wrangler login` wrote `~/Library/Preferences/.wrangler/config/default.toml`,
+  and the token inside expires about an hour later.
+
+Still unconfirmed, because the account has no Pages project to observe:
 
 - Deployment list is not filterable by commit; scan
   `deployment_trigger.metadata.commit_hash`.

@@ -36,7 +36,7 @@ const SKILL_DIR_NAME: &str = "shipstudio-workflows";
 ///    is the one word a user who hasn't discovered the feature will never say.
 /// 2. **Author.** Once loaded, the format spec is complete enough that the
 ///    agent can write a valid file without asking Ship Studio anything.
-fn skill_markdown() -> String {
+pub(crate) fn skill_markdown() -> String {
     format!(
         r#"---
 name: shipstudio-workflows
