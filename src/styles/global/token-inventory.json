@@ -9,7 +9,7 @@
       "owner": "plugin-compatibility",
       "status": "compatibility",
       "pluginStable": true,
-      "consumerCount": 1
+      "consumerCount": 0
     },
     {
       "name": "--bg-secondary",
@@ -18,7 +18,7 @@
       "owner": "plugin-compatibility",
       "status": "compatibility",
       "pluginStable": true,
-      "consumerCount": 4
+      "consumerCount": 0
     },
     {
       "name": "--bg-tertiary",
@@ -63,7 +63,7 @@
       "owner": "plugin-compatibility",
       "status": "compatibility",
       "pluginStable": true,
-      "consumerCount": 5
+      "consumerCount": 3
     },
     {
       "name": "--accent-hover",
@@ -108,7 +108,7 @@
       "owner": "plugin-compatibility",
       "status": "compatibility",
       "pluginStable": true,
-      "consumerCount": 6
+      "consumerCount": 0
     },
     {
       "name": "--success",
@@ -155,7 +155,7 @@
       "owner": "plugin-compatibility",
       "status": "compatibility",
       "pluginStable": true,
-      "consumerCount": 1
+      "consumerCount": 0
     },
     {
       "name": "--error-light",
@@ -256,7 +256,7 @@
       "owner": "plugin-compatibility",
       "status": "compatibility",
       "pluginStable": true,
-      "consumerCount": 2
+      "consumerCount": 4
     },
     {
       "name": "--radius",
@@ -3710,7 +3710,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 202
+      "consumerCount": 203
     },
     {
       "name": "--surface-control",
@@ -3719,7 +3719,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 319
+      "consumerCount": 323
     },
     {
       "name": "--surface-control-hover",
@@ -3746,7 +3746,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 25
+      "consumerCount": 26
     },
     {
       "name": "--surface-terminal-input",
@@ -3791,7 +3791,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 431
+      "consumerCount": 432
     },
     {
       "name": "--text-secondary",
@@ -3800,7 +3800,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 338
+      "consumerCount": 340
     },
     {
       "name": "--text-muted",
@@ -3809,7 +3809,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 594
+      "consumerCount": 593
     },
     {
       "name": "--text-faint",
@@ -3854,7 +3854,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 435
+      "consumerCount": 442
     },
     {
       "name": "--border-subtle",
@@ -3890,7 +3890,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 70
+      "consumerCount": 71
     },
     {
       "name": "--accent-active",
@@ -3899,7 +3899,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 191
+      "consumerCount": 195
     },
     {
       "name": "--accent-active-hover",
@@ -3971,7 +3971,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 73
+      "consumerCount": 74
     },
     {
       "name": "--accent-error-light",
@@ -4025,7 +4025,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 12
+      "consumerCount": 13
     },
     {
       "name": "--color-red-traffic",
@@ -4061,7 +4061,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 45
+      "consumerCount": 46
     },
     {
       "name": "--font-code",
@@ -4070,7 +4070,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 139
+      "consumerCount": 138
     },
     {
       "name": "--font-symbol",
@@ -4160,7 +4160,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 236
+      "consumerCount": 238
     },
     {
       "name": "--font-size-control",
@@ -4214,7 +4214,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 115
+      "consumerCount": 116
     },
     {
       "name": "--font-size-3xl",
@@ -4250,7 +4250,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--font-weight-label",
@@ -4259,7 +4259,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 23
+      "consumerCount": 25
     },
     {
       "name": "--font-weight-heading",
@@ -4475,7 +4475,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 70
+      "consumerCount": 74
     },
     {
       "name": "--spacing-xs",
@@ -4484,7 +4484,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 248
+      "consumerCount": 251
     },
     {
       "name": "--spacing-sm",
@@ -4493,7 +4493,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 330
+      "consumerCount": 335
     },
     {
       "name": "--spacing-md",
@@ -4502,7 +4502,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 267
+      "consumerCount": 270
     },
     {
       "name": "--spacing-lg",
@@ -4574,7 +4574,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 18
+      "consumerCount": 20
     },
     {
       "name": "--tint-subtle",

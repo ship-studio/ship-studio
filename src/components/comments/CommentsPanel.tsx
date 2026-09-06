@@ -1,11 +1,16 @@
-import { commentTargetLabel, commentScopeLabel } from '../../lib/canvasComments';
 /** Moveable backlog panel; its overlay leaves the preview viewport unchanged. */
 import { useState, type ReactNode } from 'react';
 import { DockablePanel } from '../primitives/DockablePanel';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
-import { TrashIcon } from '@/components/icons';
-import { type CanvasComment, type CommentAgent } from '../../lib/canvasComments';
+import { EmptyState } from '../primitives/EmptyState';
+import { TrashIcon, CloseIcon, CommentIcon } from '@/components/icons';
+import {
+  commentTargetLabel,
+  commentScopeLabel,
+  type CanvasComment,
+  type CommentAgent,
+} from '../../lib/canvasComments';
 
 interface Props {
   composing: boolean;
@@ -18,6 +23,7 @@ interface Props {
   excluded: Set<string>;
   toggle: (id: string) => void;
   selectAll: () => void;
+  clearSelection: () => void;
   selectedCount: number;
   onClose: () => void;
   onLocate: (comment: CanvasComment) => void;
@@ -36,6 +42,8 @@ export function CommentsPanel(props: Props) {
   const [review, setReview] = useState(false);
   const visible = props.comments;
   const pages = [...new Set(visible.map((c) => c.target.page))];
+  const pendingCount = visible.filter((c) => c.status === 'pending').length;
+  const allSelected = props.selectedCount === pendingCount;
   return (
     <DockablePanel
       docked={false}
@@ -48,7 +56,7 @@ export function CommentsPanel(props: Props) {
       floatingSize={{
         width: 320,
         height: Math.min(
-          props.composing ? 350 : props.comments.length ? 460 : 130,
+          props.composing ? 380 : props.comments.length ? 460 : 200,
           window.innerHeight - 128
         ),
       }}
@@ -56,10 +64,20 @@ export function CommentsPanel(props: Props) {
       surfaceClassName="canvas-comments-panel"
     >
       <header className="canvas-comments-header" data-dockable-drag-handle>
-        <strong>Comments</strong>
-        <Button variant="ghost" size="compact" onClick={props.onClose}>
-          Close
-        </Button>
+        <span className="canvas-comments-title">
+          Comments
+          {pendingCount > 0 && (
+            <span className="canvas-comments-count">{pendingCount} pending</span>
+          )}
+        </span>
+        <IconButton
+          variant="ghost"
+          size="compact"
+          onClick={props.onClose}
+          title="Close Comments panel"
+          aria-label="Close Comments panel"
+          icon={<CloseIcon size={14} />}
+        />
       </header>
       <div className="canvas-comments-scroll">
         {props.message && (
@@ -73,21 +91,38 @@ export function CommentsPanel(props: Props) {
           </p>
         )}
         {props.children}
+        {!props.composing && props.comments.length === 0 && !props.error && (
+          <EmptyState
+            className="canvas-comments-empty"
+            icon={<CommentIcon size={20} />}
+            title="No comments yet"
+            description="Click any element in the preview to leave a note. Nothing is sent to an agent until you review the batch and choose Send."
+          />
+        )}
         {!props.composing && props.comments.length > 0 && (
           <>
-            {visible.some((c) => c.status === 'pending') && (
-              <Button variant="ghost" size="compact" onClick={props.selectAll}>
-                Select all
-              </Button>
+            {pendingCount > 0 && (
+              <div className="canvas-comments-selection">
+                <span className="canvas-comments-hint">
+                  {props.selectedCount} of {pendingCount} selected
+                </span>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={allSelected ? props.clearSelection : props.selectAll}
+                >
+                  {allSelected ? 'Clear selection' : 'Select all'}
+                </Button>
+              </div>
             )}
             {pages.map((page) => (
               <section key={page} className="canvas-comments-group">
-                <h3>{page}</h3>
+                <h3 title={page}>{page}</h3>
                 {visible
                   .filter((c) => c.target.page === page)
                   .map((c) => (
-                    <article className="canvas-comment-card" key={c.id}>
-                      <div className="canvas-comments-row">
+                    <article className="canvas-comment-card" data-status={c.status} key={c.id}>
+                      <div className="canvas-comment-card__head">
                         {c.status === 'pending' && (
                           <input
                             type="checkbox"
@@ -96,17 +131,26 @@ export function CommentsPanel(props: Props) {
                             onChange={() => props.toggle(c.id)}
                           />
                         )}
-                        <Button variant="ghost" size="compact" onClick={() => props.onLocate(c)}>
+                        <Button
+                          variant="ghost"
+                          size="compact"
+                          className="canvas-comment-card__target"
+                          title={`Find ${commentTargetLabel(c.target)} in the preview`}
+                          onClick={() => props.onLocate(c)}
+                        >
                           {commentTargetLabel(c.target)}
                         </Button>
                       </div>
                       <p className="canvas-comment-body">{c.body}</p>
-                      <span className="canvas-comments-hint">
-                        {c.target.viewport.width}px · Applies to {commentScopeLabel(c.scope)}
-                      </span>
-                      {c.status === 'sent' && (
-                        <span className="canvas-comments-hint">Sent to {c.sentTo}.</span>
-                      )}
+                      <div className="canvas-comment-card__meta">
+                        <span className="canvas-comments-hint">
+                          Applies to {commentScopeLabel(c.scope)} · captured at{' '}
+                          {c.target.viewport.width}px
+                        </span>
+                        {c.status === 'sent' && (
+                          <span className="canvas-comments-sent">Sent to {c.sentTo}</span>
+                        )}
+                      </div>
                       {props.missing.includes(c.id) && (
                         <span className="canvas-comments-error">
                           Element not found. Choose Edit, then click a new element.
@@ -132,15 +176,16 @@ export function CommentsPanel(props: Props) {
             ))}
           </>
         )}
-        {review && !props.composing && (
-          <pre className="canvas-comments-prompt">
-            {props.prompt || 'Select pending comments to preview the prompt.'}
-          </pre>
-        )}
       </div>
-      {!props.composing && props.comments.some((c) => c.status === 'pending') && (
+      {!props.composing && pendingCount > 0 && (
         <footer className="canvas-comments-footer">
-          <label>
+          {review && (
+            <pre className="canvas-comments-prompt">
+              {props.prompt || 'Select pending comments to preview the prompt.'}
+            </pre>
+          )}
+          <label className="canvas-comments-agent">
+            <span className="canvas-comments-hint">Send to</span>
             <select
               aria-label="Send to"
               value={props.agentId ?? ''}
@@ -179,7 +224,9 @@ export function CommentsPanel(props: Props) {
               Copy prompt
             </Button>
           </div>
-          <p className="canvas-comments-hint">Press Enter in the terminal to start.</p>
+          <p className="canvas-comments-hint">
+            Pastes into the terminal without running. Press Enter there to start.
+          </p>
         </footer>
       )}
     </DockablePanel>

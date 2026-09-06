@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createRef } from 'react';
+import { createRef, useState } from 'react';
 import { CanvasComments } from './CanvasComments';
 import {
   commentsPrefix,
@@ -49,24 +49,36 @@ function setup(send = vi.fn().mockResolvedValue(undefined)) {
   document.body.appendChild(iframe);
   const ref = createRef<HTMLIFrameElement>();
   ref.current = iframe;
-  render(
-    <CanvasComments
-      projectPath="/test"
-      branch="main"
-      iframeRef={ref}
-      agents={[{ id: 1, label: 'Codex 1', send }]}
-      activeAgentId={1}
-      currentPage="/"
-      navigate={vi.fn()}
-      available
-      editing={false}
-      stopEditing={vi.fn()}
-    />
-  );
+  const pending = vi.fn();
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button onClick={() => setOpen(!open)}>Comments</button>
+        <CanvasComments
+          projectPath="/test"
+          branch="main"
+          iframeRef={ref}
+          agents={[{ id: 1, label: 'Codex 1', send }]}
+          activeAgentId={1}
+          currentPage="/"
+          navigate={vi.fn()}
+          available
+          editing={false}
+          stopEditing={vi.fn()}
+          open={open}
+          onOpenChange={setOpen}
+          onPendingCountChange={pending}
+        />
+      </>
+    );
+  }
+  render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: 'Comments' }));
   return {
     iframe,
     send,
+    pending,
     select: () =>
       act(() =>
         window.dispatchEvent(
@@ -79,17 +91,18 @@ function setup(send = vi.fn().mockResolvedValue(undefined)) {
   };
 }
 it('adds a note to persistent backlog without calling the agent', async () => {
-  const { send, select } = setup();
+  const { send, select, pending } = setup();
   await select();
   fireEvent.change(screen.getByLabelText('What should change?'), {
     target: { value: 'Please make this 80vh instead of 100vh.' },
   });
   fireEvent.click(screen.getByText('Save comment'));
   expect(screen.queryByText('Screenshot')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Comments' })).toHaveAttribute('title', 'Comments');
   expect(send).not.toHaveBeenCalled();
   await waitFor(() => expect(readComments(prefix)).toHaveLength(1));
   expect(readComments(prefix)[0].body).toBe('Please make this 80vh instead of 100vh.');
+  // The header toggle badges this count, so it must reach the workspace.
+  await waitFor(() => expect(pending).toHaveBeenLastCalledWith(1));
 });
 it('sends selected pending notes as one batch and leaves unchecked notes pending', async () => {
   saveComment(prefix, base);

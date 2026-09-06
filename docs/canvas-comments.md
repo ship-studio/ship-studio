@@ -1,6 +1,8 @@
 # Canvas comments
 
-Use the **Comments** speech-bubble icon beside the preview's Edit control to collect feedback. Click an
+Use the **Comments** speech-bubble toggle in the workspace header's tool row — beside Agent,
+Elements and Variables — to collect feedback. It badges the number of pending notes, and
+opening it brings the preview forward and starts the dev server the way Variables does. Click an
 actual page element, write the note, choose its
 screen sizes (one or more), and choose **Save comment**. Adding a comment never calls an
 agent or writes to website source. Hovering outlines the target in Ship Studio green
@@ -50,8 +52,12 @@ edit the note and click the intended element to update it.
 
 ## Implementation boundaries
 
-- `CanvasComments` owns review and handoff; `CommentsPanel` and `CommentComposer`
-  use the existing button, segmented-control, and dockable-panel primitives.
+- `CanvasComments` owns review and handoff, but not its own open state: the toggle
+  lives in `WorkspaceHeader` and `WorkspaceView` holds the flag, so the header can
+  badge the pending count (reported up via `onPendingCountChange`). Opening comments
+  closes the visual editor — the two are mutually exclusive preview surfaces.
+- `CommentsPanel` and `CommentComposer` use the existing button, empty-state,
+  segmented-control, and dockable-panel primitives.
 - `useCommentBridge` checks the message source against the actual preview frame.
   It only forwards validated target data and never sends a prompt on a frame event.
 - `commentAgents` resolves the selected project/tab at handoff time.

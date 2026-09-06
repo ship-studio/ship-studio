@@ -28,6 +28,9 @@ import { ShopifySetup } from '../shopify/ShopifySetup';
 export interface WorkspacePreviewPaneProps {
   commentAgents?: CommentAgent[];
   activeCommentAgentId?: number;
+  commentsOpen?: boolean;
+  onCommentsOpenChange?: (open: boolean) => void;
+  onCommentsPendingCountChange?: (count: number) => void;
   currentProject: Project;
   previewRef: RefObject<PreviewHandle | null>;
   workspaceTab: 'preview' | 'code' | 'branches' | 'prs';
@@ -200,6 +203,9 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
             commentBranch={currentBranch}
             commentAgents={props.commentAgents}
             activeCommentAgentId={props.activeCommentAgentId}
+            commentsOpen={props.commentsOpen}
+            onCommentsOpenChange={props.onCommentsOpenChange}
+            onCommentsPendingCountChange={props.onCommentsPendingCountChange}
             port={devServerPort}
             projectPath={currentProject.path}
             isStaticProject={projectType === 'statichtml'}

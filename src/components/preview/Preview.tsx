@@ -147,6 +147,10 @@ interface PreviewProps {
   commentBranch?: string | null;
   commentAgents?: CommentAgent[];
   activeCommentAgentId?: number;
+  /** Comments open state lives in the workspace header, which owns the toggle. */
+  commentsOpen?: boolean;
+  onCommentsOpenChange?: (open: boolean) => void;
+  onCommentsPendingCountChange?: (count: number) => void;
   /** Dev server port (default: 3000) */
   port?: number;
   /** Absolute path to the project directory */
@@ -291,6 +295,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     commentBranch = null,
     commentAgents = [],
     activeCommentAgentId,
+    commentsOpen = false,
+    onCommentsOpenChange,
+    onCommentsPendingCountChange,
     port = 3000,
     projectPath,
     onServerReady,
@@ -1489,6 +1496,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               iframeRef={iframeRef}
               agents={commentAgents}
               activeAgentId={activeCommentAgentId}
+              open={commentsOpen}
+              onOpenChange={onCommentsOpenChange ?? (() => undefined)}
+              onPendingCountChange={onCommentsPendingCountChange}
               currentPage={conn.currentPage}
               navigate={conn.handlePageSelect}
               available={conn.serverReady && !isBranchSwitching && !isCropMode}

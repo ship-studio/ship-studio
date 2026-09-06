@@ -1,4 +1,3 @@
-import { assertPromptReady, bracketedPrompt } from '../../lib/terminalPrompt';
 /**
  * Terminal component that embeds Claude Code CLI in an xterm.js terminal.
  *
@@ -19,6 +18,7 @@ import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { attachWebglRenderer } from '../../lib/terminalWebgl';
+import { assertPromptReady, bracketedPrompt } from '../../lib/terminalPrompt';
 import {
   openPtySession,
   attachPtySession,

@@ -1,7 +1,5 @@
 /** Canvas comment mode, review backlog, and explicit batch handoff. */
 import { useState, useRef, useEffect, type RefObject } from 'react';
-import { IconButton } from '../primitives/IconButton';
-import { CommentIcon } from '@/components/icons';
 import { CommentsPanel } from './CommentsPanel';
 import { CommentComposer } from './CommentComposer';
 import { useCanvasComments } from '../../hooks/useCanvasComments';
@@ -30,9 +28,15 @@ export interface CanvasCommentsProps {
   available: boolean;
   editing: boolean;
   stopEditing: () => void;
+  /** Open state is owned by the workspace header, which renders the toggle. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Reports the pending backlog size so the header toggle can badge it. */
+  onPendingCountChange?: (count: number) => void;
 }
 export function CanvasComments(props: CanvasCommentsProps) {
-  const [open, setOpen] = useState(false);
+  const { open, onOpenChange, onPendingCountChange } = props;
+  const setOpen = onOpenChange;
   const [draft, setDraft] = useState<CommentTarget | null>(null);
   const [editingNote, setEditingNote] = useState<CanvasComment>();
   const [excluded, setExcluded] = useState(new Set<string>());
@@ -80,6 +84,15 @@ export function CanvasComments(props: CanvasCommentsProps) {
     },
   });
   const { ready, post, framePage } = bridge;
+  const { editing, stopEditing } = props;
+  useEffect(() => {
+    if (open && editing) stopEditing();
+  }, [open, editing, stopEditing]);
+  const pendingCount = store.comments.filter((c) => c.status === 'pending').length;
+  useEffect(() => {
+    onPendingCountChange?.(pendingCount);
+  }, [pendingCount, onPendingCountChange]);
+  useEffect(() => () => onPendingCountChange?.(0), [onPendingCountChange]);
   useEffect(() => {
     if (locating && ready && locating.target.page === framePage) {
       post({ type: 'locate', id: locating.id, target: locating.target });
@@ -114,10 +127,6 @@ export function CanvasComments(props: CanvasCommentsProps) {
     },
     { onError: (e) => showToast(e.message, 'error') }
   );
-  const toggleOpen = () => {
-    if (!open && props.editing) props.stopEditing();
-    setOpen(!open);
-  };
   useCommands(
     () => [
       {
@@ -127,7 +136,6 @@ export function CanvasComments(props: CanvasCommentsProps) {
         when: 'project',
         keywords: ['feedback', 'notes', 'backlog'],
         run: () => {
-          if (props.editing) props.stopEditing();
           setOpen(true);
         },
       },
@@ -139,18 +147,10 @@ export function CanvasComments(props: CanvasCommentsProps) {
         run: () => setOpen(true),
       },
     ],
-    [props.editing, props.stopEditing]
+    [setOpen]
   );
   return (
     <>
-      <IconButton
-        size="default"
-        aria-pressed={open}
-        aria-label="Comments"
-        icon={<CommentIcon />}
-        onClick={toggleOpen}
-        title="Comments"
-      />
       {open && (
         <CommentsPanel
           composing={!!draft}
@@ -169,6 +169,11 @@ export function CanvasComments(props: CanvasCommentsProps) {
             })
           }
           selectAll={() => setExcluded(new Set())}
+          clearSelection={() =>
+            setExcluded(
+              new Set(store.comments.filter((c) => c.status === 'pending').map((c) => c.id))
+            )
+          }
           selectedCount={selected.length}
           onClose={() => setOpen(false)}
           onLocate={locate}

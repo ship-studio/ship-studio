@@ -1,9 +1,9 @@
 .canvas-comments-panel {
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--surface-panel);
   color: var(--text-primary);
-  border: var(--border-width-default) solid var(--border);
+  border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -22,8 +22,30 @@
 }
 .canvas-comments-header {
   justify-content: space-between;
-  border-bottom: var(--border-width-default) solid var(--border);
+  border-bottom: var(--border-width-default) solid var(--border-default);
   cursor: move;
+}
+.canvas-comments-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+.canvas-comments-count {
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-body);
+  line-height: calc(var(--spacing-md) + var(--spacing-2xs));
+}
+.canvas-comments-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
 }
 .canvas-comments-scroll {
   flex: 1;
@@ -35,7 +57,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  border-top: var(--border-width-default) solid var(--border);
+  border-top: var(--border-width-default) solid var(--border-default);
 }
 .canvas-comments-panel label {
   display: flex;
@@ -48,8 +70,8 @@
   width: 100%;
   box-sizing: border-box;
   color: var(--text-primary);
-  background: var(--bg-secondary);
-  border: var(--border-width-default) solid var(--border);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-control);
   padding: var(--spacing-sm);
   font: inherit;
@@ -58,11 +80,11 @@
   resize: vertical;
 }
 .canvas-comments-panel :is(select, textarea, input):focus-visible {
-  outline: var(--border-width-default) solid var(--accent);
+  outline: var(--border-width-default) solid var(--accent-active);
   outline-offset: var(--spacing-xs);
 }
 .canvas-comments-panel input[type='checkbox'] {
-  accent-color: var(--accent);
+  accent-color: var(--accent-active);
 }
 .canvas-comment-composer {
   display: flex;
@@ -72,10 +94,10 @@
 }
 .canvas-comments-context {
   padding: var(--spacing-sm);
-  background: var(--bg-secondary);
-  border: var(--border-width-default) solid var(--border);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-control);
-  font-family: var(--font-code);
+  font-family: var(--font-mono);
   font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   display: flex;
@@ -113,7 +135,7 @@
 }
 .canvas-comments-error {
   display: block;
-  color: var(--error);
+  color: var(--accent-error);
   font-size: var(--font-size-body-sm);
 }
 .canvas-comments-group h3 {
@@ -123,11 +145,11 @@
   margin: var(--spacing-md) 0 var(--spacing-sm);
 }
 .canvas-comment-card {
-  border: var(--border-width-default) solid var(--border);
+  border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-control);
   padding: var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
-  background: var(--bg-secondary);
+  background: var(--surface-control);
 }
 .canvas-comment-body {
   white-space: pre-wrap;
@@ -135,21 +157,57 @@
   line-height: 1.5;
   margin: var(--spacing-sm) 0;
 }
-.canvas-comments-empty {
-  padding: var(--spacing-lg) 0;
-  line-height: 1.5;
-  color: var(--text-muted);
+.canvas-comment-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
 }
-.canvas-comments-empty strong {
+.canvas-comment-card__target {
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-start;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+}
+.canvas-comment-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xs) var(--spacing-sm);
+}
+/* A sent note is done, not pending — recede it so the backlog reads at a glance. */
+.canvas-comment-card[data-status='sent'] {
+  background: transparent;
+}
+.canvas-comment-card[data-status='sent'] .canvas-comment-body {
   color: var(--text-secondary);
+}
+.canvas-comments-sent {
+  color: var(--accent-active);
+  font-size: var(--font-size-body-sm);
+}
+.canvas-comments-agent {
+  gap: var(--spacing-xs);
+}
+.canvas-comments-empty {
+  padding: var(--spacing-lg) var(--spacing-sm);
 }
 .canvas-comments-prompt {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-family: var(--font-mono);
   font-size: var(--font-size-body-sm);
-  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-default);
   padding: var(--spacing-sm);
   border-radius: var(--radius-control);
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
 }
 
 /* DockablePanel's default child fills the surface; these three rows share it. */

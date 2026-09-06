@@ -1,4 +1,3 @@
-import { commentTargetLabel } from '../../lib/canvasComments';
 /** Backlog composer: adding a note never invokes an agent. */
 import { useState } from 'react';
 import { ToggleButton } from '../primitives/ToggleButton';
@@ -6,6 +5,7 @@ import { Button } from '../primitives/Button';
 import {
   COMMENT_DEVICES,
   commentScopeDevices,
+  commentTargetLabel,
   type CommentScope,
   type CommentTarget,
   type CanvasComment,
