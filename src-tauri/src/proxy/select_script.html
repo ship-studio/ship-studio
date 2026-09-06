@@ -1198,7 +1198,7 @@ function ssSyncPage(){
     ssVHTimer=0;ssPinRootHeight();ssRewriteViewportUnits();ssLoadEverything();ssReportPage();
   },200);
 }
-/* Watch for STYLESHEETS arriving, not for the page living its life. A canvas
+/* Watch for STYLESHEETS arriving without observing attribute changes. A canvas
    holds four of these pages at once; an observer over the whole document with
    attributes on fires on every class toggle a scroll animation makes, in every
    frame, and each firing schedules a walk of the CSSOM and a forced layout.
@@ -1206,6 +1206,34 @@ function ssSyncPage(){
    all this needs to see. NB: no literal opening head/html tag may appear
    anywhere in this file, comments included — the proxy splices its head-start
    snippet at the first such string it finds in the whole response. */
+/* Content can arrive after the initial settle window (async data, expanded
+   sections, images). Measure twice after actual content changes, then stop.
+   Ignore animation-related attribute churn and Ship Studio's own overlays. */
+var ssContentTimer=0;
+function ssSyncContent(){
+  if(!ssCanvas)return;
+  if(ssContentTimer)clearTimeout(ssContentTimer);
+  ssContentTimer=setTimeout(function(){
+    ssContentTimer=0;
+    if(!ssCanvas)return;
+    ssPageSeen=0;ssPageAgreed=0;ssPageWrites=0;ssPageCommitted=[];ssPageLocked=false;
+    ssReportPage();
+    ssContentTimer=setTimeout(function(){ssContentTimer=0;ssReportPage();},200);
+  },200);
+}
+function ssContentOwn(node){
+  var el=node.nodeType===1?node:node.parentElement;
+  return !!(el&&el.closest&&el.closest('[data-ss-overlay],[id^="ss-"]'));
+}
+function ssOnContentMutations(records){
+  for(var i=0;i<records.length;i++){
+    var r=records[i];
+    if(ssContentOwn(r.target))continue;
+    if(r.type==='characterData'){ssSyncContent();return;}
+    var nodes=Array.prototype.slice.call(r.addedNodes).concat(Array.prototype.slice.call(r.removedNodes));
+    for(var j=0;j<nodes.length;j++)if(!ssContentOwn(nodes[j])){ssSyncContent();return;}
+  }
+}
 /* Started only when a canvas takes this frame over, and never otherwise: the
    ordinary single-frame preview must cost exactly what it cost before this
    feature existed. */
@@ -1217,10 +1245,13 @@ function ssWatchPage(){
     new MutationObserver(ssOnHeadMutations).observe(document.head||document.documentElement,
       {childList:true,subtree:true});
   }
+  if(window.MutationObserver&&document.body){
+    new MutationObserver(ssOnContentMutations).observe(document.body,{childList:true,subtree:true,characterData:true});
+    document.body.addEventListener('load',ssSyncContent,true);
+  }
   window.addEventListener('load',ssSyncPage);
-  /* Everything else that changes a page's length — fonts landing, images
-     sizing, content revealed on load — happens early and then stops. A few
-     checks over the first few seconds cover it without watching forever. */
+  /* Cover startup layout and fonts with a bounded settle window. Later
+     content and image loads are handled by the debounced content watcher. */
   var ticks=0;
   var settle=setInterval(function(){
     if(++ticks>24){clearInterval(settle);return;}
