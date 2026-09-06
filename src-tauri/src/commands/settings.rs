@@ -214,6 +214,23 @@ pub fn set_compact_workspace_toolbar_enabled(enabled: bool) -> Result<(), Comman
     write_app_state(&state).map_err(CommandError::from)
 }
 
+/// Get whether the selected element's DOM breadcrumb is shown in the preview.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_element_breadcrumb_enabled() -> Result<bool, CommandError> {
+    let state = read_app_state();
+    Ok(state.element_breadcrumb_enabled.unwrap_or(true))
+}
+
+/// Persist whether the selected element's DOM breadcrumb is shown in the preview.
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_element_breadcrumb_enabled(enabled: bool) -> Result<(), CommandError> {
+    let mut state = read_app_state();
+    state.element_breadcrumb_enabled = Some(enabled);
+    write_app_state(&state).map_err(CommandError::from)
+}
+
 /// Get the project-thumbnail auto-capture consent.
 ///
 /// `None` = the user has never been asked (the frontend shows an in-app

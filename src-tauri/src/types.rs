@@ -867,6 +867,10 @@ pub struct AppState {
     /// Defaults to false so existing users retain the classic two-row layout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compact_workspace_toolbar_enabled: Option<bool>,
+    /// Whether the selected element's DOM breadcrumb is shown in the preview.
+    /// Defaults to true so existing users retain the current preview layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_breadcrumb_enabled: Option<bool>,
     /// Consent for automatic project-thumbnail capture. `None` = the user has
     /// never been asked (the in-app explainer is shown before the first
     /// auto-capture), `Some(true)` = allowed, `Some(false)` = opted out or a

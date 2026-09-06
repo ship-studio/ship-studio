@@ -13,6 +13,9 @@ export const DASHBOARD_VISIBILITY_CHANGED_EVENT = 'shipstudio:dashboard-visibili
 /** Event fired after the workspace toolbar layout preference is persisted. */
 export const COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT =
   'shipstudio:compact-workspace-toolbar-changed';
+/** Event fired after the element breadcrumb visibility preference is persisted. */
+export const ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT =
+  'shipstudio:element-breadcrumb-enabled-changed';
 /** Event fired after the Spotify widget opt-in preference is persisted. The
  *  sidebar (which renders the widget) isn't a child of the Settings modal
  *  (which owns the toggle), so this is how the toggle reaches it live. */
@@ -179,6 +182,29 @@ export async function setCompactWorkspaceToolbarEnabled(enabled: boolean): Promi
     await invoke('set_compact_workspace_toolbar_enabled', { enabled });
     window.dispatchEvent(
       new CustomEvent<boolean>(COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT, { detail: enabled })
+    );
+  } catch {
+    // Silently fail, matching the other non-critical UI preferences.
+  }
+}
+
+// ============ Element breadcrumb ============
+
+/** Whether the selected element's DOM breadcrumb is shown in the preview. */
+export async function getElementBreadcrumbEnabled(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('get_element_breadcrumb_enabled');
+  } catch {
+    return true;
+  }
+}
+
+/** Persist the element breadcrumb visibility preference and notify open previews. */
+export async function setElementBreadcrumbEnabled(enabled: boolean): Promise<void> {
+  try {
+    await invoke('set_element_breadcrumb_enabled', { enabled });
+    window.dispatchEvent(
+      new CustomEvent<boolean>(ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT, { detail: enabled })
     );
   } catch {
     // Silently fail, matching the other non-critical UI preferences.

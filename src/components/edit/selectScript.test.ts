@@ -97,6 +97,17 @@ it('reports a signature on click after activate', async () => {
   expect(msg.signature.text).toBe('Buy now');
   // Nearest-first ancestor class chain anchors disambiguation.
   expect(msg.signature.ancestorClasses).toEqual(['card', 'hero']);
+  const elementPath = msg.signature.elementPath as Array<{
+    tagName: string;
+    className: string;
+    domPath: string;
+  }>;
+  expect(elementPath.map(({ tagName, className }) => ({ tagName, className }))).toEqual([
+    { tagName: 'section', className: 'hero' },
+    { tagName: 'div', className: 'card' },
+    { tagName: 'button', className: 'btn p-4' },
+  ]);
+  expect(elementPath.every(({ domPath }) => domPath.length > 0)).toBe(true);
   expect(msg.count).toBe(1);
 });
 

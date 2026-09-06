@@ -27,12 +27,22 @@ export interface InheritedProp {
   token?: string;
 }
 
+/** One rendered element in the selected element's root-to-leaf path. */
+export interface ElementPathItem {
+  tagName: string;
+  className: string;
+  /** Stable element-index path used by the iframe to reselect this exact node. */
+  domPath: string;
+}
+
 /** Signature of a clicked element, produced by the in-iframe selection script. */
 export interface ElementSignature {
   className: string;
   tagName: string;
   text?: string;
   ancestorClasses: string[];
+  /** Root-to-selected path for the preview's element breadcrumb. */
+  elementPath?: ElementPathItem[];
   /** Best-effort JSX source location recovered from React's development fiber.
    *  Used only as a narrowing hint; the backend still verifies the tag at this line. */
   sourceFile?: string;

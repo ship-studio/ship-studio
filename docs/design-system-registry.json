@@ -4,6 +4,44 @@
   "rowPolicy": "one row per primitive source file; compound exports are grouped in that row",
   "entries": [
     {
+      "name": "Breadcrumb family",
+      "file": "src/components/primitives/Breadcrumb.tsx",
+      "exports": [
+        "Breadcrumb",
+        "BreadcrumbEllipsis",
+        "BreadcrumbItem",
+        "BreadcrumbLink",
+        "BreadcrumbLinkProps",
+        "BreadcrumbList",
+        "BreadcrumbPage",
+        "BreadcrumbSeparator"
+      ],
+      "purpose": "Accessible hierarchy primitive for preview element navigation and parent reselection.",
+      "owner": "primitives/navigation",
+      "props": [
+        "nav, list, item, and separator native attributes",
+        "BreadcrumbLink Button props except surface props",
+        "className"
+      ],
+      "variants": [
+        "interactive parent",
+        "current page",
+        "collapsed path"
+      ],
+      "states": [
+        "path rendered",
+        "parent selection",
+        "collapsed menu"
+      ],
+      "accessibility": "Uses navigation and ordered-list semantics, marks the current element with aria-current, and keeps parent selection keyboard-operable through native buttons.",
+      "style": "src/styles/components/breadcrumb.css",
+      "example": "docs/design-system.md#development-primitive-lab",
+      "tests": [
+        "src/components/primitives/Breadcrumb.test.tsx"
+      ],
+      "lifecycle": "canonical"
+    },
+    {
       "name": "Button family",
       "file": "src/components/primitives/Button.tsx",
       "exports": [
