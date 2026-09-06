@@ -83,6 +83,15 @@ export function useHostingStatus({ projectPath, open, pushedAt }: Options): Resu
 
   const fetchOnce = useCallback(async () => {
     const next = await getHostingStatus(projectPath);
+
+    // Defensive: a malformed or absent payload must back the poller off, not
+    // throw a TypeError out of a render-adjacent callback. The command always
+    // returns a status or rejects, so reaching here means something upstream
+    // is wrong and retrying at full rate would not help.
+    if (!next || !Array.isArray(next.providers)) {
+      throw new Error('hosting status came back in an unexpected shape');
+    }
+
     if (!mounted.current) return next;
     setEntry({ path: projectPath, status: next });
 

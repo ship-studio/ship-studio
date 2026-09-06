@@ -18,9 +18,24 @@ vi.mock('../../lib/branches', () => ({
 
 // The hosting section owns its own data now. These tests are about the
 // popover's structure, so hold it in a single settled state.
-vi.mock('../../lib/hosting', async () => {
-  const actual = await vi.importActual<typeof import('../../lib/hosting')>('../../lib/hosting');
-  return { ...actual, getHostingStatus: vi.fn().mockRejectedValue(new Error('not linked')) };
+// The hosting section fetches its own status. These tests are about the
+// popover's structure, so hold it in the unlinked state rather than letting it
+// reach a real `invoke`.
+vi.mock('../../lib/hosting', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/hosting')>();
+  return {
+    ...actual,
+    getHostingStatus: vi.fn().mockResolvedValue({
+      commit: {
+        sha: 'abc',
+        short_sha: 'abc1234',
+        branch: 'main',
+        has_upstream: true,
+      },
+      providers: [],
+      detected: [],
+    }),
+  };
 });
 
 const connectedStatus = {
