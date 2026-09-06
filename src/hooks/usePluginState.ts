@@ -2,13 +2,12 @@
  * Hook for plugin terminal and suggestion popup state.
  *
  * Manages the plugin terminal modal (for CLI commands triggered by plugins)
- * and the plugin suggestion popup (e.g., suggesting Vercel plugin).
+ * and the plugin suggestion popup (currently dormant — hosting moved native).
  */
 
 import { useState, useCallback } from 'react';
-import { installPlugin, listPlugins, VERCEL_PLUGIN_REPO } from '../lib/plugins';
+import { installPlugin } from '../lib/plugins';
 import { asCommandError, formatCommandError } from '../lib/errors';
-import { invoke } from '@tauri-apps/api/core';
 
 interface PluginTerminalState {
   command: string;
@@ -69,27 +68,15 @@ export function usePluginState() {
     [pluginTerminal]
   );
 
-  // Check if Vercel plugin should be suggested for this project
-  const checkPluginSuggestion = useCallback(async (projectPath: string) => {
-    try {
-      const sessionKey = `plugin-suggested-vercel-${projectPath}`;
-      if (sessionStorage.getItem(sessionKey)) return;
-
-      const hasVercelConfig = await invoke<boolean>('has_vercel_config', { projectPath });
-      if (!hasVercelConfig) return;
-
-      const installed = await listPlugins(projectPath);
-      if (installed.some((p) => p.manifest.id === 'vercel')) return;
-
-      sessionStorage.setItem(sessionKey, '1');
-      setPluginSuggestion({
-        pluginName: 'Vercel',
-        projectPath,
-        repoUrl: VERCEL_PLUGIN_REPO,
-      });
-    } catch {
-      // Non-critical — silently ignore detection errors
-    }
+  // Hosting is becoming a native feature, so detecting `.vercel/project.json`
+  // no longer offers to install the Vercel plugin — a project linked to a
+  // provider is picked up by the native hosting module instead. The suggestion
+  // machinery below stays wired (nothing else suggests a plugin today) so this
+  // is a one-line revert if the native rollout is paused; it is removed
+  // wholesale once the native module ships for all three providers.
+  // Still returns a promise so callers keep awaiting it unchanged.
+  const checkPluginSuggestion = useCallback((_projectPath: string): Promise<void> => {
+    return Promise.resolve();
   }, []);
 
   // Install suggested plugin

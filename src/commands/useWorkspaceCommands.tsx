@@ -1,10 +1,12 @@
 import { useCommands } from './useCommands';
+import { useOpenModal } from '../contexts/ModalContext';
 import {
   BranchIcon,
   PlusIcon,
   PullIcon,
   PullRequestIcon,
   PushIcon,
+  GlobeIcon,
   WarningIcon,
 } from '@/components/icons';
 
@@ -59,8 +61,20 @@ export function useWorkspaceCommands({
   openWorktreeCreate,
   hasWorktreeData,
 }: UseWorkspaceCommandsParams) {
+  const openModal = useOpenModal();
+
   useCommands(
     () => [
+      {
+        id: 'hosting.deployments',
+        title: 'View deployments',
+        subtitle: 'Recent deploys and their build output',
+        icon: <GlobeIcon size={14} />,
+        category: 'branch',
+        when: 'project',
+        keywords: ['deploy', 'vercel', 'netlify', 'cloudflare', 'hosting', 'build', 'logs'],
+        run: () => openModal('deployments'),
+      },
       {
         id: 'git.push',
         title: 'Push to GitHub',

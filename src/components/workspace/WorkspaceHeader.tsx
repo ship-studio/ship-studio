@@ -52,10 +52,10 @@ import type { ChangedFile } from '../../lib/git';
 
 /** Re-exported from lib/plugins so non-UI code can share the list (issue #386). */
 export { HOSTING_PLUGIN_IDS } from '../../lib/plugins';
-import { HOSTING_PLUGIN_IDS } from '../../lib/plugins';
+import { HOSTING_PLUGIN_IDS, NATIVE_HOSTING_IDS } from '../../lib/plugins';
 
 /** The subset of hosting plugins whose controls render inside the Push workflow. */
-export const PUSH_HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare'];
+export { NATIVE_HOSTING_IDS } from '../../lib/plugins';
 
 export interface WorkspaceHeaderProps {
   // Project
@@ -367,18 +367,11 @@ export function WorkspaceHeader({
       hosting: all.filter((p) => HOSTING_PLUGIN_IDS.includes(p.info.manifest.id)),
     };
   }, [getSlotPlugins]);
-  const pushHostingPlugins = useMemo(
-    () =>
-      toolbarPlugins.hosting.filter((plugin) =>
-        PUSH_HOSTING_PLUGIN_IDS.includes(plugin.info.manifest.id)
-      ),
-    [toolbarPlugins.hosting]
-  );
+  // Hosting is native now (components/hosting), so a hosting plugin no longer
+  // renders anywhere. `usePlugins` skips loading them outright — filtering only
+  // here would still run their activation and background timers.
   const headerHostingPlugins = useMemo(
-    () =>
-      toolbarPlugins.hosting.filter(
-        (plugin) => !PUSH_HOSTING_PLUGIN_IDS.includes(plugin.info.manifest.id)
-      ),
+    () => toolbarPlugins.hosting.filter((p) => !NATIVE_HOSTING_IDS.includes(p.info.manifest.id)),
     [toolbarPlugins.hosting]
   );
 
@@ -460,17 +453,6 @@ export function WorkspaceHeader({
           changedFiles={changedFiles}
           onDiscardChanges={onDiscardChanges}
           excludeClickOutsideSelector=".source-control-push"
-          hostingControls={
-            pushHostingPlugins.length > 0 ? (
-              <PluginSlot
-                name="toolbar"
-                plugins={pushHostingPlugins}
-                project={pluginProject}
-                actions={pluginActions}
-                theme={pluginTheme}
-              />
-            ) : undefined
-          }
         />
       </div>
     </div>

@@ -17,6 +17,10 @@ import type { PluginModule } from '../lib/plugin-loader';
 vi.mock('../lib/plugins', () => ({
   listPlugins: vi.fn(),
   updatePlugin: vi.fn(),
+  // The hook asks this whether a plugin has been replaced by a native feature
+  // or a skill. These fixtures are unrelated plugins, so nothing is superseded.
+  supersededReason: () => null,
+  isExpectedPluginFailure: () => false,
 }));
 
 vi.mock('../lib/plugin-loader', () => ({

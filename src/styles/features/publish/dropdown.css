@@ -37,6 +37,12 @@
   top: calc(100% + 8px);
   right: 0;
   width: var(--popover-source-control-width);
+  /* Width was pinned but height was not, so a long changed-files list or a
+     slow-arriving hosting status could grow the panel past the bottom of the
+     screen with no way to reach the actions. Same viewport clamp the sibling
+     `.branches-menu-popover` already uses. */
+  max-height: calc(100vh - var(--spacing-2xl) - var(--panel-header-h));
+  overflow-y: auto;
   background: var(--surface-panel);
   border: 1px solid var(--border-default);
   border-radius: 10px;
@@ -61,93 +67,11 @@
   letter-spacing: var(--tracking-code);
   text-transform: uppercase;
 }
-
-.publish-hosting-plugins,
-.publish-hosting-plugins .cf-dropdown-wrapper,
-.publish-hosting-plugins .vercel-button-container {
-  width: 100%;
-}
-
-/* The rules below inline the plugins' own toolbar popovers (they ship as
-   `position: absolute` hover menus) into this section's flow. They match the
-   plugins' class names, which have drifted before — `.vercel-dropdown-wrapper`
-   became `.vercel-button-container`. Containing block + stacking context here
-   means the next rename degrades to a misplaced card inside the section rather
-   than one floating over the push status line above it. */
-.publish-hosting-plugins {
-  position: relative;
-  isolation: isolate;
-}
-
-.publish-hosting-plugins .cf-dropdown-wrapper,
-.publish-hosting-plugins .cf-dropdown,
-.publish-hosting-plugins .vercel-button-container,
-.publish-hosting-plugins .vercel-site-dropdown {
-  position: static;
-}
-
-.publish-hosting-plugins .cf-dropdown-wrapper > .toolbar-icon-btn,
-.publish-hosting-plugins .vercel-button-container > .toolbar-icon-btn {
-  display: none;
-}
-
-.publish-hosting-plugins .toolbar-icon-btn {
-  justify-content: flex-start;
-  width: 100%;
-}
-
-.publish-hosting-plugins .cf-dropdown,
-.publish-hosting-plugins .vercel-site-dropdown {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  max-height: none;
-  height: auto;
-  overflow: visible;
-  background: var(--surface-panel);
-  box-shadow: none;
-}
-
-.publish-hosting-plugins .cf-dropdown-inner,
-.publish-hosting-plugins .vercel-site-dropdown-inner {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  max-height: none;
-  height: auto;
-  overflow: visible;
-  box-shadow: none;
-}
-
-.publish-hosting-plugins .cf-dropdown-action,
-.publish-hosting-plugins .cf-dropdown-divider,
-.publish-hosting-plugins .vercel-dropdown-action,
-.publish-hosting-plugins .vercel-dropdown-separator:has(+ .vercel-dropdown-action) {
-  display: none;
-}
-
-/* Expand the plugin's secondary action only while its visible card is
-   hovered/focused. The hosting section also contains the heading and inset
-   spacing, which should not activate the card's expanded state. */
-.publish-hosting-plugins .cf-dropdown-inner:hover .cf-dropdown-action,
-.publish-hosting-plugins .cf-dropdown-inner:focus-within .cf-dropdown-action,
-.publish-hosting-plugins .vercel-site-dropdown-inner:hover .vercel-dropdown-action,
-.publish-hosting-plugins .vercel-site-dropdown-inner:focus-within .vercel-dropdown-action {
-  display: flex;
-}
-
-.publish-hosting-plugins .cf-dropdown-inner:hover .cf-dropdown-divider,
-.publish-hosting-plugins .cf-dropdown-inner:focus-within .cf-dropdown-divider,
-.publish-hosting-plugins
-  .vercel-site-dropdown-inner:hover
-  .vercel-dropdown-separator:has(+ .vercel-dropdown-action),
-.publish-hosting-plugins
-  .vercel-site-dropdown-inner:focus-within
-  .vercel-dropdown-separator:has(+ .vercel-dropdown-action) {
-  display: block;
-}
+/* The rules that used to live here reached into the Vercel and Cloudflare
+   plugins' own class names to flatten their absolutely-positioned hover menus
+   into this section, and revealed their hidden actions on `:hover`. The section
+   is native now (see features/publish/hosting.css), so it owns its own markup
+   and its own height. */
 
 .publish-loading {
   display: flex;

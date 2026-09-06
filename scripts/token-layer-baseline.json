@@ -1096,6 +1096,12 @@
     },
     {
       "path": "src/styles/features/plugins.css",
+      "token": "--font-weight-medium",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/plugins.css",
       "token": "--transition",
       "count": 3,
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
@@ -1235,6 +1241,24 @@
     {
       "path": "src/styles/features/publish/dropdown.css",
       "token": "--tracking-code",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/publish/hosting.css",
+      "token": "--radius-full",
+      "count": 2,
+      "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
+    },
+    {
+      "path": "src/styles/features/publish/hosting.css",
+      "token": "--stroke-1",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/publish/hosting.css",
+      "token": "--stroke-2",
       "count": 1,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },

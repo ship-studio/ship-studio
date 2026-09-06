@@ -38,13 +38,14 @@ pub(crate) fn save_project_metadata(
         .map_err(|e| crate::utils::classify_fs_error("write project metadata", &metadata_path, &e))
 }
 
-/// Reads project metadata from .shipstudio/project.json with automatic schema migration
-#[tauri::command]
-#[tracing::instrument(fields(project = %project_path))]
-pub async fn read_project_metadata(
-    project_path: String,
+/// Read `.shipstudio/project.json`, migrating it in place if the schema moved.
+///
+/// The synchronous half of [`read_project_metadata`], so non-command callers
+/// (hosting link resolution, for one) share the same parse-and-migrate path
+/// rather than re-implementing it and drifting.
+pub(crate) fn read_project_metadata_sync(
+    project: &std::path::Path,
 ) -> Result<Option<ProjectMetadata>, CommandError> {
-    let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
     if !metadata_path.exists() {
@@ -60,10 +61,20 @@ pub async fn read_project_metadata(
 
     // Apply migrations if needed and save the updated metadata
     if metadata.migrate() {
-        save_project_metadata(&project, &metadata)?;
+        save_project_metadata(project, &metadata)?;
     }
 
     Ok(Some(metadata))
+}
+
+/// Reads project metadata from .shipstudio/project.json with automatic schema migration
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn read_project_metadata(
+    project_path: String,
+) -> Result<Option<ProjectMetadata>, CommandError> {
+    let project = validate_project_path(&project_path)?;
+    read_project_metadata_sync(&project)
 }
 
 /// Writes project metadata to .shipstudio/project.json

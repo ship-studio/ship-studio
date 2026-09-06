@@ -376,3 +376,21 @@
   border-top: 1px solid var(--border-default);
   margin-top: var(--spacing-xs);
 }
+
+/* A plugin the app now does itself. It is skipped at load, so the row exists
+   only to say why it stopped doing anything and to offer removal. */
+.plugin-row.is-superseded .plugin-name,
+.plugin-row.is-superseded .plugin-meta {
+  color: var(--text-muted);
+}
+
+.plugin-superseded-badge {
+  margin-left: var(--spacing-2xs);
+  padding: var(--spacing-3xs) var(--spacing-2xs);
+  background: var(--surface-control);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-medium);
+  text-transform: none;
+}

@@ -31,7 +31,7 @@
 mod files;
 mod progress;
 mod runs;
-mod skill;
+pub mod skill;
 mod state;
 
 pub use files::*;
