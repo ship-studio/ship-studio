@@ -273,12 +273,12 @@ The entry point is the **"Looking at the UI" section of `CLAUDE.md`**, which is
 tracked and loaded for every agent working in this repo, plus the pointer in
 `CONTRIBUTING.md` and this document.
 
-There is deliberately no skill file in the repo: `.gitignore` excludes
-`.claude/` (see the "Claude Code skills" comment there), so anything written
-under it would exist on one machine and nowhere else — which is the failure
-this document spends a section warning about. A local `.claude/skills/` copy is
-fine as a personal convenience; it is not a way to ship instructions to anyone
-else.
+`.claude/skills/ui-harness/SKILL.md` is tracked too, so an agent that reads
+skills finds it without being told. That required narrowing `.gitignore` from
+`.claude/` to `.claude/*` with a `!.claude/skills/` exception — local state
+(`settings.local.json`, the worktrees) stays out of the repo, instructions for
+whoever works here next do not. A skill that lives on one machine is not
+documentation.
 
 ## Files
 
@@ -294,3 +294,4 @@ else.
 | `src/harness/scenarios/` | The fixture layers above |
 | `src/harness/stubs/` | Inert `tauri-pty`, screenshots, updater |
 | `scripts/harness-capture.mjs` | Headless capture, identity guard, `report.md`, `report.json` |
+| `.claude/skills/ui-harness/SKILL.md` | So an agent discovers this without being told |
