@@ -1,6 +1,12 @@
 /** Checked, frame-scoped bridge for element picking and saved comment pins. */
 import { useCallback, useEffect, useState, type RefObject } from 'react';
-import { isCommentTarget, type CanvasComment, type CommentTarget } from '../lib/canvasComments';
+import {
+  isCommentTarget,
+  isCommentPlacement,
+  type CanvasComment,
+  type CommentPlacement,
+  type CommentTarget,
+} from '../lib/canvasComments';
 import { usePolling } from './usePolling';
 
 interface Params {
@@ -24,6 +30,9 @@ export function useCommentBridge({
   const [ready, setReady] = useState(false);
   const [framePage, setFramePage] = useState<string | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  // Where each note's element sits in the frame's own pixels. The app draws the
+  // pins and cards from this rather than the frame drawing them itself.
+  const [placements, setPlacements] = useState<CommentPlacement[]>([]);
   const post = useCallback(
     (data: object) => {
       iframeRef.current?.contentWindow?.postMessage({ channel: 'ss:comments-host', ...data }, '*');
@@ -61,6 +70,7 @@ export function useCommentBridge({
     const onLoad = () => {
       setReady(false);
       setFramePage(null);
+      setPlacements([]);
       sync();
     };
     const message = (e: MessageEvent) => {
@@ -70,6 +80,7 @@ export function useCommentBridge({
         target?: unknown;
         id?: unknown;
         missing?: unknown;
+        at?: unknown;
         page?: unknown;
       } | null;
       if (e.source !== frame?.contentWindow || !enabled || d?.channel !== 'ss:comments') return;
@@ -81,6 +92,8 @@ export function useCommentBridge({
       if (d.type === 'escape') onEscape();
       if (d.type === 'locations' && Array.isArray(d.missing))
         setMissing(d.missing.filter((id: unknown) => typeof id === 'string'));
+      if (d.type === 'locations')
+        setPlacements(Array.isArray(d.at) ? d.at.filter(isCommentPlacement) : []);
       if (d.type === 'missing' && typeof d.id === 'string') {
         const id = d.id;
         setMissing((ids) => [...ids, id]);
@@ -94,5 +107,5 @@ export function useCommentBridge({
     };
   }, [iframeRef, enabled, sync, onSelect, onOpen, onEscape]);
   useEffect(() => () => post({ type: 'sync', enabled: false }), [post]);
-  return { ready, framePage, missing, post };
+  return { ready, framePage, missing, placements, post };
 }

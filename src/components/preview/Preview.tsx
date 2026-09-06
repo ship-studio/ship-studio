@@ -94,7 +94,7 @@ import { TREE_PANEL_MIN_WIDTH_PX, maxDockedPanelWidth } from './panelSizing';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { InspectPanel, type InspectTab } from './InspectPanel';
 export type { InspectTab } from './InspectPanel';
-import { CanvasComments } from '../comments/CanvasComments';
+import { useCanvasCommentsLayer } from '../comments/CanvasComments';
 import type { CommentAgent } from '../../lib/canvasComments';
 import { pathLocale, switchPathLocale } from '../../lib/i18n';
 import { kbd } from '../../lib/shortcuts';
@@ -785,6 +785,24 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const openInsertMenuRef = useRef<(() => void) | null>(null);
   const toggleActiveEditor =
     editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
+
+  // Comments bind to the frame the user is actually in, the same one the editor
+  // binds to — on a canvas that is the active frame, not the focus frame.
+  const comments = useCanvasCommentsLayer({
+    projectPath,
+    branch: commentBranch,
+    iframeRef: editorFrameRef,
+    agents: commentAgents,
+    activeAgentId: activeCommentAgentId,
+    open: commentsOpen,
+    onOpenChange: onCommentsOpenChange ?? (() => undefined),
+    onPendingCountChange: onCommentsPendingCountChange,
+    currentPage: conn.currentPage,
+    navigate: conn.handlePageSelect,
+    available: conn.serverReady && !isBranchSwitching && !isCropMode,
+    editing: activeEditMode,
+    stopEditing: toggleActiveEditor,
+  });
 
   // ── Cmd+K commands for the native CSS editor (vanilla-CSS projects only). The panel
   // is opened by toggling edit mode; the view state lets a command land straight on
@@ -1489,22 +1507,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               </Tooltip>
             )}
 
-            <CanvasComments
-              key={`${projectPath}:${commentBranch}`}
-              projectPath={projectPath}
-              branch={commentBranch}
-              iframeRef={iframeRef}
-              agents={commentAgents}
-              activeAgentId={activeCommentAgentId}
-              open={commentsOpen}
-              onOpenChange={onCommentsOpenChange ?? (() => undefined)}
-              onPendingCountChange={onCommentsPendingCountChange}
-              currentPage={conn.currentPage}
-              navigate={conn.handlePageSelect}
-              available={conn.serverReady && !isBranchSwitching && !isCropMode}
-              editing={activeEditMode}
-              stopEditing={toggleActiveEditor}
-            />
+            {comments.bar}
 
             {onToggleLogs && (
               <ToggleButton
@@ -1803,26 +1806,32 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onActivateFrame={activateCanvasFrame}
               onActiveFrameElement={setCanvasFrameEl}
               onStageHeightChange={setCanvasFrameStageHeight}
-              activeFrameOverlay={(scale) =>
-                activeEditMode ? (
-                  <ElementToolbar
-                    // The frame reports the selection box in its OWN pixels; the
-                    // toolbar draws at screen scale, so both the rect and the
-                    // bounds it is clamped to come through the canvas scale.
-                    selection={scaleSelection(structure.selection, scale)}
-                    bounds={{
-                      w: canvasFrameWidth * scale,
-                      h: canvasFrameStageHeight * scale,
-                    }}
-                    busy={structure.busy}
-                    hidden={structure.textEditing}
-                    onInsert={(position, kind) => void structure.insert(position, kind)}
-                    onDuplicate={() => void structure.duplicate()}
-                    onDelete={() => void structure.remove()}
-                    openMenuRef={openInsertMenuRef}
-                  />
-                ) : null
-              }
+              activeFrameOverlay={(scale) => (
+                <>
+                  {comments.pins(scale, {
+                    w: canvasFrameWidth * scale,
+                    h: canvasFrameStageHeight * scale,
+                  })}
+                  {activeEditMode ? (
+                    <ElementToolbar
+                      // The frame reports the selection box in its OWN pixels; the
+                      // toolbar draws at screen scale, so both the rect and the
+                      // bounds it is clamped to come through the canvas scale.
+                      selection={scaleSelection(structure.selection, scale)}
+                      bounds={{
+                        w: canvasFrameWidth * scale,
+                        h: canvasFrameStageHeight * scale,
+                      }}
+                      busy={structure.busy}
+                      hidden={structure.textEditing}
+                      onInsert={(position, kind) => void structure.insert(position, kind)}
+                      onDuplicate={() => void structure.duplicate()}
+                      onDelete={() => void structure.remove()}
+                      openMenuRef={openInsertMenuRef}
+                    />
+                  ) : null}
+                </>
+              )}
             />
           </>
         ) : (
@@ -1882,6 +1891,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                     : undefined
                 }
               />
+              {/* Pinned comments, tracking their elements in the live frame */}
+              {!canvasMode && comments.pins(1, iframeSize)}
               {/* Structural-edit toolbar, tracking the canvas selection box */}
               {activeEditMode && (
                 <ElementToolbar

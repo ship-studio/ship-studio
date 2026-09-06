@@ -276,3 +276,101 @@
   border-color: var(--accent-active);
   opacity: 1;
 }
+
+/* ── Pinned notes ───────────────────────────────────────────────────────────
+   The comments layer sits over the preview frame in screen pixels. It must not
+   swallow clicks meant for the page — only the pins and an open note do. */
+.canvas-comment-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-floating-panel);
+}
+.canvas-comment-pin-marker {
+  position: absolute;
+  width: var(--spacing-xl);
+  height: var(--spacing-xl);
+  box-sizing: border-box;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+  color: var(--text-on-accent);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+  /* Centred on the element's top-left corner, the way a map pin marks a point. */
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-interaction);
+}
+.canvas-comment-pin-marker:hover,
+.canvas-comment-pin-marker[data-open] {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+.canvas-comment-pin-marker[data-status='sent'] {
+  background: var(--surface-panel);
+  color: var(--accent-active);
+  box-shadow:
+    inset 0 0 0 2px var(--accent-active),
+    var(--shadow-sm); /* css-ok: 2px ring reads as a pin outline at 22px; 1px disappears */
+}
+.canvas-comment-bubble {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  pointer-events: auto;
+}
+.canvas-comment-bubble__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+.canvas-comment-bubble__target {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+.canvas-comment-bubble[data-status='sent'] .canvas-comment-body {
+  color: var(--text-secondary);
+}
+.canvas-comment-bubble .canvas-comments-actions {
+  margin-top: 0;
+  justify-content: flex-end;
+}
+/* Jump list in the batch bar: reaching a pin that is off-screen or on another route. */
+.canvas-comments-jump {
+  list-style: none;
+  margin: var(--spacing-sm) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+.canvas-comments-jump__item {
+  justify-content: flex-start;
+  gap: var(--spacing-sm);
+}
+.canvas-comments-jump__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

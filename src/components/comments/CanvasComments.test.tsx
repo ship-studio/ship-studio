@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef, useState } from 'react';
-import { CanvasComments } from './CanvasComments';
+import { useCanvasCommentsLayer } from './CanvasComments';
 import {
   commentsPrefix,
   readComments,
@@ -52,24 +52,28 @@ function setup(send = vi.fn().mockResolvedValue(undefined)) {
   const pending = vi.fn();
   function Harness() {
     const [open, setOpen] = useState(false);
+    // The layer mounts in two places in the real app: the batch bar in the
+    // workspace, the pins over the preview frame.
+    const layer = useCanvasCommentsLayer({
+      projectPath: '/test',
+      branch: 'main',
+      iframeRef: ref,
+      agents: [{ id: 1, label: 'Codex 1', send }],
+      activeAgentId: 1,
+      currentPage: '/',
+      navigate: vi.fn(),
+      available: true,
+      editing: false,
+      stopEditing: vi.fn(),
+      open,
+      onOpenChange: setOpen,
+      onPendingCountChange: pending,
+    });
     return (
       <>
         <button onClick={() => setOpen(!open)}>Comments</button>
-        <CanvasComments
-          projectPath="/test"
-          branch="main"
-          iframeRef={ref}
-          agents={[{ id: 1, label: 'Codex 1', send }]}
-          activeAgentId={1}
-          currentPage="/"
-          navigate={vi.fn()}
-          available
-          editing={false}
-          stopEditing={vi.fn()}
-          open={open}
-          onOpenChange={setOpen}
-          onPendingCountChange={pending}
-        />
+        {layer.bar}
+        {layer.pins(1, { w: 1440, h: 900 })}
       </>
     );
   }
@@ -79,6 +83,22 @@ function setup(send = vi.fn().mockResolvedValue(undefined)) {
     iframe,
     send,
     pending,
+    /** The frame reporting where each saved note's element currently sits. */
+    locate: (notes: { id: string; x: number; y: number }[]) =>
+      act(() =>
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            source: iframe.contentWindow,
+            data: {
+              channel: 'ss:comments',
+              type: 'locations',
+              missing: [],
+              page: '/',
+              at: notes.map((n) => ({ ...n, width: 100, height: 40 })),
+            },
+          })
+        )
+      ),
     select: () =>
       act(() =>
         window.dispatchEvent(
@@ -104,10 +124,22 @@ it('adds a note to persistent backlog without calling the agent', async () => {
   // The header toggle badges this count, so it must reach the workspace.
   await waitFor(() => expect(pending).toHaveBeenLastCalledWith(1));
 });
+/** Report placements, then open the pin for a note by its number. */
+async function openPin(
+  locate: (n: { id: string; x: number; y: number }[]) => Promise<unknown>,
+  notes: { id: string; number: number }[],
+  number: number
+) {
+  await locate(notes.map((n, i) => ({ id: n.id, x: 10, y: 20 + i * 50 })));
+  const note = notes.find((n) => n.number === number)!;
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Comment ${note.number}:`) }));
+}
+
 it('sends selected pending notes as one batch and leaves unchecked notes pending', async () => {
   saveComment(prefix, base);
   saveComment(prefix, { ...base, id: 'two', number: 2, body: 'Leave me for later' });
-  const { send } = setup();
+  const { send, locate } = setup();
+  await openPin(locate, [base, { ...base, id: 'two', number: 2 }], 2);
   fireEvent.click(screen.getByLabelText('Include comment: Leave me for later'));
   fireEvent.click(screen.getByText('Send comments to agent'));
   await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
@@ -162,7 +194,7 @@ it('switches targets without losing the note and keeps the composer compact', as
 });
 
 it('selects tablet and mobile together and restores them when editing', async () => {
-  const { select, send } = setup();
+  const { select, send, locate } = setup();
   await select();
   fireEvent.change(screen.getByLabelText('What should change?'), {
     target: { value: 'Reduce heading size' },
@@ -173,8 +205,11 @@ it('selects tablet and mobile together and restores them when editing', async ()
   expect(screen.getByRole('button', { name: 'Mobile' })).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(screen.getByRole('button', { name: 'Save comment' }));
   expect(readComments(prefix)[0].scope).toEqual(['Tablet', 'Mobile']);
-  expect(screen.getByText(/Applies to Tablet \+ Mobile/)).toBeInTheDocument();
   expect(send).not.toHaveBeenCalled();
+  // The saved note is read on its pin, not in a list.
+  const saved = readComments(prefix)[0];
+  await openPin(locate, [saved], saved.number);
+  expect(screen.getByText(/Applies to Tablet \+ Mobile/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   expect(screen.getByRole('button', { name: 'Tablet' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('button', { name: 'Mobile' })).toHaveAttribute('aria-pressed', 'true');
@@ -186,18 +221,20 @@ it('selects tablet and mobile together and restores them when editing', async ()
 it('deletes a comment permanently with the trash control and preserves other notes', async () => {
   saveComment(prefix, base);
   saveComment(prefix, { ...base, id: 'two', number: 2, body: 'Keep me', status: 'sent' });
-  setup();
+  const { locate } = setup();
   expect(screen.queryByText('Resolve')).not.toBeInTheDocument();
   expect(screen.queryByText('Reattach')).not.toBeInTheDocument();
   expect(screen.queryByText('Return to backlog')).not.toBeInTheDocument();
+  await openPin(locate, [base, { ...base, id: 'two', number: 2 }], 1);
   fireEvent.click(screen.getByRole('button', { name: 'Delete comment: Make it 80vh' }));
   await waitFor(() => expect(readComments(prefix)).toHaveLength(1));
   expect(localStorage.getItem(prefix + base.id)).toBeNull();
   expect(readComments(prefix)[0].body).toBe('Keep me');
 });
-it('keeps the comment visible if deletion fails', () => {
+it('keeps the comment visible if deletion fails', async () => {
   saveComment(prefix, base);
-  setup();
+  const { locate } = setup();
+  await openPin(locate, [base], 1);
   const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
     throw new Error('Storage unavailable');
   });
@@ -214,7 +251,8 @@ it('edits a sent comment into a ready-to-send update without a separate backlog 
     sentAt: '2026-09-06',
     batchId: 'old',
   });
-  const { send } = setup();
+  const { send, locate } = setup();
+  await openPin(locate, [base], 1);
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   fireEvent.change(screen.getByLabelText('What should change?'), {
     target: { value: 'Make it 70vh instead' },

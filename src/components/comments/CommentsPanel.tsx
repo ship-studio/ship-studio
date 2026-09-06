@@ -1,14 +1,21 @@
-/** Moveable backlog panel; its overlay leaves the preview viewport unchanged. */
-import { useState, type ReactNode } from 'react';
+/**
+ * The batch bar for pinned comments.
+ *
+ * The notes themselves live on the page — each one pinned to its element (see
+ * `CommentPins`), which is where they are read, edited and deleted. What is
+ * left here is only what is about the batch rather than any one note: how many
+ * are selected, how much context to send, which terminal to send to, and the
+ * handoff itself.
+ */
+import { useState } from 'react';
 import { DockablePanel } from '../primitives/DockablePanel';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
-import { EmptyState } from '../primitives/EmptyState';
 import { SegmentedControl } from '../primitives/SegmentedControl';
-import { TrashIcon, CloseIcon, CommentIcon } from '@/components/icons';
+import { EmptyState } from '../primitives/EmptyState';
+import { CloseIcon, CommentIcon } from '@/components/icons';
 import {
   commentElementName,
-  commentScopeLabel,
   COMMENT_DETAILS,
   type CanvasComment,
   type CommentAgent,
@@ -16,22 +23,16 @@ import {
 } from '../../lib/canvasComments';
 
 interface Props {
-  composing: boolean;
   comments: CanvasComment[];
-  children?: ReactNode;
-  missing: string[];
   agents: CommentAgent[];
   agentId: number | null;
   setAgentId: (id: number) => void;
   excluded: Set<string>;
-  toggle: (id: string) => void;
   selectAll: () => void;
   clearSelection: () => void;
   selectedCount: number;
   onClose: () => void;
   onLocate: (comment: CanvasComment) => void;
-  onEdit: (comment: CanvasComment) => void;
-  onDelete: (comment: CanvasComment) => void;
   onSend: () => void;
   onCopy: () => void;
   detail: CommentDetail;
@@ -45,10 +46,8 @@ interface Props {
 }
 export function CommentsPanel(props: Props) {
   const [review, setReview] = useState(false);
-  const visible = props.comments;
-  const pages = [...new Set(visible.map((c) => c.target.page))];
-  const pendingCount = visible.filter((c) => c.status === 'pending').length;
-  const allSelected = props.selectedCount === pendingCount;
+  const pending = props.comments.filter((c) => c.status === 'pending');
+  const allSelected = props.selectedCount === pending.length;
   return (
     <DockablePanel
       docked={false}
@@ -59,20 +58,17 @@ export function CommentsPanel(props: Props) {
       resizable={false}
       keepWithinViewport
       floatingSize={{
-        width: 320,
-        height: Math.min(
-          props.composing ? 380 : props.comments.length ? 460 : 200,
-          window.innerHeight - 128
-        ),
+        width: 300,
+        height: Math.min(pending.length ? 330 : 190, window.innerHeight - 128),
       }}
-      initialPosition={() => ({ left: window.innerWidth - 344, top: 110 })}
+      initialPosition={() => ({ left: window.innerWidth - 324, top: 110 })}
       surfaceClassName="canvas-comments-panel"
     >
       <header className="canvas-comments-header" data-dockable-drag-handle>
         <span className="canvas-comments-title">
           Comments
-          {pendingCount > 0 && (
-            <span className="canvas-comments-count">{pendingCount} pending</span>
+          {pending.length > 0 && (
+            <span className="canvas-comments-count">{pending.length} pending</span>
           )}
         </span>
         <IconButton
@@ -95,97 +91,55 @@ export function CommentsPanel(props: Props) {
             {props.error}
           </p>
         )}
-        {props.children}
-        {!props.composing && props.comments.length === 0 && !props.error && (
+        {props.comments.length === 0 && !props.error && (
           <EmptyState
             className="canvas-comments-empty"
             icon={<CommentIcon size={20} />}
             title="No comments yet"
-            description="Click any element in the preview to leave a note. Nothing is sent to an agent until you review the batch and choose Send."
+            description="Click any element in the preview to leave a note. It stays pinned there. Nothing reaches an agent until you send the batch."
           />
         )}
-        {!props.composing && props.comments.length > 0 && (
+        {pending.length > 0 && (
           <>
-            {pendingCount > 0 && (
-              <div className="canvas-comments-selection">
-                <span className="canvas-comments-hint">
-                  {props.selectedCount} of {pendingCount} selected
-                </span>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  onClick={allSelected ? props.clearSelection : props.selectAll}
-                >
-                  {allSelected ? 'Clear selection' : 'Select all'}
-                </Button>
-              </div>
-            )}
-            {pages.map((page) => (
-              <section key={page} className="canvas-comments-group">
-                <h3 title={page}>{page}</h3>
-                {visible
-                  .filter((c) => c.target.page === page)
-                  .map((c) => (
-                    <article className="canvas-comment-card" data-status={c.status} key={c.id}>
-                      <div className="canvas-comment-card__head">
-                        {c.status === 'pending' && (
-                          <input
-                            type="checkbox"
-                            aria-label={`Include comment: ${c.body}`}
-                            checked={!props.excluded.has(c.id)}
-                            onChange={() => props.toggle(c.id)}
-                          />
-                        )}
-                        <span className="canvas-comment-pin" aria-hidden>
-                          {c.number}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="compact"
-                          className="canvas-comment-card__target"
-                          title={`Find ${commentElementName(c.target)} in the preview`}
-                          onClick={() => props.onLocate(c)}
-                        >
-                          {commentElementName(c.target)}
-                        </Button>
-                      </div>
-                      <p className="canvas-comment-body">{c.body}</p>
-                      <div className="canvas-comment-card__meta">
-                        <span className="canvas-comments-hint">
-                          Applies to {commentScopeLabel(c.scope)} · captured at{' '}
-                          {c.target.viewport.width}px
-                        </span>
-                        {c.status === 'sent' && (
-                          <span className="canvas-comments-sent">Sent to {c.sentTo}</span>
-                        )}
-                      </div>
-                      {props.missing.includes(c.id) && (
-                        <span className="canvas-comments-error">
-                          Element not found. Choose Edit, then click a new element.
-                        </span>
-                      )}
-                      <div className="canvas-comments-actions">
-                        <Button size="compact" variant="ghost" onClick={() => props.onEdit(c)}>
-                          Edit
-                        </Button>
-                        <IconButton
-                          size="compact"
-                          variant="ghost"
-                          icon={<TrashIcon />}
-                          aria-label={`Delete comment: ${c.body}`}
-                          title="Delete comment"
-                          disabled={props.sending}
-                          onClick={() => props.onDelete(c)}
-                        />
-                      </div>
-                    </article>
-                  ))}
-              </section>
-            ))}
+            <div className="canvas-comments-selection">
+              <span className="canvas-comments-hint">
+                {props.selectedCount} of {pending.length} selected
+              </span>
+              <Button
+                variant="ghost"
+                size="compact"
+                onClick={allSelected ? props.clearSelection : props.selectAll}
+              >
+                {allSelected ? 'Clear selection' : 'Select all'}
+              </Button>
+            </div>
+            {/* Jumping to a note is a batch-level need: a pin you cannot see
+                because it is on another route or below the fold. */}
+            <ul className="canvas-comments-jump">
+              {pending.map((c) => (
+                <li key={c.id}>
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    width="fill"
+                    className="canvas-comments-jump__item"
+                    title={`Show comment ${c.number} in the preview`}
+                    onClick={() => props.onLocate(c)}
+                  >
+                    <span className="canvas-comment-pin" aria-hidden>
+                      {c.number}
+                    </span>
+                    <span className="canvas-comments-jump__label">
+                      {commentElementName(c.target)}
+                    </span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
           </>
         )}
       </div>
-      {!props.composing && pendingCount > 0 && (
+      {pending.length > 0 && (
         <footer className="canvas-comments-footer">
           {review && (
             <pre className="canvas-comments-prompt">

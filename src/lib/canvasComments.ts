@@ -92,6 +92,25 @@ export function commentElementPath(target: CommentTarget): string {
   return [...near, target.tag].join(' > ');
 }
 
+/** Where a note's element currently is, in the reporting frame's own pixels. */
+export interface CommentPlacement {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export function isCommentPlacement(value: unknown): value is CommentPlacement {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as CommentPlacement;
+  return (
+    typeof p.id === 'string' &&
+    p.id.length > 0 &&
+    p.id.length <= 200 &&
+    [p.x, p.y, p.width, p.height].every(Number.isFinite)
+  );
+}
+
 /** How much captured context each comment carries into the prompt. */
 export type CommentDetail = 'compact' | 'standard' | 'detailed';
 export const COMMENT_DETAILS: CommentDetail[] = ['compact', 'standard', 'detailed'];

@@ -11,12 +11,17 @@ and dims the surrounding canvas. The target stays clear while writing the note.
 The compact floating panel can be moved or closed without changing the
 preview viewport. While composing, the backlog and send controls are hidden. Click
 another element to retarget without losing draft text; Escape clears the canvas
-highlight, and the next click selects a fresh target. Each saved note draws a **numbered pin** on its element in the preview, and the panel
-shows the same number. Clicking a pin opens that note; hovering one outlines its element.
-Pins are placed from a live rect on every scroll, resize and DOM change, so they follow
-their element instead of drifting, and a pin whose element has scrolled out of view is
-clamped to the edge rather than disappearing. A sent note's pin is outlined rather than
-filled. Notes are grouped by route. All pending notes start selected; uncheck notes to hold them for later. Review the generated prompt
+highlight, and the next click selects a fresh target. **A note lives on the thing it is about, not in a list.** Each saved comment is a
+numbered pin on its element; clicking the pin opens the note itself beside it — body,
+scope, sent state, Edit and Delete — and hovering one outlines its element without
+moving the page. The composer opens at the element too. Pins are placed from a live
+rect on every scroll, resize and DOM change, so they follow their element instead of
+drifting; a card flips to the other side of its pin rather than overflowing the frame.
+A sent note's pin is outlined rather than filled.
+
+What remains in the floating panel is only what is about the *batch* rather than any one
+note: how many are selected, how much context to send, which terminal to send to, the
+handoff, and a jump list for reaching a pin that is off-screen or on another route. All pending notes start selected; uncheck notes to hold them for later. Review the generated prompt
 and choose the destination terminal before sending. Sending pastes one bracketed
 batch into that terminal. It does not press Enter. The user starts the request in
 the terminal and reviews its results before deleting comments with the trash icon.
@@ -69,12 +74,21 @@ edit the note and click the intended element to update it.
 
 ## Implementation boundaries
 
-- `CanvasComments` owns review and handoff, but not its own open state: the toggle
-  lives in `WorkspaceHeader` and `WorkspaceView` holds the flag, so the header can
-  badge the pending count (reported up via `onPendingCountChange`). Opening comments
-  closes the visual editor — the two are mutually exclusive preview surfaces.
-- `CommentsPanel` and `CommentComposer` use the existing button, empty-state,
-  segmented-control, and dockable-panel primitives.
+- `useCanvasCommentsLayer` is a layer hook, not a component, because its halves mount
+  in different places — the same arrangement `useElementStructure` has with
+  `ElementToolbar`. It returns `bar` (the batch panel) and `pins(scale, bounds)`,
+  which `Preview` drops into the iframe wrapper for a single frame and into the
+  canvas's `activeFrameOverlay` for the active frame. That overlay is an unscaled
+  screen-pixel layer, so frame coordinates are multiplied by the canvas scale there.
+- Pins and cards are drawn host-side in React with house primitives; the injected
+  script only *reports* geometry (`locations.at`), validated by `isCommentPlacement`
+  before use. Comments bind to `editorFrameRef` — the frame the user is actually in.
+- The layer does not own its open state: the toggle lives in `WorkspaceHeader` and
+  `WorkspaceView` holds the flag, so the header can badge the pending count (reported
+  up via `onPendingCountChange`). Opening comments closes the visual editor — the two
+  are mutually exclusive preview surfaces.
+- `CommentsPanel`, `CommentPins` and `CommentComposer` use the existing button,
+  empty-state, segmented-control, and dockable-panel primitives.
 - `useCommentBridge` checks the message source against the actual preview frame.
   It only forwards validated target data and never sends a prompt on a frame event.
 - `commentAgents` resolves the selected project/tab at handoff time.

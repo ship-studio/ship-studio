@@ -1,5 +1,14 @@
-/** Canvas comment mode, review backlog, and explicit batch handoff. */
-import { useState, useRef, useEffect, type RefObject } from 'react';
+/**
+ * Canvas comment mode, pinned notes, and the explicit batch handoff.
+ *
+ * Exposed as a layer rather than one component because its two halves mount in
+ * different places: the pins belong over the preview frame (and on a breakpoint
+ * canvas, over the ACTIVE frame, in the unscaled overlay layer), while the send
+ * bar belongs in the workspace. This is the same arrangement `useElementStructure`
+ * has with `ElementToolbar`.
+ */
+import { useState, useRef, useEffect, type ReactNode, type RefObject } from 'react';
+import { CommentPins } from './CommentPins';
 import { CommentsPanel } from './CommentsPanel';
 import { CommentComposer } from './CommentComposer';
 import { useCanvasComments } from '../../hooks/useCanvasComments';
@@ -35,7 +44,11 @@ export interface CanvasCommentsProps {
   /** Reports the pending backlog size so the header toggle can badge it. */
   onPendingCountChange?: (count: number) => void;
 }
-export function CanvasComments(props: CanvasCommentsProps) {
+export function useCanvasCommentsLayer(props: CanvasCommentsProps): {
+  bar: ReactNode;
+  /** Pins for one frame: its canvas scale, and its on-screen box. */
+  pins: (scale: number, bounds: { w: number; h: number } | null) => ReactNode;
+} {
   const { open, onOpenChange, onPendingCountChange } = props;
   const setOpen = onOpenChange;
   const [draft, setDraft] = useState<CommentTarget | null>(null);
@@ -45,6 +58,7 @@ export function CanvasComments(props: CanvasCommentsProps) {
   const [locating, setLocating] = useState<CanvasComment>();
   const [batchId, setBatchId] = useState(() => crypto.randomUUID());
   const [detail, setDetail] = useState<CommentDetail>('standard');
+  const [openId, setOpenId] = useState<string | null>(null);
   const sendingRef = useRef(false);
   const { showToast } = useOptionalToast();
   const store = useCanvasComments(props.projectPath, props.branch ?? '');
@@ -151,101 +165,126 @@ export function CanvasComments(props: CanvasCommentsProps) {
     ],
     [setOpen]
   );
-  return (
-    <>
-      {open && (
-        <CommentsPanel
-          composing={!!draft}
-          comments={store.comments}
-          missing={bridge.missing}
-          agents={props.agents}
-          agentId={agent ? agentId : null}
-          setAgentId={setAgentId}
-          excluded={excluded}
-          toggle={(id) =>
-            setExcluded((prev) => {
-              const next = new Set(prev);
-              if (next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
+  const composer = draft ? (
+    <CommentComposer
+      key={editingNote?.id ?? 'new'}
+      target={draft}
+      existing={editingNote}
+      onCancel={cancelDraft}
+      onSave={(body, scope) => {
+        if (!props.branch) return false;
+        const ok = editingNote
+          ? store.update(editingNote.id, {
+              body,
+              scope,
+              target: draft,
+              status: 'pending',
+              sentAt: undefined,
+              sentTo: undefined,
+              batchId: undefined,
             })
+          : store.add(draft, body, scope);
+        if (ok) {
+          cancelDraft();
+          bridge.post({ type: 'clear' });
+        }
+        return ok;
+      }}
+    />
+  ) : null;
+
+  const toggleExcluded = (id: string) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const removeNote = (c: CanvasComment) => {
+    if (!store.remove(c.id)) return;
+    if (locating?.id === c.id) setLocating(undefined);
+    if (openId === c.id) setOpenId(null);
+    bridge.post({ type: 'clear' });
+    showToast('Comment deleted', 'success');
+  };
+
+  const editNote = (c: CanvasComment) => {
+    if (draft) {
+      showToast('Save or cancel your current draft first.', 'info');
+      return;
+    }
+    setOpenId(null);
+    setEditingNote(c);
+    setDraft(c.target);
+    locate(c);
+  };
+
+  return {
+    bar: open ? (
+      <CommentsPanel
+        comments={store.comments}
+        agents={props.agents}
+        agentId={agent ? agentId : null}
+        setAgentId={setAgentId}
+        excluded={excluded}
+        selectAll={() => setExcluded(new Set())}
+        clearSelection={() =>
+          setExcluded(
+            new Set(store.comments.filter((c) => c.status === 'pending').map((c) => c.id))
+          )
+        }
+        selectedCount={selected.length}
+        onClose={() => setOpen(false)}
+        onLocate={(c) => {
+          setOpenId(c.id);
+          locate(c);
+        }}
+        detail={detail}
+        setDetail={setDetail}
+        onSend={() => void send.execute()}
+        onCopy={() => void copy(prompt)}
+        sending={send.isLoading}
+        disabled={!!store.error || !props.branch || !!draft}
+        error={store.error ?? send.error?.message}
+        prompt={prompt}
+        message={
+          !props.branch
+            ? 'Waiting for the current branch.'
+            : props.editing
+              ? 'Close the visual editor to place comments.'
+              : !props.available
+                ? 'Start the preview to place comments. Your comments are saved.'
+                : !bridge.ready
+                  ? 'Connecting to the preview…'
+                  : draft
+                    ? 'Write the note, then Save comment.'
+                    : 'Click any element in the preview to leave a comment.'
+        }
+      />
+    ) : null,
+    pins: (scale, bounds) =>
+      open ? (
+        <CommentPins
+          comments={store.comments}
+          placements={bridge.placements}
+          missing={bridge.missing}
+          scale={scale}
+          bounds={bounds}
+          openId={openId}
+          onOpen={setOpenId}
+          excluded={excluded}
+          toggle={toggleExcluded}
+          onEdit={editNote}
+          onDelete={removeNote}
+          onHover={(c) =>
+            c
+              ? bridge.post({ type: 'locate', id: c.id, target: c.target, quiet: true })
+              : bridge.post({ type: 'clear' })
           }
-          selectAll={() => setExcluded(new Set())}
-          clearSelection={() =>
-            setExcluded(
-              new Set(store.comments.filter((c) => c.status === 'pending').map((c) => c.id))
-            )
-          }
-          selectedCount={selected.length}
-          onClose={() => setOpen(false)}
-          onLocate={locate}
-          onEdit={(c) => {
-            if (draft) {
-              showToast('Save or cancel your current draft first.', 'info');
-              return;
-            }
-            setEditingNote(c);
-            setDraft(c.target);
-            locate(c);
-          }}
-          onDelete={(c) => {
-            if (store.remove(c.id)) {
-              if (locating?.id === c.id) setLocating(undefined);
-              bridge.post({ type: 'clear' });
-              showToast('Comment deleted', 'success');
-            }
-          }}
-          detail={detail}
-          setDetail={setDetail}
-          onSend={() => void send.execute()}
-          onCopy={() => void copy(prompt)}
-          sending={send.isLoading}
-          disabled={!!store.error || !props.branch || !!draft}
-          error={store.error ?? send.error?.message}
-          prompt={prompt}
-          message={
-            !props.branch
-              ? 'Waiting for the current branch.'
-              : props.editing
-                ? 'Close the visual editor to place comments.'
-                : !props.available
-                  ? 'Start the preview to place comments. Your comments are saved.'
-                  : !bridge.ready
-                    ? 'Connecting to the preview…'
-                    : draft
-                      ? ''
-                      : 'Click any element to leave a comment.'
-          }
-        >
-          {draft && (
-            <CommentComposer
-              key={editingNote?.id ?? 'new'}
-              target={draft}
-              existing={editingNote}
-              onCancel={cancelDraft}
-              onSave={(body, scope) => {
-                if (!props.branch) return false;
-                const ok = editingNote
-                  ? store.update(editingNote.id, {
-                      body,
-                      scope,
-                      target: draft,
-                      status: 'pending',
-                      sentAt: undefined,
-                      sentTo: undefined,
-                      batchId: undefined,
-                    })
-                  : store.add(draft, body, scope);
-                if (ok) {
-                  cancelDraft();
-                  bridge.post({ type: 'clear' });
-                }
-                return ok;
-              }}
-            />
-          )}
-        </CommentsPanel>
-      )}
-    </>
-  );
+          composer={composer}
+          composerAt={draft ? { x: draft.rect.x, y: draft.rect.y } : null}
+        />
+      ) : null,
+  };
 }
