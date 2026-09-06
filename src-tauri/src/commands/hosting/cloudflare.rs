@@ -1,14 +1,15 @@
 //! Cloudflare Pages adapter.
 //!
-//! **Unverified.** Every other adapter in this module was checked against a
-//! live account; this one was written from Cloudflare's API reference with no
-//! credentials to observe a real response. The field names and stage values
-//! below are documented, not seen. `docs/internal/hosting-provider-matrix.md`
-//! lists exactly what remains unconfirmed, and the deserialisation is
-//! deliberately permissive so a wrong guess degrades one line of copy rather
-//! than failing the lookup.
+//! Verified against a live Pages project and deployment (see
+//! `docs/internal/hosting-provider-matrix.md`).
 //!
-//! Three things make Cloudflare different from the other two:
+//! Four things make Cloudflare different from the other two:
+//!
+//! * **`stages` cannot be trusted; `latest_stage` can.** On a finished
+//!   deployment the observed `stages` array still reported
+//!   `("queued", "active")` alongside `("deploy", "success")`, so walking it
+//!   would report a completed deployment as still queued. Only `latest_stage`
+//!   is read.
 //!
 //! * **Status is two-dimensional.** There is no flat state string: a
 //!   deployment has a `latest_stage` with a `name` (which phase) and a
@@ -70,10 +71,30 @@ struct RawDeployment {
     is_skipped: Option<bool>,
     #[serde(default)]
     skip_reason: Option<String>,
+    /// Captured but never read: on a finished deployment this array still
+    /// reported an earlier stage as `active`, so only `latest_stage` is
+    /// trustworthy. Kept so a test can pin that.
+    #[serde(default)]
+    stages: Vec<RawStage>,
     #[serde(default)]
     created_on: Option<String>,
     #[serde(default)]
     modified_on: Option<String>,
+}
+
+impl RawDeployment {
+    #[cfg(test)]
+    fn stages_for_test(&self) -> Vec<(String, String)> {
+        self.stages
+            .iter()
+            .map(|s| {
+                (
+                    s.name.clone().unwrap_or_default(),
+                    s.status.clone().unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,6 +107,10 @@ struct RawStage {
 
 #[derive(Debug, Deserialize)]
 struct RawTrigger {
+    /// `github:push` for a git deployment, `ad_hoc` for a direct upload,
+    /// `deploy_hook` for a webhook.
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
     #[serde(default)]
     metadata: Option<RawTriggerMeta>,
 }
@@ -172,6 +197,29 @@ fn humanize_skip_reason(reason: &str) -> String {
         "pages_to_workers_conversion" => "the project is being converted to Workers".into(),
         other => other.replace('_', " "),
     }
+}
+
+/// True when this deployment came from a commit rather than a direct upload.
+///
+/// An `ad_hoc` deployment reports `commit_hash: ""` — an empty string, not
+/// null — so it must be excluded explicitly rather than relying on a missing
+/// field. Matching one to a push would claim a link that does not exist.
+fn is_git_deployment(raw: &RawDeployment) -> bool {
+    let from_git = raw
+        .deployment_trigger
+        .as_ref()
+        .and_then(|t| t.kind.as_deref())
+        .map(|kind| kind.starts_with("github:") || kind.starts_with("gitlab:"))
+        .unwrap_or(false);
+
+    let has_commit = raw
+        .deployment_trigger
+        .as_ref()
+        .and_then(|t| t.metadata.as_ref())
+        .and_then(|m| m.commit_hash.as_deref())
+        .is_some_and(|hash| !hash.trim().is_empty());
+
+    from_git && has_commit
 }
 
 fn to_deployment(raw: RawDeployment) -> Deployment {
@@ -302,7 +350,11 @@ pub async fn find_for_commit(
         .await?
         .into_result()?;
 
-    let mut deployments: Vec<Deployment> = raw.into_iter().map(to_deployment).collect();
+    let mut deployments: Vec<Deployment> = raw
+        .into_iter()
+        .filter(is_git_deployment)
+        .map(to_deployment)
+        .collect();
     deployments.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     let site = fetch_site_url(link, token).await.ok().flatten();
@@ -574,6 +626,83 @@ mod tests {
     #[test]
     fn an_unfamiliar_skip_reason_is_passed_through_rather_than_dropped() {
         assert_eq!(humanize_skip_reason("some_new_reason"), "some new reason");
+    }
+
+    /// Captured verbatim from a live Pages deployment.
+    fn live_fixture() -> &'static str {
+        r#"{
+            "id":"08d86c3f-ce0b-47c5-a9d4-25e7d1c79ee7",
+            "url":"https://08d86c3f.shipstudio-hosting-testbed.pages.dev",
+            "environment":"production",
+            "aliases":null,
+            "is_skipped":false,
+            "skip_reason":null,
+            "latest_stage":{"name":"deploy","started_on":null,
+                "ended_on":"2026-09-06T03:49:13.600985Z","status":"success"},
+            "stages":[
+                {"name":"queued","status":"active"},
+                {"name":"initialize","status":"idle"},
+                {"name":"clone_repo","status":"idle"},
+                {"name":"build","status":"idle"},
+                {"name":"deploy","status":"success"}
+            ],
+            "deployment_trigger":{"type":"ad_hoc","metadata":{
+                "branch":"main","commit_hash":"","commit_message":"","commit_dirty":true}},
+            "created_on":"2026-09-06T03:49:12.456043Z",
+            "modified_on":"2026-09-06T03:49:13.600985Z"
+        }"#
+    }
+
+    #[test]
+    fn a_live_deployment_parses_into_the_shared_shape() {
+        let raw: RawDeployment = serde_json::from_str(live_fixture()).unwrap();
+        let d = to_deployment(raw);
+
+        assert_eq!(d.phase, DeploymentPhase::Ready);
+        assert_eq!(d.status_label, "Success");
+        assert_eq!(d.environment, Environment::Production);
+        assert_eq!(
+            d.urls.deployment.as_deref(),
+            Some("https://08d86c3f.shipstudio-hosting-testbed.pages.dev")
+        );
+        // `aliases` came back null rather than an empty array.
+        assert!(d.urls.aliases.is_empty());
+        // Microsecond precision in the timestamps must not defeat the parser.
+        assert!(d.created_at > 1_700_000_000_000);
+    }
+
+    #[test]
+    fn only_latest_stage_is_read_because_stages_lies() {
+        // The live response reported ("queued", "active") in `stages` on a
+        // deployment that had already succeeded. Walking that array would
+        // report a finished deployment as still queued, forever.
+        let raw: RawDeployment = serde_json::from_str(live_fixture()).unwrap();
+        let stages = raw.stages_for_test();
+        assert!(
+            stages.contains(&("queued".to_string(), "active".to_string())),
+            "the fixture must keep the contradictory stage that motivates this"
+        );
+        assert_eq!(to_deployment(raw).phase, DeploymentPhase::Ready);
+    }
+
+    #[test]
+    fn a_direct_upload_is_never_matched_to_a_push() {
+        // An ad_hoc deployment reports `commit_hash: ""` — empty, not null —
+        // so an empty-string match would pair it with any commit.
+        let raw: RawDeployment = serde_json::from_str(live_fixture()).unwrap();
+        assert!(!is_git_deployment(&raw));
+    }
+
+    #[test]
+    fn a_git_deployment_with_a_real_commit_is_matched() {
+        let body = r#"{
+            "id":"dep_1","url":"https://x.pages.dev",
+            "latest_stage":{"name":"deploy","status":"success"},
+            "deployment_trigger":{"type":"github:push","metadata":{
+                "branch":"main","commit_hash":"222c59fd6d","commit_message":"Fix nav"}}
+        }"#;
+        let raw: RawDeployment = serde_json::from_str(body).unwrap();
+        assert!(is_git_deployment(&raw));
     }
 
     #[test]

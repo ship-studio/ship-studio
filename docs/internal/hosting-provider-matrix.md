@@ -86,34 +86,32 @@ we write must classify 401 _and_ 403 as rejection, never as healthy.
 - Still unconfirmed: how a canceled or `ignore`-command build appears in the
   `state` enum. Needs a deliberately canceled build to observe.
 
-## Cloudflare Pages — NOT VERIFIED
+## Cloudflare Pages — verified
 
-An adapter exists and compiles, but **nothing below has been observed against a
-live account** — there are no Cloudflare credentials on the verification
-machine. The field names and stage values come from Cloudflare's API reference.
-Deserialisation is deliberately permissive so a wrong guess costs one line of
-copy rather than the whole lookup, but this provider should not be considered
-working until someone runs it with a real token.
+Verified against a live account and a real deployment. A disposable Pages
+project, `shipstudio-hosting-testbed`, was created and deployed to for this;
+it exists to be re-verified against and can be deleted whenever.
 
-**Verified since:** `wrangler login` was completed on this machine and the
-account and Pages endpoints were exercised for real.
-
-- `GET /accounts` returns the documented `{success, result}` envelope. Verified.
-- `GET /accounts/{id}/pages/projects` returns the same envelope. Verified —
-  though it returned **zero projects**, so the project shape is still unseen.
-- **The credential path in Cloudflare's own docs is wrong for macOS.** An
-  actual `wrangler login` wrote `~/Library/Preferences/.wrangler/config/default.toml`,
-  and the token inside expires about an hour later.
-
-Still unconfirmed, because the account has no Pages project to observe:
-
-- Deployment list is not filterable by commit; scan
-  `deployment_trigger.metadata.commit_hash`.
-- State is two-dimensional (`latest_stage.name` × `latest_stage.status`) and
-  needs its own reducer rather than an enum lookup.
-- `is_skipped` + `skip_reason` are documented as the cleanest skip signal of the
-  three providers.
-- Unconfirmed: whether `aliases[]` appears on the list item or only on the detail
-  call, and whether it includes attached custom domains.
-- Linking needs an `account_id`; Pages projects leave nothing on disk, so the
-  link must be a user pick and the account id persisted.
+- **`latest_stage` is authoritative; `stages` is not.** On a deployment that
+  had already succeeded, the `stages` array still reported
+  `("queued", "active")` alongside `("deploy", "success")`. Walking that array
+  would report a finished deployment as permanently queued. Only `latest_stage`
+  is read.
+- **`aliases` came back `null`, not an empty array**, and did not contain the
+  project's address. The site's address comes from the project's `domains` /
+  `subdomain`, which is a separate call.
+- **A direct upload reports `commit_hash: ""`** — an empty string, not null —
+  with `deployment_trigger.type: "ad_hoc"`. Both are checked, because an
+  empty-string match would pair an upload with any commit.
+- **Timestamps carry microseconds** (`2026-09-06T03:49:12.456043Z`).
+- **The build-log endpoint works and matches the documented shape**:
+  `/deployments/{id}/history/logs` returns `{ data: [{ ts, line }], total,
+  includes_container_logs }`. Cloudflare does not separate stdout from stderr.
+- **`url` already carries its scheme**, unlike Vercel's.
+- Endpoints verified: `GET /accounts`, `/accounts/{id}/pages/projects`,
+  `/accounts/{id}/pages/projects/{name}`, `.../deployments`, and
+  `.../deployments/{id}/history/logs`.
+- Still unobserved: a **failing** build, a **skipped** commit, and a
+  **git-triggered** deployment (the testbed deploys by direct upload). The
+  stage reducer and `skip_reason` handling are therefore still exercised only
+  against documented shapes.
