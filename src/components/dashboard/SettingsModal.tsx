@@ -34,6 +34,9 @@ import {
   setTerminalGpuEnabled,
   getCompactWorkspaceToolbarEnabled,
   setCompactWorkspaceToolbarEnabled,
+  getElementBreadcrumbEnabled,
+  setElementBreadcrumbEnabled,
+  ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT,
   getThumbnailsEnabled,
   setThumbnailsEnabled,
   getSpotifyWidgetEnabled,
@@ -96,6 +99,7 @@ export function SettingsModal({
   const [appIcon, setLocalAppIcon] = useState<AppIcon>('brand');
   const [terminalGpuEnabled, setLocalTerminalGpuEnabled] = useState(true);
   const [compactWorkspaceToolbarEnabled, setLocalCompactWorkspaceToolbarEnabled] = useState(false);
+  const [elementBreadcrumbEnabled, setLocalElementBreadcrumbEnabled] = useState(true);
   const [thumbnailsOn, setLocalThumbnailsOn] = useState(true);
   const [spotifyWidgetEnabled, setLocalSpotifyWidgetEnabled] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general');
@@ -120,6 +124,7 @@ export function SettingsModal({
         selectedAppIcon,
         gpuEnabled,
         compactToolbarEnabled,
+        breadcrumbEnabled,
         thumbnails,
         spotifyEnabled,
         root,
@@ -132,6 +137,7 @@ export function SettingsModal({
         getAppIcon(),
         getTerminalGpuEnabled(),
         getCompactWorkspaceToolbarEnabled(),
+        getElementBreadcrumbEnabled(),
         getThumbnailsEnabled(),
         isMac() ? getSpotifyWidgetEnabled() : Promise.resolve(false),
         getProjectsRoot().catch(() => ''),
@@ -145,6 +151,7 @@ export function SettingsModal({
         setLocalAppIcon(selectedAppIcon);
         setLocalTerminalGpuEnabled(gpuEnabled);
         setLocalCompactWorkspaceToolbarEnabled(compactToolbarEnabled);
+        setLocalElementBreadcrumbEnabled(breadcrumbEnabled);
         // `null` = not asked yet; the toggle reflects the default-on behavior
         // (the first auto-capture will show the in-app explainer).
         setLocalThumbnailsOn(thumbnails !== false);
@@ -177,6 +184,25 @@ export function SettingsModal({
     window.addEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
     return () =>
       window.removeEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
+  }, []);
+
+  // Keep the Appearance toggle in sync with previews and other Settings modal
+  // instances that share the persisted preference.
+  useEffect(() => {
+    const handleElementBreadcrumbChanged = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail;
+      if (typeof detail === 'boolean') setLocalElementBreadcrumbEnabled(detail);
+    };
+
+    window.addEventListener(
+      ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT,
+      handleElementBreadcrumbChanged
+    );
+    return () =>
+      window.removeEventListener(
+        ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT,
+        handleElementBreadcrumbChanged
+      );
   }, []);
 
   // The sidebar (which renders the widget) isn't a child of this modal, so a
@@ -272,6 +298,17 @@ export function SettingsModal({
       $screen_name: 'Settings',
     });
   }, [compactWorkspaceToolbarEnabled]);
+
+  const handleElementBreadcrumbToggle = useCallback(() => {
+    const enabled = !elementBreadcrumbEnabled;
+    setLocalElementBreadcrumbEnabled(enabled);
+    void setElementBreadcrumbEnabled(enabled);
+    void trackEvent('setting_changed', {
+      setting: 'element_breadcrumb',
+      value: enabled,
+      $screen_name: 'Settings',
+    });
+  }, [elementBreadcrumbEnabled]);
 
   const handleThumbnailsToggle = useCallback(() => {
     const newEnabled = !thumbnailsOn;
@@ -619,6 +656,26 @@ export function SettingsModal({
                     role="switch"
                     aria-label="Compact workspace toolbar"
                     aria-checked={compactWorkspaceToolbarEnabled}
+                  >
+                    <span className="settings-toggle-track">
+                      <span className="settings-toggle-thumb" />
+                    </span>
+                  </button>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <span className="settings-row-label">Show element breadcrumb</span>
+                    <span className="settings-row-description">
+                      Show the selected element&apos;s DOM path along the bottom of the preview.
+                    </span>
+                  </div>
+                  <button
+                    className={`settings-toggle ${elementBreadcrumbEnabled ? 'on' : 'off'}`}
+                    onClick={handleElementBreadcrumbToggle}
+                    disabled={loading}
+                    role="switch"
+                    aria-label="Show element breadcrumb"
+                    aria-checked={elementBreadcrumbEnabled}
                   >
                     <span className="settings-toggle-track">
                       <span className="settings-toggle-thumb" />

@@ -265,6 +265,12 @@ function ssDomPath(el){var parts=[],e=el;while(e&&e!==document.documentElement){
    renderer infrastructure, not authored elements, and have no source location. */
 function ssInternalNode(el){return!!(el&&el.hidden&&el.children.length===0&&!(el.textContent||'').trim());}
 
+/* Root-to-leaf path for the host-side element breadcrumb. Keep <body> out of the
+   path: it is the document shell rather than an authored element the editor can
+   meaningfully select. The domPath lets the host reselect classless parents and
+   same-tag/same-class siblings without guessing from their labels. */
+function ssElementPath(el){var out=[],p=el,n=0;while(p&&p!==document.body&&p!==document.documentElement&&n<60){if(!ssInternalNode(p))out.unshift({tagName:(p.tagName||'').toLowerCase(),className:(p.getAttribute('class')||'').trim(),domPath:ssDomPath(p)});p=p.parentElement;n++;}return out;}
+
 /* React's development fiber retains the JSX creation stack for each host node.
    Recover its first user-source frame so a classless/empty element selected in the
    Elements tree can still be mapped back to source. This is a HINT, never authority:
@@ -391,7 +397,7 @@ function ssInherited(el){
   return out;
 }
 
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
+function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),elementPath:ssElementPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
 
 function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styleEl.id='ss-preview';document.head.appendChild(styleEl);}return styleEl;}
 

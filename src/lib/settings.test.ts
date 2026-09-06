@@ -3,10 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT,
   DASHBOARD_VISIBILITY_CHANGED_EVENT,
+  ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT,
   getAppIcon,
   setCalendarHidden,
   setCompactWorkspaceToolbarEnabled,
   setDashboardHeaderHidden,
+  setElementBreadcrumbEnabled,
   setAppIcon,
   setSlackCtaHidden,
 } from './settings';
@@ -64,6 +66,28 @@ describe('workspace toolbar setting', () => {
     expect(listener.mock.calls[0]?.[0]).toMatchObject({ detail: true });
 
     window.removeEventListener(COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT, listener);
+  });
+});
+
+describe('element breadcrumb setting', () => {
+  const invokeMock = vi.mocked(invoke);
+
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
+  });
+
+  it('persists and broadcasts the element breadcrumb preference', async () => {
+    const listener = vi.fn();
+    window.addEventListener(ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT, listener);
+
+    await setElementBreadcrumbEnabled(false);
+
+    expect(invokeMock).toHaveBeenCalledWith('set_element_breadcrumb_enabled', { enabled: false });
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0]?.[0]).toMatchObject({ detail: false });
+
+    window.removeEventListener(ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT, listener);
   });
 });
 

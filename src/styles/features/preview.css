@@ -603,6 +603,24 @@
   position: relative;
 }
 
+/* Keep the breadcrumb in the viewport layout rather than floating it over the
+   preview frame. The frame remains centered in the space above the footer. */
+.preview-viewport--with-breadcrumb {
+  display: grid;
+  grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
+  justify-items: center;
+}
+
+.preview-viewport--with-breadcrumb .preview-frame-grid {
+  grid-row: 1;
+}
+
+.preview-viewport--with-breadcrumb .preview-breadcrumb {
+  position: static;
+  grid-row: 2;
+  justify-self: stretch;
+}
+
 /* Grid layout that pairs the iframe with its right + bottom resize handles.
    The 1fr cell auto-sizes to whatever space remains after the 8px handles,
    so dragging either handle resizes the iframe AND the perpendicular handle

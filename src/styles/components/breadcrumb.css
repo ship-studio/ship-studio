@@ -1,0 +1,195 @@
+/* Native breadcrumb primitive used by preview element navigation. */
+
+.breadcrumb {
+  display: block;
+  min-width: 0;
+}
+
+.breadcrumb__list {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.breadcrumb__item,
+.breadcrumb__separator {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.breadcrumb__ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-control-compact);
+  width: var(--size-control-compact);
+  height: var(--control-height-compact);
+  color: var(--text-secondary);
+}
+
+.breadcrumb__ellipsis > svg {
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+}
+
+.breadcrumb__link.button {
+  min-width: var(--size-control-compact);
+  max-width: var(--size-element-toolbar-selector);
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  text-overflow: ellipsis;
+}
+
+.breadcrumb__link.button:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.breadcrumb__page {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: var(--size-element-toolbar-selector);
+  overflow: hidden;
+  padding: 0 var(--spacing-xs);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  line-height: var(--control-height-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb__separator {
+  padding-inline: var(--spacing-3xs);
+  color: var(--text-muted);
+}
+
+.preview-breadcrumb {
+  display: flex;
+  align-items: center;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--control-height-standard);
+  z-index: var(--z-dropdown);
+  border-top: var(--border-width-default) solid var(--border-default);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-sm);
+  opacity: 0.96;
+}
+
+.preview-breadcrumb .breadcrumb__list {
+  align-content: center;
+  align-items: center;
+  flex: 1;
+  width: 100%;
+  gap: var(--spacing-3xs);
+  height: var(--control-height-standard);
+  min-height: 0;
+  padding: 0 var(--spacing-sm);
+  scrollbar-width: none;
+}
+
+.preview-breadcrumb .breadcrumb__list::-webkit-scrollbar {
+  display: none;
+}
+
+.preview-breadcrumb .breadcrumb__item,
+.preview-breadcrumb .breadcrumb__separator {
+  height: 100%;
+}
+
+.preview-breadcrumb .breadcrumb__link.button,
+.preview-breadcrumb .breadcrumb__page,
+.preview-breadcrumb .breadcrumb__separator {
+  color: var(--text-secondary);
+}
+
+.preview-breadcrumb .breadcrumb__page {
+  height: var(--control-height-compact);
+  line-height: var(--line-height-control);
+}
+
+.preview-breadcrumb .breadcrumb__link.button:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.preview-breadcrumb .breadcrumb__ellipsis-trigger.button {
+  width: var(--size-control-compact);
+  min-width: var(--size-control-compact);
+  padding: 0;
+}
+
+.preview-breadcrumb__menu {
+  max-height: calc(100vh - var(--spacing-2xl));
+  overflow-y: auto;
+}
+
+.preview-breadcrumb__menu .ss-dropdown__item {
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+
+.preview-breadcrumb__menu .ss-dropdown__item:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.preview-breadcrumb__menu .preview-breadcrumb__label {
+  height: auto;
+}
+
+.preview-breadcrumb__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+  height: 100%;
+  line-height: var(--line-height-control);
+}
+
+.preview-breadcrumb__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-icon-sm);
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  color: inherit;
+}
+
+.preview-breadcrumb__icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.preview-breadcrumb__tag {
+  flex: 0 0 auto;
+  color: inherit;
+}
+
+.preview-breadcrumb__class {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-breadcrumb .button {
+    transition: none;
+  }
+}

@@ -560,7 +560,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 8
     },
     {
       "name": "--size-titlebar-project-path",
@@ -578,7 +578,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 3
     },
     {
       "name": "--size-preview-dimensions",
@@ -650,7 +650,7 @@
       "owner": "IconGallery",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 19
+      "consumerCount": 24
     },
     {
       "name": "--size-icon-button",
@@ -1649,7 +1649,7 @@
       "owner": "Control",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 39
+      "consumerCount": 41
     },
     {
       "name": "--control-height-large",
@@ -1667,7 +1667,7 @@
       "owner": "Control",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 13
+      "consumerCount": 16
     },
     {
       "name": "--text-field-height",
@@ -2306,7 +2306,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 36
+      "consumerCount": 37
     },
     {
       "name": "--z-pane-separator",
@@ -3836,7 +3836,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 205
+      "consumerCount": 206
     },
     {
       "name": "--surface-control",
@@ -3917,7 +3917,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 436
+      "consumerCount": 440
     },
     {
       "name": "--text-secondary",
@@ -3926,7 +3926,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 349
+      "consumerCount": 353
     },
     {
       "name": "--text-muted",
@@ -3935,7 +3935,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 607
+      "consumerCount": 608
     },
     {
       "name": "--text-faint",
@@ -3980,7 +3980,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 443
+      "consumerCount": 444
     },
     {
       "name": "--border-subtle",
@@ -4016,7 +4016,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 74
+      "consumerCount": 75
     },
     {
       "name": "--accent-active",
@@ -4196,7 +4196,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 141
+      "consumerCount": 144
     },
     {
       "name": "--font-symbol",
@@ -4286,7 +4286,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 244
+      "consumerCount": 247
     },
     {
       "name": "--font-size-control",
@@ -4385,7 +4385,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 28
+      "consumerCount": 29
     },
     {
       "name": "--font-weight-heading",
@@ -4430,7 +4430,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 7
     },
     {
       "name": "--line-height-compact",
@@ -4592,7 +4592,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 25
+      "consumerCount": 28
     },
     {
       "name": "--spacing-2xs",
@@ -4610,7 +4610,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 256
+      "consumerCount": 257
     },
     {
       "name": "--spacing-sm",
@@ -4619,7 +4619,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 344
+      "consumerCount": 345
     },
     {
       "name": "--spacing-md",
@@ -4655,7 +4655,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 25
+      "consumerCount": 26
     },
     {
       "name": "--radius-control",
@@ -4664,7 +4664,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 135
+      "consumerCount": 136
     },
     {
       "name": "--radius-card",
@@ -4916,7 +4916,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--shadow-md",
