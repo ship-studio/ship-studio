@@ -85,6 +85,10 @@ without ever completing.
 
 **A green check whose description says it did not run is not a green check.**
 
+This document carried that tick too. It is being held until a review actually
+runs, on the same reasoning: a page about checks that do not check should not
+arrive on one.
+
 The checks list will not tell you. Ask for the descriptions:
 
 ```bash
