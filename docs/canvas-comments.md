@@ -44,10 +44,9 @@ DOM text is explicitly labelled untrusted reference data. The agent must verify
 the project, branch, and target, flag ambiguities/conflicts, test the changes, and
 report results by comment ID. Source hints/selectors are not treated as proof.
 
-Pins are drawn inside the preview so they track scrolling and zoom. A selector
-must match a unique element with the same tag and captured text; otherwise the
-note is marked “Element not found” and can be reattached manually. This deliberately
-favors a visible missing target over quietly pointing to a different element.
+Selecting a saved note locates its target in the preview. A selector must match
+a unique element with the same tag and captured text. If the target has changed,
+edit the note and click the intended element to update it.
 
 ## Implementation boundaries
 
@@ -73,10 +72,10 @@ pnpm rust:test
 ```
 
 Focused tests cover prompt structure, branch/project isolation, corrupt storage,
-frame message validation, parent selection, stale targets, saving without sending,
+frame message validation, stale targets, saving without sending,
 selected-only batch sending, and failed handoffs. Manually verify a desktop and
-mobile preview, reload persistence, edit/reattach, sent/resolved filters, and a
-real agent terminal before submitting a pull request.
+mobile preview, reload persistence, editing, deletion, and a real agent terminal
+before submitting a pull request.
 
 ## Screen sizes
 
