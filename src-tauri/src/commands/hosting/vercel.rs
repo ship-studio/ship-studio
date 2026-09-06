@@ -63,35 +63,8 @@ struct RawDeployment {
     /// no aliases at all.
     #[serde(default)]
     alias: Vec<String>,
-    /// The list endpoint's answer to "are the aliases attached yet", which is
-    /// the only way to tell "built" from "serving" without the detail call.
-    ///
-    /// Its type is not stable: a live response returned the epoch-millisecond
-    /// timestamp of the assignment (`1787594676951`) where the docs imply a
-    /// boolean. Both are accepted, and anything else is treated as "unknown"
-    /// rather than failing the whole lookup over one field.
-    #[serde(default)]
-    alias_assigned: Option<AliasAssigned>,
     #[serde(default)]
     meta: RawMeta,
-}
-
-/// `aliasAssigned` arrives as either a flag or the timestamp at which the
-/// aliases were attached. A timestamp means they are attached.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum AliasAssigned {
-    Flag(bool),
-    At(u64),
-}
-
-impl AliasAssigned {
-    fn is_assigned(&self) -> bool {
-        match self {
-            AliasAssigned::Flag(v) => *v,
-            AliasAssigned::At(ts) => *ts > 0,
-        }
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -765,12 +738,14 @@ mod tests {
     }
 
     #[test]
-    fn alias_assigned_accepts_the_timestamp_form_vercel_actually_sends() {
-        // A live response returned the epoch-millisecond assignment time where
-        // the docs imply a boolean, which failed the whole lookup.
+    fn unknown_fields_never_fail_the_lookup() {
+        // `aliasAssigned` is no longer read, and a live response sends it as a
+        // timestamp where the docs imply a boolean. Either way an unread field
+        // must not take the whole deployment down with it.
         let body = r#"{"deployments":[{
             "uid":"dpl_3","url":"x.vercel.app","readyState":"READY",
-            "aliasAssigned":1787594676951,"target":"production","createdAt":3,
+            "aliasAssigned":1787594676951,"somethingNew":{"nested":true},
+            "target":"production","createdAt":3,
             "meta":{"githubCommitSha":"abc","githubCommitRef":"main"}
         }]}"#;
         let list: RawList = serde_json::from_str(body).unwrap();

@@ -110,9 +110,7 @@ export function HostingRow({ state, commitSubject, shortSha, onAction }: Props) 
           written to fit instead. */}
       <div className="hosting-row-text" data-slot="text">
         <div className="hosting-row-title">{copy.title}</div>
-        <div className="hosting-row-status">
-          {copy.status}
-        </div>
+        <div className="hosting-row-status">{copy.status}</div>
       </div>
 
       {/* Always rendered so the column keeps its width in every state. */}

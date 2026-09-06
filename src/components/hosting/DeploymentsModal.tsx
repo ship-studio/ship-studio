@@ -101,8 +101,7 @@ export function DeploymentsModal({ projectPath }: Props) {
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const name = provider ? PROVIDER_LABELS[provider] : 'your host';
-  const selected =
-    deployments?.find((d) => d.id === selectedId) ?? deployments?.[0] ?? null;
+  const selected = deployments?.find((d) => d.id === selectedId) ?? deployments?.[0] ?? null;
 
   const forSelected = selected && logEntry?.id === selected.id ? logEntry : null;
   const log = forSelected?.log ?? null;
@@ -215,9 +214,7 @@ export function DeploymentsModal({ projectPath }: Props) {
           ref={listRef}
           onKeyDown={handleKeyDown}
         >
-          {deployments === null && (
-            <p className="deployments-empty text-style-hint">Loading…</p>
-          )}
+          {deployments === null && <p className="deployments-empty text-style-hint">Loading…</p>}
           {deployments?.length === 0 && (
             <p className="deployments-empty text-style-hint">
               {loadError ?? `${name} has no deployments for this project yet.`}
@@ -232,9 +229,7 @@ export function DeploymentsModal({ projectPath }: Props) {
               role="option"
               aria-selected={deployment.id === selected?.id}
               tabIndex={deployment.id === selected?.id ? 0 : -1}
-              className={`deployments-item${
-                deployment.id === selected?.id ? ' is-selected' : ''
-              }`}
+              className={`deployments-item${deployment.id === selected?.id ? ' is-selected' : ''}`}
               onClick={() => setSelectedId(deployment.id)}
             >
               <span
@@ -261,9 +256,7 @@ export function DeploymentsModal({ projectPath }: Props) {
             <>
               <div className="deployments-detail-header">
                 <div className="deployments-detail-meta">
-                  {selected.branch && (
-                    <span className="deployments-chip">{selected.branch}</span>
-                  )}
+                  {selected.branch && <span className="deployments-chip">{selected.branch}</span>}
                   <span className="deployments-chip">{selected.commit_sha.slice(0, 7)}</span>
                   {buildDuration(selected) && (
                     <span className="text-style-hint">Built in {buildDuration(selected)}</span>

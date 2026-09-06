@@ -90,7 +90,7 @@ export function HostingTokenModal({
     } catch (err) {
       showToast(
         `Couldn't save the ${name} token: ${formatCommandError(asCommandError(err))}`,
-        'error',
+        'error'
       );
     } finally {
       setSaving(false);

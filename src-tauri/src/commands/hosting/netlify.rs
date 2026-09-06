@@ -85,8 +85,6 @@ struct RawSite {
     ssl_url: Option<String>,
     #[serde(default)]
     custom_domain: Option<String>,
-    #[serde(default)]
-    admin_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

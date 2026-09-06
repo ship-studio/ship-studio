@@ -194,7 +194,7 @@ export function clearHostingLink(projectPath: string, provider: HostingProvider)
 export function listRecentDeployments(
   projectPath: string,
   provider: HostingProvider,
-  limit?: number,
+  limit?: number
 ): Promise<Deployment[]> {
   return invoke<Deployment[]>('list_recent_deployments', { projectPath, provider, limit });
 }
@@ -206,7 +206,7 @@ export function listRecentDeployments(
 export function getDeploymentLog(
   projectPath: string,
   provider: HostingProvider,
-  deploymentId: string,
+  deploymentId: string
 ): Promise<BuildLog> {
   return invoke<BuildLog>('get_deployment_log', { projectPath, provider, deploymentId });
 }

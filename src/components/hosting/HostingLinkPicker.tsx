@@ -76,7 +76,7 @@ export function HostingLinkPicker({
         setSaving(false);
       }
     },
-    [projectPath, onLinked, showToast],
+    [projectPath, onLinked, showToast]
   );
 
   const choose = useCallback(
@@ -100,7 +100,7 @@ export function HostingLinkPicker({
         setLoading(false);
       }
     },
-    [projectPath, onNeedsToken, showToast],
+    [projectPath, onNeedsToken, showToast]
   );
 
   const link = useCallback(
@@ -123,7 +123,7 @@ export function HostingLinkPicker({
         setSaving(false);
       }
     },
-    [projectPath, provider, onLinked, showToast],
+    [projectPath, provider, onLinked, showToast]
   );
 
   return (
@@ -131,9 +131,7 @@ export function HostingLinkPicker({
       <div className="connect-modal-body">
         {detected.length > 0 && !provider ? (
           <>
-            <p>
-              This project is already linked with the provider's own command-line tool. Use it?
-            </p>
+            <p>This project is already linked with the provider's own command-line tool. Use it?</p>
             {detected.map((link) => (
               <Button
                 key={link.provider}
@@ -155,7 +153,10 @@ export function HostingLinkPicker({
         {!provider ? (
           <>
             {detected.length === 0 ? (
-              <p>Pick where this project deploys, so Ship Studio can show you whether each push went live.</p>
+              <p>
+                Pick where this project deploys, so Ship Studio can show you whether each push went
+                live.
+              </p>
             ) : null}
             {PROVIDERS.map((p) => (
               <Button key={p} variant="secondary" width="fill" onClick={() => void choose(p)}>

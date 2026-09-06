@@ -72,7 +72,6 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
   );
 
   const handleAction = useCallback(() => {
-
     switch (state.kind) {
       // Every state that has a deployment opens it on the provider. The
       // addresses are already clickable directly above, so the button spends

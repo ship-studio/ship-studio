@@ -33,10 +33,12 @@ const SITE = 'https://pepper-cayenne-accessories.vercel.app';
 const BUILD = 'https://pepper-cayenne-accessories-myos1awic-juliangalluzzo.vercel.app';
 
 describe('HostingUrls', () => {
-  it("names the addresses the way Vercel names them", () => {
+  it('names the addresses the way Vercel names them', () => {
     // "Site" and "Build" were this app's own words. Vercel calls one the
     // production domain and the other the deployment URL.
-    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+    render(
+      <HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />
+    );
 
     expect(screen.getByText('Domain')).toBeInTheDocument();
     expect(screen.getByText('Deployment')).toBeInTheDocument();
@@ -62,7 +64,9 @@ describe('HostingUrls', () => {
     // MiddleTruncate, which measures with canvas and so collapses to an
     // ellipsis under jsdom's zero-width layout. The address itself is what
     // matters here, and it reaches the user either way.
-    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+    render(
+      <HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />
+    );
 
     expect(
       screen.getByRole('button', {
@@ -72,7 +76,9 @@ describe('HostingUrls', () => {
   });
 
   it('gives each address its own open control, each saying what it opens', () => {
-    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+    render(
+      <HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />
+    );
 
     // A bare "Open" can't say which of two addresses it means.
     expect(screen.getByLabelText(/Open the production domain/)).toBeInTheDocument();
@@ -92,13 +98,17 @@ describe('HostingUrls', () => {
   it('exposes one control per address, not two', () => {
     // The icon lives inside the row's button; announcing it separately would
     // give screen readers and keyboard users the same action twice.
-    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />);
+    render(
+      <HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={vi.fn()} />
+    );
     expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
   it('opens the address its own control belongs to', () => {
     const onOpen = vi.fn();
-    render(<HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={onOpen} />);
+    render(
+      <HostingUrls deployment={deployment({ site: SITE, deployment: BUILD })} onOpen={onOpen} />
+    );
 
     fireEvent.click(screen.getByLabelText(/Open the production domain/));
     expect(onOpen).toHaveBeenCalledWith(SITE);
@@ -110,7 +120,9 @@ describe('HostingUrls', () => {
   it('does not repeat one address under two labels', () => {
     // A project whose site domain is also the deployment URL should show one
     // row, not the same string twice.
-    render(<HostingUrls deployment={deployment({ site: SITE, deployment: SITE })} onOpen={vi.fn()} />);
+    render(
+      <HostingUrls deployment={deployment({ site: SITE, deployment: SITE })} onOpen={vi.fn()} />
+    );
 
     expect(screen.getByText('Domain')).toBeInTheDocument();
     expect(screen.queryByText('Deployment')).not.toBeInTheDocument();
