@@ -3,7 +3,9 @@
 //! Functions for injecting scripts and error overlays into HTML responses.
 //! Used by the preview proxy to add navigation tracking and error display.
 
-use super::{NAV_SCRIPT, RELOAD_SUPPRESS, SCROLLBAR_STYLE, SCROLL_RESTORE, SELECT_SCRIPT};
+use super::{
+    COMMENTS_SCRIPT, NAV_SCRIPT, RELOAD_SUPPRESS, SCROLLBAR_STYLE, SCROLL_RESTORE, SELECT_SCRIPT,
+};
 
 /// Inject the navigation tracking script + the (inert until activated) visual-
 /// editor selection layer into an HTML response body, plus the scrollbar-hiding
@@ -14,7 +16,10 @@ use super::{NAV_SCRIPT, RELOAD_SUPPRESS, SCROLLBAR_STYLE, SCROLL_RESTORE, SELECT
 /// the site's own scrollbar styling overrides ours, and the scroll-restore must
 /// run before first paint to avoid a visible jump — see those consts).
 pub fn inject_nav_script(html: &[u8]) -> Vec<u8> {
-    let with_scripts = inject_into_html(html, &format!("{NAV_SCRIPT}{SELECT_SCRIPT}"));
+    let with_scripts = inject_into_html(
+        html,
+        &format!("{NAV_SCRIPT}{SELECT_SCRIPT}{COMMENTS_SCRIPT}"),
+    );
     inject_at_head_start(
         &with_scripts,
         &format!("{SCROLLBAR_STYLE}{RELOAD_SUPPRESS}{SCROLL_RESTORE}"),
@@ -313,7 +318,9 @@ mod tests {
         let result = inject_nav_script(html);
         let result_str = String::from_utf8(result).unwrap();
         // Both scripts land before </head>, nav first.
-        assert!(result_str.contains(&format!("{NAV_SCRIPT}{SELECT_SCRIPT}</head>")));
+        assert!(result_str.contains(&format!(
+            "{NAV_SCRIPT}{SELECT_SCRIPT}{COMMENTS_SCRIPT}</head>"
+        )));
     }
 
     #[test]
@@ -321,7 +328,9 @@ mod tests {
         let html = b"<html><body>Hello</body></html>";
         let result = inject_nav_script(html);
         let result_str = String::from_utf8(result).unwrap();
-        assert!(result_str.contains(&format!("{NAV_SCRIPT}{SELECT_SCRIPT}</body>")));
+        assert!(result_str.contains(&format!(
+            "{NAV_SCRIPT}{SELECT_SCRIPT}{COMMENTS_SCRIPT}</body>"
+        )));
     }
 
     #[test]
@@ -329,7 +338,7 @@ mod tests {
         let html = b"<html>Hello";
         let result = inject_nav_script(html);
         let result_str = String::from_utf8(result).unwrap();
-        assert!(result_str.ends_with(SELECT_SCRIPT));
+        assert!(result_str.ends_with(COMMENTS_SCRIPT));
         assert!(result_str.contains("ss:select"));
     }
 

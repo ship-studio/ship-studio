@@ -1,0 +1,199 @@
+.canvas-comments-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: var(--border-width-default) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+}
+.canvas-comments-header,
+.canvas-comments-row,
+.canvas-comments-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.canvas-comments-header,
+.canvas-comments-footer {
+  padding: var(--spacing-md);
+}
+.canvas-comments-header {
+  justify-content: space-between;
+  border-bottom: var(--border-width-default) solid var(--border);
+  cursor: move;
+}
+.canvas-comments-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-md);
+}
+.canvas-comments-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  border-top: var(--border-width-default) solid var(--border);
+}
+.canvas-comments-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+.canvas-comments-panel select,
+.canvas-comments-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: var(--border-width-default) solid var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-sm);
+  font: inherit;
+}
+.canvas-comments-panel textarea {
+  resize: vertical;
+}
+.canvas-comments-panel :is(select, textarea, input):focus-visible {
+  outline: var(--border-width-default) solid var(--accent);
+  outline-offset: var(--spacing-xs);
+}
+.canvas-comments-panel input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+.canvas-comment-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+.canvas-comments-context {
+  padding: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border: var(--border-width-default) solid var(--border);
+  border-radius: var(--radius-control);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.canvas-comments-context code {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+.canvas-comments-row {
+  justify-content: space-between;
+}
+.canvas-comments-row .button {
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+}
+.canvas-comments-actions {
+  flex-wrap: wrap;
+  margin-top: var(--spacing-sm);
+}
+.canvas-comments-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  margin: 0;
+}
+.canvas-comments-scroll > .canvas-comments-hint {
+  margin-bottom: var(--spacing-md);
+}
+.canvas-comments-error {
+  display: block;
+  color: var(--error);
+  font-size: var(--font-size-body-sm);
+}
+.canvas-comments-group h3 {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  overflow-wrap: anywhere;
+  margin: var(--spacing-md) 0 var(--spacing-sm);
+}
+.canvas-comment-card {
+  border: var(--border-width-default) solid var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  background: var(--bg-secondary);
+}
+.canvas-comment-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  margin: var(--spacing-sm) 0;
+}
+.canvas-comments-empty {
+  padding: var(--spacing-lg) 0;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.canvas-comments-empty strong {
+  color: var(--text-secondary);
+}
+.canvas-comments-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-body-sm);
+  background: var(--bg-secondary);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-control);
+}
+
+/* DockablePanel's default child fills the surface; these three rows share it. */
+.canvas-comments-panel > .canvas-comments-header,
+.canvas-comments-panel > .canvas-comments-footer {
+  height: auto;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.canvas-comments-panel > .canvas-comments-scroll {
+  height: auto;
+  box-sizing: border-box;
+}
+
+.canvas-comments-context .canvas-comments-tag {
+  color: var(--accent-active);
+}
+.canvas-comments-target-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.canvas-comments-scope {
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.canvas-comments-scope legend {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  padding: 0;
+  margin-bottom: var(--spacing-sm);
+}
+.canvas-comments-sizes {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+.canvas-comments-sizes .button {
+  flex: 1;
+  padding-inline: var(--spacing-xs);
+}
+.canvas-comments-sizes .button[aria-pressed='true'] {
+  color: var(--accent-active);
+  border-color: var(--accent-active);
+  opacity: 1;
+}

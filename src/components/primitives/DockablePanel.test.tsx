@@ -36,6 +36,30 @@ describe('DockablePanel', () => {
     localStorage.clear();
   });
 
+  it('keeps compact tools on screen after restoring a position and growing', () => {
+    localStorage.setItem('compact.position', JSON.stringify({ left: 9999, top: 9999 }));
+    const panel = (height: number) => (
+      <DockablePanel
+        docked={false}
+        ariaLabel="Compact tool"
+        positionKey="compact.position"
+        sizeKey="compact.size"
+        floatingSize={{ width: 320, height }}
+        initialPosition={() => ({ left: 0, top: 0 })}
+        resizable={false}
+        keepWithinViewport
+      >
+        <header data-dockable-drag-handle>Tool</header>
+      </DockablePanel>
+    );
+    const { rerender } = render(panel(130));
+    const surface = screen.getByLabelText('Compact tool');
+    expect(parseFloat(surface.style.left) + 320).toBeLessThanOrEqual(window.innerWidth);
+    expect(parseFloat(surface.style.top) + 130).toBeLessThanOrEqual(window.innerHeight);
+    rerender(panel(350));
+    expect(parseFloat(surface.style.top) + 350).toBeLessThanOrEqual(window.innerHeight);
+  });
+
   it('tracks its dock container when surrounding panels resize', () => {
     let dockRect = {
       x: 120,

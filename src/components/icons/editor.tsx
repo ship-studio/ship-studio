@@ -1,3 +1,4 @@
+import CommentSvg from '../../assets/icons/comment.svg?react';
 import CodeBlockSvg from '../../assets/icons/code-block.svg?react';
 import TerminalSvg from '../../assets/icons/terminal.svg?react';
 import EditModeSvg from '../../assets/icons/edit-mode.svg?react';
@@ -263,4 +264,12 @@ export const PasteIcon = createIcon(PasteSvg, {
   source: 'icons/old-icons/paste.svg',
   kind: 'ui',
   defaultSize: 14,
+});
+
+export const CommentIcon = createIcon(CommentSvg, {
+  name: 'CommentIcon',
+  source: 'icons/comment.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1.5px',
 });

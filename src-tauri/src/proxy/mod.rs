@@ -87,6 +87,7 @@ const NAV_SCRIPT: &str = r#"<script>(function(){window.parent.postMessage({type:
 /// The script body lives in `select_script.html` so the same source is shared
 /// with the jsdom behavior test (`src/components/edit/selectScript.test.ts`).
 const SELECT_SCRIPT: &str = include_str!("select_script.html");
+const COMMENTS_SCRIPT: &str = include_str!("comments_script.html");
 
 /// Hides the preview iframe's *default* browser scrollbars — the chunky white
 /// macOS/WebKit bars that frame the rendered site — without hijacking sites that
@@ -192,7 +193,7 @@ impl HeadInjector {
             inject_at_head_start(
                 &buf,
                 &format!(
-                    "{SCROLLBAR_STYLE}{RELOAD_SUPPRESS}{SCROLL_RESTORE}{NAV_SCRIPT}{SELECT_SCRIPT}"
+                    "{SCROLLBAR_STYLE}{RELOAD_SUPPRESS}{SCROLL_RESTORE}{NAV_SCRIPT}{SELECT_SCRIPT}{COMMENTS_SCRIPT}"
                 ),
             )
         } else {

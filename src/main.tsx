@@ -195,6 +195,8 @@ const OS_SKIP_SELECTOR = [
   // clipping, so the canvas's own height feeds back into the size it measures
   // itself by and the surface runs away to millions of pixels.
   '.preview-canvas',
+  // Comments replace draft/list children often; preserve React's DOM ownership.
+  '.canvas-comments-panel',
 ].join(', ');
 
 function initScrollbars() {

@@ -1,0 +1,96 @@
+<script>(function () {
+  if (window.__ssCommentsInit) return;
+  window.__ssCommentsInit = true;
+  var enabled = false, picking = false, selected = null, hovered = null, notes = [], host = null, root = null, hover = null, raf = 0;
+  function send(data) { window.parent.postMessage(Object.assign({ channel: 'ss:comments' }, data), '*'); }
+  function page() { return location.pathname + location.search + location.hash; }
+  function own(el) { return el === host || (host && host.contains(el)); }
+  function selector(el) {
+    var parts = [];
+    while (el && el.nodeType === 1) {
+      if (el.id && document.querySelectorAll('#' + CSS.escape(el.id)).length === 1) {
+        parts.unshift('#' + CSS.escape(el.id)); break;
+      }
+      var p = el.parentElement, tag = el.tagName.toLowerCase(), n = 1;
+      if (p) { var peers = Array.from(p.children).filter(function (x) { return x.tagName === el.tagName; }); n = peers.indexOf(el) + 1; }
+      parts.unshift(tag + ':nth-of-type(' + n + ')'); el = p;
+    }
+    return parts.join(' > ');
+  }
+  function text(el) { return (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 1000); }
+  function target(el) {
+    var r = el.getBoundingClientRect(), chain = [], p = el.parentElement;
+    while (p && chain.length < 6) { chain.push(p.tagName.toLowerCase() + (p.id ? '#' + p.id : '') + (p.className && typeof p.className === 'string' ? '.' + p.className.trim().split(/\s+/).slice(0, 4).join('.') : '')); p = p.parentElement; }
+    var heading = el.matches('h1,h2,h3,h4,h5,h6') ? el : el.querySelector('h1,h2,h3,h4,h5,h6');
+    if (!heading) { var section = el.closest('section,article,header,main'); heading = section && section.querySelector('h1,h2,h3'); }
+    var source = el.getAttribute('data-source') || el.getAttribute('data-loc') || undefined;
+    return { page: page(), selector: selector(el), tag: el.tagName.toLowerCase(), classes: (el.getAttribute('class') || '').slice(0, 2000), text: text(el), heading: heading ? text(heading) : '', ancestors: chain, viewport: { width: innerWidth, height: innerHeight }, rect: { x: r.x, y: r.y, width: r.width, height: r.height }, source: source };
+  }
+  function ensure() {
+    if (host && host.isConnected) return;
+    host = document.createElement('div'); host.setAttribute('data-ss-overlay', 'comments');
+    host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647';
+    root = host.attachShadow({ mode: 'open' });
+    var style = document.createElement('style');
+    style.textContent = '.outline{position:fixed;box-sizing:border-box;border:2px solid var(--cc-accent);box-shadow:0 0 0 100vmax var(--cc-scrim);pointer-events:none}.outline[hidden]{display:none}';
+    root.appendChild(style); document.documentElement.appendChild(host);
+    hover = document.createElement('div'); hover.className = 'outline'; hover.hidden = true; root.appendChild(hover);
+  }
+  function outline(el) {
+    if (!hover) return;
+    if (!el || !el.isConnected) { hover.hidden = true; return; }
+    var r = el.getBoundingClientRect(); hover.hidden = false;
+    Object.assign(hover.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+  }
+  function resolve(t) {
+    var candidates;
+    try { candidates = document.querySelectorAll(t.selector); } catch (_) { return null; }
+    if (candidates.length !== 1) return null;
+    var el = candidates[0];
+    // A positional selector landing on a different sibling must never silently reattach.
+    if (el.tagName.toLowerCase() !== t.tag || (t.text && text(el) !== t.text)) return null;
+    return el;
+  }
+  function render() {
+    raf = 0;
+    if (!enabled) return;
+    ensure();
+    var missing = [];
+    notes.filter(function (n) { return n.target.page === page(); }).forEach(function (n) {
+      var el = resolve(n.target);
+      if (!el) { missing.push(n.id); return; }
+
+    });
+    outline(picking ? hovered || selected : selected); send({ type: 'locations', missing: missing, page: page() });
+  }
+  function schedule() { if (enabled && !raf) raf = requestAnimationFrame(render); }
+  window.addEventListener('message', function (e) {
+    if (e.source !== window.parent || !e.data || e.data.channel !== 'ss:comments-host') return;
+    var d = e.data;
+    if (d.type === 'sync') {
+      enabled = !!d.enabled; picking = !!d.picking; notes = Array.isArray(d.notes) ? d.notes : [];
+      if (!enabled) { if (host) host.remove(); selected = null; hovered = null; return; }
+      ensure(); host.style.setProperty('--cc-accent', d.accent); host.style.setProperty('--cc-ink', d.ink); host.style.setProperty('--cc-scrim', d.scrim); schedule(); send({ type: 'ready', page: page() });
+    } else if (d.type === 'parent' && enabled && selected && selected.parentElement && selected !== document.body) {
+      selected = selected.parentElement; outline(selected); send({ type: 'selected', target: target(selected) });
+    } else if (d.type === 'clear') { selected = null; hovered = null; outline(null); }
+    else if (d.type === 'locate' && enabled && d.target.page === page()) {
+      var el = resolve(d.target);
+      if (el) { el.scrollIntoView({ block: 'center', behavior: 'instant' }); selected = el; hovered = el; schedule(); }
+      else send({ type: 'missing', id: d.id });
+    }
+  });
+  document.addEventListener('pointerover', function (e) { if (enabled && picking && !own(e.target) && e.target instanceof Element) { hovered = e.target; outline(hovered); } }, true);
+  document.addEventListener('pointerout',function(e){if(enabled&&picking&&(!e.relatedTarget||own(e.relatedTarget))){hovered=null;outline(selected);}},true);
+  document.addEventListener('click', function (e) {
+    if (!enabled || !picking || own(e.target) || !(e.target instanceof Element)) return;
+    e.preventDefault(); e.stopImmediatePropagation(); selected = e.target;
+    outline(selected); send({ type: 'selected', target: target(selected) });
+  }, true);
+  document.addEventListener('keydown', function (e) { if (enabled && e.key === 'Escape') { e.preventDefault(); send({ type: 'escape' }); } }, true);
+  window.addEventListener('scroll', schedule, true); window.addEventListener('resize', schedule);
+  new MutationObserver(function (mutations) {
+    if (mutations.some(function (m) { return !own(m.target) && (m.type !== 'childList' || !Array.from(m.addedNodes).concat(Array.from(m.removedNodes)).every(function (n) { return n === host; })); })) schedule();
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+  send({ type: 'ready', page: page() });
+})();</script>
