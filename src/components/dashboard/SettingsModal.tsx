@@ -4,6 +4,8 @@
  * Contains:
  * - Projects folder (where projects are listed/created), with an optional move
  * - General settings and Appearance settings, including workspace layout and icon selection
+ * - Experimental: opt-in toys and half-finished ideas, kept out of Appearance so
+ *   that tab stays about how the app looks
  * - Analytics opt-out toggle
  *
  * @module components/SettingsModal
@@ -71,7 +73,7 @@ interface MovePrompt {
   info: MovableProjects;
 }
 
-type SettingsTab = 'general' | 'appearance';
+type SettingsTab = 'general' | 'appearance' | 'experimental';
 
 export function SettingsModal({
   isOpen,
@@ -398,6 +400,9 @@ export function SettingsModal({
             <TabsTab value="appearance" width="fill" className="command-palette-tab">
               Appearance
             </TabsTab>
+            <TabsTab value="experimental" width="fill" className="command-palette-tab">
+              Experimental
+            </TabsTab>
           </TabsList>
 
           <TabsPanel value="general" className="settings-tab-panel">
@@ -598,29 +603,6 @@ export function SettingsModal({
                       </span>
                     </button>
                   </div>
-                  {isMac() && (
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-row-label">Spotify controls</span>
-                        <span className="settings-row-description">
-                          Show what's playing in Spotify in the sidebar, with play/pause and skip
-                          controls. macOS will ask permission to control Spotify the first time.
-                        </span>
-                      </div>
-                      <button
-                        className={`settings-toggle ${spotifyWidgetEnabled ? 'on' : 'off'}`}
-                        onClick={handleSpotifyWidgetToggle}
-                        disabled={loading}
-                        role="switch"
-                        aria-label="Spotify controls"
-                        aria-checked={spotifyWidgetEnabled}
-                      >
-                        <span className="settings-toggle-track">
-                          <span className="settings-toggle-thumb" />
-                        </span>
-                      </button>
-                    </div>
-                  )}
                 </div>
                 <div className="settings-row">
                   <div className="settings-row-info">
@@ -672,6 +654,46 @@ export function SettingsModal({
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+            </div>
+          </TabsPanel>
+
+          {/* Things that are switched off by default and might not survive.
+              Kept out of Appearance because none of this is about how the app
+              looks — putting a Spotify remote under "Appearance" was a stretch
+              even with one of them. */}
+          <TabsPanel value="experimental" className="settings-tab-panel">
+            <div className="settings-modal-body">
+              <div className="settings-section">
+                <div className="settings-group">
+                  {isMac() ? (
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-row-label">Spotify controls</span>
+                        <span className="settings-row-description">
+                          Show what's playing in Spotify in the sidebar, with play/pause and skip
+                          controls. macOS will ask permission to control Spotify the first time.
+                        </span>
+                      </div>
+                      <button
+                        className={`settings-toggle ${spotifyWidgetEnabled ? 'on' : 'off'}`}
+                        onClick={handleSpotifyWidgetToggle}
+                        disabled={loading}
+                        role="switch"
+                        aria-label="Spotify controls"
+                        aria-checked={spotifyWidgetEnabled}
+                      >
+                        <span className="settings-toggle-track">
+                          <span className="settings-toggle-thumb" />
+                        </span>
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="settings-empty-note">
+                      Nothing experimental for this platform yet.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
