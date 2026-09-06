@@ -58,3 +58,31 @@ it('pins the root height for a canvas without touching the site around it', asyn
   observer.disconnect();
   expect(mutations).toEqual([]);
 });
+
+it('remeasures late content after settling and shrinks again without idle polling', async () => {
+  document.body.innerHTML = '<main></main>';
+  window.dispatchEvent(
+    new MessageEvent('message', { data: { type: 'ss:canvas', on: true, vh: 700 } })
+  );
+  document.body.style.margin = '0';
+  const main = document.querySelector('main')!;
+  vi.spyOn(main, 'getBoundingClientRect').mockReturnValue({ bottom: 900 } as DOMRect);
+  await vi.advanceTimersByTimeAsync(11000);
+  const post = vi.spyOn(window.parent, 'postMessage');
+  const extra = document.createElement('section');
+  vi.spyOn(extra, 'getBoundingClientRect').mockReturnValue({ bottom: 2800 } as DOMRect);
+  document.body.appendChild(extra);
+  await vi.advanceTimersByTimeAsync(800);
+  expect(post).toHaveBeenCalledWith({ type: 'ss:pageHeight', height: 2800 }, '*');
+  extra.remove();
+  await vi.advanceTimersByTimeAsync(800);
+  expect(post).toHaveBeenCalledWith({ type: 'ss:pageHeight', height: 900 }, '*');
+  const count = post.mock.calls.filter(
+    ([d]) => (d as { type?: string }).type === 'ss:pageHeight'
+  ).length;
+  await vi.advanceTimersByTimeAsync(12000);
+  expect(
+    post.mock.calls.filter(([d]) => (d as { type?: string }).type === 'ss:pageHeight')
+  ).toHaveLength(count);
+  post.mockRestore();
+});
