@@ -336,10 +336,14 @@ pub struct IdeAvailability {
 /// Information about an available browser
 #[derive(Serialize)]
 pub struct BrowserInfo {
-    /// Unique identifier (e.g., "chrome", "safari")
+    /// Opaque identifier used to launch it again (macOS: bundle identifier,
+    /// e.g. "com.google.Chrome"; Windows: the resolved executable path)
     pub id: String,
-    /// Display name (e.g., "Google Chrome", "Safari")
+    /// Display name (e.g., "Google Chrome", "Zen")
     pub name: String,
+    /// The app's own icon as a PNG data URI, when one could be extracted.
+    /// `None` leaves the frontend on its generic fallback icon.
+    pub icon: Option<String>,
 }
 
 // ============ Agent CLI Integration ============

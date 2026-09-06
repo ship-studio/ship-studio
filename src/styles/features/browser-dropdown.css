@@ -67,6 +67,15 @@
   opacity: 1;
 }
 
+/* The browser's own app icon, extracted from its bundle. Sized to match the
+   14px SVG marks so rows line up whichever kind of icon a browser resolves to. */
+.browser-dropdown-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
 .browser-dropdown-inner button:disabled {
   opacity: 0.6;
   cursor: wait;

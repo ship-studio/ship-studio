@@ -36,14 +36,18 @@ interface BrowserDropdownProps {
   iconOnly?: boolean;
 }
 
-const BROWSER_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
-  safari: SafariIcon,
-  chrome: ChromeIcon,
-  firefox: FirefoxIcon,
-  arc: ArcIcon,
-  brave: BraveIcon,
-  edge: EdgeIcon,
-};
+/**
+ * Fallback marks for platforms where the backend can't extract the app's own
+ * icon (Windows). Matched on the display name, since the ids are opaque.
+ */
+const BRAND_ICONS: [RegExp, React.ComponentType<{ size?: number }>][] = [
+  [/safari/i, SafariIcon],
+  [/chrome|chromium/i, ChromeIcon],
+  [/firefox|librewolf|waterfox|floorp|tor browser/i, FirefoxIcon],
+  [/\barc\b/i, ArcIcon],
+  [/brave/i, BraveIcon],
+  [/edge/i, EdgeIcon],
+];
 
 export function BrowserDropdown({
   url,
@@ -143,9 +147,14 @@ export function BrowserDropdown({
     }
   };
 
-  const getBrowserIcon = (browserId: string) => {
-    const IconComponent = BROWSER_ICONS[browserId] || GlobeIcon;
-    return <IconComponent size={14} />;
+  const getBrowserIcon = (browser: BrowserInfo) => {
+    if (browser.icon) {
+      // Decorative: the browser name sits right next to it as the label.
+      return <img src={browser.icon} alt="" className="browser-dropdown-icon" />;
+    }
+    const [, IconComponent] = BRAND_ICONS.find(([pattern]) => pattern.test(browser.name)) ?? [];
+    const Fallback = IconComponent ?? GlobeIcon;
+    return <Fallback size={14} />;
   };
 
   const iconSize = iconOnly ? 12 : 14;
@@ -226,7 +235,7 @@ export function BrowserDropdown({
                 onClick={() => void handleBrowserOpen(browser.id)}
                 disabled={openingBrowser !== null}
               >
-                {getBrowserIcon(browser.id)}
+                {getBrowserIcon(browser)}
                 {openingBrowser === browser.id ? 'Opening...' : browser.name}
               </button>
             ))}

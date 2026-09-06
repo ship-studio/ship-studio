@@ -12,10 +12,15 @@ import { invoke } from '@tauri-apps/api/core';
 
 /** Information about an available browser */
 export interface BrowserInfo {
-  /** Unique identifier (e.g., "chrome", "safari") */
+  /**
+   * Opaque launch identifier (macOS: bundle identifier, e.g. "com.google.Chrome";
+   * Windows: the resolved executable path). The backend resolves it to a path.
+   */
   id: string;
-  /** Display name (e.g., "Google Chrome", "Safari") */
+  /** Display name (e.g., "Google Chrome", "Zen") */
   name: string;
+  /** The app's own icon as a PNG data URI, when the backend could extract one */
+  icon?: string | null;
 }
 
 /**

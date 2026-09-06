@@ -3,54 +3,23 @@
 //! Commands for IDE integration, browser selection, preview webviews, and screenshots.
 //!
 //! Organized into submodules:
+//! - `browsers` — discovery of installed browsers and opening URLs in a chosen one
 //! - `preview` — preview webview creation, navigation, resize, scroll, and JS evaluation
 //! - `screenshots` — project thumbnails, Playwright captures, image comparison, cropping, and stitching
 
+mod browsers;
 mod preview;
 mod screenshots;
 
+pub use browsers::*;
 pub use preview::*;
 pub use screenshots::*;
 
 use crate::errors::CommandError;
-use crate::types::{BrowserInfo, IdeAvailability};
+use crate::types::IdeAvailability;
 use crate::utils::{create_command, validate_project_path};
 use std::path::{Path, PathBuf};
 use tauri::{Manager, WebviewUrl};
-
-/// Browser configurations for macOS
-/// Tuple: (id, display_name, app_path)
-#[cfg(target_os = "macos")]
-const MACOS_BROWSERS: &[(&str, &str, &str)] = &[
-    ("safari", "Safari", "/Applications/Safari.app"),
-    ("chrome", "Google Chrome", "/Applications/Google Chrome.app"),
-    ("firefox", "Firefox", "/Applications/Firefox.app"),
-    ("arc", "Arc", "/Applications/Arc.app"),
-    ("brave", "Brave", "/Applications/Brave Browser.app"),
-    ("edge", "Microsoft Edge", "/Applications/Microsoft Edge.app"),
-];
-
-/// Browser configurations for Windows
-/// Tuple: (id, display_name, registry_or_path_hint)
-#[cfg(target_os = "windows")]
-const WINDOWS_BROWSERS: &[(&str, &str, &str)] = &[
-    (
-        "chrome",
-        "Google Chrome",
-        r"Google\Chrome\Application\chrome.exe",
-    ),
-    (
-        "edge",
-        "Microsoft Edge",
-        r"Microsoft\Edge\Application\msedge.exe",
-    ),
-    (
-        "brave",
-        "Brave",
-        r"BraveSoftware\Brave-Browser\Application\brave.exe",
-    ),
-    ("firefox", "Firefox", r"Mozilla Firefox\firefox.exe"),
-];
 
 /// Find a browser executable on Windows by checking common install locations.
 #[cfg(target_os = "windows")]
@@ -222,102 +191,6 @@ pub async fn open_in_ide(
     }
 
     Ok(())
-}
-
-/// Check which browsers are available on the system
-#[tauri::command]
-#[tracing::instrument]
-pub async fn check_browser_availability() -> Vec<BrowserInfo> {
-    #[cfg(target_os = "macos")]
-    {
-        MACOS_BROWSERS
-            .iter()
-            .filter_map(|(id, name, path)| {
-                if std::path::Path::new(path).exists() {
-                    Some(BrowserInfo {
-                        id: id.to_string(),
-                        name: name.to_string(),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        WINDOWS_BROWSERS
-            .iter()
-            .filter_map(|(id, name, relative_path)| {
-                if find_windows_browser(relative_path).is_some() {
-                    Some(BrowserInfo {
-                        id: id.to_string(),
-                        name: name.to_string(),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        vec![]
-    }
-}
-
-/// Open a URL in a specific browser
-#[tauri::command]
-#[tracing::instrument]
-pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), CommandError> {
-    #[cfg(target_os = "macos")]
-    {
-        let app_name = MACOS_BROWSERS
-            .iter()
-            .find(|(id, _, _)| *id == browser_id)
-            .map(|(_, name, _)| *name)
-            .ok_or_else(|| format!("Unknown browser: {browser_id}"))?;
-
-        // Retried on transient EAGAIN (process-table pressure) and classified
-        // Expected when it persists — a bare "Failed to open in safari:
-        // Resource temporarily unavailable (os error 35)" was reaching
-        // telemetry as an app malfunction (issue #585).
-        let mut cmd = create_command("open");
-        cmd.args(["-a", app_name, &url]);
-        crate::external_command::spawn_with_pressure_retry(&format!("open {browser_id}"), || {
-            cmd.spawn()
-        })?;
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let relative_path = WINDOWS_BROWSERS
-            .iter()
-            .find(|(id, _, _)| *id == browser_id)
-            .map(|(_, _, path)| *path)
-            .ok_or_else(|| format!("Unknown browser: {}", browser_id))?;
-
-        let browser_exe = find_windows_browser(relative_path)
-            .ok_or_else(|| format!("Browser not found: {}", browser_id))?;
-
-        let mut cmd = create_command(browser_exe);
-        cmd.arg(&url);
-        crate::external_command::spawn_with_pressure_retry(&format!("open {browser_id}"), || {
-            cmd.spawn()
-        })?;
-
-        Ok(())
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let _ = (url, browser_id);
-        Err(("Browser selection not supported on this platform".to_string()).into())
-    }
 }
 
 #[tauri::command]
