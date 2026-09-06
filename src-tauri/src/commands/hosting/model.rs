@@ -527,6 +527,81 @@ mod tests {
         assert_eq!(log(&[]).likely_error(), None);
     }
 
+    /// The TS mirror in `src/lib/hosting.ts` is written by hand, so a field
+    /// renamed here drifts silently: Rust still compiles, TypeScript still
+    /// compiles, and the field simply arrives as `undefined` at runtime. That
+    /// is exactly how this section spent a day showing a build permalink where
+    /// the site's address belonged — the value was real, it was just read from
+    /// the wrong key.
+    ///
+    /// Pinning the exact key set turns a rename into a failing test rather than
+    /// a missing row. Update this list and `src/lib/hosting.ts` together.
+    #[test]
+    fn the_wire_shape_the_frontend_reads_is_pinned() {
+        let deployment = Deployment {
+            id: "dpl_1".into(),
+            status_label: "Ready".into(),
+            phase: DeploymentPhase::Ready,
+            detail: None,
+            environment: Environment::Production,
+            branch: Some("main".into()),
+            commit_sha: "abc".into(),
+            commit_message: Some("Fix the nav".into()),
+            urls: DeploymentUrls {
+                site: Some("https://example.com".into()),
+                deployment: Some("https://abc.example.com".into()),
+                aliases: vec![],
+                primary: Some("https://example.com".into()),
+            },
+            dashboard_url: Some("https://vercel.com/x".into()),
+            error_message: None,
+            created_at: 1,
+            ready_at: Some(2),
+        };
+
+        let json = serde_json::to_value(&deployment).unwrap();
+        let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "branch",
+                "commit_message",
+                "commit_sha",
+                "created_at",
+                "dashboard_url",
+                "environment",
+                "id",
+                "phase",
+                "ready_at",
+                "status_label",
+                "urls",
+            ]
+        );
+
+        let mut url_keys: Vec<&str> = json["urls"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        url_keys.sort_unstable();
+        // `site` and `deployment` are different addresses and are not
+        // interchangeable; conflating them is the original defect.
+        assert_eq!(url_keys, ["aliases", "deployment", "primary", "site"]);
+    }
+
+    #[test]
+    fn an_absent_address_is_omitted_rather_than_sent_as_null() {
+        // The TS mirror types these as optional. Emitting an explicit null
+        // where the frontend expects absence is the kind of mismatch that
+        // shows up as a row rendering the word "null".
+        let urls = DeploymentUrls::default();
+        let json = serde_json::to_value(&urls).unwrap();
+        let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["aliases"]);
+    }
+
     #[test]
     fn terminal_phases_stop_the_fast_poll() {
         assert!(DeploymentPhase::Ready.is_terminal());
