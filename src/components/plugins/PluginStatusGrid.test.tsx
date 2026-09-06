@@ -4,31 +4,36 @@ import type { LoadedPlugin } from '../../hooks/usePlugins';
 import type { PluginInfo } from '../../lib/plugins';
 import { PluginStatusGrid } from './PluginStatusGrid';
 
-const plugin: PluginInfo = {
-  manifest: {
-    id: 'vercel',
-    name: 'Vercel',
-    version: '1.0.0',
-    description: 'Deploy with Vercel',
-    slots: ['toolbar'],
-    author: 'Ship Studio',
-    repository: 'https://github.com/ship-studio/plugin-vercel',
-    setup: [],
-    min_app_version: '',
-    icon: '',
-    required_commands: [],
-  },
-  enabled: true,
-  installed_at: 0,
-  source_url: 'https://github.com/ship-studio/plugin-vercel',
-  is_dev: false,
-  local_path: '',
-};
+function makePlugin(overrides: Partial<PluginInfo['manifest']> = {}): PluginInfo {
+  return {
+    manifest: {
+      id: 'ccusage',
+      name: 'Claude Usage',
+      version: '1.0.0',
+      description: 'Shows Claude Code spend',
+      slots: ['toolbar'],
+      author: 'Ship Studio',
+      repository: 'https://github.com/ship-studio/plugin-ccusage',
+      setup: [],
+      min_app_version: '',
+      icon: '',
+      required_commands: [],
+      ...overrides,
+    },
+    enabled: true,
+    installed_at: 0,
+    source_url: 'https://github.com/ship-studio/plugin-ccusage',
+    is_dev: false,
+    local_path: '',
+  };
+}
 
-function renderGrid(loadedPlugins: LoadedPlugin[]) {
+const plugin = makePlugin();
+
+function renderGrid(loadedPlugins: LoadedPlugin[], plugins: PluginInfo[] = [plugin]) {
   render(
     <PluginStatusGrid
-      plugins={[plugin]}
+      plugins={plugins}
       loadedPlugins={loadedPlugins}
       togglingId={null}
       removingId={null}
@@ -61,7 +66,34 @@ describe('PluginStatusGrid', () => {
       },
     ]);
 
-    expect(screen.getByText('Vercel')).toBeInTheDocument();
+    expect(screen.getByText('Claude Usage')).toBeInTheDocument();
     expect(toolbarRender).not.toHaveBeenCalled();
+  });
+});
+
+describe('a plugin the app now does itself', () => {
+  const superseded = makePlugin({ id: 'vercel', name: 'Vercel' });
+
+  it('says why it stopped doing anything', () => {
+    // It is skipped at load, so it renders nothing anywhere else in the app.
+    // This row is the only place someone finds out why.
+    renderGrid([], [superseded]);
+
+    expect(screen.getByText('Built in now')).toBeInTheDocument();
+    expect(screen.getByText(/Hosting is built in now/)).toBeInTheDocument();
+  });
+
+  it('offers no on/off toggle', () => {
+    // Turning it on would change nothing, and offering the switch implies it
+    // would.
+    renderGrid([], [superseded]);
+
+    expect(screen.queryByTitle('Disable')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Enable')).not.toBeInTheDocument();
+  });
+
+  it("leaves an ordinary plugin's toggle alone", () => {
+    renderGrid([]);
+    expect(screen.getByTitle('Disable')).toBeInTheDocument();
   });
 });

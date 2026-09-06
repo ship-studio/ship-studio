@@ -89,6 +89,36 @@ export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
  */
 export const NATIVE_HOSTING_IDS = ['vercel', 'cloudflare', 'netlify'];
 
+/**
+ * Plugins the app now does itself, and what replaced each one.
+ *
+ * A superseded plugin is skipped at load, so it renders nothing and its
+ * background timers never run — but it is still on disk and still listed, and
+ * saying nothing would leave someone staring at a plugin that appears enabled
+ * and does nothing. The Plugin Manager reads this to explain and to offer
+ * removal.
+ *
+ * Removal is never automatic. Some of these are dev-linked checkouts pointed at
+ * a folder someone is working in, and deleting one of those is not ours to do
+ * on their behalf.
+ */
+export const SUPERSEDED_PLUGINS: Record<string, string> = {
+  vercel: 'Hosting is built in now — see the Hosting section when you push.',
+  cloudflare: 'Hosting is built in now — see the Hosting section when you push.',
+  netlify: 'Hosting is built in now — see the Hosting section when you push.',
+  'brand-guidelines': 'Replaced by the shipstudio-brand-guidelines skill — just ask your agent.',
+  hue: 'The Hue skill does this directly — just ask your agent.',
+  'url-to-code': 'Replaced by the shipstudio-site-to-code skill — just ask your agent.',
+  'webflow-to-code': 'Replaced by the shipstudio-site-to-code skill — just ask your agent.',
+  'weweb-to-code': 'Replaced by the shipstudio-site-to-code skill — just ask your agent.',
+  'wordpress-to-code': 'Replaced by the shipstudio-site-to-code skill — just ask your agent.',
+};
+
+/** Why this plugin no longer runs, or null if it still does. */
+export function supersededReason(pluginId: string): string | null {
+  return SUPERSEDED_PLUGINS[pluginId] ?? null;
+}
+
 const REGISTRY_URL =
   'https://raw.githubusercontent.com/ship-studio/plugin-registry/main/registry.json';
 
