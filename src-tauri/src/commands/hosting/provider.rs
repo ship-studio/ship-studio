@@ -9,16 +9,7 @@ use super::http::HostingHttpError;
 use super::model::{
     BuildLog, Deployment, HostingLink, HostingProjectChoice, HostingProvider, Lookup,
 };
-use super::vercel;
-
-/// Placeholder for a provider whose adapter has not landed yet. Returns a
-/// transport-shaped failure so the UI shows "couldn't reach" rather than
-/// pretending the project is unlinked or, worse, healthy.
-fn not_yet_implemented(provider: HostingProvider) -> HostingHttpError {
-    HostingHttpError::Transport {
-        message: format!("{} support is still being built.", provider.label()),
-    }
-}
+use super::{cloudflare, netlify, vercel};
 
 /// Find the deployment for an exact commit.
 pub async fn find_for_commit(
@@ -29,9 +20,8 @@ pub async fn find_for_commit(
 ) -> Result<Lookup, HostingHttpError> {
     match link.provider {
         HostingProvider::Vercel => vercel::find_for_commit(link, token, sha, branch).await,
-        HostingProvider::Cloudflare | HostingProvider::Netlify => {
-            Err(not_yet_implemented(link.provider))
-        }
+        HostingProvider::Cloudflare => cloudflare::find_for_commit(link, token, sha, branch).await,
+        HostingProvider::Netlify => netlify::find_for_commit(link, token, sha, branch).await,
     }
 }
 
@@ -44,9 +34,8 @@ pub async fn fetch_logs(
 ) -> Result<BuildLog, HostingHttpError> {
     match link.provider {
         HostingProvider::Vercel => vercel::fetch_logs(link, token, deployment_id).await,
-        HostingProvider::Cloudflare | HostingProvider::Netlify => {
-            Err(not_yet_implemented(link.provider))
-        }
+        HostingProvider::Cloudflare => cloudflare::fetch_logs(link, token, deployment_id).await,
+        HostingProvider::Netlify => netlify::fetch_logs(link, token, deployment_id).await,
     }
 }
 
@@ -58,9 +47,8 @@ pub async fn list_recent(
 ) -> Result<Vec<Deployment>, HostingHttpError> {
     match link.provider {
         HostingProvider::Vercel => vercel::list_recent(link, token, limit).await,
-        HostingProvider::Cloudflare | HostingProvider::Netlify => {
-            Err(not_yet_implemented(link.provider))
-        }
+        HostingProvider::Cloudflare => cloudflare::list_recent(link, token, limit).await,
+        HostingProvider::Netlify => netlify::list_recent(link, token, limit).await,
     }
 }
 
@@ -72,9 +60,8 @@ pub async fn list_projects(
 ) -> Result<Vec<HostingProjectChoice>, HostingHttpError> {
     match provider {
         HostingProvider::Vercel => vercel::list_projects(token, scope_id).await,
-        HostingProvider::Cloudflare | HostingProvider::Netlify => {
-            Err(not_yet_implemented(provider))
-        }
+        HostingProvider::Cloudflare => cloudflare::list_projects(token, scope_id).await,
+        HostingProvider::Netlify => netlify::list_projects(token).await,
     }
 }
 
@@ -85,8 +72,7 @@ pub async fn verify_token(
 ) -> Result<Option<String>, HostingHttpError> {
     match provider {
         HostingProvider::Vercel => vercel::verify_token(token).await,
-        HostingProvider::Cloudflare | HostingProvider::Netlify => {
-            Err(not_yet_implemented(provider))
-        }
+        HostingProvider::Cloudflare => cloudflare::verify_token(token).await,
+        HostingProvider::Netlify => netlify::verify_token(token).await,
     }
 }

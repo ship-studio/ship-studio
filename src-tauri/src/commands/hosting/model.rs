@@ -434,6 +434,34 @@ pub struct TokenCheck {
     pub account_label: Option<String>,
 }
 
+/// ISO-8601 to epoch milliseconds. Netlify sends `2026-02-22T17:26:51.942Z`
+/// where Vercel sends a number, and the shared model uses milliseconds.
+pub fn iso_to_ms(value: Option<&str>) -> Option<u64> {
+    let raw = value?;
+    let date = raw.get(0..10)?;
+    let time = raw.get(11..19)?;
+
+    let year: i64 = date.get(0..4)?.parse().ok()?;
+    let month: i64 = date.get(5..7)?.parse().ok()?;
+    let day: i64 = date.get(8..10)?.parse().ok()?;
+    let hour: i64 = time.get(0..2)?.parse().ok()?;
+    let minute: i64 = time.get(3..5)?.parse().ok()?;
+    let second: i64 = time.get(6..8)?.parse().ok()?;
+
+    // Days from the civil epoch (Howard Hinnant's algorithm), which avoids
+    // pulling in a date crate for one field.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+
+    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second;
+    u64::try_from(secs * 1_000).ok()
+}
+
 /// Milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()

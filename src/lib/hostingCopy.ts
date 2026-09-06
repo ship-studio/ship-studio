@@ -64,16 +64,17 @@ function statusWord(deployment: Deployment | undefined, fallback: string): strin
 }
 
 /**
- * What the row's own button opens, named for where the deployment went. A
- * preview never reached production, so "Open domain" would be wrong on a
- * feature branch.
+ * The row's button opens the deployment on the provider.
+ *
+ * It used to open the domain, which was already one click away on the address
+ * rows right below it — so the button spent its space duplicating them. The
+ * provider's own page is the thing the row cannot show: build logs, timings,
+ * redeploy, rollback. Absent when the provider gives us no link to it, which
+ * Cloudflare's API currently does not.
  */
-function openLabelFor(deployment?: Deployment): string | undefined {
-  if (!deployment) return undefined;
-  if (deployment.environment === 'preview') {
-    return deployment.urls.deployment ? 'Open preview' : undefined;
-  }
-  return deployment.urls.site ? 'Open domain' : undefined;
+function dashboardLabelFor(state: SectionState): string | undefined {
+  if (!state.deployment?.dashboard_url) return undefined;
+  return state.provider ? `Open in ${PROVIDER_LABELS[state.provider]}` : 'Open';
 }
 
 function detailSuffix(detail?: DeploymentDetail | null): string {
@@ -133,7 +134,7 @@ export function copyFor(
         status: `${statusWord(state.deployment, 'Queued')}${environmentLabel(
           state.deployment
         )}${when(state.deployment)}${sha}`,
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'building':
@@ -143,7 +144,7 @@ export function copyFor(
         status: `${statusWord(state.deployment, 'Building')}${environmentLabel(
           state.deployment
         )}${when(state.deployment)}`,
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'ready':
@@ -153,7 +154,7 @@ export function copyFor(
           state.deployment
         )}${when(state.deployment)}${detailSuffix(state.detail)}`,
         // No hint: the addresses get their own labelled rows below.
-        action: openLabelFor(state.deployment),
+        action: dashboardLabelFor(state),
       };
 
     case 'failed':
@@ -163,7 +164,7 @@ export function copyFor(
           state.deployment
         )}${when(state.deployment)}`,
         hint: state.deployment?.error_message?.split('\n')[0],
-        action: state.deployment?.dashboard_url ? 'View logs' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'canceled':
@@ -172,14 +173,14 @@ export function copyFor(
         status: `${statusWord(state.deployment, 'Canceled')}${environmentLabel(
           state.deployment
         )}${detailSuffix(state.detail)}`,
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'skipped':
       return {
         title,
         status: `${host} skipped this push${detailSuffix(state.detail)}`,
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'gated':
@@ -189,7 +190,7 @@ export function copyFor(
           state.detail?.detail === 'review_rejected'
             ? `${host} declined to build this push`
             : `Waiting for approval on ${host}${detailSuffix(state.detail)}`,
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'unknown':
@@ -198,7 +199,7 @@ export function copyFor(
         // Deliberately not translated into success or failure — we genuinely
         // do not know which it is.
         status: `${host} reported a status Ship Studio doesn't recognize`,
-        action: state.deployment?.dashboard_url ? 'View' : undefined,
+        action: dashboardLabelFor(state),
       };
 
     case 'not_found_yet':

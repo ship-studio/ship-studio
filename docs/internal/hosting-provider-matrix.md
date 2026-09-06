@@ -69,13 +69,33 @@ we write must classify 401 _and_ 403 as rejection, never as healthy.
 - **`deploy_source` / `manual_deploy`** distinguish a git-triggered deploy from a
   CLI/manual one — a manual deploy has no meaningful commit linkage and must not
   be matched against a pushed SHA.
+- **`links` carries both addresses.** `links.alias` is the site's,
+  `links.permalink` is the deploy's own, and `deploy_ssl_url` is the branch's.
+  Verified on a real deploy — none of them needs assembling.
+- **Timestamps are ISO-8601 strings** (`2026-02-22T17:26:51.942Z`), not epoch
+  milliseconds like Vercel.
+- **`manual_deploy`** marks a CLI or drag-and-drop deploy, which carries no
+  commit and must never be matched to a push.
+- **`admin_url` is the site's page, not the deploy's.** There is no per-deploy
+  admin link in the response.
+- **No build-log endpoint is published.** `error_message` on the deploy record
+  is the only failure detail available, so the adapter returns an empty log
+  rather than inventing an endpoint.
+- Endpoints verified against a live account: `GET /user`, `GET /sites`,
+  `GET /sites/{id}`, `GET /sites/{id}/deploys?branch=`.
 - Still unconfirmed: how a canceled or `ignore`-command build appears in the
   `state` enum. Needs a deliberately canceled build to observe.
 
 ## Cloudflare Pages — NOT VERIFIED
 
-No wrangler credentials on the verification machine, so nothing below was
-observed. Treat every field as unconfirmed until a token is available:
+An adapter exists and compiles, but **nothing below has been observed against a
+live account** — there are no Cloudflare credentials on the verification
+machine. The field names and stage values come from Cloudflare's API reference.
+Deserialisation is deliberately permissive so a wrong guess costs one line of
+copy rather than the whole lookup, but this provider should not be considered
+working until someone runs it with a real token.
+
+Specifically unconfirmed:
 
 - Deployment list is not filterable by commit; scan
   `deployment_trigger.metadata.commit_hash`.

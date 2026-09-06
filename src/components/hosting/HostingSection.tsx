@@ -17,7 +17,6 @@ import { HostingRow, HostingLinks } from './HostingRow';
 import { HostingUrls } from './HostingUrls';
 import { HostingTokenModal } from './HostingTokenModal';
 import { HostingLinkPicker } from './HostingLinkPicker';
-import { useOpenModal } from '../../contexts/ModalContext';
 import { copyFor } from '../../lib/hostingCopy';
 import { logger } from '../../lib/logger';
 import {
@@ -38,7 +37,6 @@ interface Props {
 export function HostingSection({ projectPath, open, pushedAt }: Props) {
   const { status, state, refresh } = useHostingStatus({ projectPath, open, pushedAt });
   const { showToast } = useOptionalToast();
-  const openDeployments = useOpenModal();
 
   const [connecting, setConnecting] = useState<HostingProvider | null>(null);
   const [picking, setPicking] = useState(false);
@@ -76,9 +74,10 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
   const handleAction = useCallback(() => {
 
     switch (state.kind) {
+      // Every state that has a deployment opens it on the provider. The
+      // addresses are already clickable directly above, so the button spends
+      // its space on the one thing the row cannot show.
       case 'ready':
-        openExternal(state.deployment?.urls.primary);
-        return;
       case 'queued':
       case 'building':
       case 'publishing':
@@ -87,9 +86,7 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
       case 'skipped':
       case 'gated':
       case 'unknown':
-        // Not the provider's dashboard: the panel has the build output, the
-        // recent history, and the links, which is what the trip was for.
-        openDeployments('deployments');
+        openExternal(state.deployment?.dashboard_url);
         return;
       case 'no_token':
       case 'token_rejected':
@@ -104,7 +101,7 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
       default:
         return;
     }
-  }, [state, refresh, openExternal, openDeployments]);
+  }, [state, refresh, openExternal]);
 
   return (
     <>

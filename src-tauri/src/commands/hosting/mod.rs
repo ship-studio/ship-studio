@@ -23,11 +23,13 @@
 //! `docs/internal/hosting-provider-matrix.md`; anything unverified is marked
 //! there and must not become load-bearing until it is checked.
 
+pub mod cloudflare;
 pub mod credentials;
 pub mod git_ref;
 pub mod http;
 pub mod link;
 pub mod model;
+pub mod netlify;
 pub mod provider;
 pub mod vercel;
 
