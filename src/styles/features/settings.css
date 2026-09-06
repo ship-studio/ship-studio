@@ -73,6 +73,15 @@
   line-height: 1.4;
 }
 
+/* The Experimental tab when the platform has nothing to offer it. Not an error
+   and not a call to action — just an answer, so the tab is never blank. */
+.settings-empty-note {
+  margin: 0;
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .settings-icon-options {
   display: flex;
   align-items: flex-start;
