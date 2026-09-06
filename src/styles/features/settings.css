@@ -175,6 +175,12 @@
   border-bottom: var(--border-width-default) solid var(--border-subtle);
 }
 
+/* ...but a divider is a separator, and the last group in a panel has nothing
+   to be separated from. There it is just a line above the bottom edge. */
+.settings-section > .settings-group:last-child {
+  border-bottom: none;
+}
+
 .settings-group .settings-row {
   padding: var(--spacing-md) 0;
 }
