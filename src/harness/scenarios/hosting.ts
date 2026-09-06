@@ -10,10 +10,12 @@
  * that mapping is the adapter's job and is verified against provider fixtures
  * in the Rust unit tests, not here.
  *
- * Cloudflare and Netlify adapters have no live evidence behind them (see
- * `docs/internal/hosting-provider-matrix.md`). Any scenario below naming those
- * providers is therefore labelled `synthetic: true` and must not be cited as
- * evidence that the provider behaves this way.
+ * STATUS ON `main`: the native hosting module is not merged yet, so the Push
+ * popover currently renders without a HOSTING section and these scenarios
+ * capture the popover as it is today. That is deliberate — they are the
+ * before-picture, and the same ids start showing the hosting rows the moment
+ * the feature lands, with no change needed here. `get_hosting_status` is
+ * simply an unread fixture until then.
  */
 
 import type { Scenario } from '../types';

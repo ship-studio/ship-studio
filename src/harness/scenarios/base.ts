@@ -143,6 +143,9 @@ export const baseCommands: CommandMap = {
   list_env_files: [],
   list_mcp_servers: [],
   get_shopify_store: null,
+  // False = this project isn't linked to Vercel, matching the unlinked default
+  // the rest of these fixtures describe.
+  has_vercel_config: false,
   get_default_base_branch: 'main',
   get_branch_prefix_preference: false,
   get_i18n_status: {
