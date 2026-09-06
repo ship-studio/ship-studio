@@ -595,9 +595,11 @@
       "file": "src/components/primitives/TextField.tsx",
       "exports": [
         "TextFieldProps",
-        "TextField"
+        "TextField",
+        "TextAreaProps",
+        "TextArea"
       ],
-      "purpose": "Shared native text input with compact, code, invalid, disabled, focus, placeholder, and optional suffix contracts.",
+      "purpose": "Shared native text inputs \u2014 single-line TextField and multi-line TextArea \u2014 with compact, code, multiline, invalid, disabled, focus, placeholder, and optional suffix contracts.",
       "owner": "primitives/forms",
       "props": [
         "invalid",
@@ -608,6 +610,7 @@
         "default",
         "compact",
         "code",
+        "multiline",
         "with suffix"
       ],
       "states": [

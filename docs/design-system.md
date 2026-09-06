@@ -297,6 +297,17 @@ All TextField typography consumes semantic text roles, and its dimensions consum
 component tokens backed by the primitive scale. Feature forms should reuse the input shell only
 when their state contract matches; `PropertyField` remains reserved for interactive editor values.
 
+**`TextArea`** is the multi-line sibling, exported from the same module and sharing the same
+surface, border, focus ring and invalid contract. It adds `ss-text-field--multiline`, which gives up
+the fixed control height (a textarea sizes by rows and grows) and the tabular figures, and enables
+vertical resize. Use it anywhere a feature would otherwise reach for a bare `<textarea>` and inherit
+the browser's default white box — a real regression the pinned comment composer shipped with, when
+it moved out of the stylesheet scope that had been dressing its raw element.
+
+Several features still hand-roll a `<textarea>` predating this primitive (`EnvEditor`,
+`WorkflowEditorModal`, `NewTicketForm`, `EditPopover`). Migrating them is open work; new code uses
+`TextArea`.
+
 ### ModalFrame — [ModalFrame.tsx](../src/components/primitives/ModalFrame.tsx)
 
 Overlay + content container + optional header with close button. ESC and click-outside built in,
