@@ -109,6 +109,33 @@ SHIPSTUDIO_HARNESS_PORT=1426 node scripts/harness-capture.mjs --all
 `strictPort` is deliberately still on: a harness that silently moved to another
 port would reintroduce exactly the ambiguity this section is about.
 
+## A scenario must prove its subject is on screen
+
+A scenario declares `requires: '<selector>'`, and the capture fails if nothing
+matches it.
+
+A scenario is a claim about a surface. When that surface stops rendering — the
+feature is not on this branch, a component was renamed, the click that opens a
+popover silently stopped working, the capture attached to the wrong tree — the
+run still produces a clean screenshot of *something*, captioned with this
+scenario's name, and nothing says the subject is missing. Every hosting
+scenario requires `.publish-dropdown-menu`, so a popover that fails to open is
+a failure rather than a tidy picture of the workspace labelled "deployed and
+openable".
+
+This is the general form of a lesson that cost two sessions an evening: a
+fixture written before or after its subject exists has an expiry date, and
+nothing in a repo marks it. `requires` marks it.
+
+Adding it found two of this repo's own scenarios reviewing nothing: `conflicts`
+and `prs-open` carry populated fixtures but never navigate to the surface they
+describe, so they were capturing the Preview tab. They now run a palette
+command (`command: 'branch.viewPRs'`) to get there, and `conflicts` still does
+not reach its panel — the command is gated on state the fixtures do not
+satisfy. Both are deliberately left without `requires` until they genuinely
+land on their surface, and are listed here rather than quietly carrying a
+green tick.
+
 ## Text being cut off
 
 `report.md` lists every visible element whose content is wider than its box

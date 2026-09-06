@@ -86,6 +86,7 @@ const finding = (id: string, severity: string, title: string, summary: string) =
 export const featureScenarios: Scenario[] = [
   {
     id: 'workspace',
+    requires: '.workspace-header',
     title: 'Workspace — a project open',
     looksRightWhen:
       'Header, sidebar, agent pane, and preview all render. This is the baseline every command capture is diffed against.',
@@ -118,6 +119,7 @@ export const featureScenarios: Scenario[] = [
     looksRightWhen:
       'Each row shows number, title, author and branch without collision. Draft and non-mergeable states are visually distinct.',
     project: WORKSPACE_PROJECT,
+    command: 'branch.viewPRs',
     commands: {
       ...workspaceCommands,
       list_pull_requests: [
@@ -135,6 +137,7 @@ export const featureScenarios: Scenario[] = [
     looksRightWhen:
       'Both sides are readable and equally weighted; it is obvious which file is being resolved and how many blocks remain.',
     project: WORKSPACE_PROJECT,
+    command: 'branch.resolveConflicts',
     commands: {
       ...workspaceCommands,
       // `get_conflict_info`, snake_case — the shape at the real call site in

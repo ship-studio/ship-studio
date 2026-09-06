@@ -303,7 +303,7 @@ const CLIPPED_TEXT_PROBE = `(() => {
   return JSON.stringify(out);
 })()`;
 
-async function capture({ url, file, clipSelector, identity, label }) {
+async function capture({ url, file, clipSelector, identity, label, requires }) {
   const { page, targetId } = await newPage(url);
   try {
     const ready = await waitFor(page, 'window.__harnessReady', 25_000, `${file} to settle`)
@@ -340,6 +340,13 @@ async function capture({ url, file, clipSelector, identity, label }) {
     if (identity) await assertStillSameCheckout(identity, label ?? file);
 
     const clipped = JSON.parse(await page.eval(CLIPPED_TEXT_PROBE).catch(() => '[]'));
+
+    // The scenario's subject must actually be on screen. Without this a
+    // scenario whose surface has vanished still yields a clean screenshot of
+    // whatever else was rendered, under this scenario's name.
+    const missingRequired = requires
+      ? !(await page.eval(`!!document.querySelector(${JSON.stringify(requires)})`).catch(() => false))
+      : false;
 
     // Capture a *stable* frame rather than whichever frame happened to be on
     // screen. Polling hooks re-render on their own schedule, so a single shot
@@ -380,6 +387,7 @@ async function capture({ url, file, clipSelector, identity, label }) {
       ...(missingClip ? { missingClip } : {}),
       imageHash: hash(buf),
       clipped,
+      ...(requires ? { requires, missingRequired } : {}),
       console: page.console.slice(0, 8),
     };
   } finally {
@@ -388,7 +396,8 @@ async function capture({ url, file, clipSelector, identity, label }) {
   }
 }
 
-const mark = (r) => (r.crashed || !r.ready ? '✗' : r.unmocked.length ? '!' : '✓');
+const mark = (r) =>
+  r.crashed || !r.ready || r.missingRequired ? '✗' : r.unmocked.length ? '!' : '✓';
 
 function renderReport({ scenarios, commands, skipped, meta }) {
   const lines = [
@@ -475,11 +484,18 @@ function renderReport({ scenarios, commands, skipped, meta }) {
     );
   }
 
-  const bad = [...scenarios, ...commands].filter((r) => r.crashed || !r.ready);
+  const bad = [...scenarios, ...commands].filter(
+    (r) => r.crashed || !r.ready || r.missingRequired
+  );
   if (bad.length) {
     lines.push('## Failures', '');
     for (const r of bad) {
-      lines.push(`### \`${r.id}\` — ${r.crashed ? 'crashed' : 'never settled'}`, '');
+      const why = r.crashed
+        ? 'crashed'
+        : !r.ready
+          ? 'never settled'
+          : `subject missing — nothing matched \`${r.requires}\`, so this capture is not of what the scenario claims`;
+      lines.push(`### \`${r.id}\` — ${why}`, '');
       for (const c of r.console) lines.push(`- **${c.level}**: ${c.text.split('\n')[0]}`);
       lines.push('');
     }
@@ -528,7 +544,7 @@ async function main() {
   await waitFor(probe.page, 'window.__harness', 20_000, 'the harness module to load');
   const allScenarios = JSON.parse(
     await probe.page.eval(
-      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector})))'
+      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector,requires:s.requires,command:s.command})))'
     )
   );
   probe.page.close();
@@ -538,9 +554,12 @@ async function main() {
   if (wantScenarios) {
     for (const s of allScenarios.filter((s) => s.id.startsWith(filter))) {
       const r = await capture({
-        url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${s.id}`,
+        url:
+          `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${s.id}` +
+          (s.command ? `&command=${encodeURIComponent(s.command)}` : ''),
         file: path.join(outDir, `${s.id}.png`),
         clipSelector: s.clipSelector,
+        requires: s.requires,
         identity,
         label: s.id,
       });
@@ -631,7 +650,7 @@ async function main() {
   );
 
   const all = [...scenarioResults, ...commandResults];
-  const broken = all.filter((r) => r.crashed || !r.ready);
+  const broken = all.filter((r) => r.crashed || !r.ready || r.missingRequired);
   const incomplete = all.filter((r) => !r.crashed && r.unmocked.length);
   const missing = commandResults.filter((r) => r.commandMissing);
 
@@ -648,7 +667,15 @@ async function main() {
   if (broken.length) {
     console.log(`\n${broken.length} FAILED:`);
     for (const r of broken) {
-      console.log(`  ${r.id}: ${r.crashed ? 'crashed' : 'never became ready'}`);
+      console.log(
+        `  ${r.id}: ${
+          r.crashed
+            ? 'crashed'
+            : !r.ready
+              ? 'never became ready'
+              : `subject missing (${r.requires})`
+        }`
+      );
       for (const c of r.console) console.log(`      ${c.level}: ${c.text.split('\n')[0]}`);
     }
   }
