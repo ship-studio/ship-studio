@@ -81,7 +81,8 @@
   --size-hosting-icon-slot: 24px;
   --size-hosting-action: 72px;
   --size-hosting-url-row: 20px;
-  --size-hosting-url-label: 34px;
+  /* Wide enough for the longest label the providers use ('Deployment'). */
+  --size-hosting-url-label: 72px;
   --size-hosting-url-open: 20px;
 
   --property-surface: var(--color-blue-700);

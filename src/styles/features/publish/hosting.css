@@ -143,8 +143,15 @@
 }
 
 .hosting-url-label {
+  /* Clips rather than overflows. A label longer than its column used to spill
+     across the address beside it and paint over the text, because a grid item
+     with no min-width happily overflows its track. */
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .hosting-url-value {
