@@ -43,5 +43,11 @@ export interface Scenario {
    * make realistic anyway (no dev server, no real PTY).
    */
   clipSelector?: string;
+  /**
+   * `localStorage` seeded after the harness wipes storage. Use it for states
+   * that only exist as a stored preference (onboarding mode, a dismissed
+   * banner) rather than as backend data.
+   */
+  storage?: Record<string, string>;
   commands: CommandMap;
 }

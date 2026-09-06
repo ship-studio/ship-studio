@@ -2,9 +2,10 @@
 
 import type { Scenario } from '../types';
 import { appScenarios } from './app';
+import { featureScenarios } from './features';
 import { hostingScenarios } from './hosting';
 
-export const scenarios: Scenario[] = [...appScenarios, ...hostingScenarios];
+export const scenarios: Scenario[] = [...appScenarios, ...featureScenarios, ...hostingScenarios];
 
 export const DEFAULT_SCENARIO = 'dashboard';
 

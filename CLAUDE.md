@@ -162,6 +162,39 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 
 ## Testing
 
+### Looking at the UI (do this before guessing)
+
+You can see this app. `pnpm harness` boots the **real** frontend in a browser
+against a fixture backend, and `scripts/harness-capture.mjs` screenshots any
+state — no Tauri build, no particular machine state, no third-party accounts.
+
+```bash
+pnpm harness &                          # 127.0.0.1:1425
+pnpm harness:capture                    # ~70 PNGs + harness/shots/report.md
+```
+
+Use it whenever the question is "what does this look like", "did my change
+render", or "what happens with an empty/failed/expired state" — those are
+answerable directly instead of by reading components and inferring.
+
+Two sources of coverage:
+
+- **Scenarios** (`src/harness/scenarios/`) — states that are slow to reach for
+  real: empty account, fresh machine, 24 projects, failed deploy, expired
+  token, merge conflicts. Each says what to check.
+- **Palette sweep** (`--commands`) — every command in the Cmd+K registry, one
+  page load each. Because every feature must register there (see "New feature →
+  contribute commands"), new features get coverage automatically.
+
+**The rule:** a Tauri command with no fixture is never given a plausible
+default — it is recorded, badged, and fails the run. A screenshot from a
+scenario with unmocked commands is *incomplete* and is not evidence. Add the
+fixture, copying the shape from the `invoke<...>` type at the real call site
+including its casing.
+
+It cannot tell you anything about Rust, and it runs in Chrome rather than
+WKWebView. Full guide: [docs/ui-harness.md](docs/ui-harness.md).
+
 ### Frontend Tests (Vitest + React Testing Library)
 ```bash
 pnpm test:run     # Run all tests once
@@ -619,6 +652,12 @@ export function useBranchCommands({ currentBranch, switchBranch, hasConflicts }:
 - Anything that'd need more than two UI prompts after triggering — build a dedicated flow instead.
 
 See `src/commands/` for the infra (registry, scorer, frecency, `useCommands`) and `src/commands/useAppCommands.tsx` for a canonical example.
+
+**A second reason to follow this rule:** the UI harness sweeps the palette
+registry to screenshot every feature (`node scripts/harness-capture.mjs
+--commands`). A feature that registers its commands gets visual coverage for
+free; one that doesn't is invisible to review. See
+[docs/ui-harness.md](docs/ui-harness.md).
 
 ---
 

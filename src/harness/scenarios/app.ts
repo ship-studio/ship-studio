@@ -69,6 +69,13 @@ export const appScenarios: Scenario[] = [
     },
   },
   {
+    id: 'dashboard-calendar',
+    title: 'Dashboard — with the GitHub contributions calendar',
+    looksRightWhen:
+      'The calendar sits in the dashboard without pushing anything off-screen. Note: it fetches GitHub directly, so under the hermetic capture run it renders its failed/empty state and may differ between runs.',
+    commands: { get_calendar_hidden: false },
+  },
+  {
     id: 'onboarding-fresh',
     title: 'Onboarding — nothing installed',
     looksRightWhen:

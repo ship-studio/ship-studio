@@ -1,28 +1,41 @@
 #!/usr/bin/env node
 /**
- * Capture every harness scenario as a PNG plus a machine-readable report.
+ * Capture Ship Studio's UI so an agent can review it without a human driving
+ * the app.
  *
- * Why this exists: reviewing Ship Studio used to mean a human launching the
- * Tauri app, reproducing a state by hand, and describing what they saw. This
- * drives the real UI in headless Chrome against the fixture backend, so an
- * agent can look at the product itself and say what is wrong.
+ * Two modes, both writing PNGs plus a `report.md` digest and `report.json`:
  *
- * Deliberately dependency-free: it speaks the Chrome DevTools Protocol over
- * Node's built-in WebSocket and fetch. Adding Playwright would download a
- * second browser and a build step for something ~200 lines does.
+ *   scenarios  Hand-written states that are hard or slow to reach for real —
+ *              an empty account, a fresh machine, a failed deploy, an expired
+ *              token. Each carries a `looksRightWhen` caption saying what a
+ *              reviewer is meant to check.
+ *
+ *   commands   Every action registered in the Cmd+K palette, run one per page
+ *              load. `CLAUDE.md` requires each user-facing feature to register
+ *              there, which makes the registry the app's own inventory — so
+ *              this mode tracks the app automatically instead of drifting from
+ *              a hand-written screen list.
+ *
+ * Dependency-free on purpose: it speaks the Chrome DevTools Protocol over
+ * Node's built-in WebSocket and fetch. Playwright would add a second browser
+ * download and a build step for roughly this much code.
  *
  * Usage:
- *   node scripts/harness-capture.mjs                # every scenario
- *   node scripts/harness-capture.mjs hosting-       # scenarios matching a prefix
- *   node scripts/harness-capture.mjs --out shots/   # custom output directory
+ *   pnpm harness                              # in another shell, first
+ *   node scripts/harness-capture.mjs          # scenarios
+ *   node scripts/harness-capture.mjs --commands
+ *   node scripts/harness-capture.mjs --all
+ *   node scripts/harness-capture.mjs hosting- # filter by id prefix
+ *   node scripts/harness-capture.mjs --out /tmp/shots
  *
- * Exits non-zero if any scenario crashed or left commands unmocked, so it can
- * gate CI as well as feed a review.
+ * Exits non-zero when anything crashed, never settled, or left Tauri commands
+ * unmocked — so it gates CI as well as feeding a review.
  */
 
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 const HARNESS_ORIGIN = 'http://127.0.0.1:1425';
@@ -34,22 +47,36 @@ const CHROME = [
   '/usr/bin/google-chrome',
 ].find((p) => existsSync(p));
 
+/**
+ * Commands that are noise in a visual sweep: they navigate away from the thing
+ * under review, or they have no UI at all. Skipped by id or prefix, and every
+ * skip is listed in the report so this list can't quietly hide a broken
+ * feature.
+ */
+const SKIP_COMMANDS = [
+  'project.goto.', // opens another project; covered by the workspace scenarios
+  'spotify.', // controls a third-party widget, nothing of ours to look at
+  'settings.checkUpdates', // hits the updater, which is stubbed inert
+  'nav.home', // just returns to the dashboard scenario
+];
+
 const args = process.argv.slice(2);
+const flag = (name) => args.includes(name);
 const outIdx = args.indexOf('--out');
-const outDir = path.resolve(outIdx === -1 ? 'hosting/shots' : args[outIdx + 1]);
-// `outIdx + 1` is 0 when `--out` is absent, so guard on outIdx before using it
-// as the "this arg is the --out value" index.
 const outValueIdx = outIdx === -1 ? -1 : outIdx + 1;
+const outDir = path.resolve(outIdx === -1 ? 'harness/shots' : args[outValueIdx]);
 const filter = args.filter((a, i) => !a.startsWith('--') && i !== outValueIdx)[0] ?? '';
+const wantCommands = flag('--commands') || flag('--all');
+const wantScenarios = !flag('--commands') || flag('--all');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const hash = (buf) => createHash('sha1').update(buf).digest('hex').slice(0, 12);
 
 async function waitForServer(url, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
-      const res = await fetch(url);
-      if (res.ok) return;
+      if ((await fetch(url)).ok) return;
     } catch {
       /* not up yet */
     }
@@ -74,7 +101,6 @@ class Page {
     });
     page.#ws.addEventListener('message', (ev) => page.#onMessage(String(ev.data)));
     await page.send('Runtime.enable');
-    await page.send('Log.enable');
     return page;
   }
 
@@ -86,16 +112,16 @@ class Page {
       msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
       return;
     }
-    // Console errors and uncaught exceptions are findings, not noise: a screen
-    // can look perfectly fine and still be throwing on every render.
+    // A screen can look perfectly fine and still throw on every render, so
+    // console errors are findings rather than noise.
     if (msg.method === 'Runtime.exceptionThrown') {
       const d = msg.params.exceptionDetails;
-      this.console.push({
-        level: 'exception',
-        text: d.exception?.description ?? d.text,
-      });
+      this.console.push({ level: 'exception', text: d.exception?.description ?? d.text });
     }
-    if (msg.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(msg.params.type)) {
+    if (
+      msg.method === 'Runtime.consoleAPICalled' &&
+      ['error', 'warning'].includes(msg.params.type)
+    ) {
       this.console.push({
         level: msg.params.type,
         text: msg.params.args.map((a) => a.value ?? a.description ?? '').join(' '),
@@ -128,7 +154,6 @@ class Page {
   }
 }
 
-/** Poll a boolean expression in the page until it is true. */
 async function waitFor(page, expression, timeoutMs, what) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -146,72 +171,33 @@ async function newPage(url) {
   return { page: await Page.attach(target.webSocketDebuggerUrl), targetId: target.id };
 }
 
-async function closeTarget(targetId) {
-  await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${targetId}`).catch(() => {});
-}
+const closeTarget = (id) =>
+  fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${id}`).catch(() => {});
 
-async function main() {
-  if (!CHROME) throw new Error('No Chrome/Chromium found. Install Google Chrome.');
-  await waitForServer(`${HARNESS_ORIGIN}/harness.html`).catch(() => {
-    throw new Error(`The harness is not running. Start it with:  pnpm harness`);
-  });
-
-  const chrome = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${CDP_PORT}`,
-      `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
-      '--hide-scrollbars',
-      '--force-device-scale-factor=2',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--user-data-dir=' + path.join(process.env.TMPDIR ?? '/tmp', 'shipstudio-harness-chrome'),
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  await waitForServer(`http://127.0.0.1:${CDP_PORT}/json/version`);
-
-  // Ask the running harness which scenarios exist, so this script never holds
-  // a second, drifting copy of the list.
-  const probe = await newPage(`${HARNESS_ORIGIN}/harness.html?chrome=off`);
-  await waitFor(probe.page, 'window.__harness', 20_000, 'the harness module to load');
-  const all = await probe.page.eval(
-    'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector})))'
-  );
-  probe.page.close();
-  await closeTarget(probe.targetId);
-  const scenarios = JSON.parse(all).filter((s) => s.id.startsWith(filter));
-
-  await rm(outDir, { recursive: true, force: true });
-  await mkdir(outDir, { recursive: true });
-
-  const results = [];
-  for (const scenario of scenarios) {
-    const url = `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${scenario.id}`;
-    const { page, targetId } = await newPage(url);
-
-    const ready = await waitFor(page, 'window.__harnessReady', 20_000, `${scenario.id} to settle`)
+/**
+ * Load one harness URL, wait for it to settle, capture it, and report what the
+ * page knows about itself.
+ */
+async function capture({ url, file, clipSelector }) {
+  const { page, targetId } = await newPage(url);
+  try {
+    const ready = await waitFor(page, 'window.__harnessReady', 25_000, `${file} to settle`)
       .then(() => true)
       .catch(() => false);
 
-    let missingClip = null;
-    const state = await page.eval(`JSON.stringify({
-      unmocked: (window.__harness?.unhandled() ?? []).map(u => u.cmd),
-      crashed: !!document.querySelector('.error-boundary, [class*="error-boundary"]')
-        || document.body.innerText.includes('Something went wrong'),
-      title: document.title
-    })`);
-    const parsed = JSON.parse(state);
+    const state = JSON.parse(
+      await page.eval(`JSON.stringify({
+        unmocked: (window.__harness?.unhandled() ?? []).map(u => u.cmd),
+        commandMissing: !!window.__harness?.commandMissing,
+        crashed: document.body.innerText.includes('Something went wrong')
+      })`)
+    );
 
-    // A scenario may ask to be reviewed on one element rather than the whole
-    // window. Falls back to the full viewport if the selector isn't there,
-    // and says so, rather than silently capturing the wrong thing.
     let clip;
-    if (scenario.clipSelector) {
+    let missingClip;
+    if (clipSelector) {
       const box = await page.eval(`(() => {
-        const el = document.querySelector(${JSON.stringify(scenario.clipSelector)});
+        const el = document.querySelector(${JSON.stringify(clipSelector)});
         if (!el) return null;
         const r = el.getBoundingClientRect();
         const pad = 12;
@@ -221,44 +207,271 @@ async function main() {
         });
       })()`);
       if (box) clip = JSON.parse(box);
-      else missingClip = scenario.clipSelector;
+      else missingClip = clipSelector;
     }
 
-    const shot = await page.send('Page.captureScreenshot', {
-      format: 'png',
-      captureBeyondViewport: false,
-      ...(clip ? { clip } : {}),
-    });
-    const file = path.join(outDir, `${scenario.id}.png`);
-    await writeFile(file, Buffer.from(shot.data, 'base64'));
+    // Capture a *stable* frame rather than whichever frame happened to be on
+    // screen. Polling hooks re-render on their own schedule, so a single shot
+    // catches a transient state roughly one time in six and two runs of the
+    // same scenario then disagree for no real reason. Shooting until two
+    // consecutive frames match is what makes a screenshot diffable.
+    const shoot = async () => {
+      const s = await page.send('Page.captureScreenshot', {
+        format: 'png',
+        captureBeyondViewport: false,
+        ...(clip ? { clip } : {}),
+      });
+      return Buffer.from(s.data, 'base64');
+    };
 
-    results.push({
-      ...scenario,
+    let buf = await shoot();
+    let stable = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await sleep(250);
+      const next = await shoot();
+      if (hash(next) === hash(buf)) {
+        stable = true;
+        break;
+      }
+      buf = next;
+    }
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, buf);
+
+    return {
       file: path.relative(process.cwd(), file),
       ready,
-      ...parsed,
+      // False means the screen never stopped changing. The image is still
+      // written, but it is a frame from a moving picture — say so rather than
+      // letting a reviewer diff it against another run.
+      stable,
+      ...state,
       ...(missingClip ? { missingClip } : {}),
-      console: page.console.slice(0, 10),
-    });
-
+      imageHash: hash(buf),
+      console: page.console.slice(0, 8),
+    };
+  } finally {
     page.close();
     await closeTarget(targetId);
-    process.stdout.write(
-      `${parsed.crashed ? '✗' : parsed.unmocked.length ? '!' : '✓'} ${scenario.id}\n`
+  }
+}
+
+const mark = (r) => (r.crashed || !r.ready ? '✗' : r.unmocked.length ? '!' : '✓');
+
+function renderReport({ scenarios, commands, skipped }) {
+  const lines = [
+    '# Ship Studio UI harness — capture report',
+    '',
+    `Captured ${new Date().toISOString()} at ${VIEWPORT.width}×${VIEWPORT.height}.`,
+    '',
+    'Regenerate: `pnpm harness` in one shell, then `node scripts/harness-capture.mjs --all`.',
+    '',
+    '`!` means the screen asked for a Tauri command with no fixture. Its',
+    'screenshot is incomplete and must not be used as evidence — add the',
+    'fixture in `src/harness/scenarios/` first.',
+    '',
+  ];
+
+  if (scenarios.length) {
+    lines.push('## Scenarios', '');
+    lines.push('| | id | what to check | image |', '| - | - | - | - |');
+    for (const r of scenarios) {
+      lines.push(`| ${mark(r)} | \`${r.id}\` | ${r.looksRightWhen ?? ''} | \`${r.file}\` |`);
+    }
+    lines.push('');
+  }
+
+  if (commands.length) {
+    lines.push('## Palette commands', '');
+    lines.push(
+      'One page load per command, run against a settled app. Sourced from the',
+      'Cmd+K registry, so this list is whatever the app currently registers.',
+      ''
     );
+    lines.push('| | command | context | title | image |', '| - | - | - | - | - |');
+    for (const r of commands) {
+      lines.push(
+        `| ${mark(r)} | \`${r.id}\` | ${r.context} | ${r.title} | \`${r.file}\` |`
+      );
+    }
+    lines.push('');
+    const noChange = commands.filter((r) => r.noVisibleChange);
+    if (noChange.length) {
+      lines.push(
+        '### Produced no visible change',
+        '',
+        'These rendered identically to the untouched view. Either the command is',
+        'non-visual, or it silently did nothing — worth a look either way.',
+        '',
+        ...noChange.map((r) => `- \`${r.id}\` — ${r.title}`),
+        ''
+      );
+    }
+  }
+
+  if (skipped.length) {
+    lines.push(
+      '## Skipped commands',
+      '',
+      'Excluded by `SKIP_COMMANDS` in `scripts/harness-capture.mjs`.',
+      '',
+      ...skipped.map((id) => `- \`${id}\``),
+      ''
+    );
+  }
+
+  const bad = [...scenarios, ...commands].filter((r) => r.crashed || !r.ready);
+  if (bad.length) {
+    lines.push('## Failures', '');
+    for (const r of bad) {
+      lines.push(`### \`${r.id}\` — ${r.crashed ? 'crashed' : 'never settled'}`, '');
+      for (const c of r.console) lines.push(`- **${c.level}**: ${c.text.split('\n')[0]}`);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+async function main() {
+  if (!CHROME) throw new Error('No Chrome/Chromium found. Install Google Chrome.');
+  await waitForServer(`${HARNESS_ORIGIN}/harness.html`).catch(() => {
+    throw new Error('The harness is not running. Start it with:  pnpm harness');
+  });
+
+  const chrome = spawn(
+    CHROME,
+    [
+      '--headless=new',
+      `--remote-debugging-port=${CDP_PORT}`,
+      `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
+      '--hide-scrollbars',
+      // Hermetic by construction. Components like the GitHub contributions
+      // calendar fetch from the real internet; letting those resolve makes a
+      // capture depend on the network's mood, and two runs disagree for
+      // reasons that have nothing to do with the app. Everything but the
+      // harness origin fails to resolve, fast and identically every time.
+      '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
+      '--force-device-scale-factor=2',
+      '--no-first-run',
+      '--no-default-browser-check',
+      `--user-data-dir=${path.join(process.env.TMPDIR ?? '/tmp', 'shipstudio-harness-chrome')}`,
+      'about:blank',
+    ],
+    { stdio: 'ignore' }
+  );
+  await waitForServer(`http://127.0.0.1:${CDP_PORT}/json/version`);
+
+  await rm(outDir, { recursive: true, force: true });
+  await mkdir(outDir, { recursive: true });
+
+  // Ask the running harness what exists, so this script never keeps a second,
+  // drifting copy of either list.
+  const probe = await newPage(`${HARNESS_ORIGIN}/harness.html?chrome=off`);
+  await waitFor(probe.page, 'window.__harness', 20_000, 'the harness module to load');
+  const allScenarios = JSON.parse(
+    await probe.page.eval(
+      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector})))'
+    )
+  );
+  probe.page.close();
+  await closeTarget(probe.targetId);
+
+  const scenarioResults = [];
+  if (wantScenarios) {
+    for (const s of allScenarios.filter((s) => s.id.startsWith(filter))) {
+      const r = await capture({
+        url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${s.id}`,
+        file: path.join(outDir, `${s.id}.png`),
+        clipSelector: s.clipSelector,
+      });
+      scenarioResults.push({ ...s, ...r });
+      process.stdout.write(`${mark(r)} ${s.id}\n`);
+    }
+  }
+
+  const commandResults = [];
+  const skipped = [];
+  if (wantCommands) {
+    // Enumerate in both contexts: the palette gates commands on where you are,
+    // so the home registry and the project registry are different lists.
+    const contexts = [
+      { name: 'home', scenario: 'dashboard' },
+      { name: 'project', scenario: 'workspace' },
+    ];
+
+    for (const ctx of contexts) {
+      const base = await capture({
+        url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}`,
+        file: path.join(outDir, 'commands', `_baseline-${ctx.name}.png`),
+      });
+
+      const listPage = await newPage(
+        `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}`
+      );
+      await waitFor(listPage.page, 'window.__harnessReady', 25_000, 'the app to settle');
+      const cmds = JSON.parse(
+        await listPage.page.eval(
+          'window.__harness.commandsWhenReady().then(c=>JSON.stringify(c))'
+        )
+      );
+      listPage.page.close();
+      await closeTarget(listPage.targetId);
+
+      for (const cmd of cmds) {
+        if (!cmd.id.startsWith(filter)) continue;
+        // A command gated to the other context can't run here.
+        if (cmd.context !== 'any' && cmd.context !== ctx.name) continue;
+        if (commandResults.some((r) => r.id === cmd.id)) continue;
+        if (SKIP_COMMANDS.some((s) => cmd.id === s || cmd.id.startsWith(s))) {
+          if (!skipped.includes(cmd.id)) skipped.push(cmd.id);
+          continue;
+        }
+
+        const r = await capture({
+          url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}&command=${encodeURIComponent(cmd.id)}`,
+          file: path.join(outDir, 'commands', `${cmd.id}.png`),
+        });
+        commandResults.push({
+          ...cmd,
+          ...r,
+          contextScenario: ctx.scenario,
+          noVisibleChange: r.imageHash === base.imageHash,
+        });
+        process.stdout.write(`${mark(r)} ${cmd.id}\n`);
+      }
+    }
   }
 
   chrome.kill();
 
-  const report = { capturedAt: new Date().toISOString(), viewport: VIEWPORT, results };
+  const report = {
+    capturedAt: new Date().toISOString(),
+    viewport: VIEWPORT,
+    scenarios: scenarioResults,
+    commands: commandResults,
+    skipped,
+  };
   await writeFile(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  await writeFile(
+    path.join(outDir, 'report.md'),
+    renderReport({ scenarios: scenarioResults, commands: commandResults, skipped })
+  );
 
-  const broken = results.filter((r) => r.crashed || !r.ready);
-  const incomplete = results.filter((r) => !r.crashed && r.unmocked.length);
-  console.log(`\n${results.length} scenarios → ${path.relative(process.cwd(), outDir)}`);
+  const all = [...scenarioResults, ...commandResults];
+  const broken = all.filter((r) => r.crashed || !r.ready);
+  const incomplete = all.filter((r) => !r.crashed && r.unmocked.length);
+  const missing = commandResults.filter((r) => r.commandMissing);
+
+  console.log(`\n${all.length} captures → ${path.relative(process.cwd(), outDir)}`);
+  console.log(`   report: ${path.relative(process.cwd(), path.join(outDir, 'report.md'))}`);
   if (incomplete.length) {
     console.log(`\n${incomplete.length} incomplete (unmocked commands):`);
     for (const r of incomplete) console.log(`  ${r.id}: ${r.unmocked.join(', ')}`);
+  }
+  if (missing.length) {
+    console.log(`\n${missing.length} command ids not found in the registry:`);
+    for (const r of missing) console.log(`  ${r.id}`);
   }
   if (broken.length) {
     console.log(`\n${broken.length} FAILED:`);
@@ -267,7 +480,7 @@ async function main() {
       for (const c of r.console) console.log(`      ${c.level}: ${c.text.split('\n')[0]}`);
     }
   }
-  process.exitCode = broken.length ? 1 : 0;
+  process.exitCode = broken.length || incomplete.length ? 1 : 0;
 }
 
 main().catch((e) => {

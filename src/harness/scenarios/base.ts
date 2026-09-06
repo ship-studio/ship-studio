@@ -124,6 +124,54 @@ export const baseCommands: CommandMap = {
   list_all_workflows: [],
   list_inbox_items: [],
 
+  // ---- surfaces reachable from anywhere -----------------------------------
+  // These live in the base layer, not the workspace layer: Help, Skills, MCP
+  // and friends open from the dashboard as well as from inside a project, and
+  // a fixture that only exists in one context white-screens the other.
+  get_shell_path: '/bin/zsh',
+  resolve_cli_path: { path: '/opt/homebrew/bin/gh', dir: '/opt/homebrew/bin' },
+  // ---- feature surfaces ---------------------------------------------------
+  // Empty collections are a real backend answer ("nothing configured yet"),
+  // not invented data — the distinction the harness cares about is between
+  // "a state we chose" and "a value we made up". A scenario that needs these
+  // populated overrides them explicitly.
+  get_backups: [],
+  get_css_variables: [],
+  get_conflict_info: [],
+  list_attached_libraries: [],
+  list_claude_skills: [],
+  list_env_files: [],
+  list_mcp_servers: [],
+  get_shopify_store: null,
+  get_default_base_branch: 'main',
+  get_branch_prefix_preference: false,
+  get_i18n_status: {
+    framework: 'nextjs-app',
+    supported: true,
+    unsupported_reason: null,
+    configured: false,
+    locales: [],
+    default_locale: null,
+    config_file: null,
+    parse_warning: null,
+    agent_setup_available: true,
+  },
+
+  // ---- side-effecting commands -------------------------------------------
+  // Answered inertly so a capture run can invoke them safely. Nothing here
+  // touches the machine — the whole IPC layer is fake — but they are grouped
+  // separately so it stays obvious which commands would do something real.
+  open_in_ide: null,
+  open_in_finder: null,
+  pull_and_merge: null,
+  clear_project_cache: null,
+  unregister_external_pty: null,
+  pty_session_detach: null,
+  mark_all_inbox_read: null,
+  register_external_project: null,
+  set_compact_workspace_toolbar_enabled: null,
+  fetch_community_templates: '[]',
+
   // ---- agents -------------------------------------------------------------
   get_agents_status: [
     {
@@ -169,7 +217,11 @@ export const baseCommands: CommandMap = {
 
   // ---- dashboard chrome toggles -------------------------------------------
   get_dashboard_header_hidden: false,
-  get_calendar_hidden: false,
+  // Hidden by default: the contributions calendar fetches GitHub directly, so
+  // with the network blocked it races between skeleton and failed-fetch and
+  // two runs disagree. The `dashboard-calendar` scenario turns it back on for
+  // anyone reviewing that component specifically.
+  get_calendar_hidden: true,
   get_slack_cta_hidden: false,
   get_spotify_widget_enabled: false,
   get_filed_project_paths: [],

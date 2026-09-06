@@ -55,4 +55,4 @@ src-tauri/.cargo/
 coverage/
 
 # UI harness capture output (regenerate with scripts/harness-capture.mjs)
-hosting/shots/
+harness/shots/

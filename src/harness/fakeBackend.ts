@@ -37,6 +37,33 @@ function isHandler(value: unknown): value is CommandHandler {
   return typeof value === 'function';
 }
 
+/**
+ * When the app last asked the backend for anything.
+ *
+ * A fixed post-mount delay is not a readiness signal: a panel whose state
+ * arrives on a second or third IPC round-trip lands before the delay on one
+ * run and after it on the next, and the two screenshots disagree for reasons
+ * that have nothing to do with the app. Waiting for IPC to fall quiet is the
+ * signal that actually corresponds to "the UI has everything it asked for".
+ */
+let lastCallAt = Date.now();
+
+export function ipcIdleFor(): number {
+  return Date.now() - lastCallAt;
+}
+
+/** Resolve once no command has been invoked for `quietMs`. */
+export function whenIpcQuiet(quietMs = 500, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (ipcIdleFor() >= quietMs || Date.now() > deadline) return resolve();
+      setTimeout(tick, 100);
+    };
+    tick();
+  });
+}
+
 export function installFakeBackend(scenario: Scenario): void {
   mockWindows('main');
 
@@ -44,6 +71,9 @@ export function installFakeBackend(scenario: Scenario): void {
 
   mockIPC((cmd, args) => {
     const payload = (args ?? {}) as Record<string, unknown>;
+    // Tauri's own event plumbing polls constantly; counting it would mean IPC
+    // never falls quiet.
+    if (!cmd.startsWith('plugin:')) lastCallAt = Date.now();
 
     if (cmd in commands) {
       const value = commands[cmd];
