@@ -132,7 +132,7 @@ pub fn run() {
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    commands::workflows::install_workflows_skill();
+                    commands::skills::install_bundled_skills();
                     workflow_scheduler::spawn(handle);
                 });
             }
@@ -649,10 +649,17 @@ pub fn run() {
             commands::github::list_collaborator_repos,
             commands::github::detect_package_manager,
             // Publishing
-            commands::publishing::publish_to_github,
-            commands::publishing::publish_to_staging,
-            commands::publishing::publish_to_production,
             commands::publishing::publish_branch,
+            // Hosting — which provider a project deploys to, and whether the
+            // pushed commit actually went live.
+            commands::hosting::get_hosting_status,
+            commands::hosting::detect_hosting_links,
+            commands::hosting::list_hosting_projects,
+            commands::hosting::set_hosting_link,
+            commands::hosting::clear_hosting_link,
+            commands::hosting::verify_hosting_token,
+            commands::hosting::list_recent_deployments,
+            commands::hosting::get_deployment_log,
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,

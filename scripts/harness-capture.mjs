@@ -38,7 +38,8 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const HARNESS_ORIGIN = 'http://127.0.0.1:1425';
+const HARNESS_PORT = Number(process.env.SHIPSTUDIO_HARNESS_PORT ?? 1425);
+const HARNESS_ORIGIN = `http://127.0.0.1:${HARNESS_PORT}`;
 const CDP_PORT = 9333;
 const VIEWPORT = { width: 1440, height: 900 };
 const CHROME = [
@@ -71,6 +72,89 @@ const wantScenarios = !flag('--commands') || flag('--all');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hash = (buf) => createHash('sha1').update(buf).digest('hex').slice(0, 12);
+
+/**
+ * Confirm the harness on the port is serving THIS checkout.
+ *
+ * "Something answers on 1425" is not "my harness is up". Several worktrees live
+ * on this machine, `strictPort` means only one harness can hold the port, and a
+ * capture that attaches to a neighbour's server produces a full set of
+ * screenshots labelled with this checkout's scenario names — real images, wrong
+ * tree, no warning. Refusing to guess is the whole point of the tool, so it
+ * refuses here too.
+ */
+async function fetchIdentity() {
+  const res = await fetch(`${HARNESS_ORIGIN}/__harness/identity`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Re-check between captures.
+ *
+ * Checking once at startup is not enough: `strictPort` frees the port the
+ * instant a harness dies, so a server can be replaced *mid-run* and every
+ * capture after that point silently belongs to another tree. That is not
+ * hypothetical — it happened, and `ready` and `stable` both agreed with each
+ * other about a page serving a different product, because those signals only
+ * describe the page that answered, never which page ought to have.
+ */
+async function assertStillSameCheckout(expected, label) {
+  let identity;
+  try {
+    identity = await fetchIdentity();
+  } catch (e) {
+    throw new Error(
+      `The harness stopped answering /__harness/identity partway through ` +
+        `(at "${label}": ${e.message}). Captures before this point are fine; ` +
+        `anything after would be of whatever took the port. Aborting.`
+    );
+  }
+  if (path.resolve(identity.root) !== path.resolve(expected.root)) {
+    throw new Error(
+      `The harness changed underneath this run (at "${label}").\n` +
+        `  started against : ${expected.root}\n` +
+        `  now serving     : ${identity.root}\n` +
+        `A server was replaced mid-run. Aborting rather than captioning ` +
+        `another tree's screenshots with this one's scenario names.`
+    );
+  }
+  if (identity.head !== expected.head) {
+    throw new Error(
+      `The harness's HEAD moved during this run (at "${label}"): ` +
+        `${expected.head.slice(0, 12)} -> ${identity.head.slice(0, 12)}. ` +
+        `Half these captures would be of a different commit. Aborting.`
+    );
+  }
+}
+
+async function assertHarnessIsThisCheckout() {
+  const expected = process.cwd();
+  let identity;
+  try {
+    identity = await fetchIdentity();
+  } catch (e) {
+    throw new Error(
+      `Something is listening on ${HARNESS_ORIGIN} but it does not answer ` +
+        `/__harness/identity (${e.message}).\n` +
+        `That is either a stale harness from before this check existed, or an ` +
+        `unrelated server. Restart the harness in this checkout, or set ` +
+        `SHIPSTUDIO_HARNESS_PORT to a free port in both shells.`
+    );
+  }
+
+  if (path.resolve(identity.root) !== path.resolve(expected)) {
+    throw new Error(
+      `The harness on ${HARNESS_ORIGIN} is serving a different checkout.\n` +
+        `  it is serving : ${identity.root}\n` +
+        `  you are in    : ${expected}\n` +
+        `Capturing anyway would screenshot that tree and label the images with ` +
+        `this one's scenarios. Stop that harness, or run both with different ` +
+        `SHIPSTUDIO_HARNESS_PORT values.`
+    );
+  }
+  return identity;
+}
 
 async function waitForServer(url, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -178,7 +262,48 @@ const closeTarget = (id) =>
  * Load one harness URL, wait for it to settle, capture it, and report what the
  * page knows about itself.
  */
-async function capture({ url, file, clipSelector }) {
+/**
+ * Elements whose text is being cut off.
+ *
+ * Truncation is technically visible in a screenshot and practically invisible
+ * to a reviewer: a sentence clipped at 184px ends in a "…" a few pixels wide,
+ * and it is entirely possible to read a set of captures twice, conclude they
+ * pass, and have missed that every status line lost its informative half.
+ * Listing them turns "look carefully" into something the runner can point at.
+ *
+ * Reported, never failed — plenty of truncation is deliberate. Credit to the
+ * session that hit this the hard way and proposed the check.
+ */
+const CLIPPED_TEXT_PROBE = `(() => {
+  const out = [];
+  for (const el of document.querySelectorAll('*')) {
+    if (out.length >= 25) break;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    const ellipsis = cs.textOverflow === 'ellipsis';
+    const clampedLines = cs.webkitLineClamp && cs.webkitLineClamp !== 'none';
+    if (!ellipsis && !clampedLines) continue;
+    const overflowsX = el.scrollWidth > el.clientWidth + 1;
+    const overflowsY = clampedLines && el.scrollHeight > el.clientHeight + 1;
+    if (!overflowsX && !overflowsY) continue;
+    const text = (el.textContent || '').trim().replace(/\\s+/g, ' ');
+    if (!text) continue;
+    out.push({
+      text: text.slice(0, 120),
+      chars: text.length,
+      shownPx: Math.round(el.clientWidth),
+      neededPx: Math.round(el.scrollWidth),
+      where: el.className && typeof el.className === 'string'
+        ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.')
+        : el.tagName.toLowerCase(),
+    });
+  }
+  return JSON.stringify(out);
+})()`;
+
+async function capture({ url, file, clipSelector, identity, label, requires }) {
   const { page, targetId } = await newPage(url);
   try {
     const ready = await waitFor(page, 'window.__harnessReady', 25_000, `${file} to settle`)
@@ -209,6 +334,19 @@ async function capture({ url, file, clipSelector }) {
       if (box) clip = JSON.parse(box);
       else missingClip = clipSelector;
     }
+
+    // The page is settled and about to be photographed: confirm the server
+    // still belongs to this checkout before the image is written.
+    if (identity) await assertStillSameCheckout(identity, label ?? file);
+
+    const clipped = JSON.parse(await page.eval(CLIPPED_TEXT_PROBE).catch(() => '[]'));
+
+    // The scenario's subject must actually be on screen. Without this a
+    // scenario whose surface has vanished still yields a clean screenshot of
+    // whatever else was rendered, under this scenario's name.
+    const missingRequired = requires
+      ? !(await page.eval(`!!document.querySelector(${JSON.stringify(requires)})`).catch(() => false))
+      : false;
 
     // Capture a *stable* frame rather than whichever frame happened to be on
     // screen. Polling hooks re-render on their own schedule, so a single shot
@@ -248,6 +386,8 @@ async function capture({ url, file, clipSelector }) {
       ...state,
       ...(missingClip ? { missingClip } : {}),
       imageHash: hash(buf),
+      clipped,
+      ...(requires ? { requires, missingRequired } : {}),
       console: page.console.slice(0, 8),
     };
   } finally {
@@ -256,13 +396,26 @@ async function capture({ url, file, clipSelector }) {
   }
 }
 
-const mark = (r) => (r.crashed || !r.ready ? '✗' : r.unmocked.length ? '!' : '✓');
+const mark = (r) =>
+  r.crashed || !r.ready || r.missingRequired ? '✗' : r.unmocked.length ? '!' : '✓';
 
-function renderReport({ scenarios, commands, skipped }) {
+function renderReport({ scenarios, commands, skipped, meta }) {
   const lines = [
     '# Ship Studio UI harness — capture report',
     '',
     `Captured ${new Date().toISOString()} at ${VIEWPORT.width}×${VIEWPORT.height}.`,
+    ...(meta.filter
+      ? [
+          '',
+          `> **Partial run** — filtered to ids starting \`${meta.filter}\`. Only the`,
+          '> captures listed below were taken. Other images in this directory are',
+          '> from an earlier run and may no longer reflect the code. Re-run without',
+          '> a filter for a directory that is consistent end to end.',
+        ]
+      : []),
+    '',
+    `Checkout: \`${meta.checkout}\``,
+    `HEAD: \`${meta.head}\``,
     '',
     'Regenerate: `pnpm harness` in one shell, then `node scripts/harness-capture.mjs --all`.',
     '',
@@ -309,6 +462,26 @@ function renderReport({ scenarios, commands, skipped }) {
     }
   }
 
+  const withClipped = [...scenarios, ...commands].filter((r) => r.clipped?.length);
+  if (withClipped.length) {
+    lines.push(
+      '## Text being cut off',
+      '',
+      'Elements whose content is wider than the box drawn for it. Not a',
+      'failure — plenty of truncation is deliberate — but a clipped sentence',
+      'is a few pixels of "…" in a screenshot and is very easy to read past.',
+      'Check that what got cut is not the informative half.',
+      ''
+    );
+    for (const r of withClipped) {
+      lines.push(`**\`${r.id}\`**`, '');
+      for (const c of r.clipped.slice(0, 8)) {
+        lines.push(`- \`${c.where}\` ${c.shownPx}px shown / ${c.neededPx}px needed — "${c.text}"`);
+      }
+      lines.push('');
+    }
+  }
+
   if (skipped.length) {
     lines.push(
       '## Skipped commands',
@@ -320,11 +493,18 @@ function renderReport({ scenarios, commands, skipped }) {
     );
   }
 
-  const bad = [...scenarios, ...commands].filter((r) => r.crashed || !r.ready);
+  const bad = [...scenarios, ...commands].filter(
+    (r) => r.crashed || !r.ready || r.missingRequired
+  );
   if (bad.length) {
     lines.push('## Failures', '');
     for (const r of bad) {
-      lines.push(`### \`${r.id}\` — ${r.crashed ? 'crashed' : 'never settled'}`, '');
+      const why = r.crashed
+        ? 'crashed'
+        : !r.ready
+          ? 'never settled'
+          : `subject missing — nothing matched \`${r.requires}\`, so this capture is not of what the scenario claims`;
+      lines.push(`### \`${r.id}\` — ${why}`, '');
       for (const c of r.console) lines.push(`- **${c.level}**: ${c.text.split('\n')[0]}`);
       lines.push('');
     }
@@ -336,8 +516,10 @@ function renderReport({ scenarios, commands, skipped }) {
 async function main() {
   if (!CHROME) throw new Error('No Chrome/Chromium found. Install Google Chrome.');
   await waitForServer(`${HARNESS_ORIGIN}/harness.html`).catch(() => {
-    throw new Error('The harness is not running. Start it with:  pnpm harness');
+    throw new Error(`The harness is not running on ${HARNESS_ORIGIN}. Start it with:  pnpm harness`);
   });
+  // Before anything is captured: prove the server belongs to this checkout.
+  const identity = await assertHarnessIsThisCheckout();
 
   const chrome = spawn(
     CHROME,
@@ -362,7 +544,15 @@ async function main() {
   );
   await waitForServer(`http://127.0.0.1:${CDP_PORT}/json/version`);
 
-  await rm(outDir, { recursive: true, force: true });
+  // A full run owns the directory and clears it, so nothing stale survives to
+  // be mistaken for current. A *filtered* run must not: it would delete images
+  // a reviewer is halfway through reading, and the report that replaced them
+  // would describe a handful of files while the rest of the directory silently
+  // became a mix of two runs. Filtered runs overwrite only what they capture
+  // and say so at the top of the report.
+  if (!filter) {
+    await rm(outDir, { recursive: true, force: true });
+  }
   await mkdir(outDir, { recursive: true });
 
   // Ask the running harness what exists, so this script never keeps a second,
@@ -371,7 +561,7 @@ async function main() {
   await waitFor(probe.page, 'window.__harness', 20_000, 'the harness module to load');
   const allScenarios = JSON.parse(
     await probe.page.eval(
-      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector})))'
+      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector,requires:s.requires,command:s.command})))'
     )
   );
   probe.page.close();
@@ -381,9 +571,14 @@ async function main() {
   if (wantScenarios) {
     for (const s of allScenarios.filter((s) => s.id.startsWith(filter))) {
       const r = await capture({
-        url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${s.id}`,
+        url:
+          `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${s.id}` +
+          (s.command ? `&command=${encodeURIComponent(s.command)}` : ''),
         file: path.join(outDir, `${s.id}.png`),
         clipSelector: s.clipSelector,
+        requires: s.requires,
+        identity,
+        label: s.id,
       });
       scenarioResults.push({ ...s, ...r });
       process.stdout.write(`${mark(r)} ${s.id}\n`);
@@ -404,6 +599,8 @@ async function main() {
       const base = await capture({
         url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}`,
         file: path.join(outDir, 'commands', `_baseline-${ctx.name}.png`),
+        identity,
+        label: `baseline-${ctx.name}`,
       });
 
       const listPage = await newPage(
@@ -431,6 +628,8 @@ async function main() {
         const r = await capture({
           url: `${HARNESS_ORIGIN}/harness.html?chrome=off&scenario=${ctx.scenario}&command=${encodeURIComponent(cmd.id)}`,
           file: path.join(outDir, 'commands', `${cmd.id}.png`),
+          identity,
+          label: cmd.id,
         });
         commandResults.push({
           ...cmd,
@@ -447,6 +646,12 @@ async function main() {
 
   const report = {
     capturedAt: new Date().toISOString(),
+    // Recorded so a screenshot can be traced to the tree it came from. An
+    // image with no provenance is not evidence.
+    checkout: identity.root,
+    head: identity.head,
+    // Non-null means this report describes only part of the directory.
+    filter: filter || null,
     viewport: VIEWPORT,
     scenarios: scenarioResults,
     commands: commandResults,
@@ -455,11 +660,16 @@ async function main() {
   await writeFile(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(
     path.join(outDir, 'report.md'),
-    renderReport({ scenarios: scenarioResults, commands: commandResults, skipped })
+    renderReport({
+      scenarios: scenarioResults,
+      commands: commandResults,
+      skipped,
+      meta: { checkout: identity.root, head: identity.head, filter: filter || null },
+    })
   );
 
   const all = [...scenarioResults, ...commandResults];
-  const broken = all.filter((r) => r.crashed || !r.ready);
+  const broken = all.filter((r) => r.crashed || !r.ready || r.missingRequired);
   const incomplete = all.filter((r) => !r.crashed && r.unmocked.length);
   const missing = commandResults.filter((r) => r.commandMissing);
 
@@ -476,7 +686,15 @@ async function main() {
   if (broken.length) {
     console.log(`\n${broken.length} FAILED:`);
     for (const r of broken) {
-      console.log(`  ${r.id}: ${r.crashed ? 'crashed' : 'never became ready'}`);
+      console.log(
+        `  ${r.id}: ${
+          r.crashed
+            ? 'crashed'
+            : !r.ready
+              ? 'never became ready'
+              : `subject missing (${r.requires})`
+        }`
+      );
       for (const c of r.console) console.log(`      ${c.level}: ${c.text.split('\n')[0]}`);
     }
   }

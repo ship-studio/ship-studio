@@ -13,7 +13,13 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listPlugins, updatePlugin, isExpectedPluginFailure, PluginInfo } from '../lib/plugins';
+import {
+  listPlugins,
+  updatePlugin,
+  isExpectedPluginFailure,
+  supersededReason,
+  PluginInfo,
+} from '../lib/plugins';
 import { loadPluginModule, unloadPluginModule, PluginModule } from '../lib/plugin-loader';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
@@ -145,7 +151,11 @@ export function usePlugins(
       setIsLoading(true);
       try {
         const installed = await listPlugins(path);
-        const enabled = installed.filter((p) => p.enabled);
+        // A plugin the app now does itself is skipped at load, not at render:
+        // merely not rendering one still runs its activation hook and its
+        // background timers, which was most of what made the old hosting
+        // integration expensive. The Plugin Manager explains the skip.
+        const enabled = installed.filter((p) => p.enabled && !supersededReason(p.manifest.id));
         const failed: PluginFailure[] = [];
 
         // Skip plugins with unsupported API versions

@@ -9,7 +9,7 @@
  * @module components/PublishBranchDropdown
  */
 
-import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { ProjectGitHubStatus } from '../../lib/github';
 import { publishBranch } from '../../lib/branches';
 import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon, PushIcon } from '@/components/icons';
@@ -24,6 +24,7 @@ import { MenuButton } from '../primitives/MenuButton';
 import { TextButton } from '../primitives/TextButton';
 import type { ChangedFile } from '../../lib/git';
 import { ChangedFilesActions, ChangedFilesSection } from './ChangedFilesSection';
+import { HostingSection } from '../hosting/HostingSection';
 
 // Module-scoped so the metric spans dropdown re-mounts. Per-project would be
 // better but cross-project publish cadence is also useful and far simpler.
@@ -65,8 +66,8 @@ interface PublishBranchDropdownProps {
   /** Changed-file review is part of this single source-control menu. */
   changedFiles?: ChangedFile[];
   onDiscardChanges?: () => void;
-  /** Hosting integration controls rendered inside the Push workflow. */
-  hostingControls?: ReactNode;
+  /** Hide the native hosting section (compact mode has no room for it). */
+  hideHosting?: boolean;
   /**
    * CSS selector for elements that should NOT trigger click-outside closing.
    * Used by compact mode to exclude its publish button from closing the dropdown.
@@ -102,7 +103,7 @@ export function PublishBranchDropdown({
   grouped = false,
   changedFiles = [],
   onDiscardChanges,
-  hostingControls,
+  hideHosting = false,
   excludeClickOutsideSelector,
 }: PublishBranchDropdownProps) {
   const { showToast } = useOptionalToast();
@@ -112,7 +113,9 @@ export function PublishBranchDropdown({
   const [publishState, setPublishState] = useState<PublishState>({ status: 'idle' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const hostingRef = useRef<HTMLDivElement>(null);
+  // When the push landed, so the hosting section can tell "the provider hasn't
+  // picked this up yet" apart from "it never will".
+  const [pushedAt, setPushedAt] = useState<number | undefined>(undefined);
 
   const hasGitHubRepo =
     projectGithubStatus?.status === 'connected' && projectGithubStatus?.github_repo;
@@ -188,33 +191,6 @@ export function PublishBranchDropdown({
     }
   }, [isOpen, publishState.status]);
 
-  useEffect(() => {
-    if (!isOpen || !hostingControls) return;
-    const host = hostingRef.current;
-    if (!host) return;
-
-    const revealHostingLinks = () => {
-      const wrappers = host.querySelectorAll<HTMLElement>(
-        '.cf-dropdown-wrapper, .vercel-button-container'
-      );
-
-      wrappers.forEach((wrapper) => {
-        const menu = wrapper.querySelector('.cf-dropdown, .vercel-site-dropdown');
-        if (!menu) {
-          wrapper.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        }
-      });
-    };
-
-    const frame = requestAnimationFrame(revealHostingLinks);
-    const observer = new MutationObserver(revealHostingLinks);
-    observer.observe(host, { childList: true, subtree: true });
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [hostingControls, isOpen]);
-
   const handlePublish = async () => {
     logger.info('Starting publish', { branch: currentBranch, isMainBranch, projectPath });
     setIsPublishing(true);
@@ -245,6 +221,7 @@ export function PublishBranchDropdown({
       lastPublishAt = now;
       onToast?.('Pushed to GitHub!', 'success');
       onStatusChange();
+      setPushedAt(Date.now());
       setPublishState({ status: 'success' });
     } catch (e) {
       const message = formatCommandError(asCommandError(e));
@@ -468,15 +445,8 @@ export function PublishBranchDropdown({
             </>
           )}
 
-          {hostingControls && (
-            <section className="publish-hosting-section" aria-labelledby="publish-hosting-heading">
-              <div className="publish-hosting-heading" id="publish-hosting-heading">
-                Hosting
-              </div>
-              <div className="publish-hosting-plugins" ref={hostingRef}>
-                {hostingControls}
-              </div>
-            </section>
+          {!hideHosting && (
+            <HostingSection projectPath={projectPath} open={isOpen} pushedAt={pushedAt} />
           )}
 
           {publishState.status === 'success' && (

@@ -395,6 +395,26 @@ button.dashboard-card-row {
   gap: var(--button-gap);
 }
 
+/* Used by the hosting link picker while it fetches the account's projects. */
+.connect-modal-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+}
+
+/* Capped so an account with many projects scrolls the list rather than
+   growing the dialog past the viewport. */
+.connect-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 /* Terminal phase — fills the (terminal-sized) modal: instructions on top, the
    embedded backend-PTY terminal taking the remaining height. */
 .connect-modal-terminal-phase {

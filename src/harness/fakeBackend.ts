@@ -14,6 +14,12 @@
  * 2. Plugin channels the app cannot run in a browser (PTY, screenshots,
  *    updater) are answered with explicit inert values rather than left to
  *    throw, because an uncaught boot error hides everything downstream.
+ *
+ * A fixture may also be a function, and a function that throws rejects the
+ * call — see `rejectsWith` in `./reject`. Several surfaces (the merge-conflict
+ * panel among them) are only reachable through a failed command, so a layer
+ * that could only resolve would confine the harness to every feature's happy
+ * path.
  */
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';

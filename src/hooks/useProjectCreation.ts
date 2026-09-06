@@ -8,8 +8,8 @@
  * progress UI via `getStepStatus`): clone (`git clone` through a `spawn_pty`
  * PTY; zips go through `extract_template_zip`; blank uses
  * `create_blank_project`) → init (`remove_git_history` so the project
- * detaches from the template repo, gitignore `.shipstudio/`, fire-and-forget
- * Vercel plugin install) → install (`npm install` via PTY, gated on an npm
+ * detaches from the template repo, gitignore `.shipstudio/`) → install
+ * (`npm install` via PTY, gated on an npm
  * cache-permission pre-check) → done → `onComplete(projectPath)`, which the
  * caller turns into a project open. `retryInstall` re-runs just the install
  * step against `createdProjectPath`.
@@ -20,7 +20,7 @@
  * mapped to friendly errors: 243 npm cache, 128 fatal git failure, 69 Xcode
  * license),
  * `list_projects` (duplicate-name check), `ensure_shipstudio_dir`,
- * lib/setup (`checkNpmCachePermissions`), lib/plugins.
+ * lib/setup (`checkNpmCachePermissions`).
  *
  * Gotchas: `waitForPtyExit` treats a `null` exit code (process killed) as
  * SUCCESS, so a killed install proceeds to the next step; the clone step is
@@ -40,7 +40,6 @@ import { trackError } from '../lib/analytics';
 import { friendlyProcessError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { checkNpmCachePermissions } from '../lib/setup';
-import { installPlugin, VERCEL_PLUGIN_REPO } from '../lib/plugins';
 import { basename } from '../lib/paths';
 
 // ---------------------------------------------------------------------------
@@ -462,9 +461,6 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
 
         // Ensure .shipstudio/ is gitignored to prevent phantom changes
         await invoke('ensure_gitignore_has_shipstudio', { projectPath: projectPath });
-
-        // Pre-install Vercel plugin (fire-and-forget, don't block creation)
-        installPlugin(projectPath, VERCEL_PLUGIN_REPO).catch(() => {});
 
         // Install dependencies (skip for templates with no package.json)
         setCreatedProjectPath(projectPath);

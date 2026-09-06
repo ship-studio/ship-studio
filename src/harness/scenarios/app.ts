@@ -16,6 +16,7 @@ const notInstalled = (id: string, friendlyName: string) => ({
 export const appScenarios: Scenario[] = [
   {
     id: 'dashboard',
+    requires: '.project-card',
     title: 'Dashboard — the normal case',
     looksRightWhen:
       'Projects render as cards with readable names, consistent spacing, and no placeholder or "undefined" text anywhere.',
@@ -34,6 +35,7 @@ export const appScenarios: Scenario[] = [
   },
   {
     id: 'dashboard-many',
+    requires: '.project-card',
     title: 'Dashboard — a crowded account',
     looksRightWhen:
       'Layout holds at 24 projects: no overflow past the container, no clipped names, scrolling works.',
@@ -52,6 +54,7 @@ export const appScenarios: Scenario[] = [
   },
   {
     id: 'dashboard-long-names',
+    requires: '.project-card',
     title: 'Dashboard — hostile project names',
     looksRightWhen:
       'Very long and non-Latin names truncate cleanly instead of breaking the card grid.',

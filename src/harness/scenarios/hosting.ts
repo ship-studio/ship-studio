@@ -10,12 +10,12 @@
  * that mapping is the adapter's job and is verified against provider fixtures
  * in the Rust unit tests, not here.
  *
- * STATUS ON `main`: the native hosting module is not merged yet, so the Push
- * popover currently renders without a HOSTING section and these scenarios
- * capture the popover as it is today. That is deliberate — they are the
- * before-picture, and the same ids start showing the hosting rows the moment
- * the feature lands, with no change needed here. `get_hosting_status` is
- * simply an unread fixture until then.
+ * These were written against `main` before the native section existed, as a
+ * before-picture whose fixtures would start being read the moment it landed.
+ * It has landed: every scenario below now renders a real HOSTING row. If one
+ * of them captures a popover with no HOSTING section at all, that is not an
+ * empty state — it means the capture hit a server serving a different
+ * checkout, which the runner's identity check exists to refuse.
  */
 
 import type { Scenario } from '../types';
@@ -30,6 +30,24 @@ const vercelLink = {
   scope_id: null,
   project_name: 'acme-marketing',
   source: 'vercel_cli_file' as const,
+  linked_at: 1_757_000_000_000,
+};
+
+const netlifyLink = {
+  provider: 'netlify' as const,
+  project_id: '8f2b1c40-harness-site',
+  scope_id: null,
+  project_name: 'acme-marketing',
+  source: 'netlify_cli_file' as const,
+  linked_at: 1_757_000_000_000,
+};
+
+const cloudflareLink = {
+  provider: 'cloudflare' as const,
+  project_id: 'shipstudio-harness-testbed',
+  scope_id: 'acct_harness0000000000000000000',
+  project_name: 'shipstudio-harness-testbed',
+  source: 'user_picked' as const,
   linked_at: 1_757_000_000_000,
 };
 
@@ -50,24 +68,42 @@ const status = (lookup: unknown, over: Record<string, unknown> = {}) => ({
   detected: [],
 });
 
-const deployment = (phase: unknown, over: Record<string, unknown> = {}) => ({
+/**
+ * `status_label` is the provider's own status word and the row prints it
+ * verbatim, so a fixture that omits it exercises our fallback rather than the
+ * thing that actually ships. Every scenario below names it.
+ *
+ * `dashboard_url` is here for the same reason: Vercel returns an inspector link
+ * on every deployment, and it is what the row's only button opens. A fixture
+ * without one quietly hides that button from review.
+ */
+const deployment = (phase: unknown, statusLabel: string, over: Record<string, unknown> = {}) => ({
   id: 'dpl_harness000000000000000000',
+  status_label: statusLabel,
   phase,
   environment: 'production',
   branch: 'main',
   commit_sha: commit.sha,
   commit_message: commit.subject,
   urls: {},
+  dashboard_url: 'https://vercel.com/harness/acme-marketing/dpl_harness',
   created_at: Date.now() - 45_000,
   ...over,
 });
 
 const found = (d: unknown) => ({ kind: 'found', deployment: d });
 
+/**
+ * Both addresses, because they are the pair the section has to keep straight:
+ * `site` is where visitors go and stays put, `deployment` is this build's
+ * immutable permalink. Showing only one was the original defect — the row
+ * offered a preview permalink under the word "Domain".
+ */
 const liveUrls = {
+  site: 'https://acme-marketing.com',
   deployment: 'https://acme-marketing-9f3c1ab.vercel.app',
   aliases: ['https://acme-marketing.vercel.app'],
-  primary: 'https://acme-marketing.vercel.app',
+  primary: 'https://acme-marketing.com',
 };
 
 export const hostingScenarios: Scenario[] = [
@@ -79,9 +115,12 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
-      get_hosting_status: status(found(deployment({ phase: 'building' }))),
+      get_hosting_status: status(found(deployment({ phase: 'building' }, 'Building'))),
     },
   },
   {
@@ -92,24 +131,40 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
-        found(deployment({ phase: 'ready' }, { urls: liveUrls, ready_at: Date.now() - 5_000 }))
+        found(
+          deployment({ phase: 'ready' }, 'Ready', { urls: liveUrls, ready_at: Date.now() - 5_000 })
+        )
       ),
     },
   },
   {
     id: 'hosting-publishing',
-    title: 'Push popover — built but not yet serving',
+    title: 'Push popover — built but not yet serving (Netlify)',
     looksRightWhen:
-      'Distinct from "ready": the build finished but aliases are not attached, so no live URL is promised yet.',
+      'Distinct from "ready": the build finished but is not serving visitors yet, so no live URL is promised. Says "Uploading", which is Netlify\'s own word — and note the provider mark, which is a neutral circle because Netlify has no icon in the set yet.',
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
-      get_hosting_status: status(found(deployment({ phase: 'publishing' }))),
+      // Netlify on purpose. Vercel has no state between building and ready —
+      // an earlier version invented one for it — so a Vercel row here would be
+      // reviewing a screen no user can reach. Netlify genuinely separates
+      // building from uploading, and this is also the only scenario that puts
+      // a non-Vercel provider in front of a reviewer.
+      get_hosting_status: status(found(deployment({ phase: 'publishing' }, 'Uploading')), {
+        link: netlifyLink,
+        token_source: 'keychain',
+      }),
     },
   },
   {
@@ -120,17 +175,16 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
         found(
-          deployment(
-            { phase: 'failed' },
-            {
-              error_message: 'Build exited with code 1',
-              dashboard_url: 'https://vercel.com/harness/acme-marketing/dpl_harness',
-            }
-          )
+          deployment({ phase: 'failed' }, 'Error', {
+            error_message: "Module not found: Can't resolve '@/lib/analytics' in ./app/layout.tsx",
+          })
         )
       ),
     },
@@ -143,30 +197,50 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
-        found(deployment({ phase: 'canceled' }, { detail: { detail: 'superseded_by_newer' } }))
+        found(
+          deployment({ phase: 'canceled' }, 'Canceled', {
+            detail: { detail: 'superseded_by_newer' },
+          })
+        )
       ),
     },
   },
   {
     id: 'hosting-skipped',
-    title: 'Push popover — commit deliberately not built',
+    title: 'Push popover — commit deliberately not built (Cloudflare)',
     looksRightWhen:
-      'Explains that the provider chose not to build, and shows the provider’s own reason rather than guessing one.',
+      'Explains that the provider chose not to build, in the provider’s own reason rather than a guessed one. Also the only scenario with no “Open in …” button, because Cloudflare’s API returns no link to the deployment — the column stays reserved rather than collapsing.',
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
+      // Cloudflare, because Vercel cannot produce this phase: its
+      // `phase_from_ready_state` maps five readyStates and none of them is a
+      // skip. Skipped comes from Netlify's `skipped` flag or Cloudflare's
+      // `is_skipped`, and only Cloudflare carries a machine-readable
+      // `skip_reason` for the sentence below (`humanize_skip_reason`).
       get_hosting_status: status(
         found(
-          deployment(
-            { phase: 'skipped' },
-            { detail: { detail: 'skipped_because', reason: '[skip ci] in commit message' } }
-          )
-        )
+          deployment({ phase: 'skipped' }, 'Skipped', {
+            detail: {
+              detail: 'skipped_because',
+              reason: 'the commit message asked Cloudflare to skip it',
+            },
+            // Cloudflare's deployments endpoint returns no dashboard link.
+            dashboard_url: null,
+          })
+        ),
+        { link: cloudflareLink, token_source: 'cli_file' }
       ),
     },
   },
@@ -178,11 +252,21 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status({
         kind: 'not_found',
-        latest_on_branch: deployment({ phase: 'ready' }, { commit_sha: 'aaaa111', urls: liveUrls }),
+        // A *different* commit on purpose. Reusing this push's subject made the
+        // context line read as if it described the push, which is the exact
+        // confusion the state exists to avoid.
+        latest_on_branch: deployment({ phase: 'ready' }, 'Ready', {
+          commit_sha: 'aaaa111',
+          commit_message: 'Bump the pricing table copy',
+          urls: liveUrls,
+        }),
       }),
     },
   },
@@ -194,6 +278,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(null, { auth: { kind: 'rejected' }, lookup: null }),
@@ -206,6 +293,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: { ...workspaceCommands, get_hosting_status: unlinkedHostingStatus },
   },
   {
@@ -216,6 +306,9 @@ export const hostingScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
+    // The popover must actually be open. Without this, a failure to open it
+    // yields a clean screenshot of the workspace captioned as a deploy state.
+    requires: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(null, {

@@ -6,16 +6,20 @@
  * "Go Live". That label churn was a real UX complaint; these tests pin it.
  */
 
-import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { ModalProvider } from '../../contexts/ModalContext';
 import { PublishBranchDropdown } from './PublishBranchDropdown';
 import type { ProjectGitHubStatus } from '../../lib/github';
 
 vi.mock('../../lib/branches', () => ({
   publishBranch: vi.fn().mockResolvedValue({ state: 'PUSHED', url: null }),
+  formatRelativeTime: () => 'just now',
 }));
 
+// The hosting section owns its own data now. These tests are about the
+// popover's structure, so hold it in a single settled state.
 const connectedStatus = {
   status: 'connected',
   github_repo: 'user/repo',
@@ -36,47 +40,13 @@ function makeProps(overrides?: Partial<Parameters<typeof PublishBranchDropdown>[
 
 const BANNED_LABELS = ['Sync', 'Synced', 'Syncing...', 'Publish', 'Publishing...', 'Go Live'];
 
-function FakeCloudflareControls() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="cf-dropdown-wrapper" onMouseEnter={() => setOpen(true)}>
-      <button type="button">Cloudflare</button>
-      {open && (
-        <div className="cf-dropdown">
-          <div className="cf-dropdown-inner">
-            <button type="button">Prod site</button>
-            <button type="button">Dashboard</button>
-            <button type="button" className="cf-dropdown-action">
-              Deploy now
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FakeVercelControls() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="vercel-button-container" onMouseEnter={() => setOpen(true)}>
-      <button type="button" className="toolbar-icon-btn vercel-button">
-        Vercel
-      </button>
-      {open && (
-        <div className="vercel-site-dropdown">
-          <div className="vercel-site-dropdown-inner">
-            <button type="button">Production</button>
-            <button type="button">Dashboard</button>
-            <div className="vercel-dropdown-separator" />
-            <button type="button" className="vercel-dropdown-action">
-              Deploy now
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+/**
+ * The hosting section opens the deployments panel through ModalContext, which
+ * the app always provides around this component. Rendering bare would test a
+ * tree that never exists.
+ */
+function render(ui: ReactElement) {
+  return rtlRender(<ModalProvider>{ui}</ModalProvider>);
 }
 
 function expectNoBannedLabels() {
@@ -192,27 +162,19 @@ describe('PublishBranchDropdown open panel', () => {
     expect(actionRow).toContainElement(pushButtons[pushButtons.length - 1]);
   });
 
-  it('renders hosting plugin controls inside the Push menu', () => {
-    render(
-      <PublishBranchDropdown
-        {...makeProps()}
-        hostingControls={<button type="button">Cloudflare deploy controls</button>}
-      />
-    );
+  it('renders the hosting section inside the Push menu', async () => {
+    render(<PublishBranchDropdown {...makeProps()} />);
 
     fireEvent.click(screen.getByText('Push'));
 
     expect(screen.getByText('Hosting')).toBeInTheDocument();
-    expect(screen.getByText('Cloudflare deploy controls')).toBeInTheDocument();
+    // And it reaches a real state rather than sitting on the spinner — the
+    // default IPC mock reports a project that deploys nowhere.
+    expect(await screen.findByText('See if each push went live')).toBeInTheDocument();
   });
 
   it('keeps the panel actions below the hosting section', () => {
-    const { container } = render(
-      <PublishBranchDropdown
-        {...makeProps()}
-        hostingControls={<button type="button">Cloudflare deploy controls</button>}
-      />
-    );
+    const { container } = render(<PublishBranchDropdown {...makeProps()} />);
 
     fireEvent.click(screen.getByText('Push'));
 
@@ -227,10 +189,7 @@ describe('PublishBranchDropdown open panel', () => {
 
   it('keeps Done below the hosting section when GitHub is up to date', () => {
     const { container } = render(
-      <PublishBranchDropdown
-        {...makeProps({ hasChangesToSync: false })}
-        hostingControls={<button type="button">Cloudflare deploy controls</button>}
-      />
+      <PublishBranchDropdown {...makeProps({ hasChangesToSync: false })} />
     );
 
     fireEvent.click(screen.getByText('Push'));
@@ -242,24 +201,33 @@ describe('PublishBranchDropdown open panel', () => {
     expect(menu?.lastElementChild).toBe(actions);
   });
 
-  it('reveals Cloudflare production links by default', async () => {
-    render(<PublishBranchDropdown {...makeProps()} hostingControls={<FakeCloudflareControls />} />);
+  it('never reaches into plugin DOM to force a menu open', () => {
+    // The popover used to hold the Vercel/Cloudflare plugins' hover menus open
+    // with a synthetic `mouseover` dispatched from a MutationObserver, so every
+    // mouse-out collapsed and restored the whole panel.
+    const observe = vi.fn();
+    const original = globalThis.MutationObserver;
+    globalThis.MutationObserver = class {
+      observe = observe;
+      disconnect = vi.fn();
+      takeRecords = vi.fn(() => []);
+    } as unknown as typeof MutationObserver;
 
-    fireEvent.click(screen.getByText('Push'));
-
-    expect(await screen.findByText('Prod site')).toBeInTheDocument();
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Deploy now')).toHaveClass('cf-dropdown-action');
+    try {
+      render(<PublishBranchDropdown {...makeProps()} />);
+      fireEvent.click(screen.getByText('Push'));
+      expect(observe).not.toHaveBeenCalled();
+    } finally {
+      globalThis.MutationObserver = original;
+    }
   });
 
-  it('reveals Vercel production links by default', async () => {
-    render(<PublishBranchDropdown {...makeProps()} hostingControls={<FakeVercelControls />} />);
+  it('can hide the hosting section where there is no room for it', () => {
+    const { container } = render(<PublishBranchDropdown {...makeProps({ hideHosting: true })} />);
 
     fireEvent.click(screen.getByText('Push'));
 
-    expect(await screen.findByText('Production')).toBeInTheDocument();
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Deploy now')).toHaveClass('vercel-dropdown-action');
+    expect(container.querySelector('.publish-hosting-section')).not.toBeInTheDocument();
   });
 
   it('describes the GitHub push without inferring deployment state', () => {

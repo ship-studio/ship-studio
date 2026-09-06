@@ -39,6 +39,7 @@ export type ModalId =
   | 'quitConfirm'
   | 'commandPalette'
   | 'shopifyStore'
+  | 'deployments'
   | 'worktreeCreate';
 
 interface ModalContextValue {

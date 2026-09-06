@@ -37,9 +37,13 @@ dist-ssr
 *.sw?
 ShipStudio.zip
 
-# Claude Code skills
+# Claude Code local state. `.claude/` also holds settings.local.json and the
+# worktrees, which must stay out of the repo — but skills are instructions for
+# whoever works here next, and a skill that lives on one machine is not
+# documentation. Ignore the directory, re-include just the skills.
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
 
 # Local Cargo config (contains build-time secrets)
 src-tauri/.cargo/
