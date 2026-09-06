@@ -25,6 +25,7 @@ Before believing a check, ask what a *passing* result would still permit.
 | Did this tree pass CI? | These commits passed | They were the pre-rebase commits |
 | Did my edit apply? | The command exited 0 | The pattern matched nothing |
 | Does the suite cover this? | The test passes | It found nothing to assert on |
+| Was this reviewed? | A green tick from the reviewer | It was rate-limited and declined |
 
 ## The one to read first
 
@@ -57,6 +58,39 @@ author reinstated the old field and watched two of them fail before trusting
 them. That is the only method used across a long night of this that actually
 demonstrates a test detects what it claims to. Everyone else watched tests pass
 and inferred coverage from it.
+
+## A second, worse category
+
+Everything above is a check that **measured the wrong thing, correctly** — a
+cheap proxy standing in for an expensive truth. Those degrade honestly once you
+know what the proxy covers.
+
+This one does not:
+
+```
+CodeRabbit | success | Review rate limited
+```
+
+A green tick whose meaning is *"I declined to run."* Not a proxy for review —
+not a measurement at all. It is indistinguishable from a pass in the checks
+list, which shows the state and hides the description, and the only way to tell
+is to read a string nobody reads when six other ticks are green.
+
+Three PRs here carried it. One was 39 files and +6060 lines, reported as "all
+seven checks green" and merged. Another was this repo's harness, likewise
+merged. On a third, five Major findings had been fixed *in response to* that
+reviewer, and the re-run was rate-limited — so the fixes made in answer to a
+review were themselves reviewed by nothing. A review loop that closed on itself
+without ever completing.
+
+**A green check whose description says it did not run is not a green check.**
+
+The checks list will not tell you. Ask for the descriptions:
+
+```bash
+gh api repos/<owner>/<repo>/commits/<sha>/status \
+  --jq '.statuses[] | "\(.context) | \(.state) | \(.description)"'
+```
 
 ## The four that cost the most
 
