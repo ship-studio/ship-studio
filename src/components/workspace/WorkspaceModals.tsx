@@ -13,6 +13,7 @@
 import { EnvEditor } from './EnvEditor';
 import { LanguagesModal } from './LanguagesModal';
 import { BackupsModal } from './BackupsModal';
+import { DeploymentsModal } from '../hosting/DeploymentsModal';
 import { AssetsPanel } from './AssetsPanel';
 import { EducationOverlay } from '../EducationOverlay';
 import { ScreenshotToast, ScreenshotPreviewModal } from '../preview/ScreenshotPreview';
@@ -242,6 +243,8 @@ export function WorkspaceModals({
         onRestore={onBackupRestore}
         onCreatePR={onBackupCreatePR}
       />
+
+      <DeploymentsModal projectPath={projectPath} />
 
       <AssetsPanel projectPath={projectPath} />
 

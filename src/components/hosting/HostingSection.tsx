@@ -16,6 +16,7 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { HostingRow, HostingLinks } from './HostingRow';
 import { HostingTokenModal } from './HostingTokenModal';
 import { HostingLinkPicker } from './HostingLinkPicker';
+import { useOpenModal } from '../../contexts/ModalContext';
 import { copyFor } from '../../lib/hostingCopy';
 import { logger } from '../../lib/logger';
 import {
@@ -36,6 +37,7 @@ interface Props {
 export function HostingSection({ projectPath, open, pushedAt }: Props) {
   const { status, state, refresh } = useHostingStatus({ projectPath, open, pushedAt });
   const { showToast } = useOptionalToast();
+  const openDeployments = useOpenModal();
 
   const [connecting, setConnecting] = useState<HostingProvider | null>(null);
   const [picking, setPicking] = useState(false);
@@ -80,7 +82,9 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
       case 'skipped':
       case 'gated':
       case 'unknown':
-        openExternal(state.deployment?.dashboard_url);
+        // Not the provider's dashboard: the panel has the build output, the
+        // recent history, and the links, which is what the trip was for.
+        openDeployments('deployments');
         return;
       case 'no_token':
       case 'token_rejected':
@@ -95,7 +99,7 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
       default:
         return;
     }
-  }, [state, refresh, showToast]);
+  }, [state, refresh, showToast, openDeployments]);
 
   return (
     <>

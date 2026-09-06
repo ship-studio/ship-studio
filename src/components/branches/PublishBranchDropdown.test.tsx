@@ -7,7 +7,9 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { ModalProvider } from '../../contexts/ModalContext';
 import { PublishBranchDropdown } from './PublishBranchDropdown';
 import type { ProjectGitHubStatus } from '../../lib/github';
 
@@ -37,6 +39,15 @@ function makeProps(overrides?: Partial<Parameters<typeof PublishBranchDropdown>[
 }
 
 const BANNED_LABELS = ['Sync', 'Synced', 'Syncing...', 'Publish', 'Publishing...', 'Go Live'];
+
+/**
+ * The hosting section opens the deployments panel through ModalContext, which
+ * the app always provides around this component. Rendering bare would test a
+ * tree that never exists.
+ */
+function render(ui: ReactElement) {
+  return rtlRender(<ModalProvider>{ui}</ModalProvider>);
+}
 
 function expectNoBannedLabels() {
   for (const label of BANNED_LABELS) {
