@@ -18,26 +18,6 @@ vi.mock('../../lib/branches', () => ({
 
 // The hosting section owns its own data now. These tests are about the
 // popover's structure, so hold it in a single settled state.
-// The hosting section fetches its own status. These tests are about the
-// popover's structure, so hold it in the unlinked state rather than letting it
-// reach a real `invoke`.
-vi.mock('../../lib/hosting', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../lib/hosting')>();
-  return {
-    ...actual,
-    getHostingStatus: vi.fn().mockResolvedValue({
-      commit: {
-        sha: 'abc',
-        short_sha: 'abc1234',
-        branch: 'main',
-        has_upstream: true,
-      },
-      providers: [],
-      detected: [],
-    }),
-  };
-});
-
 const connectedStatus = {
   status: 'connected',
   github_repo: 'user/repo',
@@ -171,12 +151,15 @@ describe('PublishBranchDropdown open panel', () => {
     expect(actionRow).toContainElement(pushButtons[pushButtons.length - 1]);
   });
 
-  it('renders the hosting section inside the Push menu', () => {
+  it('renders the hosting section inside the Push menu', async () => {
     render(<PublishBranchDropdown {...makeProps()} />);
 
     fireEvent.click(screen.getByText('Push'));
 
     expect(screen.getByText('Hosting')).toBeInTheDocument();
+    // And it reaches a real state rather than sitting on the spinner — the
+    // default IPC mock reports a project that deploys nowhere.
+    expect(await screen.findByText('See whether each push went live')).toBeInTheDocument();
   });
 
   it('keeps the panel actions below the hosting section', () => {

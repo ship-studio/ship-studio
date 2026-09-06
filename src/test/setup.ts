@@ -8,7 +8,7 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import { vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import { vi, beforeEach, afterEach } from 'vitest';
 import { mockIPC, mockWindows, clearMocks } from '@tauri-apps/api/mocks';
 
 // Pin the platform so the suite is independent of the host OS. jsdom's default
@@ -53,8 +53,16 @@ export function clearInvokeMocks() {
   invokeErrors.clear();
 }
 
-// Set up Tauri mocks before all tests
-beforeAll(() => {
+/**
+ * Install the Tauri window + IPC mocks.
+ *
+ * Registered per-test rather than once, because `clearMocks()` in `afterEach`
+ * tears `window.__TAURI_INTERNALS__` down — so with a one-time `beforeAll`
+ * every test after the first in a file had no IPC bridge at all, and any
+ * `invoke` silently failed with "invoke is not a function". Harmless for the
+ * many tests that never call one, and invisible until a component polls.
+ */
+function installTauriMocks() {
   // Mock windows
   mockWindows('main');
 
@@ -91,6 +99,22 @@ beforeAll(() => {
         ];
       case 'get_current_branch':
         return 'main';
+      // The Push popover asks for this on open. Default to a well-formed
+      // "deploys nowhere" answer so tests about the popover's structure don't
+      // have to know about hosting; override per-test via mockInvokeResponse.
+      case 'get_hosting_status':
+        return {
+          commit: {
+            sha: 'abc1234def',
+            short_sha: 'abc1234',
+            branch: 'main',
+            has_upstream: true,
+          },
+          providers: [],
+          detected: [],
+        };
+      case 'detect_hosting_links':
+        return [];
       case 'list_branches':
         return [
           {
@@ -115,7 +139,7 @@ beforeAll(() => {
         return undefined;
     }
   });
-});
+}
 
 // Mock tauri-pty (native module)
 vi.mock('tauri-pty', () => ({
@@ -148,6 +172,7 @@ vi.mock('@tauri-apps/plugin-process', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   clearInvokeMocks();
+  installTauriMocks();
 });
 
 // Cleanup after each test
