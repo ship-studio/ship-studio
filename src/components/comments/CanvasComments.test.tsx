@@ -257,3 +257,34 @@ it('edits a sent comment into a ready-to-send update without a separate backlog 
   expect(send).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Send comments to agent' })).toBeEnabled();
 });
+
+it('opens the panel when the preview is not running, and says so', async () => {
+  // The regression that shipped: the panel rendered below Preview's early
+  // return for the dev-server status card, so the header toggle was enabled and
+  // did nothing whenever the server was starting, stopped or errored. This
+  // message could never be seen by the state it was written for.
+  const iframe = document.createElement('iframe');
+  document.body.appendChild(iframe);
+  const ref = createRef<HTMLIFrameElement>();
+  ref.current = iframe;
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    const layer = useCanvasCommentsLayer({
+      projectPath: '/test',
+      branch: 'main',
+      iframeRef: ref,
+      agents: [],
+      currentPage: '/',
+      navigate: vi.fn(),
+      available: false, // the preview is not up
+      editing: false,
+      stopEditing: vi.fn(),
+      open,
+      onOpenChange: setOpen,
+    });
+    return <>{layer.bar}</>;
+  }
+  render(<Harness />);
+  expect(await screen.findByText(/Start the preview to place comments/)).toBeInTheDocument();
+  expect(screen.getByText('No comments yet')).toBeInTheDocument();
+});

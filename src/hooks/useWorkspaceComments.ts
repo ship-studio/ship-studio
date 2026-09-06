@@ -26,10 +26,18 @@ export function useWorkspaceComments({
   const toggleComments = useCallback(() => {
     const shouldOpen = !commentsOpen;
     setCommentsOpen(shouldOpen);
-    if (shouldOpen) {
-      setIsPreviewHidden(false);
-      setWorkspaceTab('preview');
-      void startDevServer();
+    if (!shouldOpen) return;
+    setIsPreviewHidden(false);
+    setWorkspaceTab('preview');
+    // Bringing the preview up is a convenience, not a precondition. If starting
+    // the dev server throws — an unmocked command, a missing script, a port
+    // already busy — it used to take the whole handler down with it, and React
+    // never flushed the state update above, so the toggle did nothing at all.
+    // The panel opens either way and says the preview isn't running.
+    try {
+      void Promise.resolve(startDevServer()).catch(() => undefined);
+    } catch {
+      // Deliberately ignored; see above.
     }
   }, [commentsOpen, setIsPreviewHidden, setWorkspaceTab, startDevServer]);
   return {

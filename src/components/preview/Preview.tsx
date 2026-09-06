@@ -1370,26 +1370,29 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   if (conn.isLoading || conn.isStopped || conn.hasError) {
     return (
-      <DevServerStatus
-        // A known-dead process escalates straight to the error card — polling
-        // a port nothing listens on can only end in the same place, minutes
-        // later, so don't make the user sit through the retry loop.
-        phase={
-          conn.isStopped ? 'stopped' : conn.hasError || serverProcessGone ? 'error' : 'loading'
-        }
-        isStaticProject={isStaticProject}
-        port={port}
-        retryCount={conn.retryCount}
-        maxRetries={SERVER_MAX_RETRIES}
-        devServerOutput={devServerOutput}
-        onStop={conn.stopConnecting}
-        onRetry={conn.handleRetry}
-        processExited={serverProcessGone || conn.serverStale}
-        exitCode={devServerUnexpectedExit?.exitCode ?? null}
-        onRestartServer={onRestartDevServer}
-        onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
-        onInput={onDevServerInput}
-      />
+      <>
+        {comments.bar}
+        <DevServerStatus
+          // A known-dead process escalates straight to the error card — polling
+          // a port nothing listens on can only end in the same place, minutes
+          // later, so don't make the user sit through the retry loop.
+          phase={
+            conn.isStopped ? 'stopped' : conn.hasError || serverProcessGone ? 'error' : 'loading'
+          }
+          isStaticProject={isStaticProject}
+          port={port}
+          retryCount={conn.retryCount}
+          maxRetries={SERVER_MAX_RETRIES}
+          devServerOutput={devServerOutput}
+          onStop={conn.stopConnecting}
+          onRetry={conn.handleRetry}
+          processExited={serverProcessGone || conn.serverStale}
+          exitCode={devServerUnexpectedExit?.exitCode ?? null}
+          onRestartServer={onRestartDevServer}
+          onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
+          onInput={onDevServerInput}
+        />
+      </>
     );
   }
 
