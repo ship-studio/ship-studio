@@ -34,18 +34,32 @@ import {
   type HostingProvider,
 } from '../../lib/hosting';
 
-/** The row's status word. Plain language, never the provider's enum. */
+/**
+ * Fallback status words, for a deployment whose provider sent none.
+ *
+ * The provider's own `status_label` wins — this panel and the Push popover
+ * describe the same deployments, and until now they disagreed about them: the
+ * row printed Vercel's "Ready" while this list called the same deploy "Live",
+ * and "Error" here read as "Failed". Two vocabularies for one deployment is
+ * the thing the rest of this feature was rewritten to stop doing, and a user
+ * comparing either against the Vercel dashboard had three.
+ */
 const PHASE_LABEL: Record<string, string> = {
-  queued: 'Waiting',
+  queued: 'Queued',
   building: 'Building',
   publishing: 'Publishing',
-  ready: 'Live',
-  failed: 'Failed',
+  ready: 'Ready',
+  failed: 'Error',
   canceled: 'Canceled',
   skipped: 'Skipped',
   gated: 'Needs approval',
   unknown: 'Unrecognized',
 };
+
+/** The provider's own word, exactly as the hosting row resolves it. */
+function statusWord(deployment: Deployment): string {
+  return deployment.status_label?.trim() || PHASE_LABEL[deployment.phase.phase] || 'Unrecognized';
+}
 
 /** Maps a phase onto the dot colours the rest of the app already uses. */
 const DOT_STATE: Record<string, string> = {
@@ -269,7 +283,7 @@ export function DeploymentsModal({ projectPath }: Props) {
                   {titleFor(deployment)}
                 </span>
                 <span className="deployments-item-meta text-style-hint">
-                  {PHASE_LABEL[deployment.phase.phase] ?? 'Unrecognized'}
+                  {statusWord(deployment)}
                   {` · ${formatRelativeTime(deployment.created_at)}`}
                   {deployment.environment === 'preview' && ' · Preview'}
                 </span>

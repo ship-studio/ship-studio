@@ -87,15 +87,16 @@ describe('DeploymentsModal', () => {
       throw new Error(`unexpected command in this scenario: ${cmd}`);
     });
 
-    const { container } = renderModal();
+    renderModal();
 
     await waitFor(() => {
       expect(screen.getByText(/doesn’t deploy anywhere yet/i)).toBeInTheDocument();
     });
 
-    // "Deployments — your host" was the shipped heading. A title is a name, and
-    // naming a thing "your host" tells the reader nothing they didn't know.
-    expect(container.textContent).not.toMatch(/your host/i);
+    // `document.body`, not the render container: ModalFrame renders through a
+    // portal, so `container.textContent` is the empty string and a negative
+    // assertion against it passes whatever the modal actually says.
+    expect(document.body.textContent).not.toMatch(/your host/i);
     expect(screen.getByText('Deployments')).toBeInTheDocument();
   });
 
@@ -203,6 +204,53 @@ describe('DeploymentsModal', () => {
       expect(screen.getByText(/doesn\u2019t deploy anywhere yet/i)).toBeInTheDocument();
     });
     expect(screen.queryByText('Project A deploy')).not.toBeInTheDocument();
+  });
+
+  it("prints the provider's own status word, not a synonym for it", async () => {
+    // The Push row shows Vercel's "Ready"; this list used to call the same
+    // deployment "Live", and "Error" read as "Failed". One deployment, two
+    // vocabularies, inside the feature rewritten to stop doing exactly that.
+    mockIPC((cmd) => {
+      if (cmd === 'get_hosting_status') {
+        return {
+          ...UNLINKED,
+          providers: [
+            {
+              link: { provider: 'vercel', project_id: 'prj_1', source: 'vercel_cli_file' },
+              auth: { kind: 'ok' },
+              fetched_at: Date.now(),
+              from_cache: false,
+            },
+          ],
+        };
+      }
+      if (cmd === 'list_recent_deployments') {
+        return [
+          {
+            id: 'dpl_1',
+            status_label: 'Ready',
+            phase: { phase: 'ready' },
+            environment: 'production',
+            commit_sha: 'abc1234',
+            commit_message: 'Fix the nav',
+            urls: { aliases: [] },
+            created_at: Date.now() - 60_000,
+          },
+        ];
+      }
+      if (cmd === 'get_deployment_log') {
+        return { deployment_id: 'dpl_1', lines: [], truncated: false };
+      }
+      throw new Error(`unexpected command: ${cmd}`);
+    });
+
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByText('Fix the nav')).toBeInTheDocument();
+    });
+
+    expect(document.body.textContent).toContain('Ready');
+    expect(document.body.textContent).not.toContain('Live');
   });
 
   it('is keyed by project path where it is actually rendered', () => {
