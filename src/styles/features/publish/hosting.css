@@ -216,3 +216,13 @@
   line-height: 14px;
   text-overflow: ellipsis;
 }
+
+/* On a failure this line carries the build error — the reason the user would
+   otherwise open the provider's dashboard, and the whole point of the section
+   showing it. Muted is the right weight for a hint and the wrong weight for
+   that, so it steps up to the same colour as the status line above it. Not to
+   the error red: the dot and the status word already say "failed", and a
+   paragraph of compiler output in red is a wall, not an emphasis. */
+.hosting-links[data-state='failed'] .hosting-links-hint {
+  color: var(--text-secondary);
+}

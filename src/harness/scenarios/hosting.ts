@@ -33,6 +33,15 @@ const vercelLink = {
   linked_at: 1_757_000_000_000,
 };
 
+const netlifyLink = {
+  provider: 'netlify' as const,
+  project_id: '8f2b1c40-harness-site',
+  scope_id: null,
+  project_name: 'acme-marketing',
+  source: 'netlify_cli_file' as const,
+  linked_at: 1_757_000_000_000,
+};
+
 /** One provider row, with the lookup the scenario is about. */
 const status = (lookup: unknown, over: Record<string, unknown> = {}) => ({
   commit,
@@ -50,14 +59,25 @@ const status = (lookup: unknown, over: Record<string, unknown> = {}) => ({
   detected: [],
 });
 
-const deployment = (phase: unknown, over: Record<string, unknown> = {}) => ({
+/**
+ * `status_label` is the provider's own status word and the row prints it
+ * verbatim, so a fixture that omits it exercises our fallback rather than the
+ * thing that actually ships. Every scenario below names it.
+ *
+ * `dashboard_url` is here for the same reason: Vercel returns an inspector link
+ * on every deployment, and it is what the row's only button opens. A fixture
+ * without one quietly hides that button from review.
+ */
+const deployment = (phase: unknown, statusLabel: string, over: Record<string, unknown> = {}) => ({
   id: 'dpl_harness000000000000000000',
+  status_label: statusLabel,
   phase,
   environment: 'production',
   branch: 'main',
   commit_sha: commit.sha,
   commit_message: commit.subject,
   urls: {},
+  dashboard_url: 'https://vercel.com/harness/acme-marketing/dpl_harness',
   created_at: Date.now() - 45_000,
   ...over,
 });
@@ -88,7 +108,7 @@ export const hostingScenarios: Scenario[] = [
     clipSelector: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
-      get_hosting_status: status(found(deployment({ phase: 'building' }))),
+      get_hosting_status: status(found(deployment({ phase: 'building' }, 'Building'))),
     },
   },
   {
@@ -102,21 +122,31 @@ export const hostingScenarios: Scenario[] = [
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
-        found(deployment({ phase: 'ready' }, { urls: liveUrls, ready_at: Date.now() - 5_000 }))
+        found(
+          deployment({ phase: 'ready' }, 'Ready', { urls: liveUrls, ready_at: Date.now() - 5_000 })
+        )
       ),
     },
   },
   {
     id: 'hosting-publishing',
-    title: 'Push popover — built but not yet serving',
+    title: 'Push popover — built but not yet serving (Netlify)',
     looksRightWhen:
-      'Distinct from "ready": the build finished but aliases are not attached, so no live URL is promised yet.',
+      'Distinct from "ready": the build finished but is not serving visitors yet, so no live URL is promised. Says "Uploading", which is Netlify\'s own word — and note the provider mark, which is a neutral circle because Netlify has no icon in the set yet.',
     project: WORKSPACE_PROJECT,
     openSelector: '.source-control-push-button',
     clipSelector: '.publish-dropdown-menu',
     commands: {
       ...workspaceCommands,
-      get_hosting_status: status(found(deployment({ phase: 'publishing' }))),
+      // Netlify on purpose. Vercel has no state between building and ready —
+      // an earlier version invented one for it — so a Vercel row here would be
+      // reviewing a screen no user can reach. Netlify genuinely separates
+      // building from uploading, and this is also the only scenario that puts
+      // a non-Vercel provider in front of a reviewer.
+      get_hosting_status: status(found(deployment({ phase: 'publishing' }, 'Uploading')), {
+        link: netlifyLink,
+        token_source: 'keychain',
+      }),
     },
   },
   {
@@ -131,13 +161,9 @@ export const hostingScenarios: Scenario[] = [
       ...workspaceCommands,
       get_hosting_status: status(
         found(
-          deployment(
-            { phase: 'failed' },
-            {
-              error_message: 'Build exited with code 1',
-              dashboard_url: 'https://vercel.com/harness/acme-marketing/dpl_harness',
-            }
-          )
+          deployment({ phase: 'failed' }, 'Error', {
+            error_message: "Module not found: Can't resolve '@/lib/analytics' in ./app/layout.tsx",
+          })
         )
       ),
     },
@@ -153,7 +179,11 @@ export const hostingScenarios: Scenario[] = [
     commands: {
       ...workspaceCommands,
       get_hosting_status: status(
-        found(deployment({ phase: 'canceled' }, { detail: { detail: 'superseded_by_newer' } }))
+        found(
+          deployment({ phase: 'canceled' }, 'Canceled', {
+            detail: { detail: 'superseded_by_newer' },
+          })
+        )
       ),
     },
   },
@@ -169,10 +199,9 @@ export const hostingScenarios: Scenario[] = [
       ...workspaceCommands,
       get_hosting_status: status(
         found(
-          deployment(
-            { phase: 'skipped' },
-            { detail: { detail: 'skipped_because', reason: '[skip ci] in commit message' } }
-          )
+          deployment({ phase: 'skipped' }, 'Skipped', {
+            detail: { detail: 'skipped_because', reason: '[skip ci] in commit message' },
+          })
         )
       ),
     },
@@ -192,14 +221,11 @@ export const hostingScenarios: Scenario[] = [
         // A *different* commit on purpose. Reusing this push's subject made the
         // context line read as if it described the push, which is the exact
         // confusion the state exists to avoid.
-        latest_on_branch: deployment(
-          { phase: 'ready' },
-          {
-            commit_sha: 'aaaa111',
-            commit_message: 'Bump the pricing table copy',
-            urls: liveUrls,
-          }
-        ),
+        latest_on_branch: deployment({ phase: 'ready' }, 'Ready', {
+          commit_sha: 'aaaa111',
+          commit_message: 'Bump the pricing table copy',
+          urls: liveUrls,
+        }),
       }),
     },
   },

@@ -292,12 +292,17 @@ export function copyFor(
       return {
         title,
         status: `Couldn't reach ${host}`,
+        // Joined with a dash, not a full stop. The transport error is quoted
+        // verbatim — it is the one thing here we genuinely cannot interpret —
+        // and it arrives lowercase from the HTTP client. Ending the clause
+        // before it with a period made "dns error: …" read as a typo;
+        // capitalising it instead produced "Dns error", which is worse.
         hint: [
-          state.staleFrom ? `Last checked ${compactAge(state.staleFrom)}.` : undefined,
+          state.staleFrom ? `Last checked ${compactAge(state.staleFrom)}` : undefined,
           state.transportError,
         ]
           .filter(Boolean)
-          .join(' '),
+          .join(' — '),
         action: 'Retry',
       };
 
