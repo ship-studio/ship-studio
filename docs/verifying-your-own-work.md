@@ -26,6 +26,38 @@ Before believing a check, ask what a *passing* result would still permit.
 | Did my edit apply? | The command exited 0 | The pattern matched nothing |
 | Does the suite cover this? | The test passes | It found nothing to assert on |
 
+## The one to read first
+
+A deployments panel had no scenario and no unit test. Its only coverage was an
+automated screenshot of the command that opens it. That screenshot showed a
+permanent "Loading…" — every project, before connecting a host, opened the panel
+to a spinner for a request that was never going to be made.
+
+Three independent signals said it was fine. All four required CI checks passed.
+The suite of 2269 tests passed. The screenshot was marked ✓ **with no unmocked
+backend calls, and that was correct**: the call which would have been flagged as
+missing a fixture was never made, *because the bug prevented it*.
+
+So there were two defects, and each one hid the other from the tooling. A
+missing fixture — a real gap — was concealed by a downstream bug that stopped
+the call being issued. Every check was sound. Every check answered a different
+question than "does this panel work".
+
+It was found by opening the image.
+
+Two things follow from it, and they are the most useful conclusions here.
+
+**Assert what appears, not what was asked for.** The obvious remedy — "every
+command must have fixtures for everything it invokes" — passes cleanly on that
+broken panel, because the broken panel invokes nothing. Only an expectation
+about the rendered result ("this should produce a populated list") fails.
+
+**Prove the test detects the bug.** The fix came with three tests, and their
+author reinstated the old field and watched two of them fail before trusting
+them. That is the only method used across a long night of this that actually
+demonstrates a test detects what it claims to. Everyone else watched tests pass
+and inferred coverage from it.
+
 ## The four that cost the most
 
 **A screenshot with no provenance.** A capture runner checked that *something*
@@ -61,10 +93,14 @@ dangerous variant: it ends the investigation.
   and grep the content, not `[ -f path ]`.
 - **State what a result is about.** "Green" is meaningless; "green on
   `4dc4fff4`, which is my HEAD" is a claim someone can check.
-- **Make a check fail on purpose before trusting it.** If you have not seen it
-  red, you do not know it can go red.
+- **Make a check fail on purpose before trusting it.** Reintroduce the bug and
+  watch the test go red. If you have not seen it fail, you know it passes — not
+  that it detects anything.
 - **Prefer checks that cannot pass vacuously.** A guard over an empty set, a
   selector that matches page chrome, an assertion on a value nobody reads.
+- **Open the artifact.** A green tick on a screenshot means it was captured, not
+  that the screen is right. Nothing above was found by a report; every one was
+  found by a person looking at the thing.
 - **Say "locally verified, CI has not seen this" when that is the case.** It
   costs nothing and it is usually the whole question.
 
