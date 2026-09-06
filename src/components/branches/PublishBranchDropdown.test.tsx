@@ -170,7 +170,7 @@ describe('PublishBranchDropdown open panel', () => {
     expect(screen.getByText('Hosting')).toBeInTheDocument();
     // And it reaches a real state rather than sitting on the spinner — the
     // default IPC mock reports a project that deploys nowhere.
-    expect(await screen.findByText('See whether each push went live')).toBeInTheDocument();
+    expect(await screen.findByText('See if each push went live')).toBeInTheDocument();
   });
 
   it('keeps the panel actions below the hosting section', () => {

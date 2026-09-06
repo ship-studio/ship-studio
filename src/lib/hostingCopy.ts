@@ -18,7 +18,6 @@
  * @module lib/hostingCopy
  */
 
-import { formatRelativeTime } from './branches';
 import {
   PROVIDER_LABELS,
   type Deployment,
@@ -43,10 +42,30 @@ function providerName(state: SectionState): string {
   return state.provider ? PROVIDER_LABELS[state.provider] : 'your host';
 }
 
+/**
+ * A compact age, the way every provider's own deployment list writes it.
+ *
+ * The app's `formatRelativeTime` spells it out — "23 minutes ago" — which is
+ * right in a list with room for it and wrong here: the status line gets 184px,
+ * and spending 14 characters on the age is what pushed
+ * "Ready · Production · 23 minutes ago" past the ellipsis in the single most
+ * common state this section has. Vercel, Netlify and Cloudflare all write
+ * "23m ago" in their own dashboards.
+ */
+export function compactAge(at: number, now = Date.now()): string {
+  const seconds = Math.max(0, Math.floor((now - at) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /** When the deployment happened, phrased for a sentence. */
 function when(deployment?: Deployment): string {
   const at = deployment?.ready_at || deployment?.created_at;
-  return at ? ` · ${formatRelativeTime(at)}` : '';
+  return at ? ` · ${compactAge(at)}` : '';
 }
 
 /** Vercel's own two environments, capitalised as its dashboard capitalises them. */
@@ -77,21 +96,30 @@ function dashboardLabelFor(state: SectionState): string | undefined {
   return state.provider ? `Open in ${PROVIDER_LABELS[state.provider]}` : 'Open';
 }
 
-function detailSuffix(detail?: DeploymentDetail | null): string {
-  if (!detail) return '';
+/**
+ * The provider's qualifier on a status, written as a sentence for line 3.
+ *
+ * These used to be appended to the status line after an em dash. The status
+ * line is 184px wide, so "Canceled · Production — a newer push replaced it"
+ * arrived on screen as "Canceled · Production — a ne…" — the ellipsis landing
+ * squarely on the only part the user didn't already know. The qualifier is the
+ * informative half, so it gets the full-width line instead.
+ */
+function detailSentence(detail?: DeploymentDetail | null): string | undefined {
+  if (!detail) return undefined;
   switch (detail.detail) {
     case 'not_yet_promoted':
-      return ' — built, but not serving visitors yet';
+      return 'Built, but not serving visitors yet.';
     case 'rolling_out':
-      return ' — rolling out to visitors';
+      return 'Rolling out to visitors.';
     case 'skipped_because':
-      return detail.reason ? ` — ${detail.reason}` : '';
+      return detail.reason?.trim() || undefined;
     case 'awaiting_review':
-      return detail.reason ? ` — ${detail.reason}` : '';
+      return detail.reason?.trim() || undefined;
     case 'review_rejected':
-      return '';
+      return undefined;
     case 'superseded_by_newer':
-      return ' — a newer push replaced it';
+      return 'A newer push replaced it.';
   }
 }
 
@@ -107,7 +135,15 @@ export function titleFor(
   return commitSubject?.trim() || deployment?.commit_message?.trim() || 'Your latest push';
 }
 
-/** Build both lines for a state. */
+/**
+ * Build the row's lines for a state.
+ *
+ * The two upper lines live in a 184px column and are ellipsised, so they are
+ * written to fit it: a status word, an environment, an age. Anything longer —
+ * a build error, a skip reason, a provider's qualifier — goes to line 3, which
+ * spans the section and may wrap. Every string here was measured in the UI
+ * harness; `harness-capture.mjs` lists anything that still overflows.
+ */
 export function copyFor(
   state: SectionState,
   commitSubject?: string | null,
@@ -115,7 +151,8 @@ export function copyFor(
 ): RowCopy {
   const host = providerName(state);
   const title = titleFor(commitSubject, state.deployment);
-  const sha = shortSha ? ` · ${shortSha}` : '';
+  const env = environmentLabel(state.deployment);
+  const commit = shortSha ? `commit ${shortSha}` : 'this commit';
 
   switch (state.kind) {
     case 'checking':
@@ -131,9 +168,7 @@ export function copyFor(
     case 'queued':
       return {
         title,
-        status: `${statusWord(state.deployment, 'Queued')}${environmentLabel(
-          state.deployment
-        )}${when(state.deployment)}${sha}`,
+        status: `${statusWord(state.deployment, 'Queued')}${env}${when(state.deployment)}`,
         action: dashboardLabelFor(state),
       };
 
@@ -141,28 +176,24 @@ export function copyFor(
     case 'publishing':
       return {
         title,
-        status: `${statusWord(state.deployment, 'Building')}${environmentLabel(
-          state.deployment
-        )}${when(state.deployment)}`,
+        status: `${statusWord(state.deployment, 'Building')}${env}${when(state.deployment)}`,
+        hint: detailSentence(state.detail),
         action: dashboardLabelFor(state),
       };
 
     case 'ready':
       return {
         title,
-        status: `${statusWord(state.deployment, 'Ready')}${environmentLabel(
-          state.deployment
-        )}${when(state.deployment)}${detailSuffix(state.detail)}`,
-        // No hint: the addresses get their own labelled rows below.
+        status: `${statusWord(state.deployment, 'Ready')}${env}${when(state.deployment)}`,
+        // Usually no hint: the addresses get their own labelled rows below.
+        hint: detailSentence(state.detail),
         action: dashboardLabelFor(state),
       };
 
     case 'failed':
       return {
         title,
-        status: `${statusWord(state.deployment, 'Error')}${environmentLabel(
-          state.deployment
-        )}${when(state.deployment)}`,
+        status: `${statusWord(state.deployment, 'Error')}${env}${when(state.deployment)}`,
         hint: state.deployment?.error_message?.split('\n')[0],
         action: dashboardLabelFor(state),
       };
@@ -170,42 +201,50 @@ export function copyFor(
     case 'canceled':
       return {
         title,
-        status: `${statusWord(state.deployment, 'Canceled')}${environmentLabel(
-          state.deployment
-        )}${detailSuffix(state.detail)}`,
+        status: `${statusWord(state.deployment, 'Canceled')}${env}${when(state.deployment)}`,
+        hint: detailSentence(state.detail),
         action: dashboardLabelFor(state),
       };
 
     case 'skipped':
       return {
         title,
-        status: `${host} skipped this push${detailSuffix(state.detail)}`,
+        status: `${statusWord(state.deployment, 'Skipped')}${env}${when(state.deployment)}`,
+        hint: detailSentence(state.detail)
+          ? `${host} skipped it: ${detailSentence(state.detail)}`
+          : `${host} chose not to build this push.`,
         action: dashboardLabelFor(state),
       };
 
     case 'gated':
-      return {
-        title,
-        status:
-          state.detail?.detail === 'review_rejected'
-            ? `${host} declined to build this push`
-            : `Waiting for approval on ${host}${detailSuffix(state.detail)}`,
-        action: dashboardLabelFor(state),
-      };
+      return state.detail?.detail === 'review_rejected'
+        ? {
+            title,
+            status: `Declined${env}`,
+            hint: `${host} declined to build this push.`,
+            action: dashboardLabelFor(state),
+          }
+        : {
+            title,
+            status: `Awaiting approval${env}`,
+            hint: detailSentence(state.detail) ?? `Waiting for approval on ${host}.`,
+            action: dashboardLabelFor(state),
+          };
 
     case 'unknown':
       return {
         title,
-        // Deliberately not translated into success or failure — we genuinely
-        // do not know which it is.
-        status: `${host} reported a status Ship Studio doesn't recognize`,
+        // The provider's own word, shown verbatim rather than translated into
+        // success or failure — we genuinely do not know which it is.
+        status: `${statusWord(state.deployment, 'Unknown')}${env}${when(state.deployment)}`,
+        hint: `Ship Studio doesn't recognize this status yet.`,
         action: dashboardLabelFor(state),
       };
 
     case 'not_found_yet':
       return {
         title,
-        status: `Waiting for ${host} to pick up this push…`,
+        status: `Waiting for ${host}…`,
         hint: 'This usually takes under a minute.',
       };
 
@@ -214,45 +253,51 @@ export function copyFor(
         title,
         // Never "failed to trigger": no provider's API can distinguish a push
         // that was ignored from one that simply hasn't arrived.
-        status: `${host} hasn't reported a deploy for this push`,
+        status: 'No deploy reported yet',
         hint: state.latestOnBranch
-          ? `Most recent on this branch: ${titleFor(null, state.latestOnBranch)}`
-          : undefined,
+          ? `${host} has nothing for ${commit}. Latest on this branch: ${titleFor(
+              null,
+              state.latestOnBranch
+            )}`
+          : `${host} has nothing for ${commit}.`,
       };
 
     case 'no_token':
       return {
-        title: `Connect ${host} to see your deployments`,
-        status: 'Your token is stored in the system keychain.',
-        hint: `Deploys still run — this only affects what Ship Studio can show you.`,
+        title: `Connect ${host}`,
+        status: 'See if each push went live',
+        hint: 'Your deploys run either way — this only changes what you see here.',
         action: 'Connect',
       };
 
     case 'token_rejected':
       return {
-        title: `${host} didn't accept the saved sign-in`,
+        title: `Reconnect ${host}`,
         status:
           state.tokenSource === 'cli_file'
-            ? `Its command-line login has expired.`
-            : 'The saved token may have expired or been revoked.',
-        hint: 'Connect again to keep seeing deployment status.',
+            ? 'Its CLI login has expired'
+            : 'The saved token was rejected',
+        hint: 'Deployment status is unavailable until you do.',
         action: 'Connect',
       };
 
     case 'no_link':
       return {
-        title: 'See whether each push went live',
-        status: 'Connect Vercel, Cloudflare Pages, or Netlify.',
+        title: 'See if each push went live',
+        status: 'Vercel, Cloudflare, or Netlify',
         action: 'Set up',
       };
 
     case 'offline':
       return {
         title,
-        status: state.staleFrom
-          ? `Couldn't reach ${host} · last checked ${formatRelativeTime(state.staleFrom)}`
-          : `Couldn't reach ${host}`,
-        hint: state.transportError,
+        status: `Couldn't reach ${host}`,
+        hint: [
+          state.staleFrom ? `Last checked ${compactAge(state.staleFrom)}.` : undefined,
+          state.transportError,
+        ]
+          .filter(Boolean)
+          .join(' '),
         action: 'Retry',
       };
 
@@ -260,8 +305,9 @@ export function copyFor(
       return {
         title,
         status: state.retryAfterSecs
-          ? `${host} asked us to slow down — retrying in ${state.retryAfterSecs}s`
-          : `${host} asked us to slow down`,
+          ? `Rate limited · retrying in ${state.retryAfterSecs}s`
+          : `Rate limited by ${host}`,
+        hint: `${host} asked us to slow down.`,
       };
   }
 }

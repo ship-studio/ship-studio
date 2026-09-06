@@ -560,7 +560,12 @@ mod tests {
         };
 
         let json = serde_json::to_value(&deployment).unwrap();
-        let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort_unstable();
         assert_eq!(
             keys,
@@ -598,7 +603,12 @@ mod tests {
         // shows up as a row rendering the word "null".
         let urls = DeploymentUrls::default();
         let json = serde_json::to_value(&urls).unwrap();
-        let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        let keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         assert_eq!(keys, ["aliases"]);
     }
 

@@ -87,7 +87,10 @@
 
 /* Both lines are single-line and ellipsised. A wrapping status line is how the
    old panel changed height depending on how long an account name happened to
-   be; the full text stays available via the title attribute. */
+   be. There is deliberately no `title` tooltip to recover the clipped text —
+   a native tooltip paints over the row beneath it and lags a state change — so
+   the copy in lib/hostingCopy is written to fit 184px instead, and anything
+   longer is moved to .hosting-links-hint below. */
 .hosting-row-title,
 .hosting-row-status {
   overflow: hidden;
@@ -184,21 +187,32 @@
   opacity: 1;
 }
 
-/* Third line. Fixed height whether or not there's a hint, so a state that has
-   one and a state that doesn't are the same size. */
+/* Third line: the one place a sentence gets room.
+ *
+ * It spans the section rather than sharing the row's 184px text column, and it
+ * may take a second line — a build error, a skip reason, or a provider's
+ * qualifier is the informative half of what the section has to say, and
+ * clipping it at 32 characters is how this panel used to render
+ * "Vercel skipped this push — [skip ci…". Two lines is the cap: past that a
+ * provider's stack trace would push the popover's actions off screen.
+ *
+ * The height still has a floor, so a one-line hint and a two-line hint don't
+ * make neighbouring states look like different components. */
 .hosting-links {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  height: var(--hosting-links-h);
+  min-height: var(--hosting-links-h);
   overflow: hidden;
 }
 
 .hosting-links-hint {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
   line-height: 14px;
-  white-space: nowrap;
   text-overflow: ellipsis;
 }

@@ -128,6 +128,70 @@ describe('HostingRow geometry', () => {
 });
 
 describe('hosting copy', () => {
+  /**
+   * The row's text column is 184px: a 320px popover, less 24px of section
+   * padding, less the 24px icon slot, less the 72px action column that stays
+   * reserved in every state, less two 8px gaps. At 11px that is roughly 32
+   * characters, and both upper lines are `text-overflow: ellipsis` with no
+   * tooltip to recover what gets cut.
+   *
+   * The budget is approximate on purpose — it is a character count standing in
+   * for a pixel measurement, so it is set where a real overflow trips it and a
+   * merely long line does not. The UI harness measures the real thing and
+   * reports every ellipsised element per scenario; this catches it at the point
+   * someone edits the string.
+   */
+  const COLUMN_BUDGET = 34;
+
+  /**
+   * States whose line 1 is the user's own commit subject, which is theirs to
+   * make as long as they like. Clipping that is legitimate; clipping a sentence
+   * we wrote is not.
+   */
+  const OUR_OWN_TITLE = new Set<SectionStateKind>(['no_token', 'token_rejected', 'no_link']);
+
+  it('writes both upper lines to fit the column they render in', () => {
+    for (const kind of ALL_KINDS) {
+      const copy = copyFor(stateFor(kind), 'Fix the nav', 'abc123a');
+      expect(copy.status.length, `${kind} status: "${copy.status}"`).toBeLessThanOrEqual(
+        COLUMN_BUDGET
+      );
+      if (OUR_OWN_TITLE.has(kind)) {
+        expect(copy.title.length, `${kind} title: "${copy.title}"`).toBeLessThanOrEqual(
+          COLUMN_BUDGET
+        );
+      }
+    }
+  });
+
+  it('gives the informative half of a state its own full-width line', () => {
+    // Everything below used to be appended to the status line after an em
+    // dash, where it was the part the ellipsis ate.
+    const skipped = copyFor(
+      {
+        kind: 'skipped',
+        provider: 'vercel',
+        deployment: deployment(),
+        detail: { detail: 'skipped_because', reason: '[skip ci] in commit message' },
+      },
+      'Fix the nav'
+    );
+    expect(skipped.hint).toContain('[skip ci] in commit message');
+    expect(skipped.status).not.toContain('[skip ci]');
+
+    const canceled = copyFor(
+      {
+        kind: 'canceled',
+        provider: 'vercel',
+        deployment: deployment(),
+        detail: { detail: 'superseded_by_newer' },
+      },
+      'Fix the nav'
+    );
+    expect(canceled.hint).toMatch(/newer push replaced it/);
+    expect(canceled.status).not.toMatch(/newer push/);
+  });
+
   it('never leaks provider jargon in any state', () => {
     for (const kind of ALL_KINDS) {
       const copy = copyFor(stateFor(kind), 'Fix the nav', 'abc123a');
@@ -177,9 +241,13 @@ describe('hosting copy', () => {
   });
 
   it('describes a missing deployment without claiming it failed', () => {
-    const copy = copyFor({ kind: 'not_found', provider: 'vercel' }, 'Fix the nav');
+    const copy = copyFor({ kind: 'not_found', provider: 'vercel' }, 'Fix the nav', '9f3c1ab');
     expect(copy.status).not.toMatch(/fail/i);
-    expect(copy.status).toMatch(/hasn't reported/);
+    expect(copy.hint).not.toMatch(/fail/i);
+    expect(copy.status).toBe('No deploy reported yet');
+    // And it names the commit it found nothing for, so "nothing reported" can
+    // never be read as a verdict on some other push.
+    expect(copy.hint).toMatch(/Vercel has nothing for commit 9f3c1ab/);
   });
 
   it('explains an expired CLI login in terms of the CLI', () => {
@@ -187,11 +255,13 @@ describe('hosting copy', () => {
       { kind: 'token_rejected', provider: 'vercel', tokenSource: 'cli_file' },
       'Fix the nav'
     );
-    expect(copy.status).toMatch(/command-line login has expired/);
+    expect(copy.status).toMatch(/CLI login has expired/);
+    // The title is the way out, not a restatement of the problem.
+    expect(copy.title).toBe('Reconnect Vercel');
   });
 
   it('reassures that deploys still run when we simply cannot see them', () => {
     const copy = copyFor({ kind: 'no_token', provider: 'vercel' });
-    expect(copy.hint).toMatch(/Deploys still run/);
+    expect(copy.hint).toMatch(/deploys run either way/i);
   });
 });

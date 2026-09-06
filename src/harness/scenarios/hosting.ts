@@ -10,12 +10,12 @@
  * that mapping is the adapter's job and is verified against provider fixtures
  * in the Rust unit tests, not here.
  *
- * STATUS ON `main`: the native hosting module is not merged yet, so the Push
- * popover currently renders without a HOSTING section and these scenarios
- * capture the popover as it is today. That is deliberate — they are the
- * before-picture, and the same ids start showing the hosting rows the moment
- * the feature lands, with no change needed here. `get_hosting_status` is
- * simply an unread fixture until then.
+ * These were written against `main` before the native section existed, as a
+ * before-picture whose fixtures would start being read the moment it landed.
+ * It has landed: every scenario below now renders a real HOSTING row. If one
+ * of them captures a popover with no HOSTING section at all, that is not an
+ * empty state — it means the capture hit a server serving a different
+ * checkout, which the runner's identity check exists to refuse.
  */
 
 import type { Scenario } from '../types';
@@ -64,10 +64,17 @@ const deployment = (phase: unknown, over: Record<string, unknown> = {}) => ({
 
 const found = (d: unknown) => ({ kind: 'found', deployment: d });
 
+/**
+ * Both addresses, because they are the pair the section has to keep straight:
+ * `site` is where visitors go and stays put, `deployment` is this build's
+ * immutable permalink. Showing only one was the original defect — the row
+ * offered a preview permalink under the word "Domain".
+ */
 const liveUrls = {
+  site: 'https://acme-marketing.com',
   deployment: 'https://acme-marketing-9f3c1ab.vercel.app',
   aliases: ['https://acme-marketing.vercel.app'],
-  primary: 'https://acme-marketing.vercel.app',
+  primary: 'https://acme-marketing.com',
 };
 
 export const hostingScenarios: Scenario[] = [
@@ -182,7 +189,17 @@ export const hostingScenarios: Scenario[] = [
       ...workspaceCommands,
       get_hosting_status: status({
         kind: 'not_found',
-        latest_on_branch: deployment({ phase: 'ready' }, { commit_sha: 'aaaa111', urls: liveUrls }),
+        // A *different* commit on purpose. Reusing this push's subject made the
+        // context line read as if it described the push, which is the exact
+        // confusion the state exists to avoid.
+        latest_on_branch: deployment(
+          { phase: 'ready' },
+          {
+            commit_sha: 'aaaa111',
+            commit_message: 'Bump the pricing table copy',
+            urls: liveUrls,
+          }
+        ),
       }),
     },
   },
