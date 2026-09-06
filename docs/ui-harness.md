@@ -128,13 +128,29 @@ fixture written before or after its subject exists has an expiry date, and
 nothing in a repo marks it. `requires` marks it.
 
 Adding it found two of this repo's own scenarios reviewing nothing: `conflicts`
-and `prs-open` carry populated fixtures but never navigate to the surface they
-describe, so they were capturing the Preview tab. They now run a palette
-command (`command: 'branch.viewPRs'`) to get there, and `conflicts` still does
-not reach its panel — the command is gated on state the fixtures do not
-satisfy. Both are deliberately left without `requires` until they genuinely
-land on their surface, and are listed here rather than quietly carrying a
-green tick.
+and `prs-open` carried populated fixtures but never navigated to the surface
+they describe, so both were photographing the Preview tab. Both now reach their
+subject and assert it.
+
+## Fixtures that fail
+
+A scenario's `commands` may hold a function, and a function that throws rejects
+the call — `rejectsWith('…')` from `src/harness/reject.ts`.
+
+This matters more than it sounds. Several of this app's surfaces are only
+reachable through a failed call, so a fixture layer that can only resolve
+confines the harness to every feature's happy path. The merge-conflict panel is
+the clearest case: nothing opens it on success. It appears when `pull_and_merge`
+rejects with a message containing `MERGE_CONFLICT:`, which is what the
+`conflicts` scenario now does.
+
+Worth knowing while writing such a scenario: `branch.resolveConflicts` in the
+Cmd+K palette **cannot** open that panel. Its `when` predicate reads
+`hasConflicts`, which `WorkspaceView.tsx:845` wires to `showConflictResolution`
+— the flag that means the panel is already visible. The command therefore only
+appears once you no longer need it, and its handler then re-sets a flag that is
+already true. That is a product bug, reported separately; it is recorded here
+so nobody spends an afternoon assuming their fixture is at fault.
 
 ## Text being cut off
 

@@ -10,6 +10,7 @@
 
 import type { Scenario } from '../types';
 import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
+import { rejectsWith } from '../reject';
 
 const HOUR = 3_600_000;
 
@@ -120,6 +121,7 @@ export const featureScenarios: Scenario[] = [
       'Each row shows number, title, author and branch without collision. Draft and non-mergeable states are visually distinct.',
     project: WORKSPACE_PROJECT,
     command: 'branch.viewPRs',
+    requires: '.pr-card',
     commands: {
       ...workspaceCommands,
       list_pull_requests: [
@@ -137,9 +139,20 @@ export const featureScenarios: Scenario[] = [
     looksRightWhen:
       'Both sides are readable and equally weighted; it is obvious which file is being resolved and how many blocks remain.',
     project: WORKSPACE_PROJECT,
-    command: 'branch.resolveConflicts',
+    // Reached through a *failure*, not a command. `branch.resolveConflicts`
+    // cannot open this panel — its `when` predicate is gated on
+    // `hasConflicts: showConflictResolution` (WorkspaceView.tsx:845), i.e. on
+    // the panel already being visible, so it only appears once you no longer
+    // need it. That is a product bug, reported separately; the panel's real
+    // entry point is `pull_and_merge` rejecting with a `MERGE_CONFLICT:`
+    // message, which is what this scenario does.
+    command: 'git.pull',
+    requires: '.conflict-content',
     commands: {
       ...workspaceCommands,
+      pull_and_merge: rejectsWith(
+        'MERGE_CONFLICT:Auto-merging src/app/page.tsx\nCONFLICT (content): Merge conflict in src/app/page.tsx'
+      ),
       // `get_conflict_info`, snake_case — the shape at the real call site in
       // `src/lib/conflicts.ts`, which differs from the camelCase
       // `ConflictedFile` the lib maps it into.
