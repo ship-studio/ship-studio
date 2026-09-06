@@ -130,3 +130,78 @@ it('keeps saved targets locatable without rendering numbered canvas pins', async
   expect(host.shadowRoot!.querySelectorAll('button')).toHaveLength(0);
   expect(host.shadowRoot!.textContent).not.toContain('42');
 });
+
+it('reports where each saved note sits so the app can pin to it', async () => {
+  const target = {
+    page: '/',
+    selector: '#hero',
+    tag: 'section',
+    text: 'Build great thingsGo',
+    heading: 'Build great things',
+    classes: '',
+    ancestors: ['main'],
+    viewport: { width: 1440, height: 900 },
+    rect: { x: 0, y: 0, width: 0, height: 0 },
+  };
+  send({
+    type: 'sync',
+    enabled: true,
+    picking: false,
+    notes: [{ id: 'n1', number: 1, status: 'pending', target }],
+    accent: 'blue',
+    ink: 'white',
+  });
+  await new Promise((r) => requestAnimationFrame(r));
+  const locations = posted.mock.calls
+    .map(([d]) => d as { type: string; at?: { id: string }[]; missing?: string[] })
+    .filter((d) => d.type === 'locations');
+  expect(locations.length).toBeGreaterThan(0);
+  const last = locations[locations.length - 1];
+  // Resolved, so it must be placed rather than reported missing.
+  expect(last.missing).toEqual([]);
+  expect(last.at?.map((a) => a.id)).toEqual(['n1']);
+});
+
+it('reports a note whose element is gone as missing, and places nothing for it', async () => {
+  const target = {
+    page: '/',
+    selector: '#vanished',
+    tag: 'section',
+    text: 'Gone',
+    heading: '',
+    classes: '',
+    ancestors: ['main'],
+    viewport: { width: 1440, height: 900 },
+    rect: { x: 0, y: 0, width: 0, height: 0 },
+  };
+  send({
+    type: 'sync',
+    enabled: true,
+    picking: false,
+    notes: [{ id: 'n2', number: 2, status: 'pending', target }],
+    accent: 'blue',
+    ink: 'white',
+  });
+  await new Promise((r) => requestAnimationFrame(r));
+  const last = posted.mock.calls
+    .map(([d]) => d as { type: string; at?: unknown[]; missing?: string[] })
+    .filter((d) => d.type === 'locations')
+    .pop()!;
+  expect(last.missing).toEqual(['n2']);
+  expect(last.at).toEqual([]);
+});
+
+it('reports the selected element separately, so the composer can follow it', async () => {
+  send({ type: 'sync', enabled: true, picking: true, notes: [], accent: 'blue', ink: 'white' });
+  document
+    .querySelector('#hero')!
+    .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await new Promise((r) => requestAnimationFrame(r));
+  const last = posted.mock.calls
+    .map(([d]) => d as { type: string; sel?: { id: string } | null })
+    .filter((d) => d.type === 'locations')
+    .pop()!;
+  // Without this the composer holds a fixed screen position and rides the
+  // viewport instead of staying on the element being commented on.
+  expect(last.sel?.id).toBe('selection');
+});
