@@ -9,6 +9,28 @@ interface IconProps {
   className?: string;
 }
 
+export function TimerIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M11.5 6V12.5L16.5 15"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 export function PlusIcon({ size = 14 }: IconProps) {
   return (
     <svg
