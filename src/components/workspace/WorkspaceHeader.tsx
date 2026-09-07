@@ -25,6 +25,7 @@ import { ImageIcon, SlackIcon, PanelLeftIcon } from '../icons';
 // SupportPanel is hidden for now (the Support button links straight to Slack) but
 // intentionally kept around so we can bring the panel back later.
 import { SupportPanel } from '../support/SupportPanel';
+import { PomodoroTimer } from './PomodoroTimer';
 
 /** Ship Studio community Slack invite — the Support button opens this directly. */
 const SLACK_INVITE_URL =
@@ -206,6 +207,7 @@ export function WorkspaceHeader({
           <SlackIcon size={12} />
           <span className="toolbar-btn-label">Support</span>
         </button>
+        <PomodoroTimer />
         {headerExtras}
       </div>
 
