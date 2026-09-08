@@ -516,3 +516,9 @@
     transition: none;
   }
 }
+
+/* The heading receives focus on every step change so the new question is
+   announced. It is a move target, not a control — no focus ring. */
+.flow-screen-title:focus {
+  outline: none;
+}

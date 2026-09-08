@@ -45,10 +45,10 @@ type MachineKey = keyof typeof MACHINES;
 
 const STEPS: { value: FlowStep; label: string }[] = [
   { value: 'agent', label: 'Pick an agent' },
-  { value: 'installing', label: 'Installing' },
+  { value: 'host', label: 'Choose a host' },
+  { value: 'waiting', label: 'Still installing' },
   { value: 'signin', label: 'Sign in to agent' },
   { value: 'github', label: 'Connect GitHub' },
-  { value: 'host', label: 'Choose a host' },
   { value: 'complete', label: 'Celebration' },
 ];
 

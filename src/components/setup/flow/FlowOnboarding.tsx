@@ -47,15 +47,15 @@ import { trackEvent } from '../../../lib/analytics';
 import { logger } from '../../../lib/logger';
 
 type AgentChoice = 'claude' | 'codex' | 'cursor' | 'opencode' | 'other';
-type Step = 'loading' | 'agent' | 'installing' | 'signin' | 'github' | 'host' | 'complete';
+type Step = 'loading' | 'agent' | 'host' | 'waiting' | 'signin' | 'github' | 'complete';
 
 /** Progress for the hairline bar. Terminal screens omit it entirely. */
 const PROGRESS: Partial<Record<Step, number>> = {
   agent: 0.15,
-  installing: 0.4,
-  signin: 0.6,
-  github: 0.8,
-  host: 0.95,
+  host: 0.4,
+  waiting: 0.6,
+  signin: 0.75,
+  github: 0.9,
 };
 
 const AGENT_OPTIONS: FlowOption<AgentChoice>[] = [
@@ -169,26 +169,45 @@ export function FlowOnboarding({
 
   const alreadyPresent = useMemo(() => presentSteps(items, installSteps), [items, installSteps]);
 
+  /**
+   * Installing starts the moment an agent is chosen and runs underneath the
+   * remaining questions.
+   *
+   * Waiting for a progress bar is dead time when there are still questions to
+   * ask, and the hosting question needs nothing installed to answer. So the
+   * work happens while the user is still reading — on a fast machine they
+   * never see an install screen at all.
+   */
   const session = useInstallAgentSession(
     driver,
     { steps: installSteps, alreadyPresent },
-    {
-      enabled: step === 'installing',
-      /**
-       * The flow advances on *any* ending, complete or blocked.
-       *
-       * Stopping on `blocked` would strand the user on the install screen with
-       * nothing to press — the exact dead end this whole design is trying not
-       * to have. A partly-installed machine is still a machine they can use,
-       * and what is missing is said out loud at the end instead.
-       */
-      onDone: () => {
-        // Someone bringing their own agent has nothing of ours to sign into.
-        const agentInstalled = agent && agent !== 'other' && !session.skipped.includes(agent);
-        setStep(agentInstalled ? 'signin' : 'github');
-      },
-    }
+    { enabled: agent !== null }
   );
+
+  const installsFinished = session.status === 'complete' || session.status === 'blocked';
+
+  /** Sign-in only makes sense for an agent we actually got onto the machine. */
+  const agentInstalled = agent !== null && agent !== 'other' && !session.skipped.includes(agent);
+
+  /**
+   * The screen actually shown.
+   *
+   * Two derivations rather than more state. `waiting` disappears the instant
+   * the installs finish, so a fast machine never sees it — expressing that as
+   * an effect would mean a render committing a state change, and a flicker of
+   * a screen nobody needed to see.
+   */
+  const effectiveStep: Step =
+    step === 'waiting' && installsFinished ? (agentInstalled ? 'signin' : 'github') : step;
+
+  /**
+   * The agent needs a person: an admin prompt, or a decision about a failure.
+   *
+   * This interrupts whatever question is on screen, because it is the only
+   * thing in the flow that blocks real work and the only thing the user cannot
+   * come back to later. One rule, no ordering to reason about.
+   */
+  const interruption = session.pendingUserAction ?? session.pendingRecovery;
 
   const handleAgent = useCallback((choice: AgentChoice) => {
     setAgent(choice);
@@ -204,7 +223,8 @@ export function FlowOnboarding({
         logger.warn('Flow onboarding: failed to persist agent choice', { error: err });
       }
     })();
-    setStep('installing');
+    // Straight to the next question; the installs are already running.
+    setStep('host');
   }, []);
 
   const handleHost = useCallback((choice: HostChoice | 'later') => {
@@ -215,7 +235,7 @@ export function FlowOnboarding({
         logger.warn('Flow onboarding: failed to persist host', { error: err })
       );
     }
-    setStep('complete');
+    setStep('waiting');
   }, []);
 
   const agentLabel = agent && agent !== 'other' ? stepLabel(agent) : 'your agent';
@@ -228,7 +248,7 @@ export function FlowOnboarding({
     );
   }
 
-  if (step === 'complete') {
+  if (effectiveStep === 'complete') {
     return (
       <CelebrationScreen
         onContinue={onComplete}
@@ -238,9 +258,35 @@ export function FlowOnboarding({
     );
   }
 
+  /**
+   * The interrupt outranks the question underneath it.
+   *
+   * Rendered before the step machine rather than inside it, so there is one
+   * place that decides "the agent needs you" and no step has to remember to
+   * check.
+   */
+  if (interruption) {
+    return (
+      <div className="flow-onboarding">
+        <FlowScreen
+          stepKey={session.pendingRecovery ? 'install-failed' : 'installing-user'}
+          progress={PROGRESS[effectiveStep]}
+          title={
+            session.pendingRecovery
+              ? `I couldn't install ${stepLabel(session.pendingRecovery.step)}`
+              : 'One thing I need you for'
+          }
+          footer={driver.attribution && <InstallAttribution {...driver.attribution} />}
+        >
+          <FlowInstalling steps={installSteps} session={session} />
+        </FlowScreen>
+      </div>
+    );
+  }
+
   return (
     <div className="flow-onboarding">
-      {step === 'agent' && (
+      {effectiveStep === 'agent' && (
         <FlowScreen
           stepKey="agent"
           progress={PROGRESS.agent}
@@ -257,19 +303,21 @@ export function FlowOnboarding({
         </FlowScreen>
       )}
 
-      {step === 'installing' && (
+      {/* Only reached when the installs are still going after every question
+          has been answered. On a quick machine nobody ever sees this. */}
+      {effectiveStep === 'waiting' && (
         <FlowScreen
-          stepKey={session.pendingUserAction ? 'installing-user' : 'installing'}
-          progress={PROGRESS.installing}
-          title={session.pendingUserAction ? 'One thing I need you for' : `Setting up your machine`}
-          subtitle={session.pendingUserAction ? undefined : (session.narration ?? undefined)}
+          stepKey="waiting"
+          progress={PROGRESS.waiting}
+          title="Just finishing up"
+          subtitle={session.narration ?? undefined}
           footer={driver.attribution && <InstallAttribution {...driver.attribution} />}
         >
           <FlowInstalling steps={installSteps} session={session} />
         </FlowScreen>
       )}
 
-      {step === 'signin' && (
+      {effectiveStep === 'signin' && (
         <FlowScreen
           stepKey="signin"
           progress={PROGRESS.signin}
@@ -287,7 +335,7 @@ export function FlowOnboarding({
         </FlowScreen>
       )}
 
-      {step === 'github' && (
+      {effectiveStep === 'github' && (
         <FlowScreen
           stepKey="github"
           progress={PROGRESS.github}
@@ -301,17 +349,17 @@ export function FlowOnboarding({
               reason:
                 "We'll open GitHub in your browser. If you don't have an account, you can make one on the same screen — it's free.",
             }}
-            onRespond={() => setStep('host')}
+            onRespond={() => setStep('complete')}
           />
         </FlowScreen>
       )}
 
-      {step === 'host' && (
+      {effectiveStep === 'host' && (
         <FlowScreen
           stepKey="host"
           progress={PROGRESS.host}
-          title="Last one — where should your sites go live?"
-          subtitle="You can change this any time, and you don't need it to start building."
+          title="Where should your sites go live?"
+          subtitle="You can change this any time, and you don't need it to start building. I'm installing everything else while you decide."
           footer={
             <Button variant="ghost" onClick={() => handleHost('later')}>
               Skip this
@@ -324,7 +372,7 @@ export function FlowOnboarding({
 
       {/* Quiet, always-present reassurance that GitHub is the only account
           we ever push to. Sits outside the screen so it doesn't animate. */}
-      {step === 'github' && (
+      {effectiveStep === 'github' && (
         <p className="flow-onboarding-aside">
           <GitHubIcon size={12} /> We only ever push to repositories you create.
         </p>

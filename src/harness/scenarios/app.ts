@@ -158,12 +158,17 @@ export const appScenarios: Scenario[] = [
   },
   {
     id: 'onboarding-flow-installing',
-    requires: '.flow-step',
+    requires: '[data-flow-step="waiting"] .flow-step',
     openSelector: '.flow-choice-row',
-    steps: [{ click: '.flow-action .button--primary' }],
-    title: 'Onboarding — the agent doing the work',
+    // Agent → password → host question → the waiting screen. Reaching it means
+    // the installs outlasted every question, which is the only time it shows.
+    steps: [
+      { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '[data-flow-step="host"] .flow-choice-row' },
+    ],
+    title: 'Onboarding — the agent still working after the questions ran out',
     looksRightWhen:
-      'Plain-English steps, exactly one of them moving, everything else receded. No terminal, no scrolling log. The step being worked on is the only line at full contrast.',
+      'Plain-English steps, exactly one of them moving, everything else receded. No terminal, no scrolling log. On a fast machine this screen never appears at all.',
     commands: {
       quick_setup_check: { allPresent: false, setupCompleteCached: false },
       get_full_setup_status: {
@@ -229,6 +234,7 @@ export const appScenarios: Scenario[] = [
     // wait for the sign-in screen rather than a sleep.
     steps: [
       { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '[data-flow-step="host"] .flow-choice-row' },
       { click: '[data-flow-step="signin"] .flow-action-reason' },
     ],
     title: 'Onboarding — sign in to the agent you picked',
@@ -261,13 +267,11 @@ export const appScenarios: Scenario[] = [
     openSelector: '.flow-choice-row',
     steps: [
       { click: '[data-flow-step="installing-user"] .button--primary' },
-      { click: '[data-flow-step="signin"] .button--primary' },
-      { click: '[data-flow-step="github"] .button--primary' },
       { click: '[data-flow-step="host"] .flow-screen-title' },
     ],
-    title: 'Onboarding — the last question',
+    title: 'Onboarding — hosting, asked while the installs run',
     looksRightWhen:
-      'Hosting is presented as optional and reversible, with "Decide later" a real option rather than a dead end.',
+      'Hosting is optional and reversible, "Decide later" is a real option, and the subtitle says the installs are happening underneath rather than leaving the user to wonder.',
     commands: {
       quick_setup_check: { allPresent: false, setupCompleteCached: false },
       get_full_setup_status: {
@@ -295,9 +299,9 @@ export const appScenarios: Scenario[] = [
     openSelector: '.flow-choice-row',
     steps: [
       { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '[data-flow-step="host"] .flow-choice-row' },
       { click: '[data-flow-step="signin"] .button--primary' },
       { click: '[data-flow-step="github"] .button--primary' },
-      { click: '[data-flow-step="host"] .flow-choice-row' },
     ],
     title: 'Onboarding — done',
     looksRightWhen:
