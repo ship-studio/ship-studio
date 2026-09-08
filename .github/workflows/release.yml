@@ -4,7 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+      # Per-platform tags have their own workflows. Without these exclusions a
+      # `-win`/`-linux` tag would match `v*` and kick off a macOS build too.
       - '!*-win'
+      - '!*-linux'
 
 jobs:
   # Run tests before building release artifacts

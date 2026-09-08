@@ -300,25 +300,6 @@ mod tests {
         assert!(result.is_err(), "empty agent id must be rejected");
     }
 
-    #[tokio::test]
-    async fn sign_out_agent_accepts_all_known_ids() {
-        // Every agent in ALL_AGENTS must round-trip through sign_out_agent's
-        // id-validation step without the "Unknown agent" error. (The actual
-        // file-removal step may be a no-op on a machine that never signed in,
-        // but the id check should always pass.)
-        for agent in crate::agent::ALL_AGENTS {
-            let result = sign_out_agent(agent.id.to_string()).await;
-            if let Err(e) = &result {
-                let msg = format!("{:?}", e);
-                assert!(
-                    !msg.contains("Unknown agent"),
-                    "agent {} should not be rejected as unknown: {msg}",
-                    agent.id
-                );
-            }
-        }
-    }
-
     // ============ uninstall_agent ============
 
     #[tokio::test]

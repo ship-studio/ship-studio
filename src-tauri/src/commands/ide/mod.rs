@@ -53,6 +53,40 @@ const WINDOWS_BROWSERS: &[(&str, &str, &str)] = &[
     ("firefox", "Firefox", r"Mozilla Firefox\firefox.exe"),
 ];
 
+/// Browser configurations for Linux
+/// Tuple: (id, display_name, accepted executable names)
+///
+/// Resolved through `PATH` rather than fixed prefixes: distros and packaging
+/// formats disagree on the binary name for the same browser (`chromium` on
+/// Debian/Arch, `chromium-browser` on Ubuntu and snap builds), and a Flatpak
+/// install lands somewhere else entirely. Each entry therefore carries every
+/// name we're willing to accept, most canonical first.
+///
+/// Chromium leads the list because it's the engine the preview is developed
+/// against and the one most likely to already be present on a dev box.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const LINUX_BROWSERS: &[(&str, &str, &[&str])] = &[
+    ("chromium", "Chromium", &["chromium", "chromium-browser"]),
+    (
+        "chrome",
+        "Google Chrome",
+        &["google-chrome", "google-chrome-stable"],
+    ),
+    ("firefox", "Firefox", &["firefox"]),
+    ("brave", "Brave", &["brave-browser", "brave"]),
+    (
+        "edge",
+        "Microsoft Edge",
+        &["microsoft-edge", "microsoft-edge-stable"],
+    ),
+];
+
+/// Resolve the first available executable name for a Linux browser entry.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn find_linux_browser(candidates: &[&str]) -> Option<PathBuf> {
+    candidates.iter().find_map(|name| which::which(name).ok())
+}
+
 /// Find a browser executable on Windows by checking common install locations.
 #[cfg(target_os = "windows")]
 fn find_windows_browser(relative_path: &str) -> Option<PathBuf> {
@@ -234,7 +268,15 @@ pub async fn check_browser_availability() -> Vec<BrowserInfo> {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        vec![]
+        LINUX_BROWSERS
+            .iter()
+            .filter_map(|(id, name, candidates)| {
+                find_linux_browser(candidates).map(|_| BrowserInfo {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -279,8 +321,23 @@ pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), 
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (url, browser_id);
-        Err(("Browser selection not supported on this platform".to_string()).into())
+        let candidates = LINUX_BROWSERS
+            .iter()
+            .find(|(id, _, _)| *id == browser_id)
+            .map(|(_, _, candidates)| *candidates)
+            .ok_or_else(|| format!("Unknown browser: {browser_id}"))?;
+
+        // Re-resolve rather than trusting the id: the browser may have been
+        // uninstalled since `check_browser_availability` populated the picker.
+        let exe = find_linux_browser(candidates)
+            .ok_or_else(|| format!("Browser not found: {browser_id}"))?;
+
+        create_command(exe)
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open in {browser_id}: {e}"))?;
+
+        Ok(())
     }
 }
 
@@ -312,4 +369,55 @@ pub async fn open_studio_window(
         .map_err(|e| format!("Failed to create studio window: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(all(test, not(any(target_os = "macos", target_os = "windows"))))]
+mod linux_browser_tests {
+    use super::*;
+
+    #[test]
+    fn every_entry_is_well_formed() {
+        for (id, name, candidates) in LINUX_BROWSERS {
+            assert!(!id.is_empty(), "browser id must not be empty");
+            assert!(!name.is_empty(), "browser {id} needs a display name");
+            assert!(
+                !candidates.is_empty(),
+                "browser {id} needs at least one executable name to look for"
+            );
+        }
+    }
+
+    #[test]
+    fn ids_are_unique() {
+        // `open_url_in_browser` resolves by id with `find`, so a duplicate id
+        // would make one entry permanently unreachable.
+        let mut ids: Vec<&str> = LINUX_BROWSERS.iter().map(|(id, _, _)| *id).collect();
+        ids.sort_unstable();
+        let before = ids.len();
+        ids.dedup();
+        assert_eq!(before, ids.len(), "duplicate browser id in LINUX_BROWSERS");
+    }
+
+    #[test]
+    fn chromium_is_offered_first() {
+        // The preview is developed against Chromium; it should be the default
+        // pick when several browsers are installed.
+        assert_eq!(LINUX_BROWSERS[0].0, "chromium");
+    }
+
+    #[test]
+    fn resolution_finds_a_binary_on_path() {
+        // Proves the PATH lookup itself works without requiring a browser on
+        // the machine (CI runners and headless servers have none). `sh` is
+        // guaranteed present on any POSIX system.
+        assert!(
+            find_linux_browser(&["definitely-not-a-real-browser-xyz", "sh"]).is_some(),
+            "should fall through to the second candidate and resolve it"
+        );
+    }
+
+    #[test]
+    fn resolution_returns_none_when_nothing_matches() {
+        assert!(find_linux_browser(&["definitely-not-a-real-browser-xyz"]).is_none());
+    }
 }

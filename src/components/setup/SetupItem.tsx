@@ -11,8 +11,10 @@ import {
   SETUP_PROGRESS_MESSAGES,
   SETUP_TIME_ESTIMATES,
   BREW_PACKAGES,
+  manualInstallHint,
 } from '../../lib/setup';
 import { Spinner } from '../primitives/Spinner';
+import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 
 interface SetupItemProps {
   item: SetupItemType;
@@ -121,6 +123,49 @@ function getStatusIcon(status: SetupItemStatus) {
   }
 }
 
+/**
+ * Action row for tools Ship Studio detects but doesn't install (Linux).
+ *
+ * There is no Install button on purpose — the user runs the command in their
+ * own shell (sudo in an app-spawned PTY is a worse experience than a copy) and
+ * then re-checks. `hint` is shown as an example, not a promise: we don't detect
+ * the distro, so the package name is the reliable part, not the `apt`.
+ */
+function ManualInstallAction({
+  hint,
+  onRecheck,
+  disabled,
+}: {
+  hint: string;
+  onRecheck: (() => void) | undefined;
+  disabled: boolean | undefined;
+}) {
+  const { copy, isCopied } = useCopyToClipboard();
+
+  return (
+    <div className="setup-item-manual">
+      <span className="setup-item-manual-label">Install it with your package manager, e.g.</span>
+      <div className="setup-item-manual-row">
+        <code className="setup-item-manual-command">{hint}</code>
+        <button
+          className="setup-item-btn setup-item-btn-copy"
+          onClick={() => void copy(hint)}
+          title="Copy command"
+        >
+          {isCopied ? 'Copied' : 'Copy'}
+        </button>
+        <button
+          className="setup-item-btn setup-item-btn-install"
+          onClick={onRecheck}
+          disabled={disabled}
+        >
+          Re-check
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function getActionButton(
   item: SetupItemType,
   blockedBy: string[] | undefined,
@@ -174,8 +219,16 @@ function getActionButton(
     );
   }
 
-  // Not installed shows Install button with time estimate
+  // Not installed shows Install button with time estimate — unless this is a
+  // tool we don't install (Linux), where the row offers the command instead.
   if (item.status === 'not_installed') {
+    const hint = manualInstallHint(item.id);
+    if (hint) {
+      return (
+        <ManualInstallAction hint={hint} onRecheck={onAction} disabled={isAnyActionInProgress} />
+      );
+    }
+
     const timeEstimate = SETUP_TIME_ESTIMATES[item.id];
     return (
       <div className="setup-item-action-row">

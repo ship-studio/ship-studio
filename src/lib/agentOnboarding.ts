@@ -12,7 +12,14 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { SetupItem, isSetupItemReady, isWindows, TerminalCommand } from './setup';
+import {
+  SetupItem,
+  isSetupItemReady,
+  isWindows,
+  isLinux,
+  defaultShellPath,
+  TerminalCommand,
+} from './setup';
 
 // ============ Test-mode API ============
 
@@ -138,7 +145,30 @@ export function isAgentLedSetupComplete(items: SetupItem[], agentBinaryId: strin
  * (TERMINAL_COMMANDS / installPackages in lib/setup.ts) — the agent gets the
  * wizard's logic as instructions instead of code, so it doesn't improvise.
  */
-function itemInstruction(itemId: string, win: boolean): string | null {
+function itemInstruction(itemId: string, win: boolean, linux = false): string | null {
+  // On Linux the agent must not install system packages — that's the distro's
+  // job and it needs a sudo password we can't collect for them. The agent's
+  // role there is to identify the distro, hand over the exact command, and
+  // wait. This mirrors the classic wizard's detect-only Linux flow.
+  if (linux) {
+    switch (itemId) {
+      case 'homebrew':
+        // No package-manager step on Linux at all — do not let the agent
+        // "helpfully" install Homebrew to satisfy a checklist item that the
+        // app never renders.
+        return null;
+      case 'node':
+      case 'git':
+      case 'gh': {
+        const tool = { node: 'Node.js', git: 'Git', gh: 'the GitHub CLI' }[itemId];
+        const pkg = { node: 'nodejs npm', git: 'git', gh: 'gh' }[itemId];
+        return `${tool}: do NOT install it yourself and do NOT install Homebrew. Identify the distribution first (\`cat /etc/os-release\`), then give the user the one exact command for their package manager (on Debian/Ubuntu that is \`sudo apt install ${pkg}\`) and ask them to run it themselves — it needs their password. Wait for them to confirm, then verify`;
+      }
+      case 'npm_fix':
+        return 'fix npm cache permissions: run `sudo chown -R $(whoami) ~/.npm` (this needs the computer password again)';
+    }
+  }
+
   switch (itemId) {
     case 'homebrew':
       return win
@@ -193,25 +223,29 @@ export function buildGuidedSetupPrompt(
   alreadyReady: SetupItem[] = []
 ): string {
   const win = isWindows();
+  const linux = isLinux();
 
   // The agent is the source of discovery: it gets the FULL required list
   // with check commands and verifies everything itself. Our detection rides
   // along only as a reference hint it can override — the app's probes and
   // the agent's terminal can see different PATHs, and the terminal is where
   // the work actually happens.
-  const requiredIds: string[] = ['homebrew', 'node', 'git', 'gh', 'gh_auth'];
+  // Linux has no package-manager item — see itemInstruction().
+  const requiredIds: string[] = linux
+    ? ['node', 'git', 'gh', 'gh_auth']
+    : ['homebrew', 'node', 'git', 'gh', 'gh_auth'];
   // npm_fix is conditional — it only exists while ~/.npm is broken, so it
   // joins the list only when our checks actually surfaced it.
   if (missing.some((i) => i.id === 'npm_fix')) {
     requiredIds.splice(1, 0, 'npm_fix');
   }
   const instructions = requiredIds
-    .map((id) => itemInstruction(id, win))
+    .map((id) => itemInstruction(id, win, linux))
     .filter((s): s is string => s !== null);
 
-  const pkgCheck = win ? '`winget --version`' : '`brew --version`';
   const checkCommands = [
-    pkgCheck,
+    // No package-manager check on Linux — nothing there is ours to verify.
+    ...(linux ? [] : [win ? '`winget --version`' : '`brew --version`']),
     '`node --version`',
     '`git --version`',
     '`gh --version`',
@@ -281,5 +315,6 @@ export function guidedAgentSpawn(agentBinaryId: string, prompt: string): Termina
  * agent CLI they use and pastes the guided prompt themselves.
  */
 export function otherAgentShellSpawn(): TerminalCommand {
-  return isWindows() ? { command: 'powershell', args: [] } : { command: '/bin/zsh', args: ['-il'] };
+  if (isWindows()) return { command: 'powershell', args: [] };
+  return { command: defaultShellPath(), args: ['-il'] };
 }

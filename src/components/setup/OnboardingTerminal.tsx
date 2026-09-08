@@ -16,7 +16,13 @@ import { homeDir } from '@tauri-apps/api/path';
 import { getSystemEnv, getShellPath } from '../../lib/project';
 import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows, needsCmdExeWrapper, resolveCliPath, ResolvedCli } from '../../lib/setup';
+import {
+  isWindows,
+  needsCmdExeWrapper,
+  resolveCliPath,
+  ResolvedCli,
+  defaultShellPath,
+} from '../../lib/setup';
 import { isPasteChord, readClipboardText } from '../../lib/clipboard';
 import { createPtyChunkDecoder, toPtyBytes, type PtyChunk } from '../../lib/terminalDiagnostics';
 import { logger } from '../../lib/logger';
@@ -284,7 +290,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
             TERM: 'xterm-256color',
             LANG: 'en_US.UTF-8',
-            SHELL: '/bin/zsh',
+            SHELL: defaultShellPath(),
           };
 
           spawnCmd = command;

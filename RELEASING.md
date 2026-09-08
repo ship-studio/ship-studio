@@ -135,6 +135,51 @@ After the workflow completes (~15–25 min for the Windows build):
 
 Before v0.6.8, `release-windows.yml` created the public release with `--draft` as a "manual publish gate." The manual publish was never performed, so every Windows build from v0.5.1 onward stopped at a draft and **no Windows download was ever live**, while the manifest still advertised a stale 0.6.0. The gate was removed once the `windows-check` job in `ci.yml` began verifying that the Windows build actually compiles and its tests pass — that automated check is what the manual gate was a stand-in for.
 
+## Linux Releases
+
+Linux builds run on `.github/workflows/release-linux.yml`, triggered by tags
+ending in `-linux` (excluded from the macOS workflow's `v*` filter, same as
+`-win`). No code signing is involved, so the pipeline is the simplest of the
+three. It produces:
+
+- `ShipStudio_linux-x86_64.AppImage` + `.sig` — the auto-update target
+- `ShipStudio_linux-x86_64.deb` — download-only convenience
+- `latest-linux.json` — updater manifest with a `linux-x86_64` platform entry
+
+Built on `ubuntu-22.04`, deliberately not `ubuntu-latest`: glibc is forward-
+but not backward-compatible, so building on a newer runner produces binaries
+that won't start on older distros.
+
+### How to publish a Linux build
+
+Same versioning rule as Windows — the version comes from the source files at
+the tagged commit, so point the tag at the commit matching the current macOS
+release:
+
+```bash
+git tag v0.16.0-linux <commit-with-that-version>
+git push origin v0.16.0-linux
+```
+
+### Known limitation: no auto-publish to the public repo
+
+Unlike macOS and Windows, this workflow **stops at a draft in the main repo**
+and does not publish to `ship-studio/releases`.
+
+Those two workflows each carry the other's manifest and installers forward,
+because all three platforms share one "latest" alias in the public repo —
+publishing one platform without carrying the others forward 404s their
+download links and breaks their auto-update (this is the v0.6.4 and v0.6.8
+regressions, both documented above). Adding a third platform to that scheme
+means every workflow must carry forward two others: six carry-forward paths,
+each a chance to silently break auto-update for users on another OS.
+
+Until the three manifests are consolidated into one N-platform `latest.json`,
+attach the Linux assets to the public release manually after the macOS release
+publishes. **The AppImage updater will not serve Linux users automatically
+until that consolidation happens** — Linux is currently download-and-update-
+manually.
+
 ## Troubleshooting
 
 ### Workflow fails at "Create release in public releases repo"

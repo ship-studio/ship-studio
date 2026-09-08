@@ -33,6 +33,7 @@ import {
   isSetupItemReady,
   recheckWithDelays,
   PKG_MGR_PACKAGES,
+  manualInstallHint,
   TERMINAL_COMMANDS,
   USES_TERMINAL,
   SETUP_FRIENDLY_NAMES,
@@ -425,6 +426,16 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           setActiveItemId(null);
           return;
         }
+      }
+
+      // Tools we detect but never install (Linux): the row's only action is
+      // "Re-check", so this is purely a status refresh — no install, no
+      // terminal. Placed before every install path so it can't fall through
+      // into one.
+      if (manualInstallHint(itemId)) {
+        await fetchStatus();
+        setActiveItemId(null);
+        return;
       }
 
       // Check if this item uses terminal

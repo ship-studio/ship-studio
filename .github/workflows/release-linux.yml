@@ -1,0 +1,214 @@
+name: Release Linux
+
+# Tagged separately from macOS (`vX.Y.Z`) and Windows (`vX.Y.Z-win`), matching
+# the existing per-platform pipeline split. Linux builds need no code signing,
+# so this is the simplest of the three.
+on:
+  push:
+    tags:
+      - '*-linux'
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    # Pinned to 22.04 rather than `ubuntu-latest`: glibc is forward- but not
+    # backward-compatible, so a binary built against 24.04's glibc refuses to
+    # start on any older distro. Building on the oldest runner we support
+    # gives the widest install base.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            patchelf \
+            fuse \
+            desktop-file-utils
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        id: tauri
+        timeout-minutes: 30
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Ship Studio ${{ github.ref_name }}'
+          releaseBody: 'Linux release. See the main repository for full release notes.'
+          releaseDraft: true
+          prerelease: false
+          args: '--bundles deb,appimage'
+
+      - name: Find and stage updater artifacts
+        run: |
+          APPIMAGE_DIR="src-tauri/target/release/bundle/appimage"
+          DEB_DIR="src-tauri/target/release/bundle/deb"
+
+          echo "Looking in $APPIMAGE_DIR and $DEB_DIR"
+          ls -la "$APPIMAGE_DIR" || true
+          ls -la "$DEB_DIR" || true
+
+          # The AppImage is the updater target: Tauri's Linux updater can
+          # replace an AppImage in place, but cannot drive dpkg for a .deb.
+          # The .deb ships as a download-only convenience.
+          APPIMAGE_FILE=$(find "$APPIMAGE_DIR" -name "*.AppImage" -type f | head -1)
+          SIG_FILE=$(find "$APPIMAGE_DIR" -name "*.AppImage.sig" -type f | head -1)
+          DEB_FILE=$(find "$DEB_DIR" -name "*.deb" -type f | head -1)
+
+          if [ -z "$APPIMAGE_FILE" ] || [ -z "$SIG_FILE" ]; then
+            echo "Error: missing expected artifacts"
+            echo "  appimage: $APPIMAGE_FILE"
+            echo "  sig: $SIG_FILE"
+            exit 1
+          fi
+
+          echo "Found AppImage: $APPIMAGE_FILE"
+          echo "Found sig: $SIG_FILE"
+
+          # Stable asset names for predictable download URLs
+          mkdir -p artifacts
+          cp "$APPIMAGE_FILE" "artifacts/ShipStudio_linux-x86_64.AppImage"
+          cp "$SIG_FILE" "artifacts/ShipStudio_linux-x86_64.AppImage.sig"
+          cat "$SIG_FILE" > "artifacts/signature.txt"
+
+          if [ -n "$DEB_FILE" ]; then
+            echo "Found deb: $DEB_FILE"
+            cp "$DEB_FILE" "artifacts/ShipStudio_linux-x86_64.deb"
+          else
+            echo "::warning::No .deb produced; AppImage-only release"
+          fi
+
+          ls -la artifacts/
+
+      - name: Upload updater artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: updater-linux-x86_64
+          path: artifacts/
+          if-no-files-found: error
+
+  create-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo for release notes
+        uses: actions/checkout@v6
+
+      - name: Download updater artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: updater-linux-x86_64
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f
+
+      - name: Get version from tag
+        id: version
+        run: |
+          # v0.5.0-linux -> 0.5.0
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%-linux}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Read release notes
+        id: release_notes
+        run: |
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          awk '/^## What/{if(found)exit; found=1; next} found{print}' RELEASE_NOTES.md | sed 's/^- /• /' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create latest-linux.json
+        env:
+          NOTES: ${{ steps.release_notes.outputs.notes }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          RELEASES_REPO="ship-studio/releases"
+
+          SIG=$(cat artifacts/signature.txt)
+          echo "linux-x86_64 signature: $SIG"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$SIG" \
+            --arg url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_linux-x86_64.AppImage" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "linux-x86_64": {
+                  signature: $sig,
+                  url: $url
+                }
+              }
+            }' > latest-linux.json
+
+          echo "Generated latest-linux.json:"
+          cat latest-linux.json
+
+          python3 -c "import json; json.load(open('latest-linux.json'))" && echo "JSON is valid"
+
+      # NOTE: unlike release.yml and release-windows.yml, this workflow stops at
+      # a draft in THIS repo and deliberately does not publish to the public
+      # ship-studio/releases repo.
+      #
+      # Those two workflows carry each other's manifests and installers forward
+      # so that publishing one platform doesn't break the other's auto-update or
+      # the site's download links (both resolve through the shared "latest"
+      # alias). Adding a third platform to that chain means every workflow must
+      # carry forward the other two, and getting it wrong silently breaks
+      # auto-update for existing macOS/Windows users — the exact regression
+      # called out in release.yml's v0.6.4 comment.
+      #
+      # Until that chain is reworked to a single N-platform manifest, ship the
+      # Linux build as a draft here and attach it manually. See RELEASING.md.
+      - name: Upload artifacts to main repo draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            artifacts/ShipStudio_linux-x86_64.AppImage
+            artifacts/ShipStudio_linux-x86_64.AppImage.sig
+            artifacts/ShipStudio_linux-x86_64.deb
+            latest-linux.json
+          draft: true

@@ -1,7 +1,10 @@
 //! # Installation Commands
 //!
-//! Commands for installing tools via Homebrew (macOS/Linux) or Winget (Windows).
+//! Commands for installing tools via Homebrew (macOS) or Winget (Windows).
 //! Includes npm cache permission checking.
+//!
+//! Linux is intentionally not covered: the setup wizard is detect-only there
+//! and never installs system packages. See `NO_PACKAGE_MANAGER_MSG`.
 
 use super::{is_mock_mode, mock_install};
 use crate::errors::CommandError;
@@ -10,6 +13,19 @@ use crate::utils::{create_command, get_brew_command};
 #[cfg(windows)]
 use crate::utils::get_winget_command;
 use ship_studio_macros::ship_command;
+
+/// Shown when a package-manager install is attempted without a package manager.
+///
+/// Linux gets its own wording because there is nothing for the user to go fix
+/// in the wizard: Ship Studio deliberately doesn't install system packages
+/// there (the setup checklist is detect-only), so pointing at a Package Manager
+/// step that doesn't exist on Linux would send them in a circle.
+#[cfg(any(windows, target_os = "macos"))]
+const NO_PACKAGE_MANAGER_MSG: &str =
+    "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.";
+#[cfg(not(any(windows, target_os = "macos")))]
+const NO_PACKAGE_MANAGER_MSG: &str =
+    "Ship Studio doesn't install system packages on Linux. Install this with your distribution's package manager, then re-check.";
 
 /// Install Homebrew
 #[ship_command]
@@ -61,9 +77,7 @@ pub async fn install_node_via_brew() -> Result<(), CommandError> {
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or(
-        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
-    )?;
+    let brew = get_brew_command().ok_or(NO_PACKAGE_MANAGER_MSG)?;
 
     let output = create_command(&brew)
         .args(["install", "node"])
@@ -97,9 +111,7 @@ pub async fn install_git_via_brew() -> Result<(), CommandError> {
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or(
-        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
-    )?;
+    let brew = get_brew_command().ok_or(NO_PACKAGE_MANAGER_MSG)?;
 
     let output = create_command(&brew)
         .args(["install", "git"])
@@ -133,9 +145,7 @@ pub async fn install_gh_via_brew() -> Result<(), CommandError> {
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or(
-        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
-    )?;
+    let brew = get_brew_command().ok_or(NO_PACKAGE_MANAGER_MSG)?;
 
     let output = create_command(&brew)
         .args(["install", "gh"])
@@ -183,9 +193,7 @@ pub async fn install_brew_packages(packages: Vec<String>) -> Result<(), CommandE
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or(
-        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
-    )?;
+    let brew = get_brew_command().ok_or(NO_PACKAGE_MANAGER_MSG)?;
 
     let brew_packages: Vec<&str> = packages.iter().map(|p| p.as_str()).collect();
 

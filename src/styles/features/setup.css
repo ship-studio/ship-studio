@@ -237,6 +237,47 @@
   color: var(--text-muted);
 }
 
+/* Manual-install row (Linux): Ship Studio detects these tools but doesn't
+   install them, so the row offers a copyable command instead of a button. */
+.setup-item-manual {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+}
+
+.setup-item-manual-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.setup-item-manual-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.setup-item-manual-command {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  white-space: nowrap;
+}
+
+.setup-item-btn-copy {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.setup-item-btn-copy:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
 /* ============ Wizard Step Indicator ============ */
 
 .wizard-indicator {

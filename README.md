@@ -73,10 +73,34 @@ Grab the latest release from
 | macOS (Apple Silicon) | `Ship.Studio_<version>_aarch64.dmg` |
 | macOS (Intel)         | `Ship.Studio_<version>_x64.dmg` |
 | Windows (x64)         | `Ship.Studio_<version>_x64-setup.exe` |
+| Linux (x64)           | `ShipStudio_linux-x86_64.AppImage` or `.deb` |
 
 Launch the app and the onboarding wizard takes it from there — it installs
 the system prerequisites (Node, Git, GitHub CLI, an AI agent CLI) for you.
 See [docs/INSTALLATION.md](docs/INSTALLATION.md) for the full guide.
+
+### Linux notes
+
+Ship Studio does **not** install system packages on Linux — your distribution
+owns that, and we'd rather not ask for your sudo password. The onboarding
+wizard detects Node, Git, and the GitHub CLI and shows you the command to run
+if any are missing:
+
+```bash
+sudo apt install nodejs npm git gh   # Debian/Ubuntu; adjust for your distro
+```
+
+Agent CLIs (Claude Code, Codex, Opencode, Cursor) ship their own installers and
+are still installed by the wizard as on macOS.
+
+Running the AppImage needs FUSE (`sudo apt install libfuse2` on Ubuntu 22.04+),
+or extract it with `./ShipStudio_linux-x86_64.AppImage --appimage-extract`.
+
+One feature is macOS-only and is hidden rather than shown broken on Linux: the
+**native mobile app preview**, which drives Xcode's iOS simulator. Everything
+else — the agent terminal, live preview, visual editing, git/PR flows,
+snapshots, plugins — works. "Open in browser" uses Chromium, Chrome, Firefox,
+Brave, or Edge, whichever it finds on your `PATH`.
 
 Official builds auto-update: the app checks on launch and hourly, then
 applies updates with one click. Recent changes live in
@@ -87,6 +111,14 @@ applies updates with one click. Recent changes live in
 Prerequisites: [Node 22](https://nodejs.org) (see [`.nvmrc`](.nvmrc)),
 [pnpm](https://pnpm.io), [Rust stable](https://rustup.rs/), and on macOS the
 Xcode Command Line Tools (`xcode-select --install`).
+
+On Debian/Ubuntu, Tauri also needs the GTK/WebKit development headers:
+
+```bash
+sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev \
+  libayatana-appindicator3-dev librsvg2-dev libssl-dev \
+  libsoup-3.0-dev libjavascriptcoregtk-4.1-dev patchelf
+```
 
 ```bash
 git clone https://github.com/ship-studio/ship-studio.git

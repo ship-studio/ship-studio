@@ -71,7 +71,15 @@ fn get_login_shell_path() -> Option<String> {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // $SHELL is set in virtually every real session; the fallback only matters
+    // for odd launch contexts. It must still be a shell that exists — zsh is
+    // macOS's default but is absent from a stock Linux distro.
+    #[cfg(target_os = "macos")]
+    const FALLBACK_SHELL: &str = "/bin/zsh";
+    #[cfg(not(target_os = "macos"))]
+    const FALLBACK_SHELL: &str = "/bin/bash";
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| FALLBACK_SHELL.to_string());
 
     // -l (login) + -i (interactive) so the shell sources the rc files that set up
     // version managers (nvm/fnm/asdf typically live in the interactive rc). A
