@@ -31,12 +31,7 @@ import { InstallAttribution } from './InstallAttribution';
 import { Button } from '../../primitives/Button';
 import { Spinner } from '../../primitives/Spinner';
 import { useInstallAgentSession } from '../../../hooks/useInstallAgentSession';
-import {
-  BASE_STEPS,
-  InstallAgentDriver,
-  InstallStepId,
-  stepLabel,
-} from '../../../lib/installAgent';
+import { baseSteps, InstallAgentDriver, InstallStepId, stepLabel } from '../../../lib/installAgent';
 import { SetupItem, getFullSetupStatus, setDefaultAgentId } from '../../../lib/setup';
 import { setDefaultHost, setExternalAgentOptIn, HostChoice } from '../../../lib/agentOnboarding';
 import {
@@ -120,16 +115,33 @@ function presentSteps(items: SetupItem[], wanted: InstallStepId[]): InstallStepI
   return wanted.filter((step) => items.find((i) => i.id === step)?.status === 'ready');
 }
 
+export type FlowStep = Step;
+
 interface FlowOnboardingProps {
   /** Supplies the install work. See the module note on why this is injected. */
   driver: InstallAgentDriver;
   onComplete: () => void;
+  /**
+   * Start partway through. **Development tooling only** — the onboarding
+   * playground uses it so a screen four answers deep is one click away
+   * instead of a two-minute run-through every time you change a word on it.
+   *
+   * Production always starts at the beginning; nothing in the app passes this.
+   */
+  initialStep?: Step;
+  /** Pre-answer the agent question, for the same reason as `initialStep`. */
+  initialAgent?: AgentChoice;
 }
 
-export function FlowOnboarding({ driver, onComplete }: FlowOnboardingProps) {
+export function FlowOnboarding({
+  driver,
+  onComplete,
+  initialStep,
+  initialAgent,
+}: FlowOnboardingProps) {
   const [step, setStep] = useState<Step>('loading');
   const [items, setItems] = useState<SetupItem[]>([]);
-  const [agent, setAgent] = useState<AgentChoice | null>(null);
+  const [agent, setAgent] = useState<AgentChoice | null>(initialAgent ?? null);
   /** Whether the optional hosting step was actually answered, so the
    *  celebration copy doesn't claim a connection that was skipped. */
   const [hostConnected, setHostConnected] = useState(false);
@@ -144,15 +156,15 @@ export function FlowOnboarding({ driver, onComplete }: FlowOnboardingProps) {
         // everything and finds most of it already there. Not a blocker.
         logger.warn('Flow onboarding: setup status failed', { error: err });
       }
-      setStep('agent');
+      setStep(initialStep ?? 'agent');
       void trackEvent('onboarding_flow_started');
     })();
-  }, []);
+  }, [initialStep]);
 
   /** Everything the machine needs, plus the agent they picked. */
   const installSteps = useMemo<InstallStepId[]>(() => {
-    if (!agent || agent === 'other') return BASE_STEPS;
-    return [...BASE_STEPS, agent];
+    if (!agent || agent === 'other') return baseSteps();
+    return [...baseSteps(), agent];
   }, [agent]);
 
   const alreadyPresent = useMemo(() => presentSteps(items, installSteps), [items, installSteps]);
@@ -162,11 +174,18 @@ export function FlowOnboarding({ driver, onComplete }: FlowOnboardingProps) {
     { steps: installSteps, alreadyPresent },
     {
       enabled: step === 'installing',
-      // Skip the sign-in beat for someone bringing their own agent: there is
-      // nothing of ours for them to sign into.
-      onDone: (status) => {
-        if (status !== 'complete') return;
-        setStep(agent && agent !== 'other' ? 'signin' : 'github');
+      /**
+       * The flow advances on *any* ending, complete or blocked.
+       *
+       * Stopping on `blocked` would strand the user on the install screen with
+       * nothing to press — the exact dead end this whole design is trying not
+       * to have. A partly-installed machine is still a machine they can use,
+       * and what is missing is said out loud at the end instead.
+       */
+      onDone: () => {
+        // Someone bringing their own agent has nothing of ours to sign into.
+        const agentInstalled = agent && agent !== 'other' && !session.skipped.includes(agent);
+        setStep(agentInstalled ? 'signin' : 'github');
       },
     }
   );
@@ -210,7 +229,13 @@ export function FlowOnboarding({ driver, onComplete }: FlowOnboardingProps) {
   }
 
   if (step === 'complete') {
-    return <CelebrationScreen onContinue={onComplete} hostingConnected={hostConnected} />;
+    return (
+      <CelebrationScreen
+        onContinue={onComplete}
+        hostingConnected={hostConnected}
+        missing={session.skipped.map(stepLabel)}
+      />
+    );
   }
 
   return (

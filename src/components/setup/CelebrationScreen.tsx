@@ -19,9 +19,22 @@ interface CelebrationScreenProps {
    * copy: "everything is connected" would be a lie when hosting was skipped.
    */
   hostingConnected: boolean;
+  /**
+   * Tools the user ended up without — skipped, failed, or abandoned.
+   *
+   * Same rule as `hostingConnected`, and the one that matters more: a machine
+   * missing Git is not "all set", and telling someone it is means they find
+   * out later, on their own, in the middle of something else. Naming it here
+   * costs one line and buys the whole screen its credibility.
+   */
+  missing?: string[];
 }
 
-export function CelebrationScreen({ onContinue, hostingConnected }: CelebrationScreenProps) {
+export function CelebrationScreen({
+  onContinue,
+  hostingConnected,
+  missing = [],
+}: CelebrationScreenProps) {
   const [showContent, setShowContent] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
   const firedRef = useRef(false);
@@ -72,11 +85,17 @@ export function CelebrationScreen({ onContinue, hostingConnected }: CelebrationS
             aria-hidden="true"
           />
         </div>
-        <h1 className="celebration-title">You're all set!</h1>
+        <h1 className="celebration-title">
+          {missing.length > 0 ? "You're ready to start" : "You're all set!"}
+        </h1>
         <p className="celebration-subtitle">
-          {hostingConnected
-            ? 'Everything is installed and connected'
-            : 'Your dev environment is ready'}
+          {missing.length > 0
+            ? `Set up without ${listOut(missing)} — you can add ${
+                missing.length === 1 ? 'it' : 'them'
+              } any time from Settings.`
+            : hostingConnected
+              ? 'Everything is installed and connected'
+              : 'Your dev environment is ready'}
         </p>
         <Button
           variant="primary"
@@ -89,4 +108,10 @@ export function CelebrationScreen({ onContinue, hostingConnected }: CelebrationS
       </div>
     </div>
   );
+}
+
+/** "A", "A and B", "A, B and C" — the way a person would say it. */
+function listOut(items: string[]): string {
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }

@@ -223,7 +223,31 @@ Unit tests are colocated in source files using `#[cfg(test)]` modules.
 
 Onboarding is critical — it's the first thing every new user sees.
 
-**There are two onboarding experiences**, chosen by `OnboardingRouter` (`src/components/setup/OnboardingRouter.tsx`):
+**Start here: [docs/onboarding-testing.md](docs/onboarding-testing.md).** It has
+the full four-layer story (playground → protocol tests → harness scenarios → a
+real VM) and says which one answers which question.
+
+The short version, for the thing you'll want 90% of the time:
+
+```bash
+pnpm harness
+open 'http://127.0.0.1:1425/harness.html?scenario=onboarding-playground'
+```
+
+The **onboarding playground** renders the real flow with every variable that
+used to need a different computer as a dropdown: which screen, what's already
+installed, which step fails, which OS the copy claims to be on, how fast it
+plays. Every setting is in the URL, so a bug report is a link. Nothing in it
+reimplements a screen, so it can't drift from what users get — and it found two
+real Windows copy bugs within a minute of existing.
+
+**There are three onboarding experiences**, chosen by `OnboardingRouter` (`src/components/setup/OnboardingRouter.tsx`):
+
+- **Conversational flow** — one question at a time, with a built-in install
+  agent doing the work between questions. Only routes where an install-agent
+  driver exists (today: mock mode), because a prettier flow that silently
+  installs nothing is worse than a plainer one that works. `FLOW_ENABLED = false`
+  in the router reverts to today's behaviour in one line.
 
 - **Agent-led (default)** — Phase 0 is a five-card agent picker (Claude Code / Codex / Cursor / Opencode / Other) with install→sign-in click-through per card; "Other" opens a plain terminal for any agent CLI and persists an `external_agent` opt-in so setup checks stop requiring a managed agent. A hosting step follows (Vercel / Cloudflare / skip — persisted as the workspace `default_host`). Then Phase 1 spawns the chosen agent in a terminal with a prescriptive setup prompt (`buildGuidedSetupPrompt` in `src/lib/agentOnboarding.ts`) and it installs everything else (Homebrew/winget, Node, Git, GitHub CLI, GitHub sign-in, plus the chosen host's CLI) while a checklist verifies with the app's own `get_full_setup_status` checks. The agent drives; the app verifies — completion is decided by our checks, never by the agent's claim. (Cloudflare has no backend detection yet, so its setup is verified only in the terminal; publishing flows are still Vercel-only.)
 - **Classic wizard** — the 4-step deterministic flow described below. Always one click away via the pinned "Try classic onboarding" corner button; the choice persists in `localStorage` (`shipstudio.onboardingMode`).

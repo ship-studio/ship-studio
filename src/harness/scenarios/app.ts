@@ -183,6 +183,41 @@ export const appScenarios: Scenario[] = [
     },
   },
   {
+    id: 'onboarding-flow-failure',
+    requires: '.flow-action--failure',
+    openSelector: '.flow-choice-row',
+    // Through the password prompt, then wait for the failure to arrive.
+    steps: [
+      { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '.flow-action--failure .flow-action-reason' },
+    ],
+    storage: {
+      'shipstudio.installAgentPace': '0.02',
+      // The state that used to require an actual broken network to see.
+      'shipstudio.installAgentFailStep': 'git',
+    },
+    title: 'Onboarding — an install failed',
+    looksRightWhen:
+      'A dead end would be a failure of the whole design, so: no stack trace, no blame, two real buttons, and a sentence naming exactly what skipping costs. "Try again" leads.',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+          notInstalled('claude', 'Claude Code'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
     id: 'onboarding-flow-signin',
     // Skip the scripted install performance; this scenario is about a
     // screen that comes after it, not about the pace of the installs.

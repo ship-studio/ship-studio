@@ -37,6 +37,21 @@ const platform = (): string => {
   return _platform;
 };
 
+/**
+ * Force the detected platform. **Development tooling only.**
+ *
+ * Platform-specific copy is a standing source of shipped bugs — a sentence
+ * that says "macOS will ask for your password" is simply wrong on Windows, and
+ * nobody notices because the people writing it are on a Mac and the people on
+ * Windows assume it's meant to look like that. The onboarding playground uses
+ * this to render both platforms side by side on one machine.
+ *
+ * Never call this from product code: the real platform is not a preference.
+ */
+export const __setPlatformOverrideForDev = (value: string | null): void => {
+  _platform = value;
+};
+
 /** Platform detection helpers */
 export const isWindows = () => platform() === 'windows';
 /** macOS only. Gates Mac-only features (e.g. the native mobile preview, which

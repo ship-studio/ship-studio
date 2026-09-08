@@ -25,6 +25,8 @@ import { findScenario, scenarios } from './scenarios';
 import { unhandledCalls } from './unhandled';
 import { listCommands, runCommand, whenRegistryStable } from './commandBridge';
 import { HarnessOverlay } from './HarnessOverlay';
+import { OnboardingPlayground } from './OnboardingPlayground';
+import './playground.css';
 
 const params = new URLSearchParams(window.location.search);
 const scenario = findScenario(params.get('scenario'));
@@ -90,10 +92,24 @@ window.__harness = {
 
 document.title = `Ship Studio harness — ${scenario.id}`;
 
+/**
+ * The playground drives one flow directly rather than booting the whole app.
+ *
+ * `App` decides for itself whether onboarding should show, based on setup
+ * status and completion flags — reasonable for the product, useless for a
+ * workbench whose entire purpose is to sit on a screen and change one variable
+ * at a time. So this scenario mounts the flow itself.
+ */
+const isPlayground = scenario.id === 'onboarding-playground';
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App initialProjectPath={params.get('project') ?? scenario.project ?? null} />
+      {isPlayground ? (
+        <OnboardingPlayground />
+      ) : (
+        <App initialProjectPath={params.get('project') ?? scenario.project ?? null} />
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 );

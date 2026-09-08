@@ -19,6 +19,7 @@
 import { useCopyToClipboard } from '../../../hooks/useCopyToClipboard';
 import { Button } from '../../primitives/Button';
 import { Spinner } from '../../primitives/Spinner';
+import { isWindows } from '../../../lib/setup';
 import type { UserActionRequest, UserActionResult } from '../../../lib/installAgent';
 
 interface UserActionPromptProps {
@@ -82,7 +83,12 @@ export function UserActionPrompt({ request, onRespond, waiting }: UserActionProm
         </div>
 
         <p className="flow-action-footnote">
-          Your password goes straight to macOS. Ship Studio never receives it.
+          {/* Named for the OS the user is actually on. This sentence is the
+              app asking to be trusted; getting the platform wrong in it is
+              the cheapest possible way to not be. */}
+          {isWindows()
+            ? 'Windows handles the prompt. Ship Studio never receives your details.'
+            : 'Your password goes straight to macOS. Ship Studio never receives it.'}
         </p>
       </div>
     );

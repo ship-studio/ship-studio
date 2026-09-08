@@ -1,0 +1,85 @@
+/**
+ * Onboarding playground chrome.
+ *
+ * Deliberately plain and deliberately *not* using the product's design tokens
+ * beyond colour: this rail is scaffolding, and it should never be mistaken in
+ * a screenshot for part of the app being reviewed.
+ */
+
+.pg {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  width: 100%;
+  height: 100vh;
+  background: var(--surface-app);
+}
+
+.pg-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px; /* css-ok: harness scaffolding, not product spacing */
+  padding: 16px; /* css-ok: harness scaffolding */
+  border-right: 1px solid var(--border-default);
+  background: var(--surface-panel);
+  overflow-y: auto;
+}
+
+.pg-title {
+  margin: 0 0 4px; /* css-ok: harness scaffolding */
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: 600;
+}
+
+.pg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px; /* css-ok: harness scaffolding */
+}
+
+.pg-field-label {
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  text-transform: uppercase;
+  letter-spacing: 0.06em; /* css-ok: harness scaffolding */
+}
+
+.pg-field select {
+  padding: 6px 8px; /* css-ok: harness scaffolding */
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+}
+
+.pg-restart {
+  margin-top: 4px; /* css-ok: harness scaffolding */
+  padding: 7px 10px; /* css-ok: harness scaffolding */
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  cursor: pointer;
+}
+
+.pg-restart:hover {
+  border-color: var(--accent-active);
+  color: var(--text-white);
+}
+
+.pg-note {
+  margin: auto 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  line-height: 1.5; /* css-ok: harness scaffolding */
+}
+
+/* The flow expects to own a viewport; give it one. */
+.pg-stage {
+  position: relative;
+  min-width: 0;
+  height: 100vh;
+  overflow: hidden;
+}
