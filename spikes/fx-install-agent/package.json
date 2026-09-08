@@ -1,0 +1,12 @@
+{
+  "name": "fx-install-agent-spike",
+  "private": true,
+  "type": "module",
+  "description": "Standalone spike: measure what a built-in fx install agent costs per onboarding. Not part of the app build.",
+  "scripts": {
+    "measure": "node measure.mjs"
+  },
+  "dependencies": {
+    "libfx": "0.0.8"
+  }
+}
