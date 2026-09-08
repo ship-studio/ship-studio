@@ -8,7 +8,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
 import {
   listAssets,
   uploadAsset,
@@ -24,6 +23,7 @@ import {
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { trackEvent, trackError, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { isTauriRuntime } from '../lib/webEvents';
 
 export interface UseAssetManagementParams {
   /** Absolute path to the project directory */
@@ -301,6 +301,14 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
   // file, so the export runs with overwrite enabled.
   const handleDownload = async (asset: Asset) => {
     try {
+      if (!isTauriRuntime()) {
+        const link = document.createElement('a');
+        link.href = `/api/file?path=${encodeURIComponent(asset.fullPath)}&download=true`;
+        link.download = asset.name;
+        link.click();
+        return;
+      }
+      const { save } = await import('@tauri-apps/plugin-dialog');
       const destination = await save({
         defaultPath: asset.name,
         title: `Download ${asset.name}`,

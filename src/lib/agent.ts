@@ -10,7 +10,7 @@
  * @module lib/agent
  */
 
-import { isWindows } from './setup';
+import { defaultShellPath, defaultShellProcessName } from './setup';
 
 /** Configuration for an AI coding agent integrated with Ship Studio. */
 export interface AgentConfig {
@@ -115,8 +115,8 @@ export const CURSOR: AgentConfig = {
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
   displayName: 'Terminal',
-  binaryName: isWindows() ? 'powershell.exe' : '/bin/zsh',
-  processName: isWindows() ? 'powershell' : 'zsh',
+  binaryName: defaultShellPath(),
+  processName: defaultShellProcessName(),
   autoAcceptFlag: null,
   additionalDirFlag: null,
   supportsSkills: false,

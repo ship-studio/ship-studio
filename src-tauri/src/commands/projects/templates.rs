@@ -6,7 +6,6 @@
 use super::detection::has_html_files;
 use crate::errors::CommandError;
 use ship_studio_macros::ship_command;
-use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use walkdir::WalkDir;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -258,10 +257,10 @@ const EXPORT_EXCLUDED_DIRS: &[&str] = &[
 /// Opens a save dialog for the user to choose the destination.
 /// Returns the path to the saved file, or None if cancelled.
 #[ship_command]
-#[tracing::instrument(skip(app), fields(project = %project_path))]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn export_project_as_template(
-    app: AppHandle,
     project_path: String,
+    destination_dir: Option<String>,
 ) -> Result<Option<String>, CommandError> {
     let project = std::path::PathBuf::from(&project_path);
 
@@ -277,19 +276,35 @@ pub async fn export_project_as_template(
         .unwrap_or("project");
     let default_filename = format!("{project_name}-template.zip");
 
-    // Open save dialog
-    let file_path = app
-        .dialog()
-        .file()
-        .set_file_name(&default_filename)
-        .add_filter("Zip Archive", &["zip"])
-        .blocking_save_file();
-
-    let save_path = match file_path {
-        Some(path) => path
-            .into_path()
-            .map_err(|e| format!("Invalid file path: {e}"))?,
-        None => return Ok(None), // User cancelled
+    let save_path = match destination_dir {
+        Some(directory) => {
+            let directory = dunce::canonicalize(directory)
+                .map_err(|e| format!("Invalid export directory: {e}"))?;
+            if !directory.is_dir() {
+                return Err("Export destination is not a directory".to_string().into());
+            }
+            let path = directory.join(&default_filename);
+            if path.exists() {
+                return Err(format!("{} already exists", path.display()).into());
+            }
+            path
+        }
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_file_name(&default_filename)
+                .add_filter("Zip Archive", &["zip"])
+                .blocking_save_file()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid file path: {e}"))?
+        }
     };
 
     // Create the zip file

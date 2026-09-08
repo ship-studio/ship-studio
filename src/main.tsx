@@ -17,6 +17,7 @@ import ReactDOM from 'react-dom/client';
 import { reactErrorHandler } from '@sentry/react';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { WebAuthGate } from './components/WebAuthGate';
 import { exposeReactGlobals, lookupBlobOwner, markPluginCrashed } from './lib/plugin-loader';
 import { uninstallPlugin } from './lib/plugins';
 import { exposePluginContextRef } from './contexts/PluginContext';
@@ -219,7 +220,9 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
 }).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App initialProjectPath={initialProjectPath} />
+      <WebAuthGate>
+        <App initialProjectPath={initialProjectPath} />
+      </WebAuthGate>
     </ErrorBoundary>
   </React.StrictMode>
 );

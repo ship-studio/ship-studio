@@ -425,9 +425,24 @@ fn rewrite_localhost_origin(
     value: &hyper::header::HeaderValue,
     target_port: u16,
 ) -> Option<hyper::header::HeaderValue> {
-    let s = value.to_str().ok()?;
-    let host = s.strip_prefix("http://")?.split(':').next()?;
-    if host != "localhost" && host != "127.0.0.1" {
+    #[cfg(feature = "web")]
+    let public_host = crate::web::runtime_config()
+        .and_then(|config| config.public_origin.as_deref())
+        .and_then(|origin| url::Url::parse(origin).ok())
+        .and_then(|origin| origin.host_str().map(str::to_owned));
+    #[cfg(not(feature = "web"))]
+    let public_host: Option<String> = None;
+    rewrite_origin(value, target_port, public_host.as_deref())
+}
+
+fn rewrite_origin(
+    value: &hyper::header::HeaderValue,
+    target_port: u16,
+    public_host: Option<&str>,
+) -> Option<hyper::header::HeaderValue> {
+    let origin = url::Url::parse(value.to_str().ok()?).ok()?;
+    let host = origin.host_str()?;
+    if host != "localhost" && host != "127.0.0.1" && public_host != Some(host) {
         return None;
     }
     hyper::header::HeaderValue::from_str(&format!("http://{host}:{target_port}")).ok()
@@ -451,7 +466,17 @@ pub async fn start_preview_proxy(window_label: String, target_port: u16) -> Resu
     // Stop any existing proxy for this window
     stop_preview_proxy(&window_label);
 
-    // Bind to a random available port on localhost
+    // Desktop stays ephemeral/loopback. The web server uses its bounded,
+    // explicitly published range so container networking remains predictable.
+    #[cfg(feature = "web")]
+    let listener = if crate::emit::is_web() {
+        crate::web::bind_preview_listener(&window_label, crate::web::PREVIEW_PROXY_SLOT).await?
+    } else {
+        TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("Failed to bind proxy port: {e}"))?
+    };
+    #[cfg(not(feature = "web"))]
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Failed to bind proxy port: {e}"))?;
@@ -516,6 +541,10 @@ pub fn stop_preview_proxy(window_label: &str) {
             tracing::info!("[Proxy] Stopped proxy for window '{}'", window_label);
         }
     }
+    #[cfg(feature = "web")]
+    if crate::emit::is_web() {
+        crate::state::release_port_for_project(window_label, crate::web::PREVIEW_PROXY_SLOT);
+    }
 }
 
 /// Stop all running proxies (called during app cleanup).
@@ -526,6 +555,10 @@ pub fn stop_all_proxies() {
                 let _ = tx.send(());
             }
             tracing::info!("[Proxy] Stopped proxy for window '{}' (cleanup)", label);
+            #[cfg(feature = "web")]
+            if crate::emit::is_web() {
+                crate::state::release_port_for_project(&label, crate::web::PREVIEW_PROXY_SLOT);
+            }
         }
     }
 }
@@ -1031,7 +1064,7 @@ mod injector_tests {
 mod tests {
     use super::{
         is_auth_redirect_loop, is_document_navigation, redact_handshake_values,
-        rewrite_localhost_origin, sanitize_csp_for_preview,
+        rewrite_localhost_origin, rewrite_origin, sanitize_csp_for_preview,
     };
     use hyper::header::HeaderValue;
     use hyper::StatusCode;
@@ -1065,10 +1098,19 @@ mod tests {
 
     #[test]
     fn non_localhost_origins_pass_through_untouched() {
-        for origin in ["https://localhost:1234", "http://example.com:80", "null"] {
+        for origin in ["http://example.com:80", "null"] {
             let v = HeaderValue::from_str(origin).unwrap();
             assert!(rewrite_localhost_origin(&v, 3000).is_none());
         }
+    }
+
+    #[test]
+    fn configured_public_host_is_rewritten_for_hmr() {
+        let value = HeaderValue::from_static("https://ship.example.com:3100");
+        assert_eq!(
+            rewrite_origin(&value, 5173, Some("ship.example.com")).unwrap(),
+            HeaderValue::from_static("http://ship.example.com:5173")
+        );
     }
 
     #[test]

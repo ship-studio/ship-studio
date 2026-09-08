@@ -7,6 +7,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { pickServerDirectory } from './serverPicker';
+import { isTauriRuntime } from './webEvents';
 
 /**
  * Check if the GitHub contribution calendar is hidden on the dashboard.
@@ -126,7 +128,9 @@ export async function getProjectsRoot(): Promise<string> {
  * result to {@link setProjectsRoot}.
  */
 export async function pickProjectsRoot(): Promise<string | null> {
-  return invoke<string | null>('pick_projects_root');
+  if (isTauriRuntime()) return invoke<string | null>('pick_projects_root');
+  const selectedPath = await pickServerDirectory('Choose projects folder');
+  return selectedPath ? invoke<string | null>('pick_projects_root', { selectedPath }) : null;
 }
 
 /** Whether a custom (non-default) projects folder is currently configured. */

@@ -45,6 +45,17 @@ pub struct Config {
     pub preview_ports: (u16, u16),
     /// Address preview listeners bind to. `0.0.0.0` inside a container.
     pub preview_bind: IpAddr,
+    /// How the *browser* reaches a preview listener, as a template containing
+    /// `{port}` — e.g. `https://preview-{port}.example.com`.
+    ///
+    /// Needed because the port the server binds is not necessarily the address
+    /// a remote browser can dial. When the app is served over TLS, an
+    /// `http://host:port` preview is blocked as mixed content before it is even
+    /// attempted, so a deployment behind a reverse proxy must be able to say
+    /// "the preview on port N lives *here*" rather than have the client guess.
+    ///
+    /// `None` keeps the historical `http://{previewHost}:{port}` behaviour.
+    pub preview_url_template: Option<String>,
     /// Session cookie lifetime.
     pub session_ttl_secs: u64,
 }
@@ -79,6 +90,14 @@ impl Config {
             .parse()
             .map_err(|e| format!("SHIP_PREVIEW_BIND is not a valid IP address: {e}"))?;
 
+        let preview_url_template = std::env::var("SHIP_PREVIEW_URL_TEMPLATE")
+            .ok()
+            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(template) = &preview_url_template {
+            validate_preview_url_template(template)?;
+        }
+
         Ok(Config {
             session_key: derive_session_key(&auth_token),
             auth_token,
@@ -90,6 +109,7 @@ impl Config {
             static_dir: PathBuf::from(env_or("SHIP_STATIC_DIR", "dist")),
             preview_ports,
             preview_bind,
+            preview_url_template,
             session_ttl_secs: 60 * 60 * 24 * 7,
         })
     }
@@ -128,6 +148,26 @@ fn check_bind_allowed(bind: &SocketAddr, allow_external: bool) -> Result<(), Str
     Err(format!(
         "SHIP_BIND `{bind}` is not a loopback address. Set SHIP_ALLOW_EXTERNAL_BIND=1 to confirm you intend to expose this server, and put TLS in front of it."
     ))
+}
+
+/// Reject a preview URL template that could not produce working preview URLs.
+///
+/// Both failures are silent at runtime if left unchecked — a missing `{port}`
+/// sends every preview to one address, and a scheme-less template yields a
+/// relative URL the browser resolves against the app's own origin — so this is
+/// a startup error rather than a per-request surprise.
+fn validate_preview_url_template(template: &str) -> Result<(), String> {
+    if !template.contains("{port}") {
+        return Err(format!(
+            "SHIP_PREVIEW_URL_TEMPLATE `{template}` must contain `{{port}}`"
+        ));
+    }
+    if !template.starts_with("http://") && !template.starts_with("https://") {
+        return Err(format!(
+            "SHIP_PREVIEW_URL_TEMPLATE `{template}` must start with http:// or https://"
+        ));
+    }
+    Ok(())
 }
 
 /// Parse `"3100-3130"` into an inclusive port range.
@@ -175,6 +215,26 @@ mod tests {
     fn parses_a_port_range() {
         assert_eq!(parse_port_range("3100-3130").unwrap(), (3100, 3130));
         assert_eq!(parse_port_range(" 100 - 200 ").unwrap(), (100, 200));
+    }
+
+    #[test]
+    fn accepts_a_usable_preview_url_template() {
+        assert!(validate_preview_url_template("https://preview-{port}.example.com").is_ok());
+        assert!(validate_preview_url_template("http://127.0.0.1:{port}").is_ok());
+    }
+
+    #[test]
+    fn rejects_a_template_without_a_port_placeholder() {
+        // Would point every preview at the same host, silently showing one
+        // project's dev server in another project's pane.
+        assert!(validate_preview_url_template("https://preview.example.com").is_err());
+    }
+
+    #[test]
+    fn rejects_a_template_without_a_scheme() {
+        // Resolves relative to the app's own origin instead of the preview's.
+        assert!(validate_preview_url_template("preview-{port}.example.com").is_err());
+        assert!(validate_preview_url_template("//preview-{port}.example.com").is_err());
     }
 
     #[test]

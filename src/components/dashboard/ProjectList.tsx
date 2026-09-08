@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriRuntime } from '../../lib/webEvents';
 import {
   DashboardProject,
   getDashboardProjects,
@@ -565,12 +566,14 @@ export function ProjectList({
   };
 
   const handleDashboardDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleDashboardDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {

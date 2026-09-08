@@ -7,7 +7,6 @@ use crate::errors::CommandError;
 use crate::utils::{invalidate_projects_root_cache, projects_root};
 use ship_studio_macros::ship_command;
 use std::path::Path;
-use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 /// Get whether the GitHub contribution calendar is hidden on the dashboard.
@@ -181,21 +180,27 @@ pub fn set_projects_root(path: String) -> Result<(), CommandError> {
 /// Returns the selected absolute path, or `None` if the user cancelled.
 /// Does not persist anything — the frontend calls `set_projects_root` with the result.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn pick_projects_root(app: AppHandle) -> Result<Option<String>, CommandError> {
-    let folder = app
-        .dialog()
-        .file()
-        .set_title("Choose Projects Folder")
-        .blocking_pick_folder();
-
-    match folder {
-        Some(path) => {
-            let pb = path
-                .into_path()
-                .map_err(|e| format!("Invalid folder path: {e}"))?;
-            Ok(Some(pb.to_string_lossy().to_string()))
+#[tracing::instrument]
+pub async fn pick_projects_root(
+    selected_path: Option<String>,
+) -> Result<Option<String>, CommandError> {
+    let path = match selected_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_title("Choose Projects Folder")
+                .blocking_pick_folder()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?
         }
-        None => Ok(None),
-    }
+    };
+    Ok(Some(path.to_string_lossy().into_owned()))
 }

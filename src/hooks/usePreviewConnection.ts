@@ -16,7 +16,9 @@ import {
 } from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
 import { getWindowLabel } from '../lib/window';
+import { isTauriRuntime } from '../lib/webEvents';
 import { trackEvent } from '../lib/analytics';
+import { previewOrigin, useCapabilities } from '../lib/capabilities';
 
 /** How often to refresh the page list (ms) */
 const PAGE_REFRESH_INTERVAL_MS = 5000;
@@ -40,6 +42,32 @@ const SERVER_READY_TIMEOUT_MS = 30000;
 export const SERVER_MAX_RETRIES = 60;
 /** Consecutive health check failures before marking server as down */
 const HEALTH_CHECK_MAX_FAILURES = 3;
+
+/**
+ * Probe the dev server, from whichever side can actually see it.
+ *
+ * On the desktop app the page and the dev server share localhost, so a `fetch`
+ * is the truest check — it exercises the same path the iframe will take. A
+ * remote browser can't: the dev server listens on a loopback port it cannot
+ * dial, and on a TLS origin the plain-http request is blocked as mixed content
+ * before it leaves the page. There the backend probes on our behalf.
+ *
+ * Rejects when the server isn't up, matching `fetch`'s contract so callers keep
+ * their existing try/catch shape.
+ */
+async function probeDevServer(
+  port: number,
+  devServerUrl: string,
+  signal: AbortSignal
+): Promise<void> {
+  if (isTauriRuntime()) {
+    await fetch(devServerUrl, { mode: 'no-cors', signal });
+    return;
+  }
+  if (!(await invoke<boolean>('probe_dev_server', { port }))) {
+    throw new Error(`Dev server on port ${port} is not accepting connections`);
+  }
+}
 
 /** Information about a page/route */
 export interface PageInfo {
@@ -70,6 +98,7 @@ export function usePreviewConnection({
   onSendToClaude,
   onToast,
 }: UsePreviewConnectionParams) {
+  const capabilities = useCapabilities();
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
@@ -95,14 +124,25 @@ export function usePreviewConnection({
   // redirect loop — and WebKit renders an empty frame with no error anywhere.
   const [iframeBlank, setIframeBlank] = useState(false);
 
-  const devServerUrl = `http://localhost:${port}`;
-  const baseUrl = proxyPort ? `http://localhost:${proxyPort}` : devServerUrl;
+  const devServerUrl = previewOrigin(
+    port,
+    capabilities.previewHost,
+    capabilities.previewUrlTemplate
+  );
+  const baseUrl = proxyPort
+    ? previewOrigin(proxyPort, capabilities.previewHost, capabilities.previewUrlTemplate)
+    : devServerUrl;
   const currentUrl = `${baseUrl}${iframePath === '/' ? '' : iframePath}`;
   // URL safe to hand to the user's default browser: real dev server and
   // current iframe path, no proxy. The iframe needs the proxy URL (for
   // navigation tracking and script injection) but external browsers should
   // land on the dev server directly.
-  const externalUrl = `${devServerUrl}${iframePath === '/' ? '' : iframePath}`;
+  //
+  // Web mode is the exception: the dev server's port is arbitrary and bound to
+  // loopback, so only the published proxy port is reachable from outside. A
+  // link to the dev server would just fail to resolve, so hand over the proxy
+  // URL — same content, one injected script.
+  const externalUrl = `${isTauriRuntime() ? devServerUrl : baseUrl}${iframePath === '/' ? '' : iframePath}`;
 
   const wasRestartingRef = useRef(false);
   const healthCheckFailuresRef = useRef(0);
@@ -345,13 +385,17 @@ export function usePreviewConnection({
   // the AI agent terminal, or silently write to the clipboard. Only accept
   // messages whose origin is the preview's own dev-server / proxy port.
   useEffect(() => {
-    const allowedOrigins = new Set<string>([
-      `http://localhost:${port}`,
-      `http://127.0.0.1:${port}`,
-    ]);
+    const allowedOrigins = new Set<string>([devServerUrl]);
+    if (capabilities.previewHost === 'localhost') {
+      allowedOrigins.add(`http://127.0.0.1:${port}`);
+    }
     if (proxyPort) {
-      allowedOrigins.add(`http://localhost:${proxyPort}`);
-      allowedOrigins.add(`http://127.0.0.1:${proxyPort}`);
+      allowedOrigins.add(
+        previewOrigin(proxyPort, capabilities.previewHost, capabilities.previewUrlTemplate)
+      );
+      if (capabilities.previewHost === 'localhost') {
+        allowedOrigins.add(`http://127.0.0.1:${proxyPort}`);
+      }
     }
 
     const handleMessage = (
@@ -404,7 +448,7 @@ export function usePreviewConnection({
         if (Date.now() - lastHmrRecoveryRef.current < 15000) return;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
-        fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal })
+        probeDevServer(port, devServerUrl, controller.signal)
           .then(() => {
             lastHmrRecoveryRef.current = Date.now();
             logger.warn(
@@ -427,6 +471,8 @@ export function usePreviewConnection({
     proxyPort,
     serverReady,
     devServerUrl,
+    capabilities.previewHost,
+    capabilities.previewUrlTemplate,
     clearIframeWatchdogTimer,
   ]);
 
@@ -469,7 +515,7 @@ export function usePreviewConnection({
       readyProbeControllerRef.current = controller;
       const timeoutId = setTimeout(() => controller.abort(), SERVER_READY_TIMEOUT_MS);
       try {
-        await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
+        await probeDevServer(port, devServerUrl, controller.signal);
 
         logger.info('[Preview] Server check succeeded', { port });
         setIsLoading(false);
@@ -533,7 +579,7 @@ export function usePreviewConnection({
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
 
-        await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
+        await probeDevServer(port, devServerUrl, controller.signal);
 
         clearTimeout(timeoutId);
         healthCheckFailuresRef.current = 0;
@@ -585,7 +631,7 @@ export function usePreviewConnection({
       stopPolling();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [serverReady, devServerUrl]);
+  }, [serverReady, devServerUrl, port]);
 
   // Handlers
   const handleRefresh = useCallback(() => {

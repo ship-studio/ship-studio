@@ -67,7 +67,7 @@ const MIME_TYPES: &[(&str, &str)] = &[
 ];
 
 /// Get the MIME type for a file extension.
-fn get_mime_type(extension: &str) -> &'static str {
+pub(crate) fn get_mime_type(extension: &str) -> &'static str {
     let ext_lower = extension.to_lowercase();
     for (ext, mime) in MIME_TYPES {
         if *ext == ext_lower {
@@ -121,7 +121,15 @@ pub async fn start_static_server(
     let canonical_root = dunce::canonicalize(&project_root)
         .map_err(|e| format!("Failed to canonicalize project path: {e}"))?;
 
-    // Bind to a random available port on localhost
+    #[cfg(feature = "web")]
+    let listener = if crate::emit::is_web() {
+        crate::web::bind_preview_listener(&window_label, crate::web::STATIC_SERVER_SLOT).await?
+    } else {
+        TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("Failed to bind static server port: {e}"))?
+    };
+    #[cfg(not(feature = "web"))]
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Failed to bind static server port: {e}"))?;
@@ -202,6 +210,10 @@ pub fn stop_static_server(window_label: &str) {
             );
         }
     }
+    #[cfg(feature = "web")]
+    if crate::emit::is_web() {
+        crate::state::release_port_for_project(window_label, crate::web::STATIC_SERVER_SLOT);
+    }
 }
 
 /// Stop all running static servers (called during app cleanup).
@@ -218,6 +230,10 @@ pub fn stop_all_static_servers() {
                 "[StaticServer] Stopped server for window '{}' (cleanup)",
                 label
             );
+            #[cfg(feature = "web")]
+            if crate::emit::is_web() {
+                crate::state::release_port_for_project(&label, crate::web::STATIC_SERVER_SLOT);
+            }
         }
     }
 }

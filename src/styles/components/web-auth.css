@@ -1,0 +1,40 @@
+.web-auth-screen {
+  display: grid;
+  min-height: 100vh;
+  padding: var(--spacing-xl);
+  background: var(--bg-primary);
+  place-items: center;
+}
+
+.web-auth-card {
+  display: flex;
+  width: min(100%, var(--auth-card-width));
+  padding: var(--spacing-2xl);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.web-auth-card h1,
+.web-auth-card p {
+  margin: 0;
+}
+
+.web-auth-card label {
+  color: var(--text-secondary);
+}
+
+.web-auth-card input {
+  padding: var(--spacing-md);
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.web-auth-error {
+  color: var(--error);
+}

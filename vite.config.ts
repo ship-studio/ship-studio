@@ -1,14 +1,14 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import path from "path";
-import { readFileSync } from "fs";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+import { readFileSync } from 'fs';
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
-const pkg = JSON.parse(
-  readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
-) as { version: string };
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as {
+  version: string;
+};
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -20,9 +20,14 @@ export default defineConfig(async () => ({
 
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@tauri-apps/api/core": path.resolve(__dirname, "./src/lib/ipc.ts"),
-      "@tauri-apps/api/event": path.resolve(__dirname, "./src/lib/webEvents.ts"),
+      '@': path.resolve(__dirname, './src'),
+      '@tauri-apps/api/core': path.resolve(__dirname, './src/lib/ipc.ts'),
+      '@tauri-apps/api/event': path.resolve(__dirname, './src/lib/webEvents.ts'),
+      '@tauri-apps/api/app': path.resolve(__dirname, './src/lib/webApp.ts'),
+      '@tauri-apps/api/path': path.resolve(__dirname, './src/lib/webPath.ts'),
+      '@tauri-apps/plugin-fs': path.resolve(__dirname, './src/lib/webFs.ts'),
+      '@tauri-apps/plugin-opener': path.resolve(__dirname, './src/lib/webOpener.ts'),
+      '@tauri-apps/plugin-process': path.resolve(__dirname, './src/lib/webProcess.ts'),
     },
   },
 
@@ -36,7 +41,7 @@ export default defineConfig(async () => ({
     // Safari-16+-only APIs at module scope. Raising this floor is a product
     // decision tied to the minimum supported macOS version, not a routine
     // dependency chore.
-    target: ["chrome107", "edge107", "firefox104", "safari15"],
+    target: ['chrome107', 'edge107', 'firefox104', 'safari15'],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -50,14 +55,14 @@ export default defineConfig(async () => ({
     host: host || false,
     hmr: host
       ? {
-          protocol: "ws",
+          protocol: 'ws',
           host,
           port: 1420,
         }
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      ignored: ['**/src-tauri/**'],
     },
   },
 }));

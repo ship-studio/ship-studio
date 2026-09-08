@@ -22,6 +22,7 @@ import {
 } from '../../lib/accounts';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import '../../styles/features/account-select.css';
+import { isTauriRuntime } from '../../lib/webEvents';
 
 interface AccountSelectScreenProps {
   onContinue: () => void;
@@ -31,12 +32,14 @@ export function AccountSelectScreen({ onContinue }: AccountSelectScreenProps) {
   const { showToast } = useOptionalToast();
 
   const handleDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {

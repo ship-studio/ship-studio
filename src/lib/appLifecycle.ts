@@ -13,6 +13,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { trackEvent } from './analytics';
 import { endProjectSession } from './session';
 import { logger } from './logger';
+import { isTauriRuntime } from './webEvents';
 
 /** Fire `app_idle_detected` after this many ms of no user input. */
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -39,6 +40,7 @@ let quitInProgress = false;
  * no-op. Returns a cleanup function for tests/HMR.
  */
 export function installAppLifecycleTracking(): () => void {
+  if (!isTauriRuntime()) return () => {};
   if (installed) return () => {};
   installed = true;
 

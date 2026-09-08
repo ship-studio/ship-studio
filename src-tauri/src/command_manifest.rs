@@ -278,6 +278,7 @@ macro_rules! ship_commands {
             // Preview Proxy
             crate::commands::proxy::start_preview_proxy,
             crate::commands::proxy::stop_preview_proxy,
+            crate::commands::proxy::probe_dev_server,
             // Static File Server
             crate::commands::static_server::start_static_server,
             crate::commands::static_server::stop_static_server,

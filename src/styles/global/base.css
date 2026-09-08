@@ -1,7 +1,7 @@
 /* JetBrains Mono Nerd Font for terminal - using WOFF2 format for better web support */
 @font-face {
   font-family: 'JetBrainsMono NF';
-  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+  src: url('../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
   font-weight: normal;
   font-style: normal;
   font-display: block;
@@ -9,7 +9,7 @@
 
 @font-face {
   font-family: 'JetBrainsMono NF';
-  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+  src: url('../../assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
   font-weight: bold;
   font-style: normal;
   font-display: block;
@@ -147,6 +147,11 @@
   --spacing-lg: 16px;
   --spacing-xl: 24px;
   --spacing-2xl: 32px;
+
+  /* Server-side directory picker */
+  --server-picker-width: 640px;
+  --server-picker-min-height: 280px;
+  --auth-card-width: 420px;
 
   /* Border radius scale */
   --radius-sm: 4px;

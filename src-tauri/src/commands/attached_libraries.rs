@@ -27,7 +27,6 @@ use serde::Deserialize;
 use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 // ============ Helper Functions ============
@@ -170,19 +169,27 @@ pub async fn attached_library_dirs() -> Result<Vec<String>, CommandError> {
 /// The picker is the trust boundary: a directory can only enter the registry
 /// through explicit user selection, never a path supplied by the webview.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn add_attached_library(app: AppHandle) -> Result<Option<String>, CommandError> {
-    let folder = app
-        .dialog()
-        .file()
-        .set_title("Select a library folder")
-        .blocking_pick_folder();
-
-    let folder_path = match folder {
-        Some(path) => path
-            .into_path()
-            .map_err(|e| format!("Invalid folder path: {e}"))?,
-        None => return Ok(None), // User cancelled
+#[tracing::instrument]
+pub async fn add_attached_library(
+    selected_path: Option<String>,
+) -> Result<Option<String>, CommandError> {
+    let folder_path = match selected_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_title("Select a library folder")
+                .blocking_pick_folder()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?
+        }
     };
 
     let canonical = dunce::canonicalize(&folder_path).map_err(|e| format!("Invalid path: {e}"))?;

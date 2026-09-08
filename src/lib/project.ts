@@ -17,7 +17,8 @@ import { homeDir } from '@tauri-apps/api/path';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { logger } from './logger';
 import { trackError } from './analytics';
-import { isWindows } from './setup';
+import { isWindows, defaultShellPath } from './setup';
+import { pickServerDirectory } from './serverPicker';
 
 /** Basic project information */
 export interface Project {
@@ -180,7 +181,11 @@ export async function renameProject(oldPath: string, newName: string): Promise<s
  * @returns Path where the template was saved, or null if cancelled
  */
 export async function exportProjectAsTemplate(projectPath: string): Promise<string | null> {
-  return invoke<string | null>('export_project_as_template', { projectPath });
+  if (isTauriRuntime()) return invoke<string | null>('export_project_as_template', { projectPath });
+  const destinationDir = await pickServerDirectory('Choose export folder');
+  return destinationDir
+    ? invoke<string | null>('export_project_as_template', { projectPath, destinationDir })
+    : null;
 }
 
 /**
@@ -424,7 +429,7 @@ export async function startDevServer(
         USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
         TERM: 'xterm-256color',
         LANG: 'en_US.UTF-8',
-        SHELL: '/bin/zsh',
+        SHELL: defaultShellPath(),
         PORT: port.toString(),
         NUXT_TELEMETRY_DISABLED: '1',
       };

@@ -13,6 +13,7 @@
 
 import { readFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { logger } from './logger';
+import { isTauriRuntime } from './webEvents';
 
 /** Track if fonts have been loaded */
 let fontsLoaded = false;
@@ -24,6 +25,10 @@ let fontLoadPromise: Promise<void> | null = null;
  * Uses ArrayBuffer directly with FontFace API to bypass WebKit's URL loading issues.
  */
 export async function loadNerdFonts(): Promise<void> {
+  if (!isTauriRuntime()) {
+    fontsLoaded = true;
+    return;
+  }
   // Return existing promise if already loading
   if (fontLoadPromise) {
     return fontLoadPromise;

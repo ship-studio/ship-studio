@@ -8,6 +8,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { pickServerDirectory } from './serverPicker';
+import { isTauriRuntime } from './webEvents';
 
 /** Setup item contributed by a plugin */
 export interface PluginSetupItem {
@@ -200,7 +202,11 @@ export async function writePluginStorage(
  * Opens a native folder picker. Returns null if user cancels.
  */
 export async function linkDevPlugin(projectPath: string): Promise<PluginInfo | null> {
-  return invoke<PluginInfo | null>('link_dev_plugin', { projectPath });
+  if (isTauriRuntime()) return invoke<PluginInfo | null>('link_dev_plugin', { projectPath });
+  const selectedPath = await pickServerDirectory('Choose plugin folder');
+  return selectedPath
+    ? invoke<PluginInfo | null>('link_dev_plugin', { projectPath, selectedPath })
+    : null;
 }
 
 /**

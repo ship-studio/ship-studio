@@ -16,6 +16,7 @@ import { trackEvent, trackError } from '../../lib/analytics';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { installVersion } from '../../lib/updater';
 import { Button } from '../primitives/Button';
+import { useCapabilities } from '../../lib/capabilities';
 
 interface ChangelogEntry {
   version: string;
@@ -668,6 +669,7 @@ interface ChangelogProps {
 }
 
 export function Changelog({ className = '' }: ChangelogProps) {
+  const capabilities = useCapabilities();
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [rewindVersion, setRewindVersion] = useState<string | null>(null);
   const [rewindStage, setRewindStage] = useState<RewindStage>('confirm');
@@ -747,13 +749,15 @@ export function Changelog({ className = '' }: ChangelogProps) {
                     v{entry.version}
                     <span className="changelog-current-badge">current</span>
                   </span>
-                ) : (
+                ) : capabilities.updater ? (
                   <button
                     className="changelog-version changelog-version-link"
                     onClick={() => setRewindVersion(entry.version)}
                   >
                     v{entry.version}
                   </button>
+                ) : (
+                  <span className="changelog-version">v{entry.version}</span>
                 )}
               </div>
               <ul className="changelog-items">

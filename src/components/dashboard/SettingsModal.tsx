@@ -35,6 +35,7 @@ import { asCommandError, formatCommandError } from '../../lib/errors';
 import { EditIcon } from '../icons';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useOpenModal } from '../../contexts/ModalContext';
+import { useCapabilities } from '../../lib/capabilities';
 
 const errMsg = (err: unknown) => formatCommandError(asCommandError(err));
 
@@ -62,6 +63,7 @@ export function SettingsModal({
   onSlackCtaHiddenChange,
   onProjectsRootChanged,
 }: SettingsModalProps) {
+  const capabilities = useCapabilities();
   const { showToast } = useOptionalToast();
   const openModal = useOpenModal();
   // Projects folder is per-workspace; reflect the active one in the label.
@@ -380,7 +382,7 @@ export function SettingsModal({
               <button
                 className={`settings-toggle ${thumbnailsOn ? 'on' : 'off'}`}
                 onClick={handleThumbnailsToggle}
-                disabled={loading}
+                disabled={loading || !capabilities.screenshots}
                 role="switch"
                 aria-checked={thumbnailsOn}
               >
@@ -399,7 +401,7 @@ export function SettingsModal({
               <button
                 className={`settings-toggle ${analyticsEnabled ? 'on' : 'off'}`}
                 onClick={handleToggle}
-                disabled={loading}
+                disabled={loading || !capabilities.analytics}
                 role="switch"
                 aria-checked={analyticsEnabled}
               >

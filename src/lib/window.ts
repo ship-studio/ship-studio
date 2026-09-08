@@ -24,6 +24,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
  * and restores saved position/always-on-top state.
  */
 export async function enterCompactMode(): Promise<void> {
+  if (!isTauriRuntime()) return;
   return invoke('enter_compact_mode');
 }
 
@@ -33,6 +34,7 @@ export async function enterCompactMode(): Promise<void> {
  * and centers the window on screen.
  */
 export async function exitCompactMode(): Promise<void> {
+  if (!isTauriRuntime()) return;
   return invoke('exit_compact_mode');
 }
 
@@ -44,6 +46,7 @@ export async function exitCompactMode(): Promise<void> {
  * @param enabled - Whether to enable always-on-top
  */
 export async function setAlwaysOnTop(enabled: boolean): Promise<void> {
+  if (!isTauriRuntime()) return;
   return invoke('set_always_on_top', { enabled });
 }
 
@@ -53,6 +56,7 @@ export async function setAlwaysOnTop(enabled: boolean): Promise<void> {
  * The window will follow the cursor until mouse is released.
  */
 export async function startWindowDrag(): Promise<void> {
+  if (!isTauriRuntime()) return;
   return invoke('start_window_drag');
 }
 
@@ -61,6 +65,10 @@ export async function startWindowDrag(): Promise<void> {
  * Useful after opening external apps (like a browser) that may steal focus.
  */
 export async function focusWindow(): Promise<void> {
+  if (!isTauriRuntime()) {
+    window.focus();
+    return;
+  }
   return invoke('focus_window');
 }
 
@@ -71,6 +79,10 @@ export async function focusWindow(): Promise<void> {
  * @param title - The new window title
  */
 export async function setWindowTitle(title: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    document.title = title;
+    return;
+  }
   return invoke('set_window_title', { title });
 }
 
@@ -81,7 +93,7 @@ export async function setWindowTitle(title: string): Promise<void> {
  * @returns The window label (e.g., "main" or "project-12345")
  */
 export function getWindowLabel(): string {
-  return getCurrentWindow().label;
+  return isTauriRuntime() ? getCurrentWindow().label : '';
 }
 
 /**

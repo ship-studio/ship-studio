@@ -46,7 +46,7 @@ import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows } from '../../lib/setup';
+import { isWindows, defaultShellPath } from '../../lib/setup';
 import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -652,7 +652,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
             TERM: 'xterm-256color',
             LANG: 'en_US.UTF-8',
-            SHELL: '/bin/zsh',
+            SHELL: defaultShellPath(),
           };
         }
         // Per-workspace isolation vars (CLAUDE_CONFIG_DIR, GH_CONFIG_DIR,

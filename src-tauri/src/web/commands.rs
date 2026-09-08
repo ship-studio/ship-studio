@@ -135,9 +135,10 @@ pub async fn dispatch(
         args = serde_json::json!({});
     }
     if let Some(object) = args.as_object_mut() {
-        object
-            .entry("windowLabel")
-            .or_insert_with(|| serde_json::Value::String(label.to_string()));
+        object.insert(
+            "windowLabel".into(),
+            serde_json::Value::String(label.to_string()),
+        );
     }
 
     match (command.handler)(args).await {
@@ -163,10 +164,10 @@ mod tests {
 
     #[test]
     fn every_manifest_command_is_registered() {
-        // The manifest is the contract; 371 is what the Tauri handler carries.
+        // The manifest is the contract; 372 is what the Tauri handler carries.
         assert_eq!(
             count(),
-            371,
+            372,
             "command count changed — update this number deliberately, \
              and check the frontend still has what it expects"
         );
@@ -276,9 +277,11 @@ mod tests {
         // replacement or a capability flag. The count is asserted so that
         // number can only move deliberately — down as they are ported, up only
         // when someone knowingly adds another desktop dependency.
+        // Was 25 before the native file pickers took an optional
+        // `selected_path` from the web picker instead of an `AppHandle`.
         assert_eq!(
             names.len(),
-            25,
+            19,
             "desktop-only command count changed: {names:?}"
         );
         // Every one of them still has a route.

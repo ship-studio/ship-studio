@@ -65,6 +65,29 @@ pub fn init_analytics() {
     info!("Analytics initialized (enabled: {})", enabled);
 }
 
+/// Whether the host itself suppresses analytics, regardless of the stored
+/// preference.
+///
+/// A self-hosted server is someone else's machine: the operator never agreed to
+/// send Ship Studio telemetry, and the stored preference defaults to on. So the
+/// web build fails closed and only reports when the operator explicitly opts in
+/// with `SHIP_ENABLE_ANALYTICS`. This is also what `/api/capabilities`
+/// advertises, so the flag and the behaviour cannot drift apart.
+pub(crate) fn suppressed_by_host() -> bool {
+    #[cfg(feature = "web")]
+    if crate::emit::is_web() {
+        return !is_opt_in(&std::env::var("SHIP_ENABLE_ANALYTICS").unwrap_or_default());
+    }
+    false
+}
+
+/// Only explicit affirmatives count as opting in — an unset, empty, or
+/// misspelled value must fail closed rather than silently enable reporting.
+#[cfg(feature = "web")]
+fn is_opt_in(raw: &str) -> bool {
+    matches!(raw.trim(), "1" | "true" | "TRUE" | "yes" | "YES")
+}
+
 /// Send an event to PostHog (non-blocking, fire-and-forget).
 /// Returns immediately; the HTTP request runs in the background.
 fn send_event(event_name: &str, distinct_id: &str, properties: serde_json::Value) {
@@ -79,7 +102,7 @@ fn send_event(event_name: &str, distinct_id: &str, properties: serde_json::Value
         }
     };
 
-    if !enabled {
+    if !enabled || suppressed_by_host() {
         return;
     }
 
@@ -273,6 +296,9 @@ pub async fn identify_user(
 #[ship_command]
 #[tracing::instrument]
 pub fn get_analytics_enabled() -> Result<bool, CommandError> {
+    if suppressed_by_host() {
+        return Ok(false);
+    }
     let enabled = ANALYTICS
         .lock()
         .ok()
@@ -309,4 +335,20 @@ pub fn set_analytics_enabled(enabled: bool) -> Result<(), CommandError> {
 #[tracing::instrument]
 pub fn get_device_id_command() -> Result<String, CommandError> {
     Ok(get_device_id())
+}
+
+#[cfg(all(test, feature = "web"))]
+mod tests {
+    use super::is_opt_in;
+
+    #[test]
+    fn self_hosted_analytics_only_enables_on_explicit_affirmatives() {
+        for value in ["1", "true", "TRUE", "yes", "YES", " 1 "] {
+            assert!(is_opt_in(value), "`{value}` should opt in");
+        }
+        // An unset or fat-fingered value must leave a self-hosted server silent.
+        for value in ["", "0", "false", "no", "ture", "enabled"] {
+            assert!(!is_opt_in(value), "`{value}` must not opt in");
+        }
+    }
 }

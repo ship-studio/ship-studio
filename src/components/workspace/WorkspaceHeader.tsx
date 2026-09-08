@@ -33,6 +33,8 @@ const SLACK_INVITE_URL =
 import type { IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
+import { useCapabilities } from '../../lib/capabilities';
+import { isTauriRuntime } from '../../lib/webEvents';
 
 export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
 
@@ -139,14 +141,17 @@ export function WorkspaceHeader({
   pluginActions,
   pluginTheme,
 }: WorkspaceHeaderProps) {
+  const capabilities = useCapabilities();
   // Window dragging — only from the title bar (not the toolbar with plugins)
   const handleDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {
@@ -176,6 +181,7 @@ export function WorkspaceHeader({
         className="project-path"
         onClick={() => projectPath && void openInFinder(projectPath)}
         title={`Open in ${fileManagerName()}`}
+        disabled={!capabilities.revealInFileManager}
       >
         {projectPath}
       </button>

@@ -75,6 +75,15 @@ pub fn tauri_app() -> Option<tauri::AppHandle> {
     }
 }
 
+/// Whether the process installed the HTTP/WebSocket event sink.
+pub fn is_web() -> bool {
+    #[cfg(feature = "web")]
+    if matches!(SINK.get(), Some(Sink::Broadcast(_))) {
+        return true;
+    }
+    false
+}
+
 /// An event that reached nobody.
 ///
 /// Most callers ignore this — events are advisory and a closed window is

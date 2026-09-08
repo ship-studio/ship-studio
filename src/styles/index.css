@@ -7,6 +7,8 @@
 @import './components/modal.css';
 @import './components/command-palette.css';
 @import './components/code-overlay.css';
+@import './components/server-picker.css';
+@import './components/web-auth.css';
 
 /* Features */
 @import './features/setup.css';

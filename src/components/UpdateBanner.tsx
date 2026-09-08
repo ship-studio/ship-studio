@@ -22,6 +22,8 @@ import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { Button } from './primitives/Button';
 import '../styles/features/update-banner.css';
+import { useCapabilities } from '../lib/capabilities';
+import { isTauriRuntime } from '../lib/webEvents';
 
 /** How often to check for updates (1 hour) */
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -30,6 +32,7 @@ const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const DEFERRED_UPDATE_KEY = 'shipstudio_deferred_update';
 
 export function UpdateBanner() {
+  const capabilities = useCapabilities();
   const [updateAvailable, setUpdateAvailable] = useState<{
     update: Update;
     info: UpdateInfo;
@@ -41,6 +44,7 @@ export function UpdateBanner() {
 
   // Check for updates on mount and periodically
   useEffect(() => {
+    if (!capabilities.updater) return;
     const doCheck = async () => {
       try {
         const result = await checkForUpdate();
@@ -69,7 +73,7 @@ export function UpdateBanner() {
       clearTimeout(initialTimeout);
       clearInterval(interval);
     };
-  }, []);
+  }, [capabilities.updater]);
 
   const handleUpdate = useCallback(async () => {
     if (!updateAvailable) return;
@@ -135,12 +139,14 @@ export function UpdateBanner() {
   // be moved/maximized while an update is available. Buttons are excluded so
   // their clicks still work.
   const handleBannerDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleBannerDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {
@@ -161,7 +167,7 @@ export function UpdateBanner() {
   }, [updateAvailable]);
 
   // Don't render if no update or deferred
-  if (!updateAvailable || deferred) {
+  if (!capabilities.updater || !updateAvailable || deferred) {
     return null;
   }
 

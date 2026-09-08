@@ -109,19 +109,27 @@ pub fn is_registered_external_path(canonical: &Path) -> Result<bool, String> {
 /// Opens a native folder picker and registers the selected folder as an external project.
 /// Returns the path of the registered project, or None if cancelled.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn register_external_project(app: AppHandle) -> Result<Option<String>, CommandError> {
-    let folder = app
-        .dialog()
-        .file()
-        .set_title("Select Project Folder")
-        .blocking_pick_folder();
-
-    let folder_path = match folder {
-        Some(path) => path
-            .into_path()
-            .map_err(|e| format!("Invalid folder path: {e}"))?,
-        None => return Ok(None), // User cancelled
+#[tracing::instrument]
+pub async fn register_external_project(
+    selected_path: Option<String>,
+) -> Result<Option<String>, CommandError> {
+    let folder_path = match selected_path {
+        Some(path) => PathBuf::from(path),
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_title("Select Project Folder")
+                .blocking_pick_folder()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?
+        }
     };
 
     // Use the same predicate as dashboard discovery so removed projects can be
@@ -217,7 +225,9 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 
     // Widen the asset-protocol scope to this newly-registered root so its
     // thumbnails/assets render without a restart.
-    grant_asset_scope(&app, &canonical);
+    if let Some(app) = crate::emit::tauri_app() {
+        grant_asset_scope(&app, &canonical);
+    }
 
     Ok(Some(canonical_str))
 }
@@ -321,11 +331,8 @@ fn looks_like_project_root(path: &Path) -> bool {
 ///
 /// Returns Ok(true) if newly registered, Ok(false) if already registered or inside ~/ShipStudio.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn ensure_external_project_registered(
-    app: AppHandle,
-    path: String,
-) -> Result<bool, CommandError> {
+#[tracing::instrument]
+pub async fn ensure_external_project_registered(path: String) -> Result<bool, CommandError> {
     let canonical =
         dunce::canonicalize(Path::new(&path)).map_err(|e| format!("Invalid path: {e}"))?;
 
@@ -371,7 +378,9 @@ pub async fn ensure_external_project_registered(
     });
 
     save_config(&config)?;
-    grant_asset_scope(&app, &canonical);
+    if let Some(app) = crate::emit::tauri_app() {
+        grant_asset_scope(&app, &canonical);
+    }
     tracing::info!("Auto-registered external project: {}", canonical_str);
 
     Ok(true)

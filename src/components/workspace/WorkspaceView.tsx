@@ -78,6 +78,7 @@ import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
 import type { ChangedFile } from '../../lib/git';
 import type { LoadedPlugin, PluginFailure } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
+import { useCapabilities } from '../../lib/capabilities';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
 import { sessionRegistry } from '../../lib/sessionRegistry';
@@ -389,6 +390,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   onOpenProjectPicker,
   isProjectDevServerRunning,
 }: WorkspaceViewProps) {
+  const capabilities = useCapabilities();
   // Window-width gate for the compact layout. Purely reactive — no Tauri
   // resize calls, no pinning. See src/hooks/useIsCompact.ts for the threshold.
   const isCompact = useIsCompact();
@@ -605,11 +607,9 @@ export const WorkspaceView = memo(function WorkspaceView({
     workspaceTab === 'preview' &&
     !isPreviewHidden;
 
-  // Listen for native menu accelerators (Cmd+Shift+S / Cmd+Shift+C).
-  // Native accelerators work even when the cross-origin preview iframe has focus,
-  // unlike window keydown listeners which the iframe swallows.
+  // Native menu accelerators work even when the preview iframe has focus.
   useEffect(() => {
-    if (!previewVisible) return;
+    if (!previewVisible || !capabilities.screenshots) return;
     const unlistenScreenshot = listen('capture-screenshot', () => {
       if (!isCapturing && !isCropMode) {
         void handleCaptureScreenshot();
@@ -631,6 +631,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     isCropCapturing,
     handleCaptureScreenshot,
     setIsCropMode,
+    capabilities.screenshots,
   ]);
 
   // Generic/unknown (Tauri, CLI) projects have no preview pane at all. Web
@@ -638,7 +639,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   // device mirror — but only on macOS, where the simulator/emulator toolchains are
   // validated (mobile preview is untested on Windows, so we don't offer it there).
   const isMobileProject = isMobileProjectType(projectType);
-  const mobilePreviewAvailable = isMobileProject && isMac();
+  const mobilePreviewAvailable = isMobileProject && isMac() && capabilities.mobilePreview;
   const isWebProject = projectType !== 'generic' && projectType !== 'unknown' && !isMobileProject;
   const hasPreview = isWebProject || mobilePreviewAvailable;
 
@@ -1376,7 +1377,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                           <button
                             className="toolbar-icon-btn"
                             onClick={() => void handleCaptureScreenshot()}
-                            disabled={isCapturing || isCropMode}
+                            disabled={!capabilities.screenshots || isCapturing || isCropMode}
                             title={`Screenshot preview for Claude (${kbd('mod', 'shift', 'S')})`}
                             data-education-id="screenshot-button"
                           >
@@ -1392,7 +1393,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                           <button
                             className={`toolbar-icon-btn ${isCropMode ? 'is-open' : ''}`}
                             onClick={() => setIsCropMode(!isCropMode)}
-                            disabled={isCapturing || isCropCapturing}
+                            disabled={!capabilities.screenshots || isCapturing || isCropCapturing}
                             title={`Crop screenshot for Claude (${kbd('mod', 'shift', 'C')})`}
                             data-education-id="crop-button"
                           >

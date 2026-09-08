@@ -11,6 +11,7 @@ pub mod auth;
 pub mod commands;
 pub mod config;
 pub mod events;
+pub mod files;
 pub mod pty;
 
 use axum::{
@@ -20,12 +21,44 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tower_http::services::{ServeDir, ServeFile};
 
 pub use config::Config;
 
 use crate::errors::CommandError;
+
+pub(crate) const PREVIEW_PROXY_SLOT: &str = "__ship_preview_proxy__";
+pub(crate) const STATIC_SERVER_SLOT: &str = "__ship_static_server__";
+static RUNTIME_CONFIG: OnceLock<Arc<Config>> = OnceLock::new();
+
+pub(crate) fn runtime_config() -> Option<&'static Config> {
+    RUNTIME_CONFIG.get().map(Arc::as_ref)
+}
+
+/// Bind one of the bounded, operator-published preview ports and reserve it
+/// before another Ship Studio session can claim the same port.
+pub(crate) async fn bind_preview_listener(
+    window_label: &str,
+    slot: &str,
+) -> Result<tokio::net::TcpListener, String> {
+    let config = runtime_config().ok_or("web server configuration is not initialized")?;
+    for port in config.preview_ports.0..=config.preview_ports.1 {
+        if crate::state::is_port_reserved(port) {
+            continue;
+        }
+        let Ok(listener) = tokio::net::TcpListener::bind((config.preview_bind, port)).await else {
+            continue;
+        };
+        if crate::state::reserve_port(window_label, slot, port) {
+            return Ok(listener);
+        }
+    }
+    Err(format!(
+        "No free preview port in {}-{}",
+        config.preview_ports.0, config.preview_ports.1
+    ))
+}
 
 /// Shared state handed to every route.
 #[derive(Clone)]
@@ -67,6 +100,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/session", get(auth::session))
+        .route("/api/capabilities", get(files::capabilities))
+        .route("/api/browse", get(files::browse))
+        .route("/api/file", get(files::file))
+        .route("/api/fs/exists", get(files::exists))
         .route("/api/cmd/{name}", post(commands::dispatch))
         .route("/api/events", get(events::events))
         .route("/api/pty", get(pty::pty))
@@ -84,7 +121,7 @@ pub fn router(state: AppState) -> Router {
 
 /// Read config from the environment, bind, and serve until shutdown.
 pub async fn serve() -> Result<(), String> {
-    let config = Config::from_env()?;
+    let config = Arc::new(Config::from_env()?);
 
     if config.is_externally_bound() {
         let banner = format!(
@@ -109,8 +146,9 @@ pub async fn serve() -> Result<(), String> {
     }
 
     let bind = config.bind;
+    let _ = RUNTIME_CONFIG.set(config.clone());
     let state = AppState {
-        config: Arc::new(config),
+        config,
         events: crate::emit::init_broadcast(),
         sessions: Arc::default(),
     };
@@ -144,6 +182,7 @@ mod tests {
                 static_dir: std::path::PathBuf::from("dist"),
                 preview_ports: (3100, 3130),
                 preview_bind: "127.0.0.1".parse().unwrap(),
+                preview_url_template: None,
                 session_ttl_secs: 3600,
             }),
             events,
@@ -399,6 +438,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn command_session_header_overrides_a_spoofed_window_argument() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        state.sessions.lock().unwrap().insert("web-header".into());
+        assert!(crate::state::reserve_port(
+            "web-header",
+            "/tmp/header-project",
+            39_991
+        ));
+        assert!(crate::state::reserve_port(
+            "web-spoofed",
+            "/tmp/header-project",
+            39_992
+        ));
+
+        let (status, body) = send(
+            state,
+            Request::post("/api/cmd/get_reserved_port_for_window")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:1420")
+                .header(header::COOKIE, cookie)
+                .header("x-ship-window", "web-header")
+                .body(Body::from(
+                    r#"{"windowLabel":"web-spoofed","projectPath":"/tmp/header-project"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        crate::state::release_port_for_project("web-header", "/tmp/header-project");
+        crate::state::release_port_for_project("web-spoofed", "/tmp/header-project");
+
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_str(&body).expect("JSON body");
+        assert_eq!(json["data"], serde_json::json!(39_991));
+    }
+
+    #[tokio::test]
     async fn a_command_rejects_a_stale_browser_session() {
         let state = test_state();
         let cookie = valid_cookie(&state);
@@ -492,5 +568,49 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(body.contains("unknown endpoint"));
+    }
+
+    #[tokio::test]
+    async fn capabilities_are_authenticated_and_disable_native_features() {
+        let state = test_state();
+        let (status, _) = send(
+            state.clone(),
+            Request::get("/api/capabilities")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let cookie = valid_cookie(&state);
+        let (status, body) = send(
+            state,
+            Request::get("/api/capabilities")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_str(&body).expect("JSON body");
+        assert_eq!(json["data"]["filePicker"], serde_json::json!(true));
+        assert_eq!(json["data"]["screenshots"], serde_json::json!(false));
+        assert_eq!(json["data"]["updater"], serde_json::json!(false));
+    }
+
+    #[tokio::test]
+    async fn file_route_rejects_paths_outside_projects() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, body) = send(
+            state,
+            Request::get("/api/file?path=/etc/passwd")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("Validation"));
     }
 }

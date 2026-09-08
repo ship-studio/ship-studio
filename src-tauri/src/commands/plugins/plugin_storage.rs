@@ -10,7 +10,6 @@ use crate::utils::{create_command, get_extended_path, validate_project_path};
 use ship_studio_macros::ship_command;
 use std::fs;
 use std::path::PathBuf;
-use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 use super::{
@@ -145,22 +144,28 @@ pub async fn exec_plugin_shell(
 /// Opens a native folder picker, validates the selected folder has plugin.json and dist/index.js,
 /// then registers it in the project's plugin registry as a dev plugin.
 #[ship_command]
-#[tracing::instrument(skip(app), fields(project = %project_path))]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn link_dev_plugin(
-    app: AppHandle,
     project_path: String,
+    selected_path: Option<String>,
 ) -> Result<Option<PluginInfo>, CommandError> {
-    let folder = app
-        .dialog()
-        .file()
-        .set_title("Select Plugin Folder")
-        .blocking_pick_folder();
-
-    let folder_path = match folder {
-        Some(path) => path
-            .into_path()
-            .map_err(|e| format!("Invalid folder path: {e}"))?,
-        None => return Ok(None), // User cancelled
+    let folder_path = match selected_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_title("Select Plugin Folder")
+                .blocking_pick_folder()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?
+        }
     };
 
     // Validate plugin.json exists

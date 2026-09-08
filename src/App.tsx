@@ -70,6 +70,7 @@ import {
 import { useAppCommands } from './commands/useAppCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { ToastList } from './components/primitives/ToastList';
+import { ServerPickerModal } from './components/primitives/ServerPickerModal';
 import { logger } from './lib/logger';
 import { asCommandError, formatCommandError } from './lib/errors';
 import { trackEvent, setActiveProject, trackPageview } from './lib/analytics';
@@ -108,6 +109,7 @@ function App({ initialProjectPath }: AppProps) {
             <AppContents initialProjectPath={initialProjectPath} />
             <CommandPaletteHost />
             <AppGlobalModals />
+            <ServerPickerModal />
           </AgentBridgeProvider>
         </PaletteContextProvider>
       </ModalProvider>
