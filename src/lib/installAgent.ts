@@ -199,6 +199,33 @@ export interface InstallAgentDriver {
 const SCRIPT_BEAT_MS = 800;
 const SCRIPT_INSTALL_MS = 2000;
 
+/**
+ * Multiplier on the scripted pauses. 1 is the pace a person reads at.
+ *
+ * The pauses exist so someone can follow along, which makes them a cost for
+ * anything that isn't a person: the full sequence runs about twelve seconds,
+ * longer than the harness waits for a step to appear, so every screen *after*
+ * the install was uncapturable. A scenario that wants to reach one of those
+ * sets this near zero and skips the performance; a scenario about the install
+ * itself leaves it alone and gets the real pace.
+ *
+ * Read from storage rather than an argument because the driver is chosen by
+ * the router, which has no idea what any given capture is trying to look at.
+ */
+const PACE_STORAGE_KEY = 'shipstudio.installAgentPace';
+
+function paceFactor(): number {
+  try {
+    const raw = localStorage.getItem(PACE_STORAGE_KEY);
+    if (!raw) return 1;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  } catch {
+    // Private mode, blocked storage: the readable pace is the safe default.
+    return 1;
+  }
+}
+
 function wait(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
@@ -233,6 +260,7 @@ export const scriptedDriver: InstallAgentDriver = {
   attribution: { poweredBy: 'fx', fundedBy: 'Vercel' },
 
   async *run({ steps, alreadyPresent }, host, signal) {
+    const pace = paceFactor();
     const present = new Set(alreadyPresent);
     const todo = steps.filter((s) => !present.has(s));
 
@@ -249,12 +277,12 @@ export const scriptedDriver: InstallAgentDriver = {
           ? `You've already got some of this. I'll fill in the rest.`
           : "Fresh machine — I'll set everything up. Takes a couple of minutes.",
     };
-    await wait(SCRIPT_BEAT_MS, signal);
+    await wait(SCRIPT_BEAT_MS * pace, signal);
 
     for (const step of steps) {
       if (present.has(step)) {
         yield { type: 'step_skipped', step };
-        await wait(SCRIPT_BEAT_MS / 3, signal);
+        await wait((SCRIPT_BEAT_MS / 3) * pace, signal);
         continue;
       }
 
@@ -280,7 +308,7 @@ export const scriptedDriver: InstallAgentDriver = {
       }
 
       yield { type: 'step_start', step };
-      await wait(SCRIPT_INSTALL_MS, signal);
+      await wait(SCRIPT_INSTALL_MS * pace, signal);
 
       try {
         await mockMarkSetupItemReady(step);
@@ -290,7 +318,7 @@ export const scriptedDriver: InstallAgentDriver = {
       }
 
       yield { type: 'step_end', step, ok: true };
-      await wait(SCRIPT_BEAT_MS / 3, signal);
+      await wait((SCRIPT_BEAT_MS / 3) * pace, signal);
     }
 
     yield { type: 'say', text: "That's everything. Your machine is ready." };

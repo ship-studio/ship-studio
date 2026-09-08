@@ -10,7 +10,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
-import CelebrationRocketGraphic from '@/assets/graphics/celebration-rocket.svg?react';
 
 interface CelebrationScreenProps {
   /** Called when user clicks to continue */
@@ -62,8 +61,16 @@ export function CelebrationScreen({ onContinue, hostingConnected }: CelebrationS
     <div className={`celebration-screen ${showContent ? 'visible' : ''}`}>
       <div className="celebration-content">
         <div className="celebration-icon">
-          {/* Rocket (Lucide, ISC) in Ship Studio green — you're ready to ship. */}
-          <CelebrationRocketGraphic width={80} height={80} aria-hidden="true" />
+          {/* The app's own mark, at the size the dashboard uses it — this is
+              the first time the user meets the product rather than the setup,
+              so the last screen of onboarding should look like the first
+              screen of the app. */}
+          <img
+            src="/ShipStudio_IconBrand.png"
+            alt=""
+            className="celebration-logo"
+            aria-hidden="true"
+          />
         </div>
         <h1 className="celebration-title">You're all set!</h1>
         <p className="celebration-subtitle">

@@ -603,6 +603,15 @@
   animation: pop 0.5s ease;
 }
 
+/* Matches .dashboard-hero-icon, so the last screen of setup and the first
+   screen of the app show the mark at the same size. */
+.celebration-logo {
+  /* css-ok: matches the dashboard hero mark exactly */
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
 @keyframes pop {
   0% {
     transform: scale(0);

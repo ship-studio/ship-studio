@@ -183,6 +183,109 @@ export const appScenarios: Scenario[] = [
     },
   },
   {
+    id: 'onboarding-flow-signin',
+    // Skip the scripted install performance; this scenario is about a
+    // screen that comes after it, not about the pace of the installs.
+    storage: { 'shipstudio.installAgentPace': '0.02' },
+    requires: '[data-flow-step="signin"]',
+    openSelector: '.flow-choice-row',
+    // Through the password handoff, then wait out the installs. Each step
+    // waits for its own selector, so the ~11s of scripted installing is a
+    // wait for the sign-in screen rather than a sleep.
+    steps: [
+      { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '[data-flow-step="signin"] .flow-action-reason' },
+    ],
+    title: 'Onboarding — sign in to the agent you picked',
+    looksRightWhen:
+      'The agent is installed and the ask is to connect the plan they already pay for. The reassurance that we never see their credentials is present and quiet.',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+          notInstalled('claude', 'Claude Code'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
+    id: 'onboarding-flow-host',
+    // Skip the scripted install performance; this scenario is about a
+    // screen that comes after it, not about the pace of the installs.
+    storage: { 'shipstudio.installAgentPace': '0.02' },
+    requires: '[data-flow-step="host"]',
+    openSelector: '.flow-choice-row',
+    steps: [
+      { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '[data-flow-step="signin"] .button--primary' },
+      { click: '[data-flow-step="github"] .button--primary' },
+      { click: '[data-flow-step="host"] .flow-screen-title' },
+    ],
+    title: 'Onboarding — the last question',
+    looksRightWhen:
+      'Hosting is presented as optional and reversible, with "Decide later" a real option rather than a dead end.',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+          notInstalled('claude', 'Claude Code'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
+    id: 'onboarding-flow-celebration',
+    // Skip the scripted install performance; this scenario is about a
+    // screen that comes after it, not about the pace of the installs.
+    storage: { 'shipstudio.installAgentPace': '0.02' },
+    requires: '.celebration-logo',
+    openSelector: '.flow-choice-row',
+    steps: [
+      { click: '[data-flow-step="installing-user"] .button--primary' },
+      { click: '[data-flow-step="signin"] .button--primary' },
+      { click: '[data-flow-step="github"] .button--primary' },
+      { click: '[data-flow-step="host"] .flow-choice-row' },
+    ],
+    title: 'Onboarding — done',
+    looksRightWhen:
+      'The Ship Studio mark at the same 48px the dashboard uses it, so the last screen of setup looks like the first screen of the app. Not a rocket.',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+          notInstalled('claude', 'Claude Code'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
     id: 'onboarding-flow-partial',
     requires: '.flow-choice-row.satisfied',
     title: 'Onboarding — some of it is already here',

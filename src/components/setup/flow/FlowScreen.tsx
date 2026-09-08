@@ -37,7 +37,11 @@ export function FlowScreen({
   progress,
 }: FlowScreenProps) {
   return (
-    <div className="flow-screen">
+    // The step is on the DOM so a capture, a test or a bug report can name
+    // which screen it is looking at. Every screen otherwise renders the same
+    // handful of classes, which made the back half of the flow unreachable by
+    // the harness — the two `.button--primary` screens were indistinguishable.
+    <div className="flow-screen" data-flow-step={stepKey}>
       {progress !== undefined && (
         <div
           className="flow-progress"
