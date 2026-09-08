@@ -19,10 +19,25 @@ vi.mock('../../lib/analytics', () => ({
   trackPageview: vi.fn(),
 }));
 
-const isWindowsMock = vi.fn(() => false);
+// `vi.hoisted` because the mock factory is hoisted above this file's `const`
+// declarations, and the router's import chain now reaches lib/setup during
+// module evaluation — which is early enough to touch the ref before a plain
+// `const` has initialised it.
+const { isWindowsMock } = vi.hoisted(() => ({ isWindowsMock: vi.fn(() => false) }));
 vi.mock('../../lib/setup', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/setup')>()),
   isWindows: () => isWindowsMock(),
+}));
+
+// The router asks the backend whether this launch is in mock mode, to decide
+// whether the conversational flow can do any real work. Default: it can't, so
+// these tests describe the real-machine routing.
+vi.mock('../../lib/agentOnboarding', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/agentOnboarding')>()),
+  getOnboardingTestMode: vi.fn(() => Promise.resolve({ mock: false, forceOnboarding: false })),
+}));
+vi.mock('./flow/FlowOnboarding', () => ({
+  FlowOnboarding: () => <div data-testid="flow-screen" />,
 }));
 
 describe('OnboardingRouter', () => {
@@ -69,7 +84,7 @@ describe('OnboardingRouter', () => {
     render(<OnboardingRouter onComplete={vi.fn()} />);
     expect(screen.getByTestId('classic-screen')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Try agent-guided setup' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try agent-led setup' }));
     expect(screen.getByTestId('agent-screen')).toBeInTheDocument();
     expect(localStorage.getItem('shipstudio.onboardingMode')).toBe('agent');
   });

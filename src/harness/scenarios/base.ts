@@ -84,6 +84,12 @@ export const baseCommands: CommandMap = {
   },
   get_onboarding_test_mode: { mock: false, forceOnboarding: false },
   get_default_agent_id: 'claude',
+  // Onboarding writes these as the user answers; nothing reads them back in
+  // the same session, so acknowledging is the whole fixture.
+  set_default_agent_id: null,
+  set_default_host: null,
+  set_external_agent_opt_in: null,
+  mock_mark_setup_item_ready: null,
   get_reserved_port_for_window: null,
   get_shipstudio_dir: HARNESS_ROOT,
   get_log_path: '/Users/harness/Library/Logs/ShipStudio',

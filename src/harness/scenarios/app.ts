@@ -105,9 +105,10 @@ export const appScenarios: Scenario[] = [
   },
   {
     id: 'onboarding-fresh',
-    title: 'Onboarding — nothing installed',
+    requires: '.flow-choice-row',
+    title: 'Onboarding — the first question',
     looksRightWhen:
-      'The agent-led onboarding opens on a fresh machine and every tool reads as not installed.',
+      'One question, five options, nothing else. Every row aligns on the same three columns — letter, icon, text — including the option that has no icon. The hairline progress bar is at the very top.',
     commands: {
       quick_setup_check: { allPresent: false, setupCompleteCached: false },
       get_full_setup_status: {
@@ -121,6 +122,85 @@ export const appScenarios: Scenario[] = [
         ],
         optionalAuths: { githubAuthenticated: false },
         detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
+    id: 'onboarding-flow-admin',
+    requires: '.flow-action',
+    openSelector: '.flow-choice-row',
+    // The prompt arrives a beat after the click, since the agent speaks first.
+    // Steps wait for their selector, so this one is purely that wait — the
+    // click lands on the panel itself, which has no handler.
+    steps: [{ click: '.flow-action' }],
+    title: 'Onboarding — the agent needs your password',
+    looksRightWhen:
+      'Picking an agent leads to the first thing only a person can do. The screen explains who is asking for the password (macOS, not us) before any system sheet appears, and "Not now" is as easy to find as "Continue".',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+          notInstalled('claude', 'Claude Code'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
+    id: 'onboarding-flow-installing',
+    requires: '.flow-step',
+    openSelector: '.flow-choice-row',
+    steps: [{ click: '.flow-action .button--primary' }],
+    title: 'Onboarding — the agent doing the work',
+    looksRightWhen:
+      'Plain-English steps, exactly one of them moving, everything else receded. No terminal, no scrolling log. The step being worked on is the only line at full contrast.',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+          notInstalled('claude', 'Claude Code'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: [],
+      },
+      get_onboarding_test_mode: { mock: true, forceOnboarding: false },
+      get_default_agent_id: null,
+    },
+  },
+  {
+    id: 'onboarding-flow-partial',
+    requires: '.flow-choice-row.satisfied',
+    title: 'Onboarding — some of it is already here',
+    looksRightWhen:
+      'A machine that already has Claude Code says so on the row itself, with a check rather than a badge. Nothing else about the question changes.',
+    commands: {
+      quick_setup_check: { allPresent: false, setupCompleteCached: false },
+      get_full_setup_status: {
+        allReady: false,
+        items: [
+          { id: 'claude', friendlyName: 'Claude Code', status: 'ready' as const, version: '2.1.4' },
+          notInstalled('homebrew', 'Homebrew'),
+          notInstalled('node', 'Node.js'),
+          notInstalled('git', 'Git'),
+          notInstalled('gh', 'GitHub CLI'),
+        ],
+        optionalAuths: { githubAuthenticated: false },
+        detectedAgents: ['claude'],
       },
       get_onboarding_test_mode: { mock: true, forceOnboarding: false },
       get_default_agent_id: null,

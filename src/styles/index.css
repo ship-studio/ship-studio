@@ -42,6 +42,7 @@
 /* Features */
 @import './features/setup.css';
 @import './features/setup-agent-led.css';
+@import './features/setup-flow.css';
 @import './features/project-list.css';
 @import './features/project-grid.css';
 @import './features/create-project.css';

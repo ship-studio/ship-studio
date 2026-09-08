@@ -1,0 +1,436 @@
+/**
+ * Conversational onboarding — one question per screen.
+ *
+ * Two ideas carry the whole look. There is exactly one thing to read at a
+ * time, so the type ramp can be much larger than the rest of the app without
+ * fighting anything. And nothing arrives all at once: the screen settles, then
+ * the options land in reading order, which is what makes a form feel like a
+ * conversation instead of a questionnaire.
+ */
+
+:root {
+  /* Optical centre of the flow column. Narrower than it looks like it should
+     be — long option rows read worse than short ones. */
+  --flow-column: 520px;
+  /* One step's entrance. Long enough to register as motion, short enough that
+     a returning user is never waiting on it. */
+  --flow-enter-duration: 420ms;
+  --flow-enter-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The tick landing on a finished step. Faster than a screen change: it
+     confirms something rather than introducing it. */
+  --flow-check-duration: 150ms;
+}
+
+/* ============ Shell ============ */
+
+.flow-onboarding {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: var(--spacing-2xl) var(--spacing-xl);
+  background: var(--surface-app);
+  overflow-y: auto;
+}
+
+.flow-onboarding-loading {
+  color: var(--text-muted);
+}
+
+/* Reassurance under the card. Quiet by construction. */
+.flow-onboarding-aside {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xl);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+/* ============ Screen frame ============ */
+
+.flow-screen {
+  width: 100%;
+  max-width: var(--flow-column);
+}
+
+.flow-screen-inner {
+  animation: flow-screen-enter var(--flow-enter-duration) var(--flow-enter-ease) both;
+}
+
+@keyframes flow-screen-enter {
+  from {
+    opacity: 0;
+    /* css-ok: entrance offset, not a spacing-scale value */
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.flow-screen-header {
+  margin-bottom: var(--spacing-2xl);
+}
+
+.flow-screen-title {
+  margin: 0;
+  color: var(--text-white);
+  /* Bigger than anything else in the app. It is the only thing on screen. */
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+  letter-spacing: var(--tracking-heading);
+  text-wrap: balance;
+}
+
+.flow-screen-subtitle {
+  margin: var(--spacing-sm) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-body);
+  text-wrap: pretty;
+}
+
+.flow-screen-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--spacing-xl);
+}
+
+/* Hairline progress. Pinned to the top of the viewport, not the card — it
+   describes the flow, not the question. */
+.flow-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* css-ok: hairline */
+  height: 2px;
+  background: var(--tint-subtle);
+}
+
+.flow-progress-fill {
+  height: 100%;
+  background: var(--accent-active);
+  transform-origin: left;
+  transition: transform var(--transition-interaction-slow);
+}
+
+/* ============ Choice rows ============ */
+
+.flow-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.flow-choice-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--transition-interaction),
+    border-color var(--transition-interaction),
+    transform var(--transition-interaction);
+  animation: flow-row-enter var(--flow-enter-duration) var(--flow-enter-ease) both;
+}
+
+@keyframes flow-row-enter {
+  from {
+    opacity: 0;
+    /* css-ok: entrance offset */
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.flow-choice-row:hover:not(:disabled) {
+  background: var(--surface-control);
+  border-color: var(--accent-active);
+  /* css-ok: hover lift */
+  transform: translateY(-1px);
+}
+
+.flow-choice-row:focus-visible {
+  outline: 2px solid var(--accent-active);
+  outline-offset: 2px;
+}
+
+.flow-choice-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The letter key. Reads as a keycap without shouting. */
+.flow-choice-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* css-ok: keycap size */
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-app);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  transition: all var(--transition-interaction);
+}
+
+.flow-choice-row:hover .flow-choice-key {
+  border-color: var(--accent-active);
+  color: var(--accent-active);
+}
+
+.flow-choice-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* css-ok: icon tile */
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-card);
+  background: var(--tint-subtle);
+}
+
+/* Holds the column open without drawing an empty tile. */
+.flow-choice-icon.empty {
+  background: none;
+}
+
+.flow-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+  flex: 1;
+}
+
+.flow-choice-label {
+  color: var(--text-white);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-label);
+}
+
+.flow-choice-description {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  transition: color var(--transition-interaction);
+}
+
+.flow-choice-row:hover .flow-choice-description {
+  color: var(--text-secondary);
+}
+
+.flow-choice-note {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+.flow-choice-check {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent-active);
+}
+
+.flow-choice-row.satisfied {
+  border-color: rgba(var(--accent-active-rgb), 0.4);
+}
+
+/* ============ Install progress ============ */
+
+.flow-installing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.flow-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow-step {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body-lg);
+  /* Everything not currently happening recedes, so the eye lands on the one
+     line that is moving. */
+  color: var(--text-muted);
+  transition:
+    color var(--transition-interaction),
+    background var(--transition-interaction);
+}
+
+.flow-step.working {
+  background: var(--tint-subtle);
+  color: var(--text-white);
+}
+
+.flow-step.done,
+.flow-step.skipped {
+  color: var(--text-secondary);
+}
+
+.flow-step-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* css-ok: marker column, keeps labels aligned across states */
+  width: 16px;
+  height: 16px;
+}
+
+.flow-step-dot {
+  /* css-ok: progress dot */
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--border-default);
+}
+
+.flow-step-dot.failed {
+  background: var(--accent-error);
+}
+
+.flow-step-check {
+  display: flex;
+  color: var(--accent-active);
+  animation: flow-check-in var(--flow-check-duration) var(--flow-enter-ease) both;
+}
+
+@keyframes flow-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.flow-step-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.flow-step-note {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+/* ============ Handing back to the user ============ */
+
+.flow-action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  animation: flow-row-enter var(--flow-enter-duration) var(--flow-enter-ease) both;
+}
+
+.flow-action-reason {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-body);
+  text-wrap: pretty;
+}
+
+/* The device-flow code. Large and monospaced because people transcribe it. */
+.flow-action-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  padding: var(--spacing-lg);
+  background: var(--surface-app);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition: border-color var(--transition-interaction);
+}
+
+.flow-action-code:hover {
+  border-color: var(--accent-active);
+}
+
+.flow-action-code-value {
+  color: var(--text-white);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-h3);
+  letter-spacing: var(--tracking-control);
+}
+
+.flow-action-code-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+.flow-action-destination {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  word-break: break-all;
+}
+
+.flow-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.flow-action-footnote {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+}
+
+/* Motion is decoration here; every state is legible without it. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-screen-inner,
+  .flow-choice-row,
+  .flow-action,
+  .flow-step-check {
+    animation: none;
+  }
+  .flow-progress-fill {
+    transition: none;
+  }
+}
