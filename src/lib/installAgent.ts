@@ -161,6 +161,22 @@ export interface InstallAgentRequest {
 }
 
 /**
+ * Who to credit while this driver is working.
+ *
+ * A property of the driver rather than a constant in the UI, because it is a
+ * factual claim about what is running and who is paying for it. A screen that
+ * says "powered by fx" while something else does the work is the same class of
+ * mistake as showing a deployment URL nobody returned to us — so a driver that
+ * is not fx-powered simply omits this and the credit does not render.
+ */
+export interface InstallAgentAttribution {
+  /** The agent runtime doing the work. */
+  poweredBy: string;
+  /** Who funds the tokens it spends. Omitted when nobody does. */
+  fundedBy?: string;
+}
+
+/**
  * Runs one install session and yields events as it goes.
  *
  * Async iterable rather than a callback so the UI can apply backpressure and
@@ -168,6 +184,8 @@ export interface InstallAgentRequest {
  * `agent.prompt()` turn uses, which keeps the real driver a thin adapter.
  */
 export interface InstallAgentDriver {
+  /** Rendered while this driver runs. See {@link InstallAgentAttribution}. */
+  attribution?: InstallAgentAttribution;
   run(
     request: InstallAgentRequest,
     host: InstallAgentHost,
@@ -208,6 +226,12 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
  * password prompt is a demo of the easy half.
  */
 export const scriptedDriver: InstallAgentDriver = {
+  // The scripted driver stands in for fx in demos and captures, and only ever
+  // runs behind SHIPSTUDIO_FORCE_SETUP — never in front of a real user. It
+  // therefore carries fx's attribution so what we demo matches what we ship.
+  // A driver that is genuinely not fx-powered must omit this.
+  attribution: { poweredBy: 'fx', fundedBy: 'Vercel' },
+
   async *run({ steps, alreadyPresent }, host, signal) {
     const present = new Set(alreadyPresent);
     const todo = steps.filter((s) => !present.has(s));

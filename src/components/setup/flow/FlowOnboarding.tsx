@@ -27,6 +27,7 @@ import { FlowScreen } from './FlowScreen';
 import { FlowChoice, FlowOption } from './FlowChoice';
 import { FlowInstalling } from './FlowInstalling';
 import { UserActionPrompt } from './UserActionPrompt';
+import { InstallAttribution } from './InstallAttribution';
 import { Button } from '../../primitives/Button';
 import { Spinner } from '../../primitives/Spinner';
 import { useInstallAgentSession } from '../../../hooks/useInstallAgentSession';
@@ -237,6 +238,7 @@ export function FlowOnboarding({ driver, onComplete }: FlowOnboardingProps) {
           progress={PROGRESS.installing}
           title={session.pendingUserAction ? 'One thing I need you for' : `Setting up your machine`}
           subtitle={session.pendingUserAction ? undefined : (session.narration ?? undefined)}
+          footer={driver.attribution && <InstallAttribution {...driver.attribution} />}
         >
           <FlowInstalling steps={installSteps} session={session} />
         </FlowScreen>

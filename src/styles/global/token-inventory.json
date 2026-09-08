@@ -4133,7 +4133,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 343
+      "consumerCount": 344
     },
     {
       "name": "--text-muted",
@@ -4142,7 +4142,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 596
+      "consumerCount": 597
     },
     {
       "name": "--text-faint",
@@ -4187,7 +4187,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 425
+      "consumerCount": 426
     },
     {
       "name": "--border-subtle",
@@ -4547,7 +4547,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 102
+      "consumerCount": 103
     },
     {
       "name": "--font-size-3xl",
@@ -4592,7 +4592,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 33
+      "consumerCount": 34
     },
     {
       "name": "--font-weight-heading",
@@ -4808,7 +4808,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 99
+      "consumerCount": 100
     },
     {
       "name": "--spacing-xs",
@@ -4817,7 +4817,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 273
+      "consumerCount": 274
     },
     {
       "name": "--spacing-sm",

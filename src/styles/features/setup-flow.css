@@ -351,6 +351,36 @@
   font-size: var(--font-size-badge);
 }
 
+/* ============ Attribution ============ */
+
+/* An acknowledgement, not an ad: quiet, below the fold of attention, and only
+   on the screen where the credited thing is actually doing something. */
+.flow-attribution {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+.flow-attribution-part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+}
+
+.flow-attribution-name {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-label);
+}
+
+.flow-attribution-sep {
+  color: var(--border-default);
+}
+
 /* ============ Handing back to the user ============ */
 
 .flow-action {
