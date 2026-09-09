@@ -56,6 +56,37 @@ interface DockablePanelProps {
   dock?: PanelDockBinding;
 }
 
+/**
+ * How far the pointer must travel before a press on a header counts as a drag.
+ *
+ * Below this it is a click — and a click must not move anything, which it did:
+ * releasing resolves a drop at the pointer, and the middle of a wide panel's
+ * header is further from any seam than the snap distance, so clicking a docked
+ * panel's title floated it.
+ */
+const DRAG_THRESHOLD_PX = 4;
+
+/**
+ * Promote a press to a drag the first time the pointer travels far enough, and
+ * report that to the rail exactly once.
+ *
+ * @returns whether a drag is now in progress
+ */
+function beginDragOnce(
+  pressRef: { current: { pointerId: number; x: number; y: number; moved: boolean } | null },
+  pointerId: number,
+  point: { x: number; y: number },
+  dock: PanelDockBinding | undefined
+): boolean {
+  const press = pressRef.current;
+  if (!press || press.pointerId !== pointerId) return false;
+  if (press.moved) return true;
+  if (Math.hypot(point.x - press.x, point.y - press.y) < DRAG_THRESHOLD_PX) return false;
+  press.moved = true;
+  dock?.onDragStart(point);
+  return true;
+}
+
 const VIEWPORT_GUTTER = 8;
 const MIN_VISIBLE_HEADER = 40;
 const DEFAULT_MIN_FLOATING_SIZE = { width: 240, height: 180 };
@@ -157,6 +188,16 @@ export function DockablePanel({
   );
   const floatingPanelSizeRef = useRef(floatingPanelSize);
   const dragRef = useRef<{ pointerId: number; dx: number; dy: number } | null>(null);
+  /**
+   * A press on the header that has not yet become a drag.
+   *
+   * A press is not a gesture until the pointer moves. Without this, clicking a
+   * docked panel's title *resolves as a drop* at wherever the title happens to
+   * be — and the middle of a wide panel is further than the snap distance from
+   * any seam, so a click on the agent panel's header floated it. The rail is
+   * only told a drag has begun once the pointer has actually travelled.
+   */
+  const pressRef = useRef<{ pointerId: number; x: number; y: number; moved: boolean } | null>(null);
   // A drag of a *docked* panel's header. It moves the panel in the layout
   // rather than on screen, so it carries no offset — only the pointer id, to
   // tell its moves apart from a floating drag's.
@@ -289,11 +330,17 @@ export function DockablePanel({
       // Docked, dragging the header is how you move the panel in the layout;
       // floating, it is how you move the window. Both report to the rail, so a
       // floating panel dragged over it can be dropped back in.
+      pressRef.current = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        moved: false,
+      };
+
       if (docked) {
         if (!dock) return;
         layoutDragRef.current = event.pointerId;
         surfaceRef.current?.setPointerCapture?.(event.pointerId);
-        dock.onDragStart({ x: event.clientX, y: event.clientY });
         event.preventDefault();
         return;
       }
@@ -306,7 +353,6 @@ export function DockablePanel({
         dy: event.clientY - rect.top,
       };
       surfaceRef.current?.setPointerCapture?.(event.pointerId);
-      dock?.onDragStart({ x: event.clientX, y: event.clientY });
       event.preventDefault();
     },
     [bringToFront, dock, docked]
@@ -317,8 +363,11 @@ export function DockablePanel({
       const target = event.target as HTMLElement;
       if (target.closest('.dockable-panel__surface') !== event.currentTarget) return;
 
+      const point = { x: event.clientX, y: event.clientY };
+      const started = beginDragOnce(pressRef, event.pointerId, point, dock);
+
       if (layoutDragRef.current === event.pointerId) {
-        dock?.onDragMove({ x: event.clientX, y: event.clientY });
+        if (started) dock?.onDragMove(point);
         return;
       }
 
@@ -331,7 +380,7 @@ export function DockablePanel({
           keepWithinViewport
         )
       );
-      dock?.onDragMove({ x: event.clientX, y: event.clientY });
+      if (started) dock?.onDragMove(point);
     },
     [dock, floatingSize, keepWithinViewport]
   );
@@ -341,10 +390,20 @@ export function DockablePanel({
       const target = event.target as HTMLElement;
       if (target.closest('.dockable-panel__surface') !== event.currentTarget) return;
 
+      // A press that never moved is a click, not a drop: the rail was never
+      // told a drag started, so there is nothing for it to resolve.
+      //
+      // The null check is explicit rather than an optional chain. A synthetic
+      // event may carry no `pointerId` at all, and `undefined === undefined`
+      // is true — which let a released press match a press that never happened.
+      const press = pressRef.current;
+      const moved = press !== null && press.pointerId === event.pointerId && press.moved;
+      pressRef.current = null;
+
       if (layoutDragRef.current === event.pointerId) {
         layoutDragRef.current = null;
         surfaceRef.current?.releasePointerCapture?.(event.pointerId);
-        dock?.onDragEnd({ x: event.clientX, y: event.clientY });
+        if (moved) dock?.onDragEnd({ x: event.clientX, y: event.clientY });
         return;
       }
 
@@ -358,13 +417,14 @@ export function DockablePanel({
         localStorage.setItem(positionKey, JSON.stringify(current));
         return current;
       });
-      dock?.onDragEnd({ x: event.clientX, y: event.clientY });
+      if (moved) dock?.onDragEnd({ x: event.clientX, y: event.clientY });
     },
     [dock, positionKey]
   );
 
   const handlePointerCancel = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      pressRef.current = null;
       if (layoutDragRef.current === event.pointerId) {
         layoutDragRef.current = null;
         surfaceRef.current?.releasePointerCapture?.(event.pointerId);

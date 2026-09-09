@@ -260,6 +260,36 @@ describe('dragging a docked panel', () => {
     expect(document.querySelector('.workspace-dock__drop-line')).not.toBeNull();
   });
 
+  it('does nothing at all when the header is merely clicked', () => {
+    // Releasing resolves a drop at the pointer, and the middle of a wide
+    // panel's header is further from any seam than the snap distance — so
+    // before the drag threshold, clicking the agent's title floated it.
+    renderRail(['agent', 'editor'], { order: ['agent', PREVIEW, 'editor'], floating: [] });
+    stubGeometry();
+
+    const header = screen.getByTestId('agent-header');
+    act(() => {
+      header.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 150, clientY: 400 })
+      );
+    });
+    act(() => {
+      // A pixel of tremor, as a real click has.
+      header.dispatchEvent(
+        new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 151, clientY: 400 })
+      );
+    });
+    act(() => {
+      header.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, pointerId: 1, clientX: 151, clientY: 400 })
+      );
+    });
+
+    expect(readProjectLayout(PROJECT).floating).not.toContain('agent');
+    expect(visualOrder()).toEqual(['agent', PREVIEW, 'editor']);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('changes nothing when the gesture is cancelled', () => {
     // A lost pointer is not a drop.
     renderRail(['agent', 'editor'], { order: ['agent', PREVIEW, 'editor'], floating: [] });
