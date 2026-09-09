@@ -423,6 +423,9 @@ pub fn git_command() -> Result<Command, crate::errors::CommandError> {
     // already applies to fetch/pull/push.
     fn with_extended_path(mut cmd: Command) -> Command {
         cmd.env("PATH", get_extended_path());
+        // The error classifiers match git's English, so a translated fatal
+        // reads as an unknown failure (issue #727).
+        cmd.env("LC_ALL", "C");
         cmd
     }
     static GIT_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
