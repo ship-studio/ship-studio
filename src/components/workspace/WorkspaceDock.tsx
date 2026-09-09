@@ -211,12 +211,34 @@ function WorkspaceDockSlot({ panel, order, side, dockedCount, stretch }: SlotPro
   // person dragged always wins over one the panel would like.
   const preferred = useDefaultWidth(panel);
   const committed = widthOf(layout, panel, preferred);
-  const [width, setLocalWidth] = useState(committed);
+  const [width, setWidthState] = useState(committed);
   const [committedAt, setCommittedAt] = useState(committed);
   if (committedAt !== committed) {
     setCommittedAt(committed);
-    setLocalWidth(committed);
+    setWidthState(committed);
   }
+
+  /**
+   * The live width, readable synchronously.
+   *
+   * `PanelResizeHandle` applies the final pointer position and *then* reports
+   * that the drag ended, both in one tick — so a `commit` reading `width` from
+   * its closure reads the render before that last move and silently drops it.
+   * The gap is however far the pointer travelled between the last frame and the
+   * release, which on a fast drag is most of it.
+   */
+  const widthRef = useRef(committed);
+  const setLocalWidth = useCallback((next: number) => {
+    widthRef.current = next;
+    setWidthState(next);
+  }, []);
+
+  // The other writer: a preset, a reset, or the panel changing its preferred
+  // width. Never mid-drag, so an effect is soon enough — the drag path above
+  // is the one that has to be synchronous.
+  useLayoutEffect(() => {
+    widthRef.current = committed;
+  }, [committed]);
 
   useLayoutEffect(() => {
     const element = slotRef.current;
@@ -258,23 +280,23 @@ function WorkspaceDockSlot({ panel, order, side, dockedCount, stretch }: SlotPro
       if (!rect) return;
       setLocalWidth(clamp(side === 'left' ? clientX - rect.left : rect.right - clientX));
     },
-    [clamp, side]
+    [clamp, setLocalWidth, side]
   );
 
   const resizeBy = useCallback(
-    (delta: number) => setLocalWidth((current) => clamp(current + delta)),
-    [clamp]
+    (delta: number) => setLocalWidth(clamp(widthRef.current + delta)),
+    [clamp, setLocalWidth]
   );
 
   const commit = useCallback(
     (dragging: boolean) => {
       if (dragging) return;
-      setWidth(panel, width);
+      setWidth(panel, widthRef.current);
       // Terminals and the preview measure themselves off a resize; without
       // this the agent's xterm keeps the columns it had before the drag.
       window.dispatchEvent(new Event('resize'));
     },
-    [panel, setWidth, width]
+    [panel, setWidth]
   );
 
   const isDragging = drag?.panel === panel;

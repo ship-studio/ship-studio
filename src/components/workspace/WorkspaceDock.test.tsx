@@ -21,7 +21,7 @@ import {
   usePanelDock,
   usePanelDockBinding,
 } from '../../contexts/PanelDockContext';
-import { PREVIEW, isDocked, type PanelId } from '../../lib/workspaceLayout';
+import { PANEL_META, PREVIEW, isDocked, type PanelId } from '../../lib/workspaceLayout';
 import { readProjectLayout } from '../../lib/workspaceLayoutStore';
 
 const PROJECT = '/Users/dev/ShipStudio/site';
@@ -53,6 +53,16 @@ function TestPanel({ panel }: { panel: PanelId }) {
       </div>
     </DockablePanel>
   );
+}
+
+/** How wide the rail thinks it is, for the width-ceiling tests. */
+function stubRailWidth(width: number) {
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains('workspace-dock') ? width : 0;
+    },
+  });
 }
 
 function renderRail(panels: PanelId[], layout?: unknown, previewHidden = false) {
@@ -205,6 +215,112 @@ describe('the rail', () => {
     renderRail(['agent'], { order: ['agent', 'editor', PREVIEW], floating: [] });
     expect(document.querySelector('.workspace-dock__slot[data-panel="editor"]')).toBeNull();
     expect(document.querySelector('.workspace-dock__slot[data-panel="agent"]')).not.toBeNull();
+  });
+});
+
+describe('resizing a panel', () => {
+  it('holds the new width locally while dragging and commits it on release', () => {
+    // Writing every pointer move into the shared layout would re-render the
+    // whole workspace at the display refresh rate, for a value one element uses.
+    renderRail(['agent'], { order: ['agent', PREVIEW], floating: [], widths: { agent: 400 } });
+    stubGeometry();
+
+    const handle = screen.getByRole('separator', { name: 'Resize Agent panel' });
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, pointerId: 2, clientX: 400, clientY: 400 })
+      );
+    });
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent('pointermove', { bubbles: true, pointerId: 2, clientX: 320, clientY: 400 })
+      );
+    });
+    // Nothing written yet — the drag is still in the slot's own hands.
+    expect(readProjectLayout(PROJECT).widths.agent).toBe(400);
+
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, pointerId: 2, clientX: 320, clientY: 400 })
+      );
+    });
+    expect(readProjectLayout(PROJECT).widths.agent).toBe(320);
+  });
+
+  it('never lets the docked panels take the whole rail from the preview', () => {
+    // The canvas column also carries the preview toolbar, so a panel wide
+    // enough to starve it collapses the toolbar's controls into each other
+    // long before the canvas itself becomes useless.
+    renderRail(['agent'], { order: ['agent', PREVIEW], floating: [], widths: {} });
+    stubGeometry();
+    stubRailWidth(600);
+
+    const handle = screen.getByRole('separator', { name: 'Resize Agent panel' });
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, pointerId: 3, clientX: 300, clientY: 400 })
+      );
+    });
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          pointerId: 3,
+          clientX: 4000,
+          clientY: 400,
+        })
+      );
+    });
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, pointerId: 3, clientX: 4000, clientY: 400 })
+      );
+    });
+
+    // Three quarters of a 600px rail, not the panel's own 900px maximum.
+    expect(readProjectLayout(PROJECT).widths.agent).toBe(450);
+    expect(readProjectLayout(PROJECT).widths.agent).toBeLessThan(PANEL_META.agent.maxWidth);
+  });
+
+  it('gives a stretched panel no handle — there is nothing beside it to size against', () => {
+    renderRail(['agent'], { order: ['agent', PREVIEW], floating: [] }, true);
+    expect(screen.queryByRole('separator', { name: 'Resize Agent panel' })).toBeNull();
+  });
+});
+
+describe('dragging a floating panel onto the rail', () => {
+  it('docks it where the indicator says', () => {
+    // The other half of the loop. Docked → float is one gesture; this is the
+    // way back, and without it floating is a one-way door with the pin button
+    // as its only undo.
+    renderRail(['agent', 'editor'], {
+      order: ['agent', PREVIEW, 'editor'],
+      floating: ['editor'],
+      widths: {},
+    });
+    stubGeometry();
+    expect(document.querySelector('.workspace-dock__slot[data-panel="editor"]')).toBeNull();
+
+    // Release on the seam at the preview's left edge.
+    dragHeader('editor', { x: 305, y: 400 });
+
+    const saved = readProjectLayout(PROJECT);
+    expect(saved.floating).not.toContain('editor');
+    expect(saved.order.indexOf('editor')).toBeLessThan(saved.order.indexOf(PREVIEW));
+    expect(document.querySelector('.workspace-dock__slot[data-panel="editor"]')).not.toBeNull();
+  });
+
+  it('leaves it floating when it is dropped away from the rail', () => {
+    renderRail(['agent', 'editor'], {
+      order: ['agent', PREVIEW, 'editor'],
+      floating: ['editor'],
+      widths: {},
+    });
+    stubGeometry();
+
+    dragHeader('editor', { x: 600, y: 400 });
+
+    expect(readProjectLayout(PROJECT).floating).toContain('editor');
   });
 });
 
