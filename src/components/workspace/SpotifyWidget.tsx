@@ -122,7 +122,36 @@ export function SpotifyWidget({ isSidebarHidden }: SpotifyWidgetProps) {
       // Toasting the first failure meant a transient timeout interrupted the
       // user (issue #930). Ride out a few, then say something once — and only
       // once — so a genuinely broken widget still speaks up.
-      const message = formatCommandError(asCommandError(err));
+      const error = asCommandError(err);
+      const message = formatCommandError(error);
+
+      // A timeout never speaks up, however many of them there are.
+      //
+      // Three in a row was meant to distinguish "busy machine" from "broken
+      // widget", and it does not: a machine running the app, an agent and two
+      // dev servers can miss a 2s Apple Events leash for ten seconds at a
+      // stretch while the widget is working perfectly, and the run of failures
+      // that produces is indistinguishable from a real outage by count alone.
+      //
+      // What separates them is not how many but which kind. `osascript
+      // (spotify state) timed out after 2s` is not a thing anyone can act on —
+      // there is no setting to change and no button to press, and the next
+      // poll usually fixes it. The errors worth a toast are the ones with a
+      // remedy, and Spotify's actual remediable state — macOS withholding
+      // Automation permission — is not an error here at all: it comes back as
+      // an ordinary `permission_denied` status the widget renders in place.
+      //
+      // So timeouts go to the log, where a genuinely wedged osascript is still
+      // visible to anyone looking, and everything else keeps the gate.
+      if (error.type === 'Timeout') {
+        logger.warn('[Spotify] state poll timed out — retrying', {
+          consecutiveFailures: pollFailuresRef.current.consecutiveFailures + 1,
+          error: message,
+        });
+        pollFailuresRef.current.recordFailure();
+        return;
+      }
+
       const action = pollFailuresRef.current.recordFailure();
       if (action === 'surface') {
         showToast(message, 'error');
