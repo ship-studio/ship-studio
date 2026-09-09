@@ -22,7 +22,6 @@ import {
   useEffect,
   type RefObject,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { usePreviewConnection, SERVER_MAX_RETRIES } from '../../hooks/usePreviewConnection';
 import { useAgentBridge } from '../../hooks/useAgentBridge';
 import { AgentActivityOverlay } from './AgentActivityOverlay';
@@ -91,7 +90,8 @@ import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { DockablePanel } from '../primitives/DockablePanel';
-import { TREE_PANEL_MIN_WIDTH_PX, maxDockedPanelWidth } from './panelSizing';
+import { useOptionalPanelDock, usePanelDockBinding } from '../../contexts/PanelDockContext';
+import { isDocked } from '../../lib/workspaceLayout';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { InspectPanel, type InspectTab } from './InspectPanel';
 export type { InspectTab } from './InspectPanel';
@@ -296,21 +296,11 @@ const INSPECT_VIEWPORT_RESERVE_PX = 200;
  *  negative or absurdly small. */
 const INSPECT_PANEL_MAX_FALLBACK_PX = 160;
 
-/** Width bounds for the Element Tree's resizable left column. */
-const TREE_PANEL_MAX_WIDTH_PX = 480;
-const TREE_VIEWPORT_RESERVE_PX = 160;
-const TREE_PANEL_DEFAULT_WIDTH_PX = 240;
-const TREE_CODE_DEFAULT_WIDTH_PX = 420;
 const ELEMENT_TREE_FLOATING_SIZE = { width: 360, height: 620 };
-const EDITOR_PANEL_MIN_WIDTH_PX = 220;
-const EDITOR_PANEL_MAX_WIDTH_PX = 560;
-/** Canvas column the pinned editor must always leave behind. The toolbar
- *  shares that column, so a panel wide enough to starve it is what made the
- *  toolbar controls overlap; matches the tree/variables panels' reserve. */
-const EDITOR_VIEWPORT_RESERVE_PX = TREE_VIEWPORT_RESERVE_PX;
-const EDITOR_PANEL_DEFAULT_WIDTH_PX = 300;
-const EDITOR_PANEL_PREVIOUS_DEFAULT_WIDTHS_PX = [264, 360];
-const EDITOR_PANEL_DEFAULT_VERSION_KEY = 'cssPanelDockedWidthDefault';
+/** How wide the Elements panel asks to be in its Code (markup-edit) view.
+ *  A request, not a rule: the rail uses it only until somebody drags the edge.
+ *  Every other docked width now lives in `PANEL_META` — see `workspaceLayout`. */
+const TREE_CODE_DEFAULT_WIDTH_PX = 420;
 
 export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   {
@@ -511,25 +501,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       canvasMode ? { w: canvasFrameWidth, h: canvasFrameStageHeight } : null,
   });
 
-  // Fullscreen: the container goes position:fixed over the window below the
-  // active workspace chrome (kept visible for navigation and publishing) and makes
-  // room for the macOS traffic lights). The iframe never remounts, so the
-  // page state survives entering/leaving. ESC exits.
+  // Fullscreen: the rail goes position:fixed over the window below the active
+  // workspace chrome (kept visible for navigation and publishing, and to leave
+  // room for the macOS traffic lights). The iframe never remounts, so the page
+  // state survives entering and leaving. ESC exits. The measurement of where
+  // that chrome ends belongs to `WorkspaceDock`, which is what is positioned
+  // against it.
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Bottom edge of the active toolbar — the top of the fullscreen overlay
-  // and of the pinned editor sidebar. The classic layout has a second row.
-  const [chromeTop, setChromeTop] = useState(0);
-  useEffect(() => {
-    const measure = () => {
-      const header =
-        document.querySelector('.workspace-header') ??
-        document.querySelector('.workspace-titlebar');
-      setChromeTop(header ? Math.round(header.getBoundingClientRect().bottom) : 0);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
   useEffect(() => {
     if (!isFullscreen) return;
     const handler = (e: KeyboardEvent) => {
@@ -539,19 +517,26 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     return () => window.removeEventListener('keydown', handler);
   }, [isFullscreen]);
 
-  // Pin the visual editor as a sidebar (instead of a floating panel over the
-  // canvas) — persisted in localStorage, so it's a cross-project setting.
-  // The preview makes room via a class on the container, in both normal and
-  // fullscreen modes.
-  const [editorPinned, setEditorPinned] = useState(
-    () => localStorage.getItem('visualEditorPinned') === '1'
+  // Fullscreen is the *rail's* now. It used to be this container going
+  // position:fixed, which worked while the docked panels were inside it; they
+  // are columns of the workspace rail today, so the rail is what has to rise —
+  // and the panels stay beside the canvas instead of being covered by it.
+  const dock = useOptionalPanelDock();
+  const setPreviewFullscreen = dock?.setPreviewFullscreen;
+  useEffect(() => {
+    setPreviewFullscreen?.(isFullscreen);
+    return () => setPreviewFullscreen?.(false);
+  }, [setPreviewFullscreen, isFullscreen]);
+
+  // Dock the editor as a column of the rail instead of floating it over the
+  // canvas. This is the layout's answer, not a `visualEditorPinned` flag of its
+  // own: it is per project like every other panel's place, and the same
+  // preference decides *where* in the rail it goes.
+  const editorPinned = dock ? isDocked(dock.layout, 'editor') : false;
+  const toggleEditorPinned = useCallback(
+    () => dock?.setDocked('editor', !editorPinned),
+    [dock, editorPinned]
   );
-  const toggleEditorPinned = useCallback(() => {
-    setEditorPinned((p) => {
-      localStorage.setItem('visualEditorPinned', p ? '0' : '1');
-      return !p;
-    });
-  }, []);
 
   // Inspect-panel vertical resize. Null = use the default 1fr split from CSS;
   // a number = explicit panel height in px (overrides via inline grid-template-rows).
@@ -1090,41 +1075,19 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // navigator; the tree panel reports its view so we can widen the grid track.
   const [treeCodeView, setTreeCodeView] = useState(false);
   const effectiveTreeCodeView = activeEditMode && treeCodeView;
-  const [variablesPanelWidth, setVariablesPanelWidth] = useState<number | null>(() => {
-    const saved = Number(localStorage.getItem('variablesPanelDockedWidth'));
-    return Number.isFinite(saved) &&
-      saved >= TREE_PANEL_MIN_WIDTH_PX &&
-      saved <= TREE_PANEL_MAX_WIDTH_PX
-      ? saved
-      : null;
-  });
-  const [isVariablesResizing, setIsVariablesResizing] = useState(false);
-  const variablesPanelRef = useRef<HTMLDivElement | null>(null);
-  const [treePanelWidth, setTreePanelWidth] = useState<number | null>(() => {
-    const saved = Number(localStorage.getItem('elementTreeDockedWidth'));
-    return Number.isFinite(saved) &&
-      saved >= TREE_PANEL_MIN_WIDTH_PX &&
-      saved <= TREE_PANEL_MAX_WIDTH_PX
-      ? saved
-      : null;
-  });
-  const [isTreeResizing, setIsTreeResizing] = useState(false);
-  const treePanelRef = useRef<HTMLDivElement | null>(null);
-  const editorPanelDockRef = useRef<HTMLDivElement | null>(null);
-  const [editorPanelWidth, setEditorPanelWidth] = useState(() => {
-    const saved = Number(localStorage.getItem('cssPanelDockedWidth'));
-    const defaultWasMigrated =
-      localStorage.getItem(EDITOR_PANEL_DEFAULT_VERSION_KEY) ===
-      String(EDITOR_PANEL_DEFAULT_WIDTH_PX);
-    if (!defaultWasMigrated && EDITOR_PANEL_PREVIOUS_DEFAULT_WIDTHS_PX.includes(saved)) {
-      return EDITOR_PANEL_DEFAULT_WIDTH_PX;
-    }
-    return Number.isFinite(saved) &&
-      saved >= EDITOR_PANEL_MIN_WIDTH_PX &&
-      saved <= EDITOR_PANEL_MAX_WIDTH_PX
-      ? saved
-      : EDITOR_PANEL_DEFAULT_WIDTH_PX;
-  });
+  /**
+   * These three panels' places in the workspace.
+   *
+   * They render from here — they need the preview's own selection, element tree
+   * and CSS state — but they no longer *sit* here. Each binding says which rail
+   * slot to portal its placeholder into, and carries the header drag that moves
+   * it. Their widths, their resize handles and their order are the rail's
+   * business now; this file used to own about a hundred and eighty lines of
+   * clamping, persistence and ResizeObservers for exactly three columns.
+   */
+  const treeDock = usePanelDockBinding('navigator');
+  const variablesDock = usePanelDockBinding('variables');
+  const editorDock = usePanelDockBinding('editor');
   // The loading/error branches render before the iframe exists. Start the tree
   // subscription when the preview is ready so its initial request reaches the
   // injected script even when the Elements panel is already open.
@@ -1133,165 +1096,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     enabled: showTree && conn.serverReady,
   });
 
+  // The Code (markup-edit) view needs a wider column than the tree view. Asked
+  // for rather than imposed: the rail honours it only while the layout has no
+  // width of its own for this panel.
+  const setTreeDefaultWidth = treeDock?.setDefaultWidth;
   useEffect(() => {
-    if (treePanelWidth !== null) {
-      localStorage.setItem('elementTreeDockedWidth', String(treePanelWidth));
-    }
-  }, [treePanelWidth]);
-
-  useEffect(() => {
-    if (variablesPanelWidth !== null) {
-      localStorage.setItem('variablesPanelDockedWidth', String(variablesPanelWidth));
-    }
-  }, [variablesPanelWidth]);
-
-  useEffect(() => {
-    localStorage.setItem('cssPanelDockedWidth', String(editorPanelWidth));
-    localStorage.setItem(EDITOR_PANEL_DEFAULT_VERSION_KEY, String(EDITOR_PANEL_DEFAULT_WIDTH_PX));
-  }, [editorPanelWidth]);
-
-  const computeMaxDockedPanelWidth = useCallback((containerWidth: number) => {
-    return maxDockedPanelWidth(
-      containerWidth,
-      TREE_PANEL_MIN_WIDTH_PX,
-      TREE_PANEL_MAX_WIDTH_PX,
-      TREE_VIEWPORT_RESERVE_PX
-    );
-  }, []);
-
-  const resizeVariablesPanel = useCallback(
-    (clientX: number) => {
-      const panel = variablesPanelRef.current;
-      const container = panel?.parentElement;
-      if (!panel || !container) return;
-
-      const maxPanelWidth = computeMaxDockedPanelWidth(container.clientWidth);
-      const next = clientX - panel.getBoundingClientRect().left;
-      setVariablesPanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(next, maxPanelWidth)));
-    },
-    [computeMaxDockedPanelWidth]
-  );
-
-  const resizeVariablesPanelBy = useCallback(
-    (delta: number) => {
-      const panel = variablesPanelRef.current;
-      const container = panel?.parentElement;
-      if (!panel || !container) return;
-
-      const max = computeMaxDockedPanelWidth(container.clientWidth);
-      const current = variablesPanelWidth ?? panel.offsetWidth;
-      setVariablesPanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(current + delta, max)));
-    },
-    [variablesPanelWidth, computeMaxDockedPanelWidth]
-  );
-
-  const resizeTreePanel = useCallback(
-    (clientX: number) => {
-      const panel = treePanelRef.current;
-      const container = panel?.parentElement;
-      if (!panel || !container) return;
-
-      const maxTreeWidth = computeMaxDockedPanelWidth(container.clientWidth);
-      // Elements may follow Variables in the left dock. Measure from the
-      // Elements slot itself so preceding panels do not affect its width.
-      const next = clientX - panel.getBoundingClientRect().left;
-      setTreePanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(next, maxTreeWidth)));
-    },
-    [computeMaxDockedPanelWidth]
-  );
-
-  const resizeTreePanelBy = useCallback(
-    (delta: number) => {
-      const panel = treePanelRef.current;
-      const container = panel?.parentElement;
-      if (!panel || !container) return;
-
-      const max = computeMaxDockedPanelWidth(container.clientWidth);
-      const current = treePanelWidth ?? panel.offsetWidth;
-      setTreePanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(current + delta, max)));
-    },
-    [treePanelWidth, computeMaxDockedPanelWidth]
-  );
-
-  /** Widest the pinned editor may get for a given container width, so the
-   *  canvas column (which also carries the preview toolbar) keeps a usable
-   *  width. Mirrors `computeMaxDockedPanelWidth` for the left-hand panels. */
-  const computeMaxEditorPanelWidth = useCallback((containerWidth: number) => {
-    return maxDockedPanelWidth(
-      containerWidth,
-      EDITOR_PANEL_MIN_WIDTH_PX,
-      EDITOR_PANEL_MAX_WIDTH_PX,
-      EDITOR_VIEWPORT_RESERVE_PX
-    );
-  }, []);
-
-  const resizeEditorPanel = useCallback(
-    (clientX: number) => {
-      const container = editorPanelDockRef.current?.parentElement;
-      if (!container) return;
-      const next = container.getBoundingClientRect().right - clientX;
-      setEditorPanelWidth(
-        Math.max(
-          EDITOR_PANEL_MIN_WIDTH_PX,
-          Math.min(next, computeMaxEditorPanelWidth(container.clientWidth))
-        )
-      );
-    },
-    [computeMaxEditorPanelWidth]
-  );
-
-  const resizeEditorPanelBy = useCallback(
-    (delta: number) => {
-      const containerWidth = editorPanelDockRef.current?.parentElement?.clientWidth;
-      const max =
-        containerWidth === undefined
-          ? EDITOR_PANEL_MAX_WIDTH_PX
-          : computeMaxEditorPanelWidth(containerWidth);
-      setEditorPanelWidth((current) =>
-        Math.max(EDITOR_PANEL_MIN_WIDTH_PX, Math.min(current + delta, max))
-      );
-    },
-    [computeMaxEditorPanelWidth]
-  );
-
-  // Shrink the pinned editor when the pane narrows (window resize, opening a
-  // split, docking another panel). Without this the panel keeps a width the
-  // canvas can no longer afford and the toolbar's controls collide.
-  useEffect(() => {
-    if (!editorPinned || !activeEditMode) return;
-    const container = editorPanelDockRef.current?.parentElement;
-    if (!container) return;
-    const ro = new ResizeObserver(() => {
-      const max = computeMaxEditorPanelWidth(container.clientWidth);
-      setEditorPanelWidth((prev) => (prev <= max ? prev : max));
-    });
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [editorPinned, activeEditMode, computeMaxEditorPanelWidth]);
-
-  useEffect(() => {
-    if (!showTree) return;
-    const container = treePanelRef.current?.parentElement;
-    if (!container) return;
-    const ro = new ResizeObserver(() => {
-      const max = computeMaxDockedPanelWidth(container.clientWidth);
-      setTreePanelWidth((prev) => (prev === null || prev <= max ? prev : max));
-    });
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [showTree, computeMaxDockedPanelWidth]);
-
-  useEffect(() => {
-    if (!variablesPanelDocked) return;
-    const container = variablesPanelRef.current?.parentElement;
-    if (!container) return;
-    const ro = new ResizeObserver(() => {
-      const max = computeMaxDockedPanelWidth(container.clientWidth);
-      setVariablesPanelWidth((prev) => (prev === null || prev <= max ? prev : max));
-    });
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [variablesPanelDocked, computeMaxDockedPanelWidth]);
+    setTreeDefaultWidth?.(effectiveTreeCodeView ? TREE_CODE_DEFAULT_WIDTH_PX : undefined);
+  }, [setTreeDefaultWidth, effectiveTreeCodeView]);
 
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
   const iframeSizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -1543,30 +1354,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     );
   }
 
-  const hasCustomDockedWidth =
-    (variablesPanelDocked && variablesPanelWidth !== null) ||
-    (showTree && elementTreePinned && treePanelWidth !== null);
-  const dockedGridTemplateColumns = hasCustomDockedWidth
-    ? [
-        variablesPanelDocked
-          ? variablesPanelWidth !== null
-            ? `${variablesPanelWidth}px`
-            : 'var(--tree-panel-w)'
-          : null,
-        showTree && elementTreePinned
-          ? treePanelWidth !== null
-            ? `${treePanelWidth}px`
-            : effectiveTreeCodeView
-              ? 'var(--tree-code-w)'
-              : 'var(--tree-panel-w)'
-          : null,
-        'minmax(0, 1fr)',
-        activeEditMode && editorPinned ? 'var(--editor-panel-visual-w)' : null,
-      ]
-        .filter((column): column is string => column !== null)
-        .join(' ')
-    : undefined;
-
   // Blank-page watchdog: the server is healthy top-level but the page never
   // proved it rendered inside an embedded frame — e.g. an auth redirect loop
   // aborted the subframe load (issue #179). Shared by both views; on the canvas
@@ -1594,31 +1381,20 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     ) : null;
 
   return (
+    // Three rows and one column. Every docked panel that used to be a column of
+    // this grid — Variables, Elements, Edit — is a column of the workspace rail
+    // now, which is what let eight `grid-template-columns` rules and seven
+    // `.preview-toolbar { grid-column }` rules go.
     <div
-      className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
-        activeEditMode && editorPinned ? ' preview-container--editor-pinned' : ''
-      }${showTree && elementTreePinned ? ' preview-container--tree' : ''}${
-        showTree && elementTreePinned && effectiveTreeCodeView
-          ? ' preview-container--tree-code'
-          : ''
-      }${variablesPanelDocked ? ' preview-container--variables-pinned' : ''}`}
+      className="preview-container"
       data-logs={showLogs ? 'open' : 'closed'}
-      style={{
-        ...(dockedGridTemplateColumns
-          ? { gridTemplateColumns: dockedGridTemplateColumns }
-          : undefined),
-        ...(showLogs && inspectPanelHeight !== null
+      style={
+        showLogs && inspectPanelHeight !== null
           ? {
               gridTemplateRows: `auto minmax(0, 1fr) var(--handle-size) ${inspectPanelHeight}px`,
             }
-          : undefined),
-        ...(activeEditMode && editorPinned
-          ? ({
-              '--editor-panel-visual-w': `${editorPanelWidth}px`,
-            } as React.CSSProperties)
-          : undefined),
-        ...(isFullscreen ? { top: chromeTop } : undefined),
-      }}
+          : undefined
+      }
     >
       <div className="preview-toolbar">
         <div className="preview-toolbar-actions">
@@ -2162,19 +1938,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       {showTree && (
         <>
           <DockablePanel
+            dock={treeDock}
             docked={elementTreePinned}
             ariaLabel="Elements panel"
             positionKey="elementTreeFloatingPosition"
             sizeKey="elementTreeFloatingSize"
             floatingSize={ELEMENT_TREE_FLOATING_SIZE}
             initialPosition={() => ({ left: 72, top: 96 })}
-            placeholderClassName={`ss-tree-panel-dock${
-              variablesPanelDocked ? ' ss-tree-panel-dock--after-variables' : ''
-            }`}
-            dockLayoutKey={variablesPanelDocked ? (variablesPanelWidth ?? 'default') : 'floating'}
             surfaceClassName="dockable-panel__surface--preview"
-            placeholderRef={treePanelRef}
-            dockedZIndex={isFullscreen ? 'var(--z-floating-panel)' : undefined}
           >
             <ElementTreePanel
               tree={elementTree.tree}
@@ -2211,167 +1982,118 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               }
             />
           </DockablePanel>
-          {elementTreePinned && (
-            <PanelResizeHandle
-              value={
-                treePanelWidth ??
-                (effectiveTreeCodeView ? TREE_CODE_DEFAULT_WIDTH_PX : TREE_PANEL_DEFAULT_WIDTH_PX)
-              }
-              min={TREE_PANEL_MIN_WIDTH_PX}
-              max={TREE_PANEL_MAX_WIDTH_PX}
-              label="Resize Elements panel"
-              className={`panel-resize-handle--tree${
-                variablesPanelDocked ? ' panel-resize-handle--tree-after-variables' : ''
-              }`}
-              onResize={resizeTreePanel}
-              onResizeBy={resizeTreePanelBy}
-              onDragChange={setIsTreeResizing}
-            />
-          )}
         </>
       )}
-      {(isTreeResizing || isVariablesResizing) && (
-        <div className="panel-resize-overlay panel-resize-overlay--vertical" />
+      {editor.editMode && (
+        // Both presentations are the same `DockablePanel` the other panels use:
+        // the surface is portaled to <body> either way (position:fixed is the
+        // only way to composite above the iframe in WebKit) and is positioned
+        // over a rail slot when docked, over nothing when floating. Before this
+        // it hand-rolled its own drag, its own fixed positioning and its own
+        // grid cell, which is why it was the one panel you could not reorder.
+        <DockablePanel
+          dock={editorDock}
+          docked={editorPinned}
+          ariaLabel="Edit panel"
+          positionKey="visualEditorFloatingPosition"
+          sizeKey="visualEditorFloatingSize"
+          floatingSize={{ width: 300, height: 620 }}
+          minFloatingSize={{ width: 240, height: 320 }}
+          initialPosition={() => ({ left: Math.max(24, window.innerWidth - 332), top: 76 })}
+          surfaceClassName="dockable-panel__surface--preview"
+        >
+          <VisualEditorPanel
+            selection={editor.selection}
+            projectPath={projectPath}
+            currentClass={editor.currentClass}
+            variables={cssVariables.variables}
+            tailwindVersion={editor.tailwindVersion}
+            utilityPrefix={editor.utilityPrefix ?? undefined}
+            spacingScale={editor.spacingScale ?? undefined}
+            textResolution={textEditing.textResolution}
+            imageResolution={editor.imageResolution}
+            onReplaceImage={editor.replaceImage}
+            textBlockedNonce={textEditing.textBlockedNonce}
+            breakpoints={breakpoints}
+            activeBreakpoint={activeBreakpoint}
+            breakpointTooWide={breakpointTooWide}
+            onSelectBreakpoint={(bp) => {
+              setPinnedBreakpoint(bp);
+              // Jump the canvas to a breakpoint's width so you can see it; Base
+              // applies at all widths, so leave the canvas where it is.
+              if (bp.minPx > 0) resize.previewAtWidth(bp.minPx);
+            }}
+            autoSave={editor.autoSave}
+            onToggleAutoSave={editor.toggleAutoSave}
+            onStepGap={(dir, step) => editor.stepSpacing('gap', dir, step)}
+            onSetSide={editor.setBoxSide}
+            onSetPositionSide={editor.setPositionSide}
+            onApplyEnum={editor.applyEnum}
+            onReset={editor.reset}
+            multiTarget={editor.multiTarget}
+            onMultiTargetChange={editor.setMultiTarget}
+            editTarget={editor.editTarget}
+            customClasses={editor.customClasses}
+            canCreateClass={editor.classEntryReady}
+            onEditElement={editor.editElement}
+            onEditClass={editor.editClass}
+            onApplyClass={(name) => editor.applyClass(name)}
+            onUnapplyClass={(name) => editor.unapplyClass(name)}
+            onCreateClass={(name) => void editor.createClassFromStyles(name)}
+            onAddFirstClass={(name) => editor.addFirstClass(name)}
+            usage={editor.usage}
+            onOpenInCode={onOpenInCode}
+            onCommit={() => void editor.commit()}
+            onClose={editor.toggleEditMode}
+            pinned={editorPinned}
+            onTogglePin={toggleEditorPinned}
+          />
+        </DockablePanel>
       )}
-      {editor.editMode &&
-        (() => {
-          // Floating mode portals to <body> (position:fixed is the only way to
-          // composite above the iframe in WebKit). Pinned mode renders in-tree
-          // as the container's second grid column — it never overlaps the
-          // iframe, and the grid guarantees it can't cover surrounding chrome.
-          const panel = (
-            <VisualEditorPanel
-              selection={editor.selection}
-              projectPath={projectPath}
-              currentClass={editor.currentClass}
-              variables={cssVariables.variables}
-              tailwindVersion={editor.tailwindVersion}
-              utilityPrefix={editor.utilityPrefix ?? undefined}
-              spacingScale={editor.spacingScale ?? undefined}
-              textResolution={textEditing.textResolution}
-              imageResolution={editor.imageResolution}
-              onReplaceImage={editor.replaceImage}
-              textBlockedNonce={textEditing.textBlockedNonce}
-              breakpoints={breakpoints}
-              activeBreakpoint={activeBreakpoint}
-              breakpointTooWide={breakpointTooWide}
-              onSelectBreakpoint={(bp) => {
-                setPinnedBreakpoint(bp);
-                // Jump the canvas to a breakpoint's width so you can see it; Base
-                // applies at all widths, so leave the canvas where it is.
-                if (bp.minPx > 0) resize.previewAtWidth(bp.minPx);
-              }}
-              autoSave={editor.autoSave}
-              onToggleAutoSave={editor.toggleAutoSave}
-              onStepGap={(dir, step) => editor.stepSpacing('gap', dir, step)}
-              onSetSide={editor.setBoxSide}
-              onSetPositionSide={editor.setPositionSide}
-              onApplyEnum={editor.applyEnum}
-              onReset={editor.reset}
-              multiTarget={editor.multiTarget}
-              onMultiTargetChange={editor.setMultiTarget}
-              editTarget={editor.editTarget}
-              customClasses={editor.customClasses}
-              canCreateClass={editor.classEntryReady}
-              onEditElement={editor.editElement}
-              onEditClass={editor.editClass}
-              onApplyClass={(name) => editor.applyClass(name)}
-              onUnapplyClass={(name) => editor.unapplyClass(name)}
-              onCreateClass={(name) => void editor.createClassFromStyles(name)}
-              onAddFirstClass={(name) => editor.addFirstClass(name)}
-              usage={editor.usage}
-              onOpenInCode={onOpenInCode}
-              onCommit={() => void editor.commit()}
-              onClose={editor.toggleEditMode}
-              pinned={editorPinned}
-              onTogglePin={toggleEditorPinned}
-            />
-          );
-          // Pinned: wrap in a relative "dock" grid cell and absolutely-position
-          // the panel inside it. An absolute panel can't grow its grid track, so
-          // it's forced to the cell's real (bounded) height and its body scrolls
-          // — grid track-sizing was letting the in-flow panel grow past the
-          // viewport in WebKit instead.
-          return editorPinned ? (
-            <div ref={editorPanelDockRef} className="ss-edit-panel-dock">
-              {panel}
-              <PanelResizeHandle
-                value={editorPanelWidth}
-                min={EDITOR_PANEL_MIN_WIDTH_PX}
-                max={EDITOR_PANEL_MAX_WIDTH_PX}
-                label="Resize Visual Editor panel"
-                className="ss-edit-panel-dock__resize"
-                onResize={resizeEditorPanel}
-                onResizeBy={resizeEditorPanelBy}
-              />
-            </div>
-          ) : (
-            createPortal(panel, document.body)
-          );
-        })()}
-      {cssEditor.editMode &&
-        (() => {
-          return (
-            <div
-              ref={editorPanelDockRef}
-              className={editorPinned ? 'ss-edit-panel-dock' : 'ss-edit-panel-dock-host--floating'}
-            >
-              <DockablePanel
-                docked={editorPinned}
-                ariaLabel="CSS panel"
-                positionKey="cssPanelFloatingPosition"
-                sizeKey="cssPanelFloatingSize"
-                floatingSize={{ width: 360, height: 680 }}
-                initialPosition={() => ({
-                  left: Math.max(24, window.innerWidth - 384),
-                  top: 76,
-                })}
-                placeholderClassName="ss-edit-panel-dock__slot"
-                surfaceClassName="dockable-panel__surface--preview"
-                dockedZIndex={isFullscreen ? 'var(--z-floating-panel)' : undefined}
-              >
-                <CssCascadePanel
-                  selection={cssEditor.selection}
-                  rows={cssEditor.rows}
-                  loading={cssEditor.loading}
-                  bodies={cssEditor.bodies}
-                  overridden={cssEditor.overridden}
-                  onChangeBody={cssEditor.setBody}
-                  onDeleteRule={(key) => cssEditor.deleteRule(key)}
-                  onWrapRule={(key, at) => void cssEditor.wrapRule(key, at)}
-                  onRenameRule={(key, sel) => void cssEditor.renameSelector(key, sel)}
-                  onRenameAtRule={(key, m) => void cssEditor.renameAtRule(key, m)}
-                  onAddSelector={(sel, atPrelude) => void cssEditor.addSelector(sel, atPrelude)}
-                  selectorSuggestions={cssEditor.classSuggestions.map((c) => `.${c}`)}
-                  existingSelectors={cssEditor.existingSelectors}
-                  variables={cssEditor.variableSuggestions}
-                  animations={cssEditor.animationSuggestions}
-                  settings={elementSettings}
-                  animationsState={cssAnimations}
-                  onClose={cssEditor.toggleEditMode}
-                  pinned={editorPinned}
-                  onTogglePin={toggleEditorPinned}
-                  scope={cssScope}
-                  onScopeChange={setCssScope}
-                />
-              </DockablePanel>
-              {editorPinned && (
-                <PanelResizeHandle
-                  value={editorPanelWidth}
-                  min={EDITOR_PANEL_MIN_WIDTH_PX}
-                  max={EDITOR_PANEL_MAX_WIDTH_PX}
-                  label="Resize CSS panel"
-                  className="ss-edit-panel-dock__resize"
-                  onResize={resizeEditorPanel}
-                  onResizeBy={resizeEditorPanelBy}
-                />
-              )}
-            </div>
-          );
-        })()}
+      {cssEditor.editMode && (
+        <DockablePanel
+          dock={editorDock}
+          docked={editorPinned}
+          ariaLabel="CSS panel"
+          positionKey="cssPanelFloatingPosition"
+          sizeKey="cssPanelFloatingSize"
+          floatingSize={{ width: 360, height: 680 }}
+          initialPosition={() => ({
+            left: Math.max(24, window.innerWidth - 384),
+            top: 76,
+          })}
+          surfaceClassName="dockable-panel__surface--preview"
+        >
+          <CssCascadePanel
+            selection={cssEditor.selection}
+            rows={cssEditor.rows}
+            loading={cssEditor.loading}
+            bodies={cssEditor.bodies}
+            overridden={cssEditor.overridden}
+            onChangeBody={cssEditor.setBody}
+            onDeleteRule={(key) => cssEditor.deleteRule(key)}
+            onWrapRule={(key, at) => void cssEditor.wrapRule(key, at)}
+            onRenameRule={(key, sel) => void cssEditor.renameSelector(key, sel)}
+            onRenameAtRule={(key, m) => void cssEditor.renameAtRule(key, m)}
+            onAddSelector={(sel, atPrelude) => void cssEditor.addSelector(sel, atPrelude)}
+            selectorSuggestions={cssEditor.classSuggestions.map((c) => `.${c}`)}
+            existingSelectors={cssEditor.existingSelectors}
+            variables={cssEditor.variableSuggestions}
+            animations={cssEditor.animationSuggestions}
+            settings={elementSettings}
+            animationsState={cssAnimations}
+            onClose={cssEditor.toggleEditMode}
+            pinned={editorPinned}
+            onTogglePin={toggleEditorPinned}
+            scope={cssScope}
+            onScopeChange={setCssScope}
+          />
+        </DockablePanel>
+      )}
       {variablesPanelVisible && (
         <>
           <DockablePanel
+            dock={variablesDock}
             docked={variablesPanelDocked}
             ariaLabel="Variables panel"
             positionKey="variablesPanelFloatingPosition"
@@ -2382,11 +2104,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               left: Math.max(24, window.innerWidth - 384),
               top: 96,
             })}
-            placeholderClassName="ss-variables-panel-dock"
-            dockLayoutKey={variablesPanelDocked ? (variablesPanelWidth ?? 'default') : 'floating'}
-            placeholderRef={variablesPanelRef}
             surfaceClassName="dockable-panel__surface--preview"
-            dockedZIndex={isFullscreen ? 'var(--z-floating-panel)' : undefined}
           >
             <VariablesPanel
               variablesState={cssVariables}
@@ -2395,18 +2113,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onClose={onCloseVariablesPanel}
             />
           </DockablePanel>
-          {variablesPanelDocked && (
-            <PanelResizeHandle
-              value={variablesPanelWidth ?? TREE_PANEL_DEFAULT_WIDTH_PX}
-              min={TREE_PANEL_MIN_WIDTH_PX}
-              max={TREE_PANEL_MAX_WIDTH_PX}
-              label="Resize Variables panel"
-              className="panel-resize-handle--variables"
-              onResize={resizeVariablesPanel}
-              onResizeBy={resizeVariablesPanelBy}
-              onDragChange={setIsVariablesResizing}
-            />
-          )}
         </>
       )}
     </div>

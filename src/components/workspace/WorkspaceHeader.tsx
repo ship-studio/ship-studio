@@ -99,6 +99,8 @@ export interface WorkspaceHeaderProps {
    * has any other reason to know about.
    */
   teamPresence?: ReactNode;
+  /** The Layout menu — where the panels are, and how to change it. */
+  layoutMenu?: ReactNode;
 
   // Primary workspace modes (Preview/Focus/Code), rendered in the topbar
   // between the project location and repository/publishing actions.
@@ -302,6 +304,7 @@ export function WorkspaceHeader({
   onToggleVariablesPanel,
   headerExtras,
   teamPresence,
+  layoutMenu,
   modes,
   integrations,
   onGitHubStatusChange,
@@ -512,6 +515,7 @@ export function WorkspaceHeader({
         data-workspace-panel="assets"
         leftIcon={<ImageIcon size={16} />}
       />
+      {layoutMenu}
       {headerExtras}
       {teamPresence}
     </div>

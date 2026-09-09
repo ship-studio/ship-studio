@@ -1,44 +1,6 @@
-/* Split Pane */
-.split-pane {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  position: relative;
-}
-
-.split-pane-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: var(--z-dropdown);
-  cursor: col-resize;
-}
-
-.split-pane-left {
-  height: 100%;
-  overflow: hidden;
-}
-
-.split-pane.left-collapsed .split-pane-left {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.split-pane-right {
-  height: 100%;
-  overflow: visible;
-}
-
-/* The pinned Agent surface is body-portaled at the dock slot's bounds. Keep
-   the shared separator above that surface so its hover cursor and hit area
-   remain available at the panel edge — but below the header's menus, which
-   the separator used to cut a line through (Plugin Manager dropdown). */
-.split-pane > .panel-resize-handle {
-  z-index: var(--z-pane-separator);
-}
+/* The agent terminal pane. It used to be the left half of a two-pane split;
+   it is a column of the workspace rail now, so the split-pane rules that
+   sized it are gone — see features/workspace/dock.css. */
 
 .terminal-pane {
   position: relative;
@@ -53,11 +15,6 @@
      purely in CSS when the terminal pane is narrow. */
   container-type: inline-size;
   container-name: terminal-pane;
-}
-
-.agent-panel-dock {
-  width: 100%;
-  height: 100%;
 }
 
 .dockable-panel__surface--floating.dockable-panel__surface--agent .terminal-pane {

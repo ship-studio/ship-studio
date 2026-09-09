@@ -50,7 +50,8 @@
 @import './features/import-picker.css';
 @import './features/migration.css';
 @import './features/workspace/main.css';
-@import './features/workspace/split-pane.css';
+@import './features/workspace/dock.css';
+@import './features/workspace/terminal-pane.css';
 @import './features/workspace/tabs.css';
 @import './features/workspace/terminal.css';
 @import './features/workspace/sidebar.css';

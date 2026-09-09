@@ -96,7 +96,8 @@
   font-size: var(--font-size-11);
 }
 
-.ss-cascade-panel.ss-cascade-panel--dockable {
+.ss-cascade-panel.ss-cascade-panel--dockable,
+.ss-visual-editor-panel.ss-visual-editor-panel--dockable {
   position: relative;
   width: 100%;
   height: 100%;

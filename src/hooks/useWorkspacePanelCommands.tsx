@@ -4,12 +4,12 @@ import { useCommands } from '../commands/useCommands';
 interface Params {
   isAgentPanelHidden: boolean;
   toggleAgentPanel: () => void;
-  agentPanelPinned: boolean;
-  toggleAgentPanelPinned: () => void;
-  elementTreePinned: boolean;
-  toggleElementTreePinned: () => void;
-  variablesPanelPinned: boolean;
-  toggleVariablesPanelPinned: () => void;
+  agentPanelDocked: boolean;
+  toggleAgentPanelDocked: () => void;
+  elementTreeDocked: boolean;
+  toggleElementTreeDocked: () => void;
+  variablesPanelDocked: boolean;
+  toggleVariablesPanelDocked: () => void;
   isWebProject: boolean;
   variablesPanelOpen: boolean;
   toggleVariablesPanel: () => void;
@@ -21,12 +21,12 @@ interface Params {
 export function useWorkspacePanelCommands({
   isAgentPanelHidden,
   toggleAgentPanel,
-  agentPanelPinned,
-  toggleAgentPanelPinned,
-  elementTreePinned,
-  toggleElementTreePinned,
-  variablesPanelPinned,
-  toggleVariablesPanelPinned,
+  agentPanelDocked,
+  toggleAgentPanelDocked,
+  elementTreeDocked,
+  toggleElementTreeDocked,
+  variablesPanelDocked,
+  toggleVariablesPanelDocked,
   isWebProject,
   variablesPanelOpen,
   toggleVariablesPanel,
@@ -45,28 +45,28 @@ export function useWorkspacePanelCommands({
       },
       {
         id: 'workspace.toggleAgentPanelPin',
-        title: agentPanelPinned ? 'Float Agent panel' : 'Dock Agent panel',
+        title: agentPanelDocked ? 'Float Agent panel' : 'Dock Agent panel',
         category: 'action',
         when: 'project',
         keywords: ['terminal', 'pane', 'pin', 'float', 'dock'],
-        run: toggleAgentPanelPinned,
+        run: toggleAgentPanelDocked,
       },
       {
         id: 'workspace.toggleElementTreePin',
-        title: elementTreePinned ? 'Float Elements panel' : 'Dock Elements panel',
+        title: elementTreeDocked ? 'Float Elements panel' : 'Dock Elements panel',
         category: 'action',
         when: 'project',
         keywords: ['elements', 'tree', 'navigator', 'pin', 'float', 'dock'],
-        run: toggleElementTreePinned,
+        run: toggleElementTreeDocked,
       },
       {
         id: 'workspace.toggleVariablesPanelPin',
-        title: variablesPanelPinned ? 'Float Variables panel' : 'Dock Variables panel',
+        title: variablesPanelDocked ? 'Float Variables panel' : 'Dock Variables panel',
         icon: <VariablesIcon size={14} />,
         category: 'action',
         when: ({ kind }) => kind === 'project' && isWebProject,
         keywords: ['variables', 'css', 'token', 'pin', 'float', 'dock'],
-        run: toggleVariablesPanelPinned,
+        run: toggleVariablesPanelDocked,
       },
       {
         id: 'css.variables',
@@ -89,12 +89,12 @@ export function useWorkspacePanelCommands({
     [
       isAgentPanelHidden,
       toggleAgentPanel,
-      agentPanelPinned,
-      toggleAgentPanelPinned,
-      elementTreePinned,
-      toggleElementTreePinned,
-      variablesPanelPinned,
-      toggleVariablesPanelPinned,
+      agentPanelDocked,
+      toggleAgentPanelDocked,
+      elementTreeDocked,
+      toggleElementTreeDocked,
+      variablesPanelDocked,
+      toggleVariablesPanelDocked,
       isWebProject,
       variablesPanelOpen,
       toggleVariablesPanel,

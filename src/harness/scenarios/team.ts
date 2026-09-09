@@ -89,9 +89,10 @@ export const teamScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     openSelector: '.team-presence',
     steps: [{ click: '.team-float-header .panel-pin-toggle' }],
-    // The handle is the panel's right edge and the thing you drag to resize it.
-    // Its absence is the bug: a pinned column you cannot size.
-    requires: '.team-panel-dock__resize',
+    // The rail slot is the column the panel takes, and its resize handle is the
+    // thing you drag to size it. Its absence is the bug: a docked column that is
+    // either not there or cannot be sized.
+    requires: '.workspace-dock__slot[data-panel="team"] .workspace-dock__resize',
     commands: { ...workspaceCommands, ...teamCommands },
   },
   {

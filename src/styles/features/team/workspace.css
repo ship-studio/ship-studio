@@ -71,25 +71,6 @@
   pointer-events: none;
 }
 
-/* The column a pinned panel takes.
- *
- * `.workspace-content` is already a flex row, so the placeholder only has to
- * claim a width and refuse to be squeezed; `DockablePanel` measures it and puts
- * the real surface over it. Floating, the placeholder is `display: none` and
- * this rule never applies — which is why the panel can live inside the row
- * unconditionally instead of being moved between parents. */
-.team-panel-dock {
-  flex: 0 0 var(--team-panel-docked-w);
-  width: var(--team-panel-docked-w);
-  min-width: var(--team-panel-docked-w);
-}
-
-/* The handle sits in the row beside the slot, not over the panel: dragging the
-   panel's own edge would fight the surface's drag-to-move. */
-.team-panel-dock__resize {
-  flex: none;
-}
-
 /* No border on the docked surface: the resize handle beside it *is* the edge,
    the same way it is for the docked Variables and element-tree panels. Drawing
    both put two lines a pixel apart and made the draggable one impossible to

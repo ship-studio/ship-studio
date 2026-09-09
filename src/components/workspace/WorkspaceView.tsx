@@ -24,8 +24,6 @@ import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
 import type { PreviewHandle, InspectTab } from '../preview/Preview';
-import { TREE_PANEL_MIN_WIDTH_PX } from '../preview/panelSizing';
-import { SplitPane } from './SplitPane';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
 import type { HealthTabPanelRef } from '../code/HealthTabPanel';
@@ -34,8 +32,13 @@ import { useIsCompact } from '../../hooks/useIsCompact';
 import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { WorkspaceModalHost } from './WorkspaceModalHost';
 import { WorkspaceModes } from './WorkspaceModes';
+import { WorkspaceDock } from './WorkspaceDock';
+import { WorkspaceLayoutMenu } from './WorkspaceLayoutMenu';
 import { WorkspacePreviewPane } from './WorkspacePreviewPane';
 import { WorkspaceTerminalPane } from './WorkspaceTerminalPane';
+import { PanelDockProvider, usePanelDock } from '../../contexts/PanelDockContext';
+import { useLayoutCommands } from '../../commands/useLayoutCommands';
+import { isDocked } from '../../lib/workspaceLayout';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { trackEvent } from '../../lib/analytics';
@@ -380,7 +383,24 @@ export interface WorkspaceViewProps {
   compactWorkspaceToolbarEnabled: boolean;
 }
 
-export const WorkspaceView = memo(function WorkspaceView({
+/**
+ * The workspace, with a rail around it.
+ *
+ * The panel layout is a context because five different panels — three of them
+ * rendered from inside `Preview` — need to agree on it, and a prop chain
+ * through the preview pane to reach the visual editor would have been five
+ * levels deep. The provider is a separate component from the view for the
+ * ordinary reason: a component cannot consume a context it provides.
+ */
+export const WorkspaceView = memo(function WorkspaceView(props: WorkspaceViewProps) {
+  return (
+    <PanelDockProvider projectPath={props.currentProject.path}>
+      <WorkspaceViewInner {...props} />
+    </PanelDockProvider>
+  );
+});
+
+const WorkspaceViewInner = memo(function WorkspaceViewInner({
   currentProject,
   previewRef,
   terminal,
@@ -742,18 +762,24 @@ export const WorkspaceView = memo(function WorkspaceView({
   const [isAgentPanelHidden, setIsAgentPanelHidden] = useState(false);
   const [forceBranchesOpen, setForceBranchesOpen] = useState(false);
   const [createBranchRequest, setCreateBranchRequest] = useState(0);
-  const [agentPanelPinned, , toggleAgentPanelPinned] = useLocalStorageFlag(
-    'agentPanelPinned',
-    true
+  // Where the panels are. `useLocalStorageFlag('agentPanelPinned')` and its four
+  // siblings used to answer this one panel at a time; the rail answers all of
+  // them, and knows what order they are in as well as which are docked.
+  const dock = usePanelDock();
+  const agentPanelDocked = isDocked(dock.layout, 'agent');
+  const toggleAgentPanelDocked = useCallback(
+    () => dock.setDocked('agent', !agentPanelDocked),
+    [dock, agentPanelDocked]
   );
   const [elementTreePreviewAvailable, setElementTreePreviewAvailable] = useState(false);
   const [elementTreeVisible, setElementTreeVisible, toggleElementTree] = useLocalStorageFlag(
     'elementTreeVisible',
     true
   );
-  const [elementTreePinned, , toggleElementTreePinned] = useLocalStorageFlag(
-    'elementTreePinned',
-    true
+  const elementTreeDocked = isDocked(dock.layout, 'navigator');
+  const toggleElementTreeDocked = useCallback(
+    () => dock.setDocked('navigator', !elementTreeDocked),
+    [dock, elementTreeDocked]
   );
   const closeElementTree = useCallback(() => {
     setElementTreeVisible(false);
@@ -761,9 +787,10 @@ export const WorkspaceView = memo(function WorkspaceView({
   const elementTreeAvailable =
     workspaceTab === 'preview' && !isPreviewHidden && elementTreePreviewAvailable;
   const elementTreePanelVisible = elementTreeAvailable && elementTreeVisible;
-  const [variablesPanelPinned, , toggleVariablesPanelPinned] = useLocalStorageFlag(
-    'variablesPanelPinned',
-    false
+  const variablesPanelDocked = isDocked(dock.layout, 'variables');
+  const toggleVariablesPanelDocked = useCallback(
+    () => dock.setDocked('variables', !variablesPanelDocked),
+    [dock, variablesPanelDocked]
   );
   const variables = useWorkspaceVariablesPanel({
     isWebProject,
@@ -792,15 +819,17 @@ export const WorkspaceView = memo(function WorkspaceView({
     setShowPreviewLogs(!showPreviewLogs);
   }, [showPreviewLogs]);
 
+  useLayoutCommands();
+
   useWorkspacePanelCommands({
     isAgentPanelHidden,
     toggleAgentPanel,
-    agentPanelPinned,
-    toggleAgentPanelPinned,
-    elementTreePinned,
-    toggleElementTreePinned,
-    variablesPanelPinned,
-    toggleVariablesPanelPinned,
+    agentPanelDocked,
+    toggleAgentPanelDocked,
+    elementTreeDocked,
+    toggleElementTreeDocked,
+    variablesPanelDocked,
+    toggleVariablesPanelDocked,
     isWebProject,
     variablesPanelOpen: variables.open,
     toggleVariablesPanel: variables.toggle,
@@ -1063,6 +1092,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     variablesPanelVisible: variables.open,
     variablesPanelAvailable: isWebProject,
     onToggleVariablesPanel: variables.toggle,
+    layoutMenu: <WorkspaceLayoutMenu />,
     teamPresence: team.presence,
     modes: modesNode,
     headerExtras: (
@@ -1236,77 +1266,12 @@ export const WorkspaceView = memo(function WorkspaceView({
               )}
 
               <div className="workspace-content">
-                {/* In the row, so pinning gives it a column the preview
-                    reflows beside; floating, its placeholder is display:none. */}
-                {team.panel}
-                <SplitPane
-                  defaultSplit={29}
-                  minLeft={20}
-                  minLeftWidthPx={TREE_PANEL_MIN_WIDTH_PX}
-                  minRight={35}
-                  persistenceKey="agentPanelDockedSplit"
-                  rightCollapsed={isPreviewHidden}
-                  leftCollapsed={isAgentPanelHidden || (!agentPanelPinned && !isPreviewHidden)}
-                  left={
-                    <WorkspaceTerminalPane
-                      currentProject={currentProject}
-                      allSessions={allSessions}
-                      terminalTabs={terminalTabs}
-                      activeTerminalTab={activeTerminalTab}
-                      setActiveTerminalTab={setActiveTerminalTab}
-                      terminalRefsMap={terminalRefsMap}
-                      tabTitles={tabTitles}
-                      autoAcceptMode={autoAcceptMode}
-                      getActiveTabAgent={getActiveTabAgent}
-                      handleTerminalExit={handleTerminalExit}
-                      createTabStatusHandler={createTabStatusHandler}
-                      handleTabTitleChange={handleTabTitleChange}
-                      restartTerminalTab={restartTerminalTab}
-                      clearInitialPrompt={clearInitialPrompt}
-                      showHealthLogs={showHealthLogs}
-                      healthOutput={healthOutput}
-                      healthOutputVersion={healthOutputVersion}
-                      sendToClaude={sendToClaude}
-                      isPreviewHidden={isPreviewHidden}
-                      isAgentPanelHidden={isAgentPanelHidden}
-                      agentPanelPinned={agentPanelPinned}
-                      toggleAgentPanelPinned={toggleAgentPanelPinned}
-                      toggleAgentPanel={toggleAgentPanel}
-                      splitPaneTabIds={splitPaneTabIds}
-                      splitPaneSizes={splitPaneSizes}
-                      isSplitActive={isSplitActive}
-                      canSplit={canSplit}
-                      enableSplitView={enableSplitView}
-                      disableSplitView={disableSplitView}
-                      setSplitPaneTab={setSplitPaneTab}
-                      addSplitPane={addSplitPane}
-                      removeSplitPane={removeSplitPane}
-                      setSplitPaneSizes={setSplitPaneSizes}
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      undoSnapshot={undoSnapshot}
-                      redoSnapshot={redoSnapshot}
-                      undoTitle={undoTitle}
-                      redoTitle={redoTitle}
-                      isWebProject={isWebProject}
-                      isPreviewCaptureAvailable={previewVisible}
-                      isCapturing={isCapturing}
-                      isCropMode={isCropMode}
-                      isCropCapturing={isCropCapturing}
-                      setIsCropMode={setIsCropMode}
-                      handleCaptureScreenshot={handleCaptureScreenshot}
-                      onNotificationSettings={() => setShowNotificationSettings(true)}
-                      onSkills={skillsModal.open}
-                      onMcp={mcpModal.open}
-                      onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
-                      onHelp={helpModal.open}
-                      terminalPlugins={getSlotPlugins('terminal')}
-                      pluginProject={pluginProject}
-                      pluginActions={pluginActions}
-                      pluginTheme={pluginTheme}
-                    />
-                  }
-                  right={
+                {/* Where a panel is written here has no bearing on where it
+                    appears: each one's placeholder is portaled into whichever
+                    rail slot the layout gives it. This is just the tree. */}
+                <WorkspaceDock
+                  previewHidden={isPreviewHidden}
+                  preview={
                     <WorkspacePreviewPane
                       activeCommentAgentId={activeTerminalTab}
                       commentsOpen={team.commentsActive}
@@ -1354,13 +1319,13 @@ export const WorkspaceView = memo(function WorkspaceView({
                       undoSnapshot={undoSnapshot}
                       redoSnapshot={redoSnapshot}
                       elementTreeVisible={elementTreeVisible}
-                      elementTreePinned={elementTreePinned}
-                      toggleElementTreePinned={toggleElementTreePinned}
+                      elementTreePinned={elementTreeDocked}
+                      toggleElementTreePinned={toggleElementTreeDocked}
                       closeElementTree={closeElementTree}
                       setElementTreePreviewAvailable={setElementTreePreviewAvailable}
                       variablesPanelVisible={variables.open}
-                      variablesPanelPinned={variablesPanelPinned}
-                      toggleVariablesPanelPinned={toggleVariablesPanelPinned}
+                      variablesPanelPinned={variablesPanelDocked}
+                      toggleVariablesPanelPinned={toggleVariablesPanelDocked}
                       closeVariablesPanel={() => variables.setVisible(false)}
                       pluginProject={pluginProject}
                       pluginActions={pluginActions}
@@ -1383,7 +1348,66 @@ export const WorkspaceView = memo(function WorkspaceView({
                       }}
                     />
                   }
-                />
+                >
+                  <WorkspaceTerminalPane
+                    currentProject={currentProject}
+                    allSessions={allSessions}
+                    terminalTabs={terminalTabs}
+                    activeTerminalTab={activeTerminalTab}
+                    setActiveTerminalTab={setActiveTerminalTab}
+                    terminalRefsMap={terminalRefsMap}
+                    tabTitles={tabTitles}
+                    autoAcceptMode={autoAcceptMode}
+                    getActiveTabAgent={getActiveTabAgent}
+                    handleTerminalExit={handleTerminalExit}
+                    createTabStatusHandler={createTabStatusHandler}
+                    handleTabTitleChange={handleTabTitleChange}
+                    restartTerminalTab={restartTerminalTab}
+                    clearInitialPrompt={clearInitialPrompt}
+                    showHealthLogs={showHealthLogs}
+                    healthOutput={healthOutput}
+                    healthOutputVersion={healthOutputVersion}
+                    sendToClaude={sendToClaude}
+                    isPreviewHidden={isPreviewHidden}
+                    isAgentPanelHidden={isAgentPanelHidden}
+                    agentPanelPinned={agentPanelDocked}
+                    toggleAgentPanelPinned={toggleAgentPanelDocked}
+                    toggleAgentPanel={toggleAgentPanel}
+                    splitPaneTabIds={splitPaneTabIds}
+                    splitPaneSizes={splitPaneSizes}
+                    isSplitActive={isSplitActive}
+                    canSplit={canSplit}
+                    enableSplitView={enableSplitView}
+                    disableSplitView={disableSplitView}
+                    setSplitPaneTab={setSplitPaneTab}
+                    addSplitPane={addSplitPane}
+                    removeSplitPane={removeSplitPane}
+                    setSplitPaneSizes={setSplitPaneSizes}
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                    undoSnapshot={undoSnapshot}
+                    redoSnapshot={redoSnapshot}
+                    undoTitle={undoTitle}
+                    redoTitle={redoTitle}
+                    isWebProject={isWebProject}
+                    isPreviewCaptureAvailable={previewVisible}
+                    isCapturing={isCapturing}
+                    isCropMode={isCropMode}
+                    isCropCapturing={isCropCapturing}
+                    setIsCropMode={setIsCropMode}
+                    handleCaptureScreenshot={handleCaptureScreenshot}
+                    onNotificationSettings={() => setShowNotificationSettings(true)}
+                    onSkills={skillsModal.open}
+                    onMcp={mcpModal.open}
+                    onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
+                    onHelp={helpModal.open}
+                    terminalPlugins={getSlotPlugins('terminal')}
+                    pluginProject={pluginProject}
+                    pluginActions={pluginActions}
+                    pluginTheme={pluginTheme}
+                  />
+                  {team.panel}
+                </WorkspaceDock>
               </div>
             </div>
             {/* .workspace-main */}

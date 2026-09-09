@@ -188,7 +188,6 @@
   --control-checkbox-size: 14px;
   /* The Team panel when pinned. Matches its floating width, so pinning is a
      change of position rather than a resize. */
-  --team-panel-docked-w: 420px;
 
   --text-field-height: var(--size-control-medium);
   --text-field-height-compact: var(--size-control-compact);
@@ -328,8 +327,6 @@
   --z-editor-spacing-field: 3;
   --panel-header-h: 47px;
   --preview-toolbar-h: var(--panel-header-h);
-  --tree-panel-w: 240px;
-  --tree-code-w: 420px;
   --hint-card-max-w: 720px;
   --z-modal-overlay: 1000;
   --z-modal: 1001;

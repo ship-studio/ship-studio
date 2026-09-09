@@ -1,0 +1,251 @@
+/* The workspace rail — the row every docked panel and the preview live in.
+   See docs/flexible-panels.md and components/workspace/WorkspaceDock.tsx. */
+
+:root {
+  /* The grab strip on a slot's inner edge. Matches the two-pane split handle
+     it replaces, so the workspace has one resize target width. */
+  --dock-handle-w: var(--space-08);
+  --dock-drop-line-w: var(--stroke-2);
+  /* Each row is a panel, where it is, and three controls to move it. */
+  --dock-layout-menu-w: 280px;
+}
+
+.workspace-dock {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* An empty, measured box. Its panel's real surface is body-portaled over it by
+   `DockablePanel`, which is why this has no background, no border and no
+   content: everything visible about a docked panel is drawn somewhere else.
+   `position: relative` is for the resize handle, which is the only child. */
+.workspace-dock__slot {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* A placeholder portaled into a slot is the slot's whole box — that rect is
+   what the panel's surface is positioned over. */
+.workspace-dock__slot > .dockable-panel__placeholder {
+  width: 100%;
+  height: 100%;
+}
+
+/* The panel being dragged. The surface itself is portaled, so this dims the
+   space it is leaving rather than the panel — which reads correctly, because
+   the space is what the gesture is about. */
+.workspace-dock__slot--lifted {
+  opacity: 0.4;
+}
+
+.workspace-dock__center {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The seam between a panel and its neighbour. Absolutely positioned inside the
+   slot rather than placed in the row: the docked surface above it is fixed and
+   body-portaled, so a handle laid out as a sibling in the flex row would be
+   underneath the panel it is meant to resize. */
+.workspace-dock__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--dock-handle-w);
+  /* Above the docked surface (which sits at --z-dropdown) so the target stays
+     grabbable, and below chrome — a separator that outranks a toolbar's menus
+     draws its line through them. Same reasoning as --z-pane-separator's own. */
+  z-index: var(--z-pane-separator);
+}
+
+/* The handle goes on the edge facing the preview, so dragging always means
+   "make this panel wider or narrower" in the direction you'd expect. */
+.workspace-dock__resize--left {
+  right: calc(var(--dock-handle-w) / -2);
+}
+
+.workspace-dock__resize--right {
+  left: calc(var(--dock-handle-w) / -2);
+}
+
+/* Fullscreen preview.
+
+   This used to be `.preview-container { position: fixed }`, which worked when
+   the docked panels were inside that container. They are not any more, so the
+   whole rail goes fullscreen and the panels stay beside the canvas — the same
+   result, and the more useful one. The top offset keeps the workspace header
+   (and the macOS traffic lights) reachable. */
+.workspace-dock[data-fullscreen='true'] {
+  position: fixed;
+  inset: 0;
+  top: var(--dock-fullscreen-top, 0);
+  z-index: var(--z-preview-fullscreen);
+  background: var(--surface-app);
+}
+
+/* ===== Dragging ===== */
+
+/* Where the panel would land. Full height so it reads as a column boundary
+   rather than a caret, and centred on the seam it names. */
+.workspace-dock__drop-line {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: var(--dock-drop-line-w);
+  margin-left: calc(var(--dock-drop-line-w) / -2);
+  background: var(--accent-active);
+  box-shadow: 0 0 0 var(--space-04) rgba(var(--accent-active-rgb), 0.2);
+  pointer-events: none;
+  /* Above the fullscreen rail and its floating panels: the indicator has to be
+     visible over whatever it is being dropped between. */
+  z-index: var(--z-tooltip);
+}
+
+/* What releasing now would do, in words, next to the cursor. An insertion line
+   a few pixels from another one does not by itself answer "which side of the
+   preview is this going". */
+.workspace-dock__drag-chip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: baseline;
+  /* Offset from the pointer so the chip never sits under it. */
+  margin-top: var(--spacing-md);
+  margin-left: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+  font-size: var(--font-size-body-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.workspace-dock__drag-chip-name {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.workspace-dock__drag-chip-hint {
+  color: var(--text-secondary);
+}
+
+/* Everything that can be dragged into place says so on hover. Panels whose
+   header is the drag handle get the grab cursor from here rather than each
+   defining it, so a header that stops being a handle stops looking like one. */
+.dockable-panel__surface [data-dockable-drag-handle] {
+  cursor: grab;
+}
+
+.dockable-panel__surface [data-dockable-drag-handle]:active {
+  cursor: grabbing;
+}
+
+/* Buttons inside a drag handle are still buttons. */
+.dockable-panel__surface [data-dockable-drag-handle] button,
+.dockable-panel__surface [data-dockable-drag-handle] [role='button'] {
+  cursor: pointer;
+}
+
+/* ===== The Layout menu ===== */
+
+/* Wider than a plain action menu because each row is a panel, where it is, and
+   the three controls that move it — a menu of state rather than of commands. */
+.workspace-layout-menu {
+  min-width: var(--dock-layout-menu-w);
+}
+
+.workspace-layout-menu__section {
+  padding: var(--spacing-xs) var(--spacing-md);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-layout-menu__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--spacing-sm);
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-md);
+}
+
+.workspace-layout-menu__name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-size-menu-item);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where the panel currently is. A value to be read rather than a badge, so it
+   takes the label size the rest of the app's metadata uses. */
+.workspace-layout-menu__where {
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+
+.workspace-layout-menu__moves {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+/* Deliberately a raw button: these are three tiny geometry controls in a row,
+   not standalone actions, and the semantic Button family's control surface is
+   twice the height of the menu row they live in. */
+.workspace-layout-menu__move {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-compact);
+  height: var(--size-control-compact);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.workspace-layout-menu__move:hover:not(:disabled) {
+  background: var(--surface-control-hover);
+  color: var(--text-primary);
+}
+
+.workspace-layout-menu__move:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.workspace-layout-menu__move--pin.is-on {
+  color: var(--accent-active);
+}
+
+/* One chevron asset, turned. The icon set has a single down-chevron by design;
+   left and right are that glyph rotated rather than two more files. */
+.workspace-layout-menu__move--left svg {
+  transform: rotate(90deg);
+}
+
+.workspace-layout-menu__move--right svg {
+  transform: rotate(-90deg);
+}
+
+.workspace-layout-menu__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-sm);
+}

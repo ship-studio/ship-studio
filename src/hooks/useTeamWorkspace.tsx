@@ -20,7 +20,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { CollaboratorsIcon, CommentIcon } from '@/components/icons';
 import { useCommands } from '../commands/useCommands';
 import { useOptionalToast } from '../contexts/ToastContext';
-import { useLocalStorageFlag } from './useLocalStorageFlag';
+import { usePanelDock } from '../contexts/PanelDockContext';
+import { isDocked } from '../lib/workspaceLayout';
 import { usePolling } from './usePolling';
 import { useWindowFocused } from './useWindowFocused';
 import { migrateLegacyComments } from '../lib/commentMigration';
@@ -278,11 +279,13 @@ export function useTeamWorkspace(
     [setOpenPersisted]
   );
 
-  // Pinned like the Agent panel, and remembered the same way. Working through a
-  // list of comments is a thing you do *beside* the preview rather than on top
-  // of it, so this is worth having — but it stays off by default, because the
-  // panel takes real width from the preview it is about.
-  const [pinned, , togglePinned] = useLocalStorageFlag('teamPanelPinned', false);
+  // Docked like every other panel, and remembered the same way: in this
+  // project's layout, which also knows *where* in the rail it goes. It stays
+  // floating by default, because the panel takes real width from the preview it
+  // is about.
+  const dock = usePanelDock();
+  const pinned = isDocked(dock.layout, 'team');
+  const togglePinned = useCallback(() => dock.setDocked('team', !pinned), [dock, pinned]);
 
   // Handing threads to an agent.
   //

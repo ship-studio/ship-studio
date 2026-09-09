@@ -7,15 +7,7 @@
  * shown read-only with the reason, matching the resolver's safe fallback.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button, buttonClassNames } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -351,16 +343,8 @@ interface Props {
   onTogglePin?: () => void;
 }
 
-const PANEL_WIDTH = 240;
 const EMPTY_VALUE_FIELD_VARIABLES: ValueFieldVariable[] = [];
 const NOOP_POSITION_SIDE = (_side: Side, _value: SpacingValue) => undefined;
-
-/** Initial top-right resting spot (clears the toolbar). Lazy so it reads the
- *  window once on mount; drag takes over from there. */
-function initialPos() {
-  const w = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  return { top: 96, left: Math.max(16, w - PANEL_WIDTH - 16) };
-}
 
 export function VisualEditorPanel({
   selection,
@@ -502,62 +486,18 @@ export function VisualEditorPanel({
       ? `Changes here apply from ${activeBreakpoint.minPx}px wide and up, overriding the smaller sizes.`
       : 'Changes here apply to every screen size. Pick a breakpoint to override it from that width up.';
 
-  // Self-owned fixed position so the panel is draggable by its header. Fully
-  // inline (no CSS-var/measurement dependency) so it can't drift out of view.
-  const [pos, setPos] = useState(initialPos);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-
-  const onHeaderPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    // Don't start a drag from the header buttons (pin/close) — pointer capture
-    // would swallow their click events.
-    if ((e.target as HTMLElement).closest('.ss-edit-panel__header-actions')) return;
-    const r = rootRef.current?.getBoundingClientRect();
-    if (!r) return;
-    dragRef.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-
-  const onHeaderPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const w = rootRef.current?.offsetWidth ?? PANEL_WIDTH;
-    const left = Math.max(8, Math.min(e.clientX - d.dx, window.innerWidth - w - 8));
-    const top = Math.max(8, Math.min(e.clientY - d.dy, window.innerHeight - 40));
-    setPos({ top, left });
-  }, []);
-
-  const onHeaderPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    dragRef.current = null;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-  }, []);
-
+  // Position, size and dragging all belong to the `DockablePanel` this renders
+  // inside — the same one every other workspace panel uses. It used to own a
+  // fixed position, a pointer-drag and a hard-coded z-index of its own, which
+  // is precisely why it was the one panel that could not be put anywhere.
   return (
     <div
-      ref={rootRef}
-      className={`ss-edit-panel${pinned ? ' ss-edit-panel--pinned' : ''}`}
+      className={`ss-edit-panel ss-visual-editor-panel ss-visual-editor-panel--dockable${
+        pinned ? ' ss-edit-panel--pinned' : ''
+      }`}
       data-testid="visual-editor-panel"
-      style={
-        // Pinned positioning is entirely CSS (the container's grid column).
-        pinned
-          ? undefined
-          : {
-              position: 'fixed',
-              top: pos.top,
-              left: pos.left,
-              right: 'auto',
-              zIndex: 1000,
-              // Cap shorter than the viewport; the body scrolls, the footer stays put.
-              maxHeight: `min(520px, calc(100vh - ${pos.top + 16}px))`,
-            }
-      }
     >
-      <div
-        className="ss-edit-panel__header"
-        onPointerDown={pinned ? undefined : onHeaderPointerDown}
-        onPointerMove={pinned ? undefined : onHeaderPointerMove}
-        onPointerUp={pinned ? undefined : onHeaderPointerUp}
-      >
+      <div className="ss-edit-panel__header" data-dockable-drag-handle>
         <span className="ss-edit-panel__title">Edit</span>
         <span className="ss-edit-panel__header-actions">
           {onTogglePin && (

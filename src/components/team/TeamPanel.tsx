@@ -17,7 +17,7 @@
  * @module components/team/TeamPanel
  */
 
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import {
   BranchIcon,
   CheckIcon,
@@ -29,15 +29,10 @@ import {
   PinIcon,
 } from '@/components/icons';
 import { DockablePanel } from '../primitives/DockablePanel';
+import { usePanelDockBinding } from '../../contexts/PanelDockContext';
 import { EmptyState } from '../primitives/EmptyState';
 import { IconButton } from '../primitives/IconButton';
 import { ToggleButton } from '../primitives/ToggleButton';
-import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
-import {
-  TEAM_PANEL_MAX_WIDTH_PX,
-  TEAM_PANEL_MIN_WIDTH_PX,
-  useTeamPanelWidth,
-} from '../../hooks/useTeamPanelWidth';
 import { Spinner } from '../primitives/Spinner';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { TeamCoverageNote } from './TeamCoverageNote';
@@ -88,14 +83,10 @@ export function TeamPanel({
   sending,
   pickerHint,
 }: TeamPanelProps) {
-  const { width, slotRef, resize, resizeBy } = useTeamPanelWidth();
-
-  // Written onto the slot rather than held in React state on it: the
-  // placeholder belongs to `DockablePanel`, which takes a class name and a ref
-  // but no style, and the ref is the honest way to reach it.
-  useEffect(() => {
-    slotRef.current?.style.setProperty('--team-panel-docked-w', `${width}px`);
-  }, [width, pinned, slotRef]);
+  // Docked width, the resize handle for it, and the column it occupies are all
+  // the rail's now — see `WorkspaceDock`. The panel keeps only what is its own:
+  // whether it is docked at all, and what it shows.
+  const dock = usePanelDockBinding('team');
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
   const { tab, expandedId, loading, howItWorksOpen } = useSyncExternalStore(
     subscribe,
@@ -110,14 +101,11 @@ export function TeamPanel({
   return (
     <>
       <DockablePanel
-        /* Closed is never docked: the placeholder reserves its column whether or
-         not the surface is visible, so a pinned panel that was closed left an
-         empty band of workspace behind it. */
+        dock={dock}
+        /* Closed is never docked: `visible` releases the rail slot, so a docked
+         panel that was closed does not leave an empty band of workspace. */
         docked={pinned && !hidden}
         visible={!hidden}
-        placeholderClassName="team-panel-dock"
-        placeholderRef={slotRef}
-        dockLayoutKey={pinned ? width : 'floating'}
         ariaLabel="Team"
         positionKey="team.panel.position"
         sizeKey="team.panel.size"
@@ -301,17 +289,6 @@ export function TeamPanel({
           {howItWorksOpen && <TeamHowItWorks onClose={() => setHowItWorksOpen(false)} />}
         </div>
       </DockablePanel>
-      {pinned && !hidden && (
-        <PanelResizeHandle
-          value={width}
-          min={TEAM_PANEL_MIN_WIDTH_PX}
-          max={TEAM_PANEL_MAX_WIDTH_PX}
-          label="Resize Team panel"
-          className="team-panel-dock__resize"
-          onResize={resize}
-          onResizeBy={resizeBy}
-        />
-      )}
     </>
   );
 }
