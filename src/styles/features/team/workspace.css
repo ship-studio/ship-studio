@@ -171,11 +171,39 @@
 
 /* A rule under the tabs, because the body scrolls beneath them: without an
    edge the top card slides up into the tab row and the two read as one
-   collided block. `flex: none` keeps the strip out of the scroll. */
+   collided block. `flex: none` keeps the strip out of the scroll.
+
+   The height comes from the shared token, like the header above it and the
+   preview toolbar beside it, rather than from padding that adds up to roughly
+   the right number. It previously did the latter and came out at 53px against
+   everything else's 47 — visible as a strip that sits lower than every other
+   toolbar on screen. A band that has to line up with other bands states its
+   height; it does not arrive at one. */
 .team-float-tabs {
   flex: none;
-  padding: var(--spacing-sm) var(--spacing-md);
+  display: flex;
+  align-items: center;
+  height: var(--panel-header-h);
+  padding: 0 var(--spacing-md);
   border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* The tabs shrink to fit that height.
+ *
+ * They were not compact at all despite asking to be: a tab with an icon
+ * matches `.button--size-compact.button--has-icon:not(.button--icon-only)`,
+ * which sets `height: auto` and lets the content decide — three classes, so it
+ * outranks the tabs primitive's own fixed height and quietly wins. That is the
+ * 30px tab, the 36px list, and the six extra pixels on the strip.
+ *
+ * Medium rather than compact: at 24px the list comes to 30px, which centres in
+ * the 46px inside the strip with exactly the 8px above and below it used to
+ * have. The strip loses the height it should never have had and the tabs keep
+ * the breathing room they always looked right with. */
+.team-float-tabs .tabs__tab.button--size-compact.button--has-icon {
+  height: var(--size-control-medium);
+  min-height: var(--size-control-medium);
+  padding-block: 0;
 }
 
 /* Vertical padding only: horizontal insets belong to whatever is inside.

@@ -551,7 +551,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 22
+      "consumerCount": 24
     },
     {
       "name": "--size-control-compact",
@@ -2882,7 +2882,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--preview-toolbar-h",
@@ -4880,7 +4880,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 418
+      "consumerCount": 417
     },
     {
       "name": "--spacing-md",
