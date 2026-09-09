@@ -20,6 +20,7 @@ import MobileHorizontalSvg from '../../assets/icons/mobile-horizontal.svg?react'
 import MobileSvg from '../../assets/icons/mobile.svg?react';
 import FolderStackSvg from '../../assets/icons/old-icons/folder-stack.svg?react';
 import SplitViewSvg from '../../assets/icons/old-icons/split-view.svg?react';
+import PanelLayoutSvg from '../../assets/icons/template.svg?react';
 import { createIcon } from './icon-base';
 
 export const EyeIcon = createIcon(EyeSvg, {
@@ -181,4 +182,23 @@ export const SplitViewIcon = createIcon(SplitViewSvg, {
   source: 'icons/old-icons/split-view.svg',
   kind: 'ui',
   defaultSize: 14,
+});
+
+/**
+ * Where the workspace's panels are — the Layout menu's trigger.
+ *
+ * A frame with a header bar and a side column, which is the arrangement it
+ * changes. Shares its artwork with `TemplateIcon` and is a separate export
+ * because it means a different thing here; the two never appear together.
+ *
+ * Not `SidebarIcon` or `SplitViewIcon`: those are byte-identical artwork to
+ * each other, and one of them is already the titlebar's sidebar toggle a few
+ * buttons to the left of this one.
+ */
+export const PanelLayoutIcon = createIcon(PanelLayoutSvg, {
+  name: 'PanelLayoutIcon',
+  source: 'icons/template.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
 });

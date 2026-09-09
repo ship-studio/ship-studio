@@ -10,7 +10,7 @@
  * @module components/workspace/WorkspaceLayoutMenu
  */
 
-import { ChevronIcon, PinIcon, SplitViewIcon } from '@/components/icons';
+import { ChevronIcon, PanelLayoutIcon, PinIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
@@ -48,16 +48,20 @@ export function WorkspaceLayoutMenu() {
       portal
       align="right"
       menuClassName="workspace-layout-menu"
+      // The same shape as every other button in the workspace toolbar, and the
+      // same shape as the other menu in it: a default-variant `MenuButton`
+      // with a 16px `leftIcon` and a 10px chevron for its child. It was a
+      // `variant="ghost"` trigger with the icon as a child, which meant no
+      // control surface at all — a bare icon sitting in a row of boxes.
       trigger={(p) => (
         <MenuButton
-          variant="ghost"
           expanded={Boolean(p['aria-expanded'])}
           title="Panel layout"
           aria-label="Panel layout"
           data-workspace-panel="layout"
+          leftIcon={<PanelLayoutIcon size={16} />}
           {...p}
         >
-          <SplitViewIcon size={16} />
           <ChevronIcon size={10} className={p['aria-expanded'] ? 'chevron-flipped' : undefined} />
         </MenuButton>
       )}
