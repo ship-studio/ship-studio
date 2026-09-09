@@ -56,6 +56,15 @@ export type DropTarget =
       before: RailItem | null;
       /** Viewport x of the insertion line, for drawing it. */
       x: number;
+      /**
+       * The rail's own vertical extent.
+       *
+       * The line is drawn `position: fixed`, so without this it runs the full
+       * height of the window and strikes through the workspace header and the
+       * titlebar above the rail it is dropping into.
+       */
+      top: number;
+      bottom: number;
     }
   | { kind: 'float' };
 
@@ -109,7 +118,13 @@ export function dropTargetAt(
   }
 
   if (!best || bestDistance > snapPx) return { kind: 'float' };
-  return { kind: 'dock', before: best.before, x: best.x };
+  return {
+    kind: 'dock',
+    before: best.before,
+    x: best.x,
+    top: bounds.top,
+    bottom: bounds.bottom,
+  };
 }
 
 /**

@@ -92,12 +92,15 @@
 
 /* ===== Dragging ===== */
 
-/* Where the panel would land. Full height so it reads as a column boundary
-   rather than a caret, and centred on the seam it names. */
+/* Where the panel would land: a column boundary rather than a caret, centred
+   on the seam it names.
+
+   Its `top` and `height` come inline from the rail's measured box. This is
+   `position: fixed` — it has to sit above the body-portaled panel surfaces —
+   so a CSS `inset` ran it the full height of the window and drew a line
+   straight up through the workspace header and the titlebar. */
 .workspace-dock__drop-line {
   position: fixed;
-  top: 0;
-  bottom: 0;
   width: var(--dock-drop-line-w);
   margin-left: calc(var(--dock-drop-line-w) / -2);
   background: var(--accent-active);

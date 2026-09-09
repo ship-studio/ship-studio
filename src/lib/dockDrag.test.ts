@@ -4,6 +4,7 @@ import {
   describeDrop,
   dropTargetAt,
   railBoundaries,
+  type DropTarget,
   type RailBounds,
   type RailSlotRect,
 } from './dockDrag';
@@ -31,6 +32,15 @@ const layout: WorkspaceLayout = {
 };
 
 const labelOf = (item: RailItem) => (item === PREVIEW ? 'Preview' : PANEL_META[item].label);
+
+/** A dock target, with the rail extent the indicator is drawn against. */
+const dockAt = (before: RailItem | null, x = 0): DropTarget => ({
+  kind: 'dock',
+  before,
+  x,
+  top: bounds.top,
+  bottom: bounds.bottom,
+});
 
 describe('railBoundaries', () => {
   it('offers one seam per join, plus the two ends', () => {
@@ -64,11 +74,15 @@ describe('dropTargetAt', () => {
       kind: 'dock',
       before: PREVIEW,
       x: 400,
+      top: 100,
+      bottom: 800,
     });
     expect(dropTargetAt(slots, bounds, { x: 880, y: 400 })).toEqual({
       kind: 'dock',
       before: 'editor',
       x: 900,
+      top: 100,
+      bottom: 800,
     });
   });
 
@@ -91,18 +105,18 @@ describe('dropTargetAt', () => {
 
 describe('applyDrop', () => {
   it('puts the panel before the item the indicator named', () => {
-    const after = applyDrop(layout, 'editor', { kind: 'dock', before: 'agent', x: 0 });
+    const after = applyDrop(layout, 'editor', dockAt('agent'));
     expect(after.order).toEqual(['editor', 'agent', PREVIEW]);
   });
 
   it('puts it at the far right when the indicator is past everything', () => {
-    const after = applyDrop(layout, 'agent', { kind: 'dock', before: null, x: 1200 });
+    const after = applyDrop(layout, 'agent', dockAt(null, 1200));
     expect(after.order).toEqual([PREVIEW, 'editor', 'agent']);
   });
 
   it('docks a floating panel that was dropped on the rail', () => {
     const floated: WorkspaceLayout = { ...layout, floating: ['editor'] };
-    const after = applyDrop(floated, 'editor', { kind: 'dock', before: PREVIEW, x: 400 });
+    const after = applyDrop(floated, 'editor', dockAt(PREVIEW, 400));
     expect(isFloating(after, 'editor')).toBe(false);
     expect(after.order).toEqual(['agent', 'editor', PREVIEW]);
   });
@@ -119,8 +133,8 @@ describe('applyDrop', () => {
 describe('describeDrop', () => {
   it('says what releasing now would do', () => {
     expect(describeDrop({ kind: 'float' }, labelOf)).toBe('Float');
-    expect(describeDrop({ kind: 'dock', before: PREVIEW, x: 0 }, labelOf)).toBe('Left of preview');
-    expect(describeDrop({ kind: 'dock', before: 'editor', x: 0 }, labelOf)).toBe('Before Edit');
-    expect(describeDrop({ kind: 'dock', before: null, x: 0 }, labelOf)).toBe('Far right');
+    expect(describeDrop(dockAt(PREVIEW), labelOf)).toBe('Left of preview');
+    expect(describeDrop(dockAt('editor'), labelOf)).toBe('Before Edit');
+    expect(describeDrop(dockAt(null), labelOf)).toBe('Far right');
   });
 });

@@ -324,7 +324,18 @@ function DockDropIndicator() {
   return createPortal(
     <>
       {drag.target.kind === 'dock' && (
-        <div className="workspace-dock__drop-line" style={{ left: drag.target.x }} aria-hidden />
+        <div
+          className="workspace-dock__drop-line"
+          // Bounded by the rail rather than by the window: the line is fixed so
+          // it can sit above the portaled panel surfaces, and a CSS `inset`
+          // ran it up through the header and the titlebar.
+          style={{
+            left: drag.target.x,
+            top: drag.target.top,
+            height: drag.target.bottom - drag.target.top,
+          }}
+          aria-hidden
+        />
       )}
       <div
         className="workspace-dock__drag-chip"

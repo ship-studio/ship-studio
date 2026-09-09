@@ -257,7 +257,14 @@ describe('dragging a docked panel', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Agent');
     expect(screen.getByRole('status')).toHaveTextContent('Before Edit');
-    expect(document.querySelector('.workspace-dock__drop-line')).not.toBeNull();
+
+    // Bounded by the rail, not by the window. The line is `position: fixed` so
+    // it can sit above the portaled panel surfaces, and it was drawing straight
+    // up through the workspace header and the titlebar above them.
+    const line = document.querySelector<HTMLElement>('.workspace-dock__drop-line');
+    expect(line).not.toBeNull();
+    expect(line!.style.top).toBe('100px');
+    expect(line!.style.height).toBe('700px');
   });
 
   it('does nothing at all when the header is merely clicked', () => {
