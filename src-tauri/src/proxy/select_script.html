@@ -813,7 +813,7 @@ function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeS
    preview frame there is no canvas to zoom, so none of this should touch the
    page's own gestures — including swallowing them. */
 var ssCanvas=false;
-window.addEventListener('wheel',function(e){
+function ssOnWheel(e){
   if(!ssCanvas)return;
   if(e.ctrlKey||e.metaKey){
     e.preventDefault();
@@ -831,7 +831,7 @@ window.addEventListener('wheel',function(e){
   var dx=e.deltaX,dy=e.deltaY;
   if(e.shiftKey&&!dx){dx=dy;dy=0;}
   try{window.parent.postMessage({type:'ss:panBy',dx:dx,dy:dy},'*');}catch(err){}
-},{passive:false});
+}
 
 /* Middle-drag is the other mouse idiom for panning a canvas, and the frame
    swallows it: the host binds it on mousedown, which never arrives because the
@@ -866,14 +866,32 @@ window.addEventListener('auxclick',function(e){
   if(ssCanvas&&e.button===1)e.preventDefault();
 },true);
 var gzScale=1;
-window.addEventListener('gesturestart',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=e.scale||1;},{passive:false});
-window.addEventListener('gesturechange',function(e){
+function ssOnGestureStart(e){if(!ssCanvas)return;e.preventDefault();gzScale=e.scale||1;}
+function ssOnGestureChange(e){
   if(!ssCanvas)return;
   e.preventDefault();
   var now=e.scale||1,factor=gzScale>0?now/gzScale:1;gzScale=now;
   try{window.parent.postMessage({type:'ss:zoomBy',factor:factor,x:e.clientX,y:e.clientY},'*');}catch(err){}
-},{passive:false});
-window.addEventListener('gestureend',function(e){if(!ssCanvas)return;e.preventDefault();gzScale=1;},{passive:false});
+}
+function ssOnGestureEnd(e){if(!ssCanvas)return;e.preventDefault();gzScale=1;}
+/* Attached only while a canvas owns this frame. A non-passive wheel listener is
+   not free even when it returns straight away: it makes the engine hand every
+   wheel to this page's main thread and wait on the answer. In the macOS webview
+   (seen on macOS 26) the page's own scroll was then lost for the single preview
+   frame — the wheel arrived, nothing cancelled it, and the page did not move,
+   while keyboard scrolling, which never takes that path, kept working. Issue
+   #959. So the ordinary single preview carries no wheel or gesture listener. */
+var ssGesturesOn=false;
+function ssCanvasGestures(on){
+  if(on===ssGesturesOn)return;
+  ssGesturesOn=on;
+  var method=on?'addEventListener':'removeEventListener';
+  var opts={passive:false};
+  window[method]('wheel',ssOnWheel,opts);
+  window[method]('gesturestart',ssOnGestureStart,opts);
+  window[method]('gesturechange',ssOnGestureChange,opts);
+  window[method]('gestureend',ssOnGestureEnd,opts);
+}
 
 /* How much room the page has left to scroll. The canvas needs it to tell a
    gesture the page can use from one that belongs to the canvas: a frame showing
@@ -1340,6 +1358,7 @@ else if(d.type==='ss:selectAt'){if(!active)return;var at=document.elementFromPoi
 else if(d.type==='ss:passive'){ssBackground(!!d.on);}
 else if(d.type==='ss:canvas'){
   ssCanvas=!!d.on;
+  ssCanvasGestures(ssCanvas);
   ssVH=ssCanvas&&typeof d.vh==='number'?d.vh:0;
   if(ssVH){
     /* Holding still is a property of being ON A CANVAS, not of being the frame
