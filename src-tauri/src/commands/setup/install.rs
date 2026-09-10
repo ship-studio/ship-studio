@@ -20,7 +20,7 @@ use crate::utils::get_winget_command;
 /// - node -> node
 /// - git -> git
 /// - gh -> gh
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_brew_packages(
     app: tauri::AppHandle,
@@ -254,7 +254,7 @@ fn is_winget_cleanup_race(stderr: &str, stdout: &str) -> bool {
 fn winget_spawn_error(err: &std::io::Error) -> CommandError {
     if err.raw_os_error() == Some(1920) {
         return CommandError::expected(
-            "Windows wouldn't let Ship Studio start winget (the App Installer alias is \
+            "Windows wouldn't let Harbr start winget (the App Installer alias is \
              turned off or needs repairing). Open Settings → Apps → Advanced app settings → \
              App execution aliases and switch on \"App Installer (winget.exe)\", or update \
              App Installer from the Microsoft Store, then try again."
@@ -291,7 +291,7 @@ fn winget_package_installed(winget: &std::path::Path, package: &str) -> bool {
 /// - git -> Git.Git
 /// - gh -> GitHub.cli
 #[cfg(windows)]
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_winget_packages(
     app: tauri::AppHandle,
@@ -399,7 +399,7 @@ pub async fn install_winget_packages(
 
 // Stub for non-Windows platforms
 #[cfg(not(windows))]
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(_app))]
 pub async fn install_winget_packages(
     _app: tauri::AppHandle,
@@ -410,7 +410,7 @@ pub async fn install_winget_packages(
 
 /// Check if the npm cache directory (~/.npm) is writable by the current user.
 /// Returns "ok" if writable or doesn't exist, "not_writable" if it exists but isn't writable.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn check_npm_cache_permissions() -> String {
     if let Some(home) = dirs::home_dir() {

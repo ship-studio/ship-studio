@@ -111,7 +111,7 @@ describe('useProjectBulkActions', () => {
     expect(result.current.selectedProjectPaths.has(alpha.path)).toBe(false);
   });
 
-  it('removes selected projects from Ship Studio and unpins pinned projects', async () => {
+  it('removes selected projects from Harbr and unpins pinned projects', async () => {
     const alpha = makeProject({ name: 'Alpha' });
     const beta = makeProject({ name: 'Beta' });
     const loadAll = vi.fn().mockResolvedValue(undefined);
@@ -222,7 +222,7 @@ describe('useProjectBulkActions', () => {
     expect(result.current.bulkConfirm).toBeNull();
     expect(deleteProjectMock).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith(
-      'External projects can only be removed from Ship Studio.',
+      'External projects can only be removed from Harbr.',
       'error'
     );
   });

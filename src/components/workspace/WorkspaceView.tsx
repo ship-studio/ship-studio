@@ -124,7 +124,7 @@ interface DevServerProps {
   healthOutputVersion: number;
   handleHealthOutput: (data: string) => void;
   needsInstall: { packageManager: string } | null;
-  /** Set when the dev-server process died without Ship Studio stopping it
+  /** Set when the dev-server process died without Harbr stopping it
    *  (crash / external kill). Lets the Preview offer a real process restart. */
   devServerUnexpectedExit: DevServerUnexpectedExit | null;
   onRunInstall: () => void;

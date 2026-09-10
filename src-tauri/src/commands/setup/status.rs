@@ -19,8 +19,9 @@ use std::path::Path;
 #[cfg(windows)]
 use crate::utils::get_winget_command;
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 use crate::utils::get_brew_command;
+use ship_studio_macros::ship_command;
 
 /// Timeout for local probes (`node --version`, agent status, …). Generous for a
 /// version print, but bounded — a CLI wedged on stdin or a broken install must
@@ -123,7 +124,7 @@ async fn run_vercel_whoami(vercel_path: &Path, token: Option<&str>) -> Option<St
 }
 
 /// Get full setup status for all items
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_full_setup_status() -> FullSetupStatus {
     // Debug/mock mode: return mock state for testing onboarding flow
@@ -235,10 +236,16 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
 
     // Locate binaries up front (pure filesystem checks — fast, no subprocesses).
+    //
+    // Linux has no package-manager item at all: every distro already ships one,
+    // and Harbr never drives it (Node/Git/gh are detect-only there — see
+    // the item push below). `None` makes the probe and the item fall away.
     #[cfg(windows)]
     let pkg_mgr_path = get_winget_command();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     let pkg_mgr_path = get_brew_command();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let pkg_mgr_path: Option<std::path::PathBuf> = None;
     let node_path = find_executable("node");
     let git_path = find_executable("git");
     let gh_path = find_executable("gh");
@@ -424,24 +431,37 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
 
     let mut items = Vec::new();
 
-    // 1. Package Manager (Homebrew on macOS/Linux, Winget on Windows)
-    #[cfg(windows)]
-    let pkg_mgr_name = "Winget";
-    #[cfg(not(windows))]
-    let pkg_mgr_name = "Package Manager";
+    // 1. Package Manager (Homebrew on macOS, Winget on Windows).
+    //
+    // Deliberately absent on Linux. Distros ship their own package manager, so
+    // there is nothing for the wizard to install or gate on, and Homebrew's
+    // macOS-only prefixes could never resolve there — which pinned the item red
+    // and `all_ready` false forever. Omitting the item (rather than reporting it
+    // ready) keeps the checklist honest: we don't claim to have checked
+    // something we don't manage.
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let _ = pkg_mgr_version;
 
-    items.push(SetupItemInfo {
-        id: "homebrew".to_string(), // Keep ID for backward compatibility
-        friendly_name: pkg_mgr_name.to_string(),
-        status: if pkg_mgr_path.is_some() {
-            SetupItemStatus::Ready
-        } else {
-            SetupItemStatus::NotInstalled
-        },
-        version: pkg_mgr_version,
-        username: None,
-        error_message: None,
-    });
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        #[cfg(windows)]
+        let pkg_mgr_name = "Winget";
+        #[cfg(target_os = "macos")]
+        let pkg_mgr_name = "Package Manager";
+
+        items.push(SetupItemInfo {
+            id: "homebrew".to_string(), // Keep ID for backward compatibility
+            friendly_name: pkg_mgr_name.to_string(),
+            status: if pkg_mgr_path.is_some() {
+                SetupItemStatus::Ready
+            } else {
+                SetupItemStatus::NotInstalled
+            },
+            version: pkg_mgr_version,
+            username: None,
+            error_message: None,
+        });
+    }
 
     // 2. Node.js
     let node_installed = node_path.is_some();
@@ -651,7 +671,12 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     });
 
     // Required base items for setup completion (GitHub auth and individual agent items are optional)
+    // No "homebrew" on Linux — the item isn't emitted there, and requiring an
+    // id that never appears would leave `base_ready` false forever.
+    #[cfg(any(windows, target_os = "macos"))]
     const REQUIRED_ITEMS: &[&str] = &["homebrew", "node", "git", "gh"];
+    #[cfg(not(any(windows, target_os = "macos")))]
+    const REQUIRED_ITEMS: &[&str] = &["node", "git", "gh"];
 
     let base_ready = items
         .iter()
@@ -691,7 +716,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
 
 /// Quick setup check - only checks binary/file existence (no subprocess calls)
 /// This is ~10ms vs 2-5 seconds for full setup check
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     // Force onboarding mode: always show onboarding with real checks
@@ -721,10 +746,13 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     }
 
     // Fast Tier-1 checks: binary existence only (no --version calls)
+    // Linux has no package-manager item, so nothing to gate on there.
     #[cfg(windows)]
     let pkg_mgr_present = get_winget_command().is_some();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     let pkg_mgr_present = get_brew_command().is_some();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let pkg_mgr_present = true;
 
     let node_present = find_executable("node").is_some();
     let git_present = find_executable("git").is_some();
@@ -832,7 +860,7 @@ pub struct ResolvedCli {
 /// Resolve a CLI binary name to an absolute path using the same discovery the
 /// setup status checks use. Returns `Ok(None)` when the binary genuinely
 /// isn't installed anywhere we know how to look.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn resolve_cli_path(name: String) -> Result<Option<ResolvedCli>, CommandError> {
     // Bare command names only — reject separators/metacharacters so this can

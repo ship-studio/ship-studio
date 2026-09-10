@@ -23,7 +23,7 @@
 # Inside the VM (user: admin, password: admin):
 #   - The DMG folder appears in Finder under "My Shared Files" → dmg
 #   - The app isn't notarized when built locally: right-click → Open,
-#     or `xattr -cr "/Applications/Ship Studio.app"` in Terminal
+#     or `xattr -cr "/Applications/Harbr.app"` in Terminal
 #   - Onboarding appears automatically — no env vars; this is the real path
 
 set -euo pipefail

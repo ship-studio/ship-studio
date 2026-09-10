@@ -79,7 +79,7 @@ export async function listWorktrees(projectPath: string): Promise<WorktreeInfo[]
 
 /**
  * Create a worktree under `~/ShipStudio/.worktrees/<project>/<branch>` and
- * seed its Ship Studio metadata (dev command, monorepo subpath, distinct port).
+ * seed its Harbr metadata (dev command, monorepo subpath, distinct port).
  */
 export async function addWorktree(
   projectPath: string,
@@ -152,7 +152,7 @@ export function worktreeParentPath(path: string): string | null {
   return match ? `${match[1]}${match[2]}${match[3]}` : null;
 }
 
-/** True when a path lives inside a Ship Studio-managed `.worktrees` container. */
+/** True when a path lives inside a Harbr-managed `.worktrees` container. */
 export function isManagedWorktreePath(path: string): boolean {
   return path.includes('/.worktrees/') || path.includes('\\.worktrees\\');
 }

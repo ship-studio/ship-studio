@@ -24,7 +24,7 @@ use tauri::Emitter;
 ///
 /// The `window_label` parameter ensures events are only sent to the window that
 /// spawned the PTY, enabling multi-window isolation.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app, options))]
 pub async fn spawn_pty(
     app: tauri::AppHandle,
@@ -243,7 +243,7 @@ fn describe_signal_termination(signal: Option<i32>) -> String {
 /// windows are closed.
 ///
 /// The `pty_id` should be unique (e.g., the PTY ID from tauri-pty or a timestamp).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn register_external_pty(
     window_label: String,
@@ -278,7 +278,7 @@ pub fn register_external_pty(
 /// Unregister an externally-spawned PTY process.
 ///
 /// Called when the PTY exits normally (before window close) to keep the registry clean.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn unregister_external_pty(pty_id: u32) -> Result<(), CommandError> {
     if let Ok(mut registry) = PTY_REGISTRY.lock() {

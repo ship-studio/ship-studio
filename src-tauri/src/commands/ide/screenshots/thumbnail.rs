@@ -10,6 +10,7 @@ use std::sync::{LazyLock, Mutex};
 
 use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
+use ship_studio_macros::ship_command;
 
 /// Ceiling for the `npx playwright screenshot` path. Generous — npx may fetch
 /// the package on first use and a dev server mid-compile is slow — but bounded:
@@ -239,7 +240,7 @@ pub(super) fn is_thumbnail_locked(project: &Path) -> bool {
     metadata.custom_thumbnail.unwrap_or(false)
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_project_thumbnail(
     project_path: String,
@@ -467,7 +468,7 @@ pub async fn capture_project_thumbnail(
                     {
                         "macOS refused the browser's IPC registration (bootstrap_check_in: \
                          Permission denied). This is usually caused by security or \
-                         device-management software restricting processes spawned by Ship Studio."
+                         device-management software restricting processes spawned by Harbr."
                             .to_string()
                     } else {
                         detail
@@ -551,7 +552,7 @@ pub async fn capture_project_thumbnail(
     }
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -576,7 +577,7 @@ pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String
 /// auto-capture so subsequent dev-server-driven captures don't overwrite
 /// it. Returns the new thumbnail as a base64 data URL so the dashboard
 /// can refresh without a second round-trip.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(image_data), fields(project = %project_path, bytes = image_data.len()))]
 pub async fn upload_project_thumbnail(
     project_path: String,

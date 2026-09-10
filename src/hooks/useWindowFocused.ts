@@ -1,7 +1,7 @@
 /**
  * Whether this window is the one the user is actually looking at.
  *
- * The gate for background polling. Ship Studio is a multi-window app and
+ * The gate for background polling. Harbr is a multi-window app and
  * projects are commonly left open for days, so a poll that doesn't ask this
  * question keeps running in windows nobody can see — spawning processes and
  * reaching the network on a timer to produce pixels nobody is looking at.

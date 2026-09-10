@@ -1,19 +1,13 @@
 //! # Analytics Commands
 //!
-//! PostHog analytics integration for Ship Studio.
-//! Events are sent to PostHog via the HTTP capture API from the Rust backend,
-//! keeping the API key out of the frontend webview.
-//!
-//! Users can opt out via the `set_analytics_enabled` command.
+//! Compatibility commands for former analytics call sites.
+//! Harbr records these events only in local structured logs.
 
 use crate::commands::setup::{read_app_state, write_app_state};
 use crate::errors::CommandError;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing::{debug, info, warn};
-
-const POSTHOG_API_KEY: &str = "phc_i1C5azXcz9MsnM8mQBni7qq5shiNS8JVFkcyXBjuBkr";
-const POSTHOG_HOST: &str = "https://us.i.posthog.com";
 
 /// Cached analytics state to avoid reading disk on every event
 struct AnalyticsCache {
@@ -22,10 +16,17 @@ struct AnalyticsCache {
     /// so subsequent events use it instead of the anonymous device UUID.
     identified_user_id: Option<String>,
     enabled: bool,
-    http_client: reqwest::Client,
 }
 
 static ANALYTICS: LazyLock<Mutex<Option<AnalyticsCache>>> = LazyLock::new(|| Mutex::new(None));
+
+pub(crate) fn suppressed_by_host() -> bool {
+    #[cfg(feature = "web")]
+    if crate::emit::is_web() {
+        return true;
+    }
+    false
+}
 
 /// Initialize the analytics system. Called once at app startup from lib.rs.
 /// Reads or generates a device_id and caches the enabled state.
@@ -47,33 +48,26 @@ pub fn init_analytics() {
 
     let enabled = app_state.analytics_enabled.unwrap_or(true);
 
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .unwrap_or_default();
-
     if let Ok(mut cache) = ANALYTICS.lock() {
         *cache = Some(AnalyticsCache {
             device_id,
             identified_user_id: None,
             enabled,
-            http_client,
         });
     }
 
     info!("Analytics initialized (enabled: {})", enabled);
 }
 
-/// Send an event to PostHog (non-blocking, fire-and-forget).
-/// Returns immediately; the HTTP request runs in the background.
+/// Record an event in local structured logs.
 fn send_event(event_name: &str, distinct_id: &str, properties: serde_json::Value) {
-    let (client, enabled) = {
+    let enabled = {
         let guard = match ANALYTICS.lock() {
             Ok(g) => g,
             Err(_) => return,
         };
         match guard.as_ref() {
-            Some(cache) => (cache.http_client.clone(), cache.enabled),
+            Some(cache) => cache.enabled,
             None => return,
         }
     };
@@ -82,82 +76,7 @@ fn send_event(event_name: &str, distinct_id: &str, properties: serde_json::Value
         return;
     }
 
-    let mut props = match properties {
-        serde_json::Value::Object(map) => map,
-        _ => serde_json::Map::new(),
-    };
-
-    // Add standard properties (don't overwrite if frontend already set them)
-    if !props.contains_key("$screen_name") {
-        props.insert(
-            "$screen_name".to_string(),
-            serde_json::Value::String("Ship Studio".to_string()),
-        );
-    }
-    props.insert(
-        "app_version".to_string(),
-        serde_json::Value::String(env!("CARGO_PKG_VERSION").to_string()),
-    );
-    props.insert(
-        "$lib".to_string(),
-        serde_json::Value::String("Ship Studio App".to_string()),
-    );
-
-    #[cfg(target_os = "macos")]
-    props.insert(
-        "$os".to_string(),
-        serde_json::Value::String("macOS".to_string()),
-    );
-    #[cfg(target_os = "windows")]
-    props.insert(
-        "$os".to_string(),
-        serde_json::Value::String("Windows".to_string()),
-    );
-    #[cfg(target_os = "linux")]
-    props.insert(
-        "$os".to_string(),
-        serde_json::Value::String("Linux".to_string()),
-    );
-
-    let body = serde_json::json!({
-        "api_key": POSTHOG_API_KEY,
-        "event": event_name,
-        "distinct_id": distinct_id,
-        "properties": serde_json::Value::Object(props),
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    });
-
-    let url = format!("{POSTHOG_HOST}/capture/");
-    let event_name_owned = event_name.to_string();
-    let distinct_id_owned = distinct_id.to_string();
-
-    // Fire and forget - don't block the caller.
-    // Use try_current() to gracefully handle calls outside an async context (e.g. during shutdown).
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        warn!(
-            "PostHog event '{}' skipped (no Tokio runtime)",
-            event_name_owned
-        );
-        return;
-    };
-    handle.spawn(async move {
-        match client.post(&url).json(&body).send().await {
-            Ok(resp) => {
-                info!(
-                    "PostHog '{}' → {} (distinct_id: {})",
-                    event_name_owned,
-                    resp.status(),
-                    distinct_id_owned
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "PostHog '{}' failed: {} (distinct_id: {})",
-                    event_name_owned, e, distinct_id_owned
-                );
-            }
-        }
-    });
+    debug!(event_name, distinct_id, properties = %properties, "Local product event");
 }
 
 /// Get the best distinct_id: identified user ID if available, otherwise device UUID.
@@ -198,7 +117,7 @@ pub(crate) fn track_backend_event(event_name: &str, properties: serde_json::Valu
 
 /// Track an analytics event. Properties are optional key-value pairs.
 /// The distinct_id defaults to the device_id if not provided.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn track_event(
     event_name: String,
@@ -215,11 +134,8 @@ pub async fn track_event(
 /// Identify a user by linking their distinct_id with person properties.
 /// Call this when the user authenticates (e.g., GitHub login).
 ///
-/// `properties` becomes PostHog `$set` (always overwrites person props on
-/// every identify). `set_once` becomes `$set_once` (only written if the
-/// property doesn't already exist on the person — useful for first_seen_*
-/// fields that should never change after the first call).
-#[tauri::command]
+/// `properties` and `set_once` are retained for frontend API compatibility.
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn identify_user(
     user_id: String,
@@ -279,7 +195,7 @@ pub async fn identify_user(
 }
 
 /// Get whether analytics are currently enabled
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_analytics_enabled() -> Result<bool, CommandError> {
     let enabled = ANALYTICS
@@ -291,7 +207,7 @@ pub fn get_analytics_enabled() -> Result<bool, CommandError> {
 }
 
 /// Set whether analytics are enabled (persisted to app state)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_analytics_enabled(enabled: bool) -> Result<(), CommandError> {
     // Update the in-memory cache

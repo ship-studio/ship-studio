@@ -15,15 +15,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
-import { getAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../../lib/analytics';
+import { trackEvent } from '../../lib/analytics';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import {
   DASHBOARD_VISIBILITY_CHANGED_EVENT,
   type DashboardVisibilityChangedDetail,
   getCalendarHidden,
   setCalendarHidden,
-  getSlackCtaHidden,
-  setSlackCtaHidden,
   getDashboardHeaderHidden,
   setDashboardHeaderHidden,
   APP_ICON_OPTIONS,
@@ -67,7 +65,6 @@ interface SettingsModalProps {
   onClose: () => void;
   onDashboardHeaderHiddenChange?: (hidden: boolean) => void;
   onCalendarHiddenChange?: (hidden: boolean) => void;
-  onSlackCtaHiddenChange?: (hidden: boolean) => void;
   /** Called after the projects folder changes (and after a move) so the
    *  dashboard can re-list projects. */
   onProjectsRootChanged?: () => void;
@@ -87,7 +84,6 @@ export function SettingsModal({
   onClose,
   onDashboardHeaderHiddenChange,
   onCalendarHiddenChange,
-  onSlackCtaHiddenChange,
   onProjectsRootChanged,
 }: SettingsModalProps) {
   const { showToast } = useOptionalToast();
@@ -96,10 +92,8 @@ export function SettingsModal({
   const { activeAccount, accounts } = useActiveAccount();
   const multipleWorkspaces = accounts.length > 1;
 
-  const [analyticsEnabled, setLocalAnalyticsEnabled] = useState(true);
   const [dashboardHeaderVisible, setLocalDashboardHeaderVisible] = useState(true);
   const [calendarVisible, setLocalCalendarVisible] = useState(true);
-  const [slackCtaVisible, setLocalSlackCtaVisible] = useState(true);
   const [appIcon, setLocalAppIcon] = useState<AppIcon>('brand');
   const [terminalGpuEnabled, setLocalTerminalGpuEnabled] = useState(true);
   const [compactWorkspaceToolbarEnabled, setLocalCompactWorkspaceToolbarEnabled] = useState(false);
@@ -123,10 +117,8 @@ export function SettingsModal({
     let cancelled = false;
     void (async () => {
       const [
-        enabled,
         headerHidden,
         calHidden,
-        slackHidden,
         selectedAppIcon,
         gpuEnabled,
         compactToolbarEnabled,
@@ -138,10 +130,8 @@ export function SettingsModal({
         root,
         custom,
       ] = await Promise.all([
-        getAnalyticsEnabled(),
         getDashboardHeaderHidden(),
         getCalendarHidden(),
-        getSlackCtaHidden(),
         getAppIcon(),
         getTerminalGpuEnabled(),
         getCompactWorkspaceToolbarEnabled(),
@@ -154,10 +144,8 @@ export function SettingsModal({
         isCustomProjectsRoot(),
       ]);
       if (!cancelled) {
-        setLocalAnalyticsEnabled(enabled);
         setLocalDashboardHeaderVisible(!headerHidden);
         setLocalCalendarVisible(!calHidden);
-        setLocalSlackCtaVisible(!slackHidden);
         setLocalAppIcon(selectedAppIcon);
         setLocalTerminalGpuEnabled(gpuEnabled);
         setLocalCompactWorkspaceToolbarEnabled(compactToolbarEnabled);
@@ -190,7 +178,6 @@ export function SettingsModal({
       if (!detail) return;
       if (detail.key === 'dashboardHeader') setLocalDashboardHeaderVisible(!detail.hidden);
       if (detail.key === 'calendar') setLocalCalendarVisible(!detail.hidden);
-      if (detail.key === 'slackCta') setLocalSlackCtaVisible(!detail.hidden);
     };
 
     window.addEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
@@ -231,20 +218,6 @@ export function SettingsModal({
       window.removeEventListener(SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT, handleSpotifyWidgetChanged);
   }, []);
 
-  const handleToggle = useCallback(() => {
-    const newValue = !analyticsEnabled;
-    setLocalAnalyticsEnabled(newValue);
-    void setAnalyticsEnabled(newValue);
-    if (newValue) {
-      // Track re-enable (this fires before the backend disables, so it gets sent)
-      void trackEvent('setting_changed', {
-        setting: 'analytics',
-        value: true,
-        $screen_name: 'Settings',
-      });
-    }
-  }, [analyticsEnabled]);
-
   const handleDashboardHeaderToggle = useCallback(() => {
     const newVisible = !dashboardHeaderVisible;
     setLocalDashboardHeaderVisible(newVisible);
@@ -263,13 +236,6 @@ export function SettingsModal({
     });
     onCalendarHiddenChange?.(!newVisible);
   }, [calendarVisible, onCalendarHiddenChange]);
-
-  const handleSlackCtaToggle = useCallback(() => {
-    const newVisible = !slackCtaVisible;
-    setLocalSlackCtaVisible(newVisible);
-    void setSlackCtaHidden(!newVisible);
-    onSlackCtaHiddenChange?.(!newVisible);
-  }, [slackCtaVisible, onSlackCtaHiddenChange]);
 
   const handleAppIconChange = useCallback(
     async (nextIcon: AppIcon) => {
@@ -496,7 +462,7 @@ export function SettingsModal({
                     <span className="settings-row-description">
                       {multipleWorkspaces && activeAccount
                         ? `Where the ${activeAccount.name} workspace lists and creates projects. Each workspace can use its own folder.`
-                        : 'Where Ship Studio lists and creates your projects. Point this at an existing dev directory to keep everything in one place.'}
+                        : 'Where Harbr lists and creates your projects. Point this at an existing dev directory to keep everything in one place.'}
                     </span>
                     <button
                       type="button"
@@ -613,7 +579,7 @@ export function SettingsModal({
                     </span>
                   </button>
                 </div>
-                {/* What Ship Studio writes into your history, next to what it
+                {/* What Harbr writes into your history, next to what it
                     sends off your machine. Both are "what the app does on your
                     behalf", which is a different question from how it looks —
                     this was briefly on the Appearance tab, where it read as a
@@ -623,11 +589,11 @@ export function SettingsModal({
                     own rule that one-shot deep settings stay out of Cmd+K. */}
                 <div className="settings-row">
                   <div className="settings-row-info">
-                    <span className="settings-row-label">Credit Ship Studio in commits</span>
+                    <span className="settings-row-label">Credit Harbr in commits</span>
                     <span className="settings-row-description">
-                      Add a <code>Made-With</code> line to the bottom of commits Ship Studio makes,
-                      naming the agent that wrote the message. It is a git trailer, so it never
-                      appears in the subject line or in <code>git log --oneline</code>.
+                      Add a <code>Made-With</code> line to the bottom of commits Harbr makes, naming
+                      the agent that wrote the message. It is a git trailer, so it never appears in
+                      the subject line or in <code>git log --oneline</code>.
                     </span>
                   </div>
                   <button
@@ -635,29 +601,8 @@ export function SettingsModal({
                     onClick={handleCommitAttributionToggle}
                     disabled={loading}
                     role="switch"
-                    aria-label="Credit Ship Studio in commits"
+                    aria-label="Credit Harbr in commits"
                     aria-checked={commitAttributionEnabled}
-                  >
-                    <span className="settings-toggle-track">
-                      <span className="settings-toggle-thumb" />
-                    </span>
-                  </button>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-row-info">
-                    <span className="settings-row-label">Usage analytics &amp; error reports</span>
-                    <span className="settings-row-description">
-                      Help improve Ship Studio by sharing anonymous usage data and automatic error
-                      reports (error messages and stack traces only — never your code or file
-                      contents, and paths are anonymized). Turning this off stops all data sharing.
-                    </span>
-                  </div>
-                  <button
-                    className={`settings-toggle ${analyticsEnabled ? 'on' : 'off'}`}
-                    onClick={handleToggle}
-                    disabled={loading}
-                    role="switch"
-                    aria-checked={analyticsEnabled}
                   >
                     <span className="settings-toggle-track">
                       <span className="settings-toggle-thumb" />
@@ -676,7 +621,7 @@ export function SettingsModal({
                     <div className="settings-row-info">
                       <span className="settings-row-label">Show home screen header</span>
                       <span className="settings-row-description">
-                        Show the Ship Studio logo and greeting at the top of the dashboard.
+                        Show the Harbr logo and greeting at the top of the dashboard.
                       </span>
                     </div>
                     <button
@@ -706,26 +651,6 @@ export function SettingsModal({
                       role="switch"
                       aria-label="Show activity calendar"
                       aria-checked={calendarVisible}
-                    >
-                      <span className="settings-toggle-track">
-                        <span className="settings-toggle-thumb" />
-                      </span>
-                    </button>
-                  </div>
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <span className="settings-row-label">Show community banner</span>
-                      <span className="settings-row-description">
-                        Show the Slack community invite on the dashboard.
-                      </span>
-                    </div>
-                    <button
-                      className={`settings-toggle ${slackCtaVisible ? 'on' : 'off'}`}
-                      onClick={handleSlackCtaToggle}
-                      disabled={loading}
-                      role="switch"
-                      aria-label="Show community banner"
-                      aria-checked={slackCtaVisible}
                     >
                       <span className="settings-toggle-track">
                         <span className="settings-toggle-thumb" />
@@ -778,8 +703,7 @@ export function SettingsModal({
                   <div className="settings-row-info">
                     <span className="settings-row-label">Dock icon</span>
                     <span className="settings-row-description">
-                      Choose the Ship Studio icon shown in your macOS Dock. Changes apply
-                      immediately.
+                      Choose the Harbr icon shown in your macOS Dock. Changes apply immediately.
                     </span>
                   </div>
                   <div className="settings-icon-options" role="group" aria-label="Dock icon">

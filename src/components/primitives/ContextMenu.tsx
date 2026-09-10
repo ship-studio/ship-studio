@@ -55,7 +55,7 @@ export interface ContextMenuProps {
   children: ReactNode;
 }
 
-/** Native Ship Studio context-menu state and dismissal behavior. */
+/** Native Harbr context-menu state and dismissal behavior. */
 export function ContextMenu({ children }: ContextMenuProps) {
   const id = useId();
   const [menu, setMenu] = useState<{ position: ContextMenuPosition; isOpen: boolean } | null>(null);

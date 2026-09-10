@@ -5,6 +5,7 @@
 use crate::commands::setup::{read_app_state, write_app_state};
 use crate::errors::CommandError;
 use crate::utils::{invalidate_projects_root_cache, projects_root};
+use ship_studio_macros::ship_command;
 use std::path::Path;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -35,14 +36,14 @@ fn validate_app_icon(icon: &str) -> Result<(), CommandError> {
 }
 
 /// Get the persisted app icon choice.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_app_icon() -> Result<String, CommandError> {
     Ok(normalized_app_icon(read_app_state().app_icon.as_deref()).to_string())
 }
 
 /// Persist the app icon choice and update the native Dock icon immediately.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub fn set_app_icon(app: AppHandle, icon: String) -> Result<(), CommandError> {
     validate_app_icon(&icon)?;
@@ -77,9 +78,9 @@ pub fn apply_app_icon(app: &AppHandle, icon: &str) -> Result<(), CommandError> {
 #[cfg(target_os = "macos")]
 fn app_icon_bytes(icon: &str) -> &'static [u8] {
     match icon {
-        "dark" => include_bytes!("../../../public/ShipStudio_IconDark.png"),
-        "light" => include_bytes!("../../../public/ShipStudio_IconLight.png"),
-        _ => include_bytes!("../../../public/ShipStudio_IconBrand.png"),
+        "dark" => include_bytes!("../../icons/icon.png"),
+        "light" => include_bytes!("../../icons/icon.png"),
+        _ => include_bytes!("../../icons/icon.png"),
     }
 }
 
@@ -110,7 +111,7 @@ fn set_macos_dock_icon(bytes: &[u8]) -> Result<(), &'static str> {
 }
 
 /// Get whether the GitHub contribution calendar is hidden on the dashboard.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_calendar_hidden() -> Result<bool, CommandError> {
     let state = read_app_state();
@@ -118,7 +119,7 @@ pub fn get_calendar_hidden() -> Result<bool, CommandError> {
 }
 
 /// Set whether the GitHub contribution calendar is hidden (persisted to app state).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_calendar_hidden(hidden: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -130,7 +131,7 @@ pub fn set_calendar_hidden(hidden: bool) -> Result<(), CommandError> {
 ///
 /// Opt-in: defaults to `false` so no existing install starts talking to
 /// Spotify (or triggers a macOS Automation prompt) without being asked.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_spotify_widget_enabled() -> Result<bool, CommandError> {
     let state = read_app_state();
@@ -138,7 +139,7 @@ pub fn get_spotify_widget_enabled() -> Result<bool, CommandError> {
 }
 
 /// Set whether the macOS Spotify widget is enabled (persisted to app state).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_spotify_widget_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -147,7 +148,7 @@ pub fn set_spotify_widget_enabled(enabled: bool) -> Result<(), CommandError> {
 }
 
 /// Get whether the Slack community CTA is hidden on the dashboard.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_slack_cta_hidden() -> Result<bool, CommandError> {
     let state = read_app_state();
@@ -155,7 +156,7 @@ pub fn get_slack_cta_hidden() -> Result<bool, CommandError> {
 }
 
 /// Set whether the Slack community CTA is hidden (persisted to app state).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_slack_cta_hidden(hidden: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -164,7 +165,7 @@ pub fn set_slack_cta_hidden(hidden: bool) -> Result<(), CommandError> {
 }
 
 /// Get whether the dashboard home header is hidden.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_dashboard_header_hidden() -> Result<bool, CommandError> {
     let state = read_app_state();
@@ -172,7 +173,7 @@ pub fn get_dashboard_header_hidden() -> Result<bool, CommandError> {
 }
 
 /// Set whether the dashboard home header is hidden (persisted to app state).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_dashboard_header_hidden(hidden: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -181,7 +182,7 @@ pub fn set_dashboard_header_hidden(hidden: bool) -> Result<(), CommandError> {
 }
 
 /// Get whether the terminal uses WebGL (GPU-accelerated) rendering. Defaults to true.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_terminal_gpu_enabled() -> Result<bool, CommandError> {
     let state = read_app_state();
@@ -189,7 +190,7 @@ pub fn get_terminal_gpu_enabled() -> Result<bool, CommandError> {
 }
 
 /// Set whether the terminal uses WebGL rendering (persisted to app state).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_terminal_gpu_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -198,7 +199,7 @@ pub fn set_terminal_gpu_enabled(enabled: bool) -> Result<(), CommandError> {
 }
 
 /// Get whether workspace actions are consolidated into the window titlebar.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_compact_workspace_toolbar_enabled() -> Result<bool, CommandError> {
     let state = read_app_state();
@@ -206,7 +207,7 @@ pub fn get_compact_workspace_toolbar_enabled() -> Result<bool, CommandError> {
 }
 
 /// Set whether workspace actions are consolidated into the window titlebar.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_compact_workspace_toolbar_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -215,15 +216,15 @@ pub fn set_compact_workspace_toolbar_enabled(enabled: bool) -> Result<(), Comman
 }
 
 /// Get whether the selected element's DOM breadcrumb is shown in the preview.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_element_breadcrumb_enabled() -> Result<bool, CommandError> {
     let state = read_app_state();
     Ok(state.element_breadcrumb_enabled.unwrap_or(true))
 }
 
-/// Whether pushing from Ship Studio asks an agent to write the commit message.
-#[tauri::command]
+/// Whether pushing from Harbr asks an agent to write the commit message.
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_team_sharing_enabled() -> Result<bool, CommandError> {
     Ok(crate::commands::team::sharing_enabled())
@@ -231,11 +232,11 @@ pub fn get_team_sharing_enabled() -> Result<bool, CommandError> {
 
 /// Turn the written commit message on or off.
 ///
-/// Off falls back to Ship Studio's plain default message, so a push still
+/// Off falls back to Harbr's plain default message, so a push still
 /// works and still commits — it simply arrives with a subject and no reason.
 /// Comments are unaffected: they are written when somebody leaves one, which
 /// is already an explicit act.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_team_sharing_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -243,8 +244,8 @@ pub fn set_team_sharing_enabled(enabled: bool) -> Result<(), CommandError> {
     write_app_state(&state).map_err(CommandError::from)
 }
 
-/// Whether commits Ship Studio makes carry the `Made-With` attribution trailer.
-#[tauri::command]
+/// Whether commits Harbr makes carry the `Made-With` attribution trailer.
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_commit_attribution_enabled() -> Result<bool, CommandError> {
     Ok(crate::commands::team::attribution_enabled())
@@ -255,7 +256,7 @@ pub fn get_commit_attribution_enabled() -> Result<bool, CommandError> {
 /// One switch for the whole thing, per the design: attribution is either in the
 /// history or it is not. It does not touch the commit body, which is the
 /// change's explanation rather than advertising for the tool that wrote it.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_commit_attribution_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -264,7 +265,7 @@ pub fn set_commit_attribution_enabled(enabled: bool) -> Result<(), CommandError>
 }
 
 /// Persist whether the selected element's DOM breadcrumb is shown in the preview.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn set_element_breadcrumb_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -278,14 +279,14 @@ pub fn set_element_breadcrumb_enabled(enabled: bool) -> Result<(), CommandError>
 /// explainer before the first auto-capture), `Some(true)` = allowed,
 /// `Some(false)` = opted out or a capture failed because macOS Screen
 /// Recording permission was denied.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_thumbnails_enabled() -> Result<Option<bool>, CommandError> {
     Ok(read_app_state().thumbnails_enabled)
 }
 
 /// Set the project-thumbnail auto-capture consent (persisted to app state).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_thumbnails_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
@@ -295,14 +296,14 @@ pub fn set_thumbnails_enabled(enabled: bool) -> Result<(), CommandError> {
 
 /// Get the projects root directory (absolute path). Falls back to the default
 /// `~/ShipStudio` when no custom root is configured.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_projects_root() -> Result<String, CommandError> {
     Ok(projects_root()?.to_string_lossy().to_string())
 }
 
 /// Whether the *active* workspace has a custom (non-default) projects folder set.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn is_custom_projects_root() -> Result<bool, CommandError> {
     use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
@@ -336,7 +337,7 @@ pub fn is_custom_projects_root() -> Result<bool, CommandError> {
 /// An empty string resets that workspace to the default `~/ShipStudio`. A
 /// non-empty value must be an existing, writable, absolute directory. The cache
 /// is invalidated so the change takes effect immediately.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_projects_root(path: String) -> Result<(), CommandError> {
     use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
@@ -405,24 +406,30 @@ pub fn set_projects_root(path: String) -> Result<(), CommandError> {
 /// Open a native folder picker for choosing the projects folder.
 /// Returns the selected absolute path, or `None` if the user cancelled.
 /// Does not persist anything — the frontend calls `set_projects_root` with the result.
-#[tauri::command]
-#[tracing::instrument(skip(app))]
-pub async fn pick_projects_root(app: AppHandle) -> Result<Option<String>, CommandError> {
-    let folder = app
-        .dialog()
-        .file()
-        .set_title("Choose Projects Folder")
-        .blocking_pick_folder();
-
-    match folder {
-        Some(path) => {
-            let pb = path
-                .into_path()
-                .map_err(|e| format!("Invalid folder path: {e}"))?;
-            Ok(Some(pb.to_string_lossy().to_string()))
+#[ship_command]
+#[tracing::instrument]
+pub async fn pick_projects_root(
+    selected_path: Option<String>,
+) -> Result<Option<String>, CommandError> {
+    let path = match selected_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_title("Choose Projects Folder")
+                .blocking_pick_folder()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?
         }
-        None => Ok(None),
-    }
+    };
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[cfg(test)]

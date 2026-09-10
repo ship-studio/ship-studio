@@ -1,5 +1,5 @@
 /**
- * Plugin management commands for Ship Studio.
+ * Plugin management commands for Harbr.
  *
  * Plugins are project-level: each project has its own plugins directory
  * at <project>/.shipstudio/plugins/. Git worktrees of one repository all
@@ -26,11 +26,11 @@ pub use plugin_storage::*;
 use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
-use tauri::AppHandle;
 
 /// Per-plugin storage locks to prevent concurrent read-modify-write races.
 /// Key: "project_path:plugin_id"
@@ -121,10 +121,7 @@ pub(crate) fn validate_required_commands(manifest: &PluginManifest) -> Result<()
 
 /// Check that a plugin's min_app_version is satisfied by the current app version.
 /// Returns Ok(()) if compatible, Err with a message if not.
-pub(crate) fn check_min_app_version(
-    manifest: &PluginManifest,
-    app: &AppHandle,
-) -> Result<(), String> {
+pub(crate) fn check_min_app_version(manifest: &PluginManifest) -> Result<(), String> {
     let min_ver_str = manifest.min_app_version.trim();
     if min_ver_str.is_empty() {
         return Ok(());
@@ -133,13 +130,13 @@ pub(crate) fn check_min_app_version(
     let min_ver = semver::Version::parse(min_ver_str)
         .map_err(|e| format!("Invalid min_app_version '{min_ver_str}' in plugin manifest: {e}"))?;
 
-    let app_ver_str = app.package_info().version.to_string();
+    let app_ver_str = env!("CARGO_PKG_VERSION");
     let app_ver = semver::Version::parse(&app_ver_str)
         .map_err(|e| format!("Failed to parse app version '{app_ver_str}': {e}"))?;
 
     if app_ver < min_ver {
         return Err(format!(
-            "Plugin '{}' requires Ship Studio v{} or later (current: v{}). Please update Ship Studio.",
+            "Plugin '{}' requires Harbr v{} or later (current: v{}). Please update Harbr.",
             manifest.name, min_ver, app_ver
         ));
     }
@@ -172,7 +169,7 @@ pub struct PluginManifest {
     /// Setup items this plugin contributes to onboarding
     #[serde(default)]
     pub setup: Vec<PluginSetupItem>,
-    /// Minimum Ship Studio version required
+    /// Minimum Harbr version required
     #[serde(default)]
     pub min_app_version: String,
     /// Icon filename (relative to plugin dir)
@@ -442,7 +439,7 @@ pub(crate) fn get_storage_path(
 }
 
 /// Read the JavaScript bundle for a plugin (dist/index.js)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<String, CommandError> {
     validate_plugin_id(&plugin_id)?;
@@ -486,7 +483,7 @@ pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<Str
 }
 
 /// Read a plugin's manifest
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_manifest(
     project_path: String,

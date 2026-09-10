@@ -10,7 +10,7 @@
  * `accent-color` on a bare input was the previous answer. It tints the native
  * control and nothing else — the size, the radius and the check mark stay the
  * platform's, which is why the old comment checkboxes looked borrowed from a
- * settings dialog rather than part of Ship Studio.
+ * settings dialog rather than part of Harbr.
  *
  * @module components/primitives/Checkbox
  */

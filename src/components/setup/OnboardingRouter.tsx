@@ -14,6 +14,7 @@ import { OnboardingScreen } from './OnboardingScreen';
 import { AgentOnboardingScreen } from './agent-led/AgentOnboardingScreen';
 import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
+import { isTauriRuntime } from '../../lib/webEvents';
 
 export type OnboardingMode = 'agent' | 'classic';
 
@@ -44,12 +45,14 @@ export function OnboardingRouter({ onComplete }: OnboardingRouterProps) {
   const [mode, setMode] = useState<OnboardingMode>(readStoredMode);
 
   const handleDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {

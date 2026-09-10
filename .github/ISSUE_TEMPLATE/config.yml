@@ -1,11 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/ship-studio/ship-studio/security/advisories/new
+    url: https://github.com/kacigaya/harbr/security/advisories/new
     about: Please report security issues privately, not in public issues. See SECURITY.md.
   - name: Question or discussion
-    url: https://github.com/ship-studio/ship-studio/discussions
+    url: https://github.com/kacigaya/harbr/discussions
     about: For "how do I…" questions, ideas, or general discussion.
-  - name: Community Slack
-    url: https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g
-    about: Chat with other Ship Studio users and contributors.

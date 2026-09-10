@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Ship Studio redistributes or depends on the following third-party software for
+Harbr redistributes or depends on the following third-party software for
 the native mobile preview. Apache-2.0 requires this notice to accompany
 redistributed binaries — keep this file when packaging.
 
@@ -23,7 +23,7 @@ versions).
 
 ## serve-sim (runtime dependency, not vendored)
 
-The iOS mirror runs **serve-sim** via `npx` on the user's machine; Ship Studio
+The iOS mirror runs **serve-sim** via `npx` on the user's machine; Harbr
 does not redistribute it.
 
 - Project: <https://github.com/EvanBacon/serve-sim> (Evan Bacon / Expo)

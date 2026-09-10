@@ -16,7 +16,7 @@ use tauri::Emitter;
 
 /// Check if an agent is authenticated.
 /// If `agent_id` is provided, check that specific agent. Otherwise, use the active agent.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
     let agent = match agent_id.as_deref() {
@@ -132,7 +132,7 @@ pub fn cleanup_auth_processes_sync() -> u32 {
 /// On Windows: downloads the .nsis.zip, extracts, and runs the NSIS installer silently.
 /// The frontend should call `relaunch()` after this completes (macOS only;
 /// on Windows the installer handles restart).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(), CommandError> {
     if cfg!(debug_assertions) {
@@ -201,15 +201,15 @@ async fn install_version_platform(
     };
 
     let url = format!(
-        "https://github.com/ship-studio/releases/releases/download/v{version}/ShipStudio_darwin-{arch_suffix}.app.tar.gz"
+        "https://github.com/kacigaya/harbr/releases/download/v{version}/Harbr_darwin-{arch_suffix}.app.tar.gz"
     );
 
-    // Find current app bundle path (e.g., /Applications/Ship Studio.app)
+    // Find current app bundle path (e.g., /Applications/Harbr.app)
     let exe = std::env::current_exe().map_err(|e| format!("Cannot find app path: {e}"))?;
     let app_bundle = exe
         .parent() // MacOS
         .and_then(|p| p.parent()) // Contents
-        .and_then(|p| p.parent()) // Ship Studio.app
+        .and_then(|p| p.parent()) // Harbr.app
         .ok_or("Could not determine app bundle path")?
         .to_path_buf();
 
@@ -247,7 +247,7 @@ async fn install_version_platform(
     }
 
     // Find the extracted .app bundle
-    let extracted_app = extract_dir.join("Ship Studio.app");
+    let extracted_app = extract_dir.join("Harbr.app");
     if !extracted_app.exists() {
         return Err(("Extracted app bundle not found".to_string()).into());
     }
@@ -285,7 +285,7 @@ async fn install_version_platform(
     temp_dir: &std::path::Path,
 ) -> Result<(), CommandError> {
     let url = format!(
-        "https://github.com/ship-studio/releases/releases/download/v{}/ShipStudio_windows-x86_64.nsis.zip",
+        "https://github.com/kacigaya/harbr/releases/download/v{}/Harbr_windows-x86_64.nsis.zip",
         version
     );
 

@@ -6,7 +6,7 @@ use crate::utils::validate_project_path;
 
 /// Install a skill using the Skills CLI
 /// Runs: npx skills add <package> -y --agent <agent-id>
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn install_skill(
     package: String,
@@ -74,7 +74,7 @@ pub async fn install_skill(
 
 /// Remove a skill using the Skills CLI
 /// Runs: npx skills remove <package> --agent <agent-id>
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn remove_skill(
     package: String,

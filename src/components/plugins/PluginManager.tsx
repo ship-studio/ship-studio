@@ -574,7 +574,7 @@ export function PluginManager({
               <>
                 <div className="plugins-beta-notice">
                   Plugins are new and in beta. If you experience any issues, please report them in
-                  the Slack group.
+                  the project discussions.
                 </div>
 
                 {isLoadingRegistry && registry.length === 0 && (

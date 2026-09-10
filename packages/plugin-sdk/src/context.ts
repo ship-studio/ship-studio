@@ -1,5 +1,5 @@
 /**
- * Access the Ship Studio plugin context.
+ * Access the Harbr plugin context.
  *
  * Preferred: usePluginContext() — uses React.useContext with the shared
  * PluginContext ref, so each plugin always gets its own context even when
@@ -98,7 +98,7 @@ export function usePluginContext(): PluginContextValue {
   if (!ctx) {
     throw new Error(
       '@shipstudio/plugin-sdk: Plugin context not available. ' +
-        'Ensure this is called within a Ship Studio plugin component.'
+        'Ensure this is called within a Harbr plugin component.'
     );
   }
   return ctx;
@@ -114,7 +114,7 @@ export function getPluginContext(): PluginContextValue {
   if (!ctx) {
     throw new Error(
       '@shipstudio/plugin-sdk: Plugin context not available. ' +
-        'Ensure this is called within a Ship Studio plugin component.'
+        'Ensure this is called within a Harbr plugin component.'
     );
   }
   return ctx;

@@ -65,7 +65,7 @@ export const educationContent: Record<string, EducationItem> = {
   'changelog-sidebar': {
     title: "What's New",
     description:
-      'See the latest updates and improvements to Ship Studio. Click any version to install it if you want to try it.',
+      'See the latest updates and improvements to Harbr. Click any version to install it if you want to try it.',
   },
   'github-calendar': {
     title: 'Activity Calendar',
@@ -75,7 +75,7 @@ export const educationContent: Record<string, EducationItem> = {
   'slack-cta': {
     title: 'Community',
     description:
-      "Join the Ship Studio Slack community to suggest features, share what you're building, and connect with other builders.",
+      'Use the Harbr issue tracker to suggest features, report problems, and share feedback.',
   },
 
   // ─── Workspace header toolbar ───
@@ -124,7 +124,7 @@ export const educationContent: Record<string, EducationItem> = {
   'support-button': {
     title: 'Support',
     description:
-      "Get help or report a bug. Reach out to the Ship Studio team if something isn't working right.",
+      "Get help or report a bug. Reach out to the Harbr team if something isn't working right.",
   },
 
   // Workspace tabs

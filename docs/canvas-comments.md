@@ -8,7 +8,7 @@ when the preview is not running.
 
 Click an actual page element, write the note, and choose **Save comment**. Adding
 a comment never calls an agent or writes to website source. Hovering outlines the
-target in Ship Studio green and dims the surrounding canvas; the target stays
+target in Harbr green and dims the surrounding canvas; the target stays
 clear while writing.
 
 **A note lives on the thing it is about, not only in a list.** Each comment is a
@@ -91,7 +91,7 @@ can say "comment 2" and mean the same element.
 element rect with its captured viewport, and any source hint.
 
 What is deliberately not borrowed from a clipboard-based tool is a bare markdown dump.
-Ship Studio pastes this into a live agent terminal rather than the clipboard, so the
+Harbr pastes this into a live agent terminal rather than the clipboard, so the
 preamble stays: only **Feedback** is a user request, every other field is captured page
 content labelled untrusted reference data, `applyTo` is separate from the captured
 viewport, and the agent must verify project, branch and target, flag ambiguities and

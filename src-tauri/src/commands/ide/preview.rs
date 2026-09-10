@@ -37,7 +37,7 @@ pub struct ScrollDimensions {
 /// Creates a native child webview at the specified position.
 /// Used for Sanity Studio to support OAuth authentication.
 /// Only one preview webview can exist at a time.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn create_preview_webview(
     app: tauri::AppHandle,
@@ -85,7 +85,7 @@ pub async fn create_preview_webview(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn navigate_preview_webview(
     app: tauri::AppHandle,
@@ -98,7 +98,7 @@ pub async fn navigate_preview_webview(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn resize_preview_webview(
     app: tauri::AppHandle,
@@ -119,7 +119,7 @@ pub async fn resize_preview_webview(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn destroy_preview_webview(app: tauri::AppHandle) -> Result<(), CommandError> {
     let mut exists = PREVIEW_WEBVIEW_EXISTS

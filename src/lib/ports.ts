@@ -1,7 +1,7 @@
 /**
  * Dev-server port helpers.
  *
- * Two jobs, one theme — keeping the port Ship Studio *believes* a project is
+ * Two jobs, one theme — keeping the port Harbr *believes* a project is
  * on tied to the server that's actually running:
  *
  * - `preferredPortForProject` spreads projects across a deterministic port

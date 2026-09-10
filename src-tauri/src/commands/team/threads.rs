@@ -3,7 +3,7 @@
 //! Everything here is a file write and nothing here touches git. That is the
 //! whole design: a project that was never `git init`ed still gets comments,
 //! because a comment is a note about a page, and needing a remote to write one
-//! would be an arbitrary tax on the person using Ship Studio alone.
+//! would be an arbitrary tax on the person using Harbr alone.
 //!
 //! Git is a *transport* layered on top by [`super::transport`], and each layer
 //! degrades on its own:
@@ -417,7 +417,7 @@ async fn me(project: &Path) -> ThreadAuthor {
 
 /// Leave a comment. Returns the new thread's id.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path, body, anchor), fields(project = %project_path))]
 pub async fn add_team_comment(
     project_path: String,
@@ -443,7 +443,7 @@ pub async fn add_team_comment(
 }
 
 /// Reply on a thread. Returns the new record's id.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path, body), fields(project = %project_path))]
 pub async fn reply_to_team_thread(
     project_path: String,
@@ -456,7 +456,7 @@ pub async fn reply_to_team_thread(
 }
 
 /// Resolve or reopen a thread. Returns the new record's id.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn set_team_thread_resolved(
     project_path: String,
@@ -475,7 +475,7 @@ pub async fn set_team_thread_resolved(
 /// it. Returns what happened rather than throwing: a push that failed still
 /// leaves the comment on disk, and the panel says so instead of the write
 /// looking like it was lost.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn sync_team_threads(
     project_path: String,
@@ -497,7 +497,7 @@ pub async fn sync_team_threads(
 }
 
 /// Rewrite a message. Returns the new record's id.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path, body), fields(project = %project_path))]
 pub async fn edit_team_message(
     project_path: String,
@@ -511,7 +511,7 @@ pub async fn edit_team_message(
 }
 
 /// Withdraw a message. Returns the new record's id.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn retract_team_message(
     project_path: String,

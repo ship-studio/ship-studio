@@ -15,7 +15,7 @@ export type I18nFramework = 'nextjs-pages' | 'nextjs-app' | 'astro' | 'unsupport
 
 export interface I18nStatus {
   framework: I18nFramework;
-  /** Whether Ship Studio can manage i18n for this project. */
+  /** Whether Harbr can manage i18n for this project. */
   supported: boolean;
   /** Human-readable reason when `supported` is false. */
   unsupportedReason: string | null;
@@ -495,13 +495,13 @@ export function buildAiSetupPrompt(status: I18nStatus): string {
   return (
     `Please set up internationalized routing for this project by adding or fixing the i18n ` +
     `configuration (a literal locales array + defaultLocale string) in ${file}. ` +
-    `Ship Studio couldn't edit the config automatically, so review its current structure first ` +
+    `Harbr couldn't edit the config automatically, so review its current structure first ` +
     `and make the change in the appropriate place. Wait for my confirmation before installing anything.`
   );
 }
 
 /**
- * Optional cleanup after removing languages: Ship Studio only edits the
+ * Optional cleanup after removing languages: Harbr only edits the
  * config (never deletes files), so translated content lingers — and Astro
  * keeps serving locale folders that still exist. This prompt asks the agent
  * to remove the leftovers.
@@ -530,7 +530,7 @@ export function buildRemovalCleanupPrompt(status: I18nStatus, removed: string[])
 /**
  * The guided one-time App Router setup, executed by the embedded agent.
  * Pins the exact next-intl layout (file paths, literal locales array,
- * messages/<locale>.json) so the result lands in the shape Ship Studio's
+ * messages/<locale>.json) so the result lands in the shape Harbr's
  * backend knows how to detect and manage afterwards.
  */
 export function buildAppRouterSetupPrompt(locales: string[], defaultLocale: string): string {
@@ -541,7 +541,7 @@ export function buildAppRouterSetupPrompt(locales: string[], defaultLocale: stri
 
 Languages: ${localeList}. Default: ${defaultLocale}.
 
-Complete ALL steps without stopping to ask — installing next-intl is approved. Important: Ship Studio reads and updates the files below, so keep the exact paths, the literal locales array in routing.ts, and the messages/<locale>.json layout.
+Complete ALL steps without stopping to ask — installing next-intl is approved. Important: Harbr reads and updates the files below, so keep the exact paths, the literal locales array in routing.ts, and the messages/<locale>.json layout.
 
 1. Install next-intl using this project's package manager (check the lockfile).
 

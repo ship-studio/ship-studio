@@ -363,7 +363,7 @@ export function CodeViewer({
               title={
                 editModeEnabled
                   ? 'Edit mode on — files open editable. Click to turn off.'
-                  : 'Turn on edit mode to edit files in Ship Studio'
+                  : 'Turn on edit mode to edit files in Harbr'
               }
               pressed={editModeEnabled}
             >

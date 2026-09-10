@@ -62,7 +62,7 @@ export function CelebrationScreen({ onContinue, hostingConnected }: CelebrationS
     <div className={`celebration-screen ${showContent ? 'visible' : ''}`}>
       <div className="celebration-content">
         <div className="celebration-icon">
-          {/* Rocket (Lucide, ISC) in Ship Studio green — you're ready to ship. */}
+          {/* Rocket (Lucide, ISC) in Harbr green — you're ready to ship. */}
           <CelebrationRocketGraphic width={80} height={80} aria-hidden="true" />
         </div>
         <h1 className="celebration-title">You're all set!</h1>

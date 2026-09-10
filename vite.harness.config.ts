@@ -81,7 +81,7 @@ function migrationFixturesPlugin(): Plugin {
  * second harness fails to start, and with four sessions live that is a real
  * cost. Overriding the port lets them run side by side.
  */
-const PORT = Number(process.env.SHIPSTUDIO_HARNESS_PORT ?? 1425);
+const PORT = Number(process.env.HARBR_HARNESS_PORT ?? 1425);
 
 export default defineConfig(async (env) => {
   const resolved = (await (base as unknown as (e: typeof env) => Promise<UserConfig>)(

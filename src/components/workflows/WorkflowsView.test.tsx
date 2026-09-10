@@ -110,7 +110,7 @@ describe('WorkflowsView', () => {
     expect(screen.getByText('Security sweep')).toBeInTheDocument();
     expect(screen.getByText('demo')).toBeInTheDocument();
     expect(screen.getByText('Claude Code')).toBeInTheDocument();
-    expect(screen.getByText('Every 30 min, while Ship Studio is open')).toBeInTheDocument();
+    expect(screen.getByText('Every 30 min, while Harbr is open')).toBeInTheDocument();
   });
 
   it('does not advertise a cadence a disarmed workflow is not keeping', () => {

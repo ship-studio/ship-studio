@@ -8,7 +8,7 @@ Author: drafted with Claude, 2026-06-02
 
 ## 1. Goal
 
-Let Ship Studio preview **real native mobile apps** (React Native / Expo, and
+Let Harbr preview **real native mobile apps** (React Native / Expo, and
 Flutter) the same way it previews web apps today: a live, interactive view of the
 running app inside the workspace, with hot reload, logs, and screenshots — not a
 375px-wide web iframe pretending to be a phone.
@@ -42,7 +42,7 @@ This is a proven pattern, not speculation:
 - **`vscode-ios-simulator-embed`** (Apache-2.0, github.com/mkloouo/vscode-ios-simulator-embed)
   streams the iOS Simulator into a *VS Code webview* via **ScreenCaptureKit**, forwards
   input via **SimulatorKit Indigo HID** (borrowing from Meta's MIT-licensed `idb`), at
-  ~12 FPS. VS Code's webview ≈ Ship Studio's webview. It is a working reference
+  ~12 FPS. VS Code's webview ≈ Harbr's webview. It is a working reference
   implementation of most of the iOS half.
 - **`scrcpy`** (github.com/Genymobile/scrcpy, v3.3.4) does the entire Android pipeline:
   H.264 capture over USB/Wi-Fi + input injection, no device-side app, no root.
@@ -50,10 +50,10 @@ This is a proven pattern, not speculation:
   gesture control channel — an alternative transport we could shell out to.
 
 ### What also makes it feasible: the dev-server model is already "external"
-Ship Studio does **not** spawn the web dev server. The user (or Claude, in the
+Harbr does **not** spawn the web dev server. The user (or Claude, in the
 integrated terminal) runs `npm run dev`; the preview just polls `localhost:PORT`
 (`src/hooks/usePreviewConnection.ts`). Mobile follows the identical model: the user/
-Claude runs `expo start` / `flutter run` in the terminal, and Ship Studio attaches the
+Claude runs `expo start` / `flutter run` in the terminal, and Harbr attaches the
 mirror. **We do not have to build a bundler-orchestration engine** — only detection +
 the mirror + connection UX. This significantly shrinks scope.
 
@@ -62,7 +62,7 @@ the mirror + connection UX. This significantly shrinks scope.
 ## 3. Architecture overview
 
 ```
-┌─────────────────────────── Ship Studio (Tauri) ───────────────────────────┐
+┌─────────────────────────── Harbr (Tauri) ───────────────────────────┐
 │                                                                            │
 │  Frontend (webview)                     Backend (Rust)                     │
 │  ┌──────────────────────────┐           ┌──────────────────────────────┐  │
@@ -117,7 +117,7 @@ VS Code extension's proven ~12 FPS. Upgrade transport later without touching the
   "inset mirror" embedded window) for integration patterns.
 
 Targets **both** physical Android devices (USB/Wi-Fi via ADB) and Android emulators.
-Works when Ship Studio runs on macOS **and** Windows.
+Works when Harbr runs on macOS **and** Windows.
 
 Decode path for MVP: H.264 → frames in Rust (e.g. `ffmpeg`/`openh264` sidecar or a
 Rust H.264 decoder) → re-encode to JPEG → event to webview. (Or pass H.264 straight to
@@ -337,7 +337,7 @@ What it gives us, all confirmed working on this machine:
   18fps interactive is usable (VS Code's ScreenCaptureKit ext ships ~12). JPEG frames
   ~350 KB.
 - **Requirements**: macOS + Xcode CLI (`xcrun simctl`) + Node 18+ — all already
-  present and already checked by Ship Studio onboarding.
+  present and already checked by Harbr onboarding.
 - Daemon mode (`--detach`) + `--list`/`--kill` lifecycle — maps cleanly onto how we
   already manage the static file server (`static_server.rs`).
 

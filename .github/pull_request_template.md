@@ -15,7 +15,7 @@
 
 We use a small set of shared primitives so the codebase stays consistent.
 Tick the ones that apply; cross out ones that don't. Full reference:
-[CLAUDE.md → How to Do Things in Ship Studio](../CLAUDE.md#how-to-do-things-in-ship-studio).
+[CLAUDE.md → How to Do Things in Harbr](../CLAUDE.md#how-to-do-things-in-ship-studio).
 
 **Frontend**
 - [ ] New modals use `<ModalFrame>` (no hand-rolled overlays / ESC handling)

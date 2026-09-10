@@ -4,12 +4,12 @@
 (`src-tauri/src/commands/team/`). Team lives inside a project — the workspace
 panel, Cmd+K, and the presence cluster in the project header.
 
-Building is a multiplayer game, but Ship Studio is free, open source, and has
+Building is a multiplayer game, but Harbr is free, open source, and has
 no server, no accounts and no database. So this feature is built on the two
 things a team already has: **their repository, and the coding agents they are
 already paying for.**
 
-## What makes it Ship Studio's version
+## What makes it Harbr's version
 
 | Problem a multiplayer backend normally solves | Solved here by |
 | --- | --- |
@@ -29,7 +29,7 @@ team has already agreed on and already maintains.
 | Half | Source | Needs |
 |---|---|---|
 | **What people did** (`derive.rs`) | `git log`, `gh pr list` | a good commit message |
-| **Comments** (`records.rs`, `threads.rs`) | `.shipstudio-team/threads/**` | Ship Studio |
+| **Comments** (`records.rs`, `threads.rs`) | `.shipstudio-team/threads/**` | Harbr |
 
 The first half reads git's own fields. A commit **subject** is the headline and
 the commit **body** is the why — which is where "why" has always belonged, and
@@ -103,7 +103,7 @@ repository permanently.
 | | Writer | Reliability | Covers |
 | --- | --- | --- | --- |
 | 1 | git itself | deterministic | that a commit, branch, PR or push happened |
-| 2 | Ship Studio's push flow | agent may decline | the reasoning, in the commit body |
+| 2 | Harbr's push flow | agent may decline | the reasoning, in the commit body |
 | 3 | Any agent, anywhere | best effort | the same, plus resolving comments |
 
 **Layer 1 backfills for 2 and 3, never the reverse.** If no agent writes a body,
@@ -121,11 +121,11 @@ Three routes, deliberately, because each one covers a gap the others leave:
 | Route | Reaches | Written when |
 |---|---|---|
 | `~/.claude/skills/shipstudio-team/` (`skill.rs`) | every project you open | app startup, idempotent |
-| MCP tools on the agent bridge (`bridge.rs`) | agents inside Ship Studio's terminal | session start |
+| MCP tools on the agent bridge (`bridge.rs`) | agents inside Harbr's terminal | session start |
 | `CLAUDE.md` / `AGENTS.md` (`instructions.rs`) | **everyone who clones the repo** | only when the user asks |
 
 The first two are user-scope: they cover you, on this machine, in any project.
-Neither reaches a teammate who has never installed Ship Studio.
+Neither reaches a teammate who has never installed Harbr.
 
 The third does, because it is committed — and that is exactly why it is **never
 written on startup**. It edits a tracked file in someone's repository. It
@@ -168,7 +168,7 @@ In `writer.rs`, before anything is committed:
    rotate-your-key incident into a thing nobody knew happened
 
 The gauntlet runs in `push.rs`, on the path to the commit message. A summary it
-refuses drops **whole** — the push continues with Ship Studio's plain default
+refuses drops **whole** — the push continues with Harbr's plain default
 message rather than a partially-cleaned one. A push that cannot happen is worse
 than one that explains itself poorly.
 
@@ -215,7 +215,7 @@ cannot remove the file from anyone's clone. Retraction says exactly that.
 
 ## 5. The git trail
 
-Before this, Ship Studio's history read `Update from Ship Studio` (`ai.rs`,
+Before this, Harbr's history read `Update from Harbr` (`ai.rs`,
 `github.rs`) or one agent-written subject derived **from the diff, after the
 session is over** — reading the same diff a stranger would, guessing at intent,
 because by then nothing remembers why.
@@ -233,7 +233,7 @@ hardcoded width that broke again at every new tier.
 - Remove the four hardcoded card widths this was working around
 
 Co-Authored-By: Claude <noreply@anthropic.com>
-Made-With: Claude Code in Ship Studio
+Made-With: Claude Code in Harbr
 ```
 
 - Attribution is a **trailer, never the subject** — machine-readable, out of

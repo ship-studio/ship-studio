@@ -251,7 +251,7 @@ export function copyFor(
         // The provider's own word, shown verbatim rather than translated into
         // success or failure — we genuinely do not know which it is.
         status: `${statusWord(state.deployment, 'Unknown')}${env}${when(state.deployment)}`,
-        hint: `Ship Studio doesn't recognize this status yet.`,
+        hint: `Harbr doesn't recognize this status yet.`,
         action: dashboardLabelFor(state),
       };
 

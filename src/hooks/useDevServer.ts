@@ -101,7 +101,7 @@ import { useOptionalToast } from '../contexts/ToastContext';
  */
 const RESTART_SPAWN_TIMEOUT_MS = 30_000;
 
-/** Record of a dev-server process that died without Ship Studio stopping it. */
+/** Record of a dev-server process that died without Harbr stopping it. */
 export interface DevServerUnexpectedExit {
   /** Exit code reported by the PTY, when known. 137 / -9 style codes usually
    *  mean an external `kill` (e.g. an agent freeing the port). */
@@ -210,7 +210,7 @@ function makeState(): ProjectServerState {
   };
 }
 
-/* Lines that match this pattern are the dev server logging Ship Studio's
+/* Lines that match this pattern are the dev server logging Harbr's
    own liveness probe (a `fetch('/')` every 10s from `usePreviewConnection`).
    Filtering them keeps the visible log focused on real traffic.
 
@@ -474,7 +474,7 @@ export function useDevServer(currentProjectPath: string | null) {
             exitCode: exitCode ?? null,
           });
           current.handle = null;
-          // Only exits Ship Studio did NOT initiate reach this point:
+          // Only exits Harbr did NOT initiate reach this point:
           // stopServer deletes the map entry and restart paths null the
           // handle before their kill lands, so `current.handle !== handle`
           // filters both out above. Record it so the Preview pane can offer
@@ -814,7 +814,7 @@ export function useDevServer(currentProjectPath: string | null) {
           );
         }
       } else if (detectedType === 'unknown') {
-        // No framework config, no package.json, no HTML — Ship Studio doesn't
+        // No framework config, no package.json, no HTML — Harbr doesn't
         // know how to preview this project. Spawning `npm run dev` anyway just
         // produced a doomed spawn plus a spurious package.json read error in
         // telemetry (issue #330).

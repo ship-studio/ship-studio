@@ -16,6 +16,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Ship Studio uses this to show and control what's playing in Spotify.</string>
+	<string>Harbr uses this to show and control what's playing in Spotify.</string>
 </dict>
 </plist>

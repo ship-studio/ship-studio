@@ -1,11 +1,11 @@
-# Contributing to Ship Studio
+# Contributing to Harbr
 
-Thanks for your interest in contributing to Ship Studio! This guide will help you get started.
+Thanks for your interest in contributing to Harbr! This guide will help you get started.
 
 > **Before you start**
 >
 > - Read the [Code of Conduct](CODE_OF_CONDUCT.md) — it sets the bar for how we collaborate.
-> - For deeper context on the *patterns* the codebase has standardised on, read [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) and the **"How to Do Things in Ship Studio"** section of [CLAUDE.md](CLAUDE.md). New code that bypasses those primitives will get flagged in review.
+> - For deeper context on the *patterns* the codebase has standardised on, read [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) and the **"How to Do Things in Harbr"** section of [CLAUDE.md](CLAUDE.md). New code that bypasses those primitives will get flagged in review.
 > - If you found a security issue, **do not file a public issue** — see [SECURITY.md](SECURITY.md) for private reporting.
 > - Before you report something verified, read [docs/verifying-your-own-work.md](docs/verifying-your-own-work.md) — a short list of checks that pass while proving nothing.
 > - Want to *see* a UI change instead of describing it? `pnpm harness` boots the real frontend in a browser against a fixture backend and `pnpm harness:capture` screenshots ~70 app states — see [docs/ui-harness.md](docs/ui-harness.md).
@@ -24,8 +24,8 @@ Thanks for your interest in contributing to Ship Studio! This guide will help yo
 
 ```bash
 # Clone the repo
-git clone https://github.com/ship-studio/ship-studio.git
-cd ship-studio
+git clone https://github.com/kacigaya/harbr.git
+cd harbr
 
 # Install dependencies
 pnpm install
@@ -272,12 +272,12 @@ Onboarding is the first thing every new user sees. See the detailed testing guid
 
 ```bash
 # Force onboarding with REAL system checks (recommended for UI testing)
-SHIPSTUDIO_FORCE_ONBOARDING=1 pnpm tauri dev
+HARBR_FORCE_ONBOARDING=1 pnpm tauri dev
 
 # Force onboarding with MOCK states (for testing specific incomplete scenarios)
-SHIPSTUDIO_FORCE_SETUP=fresh pnpm tauri dev        # Nothing installed
-SHIPSTUDIO_FORCE_SETUP=auth-only pnpm tauri dev     # Tools installed, no auth
-SHIPSTUDIO_FORCE_SETUP=almost-done pnpm tauri dev   # Only gh_auth missing
+HARBR_FORCE_SETUP=fresh pnpm tauri dev        # Nothing installed
+HARBR_FORCE_SETUP=auth-only pnpm tauri dev     # Tools installed, no auth
+HARBR_FORCE_SETUP=almost-done pnpm tauri dev   # Only gh_auth missing
 ```
 
 For the real end-to-end test, use a clean macOS install or VM. See `CLAUDE.md` for the full fresh-machine checklist.
@@ -300,7 +300,7 @@ The built app will be in `src-tauri/target/release/bundle/`.
 
 ### Frontend: Structured Logger
 
-Use the structured logger (`src/lib/logger.ts`) instead of `console.error`. Logs are flushed to the Rust backend and persisted to disk at `~/Library/Logs/ShipStudio/`.
+Use the structured logger (`src/lib/logger.ts`) instead of `console.error`. Logs are flushed to the Rust backend and persisted to disk at `~/Library/Logs/Harbr/`.
 
 ```typescript
 import { logger } from '../lib/logger';
@@ -360,21 +360,21 @@ For anything that affects user-visible state or data integrity, propagate the er
 
 ### Log files
 
-Ship Studio writes structured logs (via the `tracing` crate) to:
+Harbr writes structured logs (via the `tracing` crate) to:
 
 ```
-macOS:    ~/Library/Logs/ShipStudio/
-Windows:  %LOCALAPPDATA%\ShipStudio\logs\
+macOS:    ~/Library/Logs/Harbr/
+Windows:  %LOCALAPPDATA%\Harbr\logs\
 ```
 
 Rotated daily. Tail the latest with:
 
 ```bash
 # macOS / Linux
-tail -f ~/Library/Logs/ShipStudio/ship-studio.log
+tail -f ~/Library/Logs/Harbr/harbr.log
 
 # Windows (PowerShell)
-Get-Content -Wait $env:LOCALAPPDATA\ShipStudio\logs\ship-studio.log
+Get-Content -Wait $env:LOCALAPPDATA\Harbr\logs\harbr.log
 ```
 
 ### Rust backtraces
@@ -394,13 +394,13 @@ In the running app, open Chromium DevTools with **Cmd+Option+I**. The Console sh
 
 ### Onboarding / setup wizard
 
-See `CLAUDE.md` → **Onboarding / Setup Wizard Testing** for `SHIPSTUDIO_FORCE_ONBOARDING` and `SHIPSTUDIO_FORCE_SETUP` env vars. Copy [`.env.example`](.env.example) to `.env` for a local reference.
+See `CLAUDE.md` → **Onboarding / Setup Wizard Testing** for `HARBR_FORCE_ONBOARDING` and `HARBR_FORCE_SETUP` env vars. Copy [`.env.example`](.env.example) to `.env` for a local reference.
 
 ## Getting Help
 
-- Check existing [issues](https://github.com/ship-studio/ship-studio/issues) for similar problems.
-- Open a [discussion](https://github.com/ship-studio/ship-studio/discussions) for "how do I…" questions.
-- Drop into the [community Slack](https://ship.studio/slack).
+- Check existing [issues](https://github.com/kacigaya/harbr/issues) for similar problems.
+- Open a [discussion](https://github.com/kacigaya/harbr/discussions) for "how do I…" questions.
+- Open a [GitHub Discussion](https://github.com/kacigaya/harbr/discussions).
 - Read the code comments and the docs in [docs/](docs/).
 
 ## FAQ
@@ -408,14 +408,14 @@ See `CLAUDE.md` → **Onboarding / Setup Wizard Testing** for `SHIPSTUDIO_FORCE_
 ### Why does `package.json` say `"private": true`?
 
 That field blocks accidental `npm publish` — it's unrelated to the
-repository's visibility. Ship Studio is distributed as `.dmg` and `.exe`
+repository's visibility. Harbr is distributed as `.dmg` and `.exe`
 installers, not as an npm package. The repo itself is open source under
 MIT (see [LICENSE](LICENSE)).
 
 ### Why are `CLAUDE.md` and `AGENTS.md` checked in?
 
 `CLAUDE.md` is a long-form contributor reference used by both humans and AI
-coding assistants. The "How to Do Things in Ship Studio" section documents
+coding assistants. The "How to Do Things in Harbr" section documents
 the canonical primitives the codebase has standardised on; anything you
 write should follow those patterns. `AGENTS.md` is the short version of the
 same contract for agent tools that read that filename by convention.

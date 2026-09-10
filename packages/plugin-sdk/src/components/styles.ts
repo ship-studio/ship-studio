@@ -1,5 +1,5 @@
 /**
- * Shared design tokens for Ship Studio plugin UI components.
+ * Shared design tokens for Harbr plugin UI components.
  *
  * Values are sourced from src/styles/base.css to ensure visual consistency
  * with the host app. Components use inline styles so no CSS files are needed.

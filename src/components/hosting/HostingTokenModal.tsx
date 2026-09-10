@@ -102,7 +102,7 @@ export function HostingTokenModal({
       <div className="connect-modal-body">
         <p>
           {wasRejected
-            ? `${name} refused the sign-in Ship Studio was using. Create a token for the account you deploy with and paste it below.`
+            ? `${name} refused the sign-in Harbr was using. Create a token for the account you deploy with and paste it below.`
             : `Create a token for the ${name} account ${workspaceName} deploys with, then paste it below. It's stored in your Keychain and used only by this workspace.`}
         </p>
         {copy.requirement ? <p className="connect-modal-muted">{copy.requirement}</p> : null}

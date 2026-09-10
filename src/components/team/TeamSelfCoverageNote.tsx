@@ -4,10 +4,10 @@
  * `TeamCoverageNote` covers the other half of the team — people pushing straight
  * to GitHub from somewhere else. This covers the case that actually confuses
  * people, because it looks like the feature is broken rather than unconfigured:
- * you are using Ship Studio, you told your agent to push, and your row says "no
+ * you are using Harbr, you told your agent to push, and your row says "no
  * summary was written" with no indication of what to do about it.
  *
- * The reason is always the same. Ship Studio can observe that a push happened;
+ * The reason is always the same. Harbr can observe that a push happened;
  * only the agent that did the work knows *why* it did it, and it has to write
  * that down at the time. If it did not, the sentence does not exist anywhere any
  * more — so this says so, once, with the one thing that fixes it.
@@ -101,8 +101,8 @@ export function TeamSelfCoverageNote({
       </span>
 
       <p className="team-coverage-text">
-        <strong>Your pushes are not writing summaries.</strong> Ship Studio can see that you pushed;
-        only the agent that did the work knows why it did it. Add a commit-message section to this
+        <strong>Your pushes are not writing summaries.</strong> Harbr can see that you pushed; only
+        the agent that did the work knows why it did it. Add a commit-message section to this
         project&rsquo;s agent instructions and every session reads it — the rows above stay as they
         are.
       </p>

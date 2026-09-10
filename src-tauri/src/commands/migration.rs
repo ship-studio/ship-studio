@@ -9,7 +9,7 @@
 //!
 //! ## Why the measuring tools are copied into the project
 //!
-//! The agent runs inside the user's project and cannot reach Ship Studio's own
+//! The agent runs inside the user's project and cannot reach Harbr's own
 //! repository, so a comparison script living here would be unavailable exactly
 //! where it is needed. Embedding them with `include_str!` and writing them into
 //! `.shipstudio/fidelity/` puts them where the agent already is, at the version
@@ -305,7 +305,7 @@ fn initial_status(source_url: &str) -> MigrationStatus {
 /// That asymmetry is what lets Resume call it. The tools are written once at
 /// creation and would otherwise stay frozen at whatever shipped that day, so a
 /// migration started before a bug was fixed would keep hitting it forever.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn init_migration(project_path: String, source_url: String) -> Result<(), CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -359,7 +359,7 @@ fn scaffold_migration(root: &Path, source_url: &str) -> Result<(), CommandError>
 ///
 /// A missing file is not an error. It is the ordinary state of a project that
 /// is not a migration, and of one whose agent has not got there yet.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn read_migration_status(
     project_path: String,
@@ -400,7 +400,7 @@ pub struct FidelityReportFile {
 /// Returns the raw reports rather than a digested shape: the capture script
 /// owns that format, and re-describing it here would create a second place for
 /// it to be wrong.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn read_fidelity_runs(
     project_path: String,

@@ -2,7 +2,7 @@
  * How complete this feed actually is, and what would make it more so.
  *
  * The honest framing of a feature that degrades rather than breaks. Everyone
- * with repo access shows up here whether or not they use Ship Studio — their
+ * with repo access shows up here whether or not they use Harbr — their
  * pushes arrive as GitHub facts, openable in GitHub, missing only the *why*.
  * That is a working product for a team of one adopter, which is the only way
  * adoption ever starts.
@@ -46,7 +46,7 @@ export function TeamCoverageNote({ members, repo }: TeamCoverageNoteProps) {
   // A nudge about commit messages, not a pitch for this app. What the feed
   // needs from someone is a sentence in their commit body — which costs them
   // nothing, works in whatever editor they already use, and helps everyone
-  // reading `git log` whether or not they ever open Ship Studio.
+  // reading `git log` whether or not they ever open Harbr.
   const nudge = [
     `Could we start putting a line or two in commit bodies on ${repo ?? 'this repo'}? Just why the change was needed — the subject already says what changed.`,
     '',
@@ -100,7 +100,7 @@ export function TeamCoverageComplete({ members }: { members: TeamMember[] }) {
  * Marks a person whose commits arrive with no body.
  *
  * Deliberately not "GitHub only", which is what this said when the feed read a
- * Ship Studio record instead of the commit. That badge was about which tool
+ * Harbr record instead of the commit. That badge was about which tool
  * somebody used; this one is about whether their work is legible, which is the
  * only part that affects anyone else.
  */

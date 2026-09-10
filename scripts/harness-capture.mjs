@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Capture Ship Studio's UI so an agent can review it without a human driving
+ * Capture Harbr's UI so an agent can review it without a human driving
  * the app.
  *
  * Two modes, both writing PNGs plus a `report.md` digest and `report.json`:
@@ -38,7 +38,7 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const HARNESS_PORT = Number(process.env.SHIPSTUDIO_HARNESS_PORT ?? 1425);
+const HARNESS_PORT = Number(process.env.HARBR_HARNESS_PORT ?? 1425);
 const HARNESS_ORIGIN = `http://127.0.0.1:${HARNESS_PORT}`;
 const CDP_PORT = 9333;
 const VIEWPORT = { width: 1440, height: 900 };
@@ -139,7 +139,7 @@ async function assertHarnessIsThisCheckout() {
         `/__harness/identity (${e.message}).\n` +
         `That is either a stale harness from before this check existed, or an ` +
         `unrelated server. Restart the harness in this checkout, or set ` +
-        `SHIPSTUDIO_HARNESS_PORT to a free port in both shells.`
+        `HARBR_HARNESS_PORT to a free port in both shells.`
     );
   }
 
@@ -150,7 +150,7 @@ async function assertHarnessIsThisCheckout() {
         `  you are in    : ${expected}\n` +
         `Capturing anyway would screenshot that tree and label the images with ` +
         `this one's scenarios. Stop that harness, or run both with different ` +
-        `SHIPSTUDIO_HARNESS_PORT values.`
+        `HARBR_HARNESS_PORT values.`
     );
   }
   return identity;
@@ -416,7 +416,7 @@ const mark = (r) =>
 
 function renderReport({ scenarios, commands, skipped, meta }) {
   const lines = [
-    '# Ship Studio UI harness — capture report',
+    '# Harbr UI harness — capture report',
     '',
     `Captured ${new Date().toISOString()} at ${VIEWPORT.width}×${VIEWPORT.height}.`,
     ...(meta.filter

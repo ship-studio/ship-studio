@@ -18,7 +18,7 @@
  * - `adb` — the bridge can only run discrete `adb shell input` commands, so a
  *   press→release is synthesized into a tap or swipe here.
  *
- * AVCC (not description-less Annex-B) is deliberate: Ship Studio runs in WebKit
+ * AVCC (not description-less Annex-B) is deliberate: Harbr runs in WebKit
  * (Tauri's webview), whose `VideoDecoder` wants an `avcC` description + length-
  * prefixed samples, not in-band start codes. So we parse SPS/PPS, build the
  * `avcC`, and strip start codes — the portable path across WebKit and Chromium.

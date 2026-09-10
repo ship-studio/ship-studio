@@ -52,23 +52,22 @@ export function BootLoadingScreen({ progress = 0 }: BootLoadingScreenProps) {
 
   return (
     <div className="app loading">
-      <img src="/ship_studio_full.png" alt="Ship Studio" className="app-logo" />
+      <img src="/harbr-mark.svg" alt="Harbr" className="app-logo" />
       {timedOut ? (
         <div className="boot-watchdog">
           <p>
-            Ship Studio is taking longer than expected to start. A startup check may be stuck —
-            restarting usually fixes this.
+            Harbr is taking longer than expected to start. A startup check may be stuck — restarting
+            usually fixes this.
           </p>
           <Button variant="primary" onClick={() => void handleRestart()}>
-            Restart Ship Studio
+            Restart Harbr
           </Button>
           <p className="boot-watchdog-hint">
-            If this keeps happening, check the logs at ~/Library/Logs/ShipStudio/ and reach out on
-            Slack.
+            If this keeps happening, check the logs at ~/Library/Logs/Harbr/.
           </p>
         </div>
       ) : (
-        <Progress value={progress} aria-label="Starting Ship Studio" className="boot-progress" />
+        <Progress value={progress} aria-label="Starting Harbr" className="boot-progress" />
       )}
     </div>
   );

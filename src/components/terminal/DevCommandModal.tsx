@@ -2,7 +2,7 @@
  * Modal for configuring a custom dev command for generic projects.
  *
  * Allows users to specify a command (e.g., "cargo run", "npm run dev")
- * that Ship Studio will auto-start/stop/restart.
+ * that Harbr will auto-start/stop/restart.
  */
 
 import { useState } from 'react';

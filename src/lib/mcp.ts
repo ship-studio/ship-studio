@@ -87,7 +87,7 @@ export function isMcpInvalidInputError(value: unknown): boolean {
  * Wording of the guidance sentences `classify_mcp_failure`
  * (src-tauri/src/commands/mcp.rs) appends when an `<agent> mcp add|remove|list`
  * failure reflects machine state, org policy, the user's own agent config, or
- * an upstream CLI bug — never a Ship Studio defect. The backend returns those
+ * an upstream CLI bug — never a Harbr defect. The backend returns those
  * as `CommandError::Expected`, but Expected serializes identically to Other
  * across IPC, so the wording is the only signal left by the time the modal
  * catches it. Keep these in sync with the Rust strings byte-for-byte.
@@ -119,7 +119,7 @@ const MCP_EXPECTED_FAILURE_PHRASES = [
  * unique phrase either.
  *
  * These are the user's environment, organization, or agent CLI — routing
- * them to `logger.error` auto-files a bug report for something Ship Studio
+ * them to `logger.error` auto-files a bug report for something Harbr
  * can't fix (issues #755, #763, #799, #800), so callers log them at warn
  * level and surface them as information, following the #655 precedent above.
  */

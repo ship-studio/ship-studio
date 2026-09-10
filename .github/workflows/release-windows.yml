@@ -4,327 +4,45 @@ on:
   push:
     tags:
       - '*-win'
-  # Dry run: build + sign + verify the signature, publish nothing. Use it to
-  # prove the Artifact Signing secrets work before cutting a real -win tag:
-  #   gh workflow run release-windows.yml --ref <branch>
   workflow_dispatch:
 
 jobs:
   build:
+    runs-on: windows-latest
     permissions:
       contents: write
-    runs-on: windows-latest
-    timeout-minutes: 30
     steps:
-      - name: Force LF line endings
-        run: git config --global core.autocrlf false
-
       - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-
-      # Code signing via Azure Artifact Signing (formerly Trusted Signing).
-      # A signed installer is what stops SmartScreen's "Windows protected your
-      # PC" wall and Chrome's "uncommon download" warning. Tauri calls the
-      # sign command for the app exe and again for the NSIS installer, so both
-      # carry the signature and the updater's UAC prompt shows the publisher.
-      # If the secrets are absent the build is NOT signed and the job annotates
-      # a warning — see RELEASING.md → Windows code signing.
-      - name: Configure Windows code signing
-        id: signing
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:all
+      - run: pnpm test:run
+      - name: Build Harbr
+        run: pnpm tauri build --bundles nsis
+      - name: Stage artifact
         shell: bash
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
-        run: |
-          missing=()
-          for v in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
-            [ -n "${!v}" ] || missing+=("$v")
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::warning::Windows build will NOT be code-signed. Missing secrets: ${missing[*]} (RELEASING.md → Windows code signing)."
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "args=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          cargo install artifact-signing-cli --locked
-          # Tauri merges this overlay onto tauri.conf.json (--config). The
-          # values are account identifiers, not credentials; the credentials
-          # are the AZURE_* env vars the CLI reads at sign time.
-          cat > "$RUNNER_TEMP/tauri.signing.conf.json" <<EOF
-          {
-            "bundle": {
-              "windows": {
-                "signCommand": {
-                  "cmd": "artifact-signing-cli",
-                  "args": ["-e", "$AZURE_SIGNING_ENDPOINT", "-a", "$AZURE_SIGNING_ACCOUNT", "-c", "$AZURE_SIGNING_PROFILE", "%1"]
-                }
-              }
-            }
-          }
-          EOF
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-          echo "args=--config $RUNNER_TEMP/tauri.signing.conf.json" >> "$GITHUB_OUTPUT"
-          echo "Code signing configured."
-
-      - name: Use bash for package scripts
-        run: npm config set script-shell "C:\Program Files\Git\bin\bash.exe"
-
-      - name: Install frontend dependencies
-        run: pnpm install
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        id: tauri
-        timeout-minutes: 30
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Admin-agent bug reporting (docs/error-reporting.md). Compiled in via
-          # option_env! — if the secret is unset, reporting is a silent no-op.
-          BUG_REPORT_SECRET: ${{ secrets.BUG_REPORT_SECRET }}
-          # Azure Artifact Signing credentials (read by artifact-signing-cli).
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        with:
-          # On a dry run (workflow_dispatch) no tag is passed, so tauri-action
-          # only builds and never touches GitHub releases.
-          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          releaseName: 'Ship Studio ${{ github.ref_name }}'
-          releaseBody: 'Windows release. See the main repository for full release notes.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ steps.signing.outputs.args }}
-
-      - name: Find and stage updater artifacts
-        shell: bash
-        run: |
-          BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
-          echo "Looking in $BUNDLE_DIR"
-          ls -la "$BUNDLE_DIR" || true
-
-          EXE_FILE=$(find "$BUNDLE_DIR" -name "*-setup.exe" -type f | head -1)
-          SIG_FILE=$(find "$BUNDLE_DIR" -name "*-setup.exe.sig" -type f | head -1)
-
-          if [ -z "$EXE_FILE" ] || [ -z "$SIG_FILE" ]; then
-            echo "Error: missing expected artifacts"
-            echo "  exe: $EXE_FILE"
-            echo "  sig: $SIG_FILE"
-            exit 1
-          fi
-
-          echo "Found exe: $EXE_FILE"
-          echo "Found sig: $SIG_FILE"
-
-          # Gate: when signing is configured, the installer must actually carry
-          # a valid Authenticode signature. Never ship an unsigned exe by accident.
-          if [ "${{ steps.signing.outputs.enabled }}" = "true" ]; then
-            STATUS=$(powershell -NoProfile -Command "(Get-AuthenticodeSignature '$EXE_FILE').Status")
-            SIGNER=$(powershell -NoProfile -Command "(Get-AuthenticodeSignature '$EXE_FILE').SignerCertificate.Subject")
-            echo "Authenticode status: $STATUS"
-            echo "Signer: $SIGNER"
-            if [ "$STATUS" != "Valid" ]; then
-              echo "::error::Installer signature is '$STATUS', expected 'Valid'. Refusing to publish an unsigned/invalid installer."
-              exit 1
-            fi
-          fi
-
-          # Stable asset names for predictable download URLs
-          mkdir -p artifacts
-          cp "$EXE_FILE" "artifacts/ShipStudio_windows-x86_64-setup.exe"
-          cp "$SIG_FILE" "artifacts/ShipStudio_windows-x86_64-setup.exe.sig"
-          cat "$SIG_FILE" > "artifacts/signature.txt"
-
-          ls -la artifacts/
-
-      - name: Upload updater artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: updater-windows-x86_64
-          path: artifacts/
-          if-no-files-found: error
-
-  create-manifest:
-    needs: build
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repo for release notes
-        uses: actions/checkout@v6
-
-      - name: Download updater artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: updater-windows-x86_64
-          path: artifacts
-
-      - name: List downloaded artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          find artifacts -type f
-
-      - name: Get version from tag
-        id: version
-        run: |
-          # v0.5.0-win -> 0.5.0
-          VERSION="${GITHUB_REF_NAME#v}"
-          VERSION="${VERSION%-win}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Read release notes
-        id: release_notes
-        run: |
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          awk '/^## What/{if(found)exit; found=1; next} found{print}' RELEASE_NOTES.md | sed 's/^- /• /' >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Create latest-windows.json
-        env:
-          NOTES: ${{ steps.release_notes.outputs.notes }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="${{ github.ref_name }}"
-          RELEASES_REPO="ship-studio/releases"
-
-          SIG=$(cat artifacts/signature.txt)
-          echo "windows-x86_64 signature: $SIG"
-
-          jq -n \
-            --arg version "$VERSION" \
-            --arg notes "$NOTES" \
-            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg sig "$SIG" \
-            --arg url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_windows-x86_64-setup.exe" \
-            '{
-              version: $version,
-              notes: $notes,
-              pub_date: $pub_date,
-              platforms: {
-                "windows-x86_64": {
-                  signature: $sig,
-                  url: $url
-                }
-              }
-            }' > latest-windows.json
-
-          echo "Generated latest-windows.json:"
-          cat latest-windows.json
-
-          python3 -c "import json; json.load(open('latest-windows.json'))" && echo "JSON is valid"
-
-      # Carry forward macOS manifest AND installers so neither macOS
-      # auto-update nor the site's download links break when this Windows
-      # release flips the "latest" alias. The marketing site links to
-      # releases/latest/download/ShipStudio_darwin-*.dmg — publishing
-      # v0.6.8-win without the DMGs 404'd the Mac download buttons.
-      # Resolve the newest macOS (non -win) release explicitly: it is
-      # guaranteed to have both the manifest and the DMGs. Strict (no
-      # continue-on-error): publishing without these assets breaks macOS
-      # users, so failing the Windows release is the lesser evil.
-      - name: Carry forward macOS manifest and installers
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
         run: |
           set -euo pipefail
-          mkdir -p carry-forward
-          # Pick the newest PUBLISHED macOS release. `gh release list` returns
-          # drafts first, so a plain `[0]` can select a draft that has no
-          # assets at all — the same bug that shipped a stale Windows manifest
-          # from release.yml. Exclude drafts and take the most recently
-          # published non -win tag.
-          MAC_TAG=$(gh release list --repo ship-studio/releases --limit 100 \
-            --json tagName,isDraft,publishedAt \
-            --jq '[.[] | select(.isDraft == false) | select(.tagName | endswith("-win") | not)]
-                  | sort_by(.publishedAt) | last | .tagName // empty')
-          if [ -z "$MAC_TAG" ]; then
-            echo "::error::No published macOS release found to carry forward" >&2
-            exit 1
-          fi
-          echo "Carrying forward macOS assets from $MAC_TAG"
-          gh release download "$MAC_TAG" \
-            --repo ship-studio/releases \
-            --pattern "latest.json" \
-            --pattern "ShipStudio_darwin-*.dmg" \
-            --dir carry-forward
-          ls -la carry-forward/
-
-          # Gate: every asset the site and the docs link to under the
-          # /releases/latest/download/ alias must be present before this
-          # release is allowed to become "latest". ShipStudio_darwin-universal.dmg
-          # is the one the marketing site's "Download for Mac" button resolves
-          # to; it was missing from the upload list below, so v1.2.0-win flipped
-          # the alias and 404'd every Mac download from the web. The site now
-          # falls back to the legacy arch-named copies rather than 404ing, but
-          # that serves the universal build under a misleading name and hides
-          # this bug — so the gate below stays strict.
-          missing=()
-          for f in latest.json \
-                   ShipStudio_darwin-universal.dmg \
-                   ShipStudio_darwin-aarch64.dmg \
-                   ShipStudio_darwin-x86_64.dmg; do
-            [ -f "carry-forward/$f" ] || missing+=("$f")
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::macOS assets missing from $MAC_TAG: ${missing[*]}. Publishing would 404 the site's Mac download."
-            exit 1
-          fi
-
-      - name: Upload artifacts to main repo draft release
+          source_file=$(find src-tauri/target/release/bundle/nsis -name '*-setup.exe' -type f -print -quit)
+          test -n "$source_file"
+          mkdir -p artifacts
+          cp "$source_file" artifacts/Harbr_windows-x86_64-setup.exe
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Harbr-windows-x86_64
+          path: artifacts/Harbr_windows-x86_64-setup.exe
+          if-no-files-found: error
+      - name: Add artifact to draft release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            artifacts/ShipStudio_windows-x86_64-setup.exe
-            artifacts/ShipStudio_windows-x86_64-setup.exe.sig
-            latest-windows.json
+          files: artifacts/Harbr_windows-x86_64-setup.exe
           draft: true
-
-      # Auto-publish in the public repo, matching the macOS pipeline
-      # (release.yml's "Create release in public releases repo" step, which
-      # has no --draft). The old --draft "manual publish gate" meant every
-      # Windows build silently stopped at a draft and no download ever went
-      # live — the CI windows-check job now provides the verification that
-      # gate stood in for. Includes the carry-forward macOS manifest and DMG
-      # installers so this release flipping the "latest" alias doesn't drop
-      # macOS auto-update or the site's Mac download links.
-      - name: Create release in public ship-studio/releases repo
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Auto-published (no --draft) so the download is live immediately.
-          gh release create "$TAG" \
-            --repo ship-studio/releases \
-            --title "Ship Studio v${VERSION} (Windows)" \
-            --notes "Auto-updater release for Ship Studio v${VERSION} Windows. See the main repository for full release notes." \
-            artifacts/ShipStudio_windows-x86_64-setup.exe \
-            artifacts/ShipStudio_windows-x86_64-setup.exe.sig \
-            latest-windows.json \
-            carry-forward/latest.json \
-            carry-forward/ShipStudio_darwin-universal.dmg \
-            carry-forward/ShipStudio_darwin-aarch64.dmg \
-            carry-forward/ShipStudio_darwin-x86_64.dmg
+          generate_release_notes: true

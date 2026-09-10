@@ -116,7 +116,7 @@ export function useTeamWorkspace(
   }, [projectPath, showToast]);
 
   // Every timer below is gated on this window being the one in front of the
-  // user. Ship Studio opens a window per project and people leave them open
+  // user. Harbr opens a window per project and people leave them open
   // for days; ungated, each of those windows walked git history, ran
   // `gh pr list` and called the GitHub API once a minute, for the whole time
   // nobody was looking at it. `usePolling` fires immediately on start, so

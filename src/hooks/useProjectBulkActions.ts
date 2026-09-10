@@ -161,7 +161,7 @@ export function useProjectBulkActions<T extends DashboardProject>({
     (action: BulkProjectAction) => {
       if (selectedProjects.length === 0) return;
       if (action === 'delete' && selectedIncludesExternalProject) {
-        showToast('External projects can only be removed from Ship Studio.', 'error');
+        showToast('External projects can only be removed from Harbr.', 'error');
         return;
       }
       setBulkConfirm({ action, projects: selectedProjects });
@@ -176,7 +176,7 @@ export function useProjectBulkActions<T extends DashboardProject>({
     async (confirm: BulkProjectActionConfirm<T>) => {
       if (confirm.projects.length === 0) return;
       if (confirm.action === 'delete' && confirm.projects.some((project) => project.is_external)) {
-        showToast('External projects can only be removed from Ship Studio.', 'error');
+        showToast('External projects can only be removed from Harbr.', 'error');
         return;
       }
 

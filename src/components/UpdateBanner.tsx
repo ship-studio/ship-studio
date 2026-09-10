@@ -18,6 +18,7 @@ import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { usePolling } from '../hooks/usePolling';
+import { useCapabilities } from '../lib/capabilities';
 import { AlertIcon, CloseIcon, DownloadIcon, ResetIcon } from '@/components/icons';
 import { Button } from './primitives/Button';
 import { IconButton } from './primitives/IconButton';
@@ -125,6 +126,7 @@ export function parseReleaseNotes(body: string | undefined, version: string): Re
 }
 
 export function UpdateBanner() {
+  const capabilities = useCapabilities();
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [status, setStatus] = useState<UpdateStatus>('idle');
   const [progress, setProgress] = useState(0);
@@ -151,6 +153,7 @@ export function UpdateBanner() {
     intervalMs: UPDATE_CHECK_INTERVAL_MS,
     maxIntervalMs: UPDATE_CHECK_INTERVAL_MS,
     name: 'app-update-check',
+    enabled: capabilities.updater,
   });
 
   const releaseNotes = useMemo(
@@ -197,7 +200,7 @@ export function UpdateBanner() {
       logger.warn('[UpdateBanner] Restart failed', { error: detail });
       trackError('app_restart', err, 'Project Sidebar');
       setStatus('error');
-      setError(`Couldn't restart the app: ${detail}. Please quit and reopen Ship Studio manually.`);
+      setError(`Couldn't restart the app: ${detail}. Please quit and reopen Harbr manually.`);
     }
   }, []);
 
@@ -212,7 +215,7 @@ export function UpdateBanner() {
     setModalOpen(false);
   }, [availableUpdate]);
 
-  if (!availableUpdate || deferred) return null;
+  if (!capabilities.updater || !availableUpdate || deferred) return null;
 
   const version = availableUpdate.info.version;
   const indicatorLabel =
@@ -271,7 +274,7 @@ export function UpdateBanner() {
                   ? `Downloading version ${version}`
                   : status === 'error'
                     ? `Retry update to version ${version}`
-                    : `Update Ship Studio to version ${version}`
+                    : `Update Harbr to version ${version}`
             }
           >
             <span className="update-indicator-icon" aria-hidden="true">

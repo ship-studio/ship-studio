@@ -74,7 +74,7 @@ pub fn push(app: Option<&AppHandle>, workflow_id: &str, text: impl Into<String>)
 ///
 /// A window opened mid-run has missed every event, so it asks for the buffer
 /// once and follows events from there.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn workflow_progress(
     workflow_id: String,

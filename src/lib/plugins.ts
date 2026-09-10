@@ -1,5 +1,5 @@
 /**
- * Plugin management utilities for Ship Studio.
+ * Plugin management utilities for Harbr.
  *
  * Plugins are project-level: each project has its own set of plugins
  * stored at <project>/.shipstudio/plugins/.
@@ -116,8 +116,7 @@ export function supersededReason(pluginId: string): string | null {
   return SUPERSEDED_PLUGINS[pluginId] ?? null;
 }
 
-const REGISTRY_URL =
-  'https://raw.githubusercontent.com/ship-studio/plugin-registry/main/registry.json';
+const REGISTRY_URL = '/plugin-registry.json';
 
 /** Cached registry to avoid re-fetching */
 let registryCache: { plugins: PluginRegistryEntry[]; fetchedAt: number } | null = null;
@@ -247,7 +246,7 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
   'Plugin ID contains invalid characters',
   'has no built bundle (dist/index.js)',
   'Plugin bundle not found',
-  'requires Ship Studio v',
+  'requires Harbr v',
   'requests commands that are not available to plugins',
   'is already installed. Uninstall it first',
   // Repository URL refusals and remote-git classifications

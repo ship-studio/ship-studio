@@ -22,7 +22,7 @@ export type RunStatus = 'ok' | 'findings' | 'failed' | 'running';
 export type WorkflowPermission = 'read-only' | 'can-edit';
 
 /**
- * Non-time triggers, all of which Ship Studio already observes. These are the
+ * Non-time triggers, all of which Harbr already observes. These are the
  * best fit for the model: they fire during work, which is exactly when the app
  * is open.
  */
@@ -32,7 +32,7 @@ export type WorkflowEvent = 'push' | 'pr-opened';
  * What sets a workflow off.
  *
  * Pressing Run is the default and always works. Everything else is an opt-in on
- * top of it, and everything else fires **only while Ship Studio is running** —
+ * top of it, and everything else fires **only while Harbr is running** —
  * a workflow is the user's own agent CLI on the user's own machine, so there is
  * no server to keep a clock. {@link describeTriggerReality} is the single place
  * that sentence is written, and every trigger control shows it.
@@ -237,14 +237,14 @@ export function describeSchedule(workflow: Pick<Workflow, 'trigger' | 'autoRun'>
   const { trigger } = workflow;
   if (trigger.kind === 'manual') return 'Manual — runs when you press Run';
   if (!workflow.autoRun) return `${formatTrigger(trigger)} — auto-run off`;
-  return `${formatTrigger(trigger)}, while Ship Studio is open`;
+  return `${formatTrigger(trigger)}, while Harbr is open`;
 }
 
 /**
  * The honest sentence about when a trigger can actually fire.
  *
  * Workflows are the user's own agent CLI on the user's own machine. There is no
- * Ship Studio server, so nothing fires while the app is closed, and every one
+ * Harbr server, so nothing fires while the app is closed, and every one
  * of these sentences says so plainly rather than implying a clock we don't
  * keep.
  */
@@ -253,12 +253,12 @@ export function describeTriggerReality(trigger: WorkflowTrigger): string {
     case 'manual':
       return 'Runs only when you press Run. Nothing happens on its own.';
     case 'event':
-      return 'Fires when Ship Studio sees the event, which is while you are working in it. Events that happen elsewhere are not replayed.';
+      return 'Fires when Harbr sees the event, which is while you are working in it. Events that happen elsewhere are not replayed.';
     case 'interval':
-      return 'Not a clock — a minimum gap. While Ship Studio is open it checks whether that long has passed since the last run, and runs if it has. Close the app for a day and it runs once when you reopen, never a backlog.';
+      return 'Not a clock — a minimum gap. While Harbr is open it checks whether that long has passed since the last run, and runs if it has. Close the app for a day and it runs once when you reopen, never a backlog.';
     case 'daily':
     case 'weekly':
-      return 'Ship Studio checks this while it is open. If the app is closed at that time the run is simply late — it happens at the next check after you reopen, once, not once per day missed.';
+      return 'Harbr checks this while it is open. If the app is closed at that time the run is simply late — it happens at the next check after you reopen, once, not once per day missed.';
   }
 }
 

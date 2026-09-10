@@ -1,9 +1,9 @@
-//! Skills Ship Studio ships with, written into each installed agent's skills
+//! Skills Harbr ships with, written into each installed agent's skills
 //! directory on launch.
 //!
 //! ## Why this exists
 //!
-//! Ship Studio used to extend itself with plugins: separate repos, cloned
+//! Harbr used to extend itself with plugins: separate repos, cloned
 //! per-project, rendering their own UI through a parallel component library.
 //! For anything whose real job is *constructing a prompt* that was the wrong
 //! container — it meant a second design system, a per-project install, and a
@@ -39,7 +39,7 @@ pub struct BundledSkill {
     pub body: fn() -> String,
 }
 
-/// Every skill Ship Studio installs.
+/// Every skill Harbr installs.
 pub const BUNDLED_SKILLS: &[BundledSkill] = &[
     BundledSkill {
         dir_name: "shipstudio-workflows",

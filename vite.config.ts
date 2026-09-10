@@ -19,14 +19,14 @@ const host = process.env.TAURI_DEV_HOST;
  * silently-moved Vite would leave the window on the static boot fallback. But
  * it also means two worktrees cannot run at once on the default.
  *
- * `SHIPSTUDIO_DEV_PORT` moves both this and the HMR socket together. Whatever
+ * `HARBR_DEV_PORT` moves both this and the HMR socket together. Whatever
  * launches Tauri has to point `build.devUrl` at the same port:
  *
- *   SHIPSTUDIO_DEV_PORT=1445 pnpm tauri dev \
+ *   HARBR_DEV_PORT=1445 pnpm tauri dev \
  *     --config '{"build":{"devUrl":"http://127.0.0.1:1445"}}'
  */
 // @ts-expect-error process is a nodejs global
-const devPort = Number(process.env.SHIPSTUDIO_DEV_PORT ?? 1420);
+const devPort = Number(process.env.HARBR_DEV_PORT ?? 1420);
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as {
   version: string;
@@ -99,6 +99,13 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@tauri-apps/api/core': path.resolve(__dirname, './src/lib/ipc.ts'),
+      '@tauri-apps/api/event': path.resolve(__dirname, './src/lib/webEvents.ts'),
+      '@tauri-apps/api/app': path.resolve(__dirname, './src/lib/webApp.ts'),
+      '@tauri-apps/api/path': path.resolve(__dirname, './src/lib/webPath.ts'),
+      '@tauri-apps/plugin-fs': path.resolve(__dirname, './src/lib/webFs.ts'),
+      '@tauri-apps/plugin-opener': path.resolve(__dirname, './src/lib/webOpener.ts'),
+      '@tauri-apps/plugin-process': path.resolve(__dirname, './src/lib/webProcess.ts'),
     },
   },
 

@@ -376,7 +376,7 @@ export function WorkspaceModals({
               <li>Make changes without confirmation</li>
             </ul>
             <p className="auto-accept-warning-disclaimer">
-              By enabling this mode, you acknowledge that Ship Studio and Anthropic are{' '}
+              By enabling this mode, you acknowledge that Harbr and Anthropic are{' '}
               <strong>not liable</strong> for any unintended changes or actions taken by the AI.
             </p>
             <div className="modal-actions">

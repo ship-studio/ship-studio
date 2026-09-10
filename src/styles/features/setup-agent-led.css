@@ -1,7 +1,7 @@
 /**
  * Agent-led onboarding: mode router toggle, agent pick phase additions,
  * guided setup layout (terminal + verification checklist), and the scripted
- * demo terminal used under SHIPSTUDIO_FORCE_SETUP.
+ * demo terminal used under HARBR_FORCE_SETUP.
  */
 
 :root {

@@ -15,7 +15,7 @@ export function QuitConfirmModal({ onCancel, onQuit }: QuitConfirmModalProps) {
     <ModalFrame
       isOpen
       onClose={onCancel}
-      ariaLabel="Quit Ship Studio"
+      ariaLabel="Quit Harbr"
       showCloseButton={false}
       className="quit-confirm-modal"
     >
@@ -24,7 +24,7 @@ export function QuitConfirmModal({ onCancel, onQuit }: QuitConfirmModalProps) {
           if (e.key === 'Enter') onQuit();
         }}
       >
-        <p>Are you sure you want to quit Ship Studio?</p>
+        <p>Are you sure you want to quit Harbr?</p>
         <div className="quit-confirm-actions">
           <Button variant="secondary" onClick={onCancel}>
             Cancel

@@ -65,8 +65,6 @@ impl CommandError {
 /// updated when a variant is added.
 impl Serialize for CommandError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        crate::error_reporting::report_command_error(self);
-
         #[derive(Serialize)]
         #[serde(tag = "type")]
         enum Mirror<'a> {

@@ -251,7 +251,7 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
               <EmptyState
                 icon={<ActivityIcon size={28} />}
                 title="No workflows yet"
-                description="A workflow is an instruction and a project. Press Run whenever you want it, or put it on a schedule that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox. You can also just ask your agent to make you one."
+                description="A workflow is an instruction and a project. Press Run whenever you want it, or put it on a schedule that ticks while Harbr is open. It uses the agent CLI you already have, and files what it finds in your Inbox. You can also just ask your agent to make you one."
                 action={
                   <Button variant="primary" onClick={() => setEditing('new')}>
                     Create your first workflow
@@ -280,7 +280,7 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
 
           <p className="workflows-page-footer">
             Workflows run your own agent CLI inside your project folder, on the plan you already pay
-            for. Nothing runs while Ship Studio is closed. Each one is a markdown file under{' '}
+            for. Nothing runs while Harbr is closed. Each one is a markdown file under{' '}
             <code>.shipstudio/workflows/</code> — commit them, review them in a PR, or ask your
             agent to write you one.
           </p>

@@ -8,7 +8,7 @@
 //! dependency list unchanged.
 //!
 //! Unknown keys are preserved on read and written back on save, so a future
-//! Ship Studio version adding a key doesn't have its value silently dropped by
+//! Harbr version adding a key doesn't have its value silently dropped by
 //! an older one round-tripping the file.
 
 use super::{Severity, WorkflowPermission, WorkflowTrigger};
@@ -390,7 +390,7 @@ pub fn read_project_workflows(project: &Path) -> Vec<Workflow> {
     workflows
 }
 
-/// Every project Ship Studio knows about that has a workflows folder: the
+/// Every project Harbr knows about that has a workflows folder: the
 /// projects root plus registered external folders.
 ///
 /// Lives here rather than in the scheduler because both the scheduler and the
@@ -439,7 +439,7 @@ pub struct WorkflowView {
 }
 
 /// Every workflow in every known project, with its schedule and history.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn list_all_workflows() -> Result<Vec<WorkflowView>, CommandError> {
     let state = super::state::load_state();
@@ -489,7 +489,7 @@ pub async fn list_all_workflows() -> Result<Vec<WorkflowView>, CommandError> {
 /// workflow deliberately does *not* rename its file: the filename is the
 /// workflow's identity, and moving it would orphan its run history and every
 /// finding already filed against it.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(draft), fields(project = %project_path))]
 pub async fn save_workflow_file(
     project_path: String,
@@ -556,7 +556,7 @@ pub async fn save_workflow_file(
 
 /// Delete a workflow file. Findings it already filed stay in the inbox — they
 /// describe real problems that don't stop existing because the watcher did.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path, slug = %slug))]
 pub async fn delete_workflow_file(project_path: String, slug: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;

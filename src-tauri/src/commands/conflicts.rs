@@ -144,7 +144,7 @@ pub fn non_text_mergeable_reason(path: &std::path::Path) -> Option<String> {
 /// making them pay to parse every hunk of every conflict on each tick would
 /// cost most in exactly the state where the app is already busy. This is one
 /// `git diff` and a byte check.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn has_conflicts(project_path: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -247,13 +247,13 @@ fn is_git_repository(project: &std::path::Path) -> bool {
         })
 }
 
-/// Message used for the commit that finishes a Ship Studio conflict merge.
-const MERGE_COMMIT_MESSAGE: &str = "Resolved merge conflicts via Ship Studio";
+/// Message used for the commit that finishes a Harbr conflict merge.
+const MERGE_COMMIT_MESSAGE: &str = "Resolved merge conflicts via Harbr";
 
 /// Run an index-mutating git invocation, retrying when it loses the
 /// `.git/index.lock` race.
 ///
-/// Ship Studio runs git concurrently with the user's own agent terminal and
+/// Harbr runs git concurrently with the user's own agent terminal and
 /// with the background snapshot watcher's debounced `git stash create`, so
 /// losing the index lock is routine rather than exotic. Every other
 /// index-mutating call site in the app already retries
@@ -291,7 +291,7 @@ fn commit_merge(
 }
 
 /// Get information about all conflicted files in the repository
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFile>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -387,7 +387,7 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
 }
 
 /// Resolve a single conflict in a file by choosing current or incoming content
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path, file_path, resolution), fields(project = %project_path, file = %file_path, conflict_index = conflict_index, resolution = %resolution))]
 pub async fn resolve_conflict(
     project_path: String,
@@ -496,7 +496,7 @@ pub async fn resolve_conflict(
 }
 
 /// Abort the current merge and return to pre-merge state
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn abort_merge(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -514,7 +514,7 @@ pub async fn abort_merge(project_path: String) -> Result<(), CommandError> {
 }
 
 /// Complete the merge after all conflicts have been resolved
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn complete_merge(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;

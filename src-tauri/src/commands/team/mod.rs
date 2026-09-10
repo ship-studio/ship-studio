@@ -10,7 +10,7 @@
 //! | Half | Source | Needs |
 //! |------|--------|-------|
 //! | **What people did** ([`derive`]) | `git log`, `gh pr list` | a good commit message |
-//! | **Comments** ([`records`], [`threads`]) | `.shipstudio-team/threads/**` | Ship Studio |
+//! | **Comments** ([`records`], [`threads`]) | `.shipstudio-team/threads/**` | Harbr |
 //!
 //! The first half reads git's own fields. A commit subject is the headline and
 //! **the commit body is the why** — which is where "why" has always belonged,
@@ -98,7 +98,7 @@ pub enum TeamUpdateAuthor {
     Agent,
     /// Someone typed it.
     Person,
-    /// Ship Studio saw a commit with no record attached and said only that.
+    /// Harbr saw a commit with no record attached and said only that.
     App,
 }
 
@@ -201,7 +201,7 @@ pub struct TeamMember {
     /// Derived from the commits themselves, never from which tool they use. A
     /// teammate on plain `git` who writes a real commit message produces a row
     /// exactly as good as one written here. The earlier version of this field
-    /// asked "has this person written a Ship Studio record", which called them
+    /// asked "has this person written a Harbr record", which called them
     /// uncovered for using a different editor — a question about our adoption
     /// wearing the costume of a question about their work.
     pub explains_work: bool,

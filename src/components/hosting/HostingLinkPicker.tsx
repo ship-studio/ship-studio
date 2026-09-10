@@ -199,8 +199,7 @@ export function HostingLinkPicker({
           <>
             {detected.length === 0 ? (
               <p>
-                Pick where this project deploys, so Ship Studio can show you whether each push went
-                live.
+                Pick where this project deploys, so Harbr can show you whether each push went live.
               </p>
             ) : null}
             {PROVIDERS.map((p) => (

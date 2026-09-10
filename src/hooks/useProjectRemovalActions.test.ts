@@ -47,7 +47,7 @@ function makeProject(overrides: Partial<DashboardProject> = {}): DashboardProjec
 const FOLDER_GONE_ERROR = {
   type: 'Other' as const,
   message:
-    "The folder 'happy-lipo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+    "The folder 'happy-lipo' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
   expected: true,
 };
 
@@ -75,7 +75,7 @@ describe('useProjectRemovalActions', () => {
   }
 
   // Issue #878: a project whose folder is already gone (moved/renamed/
-  // deleted outside Ship Studio) is a normal environment change, not a bug —
+  // deleted outside Harbr) is a normal environment change, not a bug —
   // it must be logged as a warning, never routed through trackError /
   // logger.error, which auto-file a bug report.
   it('logs a vanished folder as a warning, not an error, on remove-from-app', async () => {

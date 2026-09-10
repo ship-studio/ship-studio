@@ -121,16 +121,13 @@ static STATE_LOCK: Mutex<()> = Mutex::new(());
 /// own inbox. It could, and did: the end-to-end test builds a throwaway
 /// `tempdir` project, and its findings landed in the real state file as items
 /// from a project called `.tmpwlS1C3` that no longer existed.
-pub const STATE_PATH_ENV: &str = "SHIPSTUDIO_WORKFLOWS_STATE";
+pub const STATE_PATH_ENV: &str = "HARBR_WORKFLOWS_STATE";
 
 pub fn state_path() -> Result<PathBuf, CommandError> {
     if let Some(override_path) = std::env::var_os(STATE_PATH_ENV) {
         return Ok(PathBuf::from(override_path));
     }
-    let home = dirs::home_dir()
-        .ok_or_else(|| CommandError::expected("Could not find your home directory"))?;
-    Ok(home
-        .join("ShipStudio")
+    Ok(crate::utils::projects_root()?
         .join(".shipstudio")
         .join("workflows-state.json"))
 }
@@ -275,7 +272,7 @@ pub fn prune_runs(state: &mut WorkflowsState, workflow_id: &str) {
 /* --------------------------------------------------------------- commands */
 
 /// Every filed finding, newest first.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn list_inbox_items() -> Result<Vec<InboxItem>, CommandError> {
     let mut items = load_state().inbox;
@@ -283,7 +280,7 @@ pub async fn list_inbox_items() -> Result<Vec<InboxItem>, CommandError> {
     Ok(items)
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn set_inbox_item_read(id: String, read: bool) -> Result<(), CommandError> {
     mutate_state(|state| {
@@ -293,7 +290,7 @@ pub async fn set_inbox_item_read(id: String, read: bool) -> Result<(), CommandEr
     })
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn set_inbox_item_archived(id: String, archived: bool) -> Result<(), CommandError> {
     mutate_state(|state| {
@@ -313,7 +310,7 @@ pub async fn set_inbox_item_archived(id: String, archived: bool) -> Result<(), C
 /// the finding entirely, so the next run that sees the same problem files it
 /// as new — which is the right behaviour for something you deleted because it
 /// was wrong, and the reason both actions exist.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn delete_inbox_item(id: String) -> Result<(), CommandError> {
     mutate_state(|state| {
@@ -321,7 +318,7 @@ pub async fn delete_inbox_item(id: String) -> Result<(), CommandError> {
     })
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn mark_all_inbox_read() -> Result<(), CommandError> {
     mutate_state(|state| {

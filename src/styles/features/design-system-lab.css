@@ -1,4 +1,4 @@
-/* Development-only diagnostic surface for Ship Studio's own primitives. */
+/* Development-only diagnostic surface for Harbr's own primitives. */
 .ss-design-system-lab {
   position: fixed;
   inset: var(--spacing-lg);

@@ -8,6 +8,7 @@ use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::types::GeneratedPR;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
@@ -23,7 +24,7 @@ const AGENT_CLI_TIMEOUT_SECS: u64 = 60;
 const COMMIT_MSG_CLI_TIMEOUT_SECS: u64 = 30;
 
 /// Fallback commit message used when AI generation is unavailable or fails.
-pub const DEFAULT_COMMIT_MESSAGE: &str = "Update from Ship Studio";
+pub const DEFAULT_COMMIT_MESSAGE: &str = "Update from Harbr";
 
 /// Timeout for the fast local git context-gathering ops (branch name, commit
 /// log) — always cheap regardless of repo size.
@@ -124,7 +125,7 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 /// Known "environment, not our bug" failure states from the agent CLI itself,
 /// matched against the failure detail (stderr, or the exit-code + stdout
 /// snippet when stderr is empty — the session-limit refusal arrives on
-/// stdout). These are conditions Ship Studio can't fix and shouldn't
+/// stdout). These are conditions Harbr can't fix and shouldn't
 /// telemetry-report as bugs; `Expected` keeps them out (same precedent as the
 /// missing-binary case above, issue #548).
 ///
@@ -394,7 +395,7 @@ async fn run_agent_headless(
 
 /// Gather git context and generate a PR title and description using the active
 /// agent CLI in headless mode.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, base = %base_branch))]
 pub async fn generate_pr_description(
     project_path: String,
@@ -638,7 +639,7 @@ fn parse_response(response: &str) -> Result<GeneratedPR, String> {
 ///
 /// Exposed as a command for potential UI use (e.g. a "regenerate" button); the
 /// publish flow generates messages internally via [`resolve_commit_message`].
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn generate_commit_message(project_path: String) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -650,7 +651,7 @@ pub async fn generate_commit_message(project_path: String) -> Result<String, Com
 /// The second half exists so the `Made-With` trailer can name an agent only
 /// when an agent actually did something. A user-typed message and a fallback to
 /// [`DEFAULT_COMMIT_MESSAGE`] both carry `None`, and the trailer then says only
-/// "Ship Studio" — crediting Claude Code for a sentence it never saw is the
+/// "Harbr" — crediting Claude Code for a sentence it never saw is the
 /// same invention "Never Assume Data" rules out everywhere else.
 pub struct ResolvedCommitMessage {
     pub message: String,

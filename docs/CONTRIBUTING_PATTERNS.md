@@ -1,11 +1,11 @@
-# Ship Studio — Contributing Patterns
+# Harbr — Contributing Patterns
 
 Read this first when you join the project (or come back to it after a while).
 The TL;DR of the **why** behind the conventions.
 
 ## What changed and why
 
-Ship Studio went through a DX refactor that addressed:
+Harbr went through a DX refactor that addressed:
 
 - **52+ duplicated modal implementations** — every modal hand-rolled its own
   overlay, ESC handler, close button, and backdrop styling.
@@ -21,7 +21,7 @@ Ship Studio went through a DX refactor that addressed:
 
 The fix was **shared primitives** (UI components + hooks + Rust helpers) that
 absorb the boilerplate, plus **design tokens** in CSS and **structured
-errors** in Rust. The patterns in [CLAUDE.md → How to Do Things in Ship Studio](../CLAUDE.md#how-to-do-things-in-ship-studio)
+errors** in Rust. The patterns in [CLAUDE.md → How to Do Things in Harbr](../CLAUDE.md#how-to-do-things-in-ship-studio)
 are the canonical reference.
 
 ## Why this matters for you
@@ -80,6 +80,6 @@ for the metadata, accessibility, and extraction contracts.
 
 ## Where to read more
 
-- **[CLAUDE.md → How to Do Things in Ship Studio](../CLAUDE.md#how-to-do-things-in-ship-studio)** — the canonical don't/do snippets.
+- **[CLAUDE.md → How to Do Things in Harbr](../CLAUDE.md#how-to-do-things-in-ship-studio)** — the canonical don't/do snippets.
 - **[CONTRIBUTING.md](../CONTRIBUTING.md)** — getting set up, debugging, log files.
 - **[.github/pull_request_template.md](../.github/pull_request_template.md)** — pattern checklist applied to every PR.

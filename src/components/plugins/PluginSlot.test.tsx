@@ -122,7 +122,7 @@ describe('buildContext failure reporting', () => {
       throw {
         type: 'Other',
         message:
-          "The folder '/p/gone' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+          "The folder '/p/gone' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
       };
     });
     const { actions, showToast } = makeActions();

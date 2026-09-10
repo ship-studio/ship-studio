@@ -15,7 +15,7 @@ use std::time::Instant;
 use tracing::{error, info, warn};
 
 /// Run a health check script and return the result
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn run_health_script(
     project_path: String,
@@ -149,7 +149,7 @@ async fn save_health_result(
 }
 
 /// Get stored health check status from project metadata
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_health_status(
     project_path: String,

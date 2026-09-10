@@ -75,7 +75,7 @@ pub struct CustomClass {
 
 /// Detect the project's Tailwind generation and locate the entry stylesheet
 /// where custom classes should live.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn detect_tailwind_setup(project_path: String) -> Result<TailwindSetup, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -84,7 +84,7 @@ pub fn detect_tailwind_setup(project_path: String) -> Result<TailwindSetup, Comm
 
 /// List the custom classes defined in the project's entry stylesheet. Read-only:
 /// returns `[]` when there's no entry stylesheet or it can't be read.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_custom_classes(project_path: String) -> Result<Vec<CustomClass>, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -754,7 +754,7 @@ fn parse_custom_classes(css: &str) -> Vec<CustomClass> {
 /// existing `@layer components { … }` block, or a freshly-appended one. Returns
 /// the project's updated class list. Fails (Validation) on a bad name, bad
 /// tokens, a duplicate, or a project with no Tailwind entry stylesheet.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(tokens), fields(project = %project_path, name = %name))]
 pub fn create_custom_class(
     project_path: String,
@@ -770,7 +770,7 @@ pub fn create_custom_class(
 
 /// Replace a custom class's `@apply` token list. Refuses (Validation) if the
 /// class is missing or mixes raw declarations the editor can't safely rewrite.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(tokens), fields(project = %project_path, name = %name))]
 pub fn update_custom_class(
     project_path: String,
@@ -787,7 +787,7 @@ pub fn update_custom_class(
 /// Remove a custom class rule from the entry stylesheet (cleaning up a
 /// now-empty `@layer components` block). Markup still referencing the class is
 /// left untouched — the caller warns the user, mirroring i18n removal.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path, name = %name))]
 pub fn delete_custom_class(
     project_path: String,
@@ -800,7 +800,7 @@ pub fn delete_custom_class(
 /// (they're plain classes defined anywhere in the project's CSS, not Tailwind
 /// utilities). Lets "create from styles" keep those on the element instead of
 /// breaking the build.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(tokens), fields(project = %project_path))]
 pub fn classify_apply_tokens(
     project_path: String,

@@ -260,7 +260,7 @@ window.parent.postMessage({{type:'shipstudio:send-error-to-claude',message:msg}}
 
 /// Build a self-contained error overlay (HTML/CSS/JS) for 5xx responses.
 /// Forces body visible (overrides Next.js FOUC prevention), shows a styled error panel,
-/// and sends a postMessage to the parent so Ship Studio can log the error.
+/// and sends a postMessage to the parent so Harbr can log the error.
 pub fn build_error_overlay(status_code: u16, error_message: &str) -> String {
     build_overlay_panel(
         status_code,

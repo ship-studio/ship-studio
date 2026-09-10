@@ -4,6 +4,7 @@ use super::node_tool_command;
 use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::utils::validate_project_path;
+use ship_studio_macros::ship_command;
 
 /// Ceiling for one capture-script run (page load + scroll + shot). Must cover
 /// the script's own worst-case inner budgets — a 60s first goto attempt plus
@@ -128,7 +129,7 @@ fn browser_install_error(output: &std::process::Output) -> CommandError {
     ];
     if NETWORK_SIGNATURES.iter().any(|s| combined.contains(s)) {
         return CommandError::expected(
-            "The screenshot browser couldn't be downloaded — Ship Studio couldn't reach \
+            "The screenshot browser couldn't be downloaded — Harbr couldn't reach \
              Playwright's download server. Check your internet connection (including any VPN, \
              proxy, or firewall), then try again.",
         );
@@ -144,7 +145,7 @@ fn browser_install_error(output: &std::process::Output) -> CommandError {
     }
     if combined.contains("EACCES") || combined.contains("EPERM") {
         return CommandError::expected(
-            "The screenshot browser couldn't be downloaded — Ship Studio wasn't allowed to \
+            "The screenshot browser couldn't be downloaded — Harbr wasn't allowed to \
              write to Playwright's browser cache. Check the permissions on that folder \
              (~/Library/Caches/ms-playwright on macOS, %LOCALAPPDATA%\\ms-playwright on \
              Windows), then try again.",
@@ -476,7 +477,7 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, CommandError> {
 /// Capture a full-page screenshot using Playwright.
 /// Scrolls through the page first to trigger lazy-loaded content and animations,
 /// then captures the full page in one shot.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_fullpage_playwright(
     project_path: String,
@@ -701,7 +702,7 @@ const {{ chromium }} = require('playwright');
 /// Capture a viewport screenshot using Playwright.
 /// Hides Next.js dev tools and other overlays before capturing.
 /// Faster than full-page since it doesn't scroll.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_viewport_playwright(
     project_path: String,

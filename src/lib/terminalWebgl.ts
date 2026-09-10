@@ -5,7 +5,7 @@
  * terminal's layout; when the pane has zero size (collapsed split, hidden
  * ancestor) the canvas is zero-sized and `getImageData` throws an uncaught
  * `InvalidStateError` from inside the addon's render path — which the global
- * error handler then auto-reports as a bug (issue #383). Ship Studio keeps
+ * error handler then auto-reports as a bug (issue #383). Harbr keeps
  * background terminals mounted (and streaming PTY output) while not laid
  * out, so this is a reachable state, not an edge case.
  *

@@ -4,10 +4,10 @@ A **workflow** is a standing instruction: a prompt, a project, and something tha
 sets it off. Running one invokes the user's own agent CLI headless in the
 project directory. What it finds is filed to the **Inbox**.
 
-## What makes this Ship Studio's version of it
+## What makes this Harbr's version of it
 
 Every other product in this space runs your code on their servers, stores your
-findings in their database, and bills you for their inference. Ship Studio's
+findings in their database, and bills you for their inference. Harbr's
 whole premise is that you already have the good tools — Claude Code, Codex, a
 terminal, a repo — and it should get out of the way.
 
@@ -20,7 +20,7 @@ So the feature reduces to four boring pieces, three of which already existed:
 | A schedule | a tokio tick over armed workflows      | `src-tauri/src/workflow_scheduler.rs`            |
 | A report   | the last fenced JSON block in a reply | `parse_findings` in `runs.rs`                   |
 
-There is no Ship Studio server, no copy of your code anywhere else, and no
+There is no Harbr server, no copy of your code anywhere else, and no
 inference we bill for. Tokens go to the plan you already pay for.
 
 ## 1. A workflow is a file
@@ -51,13 +51,13 @@ a three-key sub-map. The grammar is `manual`, `every <n>m|h`, `daily at HH:MM`,
 `weekly on <weekday> at HH:MM`, `on push`, `on pr`. An unrecognised phrase falls
 back to `manual` — one typo costs the schedule, not the workflow.
 
-Unknown keys round-trip untouched, so an older Ship Studio editing a file
+Unknown keys round-trip untouched, so an older Harbr editing a file
 written by a newer one doesn't silently drop its values.
 
 **Definitions live in the repo. Results do not.** Workflow files are source: read
 them, edit them, review them in a PR, commit them. Run history and findings are
 per-machine churn that would appear in `git status` within a day of real use, so
-they go to `~/ShipStudio/.shipstudio/workflows-state.json`, next to `folders.json`
+they go to `~/Harbr/.shipstudio/workflows-state.json`, next to `folders.json`
 and `attached-libraries.json`.
 
 ## 2. A run is the agent CLI, headless
@@ -150,7 +150,7 @@ something, a recurrence must not un-archive it.
 ## 4. Scheduling, honestly
 
 Workflows are your agent CLI on your machine. There is no server, so **nothing
-fires while Ship Studio is closed**, and every sentence in the UI says so.
+fires while Harbr is closed**, and every sentence in the UI says so.
 
 One tokio tick, once a minute, over every armed workflow in every known project:
 
@@ -249,11 +249,11 @@ because most people will never open this modal a second time.
 
 This is the part that makes the file format load-bearing rather than incidental.
 
-Nobody browses a new tab. But everyone using Ship Studio is already talking to an
+Nobody browses a new tab. But everyone using Harbr is already talking to an
 agent all day, and they routinely say things like "check the bundle size before
 every release" or "I keep forgetting to look at dependency advisories".
 
-Ship Studio installs a `shipstudio-workflows` skill into each installed agent's
+Harbr installs a `shipstudio-workflows` skill into each installed agent's
 user-scope skills directory (`~/.claude/skills/`, `~/.codex/skills/`) at launch.
 The skill's `description` — which is what decides whether the agent loads it at
 all — names the phrasings people actually use ("every time", "each week", "before
@@ -262,7 +262,7 @@ every release", "keep an eye on", "I keep forgetting to"), not the word
 say.
 
 Once loaded, the skill documents the file format completely enough that the agent
-writes the workflow itself. No API, no MCP tool, no Ship Studio call. The
+writes the workflow itself. No API, no MCP tool, no Harbr call. The
 frontend store polls as well as listening for backend events, precisely so a file
 that appears on disk without the UI being touched still shows up.
 
@@ -384,7 +384,7 @@ exactly what happened the first two times it ran.
 - **Links in a report open in the browser, not the app.** A finding's body is
   agent-authored markdown rendered as HTML (sanitized through DOMPurify, the
   same path support articles use). A plain anchor would navigate the Tauri
-  webview itself and replace Ship Studio with a web page, with nothing to go
+  webview itself and replace Harbr with a web page, with nothing to go
   back with — so clicks are intercepted and handed to the system browser, and
   only `http`, `https` and `mailto` are handed anywhere at all.
 - **Prompt injection from the repository.** A run's prompt includes recent

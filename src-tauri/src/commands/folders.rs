@@ -10,9 +10,7 @@ use std::path::PathBuf;
 
 /// Get the path to the global folders config file
 fn get_folders_config_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    Ok(home
-        .join("ShipStudio")
+    Ok(crate::utils::projects_root()?
         .join(".shipstudio")
         .join("folders.json"))
 }
@@ -130,7 +128,7 @@ fn load_thumbnail_base64(project_path: &str) -> Option<String> {
 // ============ Tauri Commands ============
 
 /// List all folders with preview information
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn list_folders() -> Result<Vec<FolderInfo>, CommandError> {
     let config = load_folder_config()?;
@@ -162,7 +160,7 @@ pub async fn list_folders() -> Result<Vec<FolderInfo>, CommandError> {
 }
 
 /// Create a new folder
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(name), fields(name = %name))]
 pub async fn create_folder(name: String) -> Result<Folder, CommandError> {
     if name.trim().is_empty() {
@@ -187,7 +185,7 @@ pub async fn create_folder(name: String) -> Result<Folder, CommandError> {
 }
 
 /// Rename an existing folder
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(folder_id, name), fields(folder_id = %folder_id, name = %name))]
 pub async fn rename_folder(folder_id: String, name: String) -> Result<(), CommandError> {
     if name.trim().is_empty() {
@@ -211,7 +209,7 @@ pub async fn rename_folder(folder_id: String, name: String) -> Result<(), Comman
 }
 
 /// Delete a folder (projects become unfiled)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(folder_id), fields(folder_id = %folder_id))]
 pub async fn delete_folder(folder_id: String) -> Result<(), CommandError> {
     let mut config = load_folder_config()?;
@@ -229,7 +227,7 @@ pub async fn delete_folder(folder_id: String) -> Result<(), CommandError> {
 }
 
 /// Move a project to a folder (or remove from all folders if folder_id is None)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip_all, fields(project = %project_path))]
 pub async fn move_project_to_folder(
     project_path: String,
@@ -260,7 +258,7 @@ pub async fn move_project_to_folder(
 }
 
 /// Get all project paths that are in folders (used to filter unfiled projects)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_filed_project_paths() -> Result<Vec<String>, CommandError> {
     let config = load_folder_config()?;
@@ -274,7 +272,7 @@ pub async fn get_filed_project_paths() -> Result<Vec<String>, CommandError> {
 }
 
 /// Get projects in a specific folder
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(folder_id), fields(folder_id = %folder_id))]
 pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, CommandError> {
     let config = load_folder_config()?;
@@ -289,7 +287,7 @@ pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, Comma
 }
 
 /// Get folder details by ID
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(folder_id), fields(folder_id = %folder_id))]
 pub async fn get_folder(folder_id: String) -> Result<Option<Folder>, CommandError> {
     let config = load_folder_config()?;

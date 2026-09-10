@@ -4,7 +4,7 @@
 //! sets it off. Running one is a headless agent invocation in the project
 //! directory; what it finds is filed to the Inbox.
 //!
-//! The design goal is that Ship Studio owns as little as possible. Three of the
+//! The design goal is that Harbr owns as little as possible. Three of the
 //! four moving parts already existed:
 //!
 //! | Piece      | What it is                          | Lives in                     |

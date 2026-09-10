@@ -63,7 +63,7 @@ check_file() {
   fi
 }
 
-echo "==> Ship Studio LOC regression guard"
+echo "==> Harbr LOC regression guard"
 echo
 echo "Components (.tsx limit 1200):"
 # WorkspaceView retains state orchestration and cross-domain wiring while the

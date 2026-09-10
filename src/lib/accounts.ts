@@ -73,11 +73,11 @@ export const CREDENTIAL_DESCRIPTIONS: Record<CredentialKey, string> = {
   anthropic_base_url:
     'Point Claude Code at a custom Anthropic endpoint (a proxy or gateway) instead of the default. Leave unset unless your org requires it.',
   vercel_token:
-    'Lets this workspace publish to Vercel without an interactive login — use a token from a specific Vercel account or team, and lets Ship Studio show whether your pushes deployed.',
+    'Lets this workspace publish to Vercel without an interactive login — use a token from a specific Vercel account or team, and lets Harbr show whether your pushes deployed.',
   cloudflare_api_token:
-    'Lets Ship Studio read your Cloudflare Pages deployments. Needs the Pages:Read and Account Settings:Read permissions.',
+    'Lets Harbr read your Cloudflare Pages deployments. Needs the Pages:Read and Account Settings:Read permissions.',
   netlify_auth_token:
-    'Lets Ship Studio read your Netlify deploys without depending on the CLI login, which can expire.',
+    'Lets Harbr read your Netlify deploys without depending on the CLI login, which can expire.',
   git_name: "Sets the author name on commits made in this workspace's projects.",
   git_email: "Sets the author email on commits made in this workspace's projects.",
 };

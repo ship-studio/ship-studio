@@ -5,7 +5,6 @@ import type { PaletteCtx } from './types';
 import { useOpenModal } from '../contexts/ModalContext';
 import { getDashboardProjects, type DashboardProject, type Project } from '../lib/project';
 import { sessionRegistry } from '../lib/sessionRegistry';
-import { checkForUpdate } from '../lib/updater';
 import { checkIdeAvailability, openInIde, openInFinder } from '../lib/ide';
 import { logger } from '../lib/logger';
 import { kbd } from '../lib/shortcuts';
@@ -126,17 +125,6 @@ export function useAppCommands({
       logger.warn('[useAppCommands] openInFinder failed', { error: String(err) });
     }
   }, [currentProject, showToast]);
-
-  const runCheckUpdates = useCallback(async () => {
-    try {
-      const result = await checkForUpdate();
-      if (!result) showToast("You're up to date", 'success');
-      // If there IS an update, the project sidebar indicator surfaces it.
-    } catch (err) {
-      logger.warn('[useAppCommands] checkForUpdate failed', { error: String(err) });
-      showToast('Could not check for updates', 'error');
-    }
-  }, [showToast]);
 
   // Wrappers to keep `run` type Promise<void> | void clean for the registry.
   // When nothing is running, "restart" degrades to a plain start — same
@@ -294,14 +282,6 @@ export function useAppCommands({
         run: () => openModal('changelog'),
       },
       {
-        id: 'settings.checkUpdates',
-        title: 'Check for updates',
-        icon: <SettingsIcon size={14} />,
-        category: 'settings',
-        keywords: ['version', 'upgrade'],
-        run: () => void runCheckUpdates(),
-      },
-      {
         id: 'modal.attachedLibraries',
         title: 'Shared libraries',
         icon: <SharedLibraryIcon size={14} />,
@@ -327,7 +307,6 @@ export function useAppCommands({
       compactWorkspaceToolbarEnabled,
       setCompactWorkspaceToolbarEnabled,
       openModal,
-      runCheckUpdates,
     ]
   );
 

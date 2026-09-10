@@ -154,7 +154,7 @@ pub(crate) fn push_unresolvable_branch_error(stderr: &str, branch: &str) -> Opti
 }
 
 /// Publish (push) the current branch to origin
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "publish_branch", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_branch(
     project_path: String,

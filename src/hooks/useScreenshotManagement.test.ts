@@ -236,7 +236,7 @@ describe('useScreenshotManagement auto-capture consent gate', () => {
     // succeed, so the schedule must stop instead of burning all five attempts.
     vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
     invokeMock.mockRejectedValue(
-      "The folder '/Users/test/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio"
+      "The folder '/Users/test/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Harbr"
     );
     const { result } = renderHook(() => useScreenshotManagement(makeParams()));
 

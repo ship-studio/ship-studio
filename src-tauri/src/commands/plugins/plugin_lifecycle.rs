@@ -57,7 +57,7 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
 }
 
 /// Network-git failures that are the user's URL, credentials, or connection —
-/// not a Ship Studio defect. `Some(Expected)` with actionable wording for the
+/// not a Harbr defect. `Some(Expected)` with actionable wording for the
 /// shapes we recognize (issues #803, #732); `None` for anything else so a
 /// genuinely novel git failure still reaches telemetry with its raw stderr.
 fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
@@ -72,7 +72,7 @@ fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
         || lower.contains("authentication failed")
     {
         return Some(CommandError::expected(
-            "This plugin's repository requires sign-in, and Ship Studio can't authenticate to \
+            "This plugin's repository requires sign-in, and Harbr can't authenticate to \
              it automatically. Use a plugin hosted in a public repository, or clone it yourself \
              and add it with Link Dev Plugin.",
         ));
@@ -204,7 +204,7 @@ fn resolve_git() -> Result<PathBuf, CommandError> {
         // A missing tool is an environment gap, not an app malfunction.
         CommandError::expected(
             "Git isn't installed or couldn't be located. Install Git (https://git-scm.com) \
-             and restart Ship Studio, then try again.",
+             and restart Harbr, then try again.",
         )
     })
 }
@@ -350,7 +350,7 @@ fn repo_urls_match(a: &str, b: &str) -> bool {
 }
 
 /// List all installed plugins for a project
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, CommandError> {
     let registry = read_registry(&project_path)?;
@@ -384,7 +384,7 @@ pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, CommandErro
 }
 
 /// Install a plugin from a GitHub repository URL into a project
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn install_plugin(
     app: AppHandle,
@@ -473,7 +473,7 @@ pub async fn install_plugin(
 
     // Check min_app_version compatibility — a version/content mismatch is a
     // by-design refusal, not an app malfunction (issue #472).
-    if let Err(e) = check_min_app_version(&manifest, &app) {
+    if let Err(e) = check_min_app_version(&manifest) {
         let _ = remove_dir_all_relaxed(&temp_dir);
         return Err(CommandError::expected(e));
     }
@@ -557,7 +557,7 @@ pub async fn install_plugin(
 }
 
 /// Uninstall a plugin by its ID from a project
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
     // Reject traversal-style IDs before joining onto the plugins dir — this
@@ -593,7 +593,7 @@ pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), C
 }
 
 /// Update a plugin by pulling latest from its source repository
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn update_plugin(
     app: AppHandle,
@@ -659,7 +659,7 @@ pub async fn update_plugin(
     warn_on_setup_items(&manifest);
 
     // Check min_app_version compatibility
-    check_min_app_version(&manifest, &app)?;
+    check_min_app_version(&manifest)?;
 
     // Validate required_commands are all in the allowed set
     validate_required_commands(&manifest)?;
@@ -687,7 +687,7 @@ pub async fn update_plugin(
 }
 
 /// Check if a plugin has an update available by comparing commit hashes
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn check_plugin_update(
     project_path: String,
@@ -763,7 +763,7 @@ pub async fn check_plugin_update(
 }
 
 /// Toggle a plugin's enabled state
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn toggle_plugin(
     project_path: String,
@@ -968,7 +968,7 @@ mod tests {
     fn rejects_repository_page_urls() {
         // A GitHub docs page isn't clonable — issue #803's actual occurrence.
         for url in [
-            "https://github.com/ship-studio/ship-studio/blob/main/docs/plugins.md",
+            "https://github.com/kacigaya/harbr/blob/main/docs/plugins.md",
             "https://github.com/owner/repo/tree/main/packages/plugin",
         ] {
             let err = validate_clone_url(url).unwrap_err();

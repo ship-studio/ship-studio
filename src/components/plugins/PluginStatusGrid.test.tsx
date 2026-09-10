@@ -12,7 +12,7 @@ function makePlugin(overrides: Partial<PluginInfo['manifest']> = {}): PluginInfo
       version: '1.0.0',
       description: 'Shows Claude Code spend',
       slots: ['toolbar'],
-      author: 'Ship Studio',
+      author: 'Harbr',
       repository: 'https://github.com/ship-studio/plugin-ccusage',
       setup: [],
       min_app_version: '',

@@ -104,8 +104,8 @@ export function WorkflowTemplatePicker({ selectedId, onSelect }: WorkflowTemplat
       <div className="workflow-templates-head">
         <div className="workflow-templates-intro">
           <p className="workflow-templates-lede">
-            A workflow is a standing instruction. Ship Studio runs it with the agent CLI you already
-            have, inside your project, and files whatever it finds in your Inbox.
+            A workflow is a standing instruction. Harbr runs it with the agent CLI you already have,
+            inside your project, and files whatever it finds in your Inbox.
           </p>
           {/* The other way in. Most people will never open this modal a second
               time — they will just tell their agent what they want watched. */}

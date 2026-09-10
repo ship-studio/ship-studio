@@ -68,7 +68,7 @@ export function GuidedSetupPhase({
 
   // Spawn the agent in ~/ShipStudio, never $HOME — scanning the home folder
   // trips macOS permission prompts (Photos/Desktop/Documents) attributed to
-  // Ship Studio, and the pending dialog freezes the agent mid-scan. The
+  // Harbr, and the pending dialog freezes the agent mid-scan. The
   // backend falls back to the OS temp dir on its own, so a rejection here
   // means the IPC call itself failed — retry once rather than ever spawning
   // in $HOME. `null` = still resolving (terminal not rendered yet).
@@ -173,7 +173,7 @@ export function GuidedSetupPhase({
           />
           {complete && (
             <div className="agent-guided-complete">
-              <p>Every check passed — verified by Ship Studio itself, not just the agent.</p>
+              <p>Every check passed — verified by Harbr itself, not just the agent.</p>
               <Button variant="primary" block onClick={onVerified}>
                 Continue
               </Button>

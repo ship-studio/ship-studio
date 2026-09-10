@@ -120,7 +120,7 @@ describe('isRegistryUnreachableError', () => {
       true
     );
     expect(isRegistryUnreachableError(new TypeError('Failed to fetch'))).toBe(true);
-    // A broken registry JSON is Ship Studio's own problem — keep reporting it.
+    // A broken registry JSON is Harbr's own problem — keep reporting it.
     expect(isRegistryUnreachableError(new SyntaxError('Unexpected end of JSON input'))).toBe(false);
   });
 });
@@ -133,7 +133,7 @@ describe('isExpectedPluginFailure', () => {
       "Plugin manifest must have 'id' and 'name' fields",
       'Plugin ID contains invalid characters',
       "This plugin can't be installed: its repository has no built bundle (dist/index.js). …",
-      "Plugin 'Figma' requires Ship Studio v9.0.0 or later (current: v0.18.6). Please update Ship Studio.",
+      "Plugin 'Figma' requires Harbr v9.0.0 or later (current: v0.18.6). Please update Harbr.",
       "Plugin 'x' requests commands that are not available to plugins: rm_rf",
       "A non-dev plugin 'vercel' is already installed. Uninstall it first.",
     ]) {
@@ -145,7 +145,7 @@ describe('isExpectedPluginFailure', () => {
     const { isExpectedPluginFailure } = await loadPlugins();
     for (const message of [
       "Couldn't find a git repository at that URL. Double-check the plugin's repository link …",
-      "This plugin's repository requires sign-in, and Ship Studio can't authenticate to it …",
+      "This plugin's repository requires sign-in, and Harbr can't authenticate to it …",
       "Couldn't reach the plugin's repository — check your internet connection and try again.",
       'That link points at a page inside a repository, not the repository itself. …',
       'Plugin repository URL must be an https://, ssh://, git:// or git@ remote',
@@ -157,8 +157,8 @@ describe('isExpectedPluginFailure', () => {
   it('recognizes filesystem/project environment states (issues #762/#831/#770)', async () => {
     const { isExpectedPluginFailure } = await loadPlugins();
     for (const message of [
-      "Ship Studio isn't allowed to read this project's plugin registry (/x). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
-      "The folder '/x' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+      "Harbr isn't allowed to read this project's plugin registry (/x). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
+      "The folder '/x' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
       'Plugin bundle not found: /x/.shipstudio/plugins/vercel/dist/index.js',
     ]) {
       expect(isExpectedPluginFailure({ type: 'Other', message })).toBe(true);

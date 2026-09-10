@@ -49,7 +49,7 @@ import { CHROME, launchChrome } from './headless-chrome.mjs';
  * `let`, because the port is only settled once Chrome is up: a fixed one
  * meant a busy port was silently answered by whatever already held it.
  */
-let CDP_PORT = Number(process.env.SHIPSTUDIO_FIDELITY_CDP_PORT ?? 9334);
+let CDP_PORT = Number(process.env.HARBR_FIDELITY_CDP_PORT ?? 9334);
 
 /**
  * Widths to compare at when the caller does not say.

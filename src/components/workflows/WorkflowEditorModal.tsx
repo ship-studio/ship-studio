@@ -389,8 +389,8 @@ export function WorkflowEditorModal({
               </span>
             ) : (
               <span className="workflow-field-hint">
-                Ship Studio prepends what changed since the last run, the findings this workflow
-                already filed, and how to report new ones. Everything else is yours.
+                Harbr prepends what changed since the last run, the findings this workflow already
+                filed, and how to report new ones. Everything else is yours.
               </span>
             )}
           </label>

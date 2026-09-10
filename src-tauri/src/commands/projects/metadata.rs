@@ -67,7 +67,7 @@ pub(crate) fn read_project_metadata_sync(
 }
 
 /// Reads project metadata from .shipstudio/project.json with automatic schema migration
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn read_project_metadata(
     project_path: String,
@@ -114,7 +114,7 @@ mod save_project_metadata_tests {
 
         // Verbatim v3 shape, including the removed block with its stale URLs.
         let v3 = r#"{
-  "_description": "Ship Studio project metadata. Auto-generated - safe to delete if needed, will be recreated.",
+  "_description": "Harbr project metadata. Auto-generated - safe to delete if needed, will be recreated.",
   "schema_version": 3,
   "last_opened": 1755000000000,
   "custom_dev_command": "pnpm dev",

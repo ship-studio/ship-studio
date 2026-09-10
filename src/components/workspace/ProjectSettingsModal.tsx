@@ -141,7 +141,7 @@ export function ProjectSettingsModal({
                 </span>
               )}
               <span className="project-settings-help settings-form-help">
-                The port Ship Studio uses to connect to your dev server. Default is 3000.
+                The port Harbr uses to connect to your dev server. Default is 3000.
               </span>
             </div>
           </div>

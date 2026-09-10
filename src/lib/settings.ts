@@ -7,6 +7,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { pickServerDirectory } from './serverPicker';
+import { isTauriRuntime } from './webEvents';
 
 /** Event fired after a dashboard visibility preference is persisted. */
 export const DASHBOARD_VISIBILITY_CHANGED_EVENT = 'shipstudio:dashboard-visibility-changed';
@@ -26,17 +28,17 @@ export const APP_ICON_OPTIONS = [
   {
     id: 'brand',
     label: 'Brand',
-    src: '/ShipStudio_IconBrand.png',
+    src: '/harbr-mark.svg',
   },
   {
     id: 'dark',
     label: 'Dark',
-    src: '/ShipStudio_IconDark.png',
+    src: '/harbr-mark.svg',
   },
   {
     id: 'light',
     label: 'Light',
-    src: '/ShipStudio_IconLight.png',
+    src: '/harbr-mark.svg',
   },
 ] as const;
 
@@ -191,7 +193,7 @@ export async function setCompactWorkspaceToolbarEnabled(enabled: boolean): Promi
 // ============ Commit attribution ============
 
 /**
- * Whether commits Ship Studio makes carry the `Made-With` attribution trailer.
+ * Whether commits Harbr makes carry the `Made-With` attribution trailer.
  *
  * A trailer, never the subject line, so `git log --oneline` reads exactly as it
  * did before. Defaults to on — and to on when the read fails, matching the
@@ -218,7 +220,7 @@ export async function setCommitAttributionEnabled(enabled: boolean): Promise<voi
 // ============ Written commit messages ============
 
 /**
- * Whether pushing from Ship Studio asks an agent to write the commit message.
+ * Whether pushing from Harbr asks an agent to write the commit message.
  *
  * Defaults to on, and to on when the read fails, matching the backend. A feed
  * of bare subject lines is the GitHub half forever, which is the state this
@@ -322,7 +324,7 @@ export async function setThumbnailsEnabled(enabled: boolean): Promise<void> {
 // ============ Projects root directory ============
 
 /**
- * Get the projects root directory (absolute path). This is where Ship Studio
+ * Get the projects root directory (absolute path). This is where Harbr
  * lists and creates projects. Falls back to the default `~/ShipStudio` when no
  * custom folder is configured.
  */
@@ -336,7 +338,9 @@ export async function getProjectsRoot(): Promise<string> {
  * result to {@link setProjectsRoot}.
  */
 export async function pickProjectsRoot(): Promise<string | null> {
-  return invoke<string | null>('pick_projects_root');
+  if (isTauriRuntime()) return invoke<string | null>('pick_projects_root');
+  const selectedPath = await pickServerDirectory('Choose projects folder');
+  return selectedPath ? invoke<string | null>('pick_projects_root', { selectedPath }) : null;
 }
 
 /** Whether a custom (non-default) projects folder is currently configured. */

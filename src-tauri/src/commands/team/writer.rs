@@ -372,7 +372,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 /// The commit message a summary becomes.
 ///
 /// The only place this prose is written. It survives without the app: someone
-/// who has never installed Ship Studio still gets the explanation, from
+/// who has never installed Harbr still gets the explanation, from
 /// `git log`, from the pull request, from GitHub's blame view — and so does
 /// anyone reading the repository in ten years.
 pub fn commit_message(summary: &TeamSummary) -> String {

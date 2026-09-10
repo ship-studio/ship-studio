@@ -2,7 +2,7 @@
  * ============================================================================
  * PLUGIN-STABLE CLASS API — do not remove or rename
  * ============================================================================
- * `.btn-primary` and `.btn-secondary` are part of Ship Studio's published
+ * `.btn-primary` and `.btn-secondary` are part of Harbr's published
  * contract with third-party plugins (see CLAUDE.md → "Shared CSS Classes
  * (Plugin-Stable)", docs/plugins.md and docs/design-system.md). Product code
  * has moved to the `<Button variant>` primitive, whose selectors are

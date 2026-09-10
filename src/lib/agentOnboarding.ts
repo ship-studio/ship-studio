@@ -13,15 +13,22 @@
 
 import { agentPromptArgs } from './agent';
 import { invoke } from '@tauri-apps/api/core';
-import { SetupItem, isSetupItemReady, isWindows, TerminalCommand } from './setup';
+import {
+  SetupItem,
+  isSetupItemReady,
+  isWindows,
+  isLinux,
+  defaultShellPath,
+  TerminalCommand,
+} from './setup';
 
 // ============ Test-mode API ============
 
 /** How the app was launched, for swapping real side effects in test modes. */
 export interface OnboardingTestMode {
-  /** `SHIPSTUDIO_FORCE_SETUP` is set — statuses are mocked; run the scripted demo. */
+  /** `HARBR_FORCE_SETUP` is set — statuses are mocked; run the scripted demo. */
   mock: boolean;
-  /** `SHIPSTUDIO_FORCE_ONBOARDING` is set — real checks, wizard forced open. */
+  /** `HARBR_FORCE_ONBOARDING` is set — real checks, wizard forced open. */
   forceOnboarding: boolean;
 }
 
@@ -51,7 +58,7 @@ export async function setExternalAgentOptIn(enabled: boolean): Promise<void> {
  * Directory the guided agent session runs in — the projects root
  * (~/ShipStudio), created if missing. Never the user's home: an agent
  * scanning $HOME trips macOS permission prompts (Photos, Desktop, Documents)
- * attributed to Ship Studio, and the pending dialog freezes the agent
+ * attributed to Harbr, and the pending dialog freezes the agent
  * mid-scan.
  */
 export async function ensureAgentWorkdir(): Promise<string> {
@@ -109,7 +116,7 @@ export function getReadyRequiredItems(items: SetupItem[]): SetupItem[] {
 /**
  * The agent-led flow is complete when every required item is ready AND the
  * chosen agent pair is ready. Computed from items (not `allReady`) so it
- * stays truthful under SHIPSTUDIO_FORCE_ONBOARDING, which pins `allReady`
+ * stays truthful under HARBR_FORCE_ONBOARDING, which pins `allReady`
  * to false while onboarding is open.
  *
  * `agentBinaryId: null` means the "Other" path — an agent we don't manage —
@@ -134,7 +141,30 @@ export function isAgentLedSetupComplete(items: SetupItem[], agentBinaryId: strin
  * (TERMINAL_COMMANDS / installPackages in lib/setup.ts) — the agent gets the
  * wizard's logic as instructions instead of code, so it doesn't improvise.
  */
-function itemInstruction(itemId: string, win: boolean): string | null {
+function itemInstruction(itemId: string, win: boolean, linux = false): string | null {
+  // On Linux the agent must not install system packages — that's the distro's
+  // job and it needs a sudo password we can't collect for them. The agent's
+  // role there is to identify the distro, hand over the exact command, and
+  // wait. This mirrors the classic wizard's detect-only Linux flow.
+  if (linux) {
+    switch (itemId) {
+      case 'homebrew':
+        // No package-manager step on Linux at all — do not let the agent
+        // "helpfully" install Homebrew to satisfy a checklist item that the
+        // app never renders.
+        return null;
+      case 'node':
+      case 'git':
+      case 'gh': {
+        const tool = { node: 'Node.js', git: 'Git', gh: 'the GitHub CLI' }[itemId];
+        const pkg = { node: 'nodejs npm', git: 'git', gh: 'gh' }[itemId];
+        return `${tool}: do NOT install it yourself and do NOT install Homebrew. Identify the distribution first (\`cat /etc/os-release\`), then give the user the one exact command for their package manager (on Debian/Ubuntu that is \`sudo apt install ${pkg}\`) and ask them to run it themselves — it needs their password. Wait for them to confirm, then verify`;
+      }
+      case 'npm_fix':
+        return 'fix npm cache permissions: run `sudo chown -R $(whoami) ~/.npm` (this needs the computer password again)';
+    }
+  }
+
   switch (itemId) {
     case 'homebrew':
       return win
@@ -189,25 +219,29 @@ export function buildGuidedSetupPrompt(
   alreadyReady: SetupItem[] = []
 ): string {
   const win = isWindows();
+  const linux = isLinux();
 
   // The agent is the source of discovery: it gets the FULL required list
   // with check commands and verifies everything itself. Our detection rides
   // along only as a reference hint it can override — the app's probes and
   // the agent's terminal can see different PATHs, and the terminal is where
   // the work actually happens.
-  const requiredIds: string[] = ['homebrew', 'node', 'git', 'gh', 'gh_auth'];
+  // Linux has no package-manager item — see itemInstruction().
+  const requiredIds: string[] = linux
+    ? ['node', 'git', 'gh', 'gh_auth']
+    : ['homebrew', 'node', 'git', 'gh', 'gh_auth'];
   // npm_fix is conditional — it only exists while ~/.npm is broken, so it
   // joins the list only when our checks actually surfaced it.
   if (missing.some((i) => i.id === 'npm_fix')) {
     requiredIds.splice(1, 0, 'npm_fix');
   }
   const instructions = requiredIds
-    .map((id) => itemInstruction(id, win))
+    .map((id) => itemInstruction(id, win, linux))
     .filter((s): s is string => s !== null);
 
-  const pkgCheck = win ? '`winget --version`' : '`brew --version`';
   const checkCommands = [
-    pkgCheck,
+    // No package-manager check on Linux — nothing there is ours to verify.
+    ...(linux ? [] : [win ? '`winget --version`' : '`brew --version`']),
     '`node --version`',
     '`git --version`',
     '`gh --version`',
@@ -232,16 +266,16 @@ export function buildGuidedSetupPrompt(
   const readyNames = alreadyReady.map((i) => PROMPT_ITEM_NAMES[i.id] ?? i.id).join(', ');
   const detectionHint =
     missingNames && readyNames
-      ? `For reference, Ship Studio's own detection currently reports installed: ${readyNames}; missing: ${missingNames} — but trust what your checks find over this list. `
+      ? `For reference, Harbr's own detection currently reports installed: ${readyNames}; missing: ${missingNames} — but trust what your checks find over this list. `
       : missingNames
-        ? `For reference, Ship Studio's own detection currently reports everything missing: ${missingNames} — but trust what your checks find over this list. `
-        : "For reference, Ship Studio's own detection reports everything already installed — but trust what your checks find over this list. ";
+        ? `For reference, Harbr's own detection currently reports everything missing: ${missingNames} — but trust what your checks find over this list. `
+        : "For reference, Harbr's own detection reports everything already installed — but trust what your checks find over this list. ";
 
   const steps = instructions.map((s, idx) => `${String(idx + 1)}) ${s}`).join('; ');
 
   return (
-    'You are helping a brand-new Ship Studio user get their computer ready. ' +
-    'Ship Studio is a desktop app for building websites with AI agents, and you are that agent — this is their first impression of you, so be warm, brief, and clear. ' +
+    'You are helping a brand-new Harbr user get their computer ready. ' +
+    'Harbr is a desktop app for building websites with AI agents, and you are that agent — this is their first impression of you, so be warm, brief, and clear. ' +
     'Assume the user is not technical: before each step, say what you are about to do in one short sentence. ' +
     `Start by checking what is already installed yourself: run ${checkCommands.join(', ')}, then give the user one short summary of what's already good and what's missing. ` +
     detectionHint +
@@ -252,7 +286,7 @@ export function buildGuidedSetupPrompt(
     'Your job is to get every listed tool working no matter what this machine throws at you: if a standard command fails, read the error, explain it in plain words, and fix the underlying problem — installing prerequisites (like Xcode Command Line Tools), repairing PATH or npm permissions, or retrying another official install method are all fair game. ' +
     'If the user has to do something themselves (type a password, click through a browser), tell them exactly what to expect. ' +
     'Do not set up anything unrelated to the tools listed above. ' +
-    'When everything is verified, tell the user they are all set and to look at the checklist beside this window — Ship Studio runs its own checks and will turn every item green, then show a Continue button.'
+    'When everything is verified, tell the user they are all set and to look at the checklist beside this window — Harbr runs its own checks and will turn every item green, then show a Continue button.'
   );
 }
 
@@ -274,5 +308,6 @@ export function guidedAgentSpawn(agentBinaryId: string, prompt: string): Termina
  * agent CLI they use and pastes the guided prompt themselves.
  */
 export function otherAgentShellSpawn(): TerminalCommand {
-  return isWindows() ? { command: 'powershell', args: [] } : { command: '/bin/zsh', args: ['-il'] };
+  if (isWindows()) return { command: 'powershell', args: [] };
+  return { command: defaultShellPath(), args: ['-il'] };
 }

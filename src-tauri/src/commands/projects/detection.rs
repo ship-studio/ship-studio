@@ -7,6 +7,7 @@ use crate::cache::TtlCache;
 use crate::errors::CommandError;
 use crate::types::{PageInfo, ProjectType};
 use crate::utils::{resolve_workspace_path, validate_project_file_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
@@ -353,7 +354,7 @@ fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
 }
 
 /// Detect the project type for a given project path
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn detect_project_type_command(
     project_path: String,
@@ -378,7 +379,7 @@ pub async fn detect_project_type_command(
 /// project roots, which a static fs-plugin scope cannot express. Containment is
 /// enforced via `validate_project_file_path` (canonicalizes the parent, rejects
 /// `..`/symlink escapes) without requiring the target itself to exist yet.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn project_path_exists(path: String) -> Result<bool, CommandError> {
     let resolved = validate_project_file_path(&path).map_err(CommandError::from)?;

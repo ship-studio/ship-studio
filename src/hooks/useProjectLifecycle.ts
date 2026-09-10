@@ -338,7 +338,7 @@ export function useProjectLifecycle({
       // Expected (issue #598).
       const notAProject = errorMessage.includes('does not look like a project directory');
       const message = folderGone
-        ? `Can't open "${project.name}" — its folder no longer exists. It may have been moved, renamed, or deleted outside Ship Studio.`
+        ? `Can't open "${project.name}" — its folder no longer exists. It may have been moved, renamed, or deleted outside Harbr.`
         : `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`;
       // A folder deleted/moved outside the app, or a path the auto-register
       // guard declines, is a user-caused environment state the backend already
@@ -520,7 +520,7 @@ export function useProjectLifecycle({
     sessionStorage.setItem(storageKey, project.path);
 
     // Set window title to include project name
-    void setWindowTitle(`Ship Studio - ${project.name}`).catch((error) => {
+    void setWindowTitle(`Harbr - ${project.name}`).catch((error) => {
       logger.error('Failed to set window title', { error });
     });
 
@@ -966,7 +966,7 @@ export function useProjectLifecycle({
       const expectedRefusal = isExpectedProjectImportRefusal(message);
       logger[expectedRefusal ? 'warn' : 'error']('[ImportLocalFolder] failed', { error: message });
       const friendly = message.includes('already registered')
-        ? "This folder is already in Ship Studio. To work on a different workspace from the same folder, clone the repo again via 'Import from GitHub' (each clone is independent), or duplicate the folder on disk first."
+        ? "This folder is already in Harbr. To work on a different workspace from the same folder, clone the repo again via 'Import from GitHub' (each clone is independent), or duplicate the folder on disk first."
         : message;
       showToast(friendly, expectedRefusal ? 'info' : 'error');
     }
@@ -1034,7 +1034,7 @@ export function useProjectLifecycle({
     currentProjectPathRef.current = null;
 
     // Reset window title now that no project is focused.
-    void setWindowTitle('Ship Studio').catch(console.error);
+    void setWindowTitle('Harbr').catch(console.error);
 
     // The leaving project's session stays 'active' in the registry —
     // its processes keep running, sidebar dot stays green. No suspend.

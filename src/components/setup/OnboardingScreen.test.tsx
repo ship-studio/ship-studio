@@ -177,9 +177,7 @@ describe('OnboardingScreen', () => {
     });
 
     expect(
-      screen.getByText(
-        'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
-      )
+      screen.getByText('Setup check timed out — click Retry. If this persists, restart Harbr.')
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
 
@@ -477,7 +475,7 @@ describe('OnboardingScreen', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it."
+          "Node.js/npm wasn't found. Complete the Node.js step first, or restart Harbr if you just installed it."
         )
       ).toBeInTheDocument();
     });
@@ -533,18 +531,6 @@ describe('OnboardingScreen', () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
-  });
-
-  // ============ Slack CTA ============
-
-  it('shows Slack CTA link on wizard screen', async () => {
-    mockInvoke('get_full_setup_status', FRESH_STATUS);
-
-    render(<OnboardingScreen onComplete={onComplete} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Join Slack')).toBeInTheDocument();
-    });
   });
 
   // ============ Items render ============

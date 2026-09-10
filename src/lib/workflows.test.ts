@@ -97,9 +97,7 @@ describe('describeSchedule', () => {
   it('never advertises a cadence a disarmed workflow is not keeping', () => {
     const trigger: WorkflowTrigger = { kind: 'interval', everyMinutes: 30 };
     expect(describeSchedule({ trigger, autoRun: false })).toBe('Every 30 min — auto-run off');
-    expect(describeSchedule({ trigger, autoRun: true })).toBe(
-      'Every 30 min, while Ship Studio is open'
-    );
+    expect(describeSchedule({ trigger, autoRun: true })).toBe('Every 30 min, while Harbr is open');
   });
 
   it('describes a manual workflow by its button, not a schedule', () => {
@@ -121,7 +119,7 @@ describe('describeTriggerReality', () => {
     for (const trigger of triggers) {
       const sentence = describeTriggerReality(trigger);
       expect(sentence.length).toBeGreaterThan(0);
-      expect(sentence).not.toMatch(/even when .*closed|whether or not Ship Studio/i);
+      expect(sentence).not.toMatch(/even when .*closed|whether or not Harbr/i);
     }
   });
 });

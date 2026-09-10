@@ -5,9 +5,9 @@
 //! a session on next launch.
 //!
 //! Storage location matches `app_state.json`:
-//! - macOS: `~/Library/Application Support/ShipStudio/pins.json`
-//! - Windows: `%LOCALAPPDATA%/ShipStudio/pins.json`
-//! - Linux: `$XDG_DATA_HOME/ship-studio/pins.json`
+//! - macOS: `~/Library/Application Support/Harbr/pins.json`
+//! - Windows: `%LOCALAPPDATA%/Harbr/pins.json`
+//! - Linux: `$XDG_DATA_HOME/harbr/pins.json`
 //!
 //! Read/write is serialized through `PINS_FILE_LOCK` to prevent races
 //! between multiple windows mutating the file concurrently.
@@ -60,22 +60,22 @@ pub(crate) fn get_pins_file_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         dirs::home_dir()
-            .map(|h| h.join("Library/Application Support/ShipStudio/pins.json"))
-            .unwrap_or_else(|| PathBuf::from("/tmp/ship-studio-pins.json"))
+            .map(|h| h.join("Library/Application Support/Harbr/pins.json"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/harbr-pins.json"))
     }
 
     #[cfg(target_os = "windows")]
     {
         dirs::data_local_dir()
-            .map(|d| d.join("ShipStudio/pins.json"))
-            .unwrap_or_else(|| PathBuf::from("C:/temp/ship-studio-pins.json"))
+            .map(|d| d.join("Harbr/pins.json"))
+            .unwrap_or_else(|| PathBuf::from("C:/temp/harbr-pins.json"))
     }
 
     #[cfg(target_os = "linux")]
     {
         dirs::data_local_dir()
-            .map(|d| d.join("ship-studio/pins.json"))
-            .unwrap_or_else(|| PathBuf::from("/tmp/ship-studio-pins.json"))
+            .map(|d| d.join("harbr/pins.json"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/harbr-pins.json"))
     }
 }
 
@@ -128,7 +128,7 @@ where
 ///
 /// **Invariant guard:** this is the only path that grows `pinned_paths`.
 /// It deduplicates by path so the same project can never appear twice.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn pin_project(project_path: String) -> Result<Vec<String>, CommandError> {
     with_pins_locked(|pins| {
@@ -144,7 +144,7 @@ pub async fn pin_project(project_path: String) -> Result<Vec<String>, CommandErr
 
 /// Remove a project from the pinned list. Also clears its `last_sessions` entry
 /// so the next pin starts fresh. Idempotent.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn unpin_project(project_path: String) -> Result<Vec<String>, CommandError> {
     with_pins_locked(|pins| {
@@ -177,7 +177,7 @@ pub fn rename_pinned_path(old_path: &str, new_path: &str) -> Result<(), CommandE
 }
 
 /// Return the current ordered list of pinned project paths.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn list_pinned_projects() -> Result<Vec<String>, CommandError> {
     Ok(read_pins().pinned_paths)
@@ -186,7 +186,7 @@ pub async fn list_pinned_projects() -> Result<Vec<String>, CommandError> {
 /// Replace the pin order. Validates that the new order contains exactly the
 /// same set of paths as the current pins — no adds, no removes, just reorder.
 /// Returns `Validation` error if the sets differ.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn reorder_pins(ordered_paths: Vec<String>) -> Result<Vec<String>, CommandError> {
     with_pins_locked(|pins| -> Result<Vec<String>, CommandError> {

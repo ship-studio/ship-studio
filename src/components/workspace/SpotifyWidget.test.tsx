@@ -118,7 +118,7 @@ describe('SpotifyWidget', () => {
     render(<SpotifyWidget />);
 
     expect(
-      await screen.findByText(/macOS blocked Ship Studio from controlling Spotify/)
+      await screen.findByText(/macOS blocked Harbr from controlling Spotify/)
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open Privacy Settings' })).toBeInTheDocument();
     // Not the "ok" transport row.

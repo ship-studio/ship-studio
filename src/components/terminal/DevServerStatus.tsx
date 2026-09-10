@@ -163,9 +163,9 @@ export function DevServerStatus({
         {processGone
           ? `The dev-server process is no longer running${
               typeof exitCode === 'number' ? ` (exit code ${exitCode})` : ''
-            }. Something outside Ship Studio stopped it — often an AI agent in the terminal ` +
+            }. Something outside Harbr stopped it — often an AI agent in the terminal ` +
             `running its own dev server or killing the port. ` +
-            `${onRestartServer ? 'Restart it to let Ship Studio take back over.' : 'Restart it from the toolbar to take back over.'}` +
+            `${onRestartServer ? 'Restart it to let Harbr take back over.' : 'Restart it from the toolbar to take back over.'}` +
             `${lastLogLine ? ` Last output: “${lastLogLine}”.` : ''}`
           : phase === 'error' && !isStaticProject
             ? lastLogLine

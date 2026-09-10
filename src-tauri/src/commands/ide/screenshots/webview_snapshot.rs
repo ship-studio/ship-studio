@@ -49,7 +49,7 @@ impl SnapshotRect {
 /// Capture the preview region of the calling window's webview and save it as
 /// the project thumbnail. Returns the thumbnail path, mirroring
 /// `capture_project_thumbnail` so callers can treat the two paths uniformly.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(webview_window), fields(project = %project_path))]
 pub async fn capture_thumbnail_from_webview(
     webview_window: tauri::WebviewWindow,

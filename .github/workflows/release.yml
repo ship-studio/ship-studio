@@ -1,374 +1,51 @@
-name: Release
+name: Release macOS
 
 on:
   push:
     tags:
       - 'v*'
       - '!*-win'
-  # Dry run: build, sign, notarize and verify — but publish nothing. Use it to
-  # prove the Apple account can notarize before cutting a real tag:
-  #   gh workflow run release.yml --ref <branch>
+      - '!*-linux'
   workflow_dispatch:
 
 jobs:
-  # Run tests before building release artifacts
-  test:
-    name: Pre-release Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 9
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Type check
-        run: pnpm typecheck
-
-      - name: Run tests
-        run: pnpm test:run
-
-  # One universal (Apple Silicon + Intel) build. A single DMG means the site
-  # needs exactly one "Download for Mac" button — browsers can't reliably tell
-  # an M-series Mac from an Intel one, so per-arch downloads were never truly
-  # one click.
   build:
-    needs: test
+    runs-on: macos-latest
     permissions:
       contents: write
-    runs-on: macos-latest
-    env:
-      TARGET: universal-apple-darwin
     steps:
       - uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      # Notarization is what makes the DMG open with zero Gatekeeper dialogs.
-      # Refuse to build if any piece is missing rather than silently shipping
-      # an un-notarized DMG (which macOS 15+ blocks outright — there is no
-      # right-click → Open escape hatch any more).
-      - name: Check signing and notarization secrets
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          missing=()
-          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_CONTENT TAURI_SIGNING_PRIVATE_KEY; do
-            [ -n "${!v}" ] || missing+=("$v")
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing repository secrets: ${missing[*]}. See RELEASING.md → Required Secrets."
-            exit 1
-          fi
-          echo "All signing/notarization secrets present."
-
-      - name: Install Apple certificate
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
-          security import $RUNNER_TEMP/certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
-
-          # Fail early if the cert isn't a Developer ID Application identity.
-          security find-identity -v -p codesigning $KEYCHAIN_PATH | grep -q "Developer ID Application" \
-            || { echo "::error::No 'Developer ID Application' identity in the imported certificate."; exit 1; }
-
-      - name: Write Apple API key file
-        env:
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        run: |
-          mkdir -p $RUNNER_TEMP/apple-keys
-          echo "$APPLE_API_KEY_CONTENT" | base64 --decode > $RUNNER_TEMP/apple-keys/AuthKey_${APPLE_API_KEY}.p8
-
-      - name: Install frontend dependencies
-        run: pnpm install
-
-      - name: Build, sign and notarize
-        uses: tauri-apps/tauri-action@v0
-        id: tauri
-        timeout-minutes: 45
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: "Developer ID Application"
-          # Notarization (App Store Connect API key). Tauri submits the .app to
-          # notarytool, waits, and staples the ticket before building the DMG.
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ runner.temp }}/apple-keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
-          # Admin-agent bug reporting (docs/error-reporting.md). Compiled in via
-          # option_env! — if the secret is unset, reporting is a silent no-op.
-          BUG_REPORT_SECRET: ${{ secrets.BUG_REPORT_SECRET }}
-        with:
-          # On a dry run (workflow_dispatch) no tag is passed, so tauri-action
-          # only builds and never touches GitHub releases.
-          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          releaseName: 'Ship Studio v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: --target universal-apple-darwin
-
-      # Tauri notarizes and staples the .app. Notarize + staple the DMG itself
-      # too, so Gatekeeper can approve the download offline and the DMG passes
-      # `spctl` on its own. Then verify everything — this is the gate that
-      # stops a regression to "Apple could not verify…" dialogs.
-      - name: Notarize, staple and verify the DMG
-        env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:all
+      - run: pnpm test:run
+      - name: Build Harbr
+        run: pnpm tauri build --target universal-apple-darwin --bundles dmg
+      - name: Stage artifact
+        shell: bash
         run: |
           set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${TARGET}/release/bundle"
-          APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' -type d | head -1)
-          DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -name '*.dmg' -type f | head -1)
-          [ -n "$APP" ] || { echo "::error::No .app in $BUNDLE_DIR/macos"; exit 1; }
-          [ -n "$DMG" ] || { echo "::error::No .dmg in $BUNDLE_DIR/dmg"; exit 1; }
-          KEY_PATH="$RUNNER_TEMP/apple-keys/AuthKey_${APPLE_API_KEY}.p8"
-
-          echo "==> Verifying the .app is signed, hardened and stapled"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          codesign -dvv "$APP" 2>&1 | grep -q "flags=0x10000(runtime)" || { echo "::error::Hardened runtime missing on $APP"; exit 1; }
-          lipo -archs "$APP/Contents/MacOS/"* | tee /dev/stderr | grep -q "x86_64 arm64" || { echo "::error::Binary is not universal"; exit 1; }
-          xcrun stapler validate "$APP"
-          spctl --assess --type execute --verbose=2 "$APP"
-
-          echo "==> Notarizing the DMG"
-          xcrun notarytool submit "$DMG" \
-            --key "$KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
-            --wait --timeout 30m
-          xcrun stapler staple "$DMG"
-
-          echo "==> Verifying the DMG passes Gatekeeper"
-          xcrun stapler validate "$DMG"
-          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
-          echo "DMG is notarized and stapled: $DMG"
-
-      - name: Stage release artifacts
-        run: |
-          set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${TARGET}/release/bundle"
-          TAR_FILE=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz" -type f | head -1)
-          SIG_FILE=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz.sig" -type f | head -1)
-          DMG_FILE=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" -type f | head -1)
-          [ -n "$TAR_FILE" ] && [ -n "$SIG_FILE" ] && [ -n "$DMG_FILE" ] || { echo "::error::Missing updater or DMG artifacts"; ls -laR "$BUNDLE_DIR"; exit 1; }
-
+          source_file=$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' -type f -print -quit)
+          test -n "$source_file"
           mkdir -p artifacts
-          cp "$TAR_FILE" artifacts/ShipStudio_darwin-universal.app.tar.gz
-          cp "$SIG_FILE" artifacts/ShipStudio_darwin-universal.app.tar.gz.sig
-          cat "$SIG_FILE" > artifacts/signature.txt
-          cp "$DMG_FILE" artifacts/ShipStudio_darwin-universal.dmg
-          # Legacy per-arch names: the marketing site and older docs link to
-          # these. Same universal bytes under both names.
-          cp "$DMG_FILE" artifacts/ShipStudio_darwin-aarch64.dmg
-          cp "$DMG_FILE" artifacts/ShipStudio_darwin-x86_64.dmg
-          ls -la artifacts/
-
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v6
+          cp "$source_file" artifacts/Harbr_darwin-universal.dmg
+      - uses: actions/upload-artifact@v6
         with:
-          name: updater-darwin-universal
-          path: artifacts/
+          name: Harbr-darwin-universal
+          path: artifacts/Harbr_darwin-universal.dmg
           if-no-files-found: error
-
-  create-manifest:
-    needs: build
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repo for release notes
-        uses: actions/checkout@v6
-
-      - name: Download release artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: updater-darwin-universal
-          path: artifacts
-
-      - name: List downloaded artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          find artifacts -type f
-
-      - name: Get version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
-      - name: Read release notes
-        id: release_notes
-        run: |
-          # Read RELEASE_NOTES.md and extract ONLY the current version's notes
-          # Use a delimiter for multiline output
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          # Extract only the first "## What's New" section (stop at the next version header)
-          awk '/^## What/{if(found)exit; found=1; next} found{print}' RELEASE_NOTES.md | sed 's/^- /• /' >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      # The updater picks its platform key from the running app's arch
-      # (darwin-aarch64 / darwin-x86_64). Both point at the one universal
-      # bundle, so every existing install — Intel or Apple Silicon, built
-      # per-arch or universal — updates to the same artifact.
-      - name: Create latest.json
-        env:
-          NOTES: ${{ steps.release_notes.outputs.notes }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="${{ github.ref_name }}"
-          RELEASES_REPO="ship-studio/releases"
-          SIG=$(cat artifacts/signature.txt)
-          URL="https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-universal.app.tar.gz"
-          echo "universal signature: $SIG"
-
-          jq -n \
-            --arg version "$VERSION" \
-            --arg notes "$NOTES" \
-            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg sig "$SIG" \
-            --arg url "$URL" \
-            '{
-              version: $version,
-              notes: $notes,
-              pub_date: $pub_date,
-              platforms: {
-                "darwin-aarch64": { signature: $sig, url: $url },
-                "darwin-x86_64":  { signature: $sig, url: $url },
-                "darwin-universal": { signature: $sig, url: $url }
-              }
-            }' > latest.json
-
-          echo "Generated latest.json:"
-          cat latest.json
-
-          # Validate JSON
-          python3 -c "import json; json.load(open('latest.json'))" && echo "JSON is valid"
-
-      # Carry forward Windows manifest AND installer so Windows auto-update
-      # and the site's /latest/download Windows link keep working when this
-      # macOS release flips the "latest" alias.
-      #
-      # NOTE: latest-windows.json and the .exe only live on the most recent
-      # *-win release, NOT on the implicit "latest" release (which is a macOS
-      # release without them). Always resolve the newest -win tag explicitly.
-      # This step is best-effort: a missing/unavailable Windows asset must
-      # never block the macOS release from publishing (that regression shipped
-      # a broken auto-update chain in v0.6.4).
-      - name: Carry forward Windows manifest and installer
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
-        run: |
-          mkdir -p carry-forward
-          # Pick the newest PUBLISHED -win release. `gh release list` returns
-          # drafts first, so the old `[0]` grabbed an ancient draft (v0.6.0-win),
-          # which is why every macOS release shipped a stale 0.6.0 Windows
-          # manifest and broke Windows auto-update. Exclude drafts and take the
-          # most recently published -win tag.
-          WIN_TAG=$(gh release list --repo ship-studio/releases --limit 100 \
-            --json tagName,isDraft,publishedAt \
-            --jq '[.[] | select(.isDraft == false) | select(.tagName | endswith("-win"))]
-                  | sort_by(.publishedAt) | last | .tagName // empty')
-          if [ -z "$WIN_TAG" ]; then
-            echo "::warning::No -win release found; skipping Windows carry-forward"
-            exit 0
-          fi
-          echo "Carrying forward Windows assets from $WIN_TAG"
-          gh release download "$WIN_TAG" \
-            --repo ship-studio/releases \
-            --pattern "latest-windows.json" \
-            --pattern "ShipStudio_windows-x86_64-setup.exe" \
-            --dir carry-forward \
-            || echo "::warning::Could not download Windows assets from $WIN_TAG; skipping carry-forward"
-          ls -la carry-forward/ || true
-
-      # Upload to the main repo (for reference/backup)
-      - name: Upload updater tarball to main repo release
+      - name: Add artifact to draft release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            artifacts/ShipStudio_darwin-universal.app.tar.gz
-            artifacts/ShipStudio_darwin-universal.dmg
-            latest.json
+          files: artifacts/Harbr_darwin-universal.dmg
           draft: true
-
-      # Upload to public repo for auto-updater. Includes carry-forward
-      # Windows manifest + installer so "latest" alias flip doesn't drop
-      # Windows auto-update or the site's Windows download link.
-      - name: Create release in public releases repo
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Required macOS assets + manifest. The Windows assets are appended
-          # only if the carry-forward step actually produced them, so missing
-          # Windows assets can never block the macOS auto-update release.
-          ASSETS=(
-            artifacts/ShipStudio_darwin-universal.app.tar.gz
-            artifacts/ShipStudio_darwin-universal.dmg
-            artifacts/ShipStudio_darwin-aarch64.dmg
-            artifacts/ShipStudio_darwin-x86_64.dmg
-            latest.json
-          )
-          if [ -f carry-forward/latest-windows.json ]; then
-            ASSETS+=(carry-forward/latest-windows.json)
-          else
-            echo "::warning::latest-windows.json missing; publishing macOS release without it. Windows auto-update may need a manual re-publish of the latest -win manifest."
-          fi
-          if [ -f carry-forward/ShipStudio_windows-x86_64-setup.exe ]; then
-            ASSETS+=(carry-forward/ShipStudio_windows-x86_64-setup.exe)
-          else
-            echo "::warning::Windows installer missing; the site's /latest/download Windows link will 404 until the next -win release or a manual upload."
-          fi
-
-          # Create the release in the public repo (auto-published, no draft)
-          gh release create "$TAG" \
-            --repo ship-studio/releases \
-            --title "Ship Studio v${VERSION}" \
-            --notes "Auto-updater release for Ship Studio v${VERSION}. See the main repository for full release notes." \
-            "${ASSETS[@]}"
+          generate_release_notes: true

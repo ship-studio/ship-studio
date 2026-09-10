@@ -92,14 +92,14 @@ export function DesignSystemLab() {
       className="ss-design-system-lab"
       data-lab-theme={theme}
       data-lab-density={density}
-      aria-label="Ship Studio development design-system lab"
+      aria-label="Harbr development design-system lab"
     >
       <header className="ss-design-system-lab__header">
         <div>
           <p className="ss-design-system-lab__eyebrow">Development only</p>
           <h1 className="ss-design-system-lab__title">Primitive lab</h1>
           <p className="ss-design-system-lab__intro">
-            Real Ship Studio primitives, tokens, states, and accessibility contracts.
+            Real Harbr primitives, tokens, states, and accessibility contracts.
           </p>
         </div>
         <Button
@@ -451,7 +451,7 @@ export function DesignSystemLab() {
               text={
                 content === 'long'
                   ? 'A very long project path that should preserve the beginning and the end while the middle gives way'
-                  : '/Users/martin/ShipStudio/project'
+                  : '/Users/martin/Harbr/project'
               }
               aria-label="Project path preview"
             />

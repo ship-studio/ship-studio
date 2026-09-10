@@ -1,8 +1,8 @@
-# Agent instructions for Ship Studio
+# Agent instructions for Harbr
 
 The full agent-facing guide for this codebase is **[CLAUDE.md](CLAUDE.md)** —
 read it before writing code. It covers the architecture, the canonical
-patterns ("How to Do Things in Ship Studio"), the patterns that are banned,
+patterns ("How to Do Things in Harbr"), the patterns that are banned,
 testing, and known gotchas. This file is just the contract in brief.
 
 ## Non-negotiables

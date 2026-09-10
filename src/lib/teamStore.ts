@@ -62,7 +62,7 @@ import {
  * works and infrequent enough not to hammer a remote all day.
  *
  * Note that this re-reads what is already local. Learning about a teammate's
- * push additionally needs a `git fetch`, which Ship Studio does not do behind
+ * push additionally needs a `git fetch`, which Harbr does not do behind
  * the user's back — see `sync()`.
  */
 export const TEAM_SYNC_INTERVAL_MS = 60_000;

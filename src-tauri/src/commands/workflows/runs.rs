@@ -299,7 +299,7 @@ fn severity_menu() -> &'static str {
 fn build_prompt(workflow: &Workflow, context: &str, already_filed: &[(String, String)]) -> String {
     let mut p = String::new();
     p.push_str(&format!(
-        "You are running as a Ship Studio workflow named \"{}\" in the project \"{}\".\n\
+        "You are running as a Harbr workflow named \"{}\" in the project \"{}\".\n\
          You are unattended: nobody is watching this run, and your reply is filed straight to the user's inbox.\n\n",
         workflow.name, workflow.project_name
     ));
@@ -512,7 +512,7 @@ async fn invoke_agent(
 ) -> Result<AgentReply, CommandError> {
     let binary = find_validated_binary(agent.binary_name, agent.version_flag).ok_or_else(|| {
         CommandError::expected(format!(
-            "{} isn't installed, or isn't on Ship Studio's PATH. Install it, then run this workflow again.",
+            "{} isn't installed, or isn't on Harbr's PATH. Install it, then run this workflow again.",
             agent.display_name
         ))
     })?;
@@ -736,7 +736,7 @@ impl RunSource {
 }
 
 /// Run one workflow now and file whatever it reports.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path, slug = %slug))]
 pub async fn run_workflow(
     app: AppHandle,
@@ -758,7 +758,9 @@ pub async fn run_workflow_from(
     let file_path = workflows_dir(&project).join(format!("{slug}.md"));
     let contents = std::fs::read_to_string(&file_path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            CommandError::expected("That workflow's file is gone — it may have been deleted or renamed outside Ship Studio.")
+            CommandError::expected(
+                "That workflow's file is gone — it may have been deleted or renamed outside Harbr.",
+            )
         } else {
             crate::utils::classify_fs_error("read the workflow file", &file_path, &e)
         }

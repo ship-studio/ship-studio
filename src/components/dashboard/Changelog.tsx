@@ -16,6 +16,7 @@ import { trackEvent, trackError } from '../../lib/analytics';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { installVersion } from '../../lib/updater';
 import { Button } from '../primitives/Button';
+import { useCapabilities } from '../../lib/capabilities';
 
 interface ChangelogEntry {
   version: string;
@@ -28,7 +29,7 @@ const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.3.0', // v1.3.0
     items: [
-      'New: Team — see what your teammates actually did and why, who is on which branch, and the comments left on the project, without leaving the workspace. It reads your own repository rather than a server: no account, no sign-up, and it works on first launch even if nobody else on the team uses Ship Studio',
+      'New: Team — see what your teammates actually did and why, who is on which branch, and the comments left on the project, without leaving the workspace. It reads your own repository rather than a server: no account, no sign-up, and it works on first launch even if nobody else on the team uses Harbr',
       "New: comments are shared. Pin a note to the element it is about and your teammates see it after their next sync — carried on a ref of their own, so your branches, your commits and your pull requests never contain them. Tick the ones you want and hand them to your agent in one go; it can reply and mark them resolved when it's done. Comments still work with no repository at all, which is the right tool for annotating a page on your own",
       'New: rebuild a site from its URL. "From a URL" in New Project takes an address and a stack, and your agent surveys the site, extracts its design system, and rebuilds it template by template. Nothing is reported as done until it has been measured against the original, and anything that can\'t come across is named rather than quietly dropped',
       "Projects whose remote isn't GitHub work: GitLab and self-managed git hosts get branches, worktrees, sync and push, and the copy names the host you actually use. What genuinely needs GitHub, like pull requests, is absent rather than broken",
@@ -51,7 +52,7 @@ const CHANGELOG: ChangelogEntry[] = [
       'Dialogs open on the thing you came to type in rather than the close button, so pressing Enter at a field you thought was focused no longer dismisses the dialog',
       'A push error no longer prints your account id into the Push popover',
       "The app explains a failed start: if it never runs, or runs but its styles don't load, you get a short message and where to find your logs instead of a dark window with nothing in it",
-      'Bun projects install with bun again: Bun 1.2 replaced its binary lockfile with a text bun.lock, and Ship Studio was still only looking for the old name — so anything bun had locked since got an npm install it was never set up for',
+      'Bun projects install with bun again: Bun 1.2 replaced its binary lockfile with a text bun.lock, and Harbr was still only looking for the old name — so anything bun had locked since got an npm install it was never set up for',
       'Quieter, smaller logs — span-close noise (91% of the volume) is gone and log retention is capped at 14 days',
       'Opt-in Spotify now-playing widget in the sidebar, and a new Experimental tab in Settings (macOS)',
       '~20 reported issues fixed across git, GitHub, MCP, plugins, mobile, the terminal and the visual editor — mostly routine environment states (permission prompts, vanished folders, network blips, index.lock contention) that used to file themselves as bug reports and now explain themselves instead',
@@ -61,17 +62,17 @@ const CHANGELOG: ChangelogEntry[] = [
     version: '1.1.0', // v1.1.0
     items: [
       'New: Workflows — standing instructions your own agent runs in a project, on demand or on a schedule, with what it finds filed to a new Inbox on the dashboard. Start from templates like Security sweep, Secrets & env drift, PR review pass, Accessibility pass, and Design-system drift, or describe one to your agent in the terminal and it writes the workflow for you',
-      'Workflows are read-only by default and that is enforced by the agent CLI, not merely requested; every run uses your own agent subscription on your machine, and nothing runs while Ship Studio is closed',
+      'Workflows are read-only by default and that is enforced by the agent CLI, not merely requested; every run uses your own agent subscription on your machine, and nothing runs while Harbr is closed',
       'Inbox findings carry a suggested fix: "Fix in <project>" opens the workspace and hands the prompt straight to your agent',
-      'One-click install on Mac: download the DMG, drag Ship Studio to Applications, open it. Builds are now notarized by Apple, so there is no terminal command and no "unverified developer" dialog',
+      'One-click install on Mac: download the DMG, drag Harbr to Applications, open it. Builds are now notarized by Apple, so there is no terminal command and no "unverified developer" dialog',
       'One download for every Mac: a single universal build runs natively on Apple Silicon and Intel, and existing installs move to it automatically through the in-app updater',
     ],
   },
   {
     version: '1.0.0', // v1.0.0
     items: [
-      'Ship Studio 1.0 — out of beta. A ground-up visual redesign by Martin Crandon: the Geist typeface, deeper dark surfaces, machined controls with crisp 1px depth, and a four-layer design-token system underneath it all',
-      'Edit CSS variables visually: click any design token in the visual editor, change it with a live preview, and delete safely — Ship Studio shows every place the variable is used and inlines values so nothing breaks',
+      'Harbr 1.0 — out of beta. A ground-up visual redesign by Martin Crandon: the Geist typeface, deeper dark surfaces, machined controls with crisp 1px depth, and a four-layer design-token system underneath it all',
+      'Edit CSS variables visually: click any design token in the visual editor, change it with a live preview, and delete safely — Harbr shows every place the variable is used and inlines values so nothing breaks',
       'Make it yours: choose a brand, dark, or light Dock icon, and try the opt-in compact toolbar that collapses the workspace header into a single row',
       'A rebuilt workspace shell: aligned titlebar and window controls, dockable panels, an element tree, and one consistent row rhythm across the sidebar, rail, and toolbars',
       'Dozens of fit-and-finish fixes from launch QA — UI text is no longer selectable like content, folders and calendars render pixel-perfect, sliders and dropdowns are fully styled, and resize handles layer and snap correctly',
@@ -114,14 +115,14 @@ const CHANGELOG: ChangelogEntry[] = [
     version: '0.18.5', // v0.18.5
     items: [
       'Project thumbnails on macOS are now captured instantly from the app itself — no more background Chrome. This eliminates the whole family of thumbnail failures (profile locks, browser crashes, leftover processes) that produced most error reports',
-      "Your text edits in the visual editor can no longer be silently lost: if the source file changed while you were typing (a formatter or hot reload touching it), Ship Studio now re-finds your element and saves your text there — and tells you plainly in the rare case it can't",
+      "Your text edits in the visual editor can no longer be silently lost: if the source file changed while you were typing (a formatter or hot reload touching it), Harbr now re-finds your element and saves your text there — and tells you plainly in the rare case it can't",
       'Commands that time out (git, GitHub CLI, deploys, screenshots) are now actually stopped instead of running on invisibly in the background, where they could hold locks and slow everything down',
       'Generating a PR description no longer fails on big changes: the AI prompt is fed via stdin (no more "argument list too long") and large diffs get triple the time budget',
       "The Vercel plugin's status checks now respond in seconds instead of hanging for minutes when the CLI stalls (several timeout values were off by 1000×)",
       'Windows: npm and npx now launch correctly from health checks and dev tooling ("not a valid Win32 application" fixed), and custom thumbnails accept JPEG images',
-      'When your system is briefly too busy to start a new process (the macOS "Resource temporarily unavailable" error), Ship Studio now quietly retries instead of surfacing a scary one-off failure',
+      'When your system is briefly too busy to start a new process (the macOS "Resource temporarily unavailable" error), Harbr now quietly retries instead of surfacing a scary one-off failure',
       'Friendlier messages all around: pull/merge conflicts, push races, unaccepted Xcode license, macOS folder-permission blocks, branches checked out in another worktree, and out-of-date agent CLIs now explain themselves and how to fix it',
-      '80+ auto-reported issues fixed in total across three bug-bash rounds — the largest cleanup in Ship Studio history',
+      '80+ auto-reported issues fixed in total across three bug-bash rounds — the largest cleanup in Harbr history',
     ],
   },
   {
@@ -129,7 +130,7 @@ const CHANGELOG: ChangelogEntry[] = [
     items: [
       'Major fix: the app no longer freezes when running multiple projects. Background thumbnail captures could silently pile up and starve the app until nothing responded and a force-quit was the only way out — captures are now strictly time-limited and never overlap',
       'Project thumbnails are far more reliable: an interrupted capture no longer leaves a lock file that broke every future capture (the single most-reported bug of the last release), and captures no longer fail just because your browser is open',
-      "Committing and publishing no longer fail when a background process is holding a file in .shipstudio (a frequent Windows failure) — Ship Studio's own metadata folder is now always excluded from your commits",
+      "Committing and publishing no longer fail when a background process is holding a file in .shipstudio (a frequent Windows failure) — Harbr's own metadata folder is now always excluded from your commits",
       'When a command fails to start (like a package manager that isn\'t installed), you now see the actual reason — and the missing tool by name with install guidance — instead of a bare "exited with code -1"',
       'Draft pull requests now show a Draft badge with merging disabled, instead of failing with a raw GraphQL error when you tried',
       'Undo/rewind on Windows now rides out files still being written (like dev-server logs) instead of failing, and log files are excluded from snapshots',
@@ -160,14 +161,14 @@ const CHANGELOG: ChangelogEntry[] = [
       'Editing the markup of a repeated element (like a card in a grid) now offers "edit all copies or just this one" instead of refusing — same choice the class editor already had',
       'Broken agent installs are detected and skipped: registering the preview MCP server picks a working binary instead of crashing with a raw error, and registration no longer races itself into "already exists" failures',
       'Plugins can no longer hang the app for hours with a runaway command — shell timeouts are capped and timed-out commands are actually stopped, and a plugin removed mid-operation no longer throws confusing "not found" errors',
-      'Error reporting got much quieter behind the scenes: routine states (a tool not installed yet, a security guardrail doing its job, input validation) are no longer treated as bugs — real malfunctions still report',
+      'Error diagnostics got much quieter: routine states are no longer treated as bugs while real malfunctions remain visible in local logs',
     ],
   },
   {
     version: '0.18.1', // v0.18.1
     items: [
-      'The new automatic error reporting paid off immediately: 40+ bugs found, diagnosed, and fixed within two days of v0.18.0. Highlights below — plus dozens of errors across the app that now explain what actually went wrong instead of showing raw error codes',
-      'Quitting Ship Studio now really stops everything — dev servers and agent sessions no longer linger in the background after the app closes, and restarting a dev server reliably frees its port',
+      'Error handling now explains what went wrong instead of showing raw error codes across dozens of failure paths',
+      'Quitting Harbr now really stops everything — dev servers and agent sessions no longer linger in the background after the app closes, and restarting a dev server reliably frees its port',
       'The preview notices when a dev server comes back wedged (every page a 404) and lights up the Restart button; hot reload now rides out dev-server restarts instead of dying',
       'Agent terminals find your agent wherever it\'s installed — fixes "Unable to spawn claude" appearing even though the app said it was installed (nvm, pnpm, volta, fnm, and friends)',
       'Agent follow-up questions in the terminal are readable again — dark-on-dark text is automatically lifted to readable contrast',
@@ -179,19 +180,17 @@ const CHANGELOG: ChangelogEntry[] = [
   {
     version: '0.18.0', // v0.18.0
     items: [
-      'Bugs now fix themselves faster: when something goes wrong, Ship Studio automatically reports the error (anonymized — never your code or files) so it can be investigated and patched. Opt out anytime in Settings → Usage analytics & error reports',
+      'Failures now produce clearer local diagnostics while keeping project code and files on the machine',
     ],
   },
   {
     version: '0.17.2', // v0.17.2
-    items: [
-      'Slack links now go through ship.studio/slack, so the community invite always stays fresh — no more expired invite links in older app versions',
-    ],
+    items: ['Community links were made easier to keep current across app versions'],
   },
   {
     version: '0.17.1', // v0.17.1
     items: [
-      'Worktree fix — the sidebar no longer shows duplicate rows for a project when its worktrees are open. Grouping now asks git which repository a worktree belongs to, so it works for imported projects living outside ~/ShipStudio too',
+      'Worktree fix — the sidebar no longer shows duplicate rows for a project when its worktrees are open. Grouping now asks git which repository a worktree belongs to, so it works for imported projects outside the default root too',
       'Creating a worktree while working inside another worktree now files it under the project itself instead of nesting it under the worktree you happened to be in',
     ],
   },
@@ -219,7 +218,7 @@ const CHANGELOG: ChangelogEntry[] = [
     version: '0.15.0', // v0.15.0
     items: [
       'Your agent can now use the preview — ask it to look at your site and it takes screenshots, reads console errors and network requests, clicks buttons, fills forms, switches pages and breakpoints, then fixes what it finds. A green glow and cursor show exactly what the agent is doing. Zero setup: works automatically on every project you open, with Claude Code, Codex, Opencode, and Cursor',
-      'Agent-led onboarding — setting up a new machine? Pick your coding agent and it installs everything else for you (Homebrew, Node, Git, GitHub, your hosting CLI) while Ship Studio independently verifies each step. The classic wizard stays one click away at all times',
+      'Agent-led onboarding — setting up a new machine? Pick your coding agent and it installs everything else for you (Homebrew, Node, Git, GitHub, your hosting CLI) while Harbr independently verifies each step. The classic wizard stays one click away at all times',
       'Choose your hosting provider during setup — Vercel or Cloudflare, or skip and decide later',
       'Set an exact preview size — click the dimensions readout in the preview toolbar to type a width and height; wider-than-the-pane sizes render at true width and scale to fit (also in Cmd+K as "Set exact preview size")',
       'Screenshots follow the preview viewport, so checking your site at mobile width captures real mobile rendering',
@@ -330,9 +329,9 @@ const CHANGELOG: ChangelogEntry[] = [
     version: '0.10.0', // v0.10.0
     items: [
       'Workspaces — keep separate Claude, GitHub, and Codex logins for different clients or orgs, fully isolated. Each workspace has its own credentials, so the agent working in one project never sees another client\'s auth. Your existing setup becomes the "Default" workspace and is left completely untouched',
-      "Per-project workspaces — assign any project to a workspace and its terminals, git, pull requests, and AI all use that workspace's logins automatically. Move a project between workspaces right from the dashboard and Ship Studio relocates its files for you",
+      "Per-project workspaces — assign any project to a workspace and its terminals, git, pull requests, and AI all use that workspace's logins automatically. Move a project between workspaces right from the dashboard and Harbr relocates its files for you",
       'Credential vault — store a per-workspace Vercel token, Anthropic base URL, and git identity securely in the macOS Keychain; secret values never leave the backend',
-      'Choose your projects folder — point Ship Studio at any folder you like (such as an existing ~/Dev directory) instead of ~/ShipStudio, globally or per workspace, and optionally move your existing projects across',
+      'Choose your projects folder — point Harbr at any folder you like (such as an existing ~/Dev directory), globally or per workspace, and optionally move your existing projects across',
       'Windows fixes — the Code tab no longer shows a garbled file list, and "Install Claude Code" now installs from the terminal instead of opening a browser in a new chat. Setup terminals also remind you that a typed password stays hidden even though nothing appears',
       "Smoother agent setup — the onboarding AI Agent step now links each assistant's official install docs as a fallback if an in-app install gets stuck, plus a small polish pass on the step indicator",
     ],
@@ -369,7 +368,7 @@ const CHANGELOG: ChangelogEntry[] = [
   {
     version: '0.8.0', // v0.8.0
     items: [
-      'Shopify themes — Ship Studio now builds Online Store 2.0 themes. Create one from the new Shopify Theme starter (or import any theme repo), connect your store through a guided setup right in the preview pane, and the preview renders real Liquid against your actual store — products, collections, the lot — with hot reload on every save',
+      'Shopify themes — Harbr now builds Online Store 2.0 themes. Create one from the new Shopify Theme starter (or import any theme repo), connect your store through a guided setup right in the preview pane, and the preview renders real Liquid against your actual store — products, collections, the lot — with hot reload on every save',
       'Agent-first theme workflow — Cmd+K commands to build a new section with AI and push your theme to the store for review, plus a “Set up with AI” hand-off that has your agent install and authenticate the Shopify CLI for you. Visual edit mode works on rendered theme pages and saves classes back to your .liquid sections',
       'Replace images visually — select any image in edit mode (even a classless one) and the panel shows the current asset with a Replace button: pick from your assets folder (thumbnails + inline upload) and the new path is written straight into your source',
       'Dev server logs are now interactive — when a CLI asks a question (a login, a y/n confirm), click the logs and type your answer right there. The logs auto-follow new output and stay scrollable',
@@ -394,10 +393,10 @@ const CHANGELOG: ChangelogEntry[] = [
   {
     version: '0.7.0', // v0.7.0
     items: [
-      'Mobile app previews — open a React Native, Expo, or Flutter project and the preview pane becomes a real, interactive device. Ship Studio boots an iOS Simulator or Android emulator for you, builds and launches your app onto it (with the build log streaming in), and mirrors the screen live so you can tap, swipe, and type right in the workspace',
+      'Mobile app previews — open a React Native, Expo, or Flutter project and the preview pane becomes a real, interactive device. Harbr boots an iOS Simulator or Android emulator for you, builds and launches your app onto it (with the build log streaming in), and mirrors the screen live so you can tap, swipe, and type right in the workspace',
       'Android runs on a low-latency scrcpy stream with the server bundled — no extra install needed. Projects that target both platforms get an iOS | Android picker in the preview toolbar',
       'No Xcode or Android SDK yet? A “Set up with AI” hand-off sends your agent a detailed install prompt instead of dead-ending you with manual steps. (Mobile previews are macOS-only for now)',
-      'Multilingual sites — Cmd+K → “Languages” to add languages to any Next.js or Astro site. Search every language (not a preset list), pick a default, and Ship Studio edits your i18n config surgically — it never guesses, and unusual configs fall back to a “Fix with AI” hand-off instead of being overwritten',
+      'Multilingual sites — Cmd+K → “Languages” to add languages to any Next.js or Astro site. Search every language (not a preset list), pick a default, and Harbr edits your i18n config surgically — it never guesses, and unusual configs fall back to a “Fix with AI” hand-off instead of being overwritten',
       'One-click “Save & translate with AI” — review the exact translation prompt, then copy it or paste it straight into your agent’s terminal. App Router projects get a guided next-intl setup the same way',
       'Preview in any language — a globe switcher appears in the preview toolbar once you have 2+ languages, and switching pages keeps the language you’re viewing. Removing a language warns about leftover translated files and offers an AI cleanup prompt',
       'The preview toolbar’s “Open in Browser” button is now just “Open”',
@@ -409,7 +408,7 @@ const CHANGELOG: ChangelogEntry[] = [
       'Inline text editing in the visual editor — double-click any text on the page to rewrite it right there, Webflow-style. Select text to make it bold, italic, or a link (with an inline URL field), and press Enter for a line break. Works the same on Next.js and Astro, saves straight to your source, and is free (0 tokens)',
       "When text is rendered from your code or data and can't be edited inline, the panel hands it off with a one-click “Copy request for your agent” — paste it into the terminal and tell the agent the new wording",
       "Clearer selection — the element you're actively editing is outlined in blue, while the other same-source elements an edit will also change are outlined in orange, so you can tell them apart at a glance",
-      "Restarting the dev server no longer crashes Ship Studio — on some setups it was killing the app's own preview process along with the dev server",
+      "Restarting the dev server no longer crashes Harbr — on some setups it was killing the app's own preview process along with the dev server",
       'The “Starting dev server…” screen is no longer a black box — Stop waiting instantly instead of sitting through 60 retries, read the live dev-server logs inline to see why it’s stuck, and hand it to your agent with “Fix with agent” (which sends the port and recent logs to the terminal)',
       'Branch cleanup after a merge now works for repos that auto-delete head branches on GitHub — the merged branch no longer lingers in your branch list',
     ],
@@ -420,7 +419,7 @@ const CHANGELOG: ChangelogEntry[] = [
       "Visual editor now works on Astro + Tailwind sites — including pages built with your own custom CSS classes. Edits reliably win the cascade (using Tailwind's important modifier where needed) and save back to your `.astro` source. The editor only appears when Tailwind is actually wired into the project, so it never adds classes that wouldn't compile",
       'Smoother Astro editing — saving an edit no longer snaps the preview back to the top of the page; it stays where you were working (Next.js already updates in place via Fast Refresh)',
       "Clearer editor — before you select anything, a short intro explains what it does (works with any Next.js or Astro project on Tailwind, free, uses 0 tokens, updates live and saves instantly). A subtle hint flags when an element's custom CSS means edits are written with `!important`",
-      'The toolbar Support button now opens the Ship Studio community Slack directly',
+      'The toolbar Support button now opens the project support page directly',
     ],
   },
   {
@@ -444,7 +443,7 @@ const CHANGELOG: ChangelogEntry[] = [
   {
     version: '0.6.4', // v0.6.4
     items: [
-      'Monorepo support — Ship Studio detects pnpm/npm workspaces when you import a repo (or first open an existing project) and asks which app to work on; the dev server, preview, and /public tools run inside that workspace while git and PRs stay at the repo root. "Use the whole repo" skips the picker',
+      'Monorepo support — Harbr detects pnpm/npm workspaces when you import a repo (or first open an existing project) and asks which app to work on; the dev server, preview, and /public tools run inside that workspace while git and PRs stay at the repo root. "Use the whole repo" skips the picker',
       'Merge right after submitting for review — the Submit for Review window stays open after PR creation with an inline "Merge into main" action, conflict handoff ("Ask agent to fix" or "Resolve myself"), and a one-click post-merge branch-cleanup prompt',
       'One-click dependency install — projects with a missing node_modules now show an "Install with pnpm" prompt in the preview pane; click to stream the install in a terminal and the dev server starts automatically when it finishes',
       'Fixes — removing and re-adding a local folder re-prompts the workspace picker; fixed an install terminal that could relaunch itself every couple of seconds',
@@ -454,7 +453,7 @@ const CHANGELOG: ChangelogEntry[] = [
     version: '0.6.3', // v0.6.3
     items: [
       'Side-by-side agents — in focus mode with two or more agents on a project, toggle "Split" in the terminal toolbar to view them side by side. Drag the handle between panes to resize. Click a pane to make it the active one',
-      'Open in Browser fix — Preview toolbar\'s "Open in Browser" now opens your real dev server URL (e.g. `localhost:3000`) instead of Ship Studio\'s internal proxy port',
+      'Open in Browser fix — Preview toolbar\'s "Open in Browser" now opens your real dev server URL (e.g. `localhost:3000`) instead of Harbr\'s internal proxy port',
       'Auto-accept on resume — resumed sessions now apply auto-accept mode correctly on startup; a race could previously cause it to silently turn off',
       'Sync dropdown polish — no longer shows the stale "All changes synced — Done" view after dismissing it without clicking Done',
       'Agent Settings dropdown stays on-screen in focus mode — previously the menu could be cut off on the right',
@@ -467,7 +466,7 @@ const CHANGELOG: ChangelogEntry[] = [
       'Undo/Redo (⌘Z / ⌘⇧Z) — every burst of edits gets snapshotted as a git stash so you can roll the working tree back, even on work the agent never committed. Toast confirms "Undid 3 files: App.tsx, Preview.tsx +1 more". Buttons grey out at the edge of history. Native character-undo still wins inside text inputs',
       'Custom project thumbnails — upload your own via the project menu; auto-capture stops overwriting it',
       'Sidebar agent picker — replaced hover-to-open with an explicit caret next to "Add new agent" so the agent name doesn\'t shift when the cursor drifts past',
-      'Skip broken Claude binaries — if a stale `claude` install is on the GUI PATH (e.g. an old `/opt/homebrew/bin/claude` from a legacy installer), Ship Studio now validates each candidate with `--version` and falls through to the next working install instead of surfacing the raw npm-wrapper error',
+      'Skip broken Claude binaries — if a stale `claude` install is on the GUI PATH (e.g. an old `/opt/homebrew/bin/claude` from a legacy installer), Harbr now validates each candidate with `--version` and falls through to the next working install instead of surfacing the raw npm-wrapper error',
     ],
   },
   {
@@ -512,7 +511,7 @@ const CHANGELOG: ChangelogEntry[] = [
       'Workspace toolbar split — sidebar toggle on top row, Restart / project settings on the lower row',
       'Plugin crash isolation — a misbehaving plugin can no longer take down the app; crashes auto-remove with a toast',
       'Backups on non-git projects — Safe Backup Restore works on folders without git history',
-      'Sentry error monitoring for frontend and backend',
+      'Improved frontend and backend error diagnostics',
       'Stability fixes — no more dropped async results under StrictMode, --no-pager on git subprocess calls, better frontend error typing',
     ],
   },
@@ -593,7 +592,7 @@ const CHANGELOG: ChangelogEntry[] = [
       'Vercel plugin now appears on the right side of the toolbar',
       'Drag to move window from title bar or toolbar empty space',
       'Double-click title bar to maximize/restore',
-      'Slack community banner can be dismissed (eye icon or Settings)',
+      'Community banner can be dismissed from Settings',
       'Terminal auto-focuses when switching tabs via ⌘1-5, ⌘T, or ⌘W',
       'Fixed session resume — stale sessions now reliably restart',
     ],
@@ -754,10 +753,7 @@ const CHANGELOG: ChangelogEntry[] = [
   },
   {
     version: '0.3.50',
-    items: [
-      'Fix npm cache permission errors during setup',
-      'Slack community banner on welcome screen',
-    ],
+    items: ['Fix npm cache permission errors during setup', 'Community banner on welcome screen'],
   },
   {
     version: '0.3.49',
@@ -799,7 +795,7 @@ const CHANGELOG: ChangelogEntry[] = [
   },
   {
     version: '0.3.44',
-    items: ['Vercel site URLs dropdown on hover', 'Slack community CTA'],
+    items: ['Vercel site URLs dropdown on hover', 'Community call to action'],
   },
   {
     version: '0.3.43',
@@ -846,6 +842,7 @@ interface ChangelogProps {
 }
 
 export function Changelog({ className = '' }: ChangelogProps) {
+  const capabilities = useCapabilities();
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [rewindVersion, setRewindVersion] = useState<string | null>(null);
   const [rewindStage, setRewindStage] = useState<RewindStage>('confirm');
@@ -921,13 +918,15 @@ export function Changelog({ className = '' }: ChangelogProps) {
                     v{entry.version}
                     <span className="changelog-current-badge">current</span>
                   </span>
-                ) : (
+                ) : capabilities.updater ? (
                   <button
                     className="changelog-version changelog-version-link"
                     onClick={() => setRewindVersion(entry.version)}
                   >
                     v{entry.version}
                   </button>
+                ) : (
+                  <span className="changelog-version">v{entry.version}</span>
                 )}
               </div>
               <ul className="changelog-items">

@@ -3,7 +3,7 @@
  * installed + signed in). Mirrors the classic wizard's terminal-exit
  * verification semantics — a clean exit is a claim, not proof — but only for
  * agent items, which are all terminal-based. Under mock mode
- * (SHIPSTUDIO_FORCE_SETUP) actions resolve deterministically via the backend
+ * (HARBR_FORCE_SETUP) actions resolve deterministically via the backend
  * mock state instead of spawning real processes, so contributors can click
  * through the whole flow on any machine.
  */

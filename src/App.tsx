@@ -67,6 +67,7 @@ import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { useWorkspaceNumberShortcuts } from './hooks/useWorkspaceNumberShortcuts';
 import { TooltipProvider } from './components/primitives/Tooltip';
 import { DevDesignSystemTools } from './components/design-system/DevDesignSystemTools';
+import { ServerPickerModal } from './components/primitives/ServerPickerModal';
 import { logger } from './lib/logger';
 import { asCommandError, formatCommandError } from './lib/errors';
 import { trackEvent, trackPageview } from './lib/analytics';
@@ -87,7 +88,7 @@ try {
   logger.init();
   void trackEvent('app_launched', { $screen_name: 'Dashboard' });
 } catch (err) {
-  console.error('[Ship Studio] Module-scope init failed', err);
+  console.error('[Harbr] Module-scope init failed', err);
 }
 
 /** Props for the App component */
@@ -118,6 +119,7 @@ function App({ initialProjectPath }: AppProps) {
               <CommandPaletteHost />
               <AppGlobalModals />
               <DevDesignSystemTools />
+              <ServerPickerModal />
             </AgentBridgeProvider>
           </PaletteContextProvider>
         </ModalProvider>

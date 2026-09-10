@@ -19,6 +19,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getAppSessionId, getProjectSessionId } from './session';
+import { isTauriRuntime } from './webEvents';
 
 // ============ Active Context ============
 
@@ -100,6 +101,7 @@ export async function trackEvent(
   eventName: string,
   properties?: Record<string, unknown>
 ): Promise<void> {
+  if (!isTauriRuntime()) return;
   try {
     await invoke('track_event', {
       eventName,
@@ -145,6 +147,7 @@ export async function identifyUser(
   properties?: Record<string, unknown>,
   setOnce?: Record<string, unknown>
 ): Promise<void> {
+  if (!isTauriRuntime()) return;
   try {
     await invoke('identify_user', {
       userId,
@@ -160,6 +163,7 @@ export async function identifyUser(
  * Check if analytics are currently enabled.
  */
 export async function getAnalyticsEnabled(): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
   try {
     return await invoke<boolean>('get_analytics_enabled');
   } catch {
@@ -171,6 +175,7 @@ export async function getAnalyticsEnabled(): Promise<boolean> {
  * Set whether analytics are enabled (persisted across sessions).
  */
 export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
+  if (!isTauriRuntime()) return;
   try {
     await invoke('set_analytics_enabled', { enabled });
   } catch {

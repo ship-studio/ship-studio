@@ -1,4 +1,4 @@
-//! What Ship Studio leaves behind in git history.
+//! What Harbr leaves behind in git history.
 //!
 //! Every commit the app makes goes through `git_stage_and_commit`, and every one
 //! of them passes through here first. One trailer, machine-readable, out of the
@@ -10,7 +10,7 @@
 //! The flex row could not hold three columns at 1024px without the third
 //! wrapping under the first two.
 //!
-//! Made-With: Claude Code in Ship Studio
+//! Made-With: Claude Code in Harbr
 //! ```
 //!
 //! `Made-With` is attribution — the same idea as Claude Code's `Co-Authored-By`,
@@ -56,19 +56,19 @@ pub fn attribution_enabled() -> bool {
 /// How an agent names itself in the trailer.
 ///
 /// The display name of the project's configured agent — "Claude Code", "Codex",
-/// "Cursor". `None` when Ship Studio committed on its own (a snapshot, a
+/// "Cursor". `None` when Harbr committed on its own (a snapshot, a
 /// conflict resolution, an initial commit), in which case the trailer says only
-/// Ship Studio rather than crediting an agent that had nothing to do with it.
+/// Harbr rather than crediting an agent that had nothing to do with it.
 pub fn agent_label(agent: Option<&str>) -> String {
     match agent {
         Some(agent) if !agent.trim().is_empty() => {
-            format!("{} in Ship Studio", agent.trim())
+            format!("{} in Harbr", agent.trim())
         }
-        _ => "Ship Studio".to_string(),
+        _ => "Harbr".to_string(),
     }
 }
 
-/// Add Ship Studio's trailers to a commit message.
+/// Add Harbr's trailers to a commit message.
 ///
 /// Returns the message unchanged when the user has turned attribution off, or
 /// when git cannot run `interpret-trailers` — a commit must never fail because
@@ -84,13 +84,13 @@ pub fn with_trailers(repo: &std::path::Path, message: &str, agent: Option<&str>)
         Err(error) => {
             // A missing git, a locked repo, a hook-mangled environment. The
             // commit is the thing that matters; the footer is not.
-            tracing::warn!(%error, "could not add Ship Studio trailers; committing as-is");
+            tracing::warn!(%error, "could not add Harbr trailers; committing as-is");
             message.to_string()
         }
     }
 }
 
-/// The footer added to pull request descriptions Ship Studio opens.
+/// The footer added to pull request descriptions Harbr opens.
 ///
 /// A PR body is markdown on a web page, not a commit message, so the git
 /// trailer rules do not apply and `interpret-trailers` is the wrong tool. What
@@ -103,10 +103,10 @@ pub fn with_trailers(repo: &std::path::Path, message: &str, agent: Option<&str>)
 pub fn pr_footer(agent: Option<&str>) -> Option<String> {
     attribution_enabled().then(|| match agent {
         Some(agent) if !agent.trim().is_empty() => format!(
-            "---\n\n*Opened from [Ship Studio](https://shipstudio.dev), described by {}.*",
+            "---\n\n*Opened from [Harbr](https://github.com/kacigaya/harbr), described by {}.*",
             agent.trim()
         ),
-        _ => "---\n\n*Opened from [Ship Studio](https://shipstudio.dev).*".to_string(),
+        _ => "---\n\n*Opened from [Harbr](https://github.com/kacigaya/harbr).*".to_string(),
     })
 }
 
@@ -120,7 +120,7 @@ pub fn with_pr_footer(body: &str, agent: Option<&str>) -> String {
     };
     // Match on the stable half of the sentence, so a body carrying the
     // no-agent variant is not given the with-agent one on a later edit.
-    if body.contains("[Ship Studio](https://shipstudio.dev)") {
+    if body.contains("[Harbr](https://github.com/kacigaya/harbr)") {
         return body.to_string();
     }
     let trimmed = body.trim_end();
@@ -197,22 +197,19 @@ mod tests {
 
     #[test]
     fn names_the_agent_when_one_did_the_work_and_does_not_when_none_did() {
-        assert_eq!(
-            agent_label(Some("Claude Code")),
-            "Claude Code in Ship Studio"
-        );
-        assert_eq!(agent_label(Some("  Codex  ")), "Codex in Ship Studio");
+        assert_eq!(agent_label(Some("Claude Code")), "Claude Code in Harbr");
+        assert_eq!(agent_label(Some("  Codex  ")), "Codex in Harbr");
         // A snapshot or a conflict resolution has no agent behind it, and
         // crediting one that was not there is the invention this rule forbids.
-        assert_eq!(agent_label(None), "Ship Studio");
-        assert_eq!(agent_label(Some("   ")), "Ship Studio");
+        assert_eq!(agent_label(None), "Harbr");
+        assert_eq!(agent_label(Some("   ")), "Harbr");
     }
 
     #[test]
     fn a_one_line_message_gets_a_blank_line_before_the_trailer() {
         let dir = repo("oneline");
-        let out = run(&dir, "Fix the nav\n", &["Made-With: Ship Studio"]);
-        assert_eq!(out, "Fix the nav\n\nMade-With: Ship Studio\n");
+        let out = run(&dir, "Fix the nav\n", &["Made-With: Harbr"]);
+        assert_eq!(out, "Fix the nav\n\nMade-With: Harbr\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -222,11 +219,11 @@ mod tests {
         let out = run(
             &dir,
             "Fix the nav\n\nIt collapsed under 768px.\n",
-            &["Made-With: Ship Studio"],
+            &["Made-With: Harbr"],
         );
         assert_eq!(
             out,
-            "Fix the nav\n\nIt collapsed under 768px.\n\nMade-With: Ship Studio\n"
+            "Fix the nav\n\nIt collapsed under 768px.\n\nMade-With: Harbr\n"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -240,12 +237,12 @@ mod tests {
         let out = run(
             &dir,
             "Fix the nav\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n",
-            &["Made-With: Claude Code in Ship Studio"],
+            &["Made-With: Claude Code in Harbr"],
         );
         assert_eq!(
             out,
             "Fix the nav\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n\
-             Made-With: Claude Code in Ship Studio\n"
+             Made-With: Claude Code in Harbr\n"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -253,22 +250,22 @@ mod tests {
     #[test]
     fn never_adds_a_trailer_the_message_already_carries() {
         let dir = repo("dupe");
-        let once = run(&dir, "Fix the nav\n", &["Made-With: Ship Studio"]);
-        let twice = run(&dir, &once, &["Made-With: Ship Studio"]);
+        let once = run(&dir, "Fix the nav\n", &["Made-With: Harbr"]);
+        let twice = run(&dir, &once, &["Made-With: Harbr"]);
         assert_eq!(once, twice);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn two_trailers_land_in_one_block_and_git_reads_them_back() {
-        // Ship Studio writes one trailer, but never into an empty footer: an
+        // Harbr writes one trailer, but never into an empty footer: an
         // agent's commit usually already carries `Co-Authored-By`, and the
         // block rules are exactly where hand-rolled concatenation goes wrong.
         let dir = repo("roundtrip");
         let message = run(
             &dir,
             "Rebuild the pricing tiers\n\nCo-Authored-By: Someone <s@example.com>\n",
-            &["Made-With: Claude Code in Ship Studio"],
+            &["Made-With: Claude Code in Harbr"],
         );
 
         // The half that matters: git's own reader, the one `derive.rs` uses,
@@ -292,7 +289,7 @@ mod tests {
             .expect("parse runs");
         let parsed = String::from_utf8_lossy(&out.stdout);
         assert!(
-            parsed.contains("Made-With: Claude Code in Ship Studio"),
+            parsed.contains("Made-With: Claude Code in Harbr"),
             "{parsed}"
         );
         assert!(
@@ -356,7 +353,7 @@ mod tests {
             subject, "Rebuild the pricing tiers as a CSS grid",
             "`git log --oneline` must read exactly as it did before"
         );
-        assert_eq!(made_with.trim(), "Claude Code in Ship Studio");
+        assert_eq!(made_with.trim(), "Claude Code in Harbr");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -377,7 +374,7 @@ mod tests {
         // unavailable or fails. Naming one there is the same invention the
         // commit trailer refuses to make.
         let body = with_pr_footer("Bare description.", None);
-        assert!(body.ends_with("*Opened from [Ship Studio](https://shipstudio.dev).*"));
+        assert!(body.ends_with("*Opened from [Harbr](https://github.com/kacigaya/harbr).*"));
         assert!(!body.contains("described by"));
     }
 
@@ -397,7 +394,7 @@ mod tests {
         let mixed = with_pr_footer(&with_pr_footer("x", None), Some("Codex"));
         assert_eq!(
             mixed
-                .matches("Ship Studio](https://shipstudio.dev)")
+                .matches("Harbr](https://github.com/kacigaya/harbr)")
                 .count(),
             1
         );
@@ -411,7 +408,7 @@ mod tests {
             "feat(nav): collapse under 768px\n",
             "Merge pull request #139 from acme/copy-tweaks\n",
         ] {
-            let out = run(&dir, message, &["Made-With: Ship Studio"]);
+            let out = run(&dir, message, &["Made-With: Harbr"]);
             assert_eq!(
                 out.lines().next().unwrap(),
                 message.trim_end(),

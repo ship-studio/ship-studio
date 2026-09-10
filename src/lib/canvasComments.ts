@@ -150,7 +150,7 @@ export function isCommentTarget(value: unknown): value is CommentTarget {
  * is the same one drawn on the pin in the preview, so the user and the agent can
  * say "comment 2" and mean the same element.
  *
- * What is deliberately NOT borrowed is a bare markdown dump. Ship Studio pastes
+ * What is deliberately NOT borrowed is a bare markdown dump. Harbr pastes
  * this straight into a live agent terminal rather than the clipboard, so the
  * captured page content has to stay marked as untrusted data — a page that
  * contains "ignore previous instructions" is otherwise one click from an agent.

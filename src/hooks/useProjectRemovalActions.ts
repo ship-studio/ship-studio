@@ -99,10 +99,10 @@ export function useProjectRemovalActions({
       setRemoveConfirm(null);
       removeProjectFromSelection(project.path);
       await loadAll();
-      showToast(`${project.name} was removed from Ship Studio`, 'success');
+      showToast(`${project.name} was removed from Harbr`, 'success');
     } catch (error) {
       // The folder is already gone — a normal, by-design environment change
-      // (moved/renamed/deleted outside Ship Studio), not a malfunction. Skip
+      // (moved/renamed/deleted outside Harbr), not a malfunction. Skip
       // trackError and use warn so it isn't auto-filed as a bug (issue #878).
       if (isProjectFolderGoneError(error)) {
         logger.warn('Could not remove project — its folder no longer exists', {
@@ -110,7 +110,7 @@ export function useProjectRemovalActions({
         });
       } else {
         trackError('project_remove_from_app', error, 'Dashboard');
-        logger.error('Failed to remove project from Ship Studio', {
+        logger.error('Failed to remove project from Harbr', {
           error: formatCommandError(asCommandError(error)),
         });
       }

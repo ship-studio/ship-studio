@@ -14,7 +14,7 @@ describe('classifyThumbnailLoadFailure', () => {
       classifyThumbnailLoadFailure({
         type: 'Other',
         message:
-          "The folder 'happy-lipo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+          "The folder 'happy-lipo' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
       })
     ).toEqual({ level: 'warn' });
   });
@@ -24,7 +24,7 @@ describe('classifyThumbnailLoadFailure', () => {
       classifyThumbnailLoadFailure({
         type: 'Other',
         message:
-          "Ship Studio isn't allowed to read this project's thumbnail (…/thumbnail.png). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
+          "Harbr isn't allowed to read this project's thumbnail (…/thumbnail.png). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
         expected: true,
       })
     ).toEqual({ level: 'warn' });

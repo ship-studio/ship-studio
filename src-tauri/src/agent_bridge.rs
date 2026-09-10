@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
-use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -194,7 +193,7 @@ fn project_bridge_url(port: u16, token: &str, canonical_project_path: &str) -> S
 
 /// URL segment for agents with GLOBAL MCP configs (Codex, Opencode, Cursor):
 /// instead of a baked-in project path, tool calls resolve to the currently
-/// focused Ship Studio project at call time.
+/// focused Harbr project at call time.
 pub const ACTIVE_PROJECT_SEGMENT: &str = "active";
 
 fn decode_project_segment(segment: &str) -> Option<String> {
@@ -211,16 +210,18 @@ fn decode_project_segment(segment: &str) -> Option<String> {
 ///
 /// The token and port persist in app state: a `claude mcp add` registration
 /// done in one app run must keep working in every later run. If the stored
-/// port is taken (another Ship Studio instance, or an unrelated process), we
+/// port is taken (another Harbr instance, or an unrelated process), we
 /// fall back to an ephemeral port and persist the new one — per-project
 /// registrations self-correct the next time that project is opened.
-pub async fn start_global_agent_bridge(app: tauri::AppHandle) -> Result<(u16, String), String> {
+pub async fn start_global_agent_bridge(
+    app: Option<tauri::AppHandle>,
+) -> Result<(u16, String), String> {
     // Kill switch: support/debug escape hatch if the bridge misbehaves in the
     // field. With the server down, agents just see one failed-to-connect MCP
     // entry and everything else works normally.
-    if std::env::var("SHIPSTUDIO_DISABLE_AGENT_BRIDGE").is_ok_and(|v| !v.is_empty() && v != "0") {
+    if std::env::var("HARBR_DISABLE_AGENT_BRIDGE").is_ok_and(|v| !v.is_empty() && v != "0") {
         return Err(
-            "Agent bridge disabled by SHIPSTUDIO_DISABLE_AGENT_BRIDGE environment variable"
+            "Agent bridge disabled by HARBR_DISABLE_AGENT_BRIDGE environment variable"
                 .to_string(),
         );
     }
@@ -317,7 +318,7 @@ pub async fn start_global_agent_bridge(app: tauri::AppHandle) -> Result<(u16, St
 
 /// URL for one project's MCP registration; starts the server if needed.
 pub async fn agent_bridge_url_for_project(
-    app: tauri::AppHandle,
+    app: Option<tauri::AppHandle>,
     canonical_project_path: &str,
 ) -> Result<String, String> {
     let (port, token) = start_global_agent_bridge(app).await?;
@@ -325,8 +326,8 @@ pub async fn agent_bridge_url_for_project(
 }
 
 /// URL for agents whose MCP config is global (Codex, Opencode, Cursor):
-/// routes to the focused Ship Studio project at call time.
-pub async fn agent_bridge_active_url(app: tauri::AppHandle) -> Result<String, String> {
+/// routes to the focused Harbr project at call time.
+pub async fn agent_bridge_active_url(app: Option<tauri::AppHandle>) -> Result<String, String> {
     let (port, token) = start_global_agent_bridge(app).await?;
     Ok(format!(
         "http://127.0.0.1:{port}/mcp/{token}/{ACTIVE_PROJECT_SEGMENT}"
@@ -399,7 +400,7 @@ fn has_valid_host(req: &Request<Incoming>) -> bool {
 }
 
 async fn handle_http(
-    app: tauri::AppHandle,
+    app: Option<tauri::AppHandle>,
     token: String,
     req: Request<Incoming>,
 ) -> Result<Response<ServerBody>, hyper::Error> {
@@ -457,7 +458,7 @@ async fn handle_http(
                     .body(full_body(Bytes::new()))
                     .unwrap());
             }
-            let response = handle_rpc(&app, &project_path, &message).await;
+            let response = handle_rpc(app.as_ref(), &project_path, &message).await;
             Ok(json_response(response))
         }
         // We don't offer a server-initiated SSE stream.
@@ -503,7 +504,7 @@ fn initialize_result(params: Option<&Value>) -> Value {
             "name": "ship-studio-preview",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "instructions": "PREFERRED tools for anything involving THIS project's own site: viewing pages, clicking buttons, filling forms, reading console/network output, taking screenshots. They drive the live preview inside Ship Studio that the user is already watching — always use these instead of generic browser automation (Chrome extensions, Playwright, opening a browser) when the target is this project's pages; they are faster, need no setup, and the user sees an agent cursor mark every action. Start with preview_status to see what's running and which pages exist. After making code changes, use preview_console to check for runtime errors and preview_screenshot to see the rendered result. preview_click/preview_type/preview_scroll interact with the page like a user would; preview_navigate switches pages. When NOT to use these: (1) other websites, the deployed production site, or tasks needing an existing logged-in browser session — use a browser automation tool if one is available; (2) anything requiring the user personally — signing in with real credentials, OAuth/social-login popups, payments or checkout, camera/microphone permissions, or judging how the site feels on their real devices and browsers — there, ask the user to check it themselves in their own browser and tell them what to look for.",
+        "instructions": "PREFERRED tools for anything involving THIS project's own site: viewing pages, clicking buttons, filling forms, reading console/network output, taking screenshots. They drive the live preview inside Harbr that the user is already watching — always use these instead of generic browser automation (Chrome extensions, Playwright, opening a browser) when the target is this project's pages; they are faster, need no setup, and the user sees an agent cursor mark every action. Start with preview_status to see what's running and which pages exist. After making code changes, use preview_console to check for runtime errors and preview_screenshot to see the rendered result. preview_click/preview_type/preview_scroll interact with the page like a user would; preview_navigate switches pages. When NOT to use these: (1) other websites, the deployed production site, or tasks needing an existing logged-in browser session — use a browser automation tool if one is available; (2) anything requiring the user personally — signing in with real credentials, OAuth/social-login popups, payments or checkout, camera/microphone permissions, or judging how the site feels on their real devices and browsers — there, ask the user to check it themselves in their own browser and tell them what to look for.",
     })
 }
 
@@ -517,7 +518,7 @@ struct ToolDef {
 const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "preview_console",
-        description: "Read recent console output (logs, warnings, errors, uncaught exceptions, unhandled rejections) captured from the Ship Studio live preview of this project. Use after making changes to check for runtime errors.",
+        description: "Read recent console output (logs, warnings, errors, uncaught exceptions, unhandled rejections) captured from the Harbr live preview of this project. Use after making changes to check for runtime errors.",
         timeout_secs: DEFAULT_TOOL_TIMEOUT_SECS,
         input_schema: || json!({
             "type": "object",
@@ -669,7 +670,7 @@ fn tools_list_result() -> Value {
     json!({ "tools": tools })
 }
 
-async fn handle_rpc(app: &tauri::AppHandle, project_path: &str, message: &Value) -> Value {
+async fn handle_rpc(app: Option<&tauri::AppHandle>, project_path: &str, message: &Value) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     let params = message.get("params");
@@ -725,14 +726,14 @@ async fn handle_rpc(app: &tauri::AppHandle, project_path: &str, message: &Value)
 /// (isError: true) rather than protocol errors, so the agent can read what
 /// went wrong and adapt.
 async fn dispatch_tool(
-    app: &tauri::AppHandle,
+    app: Option<&tauri::AppHandle>,
     project_path: &str,
     tool: &ToolDef,
     arguments: Value,
 ) -> Value {
     // Route by project. Per-project URLs (Claude Code) carry the path; the
     // "active" URL (global-config agents: Codex, Opencode, Cursor) resolves
-    // to the focused Ship Studio project at call time.
+    // to the focused Harbr project at call time.
     let resolved_project = if project_path == ACTIVE_PROJECT_SEGMENT {
         match resolve_active_project(app) {
             Ok(p) => p,
@@ -745,7 +746,7 @@ async fn dispatch_tool(
 
     let Some(window_label) = crate::state::get_window_for_project(project_path) else {
         return tool_error_result(
-            "This project isn't open in Ship Studio right now. Ask the user to open the project (its preview provides these tools).",
+            "This project isn't open in Harbr right now. Ask the user to open the project (its preview provides these tools).",
         );
     };
 
@@ -753,7 +754,7 @@ async fn dispatch_tool(
     // timeout would just stall the agent for no reason.
     if !is_project_attached(project_path) {
         return tool_error_result(
-            "The project is open in Ship Studio, but its web preview isn't active, so these tools can't run. If this is a web project, ask the user to switch to its workspace (the preview loads there). If it's a native mobile project (Expo / React Native / Flutter), it uses the simulator preview instead — these web-preview tools don't apply; verify through code, build output, and the user.",
+            "The project is open in Harbr, but its web preview isn't active, so these tools can't run. If this is a web project, ask the user to switch to its workspace (the preview loads there). If it's a native mobile project (Expo / React Native / Flutter), it uses the simulator preview instead — these web-preview tools don't apply; verify through code, build output, and the user.",
         );
     }
 
@@ -764,7 +765,7 @@ async fn dispatch_tool(
         pending.insert(request_id, tx);
     } else {
         return tool_error_result(
-            "Ship Studio's agent bridge is in a broken state (lock poisoned). Restart Ship Studio.",
+            "Harbr's agent bridge is in a broken state (lock poisoned). Restart Harbr.",
         );
     }
 
@@ -780,13 +781,11 @@ async fn dispatch_tool(
         window_label
     );
 
-    if let Err(e) = app.emit_to(&window_label, "agent-bridge-request", payload) {
+    if let Err(e) = crate::emit::to(&window_label, "agent-bridge-request", payload) {
         if let Ok(mut pending) = PENDING_REQUESTS.lock() {
             pending.remove(&request_id);
         }
-        return tool_error_result(&format!(
-            "Could not reach the Ship Studio preview window: {e}"
-        ));
+        return tool_error_result(&format!("Could not reach the Harbr preview window: {e}"));
     }
 
     match tokio::time::timeout(Duration::from_secs(tool.timeout_secs), rx).await {
@@ -796,7 +795,7 @@ async fn dispatch_tool(
             if result.get("content").map(Value::is_array).unwrap_or(false) {
                 result
             } else {
-                tool_error_result("The preview returned a malformed tool result (missing 'content'). This is a Ship Studio bug.")
+                tool_error_result("The preview returned a malformed tool result (missing 'content'). This is a Harbr bug.")
             }
         }
         Ok(Err(_)) | Err(_) => {
@@ -804,7 +803,7 @@ async fn dispatch_tool(
                 pending.remove(&request_id);
             }
             tool_error_result(&format!(
-                "The preview did not respond within {}s. The preview panel may not be open in Ship Studio, or the dev server may not be running. Ask the user to open the preview.",
+                "The preview did not respond within {}s. The preview panel may not be open in Harbr, or the dev server may not be running. Ask the user to open the preview.",
                 tool.timeout_secs
             ))
         }
@@ -812,21 +811,23 @@ async fn dispatch_tool(
 }
 
 /// Which project should an "active"-URL tool call act on?
-/// The focused Ship Studio window's project wins; with nothing focused
+/// The focused Harbr window's project wins; with nothing focused
 /// (agent running while the user looks elsewhere), a single open project is
 /// unambiguous; several open projects without focus is unanswerable.
-fn resolve_active_project(app: &tauri::AppHandle) -> Result<String, String> {
+fn resolve_active_project(app: Option<&tauri::AppHandle>) -> Result<String, String> {
     use tauri::Manager;
     let open = crate::state::get_open_project_windows();
     if open.is_empty() {
         return Err(
-            "No project is open in Ship Studio right now. Ask the user to open the project you're working on (its preview provides these tools).".to_string(),
+            "No project is open in Harbr right now. Ask the user to open the project you're working on (its preview provides these tools).".to_string(),
         );
     }
-    for (label, window) in app.webview_windows() {
-        if window.is_focused().unwrap_or(false) {
-            if let Some((project, _)) = open.iter().find(|(_, l)| *l == label) {
-                return Ok(project.clone());
+    if let Some(app) = app {
+        for (label, window) in app.webview_windows() {
+            if window.is_focused().unwrap_or(false) {
+                if let Some((project, _)) = open.iter().find(|(_, l)| *l == label) {
+                    return Ok(project.clone());
+                }
             }
         }
     }
@@ -834,7 +835,7 @@ fn resolve_active_project(app: &tauri::AppHandle) -> Result<String, String> {
         return Ok(open[0].0.clone());
     }
     Err(format!(
-        "Several projects are open in Ship Studio ({}) and none is focused, so it's unclear which preview to use. Ask the user to focus the project you're working on.",
+        "Several projects are open in Harbr ({}) and none is focused, so it's unclear which preview to use. Ask the user to focus the project you're working on.",
         open.iter()
             .map(|(p, _)| p.rsplit('/').next().unwrap_or(p))
             .collect::<Vec<_>>()

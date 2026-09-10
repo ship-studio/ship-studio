@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 /// Opens a project in a new window.
 /// If the project is already open in another window, focuses that window instead.
 /// Returns the window label of the new or existing window.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn open_project_in_new_window(
     app: AppHandle,
@@ -56,7 +56,7 @@ pub async fn open_project_in_new_window(
 
     // Create the window
     let mut builder = WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::App(url.into()))
-        .title(format!("{project_name} - Ship Studio"))
+        .title(format!("{project_name} - Harbr"))
         .inner_size(1400.0, 900.0)
         .min_inner_size(400.0, 300.0)
         .resizable(true)
@@ -89,7 +89,7 @@ pub async fn open_project_in_new_window(
 /// Registers a project for the current window.
 /// Called when a project is opened in any window (main or new).
 /// This ensures duplicate window detection works correctly.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn register_project_for_window(
     window_label: String,
@@ -110,7 +110,7 @@ pub async fn register_project_for_window(
 
 /// Check if a project is already open in another window.
 /// Returns the window label if open, or null if not.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_window(project_path: String) -> Option<String> {
     // Validate the path is within ~/ShipStudio
@@ -134,7 +134,7 @@ pub async fn get_project_window(project_path: String) -> Option<String> {
 
 /// Focus a window by its label.
 /// Used to bring an existing project window to the front.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn focus_window_by_label(
     app: AppHandle,
@@ -149,7 +149,7 @@ pub async fn focus_window_by_label(
     }
 }
 
-/// Spawn a new blank Ship Studio window pointed at the dashboard
+/// Spawn a new blank Harbr window pointed at the dashboard
 /// (no `?project=` query param). Used by the "Window → New Window" menu
 /// item; not a Tauri command, since it's invoked from a menu handler that
 /// already has an `AppHandle`. Returns the new window's label.
@@ -163,7 +163,7 @@ pub fn spawn_blank_window(app: &AppHandle) -> Result<String, String> {
 
     let mut builder =
         WebviewWindowBuilder::new(app, &window_label, WebviewUrl::App("index.html".into()))
-            .title("Ship Studio")
+            .title("Harbr")
             .inner_size(1400.0, 900.0)
             .min_inner_size(400.0, 300.0)
             .resizable(true)

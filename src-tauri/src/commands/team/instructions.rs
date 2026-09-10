@@ -39,7 +39,7 @@ const END: &str = "<!-- /ship-studio:commit-messages -->";
 
 /// What gets appended.
 ///
-/// Deliberately about commit messages rather than about Ship Studio. Everything
+/// Deliberately about commit messages rather than about Harbr. Everything
 /// here is good practice on its own — it helps `git log`, GitHub, and code
 /// review — and it happens to be exactly what the Team feed reads. An
 /// instruction that only pays off inside one app is one a team will delete.
@@ -93,7 +93,7 @@ fn instruction_path(project: &Path) -> Option<PathBuf> {
 ///
 /// Idempotent: a project that already has it is left exactly as it is, so this
 /// can be offered more than once without stacking up copies.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn install_commit_guidance(project_path: String) -> Result<String, CommandError> {
     let project = crate::utils::validate_project_path(&project_path)?;
@@ -134,7 +134,7 @@ mod tests {
         // An instruction that only pays off inside one app is one a team
         // deletes. Everything here helps `git log` and code review too.
         let text = block();
-        assert!(!text.contains("Ship Studio"), "the block sells the app");
+        assert!(!text.contains("Harbr"), "the block sells the app");
         assert!(text.contains("the body says *why*"));
         assert!(text.contains("Do not restate the diff"));
         assert!(text.contains("rather than inventing a motive"));

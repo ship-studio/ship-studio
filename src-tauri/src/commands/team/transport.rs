@@ -147,7 +147,7 @@ pub fn exclude_threads_from_working_tree(project: &Path) -> std::io::Result<()> 
         "\n"
     };
     let addition = format!(
-        "{separator}\n# Ship Studio comment records. They travel on their own ref\n\
+        "{separator}\n# Harbr comment records. They travel on their own ref\n\
          # ({TEAM_BRANCH}) rather than in your branches, so they are never part\n\
          # of your commits or your pull requests.\n{line}\n"
     );
@@ -302,7 +302,7 @@ async fn commit_records(
         }
     }
 
-    let message = format!("Ship Studio comments from {author}");
+    let message = format!("Harbr comments from {author}");
     let mut args: Vec<&str> = vec!["commit-tree", &tree, "-m", &message];
     if let Some(parent) = parent {
         args.push("-p");
@@ -324,7 +324,7 @@ fn scratch_index_path(project: &Path) -> PathBuf {
 ///
 /// Read rather than remembered: a count kept in memory drifts the moment
 /// anything writes a record outside this process — an agent following the
-/// bundled skill, or a second Ship Studio window on the same project.
+/// bundled skill, or a second Harbr window on the same project.
 pub async fn pending_count(project: &Path) -> u32 {
     let local: HashSet<String> = local_record_paths(project).into_iter().collect();
     let published = record_paths_in_ref(project, REMOTE_REF).await;

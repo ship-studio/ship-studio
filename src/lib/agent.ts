@@ -10,9 +10,9 @@
  * @module lib/agent
  */
 
-import { isWindows } from './setup';
+import { defaultShellPath, defaultShellProcessName } from './setup';
 
-/** Configuration for an AI coding agent integrated with Ship Studio. */
+/** Configuration for an AI coding agent integrated with Harbr. */
 export interface AgentConfig {
   /** Unique identifier (e.g., "claude-code") */
   id: string;
@@ -26,7 +26,7 @@ export interface AgentConfig {
   autoAcceptFlag: string | null;
   /**
    * Flag this agent uses to attach an additional working directory (read
-   * access + skills), or null if the agent has no equivalent. Ship Studio
+   * access + skills), or null if the agent has no equivalent. Harbr
    * appends `<flag> <path>` per attached library at launch so the user's
    * cross-project library rides along. Claude Code: `--add-dir` (its skills
    * load and files are readable, but the directory's CLAUDE.md is not loaded).
@@ -115,8 +115,8 @@ export const CURSOR: AgentConfig = {
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
   displayName: 'Terminal',
-  binaryName: isWindows() ? 'powershell.exe' : '/bin/zsh',
-  processName: isWindows() ? 'powershell' : 'zsh',
+  binaryName: defaultShellPath(),
+  processName: defaultShellProcessName(),
   autoAcceptFlag: null,
   additionalDirFlag: null,
   supportsSkills: false,

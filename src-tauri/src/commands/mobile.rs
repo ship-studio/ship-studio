@@ -1,6 +1,6 @@
 //! # Native Mobile Preview (iOS Simulator)
 //!
-//! Mirrors a booted iOS Simulator into Ship Studio's preview pane by managing
+//! Mirrors a booted iOS Simulator into Harbr's preview pane by managing
 //! a `serve-sim` daemon (Evan Bacon / Expo, Apache-2.0). serve-sim exposes an
 //! MJPEG stream + a WebSocket control channel for the booted simulator; the
 //! frontend embeds the stream and drives input over the WebSocket directly.
@@ -311,7 +311,7 @@ pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandErr
 /// Whether a user-facing app is currently running on the booted simulator.
 ///
 /// This is the ground-truth "did the app launch" signal, and crucially it is
-/// independent of *which* process built it. Ship Studio's embedded BuildTerminal
+/// independent of *which* process built it. Harbr's embedded BuildTerminal
 /// only sees its own build; when the user hands a failed build to the agent, the
 /// agent rebuilds in its OWN terminal, invisible to the build-log classifier. The
 /// preview panel polls this so it can resolve from "failed" to "launched" after an
@@ -327,7 +327,7 @@ pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandErr
 /// can false-positive on a pre-booted sim that already has another third-party app
 /// running. Either way Apple's own UIKit apps (Safari = `com.apple.mobilesafari`,
 /// etc.) are excluded.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn simulator_app_running(
     udid: String,
@@ -377,12 +377,12 @@ pub async fn simulator_app_running(
 /// We boot the simulator headlessly (`simctl boot`) and mirror it via serve-sim's
 /// framebuffer capture, so Simulator.app's window is never needed — but the build
 /// tool (`expo run:ios` / `react-native run-ios`) opens and foregrounds it, where it
-/// lands on top of Ship Studio. Hiding the app (AppleScript, like Cmd+H) keeps the
+/// lands on top of Harbr. Hiding the app (AppleScript, like Cmd+H) keeps the
 /// simulator booted and the mirror live while getting the window out of the way.
 ///
 /// Best-effort: if Simulator isn't running, or the user hasn't granted automation
 /// permission, this is a no-op — the window simply stays, exactly as before.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn hide_simulator() -> Result<(), CommandError> {
     #[cfg(target_os = "macos")]
@@ -690,7 +690,7 @@ async fn emulator_boot_completed(serial: &str) -> bool {
 /// analog of [`simulator_app_running`]. `pidof <app_id>` exits 0 with the pid iff
 /// the process is alive. The app id (Gradle `applicationId`) comes from the build
 /// log; without it we can't tell our app from others, so report not-running.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn android_app_running(
     serial: String,
@@ -753,7 +753,7 @@ fn detect_mobile_targets_for(project_path: &std::path::Path) -> MobileTargets {
 /// Which platforms a project can build for (iOS / Android). Combined by the frontend
 /// with [`mobile_platform_support`] (machine capability) so a platform is only
 /// offered when the project targets it AND the toolchain exists.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn detect_mobile_targets(project_path: String) -> Result<MobileTargets, CommandError> {
     let project = crate::utils::validate_project_path(&project_path)?;
@@ -833,7 +833,7 @@ async fn android_tooling_available() -> bool {
 /// Report which mobile platforms this machine can actually preview — not just which
 /// toolchain is partially present, but which can boot/build something. The frontend
 /// offers only these; the rest route to agent-driven setup.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn mobile_platform_support() -> Result<MobilePlatformSupport, CommandError> {
     Ok(MobilePlatformSupport {
@@ -1928,7 +1928,7 @@ fn with_android_build_env(platform: crate::state::Platform, cmd: String) -> Stri
 /// if the project type isn't a supported native mobile app. Android commands are
 /// wrapped to provide `JAVA_HOME`/`ANDROID_HOME` for Gradle (see
 /// [`with_android_build_env`]).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_simulator_launch_command(
     project_path: String,
@@ -2363,7 +2363,7 @@ const LAUNCH_STATUSES: [&str; 4] = ["building", "launched", "failed", "exited"];
 /// so a later reuse (tab-return) restores it instantly — the pty ring buffer
 /// can have dropped the log marker the verdict came from. No-op when no session
 /// is registered (the report raced a teardown).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn set_mobile_launch_status(
     project_path: String,
@@ -2389,7 +2389,7 @@ pub async fn set_mobile_launch_status(
 /// actually recover a broken preview. `preferred` pins a specific device
 /// (frontend passes `null` in v1). The returned [`MirrorInfo`] is what the
 /// frontend embeds; the app build is launched separately as a `pty_session`.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn start_mobile_preview(
     project_path: String,
@@ -3237,20 +3237,20 @@ mod tests {
 
     /// Live, non-hermetic proof that the bridge streams decodable H.264 from a real
     /// emulator AND that the scrcpy control socket accepts our injected input.
-    /// Gated behind `SHIPSTUDIO_LIVE_ANDROID=1` (serial via
-    /// `SHIPSTUDIO_ANDROID_SERIAL`, default `emulator-5554`) so `cargo test` skips it
+    /// Gated behind `HARBR_LIVE_ANDROID=1` (serial via
+    /// `HARBR_ANDROID_SERIAL`, default `emulator-5554`) so `cargo test` skips it
     /// in CI. Run manually:
-    ///   SHIPSTUDIO_LIVE_ANDROID=1 cargo test android_bridge_streams_h264 -- --nocapture
+    ///   HARBR_LIVE_ANDROID=1 cargo test android_bridge_streams_h264 -- --nocapture
     #[tokio::test]
     async fn android_bridge_streams_h264() {
-        if std::env::var("SHIPSTUDIO_LIVE_ANDROID").as_deref() != Ok("1") {
-            eprintln!("skipping: set SHIPSTUDIO_LIVE_ANDROID=1 to run against a live emulator");
+        if std::env::var("HARBR_LIVE_ANDROID").as_deref() != Ok("1") {
+            eprintln!("skipping: set HARBR_LIVE_ANDROID=1 to run against a live emulator");
             return;
         }
         use futures_util::{SinkExt, StreamExt};
         use tokio_tungstenite::tungstenite::Message;
         let serial =
-            std::env::var("SHIPSTUDIO_ANDROID_SERIAL").unwrap_or_else(|_| "emulator-5554".into());
+            std::env::var("HARBR_ANDROID_SERIAL").unwrap_or_else(|_| "emulator-5554".into());
         let project = "/tmp/ship-android-bridge-test";
         let port = 3299;
 

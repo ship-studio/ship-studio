@@ -1,8 +1,8 @@
-# Ship Studio Development Guidelines
+# Harbr Development Guidelines
 
 ## Feature Overview
 
-Ship Studio is a desktop app for web developers that provides:
+Harbr is a desktop app for web developers that provides:
 - **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
 - **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
 - **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, each showing its whole page at an honest viewport height, with editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
@@ -48,10 +48,10 @@ Ship Studio is a desktop app for web developers that provides:
 ### Backend (Rust/Tauri)
 - Commands are organized in `src-tauri/src/commands/` by domain (git, vercel, github, etc.)
 - Command registration is in `src-tauri/src/lib.rs`
-- Commands validate paths to ensure they're within `~/ShipStudio` directory
+- Commands validate paths to ensure they're within `~/Harbr` directory
 - Git operations use the `git` CLI with TTL-based caching (`src-tauri/src/cache.rs`)
 - Vercel operations use the `vercel` CLI
-- Structured logging via `tracing` crate, logs stored at `~/Library/Logs/ShipStudio/`
+- Structured logging via `tracing` crate, logs stored at `~/Library/Logs/Harbr/`
 
 #### Command Modules
 Command modules in `src-tauri/src/commands/`. Domains with submodules are directories:
@@ -69,7 +69,7 @@ Command modules in `src-tauri/src/commands/`. Domains with submodules are direct
 Single-file domains:
 - `agent_bridge.rs` - Commands for the agent preview bridge (the loopback MCP server in `src-tauri/src/agent_bridge.rs` that lets the workspace agent read the preview's console/network/DOM, navigate it, and take screenshots)
 - `ai.rs` - AI-powered PR title/description generation via the agent CLI
-- `analytics.rs` - PostHog event tracking (API key stays in Rust; see `docs/analytics.md`)
+- `analytics.rs` - compatibility event commands backed by local structured logs
 - `assets.rs` - Assets panel file management (configurable root, default `/public`)
 - `attached_libraries.rs` - Shared libraries registry (per-workspace local folders surfaced to agent sessions via the agent's additional-dir flag, e.g. Claude Code `--add-dir`)
 - `claude.rs` - Claude Code binary detection and version checking
@@ -77,7 +77,7 @@ Single-file domains:
 - `conflicts.rs` - Merge conflict detection, parsing, and resolution
 - `edit.rs` - Visual editor backend (mutations, committing edits back to source)
 - `env.rs` - Environment variable management
-- `external_projects.rs` - Registry for projects outside `~/ShipStudio`
+- `external_projects.rs` - Registry for projects outside `~/Harbr`
 - `folders.rs` - Dashboard project folders
 - `github.rs` - GitHub CLI integration (auth status, push, remote management)
 - `i18n.rs` - Multilingual config management (Next.js Pages i18n, Astro i18n, next-intl routing.ts) via conservative string surgery — fails with Validation errors instead of guessing
@@ -144,7 +144,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `agents-management.ts` / `agent.ts` - Agent CLI detection, install state, default-agent selection
 - `agentBridge.ts` - Frontend half of the agent preview bridge: executes forwarded MCP tool calls against the inspect store / preview and registers the server with the agent CLI
 - `ai.ts` - AI generation wrapper for PR descriptions
-- `analytics.ts` - PostHog event wrapper (every event documented in `docs/analytics.md`)
+- `analytics.ts` - local product-event compatibility wrapper
 - `assets.ts` - Asset management (list, upload, delete; configurable assets root)
 - `attached-libraries.ts` - Shared libraries (list/add/remove, scoped to the active workspace; `attachedLibraryDirs` feeds the terminal's `--add-dir` wiring)
 - `backups.ts` / `snapshots.ts` - Snapshot create/restore (rewind)
@@ -235,21 +235,21 @@ Onboarding is critical — it's the first thing every new user sees.
 #### Visual testing for the agent-led flow (works on any machine)
 
 ```bash
-SHIPSTUDIO_FORCE_SETUP=fresh pnpm tauri dev
+HARBR_FORCE_SETUP=fresh pnpm tauri dev
 ```
 
 Under mock mode the agent-led flow is fully scripted and deterministic: Phase 0 install/connect buttons flip the backend mock state after a visible beat (no real terminals), and Phase 1 plays a scripted demo agent session (`DemoAgentTerminal`) that "installs" each tool on a ~30s timeline, flipping mock items ready via `mock_mark_setup_item_ready` so the real checklist polling ticks green end-to-end. Nothing touches the host machine — this is the reliable way for any contributor to eyeball the whole flow.
 
-Other useful scenarios: `SHIPSTUDIO_FORCE_SETUP=auth-only` (agents installed, nothing signed in — exercises Phase 0 connect), `almost-done` (only GitHub sign-in missing — short guided phase).
+Other useful scenarios: `HARBR_FORCE_SETUP=auth-only` (agents installed, nothing signed in — exercises Phase 0 connect), `almost-done` (only GitHub sign-in missing — short guided phase).
 
-`SHIPSTUDIO_FORCE_ONBOARDING=1` shows the agent-led flow with **real** checks and a **real agent**. On a fully set-up dev machine the pick phase shows real agent statuses, and the guided phase always runs (the fast-forwards to celebration are deliberately disabled under this env var): the agent is spawned with a verify-only prompt, checks each installed tool, and reports back — a genuine end-to-end test of the agent interaction without a fresh machine. Real *install* runs still need a machine/VM where things are actually missing.
+`HARBR_FORCE_ONBOARDING=1` shows the agent-led flow with **real** checks and a **real agent**. On a fully set-up dev machine the pick phase shows real agent statuses, and the guided phase always runs (the fast-forwards to celebration are deliberately disabled under this env var): the agent is spawned with a verify-only prompt, checks each installed tool, and reports back — a genuine end-to-end test of the agent interaction without a fresh machine. Real *install* runs still need a machine/VM where things are actually missing.
 
 The classic wizard's two modes below work unchanged — click "Try classic onboarding" to reach them.
 
-#### 1. Classic, Real Mode: `SHIPSTUDIO_FORCE_ONBOARDING=1`
+#### 1. Classic, Real Mode: `HARBR_FORCE_ONBOARDING=1`
 
 ```bash
-SHIPSTUDIO_FORCE_ONBOARDING=1 pnpm tauri dev
+HARBR_FORCE_ONBOARDING=1 pnpm tauri dev
 ```
 
 This forces the onboarding wizard to appear but runs **real system checks**. Items show their actual status on your machine (homebrew, node, git, etc. will show as "ready" with real versions). Terminal-based installs and auth flows work normally.
@@ -264,15 +264,15 @@ How it works:
 
 Since your dev machine likely has everything installed, the wizard will auto-advance to the celebration screen. This is correct behavior — it validates the auto-advance logic works.
 
-#### 2. Mock Mode: `SHIPSTUDIO_FORCE_SETUP=<scenario>` (for testing specific states)
+#### 2. Mock Mode: `HARBR_FORCE_SETUP=<scenario>` (for testing specific states)
 
 ```bash
-SHIPSTUDIO_FORCE_SETUP=fresh pnpm tauri dev        # Nothing installed (step 1)
-SHIPSTUDIO_FORCE_SETUP=auth-only pnpm tauri dev     # Tools installed, no auth (step 2/3)
-SHIPSTUDIO_FORCE_SETUP=almost-done pnpm tauri dev   # Only gh_auth missing (step 2)
-SHIPSTUDIO_FORCE_SETUP=both-agents pnpm tauri dev   # Everything ready → celebration
-SHIPSTUDIO_FORCE_SETUP=codex-only pnpm tauri dev    # Only Codex, no Claude
-SHIPSTUDIO_FORCE_SETUP=homebrew,node,git,gh,gh_auth pnpm tauri dev  # Custom: step 3
+HARBR_FORCE_SETUP=fresh pnpm tauri dev        # Nothing installed (step 1)
+HARBR_FORCE_SETUP=auth-only pnpm tauri dev     # Tools installed, no auth (step 2/3)
+HARBR_FORCE_SETUP=almost-done pnpm tauri dev   # Only gh_auth missing (step 2)
+HARBR_FORCE_SETUP=both-agents pnpm tauri dev   # Everything ready → celebration
+HARBR_FORCE_SETUP=codex-only pnpm tauri dev    # Only Codex, no Claude
+HARBR_FORCE_SETUP=homebrew,node,git,gh,gh_auth pnpm tauri dev  # Custom: step 3
 ```
 
 This uses a **mock backend** — item statuses are faked. Clicking "Install" simulates a 2-second install. However, **terminal-based items (homebrew, gh_auth, claude, codex) spawn real processes** that will fail or do unexpected things since they run against your actual system, not the mock.
@@ -280,8 +280,8 @@ This uses a **mock backend** — item statuses are faked. Clicking "Install" sim
 **When to use which:**
 | Scenario | Use |
 |----------|-----|
-| Testing wizard UI flow and navigation | `SHIPSTUDIO_FORCE_ONBOARDING=1` |
-| Testing specific incomplete states | `SHIPSTUDIO_FORCE_SETUP=<scenario>` |
+| Testing wizard UI flow and navigation | `HARBR_FORCE_ONBOARDING=1` |
+| Testing specific incomplete states | `HARBR_FORCE_SETUP=<scenario>` |
 | Testing on a fresh machine (real installs) | No env var needed — onboarding shows automatically |
 
 #### 3. Testing on a Fresh Machine (Real End-to-End)
@@ -343,7 +343,7 @@ Key files:
 
 ## Shared CSS Classes (Plugin-Stable)
 
-These classes are part of Ship Studio's public API for plugins. Plugins can use them directly without injecting their own styles. **Do not rename or remove these classes without updating the plugin starter repo.**
+These classes are part of Harbr's public API for plugins. Plugins can use them directly without injecting their own styles. **Do not rename or remove these classes without updating the plugin starter repo.**
 
 | Class | Defined In | Description |
 |-------|-----------|-------------|
@@ -404,7 +404,7 @@ recorded in [docs/internal/hosting-provider-matrix.md](docs/internal/hosting-pro
 
 1. A workflow is a markdown file at `<project>/.shipstudio/workflows/<slug>.md` — frontmatter plus an instruction body. The form in `WorkflowEditorModal` and the user's own agent (via the bundled `shipstudio-workflows` skill) write the *same* artifact; there is no API in front of it
 2. Running one shells out to the user's agent CLI headless in the project dir. Read-only is enforced by the CLI (`--permission-mode plan` / `--sandbox read-only`), not merely requested — never weaken this without changing the UI copy that claims it
-3. Findings come back as the last fenced ```json block in the reply, are deduped by fingerprint, and are filed to `~/ShipStudio/.shipstudio/workflows-state.json` — **never** into the project repo
+3. Findings come back as the last fenced ```json block in the reply, are deduped by fingerprint, and are filed to `~/Harbr/.shipstudio/workflows-state.json` — **never** into the project repo
 4. Scheduling is one tokio tick (`workflow_scheduler.rs`), at most one run per tick, never catching up on a backlog. Nothing fires while the app is closed and every UI string says so
 5. In the Inbox, "Fix in \<project\>" queues the suggested prompt (`lib/workflowHandoff.ts`), opens the workspace, and `useWorkflowHandoff` types it once a terminal exists
 
@@ -467,14 +467,14 @@ Full design, the trial results, and the bugs each rule came from:
 - ConflictedFile struct contains parsed conflict blocks with context lines
 - User resolves conflicts in UI by choosing "ours" or "theirs" for each block
 - Resolution written back to file, then auto-staged when all conflicts resolved
-- Complete merge commits with message "Resolved merge conflicts via Ship Studio"
+- Complete merge commits with message "Resolved merge conflicts via Harbr"
 
 ### Integration Status
 - GitHub: Check via `gh auth status`
 - Vercel: Check via `vercel whoami`
 - Claude: Check via `claude --version`
 
-## How to Do Things in Ship Studio
+## How to Do Things in Harbr
 
 These are the canonical patterns. Follow them — a DX refactor established primitives so the same logic isn't re-invented in every component. New code that bypasses these patterns will get flagged in review.
 
@@ -723,7 +723,7 @@ export function useBranchCommands({ currentBranch, switchBranch, hasConflicts }:
 
 **Out of scope for the palette** (don't register these):
 
-- One-shot deep settings (e.g. "Toggle Slack CTA visibility") — leave inside their settings modal.
+- One-shot deep settings — leave inside their settings modal.
 - Buttons whose label depends heavily on state and where the user is already looking at it (e.g. per-row delete buttons in a list).
 - Anything that'd need more than two UI prompts after triggering — build a dedicated flow instead.
 

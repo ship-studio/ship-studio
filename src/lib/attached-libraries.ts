@@ -1,5 +1,5 @@
 /**
- * Attached libraries: local directories the user registers once and Ship Studio
+ * Attached libraries: local directories the user registers once and Harbr
  * rides along into every agent session via the agent's additional-directory
  * flag (e.g. Claude Code's `--add-dir`). Skills in the library load and its
  * files are readable; its CLAUDE.md is not loaded, so it can't override the
@@ -13,6 +13,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { pickServerDirectory } from './serverPicker';
+import { isTauriRuntime } from './webEvents';
 
 /** A directory attached to every agent session. Mirrors the Rust `AttachedLibrary`. */
 export interface AttachedLibrary {
@@ -41,7 +43,9 @@ export async function attachedLibraryDirs(): Promise<string[]> {
  * @returns The registered path, or null if the user cancelled.
  */
 export async function addAttachedLibrary(): Promise<string | null> {
-  return invoke<string | null>('add_attached_library');
+  if (isTauriRuntime()) return invoke<string | null>('add_attached_library');
+  const selectedPath = await pickServerDirectory('Choose attached library');
+  return selectedPath ? invoke<string | null>('add_attached_library', { selectedPath }) : null;
 }
 
 /** Remove an attached library from the registry (does not delete the folder). */

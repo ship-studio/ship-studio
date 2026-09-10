@@ -59,7 +59,7 @@ function status(
     commit: {
       sha: 'abc123',
       short_sha: 'abc123a',
-      subject: 'Update from Ship Studio',
+      subject: 'Update from Harbr',
       committed_at: NOW - 30_000,
       branch: 'main',
       has_upstream: true,

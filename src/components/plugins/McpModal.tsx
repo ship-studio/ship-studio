@@ -178,7 +178,7 @@ export function McpModal({
         // Enterprise policy, an unreachable org gateway, the agent CLI's own
         // config, or an upstream `mcp add -e` parser bug — the backend already
         // classified all of these Expected and wrote the guidance into the
-        // message. Nothing Ship Studio can fix, so don't auto-file a report
+        // message. Nothing Harbr can fix, so don't auto-file a report
         // (issues #755, #763, #799, #800).
         logger.warn('Failed to add MCP server: environment or agent-config condition', {
           error: message,

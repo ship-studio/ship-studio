@@ -41,7 +41,7 @@ import type { LoadedPlugin } from '../../hooks/usePlugins';
 
 /**
  * Project paths whose root folder was detected missing mid-session (deleted,
- * renamed, or moved outside Ship Studio). Session-scoped one-shot guard: the
+ * renamed, or moved outside Harbr). Session-scoped one-shot guard: the
  * first plugin rejection for that project shows one info toast; a plugin that
  * keeps polling in the background is then only warn-logged instead of
  * toasting on every tick (issue #629 — same repeated-toast shape #315 fixed

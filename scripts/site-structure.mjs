@@ -31,7 +31,7 @@ import path from 'node:path';
 import { CHROME, launchChrome } from './headless-chrome.mjs';
 
 /** Preferred debugging port; the launcher moves off it if it is taken. */
-let CDP_PORT = Number(process.env.SHIPSTUDIO_STRUCTURE_CDP_PORT ?? 9338);
+let CDP_PORT = Number(process.env.HARBR_STRUCTURE_CDP_PORT ?? 9338);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**

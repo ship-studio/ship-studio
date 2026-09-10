@@ -663,7 +663,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // backend resolves the right Workspace env.
 
         // The PTY merges this env over the app's own, so npm/pnpm "invocation
-        // directory" vars leak through when Ship Studio runs under `pnpm tauri
+        // directory" vars leak through when Harbr runs under `pnpm tauri
         // dev`. Tools the agent runs (e.g. `shopify theme dev`) trust INIT_CWD
         // over process.cwd() and resolve paths against the wrong directory —
         // pin both to where this terminal actually runs.

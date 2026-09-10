@@ -48,9 +48,9 @@ const MAX_UPDATES: usize = 120;
 /// A directory that is not a repository is the interesting one, because it is
 /// not an error and not a degraded mode: comments are files, so they work there
 /// in full. What is missing is only the half derived from history, and the
-/// empty states say which half and why. Someone using Ship Studio alone on a
+/// empty states say which half and why. Someone using Harbr alone on a
 /// folder is a first-class user of this feature, not a misconfiguration of it.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn get_team_snapshot(project_path: String) -> Result<TeamSnapshot, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -578,7 +578,7 @@ mod tests {
     #[test]
     fn explains_work_follows_the_commits_rather_than_which_tool_was_used() {
         // The correction this replaced: the flag used to mean "has written a
-        // Ship Studio record", which called a teammate on plain git uncovered
+        // Harbr record", which called a teammate on plain git uncovered
         // for using a different editor. What the feed needs to know is whether
         // their commits say why — and that is in the commits.
         let mut explained = commit("a", false);

@@ -1,6 +1,6 @@
 # Code of conduct
 
-Ship Studio follows the [Contributor Covenant v2.1][covenant] as its code of
+Harbr follows the [Contributor Covenant v2.1][covenant] as its code of
 conduct. The full text lives at that link — please read it before contributing.
 
 In short:
@@ -12,9 +12,8 @@ In short:
 
 ## Reporting
 
-If you experience or witness behavior that violates this code, please DM a
-maintainer privately in our [community Slack](https://ship.studio/slack),
-or email [juliangalluzzois@gmail.com](mailto:juliangalluzzois@gmail.com).
+If you experience or witness behavior that violates this code, contact a
+maintainer privately through the repository's security reporting channel.
 Reports are handled in confidence. We will not retaliate against good-faith
 reporters.
 

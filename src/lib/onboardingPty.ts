@@ -22,6 +22,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from './logger';
 import type { PtyChunk } from './terminalDiagnostics';
+import { isTauriRuntime, spawn } from './webPty';
 
 /** Options for {@link spawnOnboardingPty}. */
 export interface OnboardingPtyOptions {
@@ -80,6 +81,19 @@ export async function spawnOnboardingPty(
   args: string[],
   options: OnboardingPtyOptions
 ): Promise<OnboardingPty> {
+  if (!isTauriRuntime()) {
+    const pty = spawn(file, args, options);
+    await pty._init;
+    return {
+      onData: pty.onData,
+      onExit: (listener) => pty.onExit(({ exitCode }) => listener({ exitCode })),
+      onStreamError: () => ({ dispose: () => {} }),
+      write: (data) => pty.write(data),
+      resize: (cols, rows) => pty.resize(cols, rows),
+      kill: () => pty.kill(),
+    };
+  }
+
   // Throws on backend failure — this await is the entire point.
   const pid = await invoke<number>('plugin:pty|spawn', {
     file,

@@ -28,7 +28,7 @@ describe('classifyRejection', () => {
       type: 'Other',
       expected: true,
       message:
-        "The folder 'demo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+        "The folder 'demo' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
     };
     expect(classifyRejection(expectedError)).toBe('expected');
   });

@@ -290,7 +290,7 @@ fn ensure_shipstudio_excluded(path: &std::path::Path) {
     };
     let _ = std::fs::write(
         &exclude_path,
-        format!("{existing}{sep}# ShipStudio metadata (added by Ship Studio)\n.shipstudio/\n"),
+        format!("{existing}{sep}# ShipStudio metadata (added by Harbr)\n.shipstudio/\n"),
     );
 }
 
@@ -345,7 +345,7 @@ fn tail_of_output(output: &str, max_bytes: usize) -> &str {
 /// Stages all changes and commits with the given message.
 /// Returns true if a commit was made, false if nothing to commit.
 ///
-/// Ship Studio is the author of record. Use [`git_stage_and_commit_authored`]
+/// Harbr is the author of record. Use [`git_stage_and_commit_authored`]
 /// when an agent wrote the message, so the trailer can say which one.
 pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<bool, CommandError> {
     git_stage_and_commit_authored(path, message, None)
@@ -421,7 +421,7 @@ pub fn git_stage_and_commit_authored(
         return Ok(false);
     }
 
-    // Everything Ship Studio commits passes through here, which makes this the
+    // Everything Harbr commits passes through here, which makes this the
     // one place the app's git trail is decided. Trailers go on last, after the
     // "nothing to commit" check, so a no-op costs no work — and they are
     // appended by `git interpret-trailers` rather than by string concatenation,
@@ -603,7 +603,7 @@ pub(crate) fn save_project_metadata(
 // ============ Tauri Commands ============
 
 /// Checks if required tools (node, npm, git, gh, claude) are installed.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "check_prerequisites")]
 pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
     let commands = vec!["node", "npm", "git", "gh", "claude"];
@@ -636,7 +636,7 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
 /// concatenating `/` onto this value, so a native Windows backslash path here
 /// produces mixed-separator paths (`C:\Users\x\ShipStudio/proj`) that break
 /// `@tauri-apps/plugin-fs` scope resolution (issue #257).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_shipstudio_dir() -> Result<String, CommandError> {
     Ok(crate::utils::normalize_separators(
@@ -646,7 +646,7 @@ pub async fn get_shipstudio_dir() -> Result<String, CommandError> {
 
 /// Creates the configured projects root directory if it doesn't exist.
 /// Forward-slash normalized for the same reason as [`get_shipstudio_dir`].
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
     let projects_dir = crate::utils::projects_root()?;

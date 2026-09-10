@@ -187,7 +187,7 @@ async fn status_for_link(
 
 /// The state of every provider this project deploys to, for the commit that was
 /// actually pushed.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_hosting_status(project_path: String) -> Result<HostingStatus, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -234,7 +234,7 @@ pub async fn get_hosting_status(project_path: String) -> Result<HostingStatus, C
 
 /// Links discoverable from provider CLI files. Local only — no network, so this
 /// is safe to call on project open.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn detect_hosting_links(project_path: String) -> Result<Vec<DetectedLink>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -242,7 +242,7 @@ pub async fn detect_hosting_links(project_path: String) -> Result<Vec<DetectedLi
 }
 
 /// Projects the user could link this repo to.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_hosting_projects(
     project_path: String,
@@ -262,7 +262,7 @@ pub async fn list_hosting_projects(
 }
 
 /// Record which provider project this repo deploys to.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_hosting_link(project_path: String, link: HostingLink) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -284,7 +284,7 @@ pub async fn set_hosting_link(project_path: String, link: HostingLink) -> Result
 ///
 /// The same data the provider's dashboard leads with, so a user can see the
 /// shape of the last few pushes without leaving the app.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_recent_deployments(
     project_path: String,
@@ -318,7 +318,7 @@ pub async fn list_recent_deployments(
 /// This is the call that makes the provider's dashboard unnecessary for the
 /// case people actually go there for: the deployments API reports that a build
 /// failed, and only the log says why.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_deployment_log(
     project_path: String,

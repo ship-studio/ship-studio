@@ -43,7 +43,7 @@ export function DashboardHeader({
       <button
         type="button"
         className={`dashboard-hero-icon-button${isHoverSuppressed ? ' dashboard-hero-icon-button--hover-suppressed' : ''}`}
-        aria-label="Pulse Ship Studio logo"
+        aria-label="Pulse Harbr logo"
         onClick={() => {
           setIsHoverSuppressed(true);
           setClickPulseCount((count) => count + 1);
@@ -52,8 +52,8 @@ export function DashboardHeader({
       >
         <img
           key={clickPulseCount}
-          src="/ShipStudio_IconBrand.png"
-          alt="Ship Studio"
+          src="/harbr-mark.svg"
+          alt="Harbr"
           className={`dashboard-hero-icon${clickPulseCount > 0 ? ' dashboard-hero-icon--click-pulsing' : ''}`}
           onAnimationEnd={() => {
             if (clickPulseCount > 0) setClickPulseCount(0);

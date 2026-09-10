@@ -11,7 +11,7 @@
  * *evidence* — collapsed behind one line, there for when you doubt the claim
  * or want to go look. Leading with them buries the only part most people need.
  *
- * An `app`-written row is drawn deliberately thinner. Ship Studio saw a push
+ * An `app`-written row is drawn deliberately thinner. Harbr saw a push
  * and no agent left a summary, so all it can honestly say is that a push
  * happened — and the visible difference between that and the rich rows is the
  * argument for the skill, made in the UI instead of in a doc.
@@ -120,9 +120,9 @@ export function TeamUpdateCard({
           complaint about a teammate for using a different tool. Half the team
           will always be on a different tool.
 
-          It also used to say "not pushed from Ship Studio", which is a claim
+          It also used to say "not pushed from Harbr", which is a claim
           about *how* someone pushed — and it was wrong for the common case of
-          pushing from an agent terminal inside Ship Studio. What this row
+          pushing from an agent terminal inside Harbr. What this row
           actually knows is narrower: no summary was written, so the commit
           subject is all there is. */}
       {thin && (

@@ -210,7 +210,7 @@ export function useScreenshotManagement({
         if (isPermissionDenialError(error)) {
           // Denied at the OS level. Persist the opt-out so background capture
           // never re-triggers the macOS prompt; re-enable via Settings →
-          // Project thumbnails (after allowing Ship Studio in System Settings
+          // Project thumbnails (after allowing Harbr in System Settings
           // → Privacy & Security → Screen Recording).
           logger.error('[Thumbnail] Permission denied - disabling auto-capture', { error });
           void setThumbnailsEnabled(false);

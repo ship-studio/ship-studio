@@ -245,7 +245,7 @@ fn commit_timestamps_ms(cwd: &Path, shas: &[&str]) -> std::collections::HashMap<
 /// Lists all worktrees of the repository containing `project_path`, main
 /// worktree first (git's porcelain order). Returns an empty list for
 /// non-git directories so callers can simply hide the feature.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "list_worktrees", skip(project_path), fields(project = %project_path))]
 pub async fn list_worktrees(project_path: String) -> Result<Vec<WorktreeInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -292,7 +292,7 @@ pub async fn list_worktrees(project_path: String) -> Result<Vec<WorktreeInfo>, C
 /// Seeds the new directory's `.shipstudio/project.json` from the parent
 /// (dev command, monorepo subpath, workspace) with a distinct dev-server port,
 /// and optionally copies the parent's untracked root `.env*` files.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "add_worktree", skip(project_path), fields(project = %project_path, branch = %branch))]
 pub async fn add_worktree(
     project_path: String,
@@ -424,7 +424,7 @@ fn copy_env_files(from: &Path, to: &Path) {
 /// worktree. A dirty tree makes git refuse without `force` — the resulting
 /// `Process` error carries git's stderr so the UI can offer force-removal.
 /// The branch is left alone, matching git's own semantics.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "remove_worktree", skip(project_path, worktree_path), fields(project = %project_path, worktree = %worktree_path))]
 pub async fn remove_worktree(
     project_path: String,
@@ -481,7 +481,7 @@ pub async fn remove_worktree(
 }
 
 /// Runs `git worktree prune` — clears entries whose directories are gone.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "prune_worktrees", skip(project_path), fields(project = %project_path))]
 pub async fn prune_worktrees(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;

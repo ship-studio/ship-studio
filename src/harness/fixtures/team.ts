@@ -38,7 +38,7 @@ export const FIXTURE_ACTORS = {
   jordan: actor('jordanchen', 'Jordan Chen'),
   enid: actor('enidshah', 'Enid Shah'),
   sarah: actor('sarahpark', 'Sarah Park'),
-  /** Has repo access and has never opened Ship Studio. */
+  /** Has repo access and has never opened Harbr. */
   theo: actor('theo-vance', 'Theo Vance'),
 };
 
@@ -74,7 +74,7 @@ export function buildTeamFixture(options: TeamFixtureOptions = {}): TeamSnapshot
 
   // Stands in for the project's real `owner/repo`. In the real build every one
   // of these links is built from the remote, which is why they can be offered
-  // for a teammate who has never opened Ship Studio.
+  // for a teammate who has never opened Harbr.
   const repo = `acme-studio/${projectName}`;
 
   let seq = 0;

@@ -64,7 +64,7 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
    * Send links in the report to the system browser.
    *
    * Without this a link navigates the Tauri webview itself, so clicking a
-   * reference in a finding replaces Ship Studio with a web page and there is no
+   * reference in a finding replaces Harbr with a web page and there is no
    * back button to return from. That is bad enough for a link to MDN; this
    * body is written by an agent that has just read a repository, so the link
    * may well have come from something in that repository rather than from the

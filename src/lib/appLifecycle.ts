@@ -15,6 +15,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { trackEvent } from './analytics';
 import { endProjectSession } from './session';
 import { logger } from './logger';
+import { isTauriRuntime } from './webEvents';
 
 /**
  * Window we hold the close open for so the analytics IPC + Rust HTTP
@@ -32,6 +33,7 @@ let quitInProgress = false;
  * no-op. Returns a cleanup function for tests/HMR.
  */
 export function installAppLifecycleTracking(): () => void {
+  if (!isTauriRuntime()) return () => {};
   if (installed) return () => {};
   installed = true;
 

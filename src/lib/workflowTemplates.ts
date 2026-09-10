@@ -277,7 +277,7 @@ Quote the exact string and give the file. Ignore code comments, tests, and anyth
     example: {
       severity: 'warning',
       title: 'The product name is spelled three ways in onboarding',
-      summary: 'Two screens say "Ship studio", one says "ShipStudio", the rest say "Ship Studio".',
+      summary: 'Two screens say "Harbor", one says "Harbour", the rest say "Harbr".',
       location: 'src/components/setup/Welcome.tsx:19',
     },
   },
@@ -703,7 +703,7 @@ Give the file size and the display size. Ignore anything under about 50 kB, and 
     name: 'What your pages load',
     description: 'Watches the preview’s network traffic for weight, waste, and strangers.',
     detail:
-      'Reads the preview’s own network activity — which Ship Studio can see and a static code review cannot. Third-party scripts, duplicate calls, and requests to domains you never chose all show up here and nowhere else.',
+      'Reads the preview’s own network activity — which Harbr can see and a static code review cannot. Third-party scripts, duplicate calls, and requests to domains you never chose all show up here and nowhere else.',
     category: 'Security',
     requires: 'the project open with its dev server running',
     trigger: { kind: 'manual' },
@@ -727,7 +727,7 @@ Give the domain, the page, and the size or count. Ignore your own API and anythi
     name: 'Simulator smoke test',
     description: 'Runs your mobile app in the simulator and tries the main flow.',
     detail:
-      'Uses the simulator Ship Studio already boots for mobile previews. It launches the app, walks the primary flow, and reports where it hung, crashed, or stopped making sense — the pass you keep meaning to do by hand.',
+      'Uses the simulator Harbr already boots for mobile previews. It launches the app, walks the primary flow, and reports where it hung, crashed, or stopped making sense — the pass you keep meaning to do by hand.',
     category: 'Experience',
     requires: 'a mobile project with its simulator preview running',
     trigger: { kind: 'manual' },
@@ -751,7 +751,7 @@ Say which step you were on. If the simulator is not running, report nothing and 
     name: 'Live vs local',
     description: 'Compares what you published with what is in your repo now.',
     detail:
-      'Ship Studio records what you published and where. This fetches the live site and holds it against the branch you are on, which is how you find the deploy that quietly failed a fortnight ago.',
+      'Harbr records what you published and where. This fetches the live site and holds it against the branch you are on, which is how you find the deploy that quietly failed a fortnight ago.',
     category: 'Maintenance',
     requires: 'the project published at least once',
     trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },

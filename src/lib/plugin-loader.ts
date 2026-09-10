@@ -1,5 +1,5 @@
 /**
- * Plugin module loader for Ship Studio.
+ * Plugin module loader for Harbr.
  *
  * Handles dynamic loading of plugin JavaScript bundles using Blob URLs
  * (since Tauri WebKit doesn't support import() of local filesystem paths).

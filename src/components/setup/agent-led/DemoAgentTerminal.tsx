@@ -1,6 +1,6 @@
 /**
  * Scripted stand-in for the guided agent session, used under mock mode
- * (SHIPSTUDIO_FORCE_SETUP). Plays a realistic agent transcript on a timeline
+ * (HARBR_FORCE_SETUP). Plays a realistic agent transcript on a timeline
  * and flips the backend mock state as it "installs" each tool, so the real
  * checklist polling ticks green exactly as it would in production — with zero
  * changes to the host machine. This is the reliable visual test path for
@@ -24,7 +24,7 @@ interface DemoLine {
 const SCRIPT: DemoLine[] = [
   {
     kind: 'agent',
-    text: "Hi! I'm your AI agent. I'll get this computer ready for Ship Studio — sit back, I'll explain each step as I go.",
+    text: "Hi! I'm your AI agent. I'll get this computer ready for Harbr — sit back, I'll explain each step as I go.",
     delayMs: 600,
   },
   { kind: 'agent', text: 'First, checking what’s already installed…', delayMs: 1600 },
@@ -90,7 +90,7 @@ const HOST_SCRIPTS: Record<HostChoice, DemoLine[]> = {
 
 const WRAP_UP: DemoLine = {
   kind: 'agent',
-  text: 'That’s everything! Watch the checklist — Ship Studio is running its own checks, and every item should turn green. You’re ready to ship. 🚢',
+  text: 'That’s everything! Watch the checklist — Harbr is running its own checks, and every item should turn green. You’re ready to ship. 🚢',
   delayMs: 1100,
 };
 

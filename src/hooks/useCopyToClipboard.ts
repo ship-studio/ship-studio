@@ -25,7 +25,7 @@ interface Options {
  */
 export function describeClipboardError(error: Error): string {
   if (error.name === 'NotAllowedError' || error.message.includes('not allowed')) {
-    return 'clipboard access was denied — click the Ship Studio window, then try again';
+    return 'clipboard access was denied — click the Harbr window, then try again';
   }
   return error.message;
 }

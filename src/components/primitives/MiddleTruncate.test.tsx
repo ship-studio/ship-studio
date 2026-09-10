@@ -87,10 +87,10 @@ describe('MiddleTruncate', () => {
   });
 
   it('leaves short and exact-fit strings unchanged', () => {
-    const { rerender } = render(<MiddleTruncate text="Ship Studio" data-testid="path" />);
+    const { rerender } = render(<MiddleTruncate text="Harbr" data-testid="path" />);
     const path = screen.getByTestId('path');
 
-    expect(path).toHaveTextContent('Ship Studio');
+    expect(path).toHaveTextContent('Harbr');
     expect(path).not.toHaveAttribute('aria-label');
 
     availableWidth = graphemeCount('exact fit') * 10;

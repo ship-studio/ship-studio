@@ -129,7 +129,7 @@ pub(crate) fn resize_thumbnail_image(path: &Path, target_width: u32) {
     }
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn check_ide_availability() -> IdeAvailability {
     #[cfg(target_os = "macos")]
@@ -149,7 +149,7 @@ pub async fn check_ide_availability() -> IdeAvailability {
     }
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn open_in_ide(
     project_path: String,
@@ -209,7 +209,7 @@ pub async fn open_in_ide(
                 " In Cursor, install its shell command from the command palette."
             };
             return Err(crate::errors::CommandError::expected(format!(
-                "{ide_name}'s command-line launcher ('{cmd}') isn't on your PATH, so Ship Studio can't open the project in it.{hint}"
+                "{ide_name}'s command-line launcher ('{cmd}') isn't on your PATH, so Harbr can't open the project in it.{hint}"
             )));
         };
 
@@ -224,7 +224,7 @@ pub async fn open_in_ide(
 }
 
 /// Check which browsers are available on the system
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn check_browser_availability() -> Vec<BrowserInfo> {
     #[cfg(target_os = "macos")]
@@ -268,7 +268,7 @@ pub async fn check_browser_availability() -> Vec<BrowserInfo> {
 }
 
 /// Open a URL in a specific browser
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), CommandError> {
     #[cfg(target_os = "macos")]

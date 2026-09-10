@@ -277,7 +277,7 @@ fn sort_key(day: &Path, file: &Path) -> String {
 /// Every login that has ever written a record here.
 ///
 /// This is what `usesShipStudio` is derived from. Nobody registers, nobody is
-/// invited, and nobody's status is declared — you use Ship Studio if your
+/// invited, and nobody's status is declared — you use Harbr if your
 /// Fold the comment-family records into threads.
 ///
 /// The fold is the whole point of append-only. A `comment` opens a thread, a

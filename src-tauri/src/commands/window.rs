@@ -15,7 +15,7 @@ use tauri::Window;
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHT_LEADING_INSET: f64 = 20.0;
 
-/// Height of Ship Studio's custom titlebar (the 46pt bar the sidebar-toggle
+/// Height of Harbr's custom titlebar (the 46pt bar the sidebar-toggle
 /// and Home buttons are centred in). The traffic lights are centred in the
 /// same box so the whole row reads as one aligned strip — and because the
 /// constraints hold in release builds too (they retry until AppKit builds the
@@ -32,7 +32,7 @@ const TRAFFIC_LIGHT_MAX_ATTEMPTS: u32 = 20;
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHT_RETRY_MS: u64 = 100;
 
-/// Pins the native macOS window controls inside Ship Studio's 46pt custom
+/// Pins the native macOS window controls inside Harbr's 46pt custom
 /// titlebar. Persistent Auto Layout constraints are required here: AppKit and
 /// Wry both lay out the titlebar during live resize, so one-off frame changes
 /// visibly alternate with the system position.
@@ -140,7 +140,7 @@ unsafe fn constrain_macos_traffic_lights(ns_window: *mut objc2::runtime::AnyObje
 }
 
 /// Toggle always-on-top state for the window
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn set_always_on_top(window: Window, enabled: bool) -> Result<(), CommandError> {
     tracing::info!("Setting always on top: {}", enabled);
@@ -159,7 +159,7 @@ pub async fn set_always_on_top(window: Window, enabled: bool) -> Result<(), Comm
 }
 
 /// Set the window title dynamically
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn set_window_title(window: Window, title: String) -> Result<(), CommandError> {
     tracing::debug!("Setting window title: {}", title);

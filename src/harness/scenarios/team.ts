@@ -36,7 +36,7 @@ const teamCommands = {
 export const teamScenarios: Scenario[] = [
   {
     id: 'team-coverage',
-    title: 'Team — the half of the team who are not in Ship Studio',
+    title: 'Team — the half of the team who are not in Harbr',
     looksRightWhen:
       'The coverage note names who pushes straight to GitHub, says exactly what is missing from their rows (the why, not the fact), and offers one action. It is a footnote after the feed, not a banner in front of it.',
     project: WORKSPACE_PROJECT,
@@ -145,7 +145,7 @@ export const teamScenarios: Scenario[] = [
       'The row names the trailer and says where it does not appear: not in the subject line, not in `git log --oneline`. Default on, reading as a choice rather than as a warning.',
     project: WORKSPACE_PROJECT,
     openSelector: '[aria-label="App settings"]',
-    requires: '[aria-label="Credit Ship Studio in commits"]',
+    requires: '[aria-label="Credit Harbr in commits"]',
     commands: { ...workspaceCommands, ...teamCommands },
   },
 ];

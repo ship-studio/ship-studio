@@ -11,7 +11,7 @@ use crate::utils::create_command;
 /// was found and killed, Ok(false) if no process with that ID was found.
 ///
 /// Uses SIGTERM first to allow graceful shutdown, then SIGKILL after a timeout.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn kill_pty(id: u32) -> Result<bool, CommandError> {
     let pid = {
@@ -175,7 +175,7 @@ pub fn kill_all_pty_sync() -> u32 {
 }
 
 /// Kill any process listening on a specific port
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn kill_port(port: u32) -> Result<(), CommandError> {
     #[cfg(unix)]

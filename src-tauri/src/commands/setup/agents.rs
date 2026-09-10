@@ -107,7 +107,7 @@ const AGENT_PROBE_TIMEOUT_SECS: u64 = 5;
 /// `agents_fut`) rather than sequentially with unbounded subprocess calls —
 /// with N agents installed the old code paid roughly N times the per-agent
 /// spawn cost, in series, with no ceiling on any single one.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_agents_status() -> Vec<AgentStatus> {
     let default_id = super::read_app_state()
@@ -201,7 +201,7 @@ pub async fn get_agents_status() -> Vec<AgentStatus> {
 
 /// Remove an agent's auth indicator files so the CLI is no longer signed in.
 /// The binary itself is left intact.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn sign_out_agent(agent_id: String) -> Result<(), CommandError> {
     let agent = get_agent_by_id(&agent_id);
@@ -251,7 +251,7 @@ pub async fn sign_out_agent(agent_id: String) -> Result<(), CommandError> {
 
 /// Run the agent's uninstall command. Best-effort: the command is expected to
 /// be idempotent and ignore missing files.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn uninstall_agent(agent_id: String) -> Result<String, CommandError> {
     let agent = get_agent_by_id(&agent_id);

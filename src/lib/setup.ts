@@ -42,6 +42,28 @@ export const isWindows = () => platform() === 'windows';
 /** macOS only. Gates Mac-only features (e.g. the native mobile preview, which
  *  depends on Xcode/simctl and hasn't been validated on Windows). */
 export const isMac = () => platform() === 'macos';
+/** Linux. Gates the detect-only setup flow: Harbr never installs system
+ *  packages on Linux, so there is no Package Manager item and no Install
+ *  buttons for Node/Git/gh — see {@link manualInstallHint}. */
+export const isLinux = () => platform() === 'linux';
+
+/**
+ * Absolute path of the interactive shell Harbr spawns for raw terminals.
+ *
+ * zsh is macOS's default shell and is guaranteed to be present there, but it is
+ * NOT installed on a stock Linux distro — spawning `/bin/zsh` on Ubuntu fails
+ * outright and takes the terminal with it. bash is the safe floor on Linux.
+ */
+export const defaultShellPath = (): string => {
+  if (isWindows()) return 'powershell.exe';
+  return isLinux() ? '/bin/bash' : '/bin/zsh';
+};
+
+/** Process name matching {@link defaultShellPath}, for PTY process detection. */
+export const defaultShellProcessName = (): string => {
+  if (isWindows()) return 'powershell';
+  return isLinux() ? 'bash' : 'zsh';
+};
 
 /**
  * The OS's file-manager name, for "Reveal in …" / "Open in …" labels. macOS
@@ -170,12 +192,17 @@ interface QuickSetupCheck {
 
 /** Dependency graph: which items must be ready before each item can be installed */
 export function getSetupDependencies(): Record<string, string[]> {
+  // Linux emits no `homebrew` item at all (the backend omits it), and a
+  // dependency on an id that never arrives reads as permanently blocked —
+  // every tool would render "Unlocks after Package Manager" forever.
+  const pkgMgr = isLinux() ? [] : ['homebrew'];
+
   return {
     homebrew: [],
-    node: ['homebrew'],
+    node: pkgMgr,
     npm_fix: ['node'], // Conditional: only appears when ~/.npm has bad permissions
-    git: ['homebrew'],
-    gh: ['homebrew'],
+    git: pkgMgr,
+    gh: pkgMgr,
     gh_auth: ['gh'],
     claude: [], // Uses its own installer (native, not npm)
     claude_auth: ['claude'],
@@ -417,8 +444,12 @@ interface WizardStepDef {
 export const WIZARD_STEPS: WizardStepDef[] = [
   {
     id: 'package-manager',
-    title: 'Package Manager & Node.js',
-    subtitle: 'Install the tools needed to manage dependencies',
+    // Linux has no Package Manager item, so naming one in the heading would
+    // describe a row that isn't there.
+    title: isLinux() ? 'Node.js' : 'Package Manager & Node.js',
+    subtitle: isLinux()
+      ? 'Node.js is required. Install it with your distribution if missing.'
+      : 'Install the tools needed to manage dependencies',
     itemIds: ['homebrew', 'node', 'npm_fix'],
     skippable: false,
   },
@@ -651,11 +682,43 @@ async function installWingetPackages(packages: string[]): Promise<void> {
  * @param packages - Array of item IDs to install (e.g., ['node', 'git', 'gh'])
  */
 export async function installPackages(packages: string[]): Promise<void> {
+  if (isLinux()) {
+    // Unreachable from the UI (Linux renders manual-install hints instead of
+    // Install buttons), but a hard failure beats silently shelling out to a
+    // package manager we deliberately don't drive on Linux.
+    throw new Error(
+      "Harbr doesn't install system packages on Linux. Install them with your distribution's package manager, then re-check."
+    );
+  }
   if (isWindows()) {
     return installWingetPackages(packages);
   } else {
     return installBrewPackages(packages);
   }
+}
+
+/**
+ * Example install commands for the tools Harbr detects but never installs
+ * on Linux.
+ *
+ * Deliberately phrased as an example rather than *the* command: we don't detect
+ * the distro, so promising `apt` on Fedora or Arch would be inventing data. The
+ * UI wraps these with "e.g." and the package name is the part that matters.
+ */
+const LINUX_INSTALL_HINTS: Record<string, string> = {
+  node: 'sudo apt install nodejs npm',
+  git: 'sudo apt install git',
+  gh: 'sudo apt install gh',
+};
+
+/**
+ * The manual-install hint for an item, or `null` when Harbr installs it
+ * itself. Non-null is what flips a setup row from "Install" to "copy this and
+ * re-check".
+ */
+export function manualInstallHint(itemId: string): string | null {
+  if (!isLinux()) return null;
+  return LINUX_INSTALL_HINTS[itemId] ?? null;
 }
 
 /** Brew-installed packages that can be batched */
@@ -813,7 +876,7 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
             '  echo "  2. Click the ⓘ next to your account"',
             '  echo "  3. Enable \\"Allow this user to administer this computer\\""',
             '  echo ""',
-            '  echo "Then restart Ship Studio and try again."',
+            '  echo "Then restart Harbr and try again."',
             '  exit 1',
             'fi',
             // Capture the installer script first so a failed download fails

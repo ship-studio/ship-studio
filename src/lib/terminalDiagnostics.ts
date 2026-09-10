@@ -182,7 +182,7 @@ const ALREADY_LOGGED_IN_PATTERN = /\balready logged in\b/i;
 /**
  * Detect the "CLI says it's already signed in" signature in an auth command's
  * output tail. When an auth flow fails *while* the CLI insists it has a login
- * (e.g. a partial sign-out desynced the CLI from Ship Studio's status check —
+ * (e.g. a partial sign-out desynced the CLI from Harbr's status check —
  * issue #159), a generic "authentication not completed" message hides the real
  * situation; callers use this to name the identity the CLI reported instead.
  *

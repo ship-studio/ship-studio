@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build Ship Studio with code signing and .pkg installer generation.
+# Build Harbr with code signing and .pkg installer generation.
 #
 # Notarization env vars are optional — if set, Tauri will attempt to notarize.
 # Without them, the script still builds a signed .app and .pkg.
@@ -77,10 +77,10 @@ fi
 echo ""
 
 # Build (allow updater artifact failure if signing key not set)
-echo "Building Ship Studio..."
+echo "Building Harbr..."
 pnpm tauri build || {
   # Check if the .app was built despite the error (e.g. updater signing failed)
-  if [ -d "src-tauri/target/release/bundle/macos/Ship Studio.app" ]; then
+  if [ -d "src-tauri/target/release/bundle/macos/Harbr.app" ]; then
     echo -e "${YELLOW}Build completed with warnings (updater artifacts may have failed — this is OK for local testing).${NC}"
   else
     echo -e "${RED}Build failed.${NC}"
@@ -89,7 +89,7 @@ pnpm tauri build || {
 }
 
 # Find the built .app
-APP_PATH="src-tauri/target/release/bundle/macos/Ship Studio.app"
+APP_PATH="src-tauri/target/release/bundle/macos/Harbr.app"
 if [ ! -d "$APP_PATH" ]; then
   echo -e "${YELLOW}Could not find app at expected path, searching...${NC}"
   APP_PATH=$(find src-tauri/target/release/bundle/macos -name "*.app" -maxdepth 1 | head -1)
@@ -114,7 +114,7 @@ fi
 echo ""
 
 # Build .pkg installer
-PKG_PATH="src-tauri/target/release/bundle/macos/ShipStudio.pkg"
+PKG_PATH="src-tauri/target/release/bundle/macos/Harbr.pkg"
 echo "Creating .pkg installer..."
 
 if [ -n "$INSTALLER_IDENTITY" ]; then

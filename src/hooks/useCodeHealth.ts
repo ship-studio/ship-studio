@@ -226,7 +226,7 @@ export function useCodeHealth({
         // The backend can reject the run itself before the script gets a
         // chance to pass or fail — e.g. the project's package manager isn't
         // installed (issue #488). That's an environment gap, not something
-        // gone wrong in Ship Studio, and comes back as a typed Expected
+        // gone wrong in Harbr, and comes back as a typed Expected
         // CommandError; an 'error' toast re-reports it to telemetry the same
         // way #761 fixed for the "script ran, found violations" branch above
         // (issue #786).

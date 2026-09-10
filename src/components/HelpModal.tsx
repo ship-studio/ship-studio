@@ -1,5 +1,5 @@
 /**
- * HelpModal component for displaying Claude CLI commands and Ship Studio tips.
+ * HelpModal component for displaying Claude CLI commands and Harbr tips.
  *
  * Shows a glossary of available slash commands for Claude Code,
  * user's custom skills, keyboard shortcuts, and helpful tips.
@@ -461,9 +461,9 @@ export function HelpModal({ projectPath }: HelpModalProps) {
 
             <div className="help-divider" />
 
-            {/* Ship Studio Tips */}
+            {/* Harbr Tips */}
             <div className="help-section">
-              <div className="help-section-title">Ship Studio Tips</div>
+              <div className="help-section-title">Harbr Tips</div>
               <div className="help-tip-list">
                 <div className="help-tip">Drag files onto the terminal to paste their paths</div>
                 <div className="help-tip">

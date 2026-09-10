@@ -95,7 +95,7 @@ describe('buildGuidedSetupPrompt', () => {
   it('tells the agent verification is the app’s job, not its own claim', () => {
     const prompt = buildGuidedSetupPrompt(FRESH_MISSING);
     expect(prompt).toContain('a clean exit is a claim, not proof');
-    expect(prompt).toContain('Ship Studio runs its own checks');
+    expect(prompt).toContain('Harbr runs its own checks');
   });
 
   it('appends the chosen host CLI as the final step, with its check command', () => {

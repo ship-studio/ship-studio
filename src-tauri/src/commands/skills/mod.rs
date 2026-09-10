@@ -51,7 +51,7 @@ pub(super) fn skills_cli_spawn_error(err: &std::io::Error) -> crate::errors::Com
     if err.kind() == std::io::ErrorKind::NotFound {
         return crate::errors::CommandError::expected(
             "Skills need Node.js (npx), which isn't installed or isn't on your PATH. \
-             Install Node.js, then restart Ship Studio and try again."
+             Install Node.js, then restart Harbr and try again."
                 .to_string(),
         );
     }

@@ -28,7 +28,7 @@ pub struct ColorSamplerSupport {
 ///
 /// The frontend also checks the webview's native `EyeDropper` implementation,
 /// so a browser that supports that API remains usable on non-macOS platforms.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn get_color_sampler_support() -> Result<ColorSamplerSupport, CommandError> {
     #[cfg(target_os = "macos")]
@@ -55,7 +55,7 @@ pub fn get_color_sampler_support() -> Result<ColorSamplerSupport, CommandError> 
 
 /// Open the native sampler and return the selected colour as an sRGB hex
 /// value. `None` means the user cancelled the sampler.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn sample_screen_color(app: AppHandle) -> Result<Option<String>, CommandError> {
     #[cfg(target_os = "macos")]

@@ -13,7 +13,6 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ActivityIcon,
   AddIcon,
@@ -27,7 +26,6 @@ import {
   ResetIcon,
   SearchIcon,
   SettingsIcon,
-  SlackIcon,
   NewWorkspaceIcon,
   SwitchWorkspaceIcon,
 } from '@/components/icons';
@@ -204,8 +202,6 @@ interface Props {
 
 const SECTION_STORAGE_KEY = 'ship-studio:workspace-sidebar:collapsed';
 const PROJECT_EXPAND_STORAGE_KEY = 'ship-studio:workspace-sidebar:expanded-projects';
-const SLACK_INVITE_URL =
-  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
 
 function readCollapsed(): Record<SectionId, boolean> {
   try {
@@ -1490,15 +1486,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                   document.body
                 )
               : null}
-            <IconButton
-              variant="default"
-              className="workspace-sidebar-support"
-              icon={<SlackIcon size={12} />}
-              onClick={() => void openUrl(SLACK_INVITE_URL)}
-              title="Join the Ship Studio community on Slack"
-              aria-label="Support"
-              data-education-id="support-button"
-            />
             <IconButton
               variant="default"
               className="workspace-sidebar-settings"

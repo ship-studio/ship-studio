@@ -14,6 +14,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriRuntime } from '../../lib/webEvents';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
 import { ArrowLeftIcon, NewWorkspaceIcon, SwitchWorkspaceIcon } from '@/components/icons';
@@ -43,12 +44,14 @@ export function AccountSelectScreen({ onContinue, onBack }: AccountSelectScreenP
   const { showToast } = useOptionalToast();
 
   const handleDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest(INTERACTIVE)) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest(INTERACTIVE)) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {

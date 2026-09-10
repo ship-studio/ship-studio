@@ -1,14 +1,14 @@
-# The UI harness — letting an agent see Ship Studio
+# The UI harness — letting an agent see Harbr
 
 ## What problem this solves
 
-Reviewing Ship Studio used to require a person: launch `pnpm tauri dev`, get the
+Reviewing Harbr used to require a person: launch `pnpm tauri dev`, get the
 app into the state you care about, look at it, and describe what you saw. An
 agent could read the code and run `pnpm test:run`, but it could not *look* at
 the product — so every judgement about whether something works or looks right
 had to be relayed by hand, over and over.
 
-The harness boots the **real** Ship Studio frontend — real components, real CSS,
+The harness boots the **real** Harbr frontend — real components, real CSS,
 real state machines — in headless Chrome against a fixture backend, and captures
 it. The only thing replaced is the Tauri IPC boundary.
 
@@ -110,8 +110,8 @@ so captures taken before that point stay usable.
 To run harnesses from several worktrees at once, give each its own port:
 
 ```bash
-SHIPSTUDIO_HARNESS_PORT=1426 pnpm harness &
-SHIPSTUDIO_HARNESS_PORT=1426 node scripts/harness-capture.mjs --all
+HARBR_HARNESS_PORT=1426 pnpm harness &
+HARBR_HARNESS_PORT=1426 node scripts/harness-capture.mjs --all
 ```
 
 `strictPort` is deliberately still on: a harness that silently moved to another
@@ -295,7 +295,7 @@ itself.
 
 - **Nothing about Rust.** Backend logic, path validation and the git/provider
   adapters are not exercised; those have their own `cargo test` suites.
-- **Chrome, not WebKit.** Ship Studio ships in a WKWebView. WebKit-specific
+- **Chrome, not WebKit.** Harbr ships in a WKWebView. WebKit-specific
   layout bugs will not appear here — the CSP/terminal-font gotcha in
   `CLAUDE.md` is the standing example of a class of bug this cannot catch.
 - **No PTY, no dev server, no network.**

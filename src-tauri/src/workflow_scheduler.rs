@@ -2,7 +2,7 @@
 //!
 //! One tokio task, ticking once a minute over every armed workflow in every
 //! known project. This is Tier A of the two-tier model described in
-//! `docs/workflows-inbox.md`: it fires only while Ship Studio is running, and
+//! `docs/workflows-inbox.md`: it fires only while Harbr is running, and
 //! the UI says so in those words rather than implying a clock the app cannot
 //! keep.
 //!
@@ -125,7 +125,7 @@ async fn tick(app: &AppHandle) -> Result<(), crate::errors::CommandError> {
 
 /// Run every armed workflow whose trigger is `event`, for one project.
 ///
-/// Called when Ship Studio observes the thing itself — a push completing, a PR
+/// Called when Harbr observes the thing itself — a push completing, a PR
 /// opening — so these fire during work, which is exactly when the app is open
 /// and the honesty problem doesn't arise.
 pub async fn fire_event(

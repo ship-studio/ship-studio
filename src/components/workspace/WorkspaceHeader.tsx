@@ -24,6 +24,7 @@ import {
   type ReactNode,
 } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriRuntime } from '../../lib/webEvents';
 import { BranchIndicator } from '../branches/BranchIndicator';
 import { BranchesMenu } from '../branches/BranchesMenu';
 import { openInFinder } from '../../lib/ide';
@@ -250,6 +251,7 @@ interface WorkspaceTitlebarProps {
 /** Window-drag region shared by the titlebars that sit below macOS traffic lights. */
 export function WorkspaceTitlebar({ children }: WorkspaceTitlebarProps) {
   const handleDrag = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (!isTauriRuntime()) return;
     if (
       (event.target as HTMLElement).closest(
         'button, a, input, select, [role="button"], [role="menu"]'
@@ -261,6 +263,7 @@ export function WorkspaceTitlebar({ children }: WorkspaceTitlebarProps) {
   }, []);
 
   const handleDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (!isTauriRuntime()) return;
     if (
       (event.target as HTMLElement).closest(
         'button, a, input, select, [role="button"], [role="menu"]'

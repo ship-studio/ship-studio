@@ -1,7 +1,7 @@
 /**
  * Package-manager-aware command builders for spawning project tooling.
  *
- * Ship Studio used to hardcode `npm run dev` / `npx <binary>` when starting a
+ * Harbr used to hardcode `npm run dev` / `npx <binary>` when starting a
  * dev server. Both are wrong outside npm projects: `npm run` parses the
  * manifest's npm-only fields (an `overrides` block npm itself rejects aborts
  * the launch with EOVERRIDE before the dev server ever starts) and ignores
@@ -13,7 +13,7 @@
  * @module lib/package-manager
  */
 
-/** The package managers Ship Studio can launch dev servers with. */
+/** The package managers Harbr can launch dev servers with. */
 export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
 
 /** A resolved command: a binary plus the argv to spawn it with. */

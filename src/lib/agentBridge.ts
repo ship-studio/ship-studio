@@ -241,7 +241,7 @@ async function doRegisterPreviewMcpServer(url: string, projectPath: string): Pro
  * Register the bridge for the agents whose MCP configs are GLOBAL rather
  * than per-project: Codex and Opencode (via their CLIs) and Cursor (via
  * ~/.cursor/mcp.json). They all get the "active" URL, which routes each tool
- * call to the focused Ship Studio project at call time.
+ * call to the focused Harbr project at call time.
  *
  * Best-effort per agent: an agent that isn't installed just logs and skips.
  * The registration cache makes this a no-op after the first success.

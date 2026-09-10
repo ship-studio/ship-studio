@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-We provide security fixes for the latest released version of Ship Studio.
+We provide security fixes for the latest released version of Harbr.
 Older versions are not patched.
 
 | Version    | Supported          |
@@ -14,7 +14,7 @@ Older versions are not patched.
 
 **Please do not file a public GitHub issue for security reports.**
 
-Use GitHub's [private vulnerability reporting](https://github.com/ship-studio/ship-studio/security/advisories/new)
+Use GitHub's [private vulnerability reporting](https://github.com/kacigaya/harbr/security/advisories/new)
 to file a report only the maintainers can see.
 
 Include:
@@ -22,10 +22,10 @@ Include:
 - A clear description of the vulnerability and its impact.
 - Steps to reproduce (or a proof-of-concept) on a clean install of the latest
   release.
-- The Ship Studio version and host OS — find the version in the **Ship
-  Studio** menu → **About** (the leftmost app menu on both platforms).
-- Any logs from `~/Library/Logs/ShipStudio/` (macOS) or
-  `%LOCALAPPDATA%\ShipStudio\logs\` (Windows) that help reproduce.
+- The Harbr version and host OS — find the version in the **Harbr** menu →
+  **About** (the leftmost app menu on both platforms).
+- Any logs from `~/Library/Logs/Harbr/` (macOS) or
+  `%LOCALAPPDATA%\Harbr\logs\` (Windows) that help reproduce.
 
 ### What to expect
 
@@ -39,16 +39,16 @@ Include:
 
 In scope:
 
-- The Ship Studio desktop app (this repository).
+- The Harbr desktop app (this repository).
 - Official release binaries from
-  [ship-studio/releases](https://github.com/ship-studio/releases).
-- The auto-updater channel referenced in `src-tauri/tauri.conf.json`.
+  [kacigaya/harbr](https://github.com/kacigaya/harbr).
+- The authenticated browser server and desktop application.
 
 Out of scope:
 
-- Third-party integrations Ship Studio shells out to (`gh`, `vercel`,
+- Third-party integrations Harbr shells out to (`gh`, `vercel`,
   `claude`) — report those to their respective maintainers.
-- Forks that rebrand or repackage Ship Studio — please contact the fork
+- Forks that rebrand or repackage Harbr — please contact the fork
   maintainer.
 - Issues that require a pre-compromised user machine (e.g. an attacker who
   already has filesystem access).

@@ -5,7 +5,7 @@ use crate::utils::{validate_project_file_path, validate_project_path};
 
 /// Crop an image and save it to the project's screenshots folder
 /// Takes the source image path, crop bounds (x, y, width, height), and returns the saved path
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn crop_and_save_screenshot(
     project_path: String,
@@ -62,7 +62,7 @@ pub async fn crop_and_save_screenshot(
 /// The path is validated: every caller passes a path this app just wrote under
 /// `<project>/.shipstudio/screenshots`, so containment costs nothing here and
 /// stops the command from doubling as a read-any-file-on-disk primitive.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_screenshot_base64(file_path: String) -> Result<String, CommandError> {
     use base64::Engine;

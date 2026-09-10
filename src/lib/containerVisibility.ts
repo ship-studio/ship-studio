@@ -4,7 +4,7 @@
  * `Terminal` waits for its container to report nonzero
  * `getBoundingClientRect()` dimensions before mounting xterm, and used to log
  * only the container's *inline* `style.display` when that never happened
- * within 10s (issue #863). Ship Studio never sets `display` via inline
+ * within 10s (issue #863). Harbr never sets `display` via inline
  * style — it's controlled by CSS classes and `visibility` (background/hidden
  * panes are kept mounted with `visibility: hidden` so their PTYs keep
  * running, see `dropTarget.ts`) — so every real-world report came back with

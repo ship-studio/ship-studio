@@ -23,7 +23,6 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
-use tauri::{AppHandle, Emitter};
 
 /// Max bytes retained per-session for attach-time replay. ~128 KiB is enough
 /// for a few screenfuls of a modern TUI (Claude Code banner + recent prompt)
@@ -188,7 +187,7 @@ impl Session {
     /// `kern.tty.ptmx_max` (511 by default), and `/dev/ptmx` answers ENXIO —
     /// "Device not configured" — once that cap is reached. So an app session
     /// that opened and abandoned enough agent/terminal tabs eventually made
-    /// every new `openpty` fail, for Ship Studio *and* everything else on the
+    /// every new `openpty` fail, for Harbr *and* everything else on the
     /// machine (issue #540).
     ///
     /// Nothing needs these handles after exit: `pty_session_write` and
@@ -351,10 +350,9 @@ pub struct AttachResult {
 /// a UUID from the frontend's tab model) so re-open attempts are idempotent
 /// and so the same id routes through write/attach/kill later.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip_all, fields(session_id = %session_id, command = %command))]
 pub async fn pty_session_open(
-    app: AppHandle,
     session_id: String,
     command: String,
     args: Vec<String>,
@@ -489,7 +487,6 @@ pub async fn pty_session_open(
     {
         let session_id_for_reader = session_id.clone();
         let session_for_reader = session.clone();
-        let app_for_reader = app.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let mut dsr_carry: Vec<u8> = Vec::new();
@@ -525,7 +522,7 @@ pub async fn pty_session_open(
                 else {
                     break; // poisoned — registry is unusable for this session
                 };
-                let _ = app_for_reader.emit(
+                let _ = crate::emit::all(
                     "pty-session-data",
                     serde_json::json!({
                         "sessionId": session_id_for_reader,
@@ -541,7 +538,6 @@ pub async fn pty_session_open(
     {
         let session_id_for_waiter = session_id.clone();
         let session_for_waiter = session.clone();
-        let app_for_waiter = app.clone();
         std::thread::spawn(move || {
             let code = match child.wait() {
                 Ok(status) => {
@@ -566,7 +562,7 @@ pub async fn pty_session_open(
             // observes EOF and exits now rather than after MAX_PAUSE.
             session_for_waiter.flow.set_paused(false);
             session_for_waiter.release_pty_handles();
-            let _ = app_for_waiter.emit(
+            let _ = crate::emit::all(
                 "pty-session-exit",
                 serde_json::json!({
                     "sessionId": session_id_for_waiter,
@@ -586,7 +582,7 @@ pub async fn pty_session_open(
     Ok(OpenSessionResult { session_id, pid })
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(data))]
 pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), CommandError> {
     let session = {
@@ -648,7 +644,7 @@ fn is_resize_on_dead_pty(msg: &str) -> bool {
             && (msg.contains("code: 5,") || msg.contains("(os error 5)")))
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<(), CommandError> {
     let session = {
@@ -693,7 +689,7 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
     Ok(())
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
     // Pop first so repeated kills are no-ops and the reader thread can exit
@@ -761,7 +757,7 @@ pub fn kill_all_sessions_sync() -> u32 {
     count
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandError> {
     let session = {
@@ -798,7 +794,7 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
     })
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn pty_session_detach(session_id: String) -> Result<(), CommandError> {
     let session = {
@@ -827,7 +823,7 @@ pub fn pty_session_detach(session_id: String) -> Result<(), CommandError> {
 /// or one the frontend knows about but the registry has evicted, is a no-op
 /// rather than an error. Nothing about pacing output is worth failing a call
 /// the caller cannot meaningfully handle.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub fn pty_session_set_paused(session_id: String, paused: bool) -> Result<(), CommandError> {
     let session = {
@@ -1342,10 +1338,10 @@ mod tests {
     /// earlier versions of the canaries below hit exactly that:
     ///  - unbounded first version: wedged a CI runner until the job's
     ///    40-minute kill —
-    ///    https://github.com/ship-studio/ship-studio/actions/runs/28903431927/job/85745268821
+    ///    https://github.com/kacigaya/harbr/actions/runs/28903431927/job/85745268821
     ///  - bounded second version: the DIRECT (unwrapped) spawn also timed
     ///    out, with `ESC[6n` as the only captured output —
-    ///    https://github.com/ship-studio/ship-studio/actions/runs/28905743965/job/85752341507
+    ///    https://github.com/kacigaya/harbr/actions/runs/28905743965/job/85752341507
     /// So this harness scans the accumulated output for `ESC[6n` (it can
     /// arrive split across reads, and ConPTY may re-query) and writes
     /// `ESC[1;1R` back to the PTY for each query seen.

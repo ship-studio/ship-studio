@@ -26,7 +26,7 @@ rule() {
   fi
 }
 
-echo "==> Ship Studio pattern-check"
+echo "==> Harbr pattern-check"
 echo
 
 # 1. New Result<T, String> in Rust command signatures (only warn — existing

@@ -154,7 +154,7 @@ export function BranchPRTabContainer({
               <ConnectOverlay
                 icon={<PullRequestIcon size={48} />}
                 title="Pull requests need a GitHub remote"
-                description={`This project pushes to ${remoteName ?? 'another remote'}. Branches, pushing and syncing all work as usual — reviewing pull requests from Ship Studio is GitHub-only.`}
+                description={`This project pushes to ${remoteName ?? 'another remote'}. Branches, pushing and syncing all work as usual — reviewing pull requests from Harbr is GitHub-only.`}
               />
             ) : (
               <ConnectOverlay

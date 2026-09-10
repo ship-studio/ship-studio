@@ -8,13 +8,17 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { pickServerDirectory } from './serverPicker';
+import { isTauriRuntime } from './webEvents';
 
 /**
  * Opens a native folder picker and registers the selected folder as an external project.
  * @returns The path of the registered project, or null if cancelled
  */
 export async function registerExternalProject(): Promise<string | null> {
-  return invoke<string | null>('register_external_project');
+  if (isTauriRuntime()) return invoke<string | null>('register_external_project');
+  const selectedPath = await pickServerDirectory('Choose external project');
+  return selectedPath ? invoke<string | null>('register_external_project', { selectedPath }) : null;
 }
 
 /**

@@ -4,7 +4,7 @@
  *
  * macOS surfaces window screenshots as a "record audio and screen content"
  * permission prompt, which is alarming with zero context. This modal explains
- * what the capture is (a single local image of Ship Studio's own window) and
+ * what the capture is (a single local image of Harbr's own window) and
  * lets the user opt in or out BEFORE the OS prompt can appear. Manual
  * screenshot-button captures are intentionally not gated by this modal.
  *
@@ -39,8 +39,8 @@ export function ThumbnailConsentModal({
     >
       <div className="thumbnail-consent-body">
         <p>
-          Ship Studio takes a screenshot of its own preview window to show a thumbnail for each
-          project on your dashboard.
+          Harbr takes a screenshot of its own preview window to show a thumbnail for each project on
+          your dashboard.
         </p>
         <p>
           macOS calls this &ldquo;recording screen content&rdquo;, so it may ask for permission.

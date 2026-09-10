@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report something that's broken in Ship Studio
+about: Report something that's broken in Harbr
 title: "[Bug] "
 labels: bug
 assignees: ""
@@ -22,7 +22,7 @@ assignees: ""
 
 ## Environment
 
-- **Ship Studio version:** <!-- e.g. 0.6.3. Find it in the Ship Studio menu → About (the leftmost app menu). -->
+- **Harbr version:** <!-- e.g. 0.6.3. Find it in the Harbr menu → About (the leftmost app menu). -->
 - **OS:** <!-- macOS 14.4 / Windows 11 23H2 / etc. -->
 - **Install method:** <!-- `.dmg`, `.exe` installer, or `pnpm tauri dev` from source -->
 - **Agent (if relevant):** <!-- Claude Code / Codex / both / N/A -->
@@ -30,8 +30,8 @@ assignees: ""
 ## Logs
 
 <!--
-macOS: ~/Library/Logs/ShipStudio/
-Windows: %LOCALAPPDATA%\ShipStudio\logs\
+macOS: ~/Library/Logs/Harbr/
+Windows: %LOCALAPPDATA%\Harbr\logs\
 
 Paste the last ~100 lines of the most recent log file, or attach the file.
 Redact anything you don't want to share — paths, project names, branch names.

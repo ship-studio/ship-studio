@@ -1,4 +1,4 @@
-# Ship Studio Design System
+# Harbr Design System
 
 The reference for tokens and UI primitives. Audience: you're about to build a feature and need
 the right token or component in under a minute. Canonical sources (always trust these over docs):
@@ -14,7 +14,7 @@ the right token or component in under a minute. Canonical sources (always trust 
 - Primitives: [src/components/primitives/](../src/components/primitives/)
 - Primitive registry: [docs/design-system-registry.json](design-system-registry.json) and its
   generated [inventory](design-system.generated.md)
-- The rules and rationale: [CLAUDE.md → How to Do Things in Ship Studio](../CLAUDE.md#how-to-do-things-in-ship-studio)
+- The rules and rationale: [CLAUDE.md → How to Do Things in Harbr](../CLAUDE.md#how-to-do-things-in-ship-studio)
   and [docs/CONTRIBUTING_PATTERNS.md](CONTRIBUTING_PATTERNS.md)
 
 ## One-minute discovery path
@@ -42,7 +42,7 @@ source file is introduced.
 SVG ownership is split by reuse and meaning:
 
 - `src/assets/icons/` contains reusable product icons and brand marks.
-- `src/assets/icons/old-icons/` contains app-specific artwork that is reusable inside Ship Studio
+- `src/assets/icons/old-icons/` contains app-specific artwork that is reusable inside Harbr
   but is not part of the primary shared icon set.
 - `src/assets/graphics/` contains feature artwork with its own visual or layout contract.
 
@@ -113,7 +113,7 @@ kind, and source.
 
 ## Design tokens
 
-The current styling baseline is the Ship Studio Figma Variables system. Global tokens are split into
+The current styling baseline is the Harbr Figma Variables system. Global tokens are split into
 four enforceable layers. Import order is defined by `token-manifest.json` and checked in CI:
 
 | Layer | Naming | Rule |
@@ -468,7 +468,7 @@ variants. Callers may add lifecycle/input overrides without duplicating visual o
 
 ### Development primitive lab
 
-The development-only primitive lab is a diagnostic surface for Ship Studio's own design-system
+The development-only primitive lab is a diagnostic surface for Harbr's own design-system
 contracts. While running the Vite development server, append `?designSystemLab=1` to the app URL.
 The lab is query-gated and lazy-loaded only when `import.meta.env.DEV` is true, so it is not a
 production route, product feature, or component-catalog experience. It renders real primitives
@@ -476,7 +476,7 @@ and their states so contributors can inspect Button variants and sizes, fields, 
 overlays, status surfaces, semantic token themes, compact density, keyboard focus, and long or
 localized content in one place. Close it from the lab header or remove the query parameter.
 
-Keep the lab separate from any project-facing component catalog: the lab verifies Ship Studio's
+Keep the lab separate from any project-facing component catalog: the lab verifies Harbr's
 own implementation contracts, while a product catalog would document or expose user projects.
 
 ### Dropdown — [Dropdown.tsx](../src/components/primitives/Dropdown.tsx)

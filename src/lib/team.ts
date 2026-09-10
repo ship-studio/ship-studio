@@ -1,5 +1,5 @@
 /**
- * Team — the shapes multiplayer Ship Studio is built out of.
+ * Team — the shapes multiplayer Harbr is built out of.
  *
  * These are the TypeScript mirror of the Rust shapes in
  * `src-tauri/src/commands/team/`. Every one of them is filled from a real
@@ -21,12 +21,12 @@
  * That is what an agent is *for*. It just did the work, it has the whole
  * session in context, and it can say "the flex version could not hold three
  * columns at 1024 without wrapping, so I moved it to grid" — which no commit
- * message and no diff will ever tell you. Ship Studio can observe that a push
+ * message and no diff will ever tell you. Harbr can observe that a push
  * happened. Only the agent can say what it meant.
  *
  * ## Git is the database
  *
- * There is no Ship Studio server, no websocket and no hosted database. A
+ * There is no Harbr server, no websocket and no hosted database. A
  * team's shared state is files in their own git repository, and the network is
  * `git fetch` / `git push`. That buys the six things a multiplayer backend is
  * normally built to provide:
@@ -184,7 +184,7 @@ export interface TeamUpdate {
    * Where this lives on GitHub — a commit, a PR, a compare view.
    *
    * Present on every row, not just the thin ones. GitHub is the shared ground
-   * truth for a repo whether or not anyone on the team uses Ship Studio, so a
+   * truth for a repo whether or not anyone on the team uses Harbr, so a
    * row that cannot be opened there is a dead end for the half of the team who
    * are not in this app.
    */
@@ -214,9 +214,9 @@ export interface TeamMember {
   /** One line on what they are up to, from their most recent update. */
   doing: string | null;
   /**
-   * Whether their pushes arrive with a Ship Studio summary attached.
+   * Whether their pushes arrive with a Harbr summary attached.
    *
-   * Derived, not declared: a teammate "uses Ship Studio" here if any record
+   * Derived, not declared: a teammate "uses Harbr" here if any record
    * under `.shipstudio-team/` carries their login. Nobody registers, and
    * nobody is asked to.
    */

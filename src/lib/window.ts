@@ -8,7 +8,7 @@
  * - Controlling window expansion state
  * - Multi-window port management
  *
- * Compact mode transforms Ship Studio into a minimal floating input bar
+ * Compact mode transforms Harbr into a minimal floating input bar
  * that can stay on top of other windows for easy access.
  *
  * @module lib/window
@@ -16,6 +16,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriRuntime } from './webEvents';
 
 /**
  * Toggle always-on-top state for the window.
@@ -25,6 +26,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
  * @param enabled - Whether to enable always-on-top
  */
 export async function setAlwaysOnTop(enabled: boolean): Promise<void> {
+  if (!isTauriRuntime()) return;
   return invoke('set_always_on_top', { enabled });
 }
 
@@ -35,6 +37,10 @@ export async function setAlwaysOnTop(enabled: boolean): Promise<void> {
  * @param title - The new window title
  */
 export async function setWindowTitle(title: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    document.title = title;
+    return;
+  }
   return invoke('set_window_title', { title });
 }
 
@@ -45,7 +51,7 @@ export async function setWindowTitle(title: string): Promise<void> {
  * @returns The window label (e.g., "main" or "project-12345")
  */
 export function getWindowLabel(): string {
-  return getCurrentWindow().label;
+  return isTauriRuntime() ? getCurrentWindow().label : '';
 }
 
 /**
@@ -143,5 +149,6 @@ export async function getProjectWindow(projectPath: string): Promise<string | nu
  * @param windowLabel - Label of the window to focus
  */
 export async function focusWindowByLabel(windowLabel: string): Promise<void> {
-  return invoke('focus_window_by_label', { windowLabel });
+  const destination = await invoke<string | null>('focus_window_by_label', { windowLabel });
+  if (!isTauriRuntime() && destination) window.open(destination, '_blank', 'noopener');
 }

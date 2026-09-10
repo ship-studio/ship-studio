@@ -506,7 +506,7 @@ describe('usePreviewConnection page-list load failures (issue #541)', () => {
     // so the hook must recognize the message shape. loadPages runs on a 5s
     // poll: at error level this auto-filed a bug report every tick.
     const goneMessage =
-      "The folder '/path/to/project' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio";
+      "The folder '/path/to/project' no longer exists — it may have been moved, renamed, or deleted outside Harbr";
     const { invoke } = await import('@tauri-apps/api/core');
     vi.mocked(invoke).mockImplementation((cmd: string) => {
       if (cmd === 'start_preview_proxy') return Promise.resolve(8080);

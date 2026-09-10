@@ -80,7 +80,7 @@ pub struct PidMemory {
 /// **Invariant guard:** if the project already has a session under a different
 /// window, this returns a Validation error. Same window → idempotent (just
 /// touches `last_activity_at`).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn register_project_session(
     project_path: String,
@@ -100,7 +100,7 @@ pub async fn register_project_session(
 ///
 /// Returns the number of PTYs killed. Idempotent — calling on an already-
 /// suspended session is a no-op (still returns 0 unless lingering PTYs are found).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn suspend_project_session(project_path: String) -> Result<u32, CommandError> {
     Ok(suspend_session_internal(&project_path).await)
@@ -137,7 +137,7 @@ pub async fn suspend_session_internal(project_path: &str) -> u32 {
 /// Note: this does NOT unpin the project — that's a separate `unpin_project`
 /// call. A user might want to close a session while leaving the pin in place
 /// so it can be reactivated later.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn unregister_project_session(project_path: String) -> Result<(), CommandError> {
     state_unregister_session(&project_path);

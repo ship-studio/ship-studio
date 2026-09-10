@@ -13,6 +13,7 @@ use crate::commands::projects::{is_astro_project, is_nextjs_project};
 use crate::errors::CommandError;
 use crate::utils::{resolve_workspace_path, validate_project_path};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
@@ -22,7 +23,7 @@ const MAX_LOCALES: usize = 100;
 const NEXT_CONFIG_NAMES: &[&str] = &["next.config.js", "next.config.mjs", "next.config.ts"];
 const ASTRO_CONFIG_NAMES: &[&str] = &["astro.config.mjs", "astro.config.js", "astro.config.ts"];
 
-/// next-intl's routing config — the file Ship Studio manages for App Router
+/// next-intl's routing config — the file Harbr manages for App Router
 /// projects. The setup prompt pins this location so detection stays reliable.
 const NEXT_INTL_ROUTING_CANDIDATES: &[&str] = &[
     "src/i18n/routing.ts",
@@ -47,7 +48,7 @@ pub enum I18nFramework {
 #[derive(Serialize, Clone, Debug)]
 pub struct I18nStatus {
     pub framework: I18nFramework,
-    /// Whether Ship Studio can manage i18n for this project.
+    /// Whether Harbr can manage i18n for this project.
     pub supported: bool,
     /// Human-readable reason when `supported` is false.
     pub unsupported_reason: Option<String>,
@@ -548,7 +549,7 @@ fn replace_locales_in(
 ) -> Result<String, String> {
     let loc_idx = find_key_value(src, "locales", Some(1))
         .filter(|i| src.as_bytes().get(*i) == Some(&b'['))
-        .ok_or("The existing config has no `locales` array Ship Studio can update.")?;
+        .ok_or("The existing config has no `locales` array Harbr can update.")?;
     let loc_end = match_delim(src, loc_idx)
         .ok_or("Couldn't parse the `locales` array (unbalanced brackets).")?;
 
@@ -558,19 +559,19 @@ fn replace_locales_in(
     let (_, has_non_string) = extract_string_items(&src[loc_idx + 1..loc_end]);
     if has_non_string {
         return Err(
-            "Some locales use advanced configuration (custom paths or codes) that Ship Studio \
+            "Some locales use advanced configuration (custom paths or codes) that Harbr \
              can't rewrite safely — edit the locales array in the config file directly."
                 .to_string(),
         );
     }
 
     let def_idx = find_key_value(src, "defaultLocale", Some(1))
-        .ok_or("The existing config has no `defaultLocale` Ship Studio can update.")?;
+        .ok_or("The existing config has no `defaultLocale` Harbr can update.")?;
     let def_quote = *src
         .as_bytes()
         .get(def_idx)
         .filter(|q| **q == b'"' || **q == b'\'')
-        .ok_or("`defaultLocale` isn't a plain string Ship Studio can update.")?;
+        .ok_or("`defaultLocale` isn't a plain string Harbr can update.")?;
     let def_end = src[def_idx + 1..]
         .find(def_quote as char)
         .map(|i| i + def_idx + 1)
@@ -603,7 +604,7 @@ fn apply_i18n_to_content(
     if let Some(val_idx) = find_key_value(content, "i18n", Some(1)) {
         if content.as_bytes().get(val_idx) != Some(&b'{') {
             return Err(
-                "An `i18n` key exists in the config but isn't a plain object Ship Studio can update."
+                "An `i18n` key exists in the config but isn't a plain object Harbr can update."
                     .to_string(),
             );
         }
@@ -617,7 +618,7 @@ fn apply_i18n_to_content(
         Ok(out)
     } else {
         let insert_at = find_exported_object_open(content)
-            .ok_or("Ship Studio couldn't find where to add i18n settings in this config file.")?;
+            .ok_or("Harbr couldn't find where to add i18n settings in this config file.")?;
         let snippet = build_i18n_snippet(locales, default_locale);
         let text = if content[insert_at..].starts_with('\n') {
             format!("\n{snippet}")
@@ -760,7 +761,7 @@ fn compute_app_router_status(workspace: &Path) -> I18nStatus {
         let mut status = unsupported_status(
             I18nFramework::NextjsApp,
             "This Next.js project uses the App Router, which has no built-in i18n. \
-             Ship Studio can set it up with next-intl — the standard library for \
+             Harbr can set it up with next-intl — the standard library for \
              App Router projects.",
         );
         status.agent_setup_available = true;
@@ -787,9 +788,8 @@ fn compute_app_router_status(workspace: &Path) -> I18nStatus {
     status.locales = locales;
     status.default_locale = parse_default_locale(&content);
     if has_non_string || status.locales.is_empty() {
-        status.parse_warning = Some(
-            "A next-intl config exists but Ship Studio couldn't read its locales.".to_string(),
-        );
+        status.parse_warning =
+            Some("A next-intl config exists but Harbr couldn't read its locales.".to_string());
     }
     status
 }
@@ -882,9 +882,8 @@ fn compute_status(workspace: &Path) -> I18nStatus {
                     .to_string(),
             );
         } else if status.locales.is_empty() {
-            status.parse_warning = Some(
-                "An i18n config exists but Ship Studio couldn't read its locales.".to_string(),
-            );
+            status.parse_warning =
+                Some("An i18n config exists but Harbr couldn't read its locales.".to_string());
         }
     }
 
@@ -895,7 +894,7 @@ fn compute_status(workspace: &Path) -> I18nStatus {
 
 /// Report the i18n state of a project: framework support, whether an i18n
 /// block exists, and the configured locales.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_i18n_status(project_path: String) -> Result<I18nStatus, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -907,7 +906,7 @@ pub async fn get_i18n_status(project_path: String) -> Result<I18nStatus, Command
 /// `defaultLocale` into the framework config, creating the config file if the
 /// project has none. Fails with a `Validation` error (and changes nothing)
 /// when the existing config can't be edited safely.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(locales), fields(project = %project_path, locale_count = locales.len(), default_locale = %default_locale))]
 pub async fn set_i18n_config(
     project_path: String,

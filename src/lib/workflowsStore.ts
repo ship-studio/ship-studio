@@ -30,7 +30,7 @@ const MAX_PROGRESS_LINES = 120;
 
 /**
  * Poll interval while the app is showing workflows. The event covers everything
- * Ship Studio does itself; this catches the case the event cannot — a workflow
+ * Harbr does itself; this catches the case the event cannot — a workflow
  * file written directly on disk, which is exactly what happens when the user's
  * agent creates one through the bundled skill.
  */

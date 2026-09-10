@@ -168,7 +168,7 @@ export function usePlugins(
             failed.push({
               id: info.manifest.id,
               name: info.manifest.name,
-              reason: `Requires plugin API v${v}; this app supports v${SUPPORTED_API_VERSIONS.join(', ')}. Update Ship Studio or the plugin.`,
+              reason: `Requires plugin API v${v}; this app supports v${SUPPORTED_API_VERSIONS.join(', ')}. Update Harbr or the plugin.`,
             });
             return false;
           }

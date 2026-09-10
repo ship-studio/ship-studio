@@ -14,6 +14,7 @@ import { PinIcon, ChevronIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { setAlwaysOnTop } from '../../lib/window';
+import { isTauriRuntime } from '../../lib/webEvents';
 import { logger } from '../../lib/logger';
 import { isMac } from '../../lib/setup';
 import { kbd } from '../../lib/shortcuts';
@@ -43,6 +44,7 @@ export function CompactTopbar({
   const openAllPalette = useCallback(() => openPalette(), [openPalette]);
 
   const handleDragStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isTauriRuntime()) return;
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest('button, a, input, select, [role="menu"]')) return;

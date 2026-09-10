@@ -106,7 +106,7 @@ pub fn parse_github_repo(url: &str) -> Option<String> {
     remote.is_github().then_some(remote.path)
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn check_github_cli_status() -> GitHubCliStatus {
     // Check if gh CLI is installed
@@ -201,7 +201,7 @@ const GH_PUSH_TIMEOUT_MESSAGE: &str =
     "Creating the repository on GitHub took too long and timed out. Larger projects can take a \
      while to upload — check your internet connection and try again.";
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_github_username(project_path: Option<String>) -> Result<String, CommandError> {
     let (mut cmd, account_id) = gh_command_and_account(project_path.as_deref())?;
@@ -231,7 +231,7 @@ pub async fn get_github_username(project_path: Option<String>) -> Result<String,
     Ok(username)
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>, CommandError> {
     // Get orgs where user can create repos, scoped to the project's workspace
@@ -292,7 +292,7 @@ fn other_remote(remote: &crate::commands::git::RemoteRef) -> ProjectGitHubStatus
 /// or self-managed `origin` returns `other-remote`, not `no-remote`, so the UI
 /// stops offering to create a GitHub repo for a project that already has one
 /// somewhere else.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_github_status(project_path: String) -> ProjectGitHubStatus {
     let not_a_repo = ProjectGitHubStatus {
@@ -549,7 +549,7 @@ async fn push_to_existing_origin(
     Ok(format!("https://github.com/{slug}"))
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(options), fields(project = %options.project_path, repo = %options.repo_name))]
 pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, CommandError> {
     let validated_path =
@@ -576,7 +576,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     // Whether the repo already has a commit decides the message. `git_dir`
     // can't answer that here — the `git init` above just created it, so the
     // very first commit of a brand-new repo used to be labelled "Update from
-    // Ship Studio". Ask for HEAD instead, which is also correct for a repo
+    // Harbr". Ask for HEAD instead, which is also correct for a repo
     // that was initialised outside the app but never committed to.
     let had_commits = crate::utils::git_command_in(&validated_path)?
         .args(["rev-parse", "--verify", "HEAD"])
@@ -590,9 +590,9 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     git_stage_and_commit(
         &validated_path,
         if had_commits {
-            "Update from Ship Studio"
+            "Update from Harbr"
         } else {
-            "Initial commit from Ship Studio"
+            "Initial commit from Harbr"
         },
     )?;
 
@@ -605,12 +605,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
 
     if !has_commits {
         let output = crate::utils::git_command_in(&validated_path)?
-            .args([
-                "commit",
-                "--allow-empty",
-                "-m",
-                "Initial commit from Ship Studio",
-            ])
+            .args(["commit", "--allow-empty", "-m", "Initial commit from Harbr"])
             .output()
             .map_err(CommandError::from)?;
 
@@ -862,7 +857,7 @@ pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
 /// config file — "failed to load config: open …/.config/gh/config.yml:
 /// permission denied" / "failed to create root command: failed to read
 /// configuration: …". A local file-permissions problem (typically a prior
-/// sudo run left the directory root-owned), not a Ship Studio bug and not a
+/// sudo run left the directory root-owned), not a Harbr bug and not a
 /// GitHub sign-in failure — reconnecting can't fix a file the OS won't let gh
 /// read (issue #631). Recurs on every gh call for the affected user, so
 /// `Expected` keeps it from flooding telemetry, and the message names the
@@ -1019,7 +1014,7 @@ pub(crate) fn gh_git_repo_error(stderr: &str) -> Option<CommandError> {
 }
 
 /// Lists GitHub repositories for a given owner (user or organization)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, CommandError> {
     let mut cmd = get_gh_command();
@@ -1079,7 +1074,7 @@ struct GitHubApiOwner {
 }
 
 /// Lists GitHub repositories where the user is a collaborator (not owner)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> {
     // Use GitHub API to get repos where user is a collaborator
@@ -1263,7 +1258,7 @@ fn preferred_package_manager_in_or_above(path: &Path) -> Option<String> {
 
 /// Detects the package manager a project needs (lockfiles first, then the
 /// manifest's own declarations), falling back to npm.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn detect_package_manager(project_path: String) -> Result<String, CommandError> {
     let path = Path::new(&project_path);

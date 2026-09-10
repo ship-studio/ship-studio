@@ -33,7 +33,7 @@ describe('development design-system lab gate', () => {
       screen.getByRole('heading', { name: 'Fields and property controls' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('region', { name: 'Ship Studio development design-system lab' })
+      screen.getByRole('region', { name: 'Harbr development design-system lab' })
     ).toBeInTheDocument();
   });
 });

@@ -4,7 +4,7 @@
 #
 # Everything here is *real git*. Real commits, real branches, a real merge, real
 # `.shipstudio-team/` records with the real `Ship-Studio-Update` trailer joining
-# them to their commits. Ship Studio reads it with exactly the same code path it
+# them to their commits. Harbr reads it with exactly the same code path it
 # uses on your own repositories — nothing about the feature is mocked.
 #
 # What is staged is only the cast: three people committing over three days, so a
@@ -14,12 +14,12 @@
 #
 # The point of the repo is the contrast it sets up:
 #
-#   Maya   pushes through Ship Studio  -> rows say what changed AND why
+#   Maya   pushes through Harbr  -> rows say what changed AND why
 #   Theo   pushes from a terminal      -> rows say only what git can prove
 #   You    have work in flight         -> your own branch, ahead of main
 #
 # Usage:
-#   ./scripts/team-demo.sh                    # ~/ShipStudio/team-demo
+#   ./scripts/team-demo.sh                    # ~/Harbr/team-demo
 #   ./scripts/team-demo.sh my-demo-name
 #   ./scripts/team-demo.sh my-demo-name --remote git@github.com:me/demo.git
 #
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ROOT="${SHIPSTUDIO_ROOT:-$HOME/ShipStudio}"
+ROOT="${HARBR_ROOT:-$HOME/Harbr}"
 DIR="$ROOT/$NAME"
 
 if [[ -e "$DIR" ]]; then
@@ -137,7 +137,7 @@ mkdir -p src/components src/data
 cat > README.md <<'EOF'
 # Acme Marketing
 
-The demo repository for Ship Studio's Team feature.
+The demo repository for Harbr's Team feature.
 EOF
 cat > src/components/PricingTable.tsx <<'EOF'
 export function PricingTable() {
@@ -148,7 +148,7 @@ commit_as "$ME_NAME" "$ME_EMAIL" "$(STAMP 6)" "Set up the marketing site"
 
 # ------------------------------------------------- day -4: Theo, from a terminal
 #
-# No record and no trailer, because Theo does not use Ship Studio. His rows are
+# No record and no trailer, because Theo does not use Harbr. His rows are
 # the honest floor of the feature: what git can prove and nothing more.
 cat > src/data/plans.ts <<'EOF'
 export type Plan = { name: string; price: number; seats: number };
@@ -165,7 +165,7 @@ export const featured = 'Team';
 EOF
 commit_as "$THEO_NAME" "$THEO_EMAIL" "$(STAMP 4 0)" "wip"
 
-# ------------------------------------------- day -2: Maya, through Ship Studio
+# ------------------------------------------- day -2: Maya, through Harbr
 #
 # A branch, a record, and a commit carrying the trailer that joins them. This is
 # the row the whole feature exists to produce.
@@ -251,4 +251,4 @@ echo "==> Done: $DIR"
 echo
 git --no-pager log --oneline --graph --all | head -12
 echo
-echo "Open it in Ship Studio, then click the faces in the workspace header."
+echo "Open it in Harbr, then click the faces in the workspace header."

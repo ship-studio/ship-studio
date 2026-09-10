@@ -656,7 +656,7 @@ describe('isProjectFolderGoneError', () => {
       isProjectFolderGoneError({
         type: 'Other',
         message:
-          "The folder '/Users/me/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+          "The folder '/Users/me/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
       })
     ).toBe(true);
   });
@@ -977,7 +977,7 @@ describe('isRecognizedGitFailure — trusts the backend flag and switch_branch w
   it("recognizes switch_branch's old-Git and unresolved-merge messages (issue #859)", () => {
     expect(
       isRecognizedGitFailure(
-        'Your installed Git is too old for Ship Studio (Git 2.24 from 2019 or newer is required). Update Git — run `brew install git` — then try again.'
+        'Your installed Git is too old for Harbr (Git 2.24 from 2019 or newer is required). Update Git — run `brew install git` — then try again.'
       )
     ).toBe(true);
     expect(isRecognizedGitFailure('error: you need to resolve your current index first')).toBe(

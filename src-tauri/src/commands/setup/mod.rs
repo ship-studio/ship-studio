@@ -6,14 +6,14 @@
 //!
 //! Two env vars control onboarding testing:
 //!
-//! ### `SHIPSTUDIO_FORCE_ONBOARDING=1`
+//! ### `HARBR_FORCE_ONBOARDING=1`
 //! Forces the onboarding wizard to appear but runs REAL system checks.
 //! Items show their actual status. Terminal installs work normally.
 //! After completing onboarding, an in-memory flag (`FORCE_ONBOARDING_COMPLETED`)
 //! prevents background verification from looping back. Nothing is persisted
 //! to disk, so onboarding shows again on next launch.
 //!
-//! ### `SHIPSTUDIO_FORCE_SETUP=<scenario>`
+//! ### `HARBR_FORCE_SETUP=<scenario>`
 //! Uses a fully mocked backend. Item statuses are faked based on the scenario.
 //! In the classic wizard, clicking "Install" triggers a 2-second mock install
 //! and terminal-based items (homebrew, gh_auth, claude, codex) still spawn
@@ -44,6 +44,7 @@ pub use status::*;
 
 use crate::errors::CommandError;
 use crate::types::AppState;
+use ship_studio_macros::ship_command;
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 
@@ -116,7 +117,7 @@ pub fn read_app_state() -> AppState {
 pub fn try_read_app_state() -> Result<AppState, std::io::Error> {
     let path = state::get_app_state_path();
     if !path.exists() {
-        return Ok(AppState::default());
+        return state::migrate_legacy_app_state();
     }
 
     let raw = match std::fs::read_to_string(&path) {
@@ -171,7 +172,7 @@ pub fn update_app_state<T>(
 ) -> Result<T, crate::errors::CommandError> {
     let mut state = try_read_app_state().map_err(|e| {
         crate::errors::CommandError::expected(format!(
-            "Ship Studio couldn't read its saved settings ({e}), so nothing was changed — \
+            "Harbr couldn't read its saved settings ({e}), so nothing was changed — \
              your existing settings are safe. Try again in a moment."
         ))
     })?;
@@ -293,7 +294,7 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
     }
 }
 
-/// Initialize mock state from SHIPSTUDIO_FORCE_SETUP env var
+/// Initialize mock state from HARBR_FORCE_SETUP env var
 fn initialize_mock_state() {
     let mut initialized = MOCK_INITIALIZED
         .lock()
@@ -303,7 +304,7 @@ fn initialize_mock_state() {
     }
     *initialized = true;
 
-    if let Ok(scenario) = std::env::var("SHIPSTUDIO_FORCE_SETUP") {
+    if let Ok(scenario) = std::env::var("HARBR_FORCE_SETUP") {
         let items = get_scenario_items(&scenario);
         if let Ok(mut set) = MOCK_INSTALLED.lock() {
             for item in items {
@@ -316,7 +317,7 @@ fn initialize_mock_state() {
 
 /// Check if we're in mock/debug mode
 pub fn is_mock_mode() -> bool {
-    let is_mock = std::env::var("SHIPSTUDIO_FORCE_SETUP").is_ok();
+    let is_mock = std::env::var("HARBR_FORCE_SETUP").is_ok();
     if is_mock {
         initialize_mock_state();
     }
@@ -329,9 +330,9 @@ pub fn is_mock_mode() -> bool {
 /// Once onboarding completes this session, stops overriding so background
 /// verification doesn't loop back.
 ///
-/// Usage: SHIPSTUDIO_FORCE_ONBOARDING=1 npm run tauri dev
+/// Usage: HARBR_FORCE_ONBOARDING=1 npm run tauri dev
 pub(super) fn is_force_onboarding_mode() -> bool {
-    if std::env::var("SHIPSTUDIO_FORCE_ONBOARDING").is_err() {
+    if std::env::var("HARBR_FORCE_ONBOARDING").is_err() {
         return false;
     }
     // Once onboarding completed this session, stop forcing
@@ -352,25 +353,25 @@ pub fn mock_install(item_id: &str) {
 
 /// Which onboarding test mode (if any) the app was launched in. The frontend
 /// uses this to swap real side effects for deterministic ones: under mock mode
-/// (`SHIPSTUDIO_FORCE_SETUP`) the agent-led onboarding runs a scripted demo
+/// (`HARBR_FORCE_SETUP`) the agent-led onboarding runs a scripted demo
 /// session instead of spawning a real agent PTY or real installers.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OnboardingTestMode {
-    /// `SHIPSTUDIO_FORCE_SETUP` is set — item statuses are mocked.
+    /// `HARBR_FORCE_SETUP` is set — item statuses are mocked.
     pub mock: bool,
-    /// `SHIPSTUDIO_FORCE_ONBOARDING` is set — real checks, wizard forced open.
+    /// `HARBR_FORCE_ONBOARDING` is set — real checks, wizard forced open.
     pub force_onboarding: bool,
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_onboarding_test_mode() -> Result<OnboardingTestMode, CommandError> {
     Ok(OnboardingTestMode {
         mock: is_mock_mode(),
         // Raw env-var check on purpose: is_force_onboarding_mode() flips off
         // after completion, but the frontend cares about how we were launched.
-        force_onboarding: std::env::var("SHIPSTUDIO_FORCE_ONBOARDING").is_ok(),
+        force_onboarding: std::env::var("HARBR_FORCE_ONBOARDING").is_ok(),
     })
 }
 
@@ -379,7 +380,7 @@ pub async fn get_onboarding_test_mode() -> Result<OnboardingTestMode, CommandErr
 /// timeline and the real status polling picks them up, so the checklist UI is
 /// exercised end-to-end with zero changes to the host machine. Refuses to run
 /// outside mock mode.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn mock_mark_setup_item_ready(
     item_id: String,
@@ -387,7 +388,7 @@ pub async fn mock_mark_setup_item_ready(
     if !is_mock_mode() {
         return Err(crate::errors::CommandError::Validation {
             field: "item_id".to_string(),
-            reason: "mock_mark_setup_item_ready only works when SHIPSTUDIO_FORCE_SETUP is set"
+            reason: "mock_mark_setup_item_ready only works when HARBR_FORCE_SETUP is set"
                 .to_string(),
         });
     }

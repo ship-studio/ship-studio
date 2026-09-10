@@ -12,7 +12,7 @@
  * agent CLI we don't manage, records the external-agent opt-in so setup
  * checks don't bounce the user back, and defaults the workspace to the
  * Terminal agent. Machines that are already fully set up fast-path to
- * complete — except under SHIPSTUDIO_FORCE_ONBOARDING, where the pick phase
+ * complete — except under HARBR_FORCE_ONBOARDING, where the pick phase
  * is always shown so the flow can be eyeballed on a dev machine.
  */
 
@@ -106,7 +106,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
       logger.warn('Agent onboarding: failed to fetch setup status', { error: err });
       setError(
         err instanceof TimeoutError
-          ? 'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
+          ? 'Setup check timed out — click Retry. If this persists, restart Harbr.'
           : 'Failed to check setup status. Please try again.'
       );
       return null;
@@ -177,7 +177,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
       const hostNeedsSetup =
         host === 'cloudflare' ? true : host === 'vercel' ? !vercelReady : false;
 
-      // Under SHIPSTUDIO_FORCE_ONBOARDING the guided phase always runs, even
+      // Under HARBR_FORCE_ONBOARDING the guided phase always runs, even
       // with nothing missing — the real agent gets a verify-only prompt and
       // confirms the installed tools. This is how the agent interaction is
       // tested for real on a fully set-up dev machine.
@@ -333,7 +333,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
         className={`onboarding-content agent-onboarding-content ${phase === 'guided' ? 'agent-guided-content' : ''}`}
       >
         <div className="onboarding-header">
-          <img src="/ship_studio_full.png" alt="Ship Studio" className="onboarding-logo" />
+          <img src="/harbr-mark.svg" alt="Harbr" className="onboarding-logo" />
           {phase === 'pick' && !detailAgent && (
             <>
               <h1>First, pick your AI agent</h1>

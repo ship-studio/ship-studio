@@ -27,7 +27,7 @@ const MAX_PLUGIN_SHELL_TIMEOUT_SECS: u64 = 600;
 ///
 /// Storage is at {project}/.shipstudio/plugins/{plugin-id}/storage.json
 /// Acquires a per-plugin lock to prevent races with concurrent writes.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_storage(
     plugin_id: String,
@@ -58,7 +58,7 @@ pub fn read_plugin_storage(
 /// Write plugin storage data
 ///
 /// Acquires a per-plugin lock to prevent concurrent read-modify-write races.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn write_plugin_storage(
     plugin_id: String,
@@ -195,7 +195,7 @@ fn plugin_fs_read_text_at(
 /// every plugin using it for file-existence checks failed outright there
 /// (issues #840, #693, #816). `path` is relative to the project root, exactly
 /// like `shell.exec`'s working directory.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn plugin_fs_exists(
     plugin_id: String,
@@ -216,7 +216,7 @@ pub fn plugin_fs_exists(
 /// forcing a separate `plugin_fs_exists` call first would just add an IPC
 /// round trip and a TOCTOU gap. Any other I/O failure (permissions, not
 /// valid UTF-8, etc.) is still a real error.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn plugin_fs_read_text(
     plugin_id: String,
@@ -231,7 +231,7 @@ pub fn plugin_fs_read_text(
 /// Execute a shell command in a plugin's context
 ///
 /// Security: validates project_path, uses extended PATH, enforces configurable timeout (default 120s).
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn exec_plugin_shell(
     plugin_id: String,
@@ -364,7 +364,7 @@ pub async fn exec_plugin_shell(
 ///
 /// Opens a native folder picker, validates the selected folder has plugin.json and dist/index.js,
 /// then registers it in the project's plugin registry as a dev plugin.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn link_dev_plugin(
     app: AppHandle,
@@ -421,7 +421,7 @@ pub async fn link_dev_plugin(
     }
 
     // Check min_app_version compatibility
-    check_min_app_version(&manifest, &app).map_err(CommandError::expected)?;
+    check_min_app_version(&manifest).map_err(CommandError::expected)?;
 
     // Validate required_commands are all in the allowed set
     validate_required_commands(&manifest).map_err(CommandError::expected)?;
@@ -469,7 +469,7 @@ pub async fn link_dev_plugin(
 /// Unlink a dev plugin from a project.
 ///
 /// Removes the plugin from the registry only. Does NOT delete local files.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn unlink_dev_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
     let mut registry = read_registry(&project_path)?;

@@ -21,7 +21,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -68,7 +67,7 @@ const MIME_TYPES: &[(&str, &str)] = &[
 ];
 
 /// Get the MIME type for a file extension.
-fn get_mime_type(extension: &str) -> &'static str {
+pub(crate) fn get_mime_type(extension: &str) -> &'static str {
     let ext_lower = extension.to_lowercase();
     for (ext, mime) in MIME_TYPES {
         if *ext == ext_lower {
@@ -105,7 +104,6 @@ static STATIC_SERVER_INSTANCES: LazyLock<Mutex<HashMap<String, StaticServerInsta
 /// Returns the server's listening port. Also starts a file watcher that emits
 /// `static-file-changed` Tauri events when project files are modified.
 pub async fn start_static_server(
-    app: tauri::AppHandle,
     window_label: String,
     project_path: String,
 ) -> Result<u16, String> {
@@ -130,7 +128,15 @@ pub async fn start_static_server(
     let canonical_root = dunce::canonicalize(&serve_root)
         .map_err(|e| format!("Failed to canonicalize project path: {e}"))?;
 
-    // Bind to a random available port on localhost
+    #[cfg(feature = "web")]
+    let listener = if crate::emit::is_web() {
+        crate::web::bind_preview_listener(&window_label, crate::web::STATIC_SERVER_SLOT).await?
+    } else {
+        TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("Failed to bind static server port: {e}"))?
+    };
+    #[cfg(not(feature = "web"))]
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Failed to bind static server port: {e}"))?;
@@ -172,7 +178,7 @@ pub async fn start_static_server(
 
     // Start file watcher for live reload
     let watcher_shutdown_tx =
-        start_file_watcher(app, window_label.clone(), PathBuf::from(&project_path));
+        start_file_watcher(window_label.clone(), PathBuf::from(&project_path));
 
     let instance = StaticServerInstance {
         port,
@@ -211,6 +217,10 @@ pub fn stop_static_server(window_label: &str) {
             );
         }
     }
+    #[cfg(feature = "web")]
+    if crate::emit::is_web() {
+        crate::state::release_port_for_project(window_label, crate::web::STATIC_SERVER_SLOT);
+    }
 }
 
 /// Stop all running static servers (called during app cleanup).
@@ -227,6 +237,10 @@ pub fn stop_all_static_servers() {
                 "[StaticServer] Stopped server for window '{}' (cleanup)",
                 label
             );
+            #[cfg(feature = "web")]
+            if crate::emit::is_web() {
+                crate::state::release_port_for_project(&label, crate::web::STATIC_SERVER_SLOT);
+            }
         }
     }
 }
@@ -252,11 +266,7 @@ fn should_trigger_reload(path: &Path) -> bool {
 
 /// Start a file watcher that emits Tauri events when project files change.
 /// Returns a shutdown channel sender to stop the watcher.
-fn start_file_watcher(
-    app: tauri::AppHandle,
-    window_label: String,
-    project_path: PathBuf,
-) -> oneshot::Sender<()> {
+fn start_file_watcher(window_label: String, project_path: PathBuf) -> oneshot::Sender<()> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
     // Use an mpsc channel to bridge notify's sync callback to our async context
@@ -341,7 +351,7 @@ fn start_file_watcher(
 
                     last_emit = Instant::now();
                     tracing::debug!("[FileWatcher] Emitting static-file-changed for '{}'", label_clone);
-                    let _ = app.emit(
+                    let _ = crate::emit::all(
                         "static-file-changed",
                         serde_json::json!({ "windowLabel": label_clone }),
                     );
@@ -583,7 +593,7 @@ async fn serve_file(file_path: &Path) -> Result<Response<ServerBody>, hyper::Err
                     "[StaticServer] Permission denied reading {} (os error 1) — likely missing Full Disk Access / Files & Folders access on macOS",
                     file_path.display()
                 );
-                let body = "<html><body><h1>403 - Permission Denied</h1><p>Ship Studio isn't allowed to read this project's files. Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then reload the preview.</p></body></html>";
+                let body = "<html><body><h1>403 - Permission Denied</h1><p>Harbr isn't allowed to read this project's files. Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then reload the preview.</p></body></html>";
                 return Ok(Response::builder()
                     .status(StatusCode::FORBIDDEN)
                     .header("Content-Type", "text/html; charset=utf-8")

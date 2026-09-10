@@ -587,7 +587,7 @@ mod tests {
             "meta":{
                 "githubCommitSha":"a0728a0c6f1976dee739b994e8d2108993ecf6b1",
                 "githubCommitRef":"main",
-                "githubCommitMessage":"Update from Ship Studio"
+                "githubCommitMessage":"Update from Harbr"
             }
         }]}"#
     }
@@ -630,7 +630,7 @@ mod tests {
 
         assert_eq!(d.commit_sha, "a0728a0c6f1976dee739b994e8d2108993ecf6b1");
         assert_eq!(d.branch.as_deref(), Some("main"));
-        assert_eq!(d.commit_message.as_deref(), Some("Update from Ship Studio"));
+        assert_eq!(d.commit_message.as_deref(), Some("Update from Harbr"));
         assert_eq!(d.environment, Environment::Production);
         assert_eq!(
             d.dashboard_url.as_deref(),

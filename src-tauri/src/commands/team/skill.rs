@@ -1,6 +1,6 @@
 //! The bundled `shipstudio-team` agent skill.
 //!
-//! The answer to "if I just tell my agent to push, does Ship Studio know?"
+//! The answer to "if I just tell my agent to push, does Harbr know?"
 //!
 //! Half of it already worked without this: a terminal push produces commits,
 //! and [`super::derive`] builds rows from git history, so the work shows up as
@@ -10,9 +10,9 @@
 //! as the session lasts.
 //!
 //! So this teaches the agent to write the records itself. It is the same
-//! artifact Ship Studio writes, in the same directory, read by the same fold —
+//! artifact Harbr writes, in the same directory, read by the same fold —
 //! there is no API in front of it, exactly as with the workflows skill. An
-//! agent on a teammate's machine that has never opened Ship Studio still
+//! agent on a teammate's machine that has never opened Harbr still
 //! produces rows the rest of the team can read.
 //!
 //! Registered in `commands::skills::bundled::BUNDLED_SKILLS`, which installs it
@@ -31,7 +31,7 @@ const SKILL_VERSION: &str = "4";
 /// The skill body.
 ///
 /// Two halves, and they are deliberately unequal. The first says "write a good
-/// commit message", which is not a Ship Studio instruction at all — it is what
+/// commit message", which is not a Harbr instruction at all — it is what
 /// a good commit has always been, and the feed reads it because git already
 /// stores it. The second describes the comment records, which is the only part
 /// of this feature that genuinely needs a format of its own.
@@ -41,7 +41,7 @@ pub(crate) fn skill_markdown() -> String {
 name: shipstudio-team
 description: >-
   Write commit messages and pull requests that explain themselves, and resolve
-  review comments, in a Ship Studio project. Use this whenever you are about to
+  review comments, in a Harbr project. Use this whenever you are about to
   commit or push in a project that has a `.shipstudio/` directory, when the user
   asks you to push, ship, commit or land work there, and whenever you have
   finished acting on comments the user handed you — anything mentioning a
@@ -50,9 +50,9 @@ metadata:
   shipstudio-skill-version: "{SKILL_VERSION}"
 ---
 
-# Ship Studio team
+# Harbr team
 
-Ship Studio shows a team what everyone is doing, built from the git repository
+Harbr shows a team what everyone is doing, built from the git repository
 rather than a server. It reads two things:
 
 1. **Your commit messages and pull requests** — for what changed and why.
@@ -64,11 +64,11 @@ The first needs no special format. The second does, and is described below.
 ## Which projects this applies to
 
 Any project with a **`.shipstudio/`** directory in its root. If there is no
-`.shipstudio/` directory, this is not a Ship Studio project: ignore all of this.
+`.shipstudio/` directory, this is not a Harbr project: ignore all of this.
 
 ## 1. The commit body is the feed
 
-Ship Studio's feed shows your commit subject as the headline and **your commit
+Harbr's feed shows your commit subject as the headline and **your commit
 body as the reason**. There is no separate record to write, nothing to file, and
 no id to carry — writing a good commit message *is* how the team finds out what
 you did.
@@ -106,11 +106,11 @@ changed, why, and anything a reviewer needs to know. Do not restate the diff.
 
 These are the part with no equivalent in git or GitHub. A comment is pinned to
 an element on a page at a specific viewport — GitHub has no concept of that, so
-Ship Studio keeps its own records for it.
+Harbr keeps its own records for it.
 
 **If you have `team_open_comments` and `team_resolve_comment` tools, use them.**
 They are one call each, they validate what you give them, and they tell you when
-something is wrong. You get them automatically inside Ship Studio's terminal.
+something is wrong. You get them automatically inside Harbr's terminal.
 
 Without them, write the files by hand:
 
@@ -171,7 +171,7 @@ random. They sort chronologically, which is what orders the feed.
 **`at` is milliseconds**, not seconds.
 
 **Do not commit `.shipstudio-team/threads/`.** Comment records travel on their
-own git ref, which Ship Studio manages. They are excluded from your working tree
+own git ref, which Harbr manages. They are excluded from your working tree
 already — leave them out of your commits.
 "#
     )

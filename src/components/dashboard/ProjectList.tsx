@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriRuntime } from '../../lib/webEvents';
 import {
   DashboardProject,
   setHideMainBranchWarning,
@@ -56,7 +57,6 @@ import { useProjectListData } from './useProjectListData';
 import { ProjectBulkActionsBar } from './ProjectBulkActionsBar';
 import { ProjectBulkActionConfirm } from './ProjectBulkActionConfirm';
 import { DashboardPreferencesCard } from './DashboardPreferencesCard';
-import { DashboardCommunityBanner } from './DashboardCommunityBanner';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../../contexts/ModalContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
@@ -177,13 +177,10 @@ export function ProjectList({
   const {
     dashboardHeaderHidden,
     calendarHidden,
-    slackCtaHidden,
     hideDashboardHeader,
     hideCalendar,
-    hideSlackCta,
     setDashboardHeaderHidden,
     setCalendarHidden,
-    setSlackCtaHidden,
   } = useDashboardVisibility();
 
   // Search and sort state
@@ -494,12 +491,14 @@ export function ProjectList({
   };
 
   const handleDashboardDrag = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     e.preventDefault();
     void getCurrentWindow().startDragging();
   }, []);
 
   const handleDashboardDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauriRuntime()) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
     const win = getCurrentWindow();
     void win.isMaximized().then((maximized) => {
@@ -561,8 +560,6 @@ export function ProjectList({
       />
       <div className="project-list dashboard">
         {!dashboardHeaderHidden && <DashboardHeader onHide={hideDashboardHeader} />}
-
-        {!slackCtaHidden && <DashboardCommunityBanner onHide={hideSlackCta} />}
 
         {!calendarHidden && (
           <GitHubCalendar
@@ -740,7 +737,7 @@ export function ProjectList({
                 Permanently delete <strong>{deleteConfirm.name}</strong> from this computer?
               </>
             }
-            hint="This removes the local project folder and its files. Use Remove from Ship Studio if you only want to hide it from the app."
+            hint="This removes the local project folder and its files. Use Remove from Harbr if you only want to hide it from the app."
             loading={deleting}
             confirmLabel="Delete files"
             loadingLabel="Deleting..."
@@ -753,15 +750,15 @@ export function ProjectList({
         {/* Remove Project Confirmation Modal */}
         {removeConfirm && (
           <ProjectActionConfirmModal
-            title="Remove From Ship Studio?"
+            title="Remove From Harbr?"
             body={
               <>
-                Remove <strong>{removeConfirm.name}</strong> from Ship Studio?
+                Remove <strong>{removeConfirm.name}</strong> from Harbr?
               </>
             }
             hint="Your project folder and files will stay on this computer. You can add it back later with Import Project, Local Folder."
             loading={removing}
-            confirmLabel="Remove from Ship Studio"
+            confirmLabel="Remove from Harbr"
             loadingLabel="Removing..."
             confirmVariant="primary"
             onCancel={() => setRemoveConfirm(null)}
@@ -794,7 +791,6 @@ export function ProjectList({
           onClose={() => setShowSettings(false)}
           onDashboardHeaderHiddenChange={setDashboardHeaderHidden}
           onCalendarHiddenChange={setCalendarHidden}
-          onSlackCtaHiddenChange={setSlackCtaHidden}
           onProjectsRootChanged={() => void loadProjects()}
         />
 

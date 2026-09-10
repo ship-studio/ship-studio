@@ -281,7 +281,7 @@ export function SpotifyWidget({ isSidebarHidden }: SpotifyWidgetProps) {
         <AlertIcon size={12} className="spotify-widget-permission-icon" />
         <div className="spotify-widget-permission-body">
           <span className="spotify-widget-permission-text">
-            macOS blocked Ship Studio from controlling Spotify.
+            macOS blocked Harbr from controlling Spotify.
           </span>
           <Button variant="secondary" size="compact" onClick={handleOpenAutomationSettings}>
             Open Privacy Settings

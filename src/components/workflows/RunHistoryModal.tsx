@@ -138,7 +138,7 @@ export function RunHistoryModal({ workflow, onClose }: RunHistoryModalProps) {
 
       <p className="run-history-note text-style-hint">
         The last 20 runs per workflow are kept on this machine, in{' '}
-        <code>~/ShipStudio/.shipstudio/workflows-state.json</code>. Nothing is uploaded anywhere.
+        <code>~/Harbr/.shipstudio/workflows-state.json</code>. Nothing is uploaded anywhere.
       </p>
     </ModalFrame>
   );

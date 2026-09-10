@@ -6,6 +6,7 @@ use crate::errors::CommandError;
 use crate::types::{DetectedScripts, PackageManager, ScriptCategory, ScriptSuggestion};
 use crate::utils::validate_project_path;
 use serde_json::Value;
+use ship_studio_macros::ship_command;
 use tracing::debug;
 
 /// Script patterns for each category
@@ -166,7 +167,7 @@ fn find_script_match(
 }
 
 /// Detect available scripts from package.json
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn detect_health_scripts(project_path: String) -> Result<DetectedScripts, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -227,7 +228,7 @@ pub async fn detect_health_scripts(project_path: String) -> Result<DetectedScrip
 }
 
 /// Get the package.json contents for a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_package_json(project_path: String) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;

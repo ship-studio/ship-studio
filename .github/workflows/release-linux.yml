@@ -1,0 +1,57 @@
+name: Release Linux
+
+on:
+  push:
+    tags:
+      - '*-linux'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev patchelf fuse desktop-file-utils
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:all
+      - run: pnpm test:run
+      - name: Build Harbr desktop and server
+        run: |
+          pnpm tauri build --bundles deb,appimage
+          cargo build --release --manifest-path src-tauri/Cargo.toml --features web --bin harbr-server
+      - name: Stage artifacts
+        run: |
+          set -euo pipefail
+          appimage=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' -type f -print -quit)
+          deb=$(find src-tauri/target/release/bundle/deb -name '*.deb' -type f -print -quit)
+          test -n "$appimage"
+          test -n "$deb"
+          mkdir -p artifacts
+          cp "$appimage" artifacts/Harbr_linux-x86_64.AppImage
+          cp "$deb" artifacts/Harbr_linux-x86_64.deb
+          cp src-tauri/target/release/harbr-server artifacts/harbr-server_linux-x86_64
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Harbr-linux-x86_64
+          path: artifacts/
+          if-no-files-found: error
+      - name: Add artifacts to draft release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true
+          generate_release_notes: true

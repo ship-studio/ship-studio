@@ -1,11 +1,11 @@
-/* Ship Studio design tokens */
+/* Harbr design tokens */
 /* Frozen raw compatibility values. Do not add new product usage here. */
 
 /*
  * ============================================================================
  * PLUGIN-STABLE TOKEN API — do not remove or rename
  * ============================================================================
- * These names are Ship Studio's published contract with third-party plugins
+ * These names are Harbr's published contract with third-party plugins
  * (see CLAUDE.md → "Shared CSS Classes (Plugin-Stable)" and the plugin starter
  * repo). They predate the core/semantic/component token layers and are kept as
  * thin aliases onto the canonical semantic roles so existing plugin

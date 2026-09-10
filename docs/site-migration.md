@@ -116,11 +116,11 @@ node scripts/site-structure.mjs \
 
 # Run a whole migration unattended
 prototypes/site-migration/trial.sh https://example.com/ my-trial
-prototypes/site-migration/run-agent.sh ~/ShipStudio/my-trial
+prototypes/site-migration/run-agent.sh ~/Harbr/my-trial
 
 # Watch trials without touching them
-node prototypes/site-migration/trial-status.mjs ~/ShipStudio/my-trial
-node prototypes/site-migration/watch-trials.mjs ~/ShipStudio/my-trial …
+node prototypes/site-migration/trial-status.mjs ~/Harbr/my-trial
+node prototypes/site-migration/watch-trials.mjs ~/Harbr/my-trial …
 ```
 
 `print-prompt.mjs` reads the brief out of `src/lib/migration.ts` rather than

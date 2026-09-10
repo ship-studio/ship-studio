@@ -4,7 +4,6 @@ import VercelSvg from '../../assets/icons/vercel.svg?react';
 import CursorSvg from '../../assets/icons/cursor.svg?react';
 import OpenAiSvg from '../../assets/icons/openai.svg?react';
 import OpencodeSvg from '../../assets/icons/opencode.svg?react';
-import SlackSvg from '../../assets/icons/slack.svg?react';
 import CloudflareSvg from '../../assets/icons/old-icons/cloudflare.svg?react';
 import VSCodeSvg from '../../assets/icons/old-icons/vscode.svg?react';
 import SafariSvg from '../../assets/icons/old-icons/safari.svg?react';
@@ -63,13 +62,6 @@ export const OpencodeIcon = createIcon(OpencodeSvg, {
   source: 'icons/opencode.svg',
   kind: 'brand',
   defaultSize: 16,
-});
-export const SlackIcon = createIcon(SlackSvg, {
-  name: 'SlackIcon',
-  source: 'icons/slack.svg',
-  kind: 'brand',
-  defaultSize: 18,
-  strokeWidth: '1px',
 });
 export const SafariIcon = createIcon(SafariSvg, {
   name: 'SafariIcon',

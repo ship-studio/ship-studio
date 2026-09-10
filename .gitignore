@@ -47,6 +47,7 @@ ShipStudio.zip
 
 # Local Cargo config (contains build-time secrets)
 src-tauri/.cargo/
+src-tauri/macros/target/
 
 # GSD planning
 .planning/

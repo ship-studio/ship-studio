@@ -159,7 +159,7 @@ export async function deleteProject(path: string): Promise<void> {
 }
 
 /**
- * Remove a project from Ship Studio without deleting its files.
+ * Remove a project from Harbr without deleting its files.
  * @param path - Absolute path to the project directory to hide from the dashboard
  */
 export async function removeProjectFromApp(path: string): Promise<void> {
@@ -411,7 +411,7 @@ export async function startDevServer(
           { projectPath }
         );
         onOutput?.(
-          '[Ship Studio] package.json has an unresolved merge conflict — resolve it (Branches → Resolve conflicts) and restart the dev server.\r\n'
+          '[Harbr] package.json has an unresolved merge conflict — resolve it (Branches → Resolve conflicts) and restart the dev server.\r\n'
         );
       } else {
         const pkg = JSON.parse(file.content) as { scripts?: { dev?: string } };
@@ -464,7 +464,7 @@ export async function startDevServer(
           projectPath,
         });
       } else if (isProjectFolderGoneError(e)) {
-        // The project folder was moved, renamed, or deleted outside Ship Studio
+        // The project folder was moved, renamed, or deleted outside Harbr
         // while its session stayed open — an environment state, not an app bug
         // (issue #822). Same treatment as the missing-package.json case.
         logger.warn('[DevServer] Project folder is gone; falling back to script runner', {
@@ -516,7 +516,7 @@ export async function startDevServer(
 
   // npm/pnpm record where the user invoked them in INIT_CWD (and pnpm in
   // PNPM_SCRIPT_SRC_DIR), and the PTY merges our env over the app's own —
-  // so when Ship Studio itself runs under `pnpm tauri dev`, those leak into
+  // so when Harbr itself runs under `pnpm tauri dev`, those leak into
   // every child. Tools that trust them over process.cwd() then resolve paths
   // against the WRONG directory: the Shopify CLI reads INIT_CWD first, sees a
   // non-theme directory, and `theme dev` mirrors it by deleting every file on

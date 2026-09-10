@@ -33,6 +33,7 @@ import {
   isSetupItemReady,
   recheckWithDelays,
   PKG_MGR_PACKAGES,
+  manualInstallHint,
   TERMINAL_COMMANDS,
   USES_TERMINAL,
   SETUP_FRIENDLY_NAMES,
@@ -49,7 +50,6 @@ import { checkGitHubCliStatus } from '../../lib/github';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { withTimeout, TimeoutError } from '../../lib/withTimeout';
 import { stripAnsi } from '../../lib/ansi';
-import { SLACK_INVITE_URL } from '../../lib/links';
 import {
   detectAlreadyLoggedIn,
   extractTerminalError,
@@ -57,7 +57,6 @@ import {
   isNodeMissingError,
 } from '../../lib/terminalDiagnostics';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { SlackIcon } from '@/components/icons';
 import {
   alreadySignedInMessage,
   authFailureMessage,
@@ -184,7 +183,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       if (!mountedRef.current) return null;
       setError(
         err instanceof TimeoutError
-          ? 'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
+          ? 'Setup check timed out — click Retry. If this persists, restart Harbr.'
           : 'Failed to check setup status. Please try again.'
       );
       setState('wizard');
@@ -349,7 +348,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           }
         } else if (isNodeMissingError(outputTail)) {
           errorMessage =
-            "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it.";
+            "Node.js/npm wasn't found. Complete the Node.js step first, or restart Harbr if you just installed it.";
         } else if (alreadySignedIn) {
           // Auth flow failed while the CLI insists it already has a login —
           // surface the disagreement instead of a misleading command error.
@@ -426,6 +425,16 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           setActiveItemId(null);
           return;
         }
+      }
+
+      // Tools we detect but never install (Linux): the row's only action is
+      // "Re-check", so this is purely a status refresh — no install, no
+      // terminal. Placed before every install path so it can't fall through
+      // into one.
+      if (manualInstallHint(itemId)) {
+        await fetchStatus();
+        setActiveItemId(null);
+        return;
       }
 
       // Check if this item uses terminal
@@ -649,7 +658,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     <div className="onboarding-screen">
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <img src="/ship_studio_full.png" alt="Ship Studio" className="onboarding-logo" />
+          <img src="/harbr-mark.svg" alt="Harbr" className="onboarding-logo" />
           <h1>Quick Setup</h1>
           <p className="onboarding-reassurance">
             Most users finish in under 3 minutes. Let's get you ready to ship.
@@ -691,7 +700,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                       </span>
                     )
                   )}
-                  {'), install it through your terminal, then restart Ship Studio.'}
+                  {'), install it through your terminal, then restart Harbr.'}
                 </>
               )}
             </p>
@@ -780,17 +789,6 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             </div>
           </div>
         )}
-
-        <div className="onboarding-slack-cta">
-          <SlackIcon size={18} />
-          <span>
-            <strong>Having problems getting set up?</strong> Join the Slack channel and we'll help
-            you out!
-          </span>
-          <Button variant="variable" onClick={() => void openUrl(SLACK_INVITE_URL)}>
-            Join Slack
-          </Button>
-        </div>
       </div>
     </div>
   );

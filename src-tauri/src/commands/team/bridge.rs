@@ -29,7 +29,7 @@ pub fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "team_resolve_comment",
-            "description": "Mark a comment thread resolved once you have actually done what it asked. Thread ids come from the prompt Ship Studio pastes when the user sends you comments. Only resolve work that is done — if you could not do it, pass `note` instead and the thread stays open with your explanation on it, which is far more useful to the user than a thread marked done that was not.",
+            "description": "Mark a comment thread resolved once you have actually done what it asked. Thread ids come from the prompt Harbr pastes when the user sends you comments. Only resolve work that is done — if you could not do it, pass `note` instead and the thread stays open with your explanation on it, which is far more useful to the user than a thread marked done that was not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -96,7 +96,7 @@ async fn author_for(project: &std::path::Path) -> ThreadAuthor {
 async fn resolve_comment(project: &std::path::Path, actor: &ThreadAuthor, args: Value) -> Value {
     let Some(thread_id) = string_arg(&args, "thread_id") else {
         return error_result(
-            "`thread_id` is required. It is on the **Thread:** line of the prompt Ship Studio \
+            "`thread_id` is required. It is on the **Thread:** line of the prompt Harbr \
              pasted."
                 .to_string(),
         );

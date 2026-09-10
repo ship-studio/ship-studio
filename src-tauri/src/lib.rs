@@ -1,6 +1,6 @@
-//! # Ship Studio Backend
+//! # Harbr Backend
 //!
-//! This module contains all Tauri commands for the Ship Studio desktop app.
+//! This module contains all Tauri commands for the Harbr desktop app.
 //! Commands are organized into these categories:
 //!
 //! - **Project Management**: Create, list, delete projects in ~/ShipStudio
@@ -13,8 +13,9 @@
 pub mod agent;
 pub mod agent_bridge;
 pub mod cache;
+pub mod command_manifest;
 pub mod commands;
-pub mod error_reporting;
+pub mod emit;
 pub mod errors;
 pub mod external_command;
 pub mod logging;
@@ -23,9 +24,12 @@ pub mod state;
 pub mod static_server;
 pub mod types;
 pub mod utils;
+#[cfg(feature = "web")]
+pub mod web;
 pub mod webview_scripts;
 pub mod workflow_scheduler;
 
+use tauri::generate_handler;
 use tauri::Manager;
 
 #[cfg(target_os = "macos")]
@@ -81,19 +85,12 @@ fn cleanup_agent_processes() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Sentry must init before the tracing subscriber so its layer can attach.
-    logging::init_sentry();
-
-    // Admin-agent panic reporting chains Sentry's panic hook, so it must come
-    // after init_sentry().
-    error_reporting::install_panic_hook();
-
     // Initialize logging first
     if let Err(e) = logging::init_logging() {
         eprintln!("Failed to initialize logging: {e}");
     }
 
-    tracing::info!("Ship Studio starting up");
+    tracing::info!("Harbr starting up");
 
     // Clean up any orphaned agent processes from previous crashed sessions
     cleanup_agent_processes();
@@ -111,7 +108,7 @@ pub fn run() {
     let app_state = commands::setup::read_app_state();
     agent::init_default_agent(app_state.default_agent_id.as_deref());
 
-    // Initialize PostHog analytics (generates device_id on first launch)
+    // Initialize local product-event logging (generates a local device id).
     commands::analytics::init_analytics();
 
     tauri::Builder::default()
@@ -120,11 +117,13 @@ pub fn run() {
         .plugin(tauri_plugin_pty::init())
         .plugin(tauri_plugin_screenshots::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            // Install the event sink before background services can emit.
+            emit::init_tauri(_app.handle().clone());
+
             // Teach the user's own agent about workflows, and start the tick
             // that fires the armed ones. The skill install is the discovery
             // path for the whole feature (see commands::workflows::skill); it
@@ -143,7 +142,7 @@ pub fn run() {
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = agent_bridge::start_global_agent_bridge(handle).await {
+                    if let Err(e) = agent_bridge::start_global_agent_bridge(Some(handle)).await {
                         tracing::error!("[AgentBridge] Failed to start global bridge: {}", e);
                     }
                 });
@@ -174,7 +173,7 @@ pub fn run() {
                     "main",
                     tauri::WebviewUrl::App("index.html".into()),
                 )
-                .title("Ship Studio")
+                .title("Harbr")
                 .inner_size(1400.0, 900.0)
                 .min_inner_size(400.0, 300.0)
                 .resizable(true)
@@ -218,7 +217,7 @@ pub fn run() {
                     .accelerator("CmdOrCtrl+W")
                     .build(app)?;
 
-                let quit_item = MenuItemBuilder::with_id("confirm_quit", "Quit Ship Studio")
+                let quit_item = MenuItemBuilder::with_id("confirm_quit", "Quit Harbr")
                     .accelerator("CmdOrCtrl+Q")
                     .build(app)?;
 
@@ -297,7 +296,7 @@ pub fn run() {
                         .accelerator("CmdOrCtrl+I")
                         .build(app)?;
 
-                let app_menu = SubmenuBuilder::new(app, "Ship Studio")
+                let app_menu = SubmenuBuilder::new(app, "Harbr")
                     .about(None)
                     .separator()
                     .services()
@@ -475,431 +474,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
-            // Git & Prerequisites
-            commands::git::check_prerequisites,
-            commands::git::get_shipstudio_dir,
-            commands::git::ensure_shipstudio_dir,
-            commands::git::check_git_has_changes,
-            commands::git::get_changed_files,
-            commands::git::get_file_diff,
-            commands::git::get_branch_status,
-            commands::git::list_branches,
-            commands::git::get_current_branch,
-            commands::git::switch_branch,
-            commands::git::get_stash_info,
-            commands::git::stash_changes,
-            commands::git::discard_changes,
-            commands::git::commit_changes,
-            commands::git::create_branch,
-            commands::git::push_branch,
-            commands::git::get_branch_graph,
-            commands::git::get_default_base_branch,
-            commands::git::set_default_base_branch,
-            commands::git::fetch_all_branches,
-            commands::git::git_pull,
-            commands::git::pull_and_merge,
-            commands::git::delete_branch,
-            commands::git::list_worktrees,
-            commands::git::add_worktree,
-            commands::git::remove_worktree,
-            commands::git::prune_worktrees,
-            commands::git::get_backups,
-            commands::git::restore_backup,
-            // Projects
-            commands::projects::list_projects,
-            // Workflows & Inbox
-            commands::workflows::list_all_workflows,
-            commands::workflows::save_workflow_file,
-            commands::workflows::delete_workflow_file,
-            commands::workflows::run_workflow,
-            commands::workflows::list_inbox_items,
-            commands::workflows::workflow_progress,
-            commands::workflows::set_inbox_item_read,
-            commands::workflows::set_inbox_item_archived,
-            commands::workflows::delete_inbox_item,
-            commands::workflows::mark_all_inbox_read,
-            // Team (multiplayer). Read-only: git and gh are the database, and
-            // nothing here writes to either.
-            commands::team::get_team_snapshot,
-            commands::team::threads::add_team_comment,
-            commands::team::threads::reply_to_team_thread,
-            commands::team::threads::set_team_thread_resolved,
-            commands::team::threads::edit_team_message,
-            commands::team::threads::retract_team_message,
-            commands::team::threads::sync_team_threads,
-            commands::team::instructions::install_commit_guidance,
-            commands::projects::get_dashboard_projects,
-            commands::projects::list_pages,
-            commands::projects::open_in_finder,
-            commands::projects::read_project_metadata,
-            commands::projects::mark_project_opened,
-            commands::projects::get_branch_prefix_preference,
-            commands::projects::set_branch_prefix_preference,
-            commands::projects::ensure_gitignore_has_shipstudio,
-            commands::projects::create_blank_project,
-            commands::projects::remove_git_history,
-            commands::projects::delete_project,
-            commands::projects::remove_project_from_app,
-            commands::projects::rename_project,
-            commands::projects::clear_project_cache,
-            commands::projects::get_auto_accept_mode,
-            commands::projects::set_auto_accept_mode,
-            commands::projects::get_hide_main_branch_warning,
-            commands::projects::set_hide_main_branch_warning,
-            commands::projects::get_custom_dev_command,
-            commands::projects::set_custom_dev_command,
-            commands::projects::get_dev_server_port,
-            commands::projects::set_dev_server_port,
-            commands::projects::get_force_static_serve,
-            commands::projects::set_force_static_serve,
-            commands::projects::get_workspace_subpath,
-            commands::projects::set_workspace_subpath,
-            commands::projects::check_dependencies_installed,
-            commands::edit::resolve_classname_source,
-            commands::edit::apply_classname_edit,
-            commands::edit::apply_classname_edit_multi,
-            commands::edit::insert_class_attr,
-            commands::edit::resolve_text_source,
-            commands::edit::apply_text_edit,
-            commands::edit::resolve_image_source,
-            commands::edit::apply_src_edit,
-            commands::edit::find_component_usage,
-            commands::edit::resolve_element_html,
-            commands::edit::apply_element_html,
-            commands::edit::detect_breakpoints,
-            commands::edit::is_tailwind_active,
-            commands::edit::project_uses_react,
-            commands::edit_structure::insert_element,
-            commands::edit_structure::duplicate_element,
-            commands::edit_structure::paste_element,
-            commands::edit_structure::delete_element,
-            commands::edit_css::resolve_css_rule,
-            commands::edit_css::set_css_declaration,
-            commands::edit_css::add_css_variable,
-            commands::edit_css::set_css_variable,
-            commands::edit_css::analyze_css_variable_deletion,
-            commands::edit_css::delete_css_variable,
-            commands::edit_css::create_css_class,
-            commands::edit_css::list_stylesheets,
-            commands::edit_css::list_css_classes,
-            commands::edit_css::list_css_selectors,
-            commands::edit_css::get_css_variables,
-            commands::edit_css::list_css_variables,
-            commands::edit_css::locate_css_rules,
-            commands::edit_css::apply_css_rule_text,
-            commands::edit_css::delete_css_rule,
-            commands::edit_css::wrap_css_rule,
-            commands::edit_css::rename_css_selector,
-            commands::edit_css::rename_css_at_rule,
-            commands::custom_classes::detect_tailwind_setup,
-            commands::custom_classes::list_custom_classes,
-            commands::custom_classes::create_custom_class,
-            commands::custom_classes::update_custom_class,
-            commands::custom_classes::delete_custom_class,
-            commands::custom_classes::classify_apply_tokens,
-            commands::projects::get_terminal_state,
-            commands::projects::set_terminal_state,
-            commands::projects::move_project_to_account,
-            commands::projects::get_project_account_id,
-            commands::projects::extract_template_zip,
-            commands::projects::export_project_as_template,
-            commands::projects::open_project_in_new_window,
-            commands::projects::register_project_for_window,
-            commands::projects::get_project_window,
-            commands::projects::focus_window_by_label,
-            // Pinned projects (background sessions rail)
-            commands::projects::pin_project,
-            commands::projects::unpin_project,
-            commands::projects::list_pinned_projects,
-            commands::projects::reorder_pins,
-            // Project session lifecycle (background sessions rail)
-            commands::projects::register_project_session,
-            commands::projects::suspend_project_session,
-            commands::projects::unregister_project_session,
-            // Internationalization (i18n)
-            commands::i18n::get_i18n_status,
-            commands::i18n::set_i18n_config,
-            // Environment variables
-            commands::env::list_env_files,
-            commands::env::read_env_file,
-            commands::env::write_env_file,
-            commands::env::create_env_file,
-            commands::env::delete_env_file,
-            // IDE & Webviews
-            commands::ide::check_ide_availability,
-            commands::ide::open_in_ide,
-            commands::ide::check_browser_availability,
-            commands::ide::open_url_in_browser,
-            commands::ide::create_preview_webview,
-            commands::ide::navigate_preview_webview,
-            commands::ide::resize_preview_webview,
-            commands::ide::destroy_preview_webview,
-            commands::ide::capture_project_thumbnail,
-            commands::ide::capture_thumbnail_from_webview,
-            commands::ide::capture_fullpage_playwright,
-            commands::ide::capture_viewport_playwright,
-            commands::ide::get_project_thumbnail,
-            commands::ide::upload_project_thumbnail,
-            commands::ide::get_screenshot_base64,
-            commands::ide::crop_and_save_screenshot,
-            // Analytics
-            commands::analytics::track_event,
-            commands::analytics::identify_user,
-            commands::analytics::get_analytics_enabled,
-            commands::analytics::set_analytics_enabled,
-            // Settings
-            commands::settings::get_calendar_hidden,
-            commands::settings::set_calendar_hidden,
-            commands::settings::get_slack_cta_hidden,
-            commands::settings::set_slack_cta_hidden,
-            commands::settings::get_spotify_widget_enabled,
-            commands::settings::set_spotify_widget_enabled,
-            commands::spotify::get_spotify_state,
-            commands::spotify::spotify_control,
-            commands::settings::get_dashboard_header_hidden,
-            commands::settings::set_dashboard_header_hidden,
-            commands::settings::get_terminal_gpu_enabled,
-            commands::settings::set_terminal_gpu_enabled,
-            commands::settings::get_compact_workspace_toolbar_enabled,
-            commands::settings::set_compact_workspace_toolbar_enabled,
-            commands::settings::get_element_breadcrumb_enabled,
-            commands::settings::set_element_breadcrumb_enabled,
-            commands::settings::get_commit_attribution_enabled,
-            commands::settings::set_commit_attribution_enabled,
-            commands::settings::get_team_sharing_enabled,
-            commands::settings::set_team_sharing_enabled,
-            commands::settings::get_thumbnails_enabled,
-            commands::settings::set_thumbnails_enabled,
-            commands::settings::get_app_icon,
-            commands::settings::set_app_icon,
-            // Accounts (Workspaces)
-            commands::accounts::list_accounts,
-            commands::accounts::create_account,
-            commands::accounts::update_account,
-            commands::accounts::delete_account,
-            commands::accounts::get_active_account_id,
-            commands::accounts::set_active_account_id,
-            commands::accounts::get_account_credential_status,
-            commands::accounts::set_account_credential,
-            commands::accounts::clear_account_credential,
-            commands::accounts::claude_connect_start,
-            commands::accounts::claude_connect_write,
-            commands::accounts::claude_connect_resize,
-            commands::accounts::claude_connect_close,
-            commands::accounts::disconnect_claude_account,
-            commands::accounts::workspace_connect_start,
-            commands::accounts::workspace_connect_write,
-            commands::accounts::workspace_connect_resize,
-            commands::accounts::workspace_connect_close,
-            commands::accounts::workspace_disconnect_service,
-            // Projects folder
-            commands::settings::get_projects_root,
-            commands::settings::set_projects_root,
-            commands::settings::is_custom_projects_root,
-            commands::settings::pick_projects_root,
-            commands::projects::list_movable_projects,
-            commands::projects::move_projects_to_root,
-            // AI generation
-            commands::ai::generate_pr_description,
-            commands::ai::generate_commit_message,
-            // Claude integration
-            commands::claude::check_claude_cli_status,
-            commands::claude::claude_session_exists,
-            // Shopify theme integration
-            commands::shopify::check_shopify_cli_status,
-            commands::shopify::get_shopify_store,
-            commands::shopify::set_shopify_store,
-            commands::shopify::kill_stale_theme_dev,
-            // Claude skills
-            commands::skills::list_claude_skills,
-            commands::skills::check_skills_cli,
-            commands::skills::search_skills,
-            commands::skills::install_skill,
-            commands::skills::remove_skill,
-            // MCP servers
-            commands::migration::init_migration,
-            commands::migration::read_migration_status,
-            commands::migration::read_fidelity_runs,
-            commands::mcp::list_mcp_servers,
-            commands::mcp::add_mcp_server,
-            commands::mcp::remove_mcp_server,
-            // Plugins
-            commands::plugins::list_plugins,
-            commands::plugins::install_plugin,
-            commands::plugins::uninstall_plugin,
-            commands::plugins::update_plugin,
-            commands::plugins::check_plugin_update,
-            commands::plugins::read_plugin_bundle,
-            commands::plugins::read_plugin_manifest,
-            commands::plugins::toggle_plugin,
-            commands::plugins::exec_plugin_shell,
-            commands::plugins::plugin_fs_exists,
-            commands::plugins::plugin_fs_read_text,
-            commands::plugins::read_plugin_storage,
-            commands::plugins::write_plugin_storage,
-            commands::plugins::link_dev_plugin,
-            commands::plugins::unlink_dev_plugin,
-            // GitHub integration
-            commands::github::check_github_cli_status,
-            commands::github::get_github_username,
-            commands::github::get_github_orgs,
-            commands::github::get_project_github_status,
-            commands::github::push_to_github,
-            commands::github::list_github_repos,
-            commands::github::list_collaborator_repos,
-            commands::github::detect_package_manager,
-            // Publishing
-            commands::publishing::publish_branch,
-            // Hosting — which provider a project deploys to, and whether the
-            // pushed commit actually went live.
-            commands::hosting::get_hosting_status,
-            commands::hosting::detect_hosting_links,
-            commands::hosting::list_hosting_projects,
-            commands::hosting::set_hosting_link,
-            commands::hosting::list_recent_deployments,
-            commands::hosting::get_deployment_log,
-            // Pull requests
-            commands::pull_requests::list_pull_requests,
-            commands::pull_requests::create_pull_request,
-            commands::pull_requests::merge_pull_request,
-            commands::pull_requests::checkout_pull_request,
-            commands::pull_requests::close_pull_request,
-            // Merge conflict resolution
-            commands::conflicts::has_conflicts,
-            commands::conflicts::get_conflict_info,
-            commands::conflicts::resolve_conflict,
-            commands::conflicts::abort_merge,
-            commands::conflicts::complete_merge,
-            // Preview Proxy
-            commands::proxy::start_preview_proxy,
-            commands::proxy::stop_preview_proxy,
-            commands::proxy::probe_preview_status,
-            // Static File Server
-            commands::static_server::start_static_server,
-            commands::static_server::stop_static_server,
-            // Agent Preview Bridge (MCP server for the workspace agent)
-            commands::agent_bridge::get_agent_bridge_url,
-            commands::agent_bridge::get_agent_bridge_active_url,
-            commands::agent_bridge::register_cursor_mcp,
-            commands::agent_bridge::agent_bridge_attach,
-            commands::agent_bridge::agent_bridge_respond,
-            // Project Type Detection
-            commands::projects::detect_project_type_command,
-            commands::projects::project_path_exists,
-            // Native Mobile Preview (iOS Simulator via serve-sim)
-            commands::mobile::start_mobile_preview,
-            commands::mobile::get_simulator_launch_command,
-            commands::mobile::simulator_app_running,
-            commands::mobile::hide_simulator,
-            commands::mobile::android_app_running,
-            commands::mobile::detect_mobile_targets,
-            commands::mobile::mobile_platform_support,
-            commands::mobile::set_mobile_launch_status,
-            // PTY & Terminal
-            commands::pty::spawn_pty,
-            commands::pty::kill_pty,
-            commands::pty::kill_port,
-            commands::pty::find_and_reserve_port,
-            commands::pty::get_reserved_port_for_window,
-            commands::pty::release_reserved_port,
-            commands::pty::get_shell_path,
-            commands::pty::get_system_env,
-            commands::pty::register_external_pty,
-            commands::pty::unregister_external_pty,
-            // Backend-owned PTY sessions (phase 3)
-            commands::pty_session::pty_session_open,
-            commands::pty_session::pty_session_write,
-            commands::pty_session::pty_session_resize,
-            commands::pty_session::pty_session_kill,
-            commands::pty_session::pty_session_attach,
-            commands::pty_session::pty_session_detach,
-            commands::pty_session::pty_session_set_paused,
-            // Community Templates
-            commands::templates::fetch_community_templates,
-            commands::templates::download_template_zip,
-            // Setup/Onboarding
-            commands::setup::get_full_setup_status,
-            commands::setup::resolve_cli_path,
-            commands::setup::install_brew_packages,
-            commands::setup::install_winget_packages,
-            commands::setup::check_claude_auth_status,
-            commands::setup::check_npm_cache_permissions,
-            commands::setup::install_version,
-            commands::setup::quick_setup_check,
-            commands::setup::get_onboarding_test_mode,
-            commands::setup::mock_mark_setup_item_ready,
-            commands::setup::set_external_agent_opt_in,
-            commands::setup::set_default_host,
-            commands::setup::ensure_agent_workdir,
-            commands::setup::mark_setup_complete,
-            commands::setup::get_default_agent_id,
-            commands::setup::set_default_agent_id,
-            commands::setup::get_agents_status,
-            commands::setup::sign_out_agent,
-            commands::setup::uninstall_agent,
-            // Client Editor
-            // Native screen colour sampler
-            commands::color_picker::get_color_sampler_support,
-            commands::color_picker::sample_screen_color,
-            // Code Browser
-            commands::code::list_project_files,
-            commands::code::read_project_file,
-            commands::code::save_project_file,
-            // Assets
-            commands::assets::get_assets_root,
-            commands::assets::set_assets_root,
-            commands::assets::list_assets,
-            commands::assets::upload_asset,
-            commands::assets::delete_asset,
-            commands::assets::rename_asset,
-            commands::assets::create_asset_folder,
-            commands::assets::export_asset,
-            // Code Health
-            commands::health::detect_health_scripts,
-            commands::health::run_health_script,
-            commands::health::get_health_status,
-            commands::health::get_package_json,
-            // External Projects
-            commands::external_projects::register_external_project,
-            commands::external_projects::unregister_external_project,
-            commands::external_projects::is_project_external,
-            commands::external_projects::ensure_external_project_registered,
-            // Attached Libraries
-            commands::attached_libraries::list_attached_libraries,
-            commands::attached_libraries::attached_library_dirs,
-            commands::attached_libraries::add_attached_library,
-            commands::attached_libraries::remove_attached_library,
-            // Monorepo
-            commands::monorepo::detect_workspaces,
-            // Folders
-            commands::folders::list_folders,
-            commands::folders::create_folder,
-            commands::folders::rename_folder,
-            commands::folders::delete_folder,
-            commands::folders::move_project_to_folder,
-            commands::folders::get_filed_project_paths,
-            commands::folders::get_folder_projects,
-            commands::folders::get_folder,
-            // Support (cStar) — identity signing only; tickets use ChatClient SDK
-            // Logging
-            logging::get_log_path,
-            logging::log_frontend_event,
-            // Error reporting (admin agent)
-            error_reporting::report_frontend_error,
-            // Snapshots / Undo-Redo
-            commands::snapshots::snapshot_start_watching,
-            commands::snapshots::snapshot_stop_watching,
-            commands::snapshots::snapshot_status,
-            commands::snapshots::snapshot_undo,
-            commands::snapshots::snapshot_redo,
-            // Window / Compact Mode
-            commands::window::set_always_on_top,
-            commands::window::set_window_title,
-            // Clipboard (Windows terminal paste)
-            commands::clipboard::read_clipboard_text,
-            commands::clipboard::stage_clipboard_image,
-        ])
+        .invoke_handler(ship_commands!(generate_handler))
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {

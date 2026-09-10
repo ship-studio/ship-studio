@@ -1,7 +1,7 @@
 //! The half of the feed that needs nobody to adopt anything.
 //!
 //! Everything here comes out of `git log` and `gh pr list`, so it works on the
-//! first launch, on a repo nobody else has ever opened in Ship Studio, and for
+//! first launch, on a repo nobody else has ever opened in Harbr, and for
 //! the teammate who pushes from the terminal and always will. That is the whole
 //! point: the feature has to be useful at zero adoption or it never gets any.
 //!
@@ -262,7 +262,7 @@ async fn branches(project: &std::path::Path, cutoff_secs: i64) -> Vec<String> {
         let short = raw.strip_prefix("origin/").unwrap_or(raw);
         // The ref comments travel on is this feature's own plumbing, not
         // anybody's work. Left in, every comment sync appears in the feed as
-        // "Ship Studio comments from …" — the machinery reporting on itself,
+        // "Harbr comments from …" — the machinery reporting on itself,
         // pushing the actual work down the page.
         //
         // Checked after the prefix is stripped so it covers both forms. In
@@ -280,7 +280,7 @@ async fn branches(project: &std::path::Path, cutoff_secs: i64) -> Vec<String> {
 }
 
 /// The trailer naming the agent behind a commit. Conventional, and already
-/// written by Ship Studio's own push.
+/// written by Harbr's own push.
 const MADE_WITH_TRAILER: &str = "Made-With";
 
 /// A commit body worth showing.
@@ -986,13 +986,13 @@ mod repo_tests {
     #[tokio::test]
     async fn the_comment_ref_never_shows_up_as_somebody_s_work() {
         // Comments travel on their own branch, and every sync commits to it.
-        // Walked like any other ref, the feed filled with "Ship Studio comments
+        // Walked like any other ref, the feed filled with "Harbr comments
         // from …" rows — the machinery reporting on itself and pushing the
         // actual work down the page.
         let repo = Repo::new("team-ref-hidden");
         repo.commit("a.txt", "one\n", "Real work");
         repo.git(&["checkout", "-q", "-b", TEAM_BRANCH]);
-        repo.commit("b.txt", "records\n", "Ship Studio comments from Maya Reed");
+        repo.commit("b.txt", "records\n", "Harbr comments from Maya Reed");
         repo.git(&["checkout", "-q", "main"]);
 
         // The form this actually takes in a real clone: no local branch is ever
@@ -1017,7 +1017,7 @@ mod repo_tests {
             "the actual work went missing"
         );
         assert!(
-            !subjects.iter().any(|s| s.contains("Ship Studio comments")),
+            !subjects.iter().any(|s| s.contains("Harbr comments")),
             "the transport's own commits leaked into the feed: {subjects:?}"
         );
     }

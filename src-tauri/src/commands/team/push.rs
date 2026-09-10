@@ -9,7 +9,7 @@
 //! That is the whole thing, and *why* it is the whole thing is the decision
 //! this module exists to record. An earlier version wrote a second copy of the
 //! same prose into a record file under `.shipstudio-team/`, joined to its commit by a
-//! trailer: a format only Ship Studio could read, describing something git
+//! trailer: a format only Harbr could read, describing something git
 //! already knew, giving every writer two chances to get one sentence recorded
 //! and a silent empty row whenever they got the second one wrong.
 //!

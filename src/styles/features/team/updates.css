@@ -1,4 +1,4 @@
-/* Team — multiplayer Ship Studio (vision prototype).
+/* Team — multiplayer Harbr (vision prototype).
 
    Split by surface rather than kept as one sheet, matching how `branches/` and
    `workspace/` are laid out: the feature spans a home screen, a floating panel
@@ -159,7 +159,7 @@
   box-shadow: 0 0 0 2px var(--surface-panel);
 }
 
-/* Ship Studio saw a push and no agent left a summary, so the row has nothing
+/* Harbr saw a push and no agent left a summary, so the row has nothing
    to say beyond the fact. Drawn as the lesser thing it is — but by weight
    rather than by a dashed outline, which reads as broken rather than as quiet.
    The card recedes to the panel surface and keeps a plain border. */

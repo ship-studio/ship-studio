@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Harbr</title>
+  <desc id="desc">A harbor berth formed by two piers and a sea-green channel.</desc>
+  <rect width="512" height="512" rx="104" fill="#111816"/>
+  <path fill="#E8EEEB" d="M104 96h72v248h96v72H104V96Zm232 0h72v320H232v-72h104V96Z"/>
+  <path fill="#41C99A" d="M220 96h72v176h-72V96Zm36 200 56 56-56 56-56-56 56-56Z"/>
+</svg>

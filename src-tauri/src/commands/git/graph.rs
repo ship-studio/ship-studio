@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use tracing::debug;
 
 use super::{get_ahead_behind, load_project_metadata, save_project_metadata};
+use ship_studio_macros::ship_command;
 
 /// One discovered branch and where its ref lives (local vs remote-only).
 struct RawBranch {
@@ -234,7 +235,7 @@ const MAX_INFER_CANDIDATES: usize = 6;
 /// The git subprocess calls are blocking, and inference can spawn dozens of
 /// them — `spawn_blocking` keeps them off the async runtime so a large repo
 /// can't stall every other command while the graph builds.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn get_branch_graph(
     project_path: String,
@@ -383,7 +384,7 @@ fn base_git_ref(local_names: &HashSet<String>, name: &str) -> String {
 
 /// The project's configured default base branch, falling back to the repo's
 /// conventional default (main/master) when unset.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn get_default_base_branch(project_path: String) -> Result<Option<String>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -395,7 +396,7 @@ pub async fn get_default_base_branch(project_path: String) -> Result<Option<Stri
 }
 
 /// Set (or clear, with `None`/empty) the project's default base branch.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn set_default_base_branch(
     project_path: String,

@@ -51,7 +51,7 @@ fn list_branches_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -
 }
 
 /// List all branches (local and remote) with metadata
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "list_branches", skip(project_path), fields(project = %project_path))]
 pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -220,7 +220,7 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
 }
 
 /// Get the current branch name
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_current_branch(project_path: String) -> Result<String, CommandError> {
     // Check cache first
@@ -254,7 +254,7 @@ pub async fn get_current_branch(project_path: String) -> Result<String, CommandE
 }
 
 /// Switch to a different branch
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "switch_branch", skip(project_path), fields(project = %project_path, target_branch = %branch_name))]
 pub async fn switch_branch(
     project_path: String,
@@ -287,7 +287,7 @@ pub async fn switch_branch(
             "stash",
             "push",
             "-m",
-            &format!("Auto-stash by Ship Studio (from {current_branch})"),
+            &format!("Auto-stash by Harbr (from {current_branch})"),
         ]);
         let stash_output =
             crate::external_command::spawn_with_pressure_retry("git stash push", || {
@@ -392,7 +392,7 @@ pub async fn switch_branch(
                 "update the Xcode Command Line Tools or run `brew install git`"
             };
             format!(
-                "Your installed Git is too old for Ship Studio (Git 2.24 from 2019 or newer \
+                "Your installed Git is too old for Harbr (Git 2.24 from 2019 or newer \
                  is required). Update Git — {remediation} — then try again."
             )
         } else if stderr.contains("resolve your current index first")
@@ -500,7 +500,7 @@ fn branch_already_exists_error(branch_name: &str) -> CommandError {
 }
 
 /// Create a new branch from a base branch
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "create_branch", skip(project_path), fields(project = %project_path, branch = %branch_name, from = %from_branch))]
 pub async fn create_branch(
     project_path: String,
@@ -654,7 +654,7 @@ pub async fn create_branch(
 /// Publish a single branch to GitHub without opening a PR: `git push -u origin
 /// <branch>`. Pushes the named local branch (which need not be checked out) and
 /// sets its upstream. Used by the per-branch "Publish" action.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "push_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
 pub async fn push_branch(
     app: tauri::AppHandle,
@@ -755,7 +755,7 @@ fn is_worktree_delete_refusal(stderr: &str) -> bool {
 }
 
 /// Delete a branch (local and optionally remote)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[instrument(name = "delete_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
 pub async fn delete_branch(
     project_path: String,

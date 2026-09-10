@@ -3,6 +3,7 @@
 //! Structured logging using the `tracing` ecosystem.
 //! Logs are written to daily rotating files in the app's log directory.
 
+use ship_studio_macros::ship_command;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -16,52 +17,8 @@ use tracing_subscriber::{
 // Hold the guard to keep the non-blocking writer alive
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
-// Hold the Sentry guard for the lifetime of the process so events get flushed on exit.
-static SENTRY_GUARD: OnceLock<sentry::ClientInitGuard> = OnceLock::new();
-
-const SENTRY_DSN: &str =
-    "https://ca46a435b1b22d7b60f2a83817395fb6@o4511226863353856.ingest.us.sentry.io/4511226875412480";
-
-/// Initialize Sentry. Must be called before `init_logging()` so the
-/// `sentry_tracing` layer can forward events. Skipped in debug builds unless
-/// the `SENTRY_FORCE=1` env var is set.
-pub fn init_sentry() {
-    let force = std::env::var("SENTRY_FORCE").ok().as_deref() == Some("1");
-    let enabled = !cfg!(debug_assertions) || force;
-    if !enabled {
-        return;
-    }
-
-    let environment = if cfg!(debug_assertions) {
-        "development"
-    } else {
-        "production"
-    };
-
-    let guard = sentry::init((
-        SENTRY_DSN,
-        sentry::ClientOptions {
-            release: Some(env!("CARGO_PKG_VERSION").into()),
-            environment: Some(environment.into()),
-            send_default_pii: false,
-            before_send: Some(std::sync::Arc::new(|mut event| {
-                scrub_event(&mut event);
-                Some(event)
-            })),
-            before_breadcrumb: Some(std::sync::Arc::new(|mut breadcrumb| {
-                if let Some(msg) = breadcrumb.message.as_mut() {
-                    *msg = scrub_string(msg);
-                }
-                Some(breadcrumb)
-            })),
-            ..Default::default()
-        },
-    ));
-    let _ = SENTRY_GUARD.set(guard);
-}
-
 pub(crate) fn scrub_string(s: &str) -> String {
-    // Strip local paths so Sentry doesn't see usernames or project folder names.
+    // Strip local paths before they reach local support logs.
     let re_unix = regex_lite_replace(s, "/Users/", "/Users/<redacted>");
     let re_home = regex_lite_replace(&re_unix, "/home/", "/home/<redacted>");
     regex_lite_replace(&re_home, "C:\\Users\\", "C:\\Users\\<redacted>")
@@ -85,44 +42,28 @@ fn regex_lite_replace(input: &str, prefix: &str, replacement: &str) -> String {
     out
 }
 
-fn scrub_event(event: &mut sentry::protocol::Event<'static>) {
-    if let Some(msg) = event.message.as_mut() {
-        *msg = scrub_string(msg);
-    }
-    for exception in event.exception.values.iter_mut() {
-        if let Some(value) = exception.value.as_mut() {
-            *value = scrub_string(value);
-        }
-    }
-    for breadcrumb in event.breadcrumbs.values.iter_mut() {
-        if let Some(msg) = breadcrumb.message.as_mut() {
-            *msg = scrub_string(msg);
-        }
-    }
-}
-
 /// Get the log directory path
 fn get_log_dir() -> PathBuf {
     // Use platform-specific log directories
     #[cfg(target_os = "macos")]
     {
         dirs::home_dir()
-            .map(|h| h.join("Library/Logs/ShipStudio"))
-            .unwrap_or_else(|| PathBuf::from("/tmp/ship-studio-logs"))
+            .map(|h| h.join("Library/Logs/Harbr"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/harbr-logs"))
     }
 
     #[cfg(target_os = "windows")]
     {
         dirs::data_local_dir()
-            .map(|d| d.join("ShipStudio/logs"))
-            .unwrap_or_else(|| PathBuf::from("C:/temp/ship-studio-logs"))
+            .map(|d| d.join("Harbr/logs"))
+            .unwrap_or_else(|| PathBuf::from("C:/temp/harbr-logs"))
     }
 
     #[cfg(target_os = "linux")]
     {
         dirs::data_local_dir()
-            .map(|d| d.join("ship-studio/logs"))
-            .unwrap_or_else(|| PathBuf::from("/tmp/ship-studio-logs"))
+            .map(|d| d.join("harbr/logs"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/harbr-logs"))
     }
 }
 
@@ -140,12 +81,11 @@ pub fn init_logging() -> Result<(), String> {
     // create or open) must not take the whole app down at startup. Both the
     // directory creation and the appender build used to abort — the appender
     // via `rolling::daily`'s internal panic — leaving the user with a crash
-    // instead of a running app (issue #827). Fall back to no file layer; Sentry
-    // and admin-agent reporting below still work.
+    // instead of a running app (issue #827). Fall back to console-only logging.
     let file_writer = match std::fs::create_dir_all(&log_dir).and_then(|()| {
         tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("ship-studio.log")
+            .filename_prefix("harbr.log")
             // Uncapped rotation was an unbounded-disk-growth bug: daily files
             // were never deleted, so the log directory grew forever (measured
             // at ~45MB/day per running instance before the span-close noise
@@ -164,10 +104,7 @@ pub fn init_logging() -> Result<(), String> {
             Some(non_blocking)
         }
         Err(e) => {
-            eprintln!(
-                "Ship Studio: file logging disabled ({}): {e}",
-                log_dir.display()
-            );
+            eprintln!("Harbr: file logging disabled ({}): {e}", log_dir.display());
             None
         }
     };
@@ -211,34 +148,44 @@ pub fn init_logging() -> Result<(), String> {
     #[cfg(debug_assertions)]
     let subscriber = subscriber.with(fmt::layer().with_target(true).with_level(true).compact());
 
-    // Forward tracing events to Sentry. The layer is a no-op if Sentry wasn't
-    // initialized (e.g. debug builds without SENTRY_FORCE=1), so it's safe to
-    // attach unconditionally.
-    let subscriber = subscriber.with(sentry_tracing::layer());
-
-    // Forward error-level events to the admin agent (docs/error-reporting.md).
-    // Also a no-op outside production builds and gated/throttled internally.
-    let subscriber = subscriber.with(crate::error_reporting::AdminAgentLayer);
-
     subscriber.init();
 
     tracing::info!(
         log_dir = %log_dir.display(),
         version = env!("CARGO_PKG_VERSION"),
-        "Ship Studio logging initialized"
+        "Harbr logging initialized"
     );
 
     Ok(())
 }
 
+/// Logging for the self-hosted server binary.
+///
+/// Deliberately *not* [`init_logging`]: that one writes a rotating JSON file to
+/// a desktop log directory and only mirrors to the console in debug builds.
+/// Both are wrong in a container — the log directory is ephemeral and a release
+/// build would emit nothing at all. A server logs to stdout and lets whatever
+/// supervises it (Docker, systemd) do the collecting.
+#[cfg(feature = "web")]
+pub fn init_server_logging() -> Result<(), String> {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("ship_studio_lib=info,warn"));
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_target(true).with_level(true).compact())
+        .try_init()
+        .map_err(|e| format!("Failed to initialize logging: {e}"))
+}
+
 /// Get the current log file path (for debugging/support)
-#[tauri::command]
+#[ship_command]
 pub fn get_log_path() -> String {
     get_log_dir().to_string_lossy().to_string()
 }
 
 /// Log a message from the frontend
-#[tauri::command]
+#[ship_command]
 pub fn log_frontend_event(level: String, message: String, context: Option<serde_json::Value>) {
     let ctx = context.map(|c| c.to_string()).unwrap_or_default();
 

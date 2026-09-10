@@ -366,7 +366,7 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     m.includes('pathspec') ||
     m.includes('unknown revision or path')
   ) {
-    return `${branch} no longer exists. It may have been deleted or renamed outside Ship Studio.`;
+    return `${branch} no longer exists. It may have been deleted or renamed outside Harbr.`;
   }
 
   // Not a git repo yet.
@@ -457,7 +457,7 @@ export function isAgentNotInstalledError(value: unknown): boolean {
 
 /**
  * True when a caught backend error means a project's root folder is gone —
- * deleted, renamed, or moved outside Ship Studio while its session stayed
+ * deleted, renamed, or moved outside Harbr while its session stayed
  * open. The backend classifies this `CommandError::expected` (see
  * `canonicalize_tagged` in `src-tauri/src/utils.rs`, issues #365/#372), but
  * Expected serializes identically to Other across IPC, so callers re-check

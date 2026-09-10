@@ -6,29 +6,26 @@
 use crate::agent_bridge;
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
+use ship_studio_macros::ship_command;
 
 /// The MCP URL to register for this project (starts the global bridge if it
 /// isn't running yet). The project path rides inside the URL so the server
 /// can route tool calls to whichever window has the project open.
-#[tauri::command]
-#[tracing::instrument(skip(app))]
-pub async fn get_agent_bridge_url(
-    app: tauri::AppHandle,
-    project_path: String,
-) -> Result<String, CommandError> {
+#[ship_command]
+pub async fn get_agent_bridge_url(project_path: String) -> Result<String, CommandError> {
     let validated = validate_project_path(&project_path)?;
     let canonical = validated.to_string_lossy().to_string();
-    agent_bridge::agent_bridge_url_for_project(app, &canonical)
+    agent_bridge::agent_bridge_url_for_project(crate::emit::tauri_app(), &canonical)
         .await
         .map_err(CommandError::from)
 }
 
 /// The "active project" MCP URL for agents with global configs (Codex,
 /// Opencode, Cursor): tool calls resolve to the focused project at call time.
-#[tauri::command]
-#[tracing::instrument(skip(app))]
-pub async fn get_agent_bridge_active_url(app: tauri::AppHandle) -> Result<String, CommandError> {
-    agent_bridge::agent_bridge_active_url(app)
+#[ship_command]
+#[tracing::instrument]
+pub async fn get_agent_bridge_active_url() -> Result<String, CommandError> {
+    agent_bridge::agent_bridge_active_url(crate::emit::tauri_app())
         .await
         .map_err(CommandError::from)
 }
@@ -38,7 +35,7 @@ pub async fn get_agent_bridge_active_url(app: tauri::AppHandle) -> Result<String
 /// in directly, preserving everything else. Returns false (without touching
 /// anything) when Cursor isn't in use or its config can't be parsed: never
 /// risk destroying another tool's configuration.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn register_cursor_mcp(url: String) -> Result<bool, CommandError> {
     let Some(home) = dirs::home_dir() else {
@@ -98,7 +95,7 @@ pub async fn register_cursor_mcp(url: String) -> Result<bool, CommandError> {
 /// Mark this project's preview bridge listener as attached (mounted and
 /// answering) or detached. Detached projects fail tool calls fast with an
 /// honest "preview isn't active" message instead of a long timeout.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn agent_bridge_attach(project_path: String, attached: bool) -> Result<(), CommandError> {
     let validated = validate_project_path(&project_path)?;
@@ -110,7 +107,7 @@ pub async fn agent_bridge_attach(project_path: String, attached: bool) -> Result
 /// Answer an in-flight bridge tool call. `result` must be a full MCP
 /// CallToolResult ({ content: [...], isError? }) — it is passed through to
 /// the agent verbatim.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(result))]
 pub async fn agent_bridge_respond(
     request_id: u64,

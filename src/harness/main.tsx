@@ -1,7 +1,7 @@
 /**
  * Browser harness entry point.
  *
- * Boots the real Ship Studio UI against a fixture backend so a change can be
+ * Boots the real Harbr UI against a fixture backend so a change can be
  * looked at — and screenshotted — without a Tauri build, a real machine state,
  * or a real hosting account. `src/main.tsx` stays the production entry; this
  * file exists only so the app is *observable*.
@@ -88,7 +88,7 @@ window.__harness = {
   steps: stepLog,
 };
 
-document.title = `Ship Studio harness — ${scenario.id}`;
+document.title = `Harbr harness — ${scenario.id}`;
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

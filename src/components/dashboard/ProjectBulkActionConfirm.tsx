@@ -43,7 +43,7 @@ export function ProjectBulkActionConfirm<T extends DashboardProject>({
           </>
         ) : (
           <>
-            Remove <strong>{countLabel}</strong> from Ship Studio?
+            Remove <strong>{countLabel}</strong> from Harbr?
           </>
         )
       }
@@ -53,7 +53,7 @@ export function ProjectBulkActionConfirm<T extends DashboardProject>({
           : `${selection} will stay on this computer and can be added again later with Import Project, Local Folder.`
       }
       loading={loading}
-      confirmLabel={isDelete ? 'Delete files' : 'Remove from Ship Studio'}
+      confirmLabel={isDelete ? 'Delete files' : 'Remove from Harbr'}
       loadingLabel={isDelete ? 'Deleting...' : 'Removing...'}
       confirmVariant={isDelete ? 'danger' : 'primary'}
       onCancel={onCancel}

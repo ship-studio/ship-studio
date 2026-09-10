@@ -27,6 +27,8 @@
 @import './components/text-field.css';
 @import './components/checkbox.css';
 @import './components/modal.css';
+@import './components/server-picker.css';
+@import './components/web-auth.css';
 @import './components/command-palette.css';
 @import './components/code-overlay.css';
 @import './components/dockable-panel.css';

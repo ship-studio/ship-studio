@@ -112,7 +112,7 @@ export const SHOPIFY_PARTNERS_URL = 'https://partners.shopify.com';
  * pattern as the mobile toolchain setup in DeviceMirror.
  */
 export const SHOPIFY_CLI_SETUP_PROMPT =
-  "I want to build a Shopify theme in Ship Studio, but the Shopify CLI isn't installed on " +
+  "I want to build a Shopify theme in Harbr, but the Shopify CLI isn't installed on " +
   'this machine. Please do the heavy lifting to set it up: install it with Homebrew ' +
   '(`brew tap shopify/shopify && brew install shopify-cli`) if Homebrew is available, ' +
   'otherwise use `npm install -g @shopify/cli@latest`. If Homebrew is owned by another ' +

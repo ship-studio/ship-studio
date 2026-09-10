@@ -1,6 +1,6 @@
 //! # External Project Management Commands
 //!
-//! Commands for registering and managing projects that live outside ~/ShipStudio.
+//! Commands for registering and managing projects that live outside the active projects root.
 
 use crate::errors::CommandError;
 use crate::types::{
@@ -73,9 +73,7 @@ pub fn grant_asset_scope_for_registered(app: &AppHandle) {
 
 /// Get the path to the external projects config file
 fn get_config_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    Ok(home
-        .join("ShipStudio")
+    Ok(crate::utils::projects_root()?
         .join(".shipstudio")
         .join("external-projects.json"))
 }
@@ -179,7 +177,7 @@ fn is_any_of_roots(canonical: &Path, roots: &[PathBuf]) -> bool {
 
 /// Opens a native folder picker and registers the selected folder as an external project.
 /// Returns the path of the registered project, or None if cancelled.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn register_external_project(app: AppHandle) -> Result<Option<String>, CommandError> {
     let folder = app
@@ -206,7 +204,7 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
     }
 
     // Use the same predicate as dashboard discovery so removed projects can be
-    // restored even when they were blank, git-only, or Ship Studio metadata-only.
+    // restored even when they were blank, git-only, or Harbr metadata-only.
     let is_valid_project = crate::commands::projects::is_valid_project(&folder_path);
 
     if !is_valid_project {
@@ -334,7 +332,7 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 /// Other metadata (terminal state, last_opened, custom thumbnail, etc.) is
 /// preserved so a user who remove+re-adds for organisation reasons doesn't
 /// lose everything.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn unregister_external_project(path: String) -> Result<(), CommandError> {
     let mut config = load_config()?;
@@ -431,7 +429,7 @@ fn looks_like_project_root(path: &Path) -> bool {
 ///
 /// Returns Ok(true) if newly registered, Ok(false) if already registered or
 /// inside an approved projects root.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn ensure_external_project_registered(
     app: AppHandle,
@@ -498,7 +496,7 @@ pub async fn ensure_external_project_registered(
 }
 
 /// Check if a project path is an external project.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn is_project_external(path: String) -> Result<bool, CommandError> {
     let canonical = crate::utils::canonicalize_tagged(Path::new(&path), "is_project_external")?;

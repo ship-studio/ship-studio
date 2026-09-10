@@ -40,7 +40,7 @@ function makeProps(overrides: Partial<Parameters<typeof BranchesMenu>[0]> = {}) 
     },
     projectStatus: connectedStatus,
     projectPath: '/test/project',
-    projectName: 'Ship Studio',
+    projectName: 'Harbr',
     currentBranch: 'feature/menu',
     branches: [branch('feature/menu', 10, true), branch('older', 20), branch('newer', 30)],
     openPRs: [] as PullRequestInfo[],

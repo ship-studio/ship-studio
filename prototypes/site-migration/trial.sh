@@ -14,7 +14,7 @@
 # Usage:
 #   prototypes/site-migration/trial.sh <url> <trial-name> [starter-repo]
 #
-# Everything lands in ~/ShipStudio/<trial-name> so the app can open it too.
+# Everything lands in ~/Harbr/<trial-name> so the app can open it too.
 set -euo pipefail
 
 URL="${1:?usage: trial.sh <url> <trial-name> [starter-repo]}"
@@ -22,7 +22,7 @@ NAME="${2:?usage: trial.sh <url> <trial-name> [starter-repo]}"
 STARTER="${3:-https://github.com/ship-studio/astro-html-starter}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ROOT="$HOME/ShipStudio/$NAME"
+ROOT="$HOME/Harbr/$NAME"
 LOG="$ROOT/.shipstudio/trial.log"
 
 if [ -e "$ROOT" ]; then

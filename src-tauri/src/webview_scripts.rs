@@ -1,4 +1,4 @@
-//! JavaScript snippets injected into Ship Studio webviews at load time.
+//! JavaScript snippets injected into Harbr webviews at load time.
 //!
 //! Registered on `WebviewWindowBuilder::initialization_script_for_all_frames`,
 //! which on macOS (WKWebView) runs the script in every frame — including the
@@ -22,7 +22,7 @@ pub const INSPECTOR_SHIM: &str = r#"
     window.__shipstudio_inspector_installed = true;
 
     // The host owns context menus. Prevent WebKit from showing the project
-    // page's native menu inside the preview until Ship Studio provides a menu
+    // page's native menu inside the preview until Harbr provides a menu
     // for that surface too.
     window.addEventListener('contextmenu', function (event) {
       event.preventDefault();

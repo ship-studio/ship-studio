@@ -27,7 +27,7 @@ async fn run_net(
 }
 
 /// List pull requests for the repository
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn list_pull_requests(
     project_path: String,
@@ -146,7 +146,7 @@ fn pr_create_refusal(stderr: &str, base: &str) -> Option<CommandError> {
 
 /// Create a new pull request.
 /// Automatically pushes the branch to the remote first if needed.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path, title, body, base, described_by_agent), fields(project = %project_path, base = %base))]
 pub async fn create_pull_request(
     app: tauri::AppHandle,
@@ -266,7 +266,7 @@ pub async fn create_pull_request(
 /// Merge a pull request. Returns `CommandError::MergeConflict` when `gh`
 /// reports the PR isn't mergeable so the frontend can render a conflict-
 /// resolution flow without grepping the stderr for known phrases.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -314,7 +314,7 @@ fn is_conflict_stderr(stderr: &str) -> bool {
 }
 
 /// Checkout a pull request branch locally for review
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn checkout_pull_request(
     project_path: String,
@@ -374,7 +374,7 @@ fn is_already_merged_stderr(stderr: &str) -> bool {
 }
 
 /// Close a pull request without merging
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;

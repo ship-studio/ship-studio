@@ -1,10 +1,9 @@
 //! # Template Gallery Commands
 //!
-//! Fetches community templates from the Ship Studio API and downloads template zips.
+//! Provides the compatibility surface for community templates.
 
 use crate::errors::CommandError;
-
-const TEMPLATES_API_URL: &str = "https://www.ship.studio/api/v1/templates";
+use ship_studio_macros::ship_command;
 
 /// Render a reqwest error with its full source chain. reqwest's `Display` only
 /// prints the top-level context ("error sending request for url (...)"), while
@@ -22,81 +21,31 @@ fn describe_reqwest_error(e: &reqwest::Error) -> String {
 
 /// Wrap a network failure as `Expected`.
 ///
-/// A timeout or a dropped connection talking to ship.studio is the user's
-/// network (or our API being briefly unreachable), not an app malfunction —
+/// A timeout or dropped connection while downloading a template is a network
+/// condition, not an app malfunction —
 /// `Expected` keeps it out of telemetry while still carrying the underlying
 /// cause for the UI to show (issue #754).
 fn network_failure(context: &str, e: &reqwest::Error) -> CommandError {
     CommandError::expected(format!("{context}: {}", describe_reqwest_error(e)))
 }
 
-/// Fetch community templates from the Ship Studio API.
-/// Accepts optional query parameters that map to the API spec.
-/// Returns the raw JSON string so the frontend can parse it.
-#[tauri::command]
+/// Return an empty gallery until Harbr has an independent template registry.
+#[ship_command]
 #[tracing::instrument]
 pub async fn fetch_community_templates(
-    search: Option<String>,
-    category: Option<String>,
-    sort: Option<String>,
-    pricing: Option<String>,
-    limit: Option<u32>,
-    offset: Option<u32>,
+    _search: Option<String>,
+    _category: Option<String>,
+    _sort: Option<String>,
+    _pricing: Option<String>,
+    _limit: Option<u32>,
+    _offset: Option<u32>,
 ) -> Result<String, CommandError> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
-
-    let mut url =
-        reqwest::Url::parse(TEMPLATES_API_URL).map_err(|e| format!("Invalid URL: {e}"))?;
-
-    {
-        let mut params = url.query_pairs_mut();
-        if let Some(s) = &search {
-            if !s.is_empty() {
-                params.append_pair("search", s);
-            }
-        }
-        if let Some(c) = &category {
-            params.append_pair("category", c);
-        }
-        if let Some(s) = &sort {
-            params.append_pair("sort", s);
-        }
-        if let Some(p) = &pricing {
-            params.append_pair("pricing", p);
-        }
-        if let Some(l) = limit {
-            params.append_pair("limit", &l.to_string());
-        }
-        if let Some(o) = offset {
-            params.append_pair("offset", &o.to_string());
-        }
-    }
-
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| network_failure("Failed to fetch templates", &e))?;
-
-    if !response.status().is_success() {
-        return Err(CommandError::expected(format!(
-            "The template gallery is unavailable right now (server returned {}). Try again in a moment.",
-            response.status()
-        )));
-    }
-
-    response
-        .text()
-        .await
-        .map_err(|e| network_failure("Failed to read templates response", &e))
+    Ok(r#"{"templates":[]}"#.to_string())
 }
 
 /// Download a template zip from a signed URL to a temporary file.
 /// Returns the path to the downloaded file.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn download_template_zip(url: String) -> Result<String, CommandError> {
     let client = reqwest::Client::builder()

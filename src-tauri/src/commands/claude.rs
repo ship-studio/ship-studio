@@ -26,7 +26,7 @@ use crate::utils::{create_command, get_extended_path};
 /// open — if the project has never had a Claude conversation (or Claude
 /// pruned it), resume exits code 1 and we fall back to a fresh session.
 /// The fallback works but wastes ~1s and produces noisy logs.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(skip(project_path, session_id), fields(project = %project_path, session_id = %session_id))]
 pub fn claude_session_exists(project_path: String, session_id: String) -> bool {
     // Resolve the claude config dir from THIS project's workspace, not the
@@ -396,7 +396,7 @@ fn push_candidate(
     }
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn check_claude_cli_status() -> AgentCliStatus {
     let agent = get_active_agent();

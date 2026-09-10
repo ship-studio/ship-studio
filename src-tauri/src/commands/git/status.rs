@@ -53,7 +53,7 @@ fn git_status_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -> S
     )
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn check_git_has_changes(project_path: String) -> Result<bool, CommandError> {
     // Check cache first
@@ -105,7 +105,7 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, Command
 }
 
 /// Get list of files with uncommitted changes (staged and unstaged, tracked files only)
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>, CommandError> {
     // Check cache first
@@ -185,7 +185,7 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
 }
 
 /// Get the diff for a single uncommitted file
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_file_diff(
     project_path: String,
@@ -259,7 +259,7 @@ pub async fn get_file_diff(
     })
 }
 
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, CommandError> {
     let validated_path = validate_project_path(&project_path)?;

@@ -57,21 +57,18 @@ describe('dashboard home layout pieces', () => {
     mocks.trackEvent.mockReset();
   });
 
-  it('renders the Ship Studio hero icon and copy', () => {
+  it('renders the Harbr hero icon and copy', () => {
     render(<DashboardHeader />);
 
-    expect(screen.getByRole('img', { name: 'Ship Studio' })).toHaveAttribute(
-      'src',
-      '/ShipStudio_IconBrand.png'
-    );
-    const logoButton = screen.getByRole('button', { name: 'Pulse Ship Studio logo' });
+    expect(screen.getByRole('img', { name: 'Harbr' })).toHaveAttribute('src', '/harbr-mark.svg');
+    const logoButton = screen.getByRole('button', { name: 'Pulse Harbr logo' });
     fireEvent.click(logoButton);
     expect(logoButton).toHaveClass('dashboard-hero-icon-button--hover-suppressed');
-    expect(screen.getByRole('img', { name: 'Ship Studio' })).toHaveClass(
+    expect(screen.getByRole('img', { name: 'Harbr' })).toHaveClass(
       'dashboard-hero-icon--click-pulsing'
     );
-    fireEvent.animationEnd(screen.getByRole('img', { name: 'Ship Studio' }));
-    expect(screen.getByRole('img', { name: 'Ship Studio' })).not.toHaveClass(
+    fireEvent.animationEnd(screen.getByRole('img', { name: 'Harbr' }));
+    expect(screen.getByRole('img', { name: 'Harbr' })).not.toHaveClass(
       'dashboard-hero-icon--click-pulsing'
     );
     fireEvent.mouseLeave(logoButton);

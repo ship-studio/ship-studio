@@ -27,13 +27,13 @@ use crate::external_command::run_with_timeout;
 use crate::types::{Account, AccountCredentialStatus};
 use crate::utils::{create_command, get_extended_path};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, PtySize};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
 
 /// The ID of the built-in default account. Always exists; cannot be deleted.
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
@@ -139,7 +139,7 @@ const KEYCHAIN_SUPPORTED: bool = cfg!(target_os = "macos");
 /// with a user-side course of action, not something going wrong.
 fn keychain_unsupported() -> CommandError {
     CommandError::expected(
-        "Per-workspace credentials are only stored on macOS at the moment — Ship Studio has no \
+        "Per-workspace credentials are only stored on macOS at the moment — Harbr has no \
          credential vault on this platform yet. Use the default workspace, or sign in with the \
          provider's own CLI (`vercel login`, `gh auth login`, `claude /login`), and this project \
          will use those credentials.",
@@ -812,7 +812,7 @@ pub(crate) fn parse_gh_auth_status(stdout: &str, stderr: &str) -> Option<String>
 // ============ Tauri commands ============
 
 /// List all accounts (workspaces). Creates the Default account on first call.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn list_accounts() -> Result<Vec<Account>, CommandError> {
     let mut state = read_app_state();
@@ -827,7 +827,7 @@ pub fn list_accounts() -> Result<Vec<Account>, CommandError> {
 }
 
 /// Create a new account (workspace).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn create_account(name: String, color: String) -> Result<Account, CommandError> {
     if name.trim().is_empty() {
@@ -854,7 +854,7 @@ pub fn create_account(name: String, color: String) -> Result<Account, CommandErr
 }
 
 /// Update an account's name and color.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn update_account(id: String, name: String, color: String) -> Result<Account, CommandError> {
     validate_account_id(&id)?;
@@ -883,7 +883,7 @@ pub fn update_account(id: String, name: String, color: String) -> Result<Account
 
 /// Delete an account. The Default account cannot be deleted.
 /// If the deleted account was active, the active account falls back to Default.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn delete_account(id: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
@@ -924,7 +924,7 @@ pub fn delete_account(id: String) -> Result<(), CommandError> {
 }
 
 /// Returns the currently active account's ID (defaults to "default").
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_active_account_id() -> Result<String, CommandError> {
     // Read-only getter: do NOT write here. It's called on every dashboard
@@ -939,7 +939,7 @@ pub fn get_active_account_id() -> Result<String, CommandError> {
 
 /// Sets the currently active account. Already-running terminals keep their
 /// existing env; only newly spawned processes pick up the new account.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_active_account_id(id: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
@@ -965,7 +965,7 @@ pub fn set_active_account_id(id: String) -> Result<(), CommandError> {
 
 /// Returns auth/credential status for an account, for display in the account
 /// settings modal. Secret values never leave the Rust layer.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_account_credential_status(
     id: String,
@@ -1086,7 +1086,7 @@ fn validate_credential_key(key: &str) -> Result<(), CommandError> {
 /// Store a credential in the keychain for an account.
 ///
 /// Allowed keys: `anthropic_base_url`, `vercel_token`, `git_name`, `git_email`
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(value))]
 pub fn set_account_credential(id: String, key: String, value: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
@@ -1101,7 +1101,7 @@ pub fn set_account_credential(id: String, key: String, value: String) -> Result<
 }
 
 /// Remove a credential from the keychain for an account.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn clear_account_credential(id: String, key: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
@@ -1140,7 +1140,7 @@ const TOKEN_PREFIX: &[u8] = b"sk-ant-";
 /// Real tokens are ~108 chars; guard against redacting a stray `sk-ant-` word.
 const TOKEN_MIN_LEN: usize = 20;
 /// What the user sees in the terminal where the token would have printed.
-const TOKEN_PLACEHOLDER: &[u8] = b"sk-ant-[redacted by Ship Studio]";
+const TOKEN_PLACEHOLDER: &[u8] = b"sk-ant-[redacted by Harbr]";
 
 /// Minimum column width for the `claude setup-token` PTY. The CLI renders its
 /// output (via Ink) wrapped to the terminal width, so a narrow terminal inserts
@@ -1243,8 +1243,8 @@ fn redact_token_stream(carry: &mut Vec<u8>, eof: bool) -> (Vec<u8>, Option<Strin
 }
 
 /// Emit a chunk of PTY output to the webview for the given connect session.
-fn emit_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
-    let _ = app.emit(
+fn emit_connect_data(session_id: &str, bytes: &[u8]) {
+    let _ = crate::emit::all(
         "claude-connect-data",
         serde_json::json!({ "sessionId": session_id, "data": bytes }),
     );
@@ -1264,10 +1264,9 @@ fn emit_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
 ///
 /// `email` is display-only: Claude exposes no way to resolve the account from
 /// the opaque token, so the caller passes what the user logged in as.
-#[tauri::command]
-#[tracing::instrument(skip(app, email), fields(session_id = %session_id, id = %id))]
+#[ship_command]
+#[tracing::instrument(skip(email), fields(session_id = %session_id, id = %id))]
 pub fn claude_connect_start(
-    app: AppHandle,
     session_id: String,
     id: String,
     email: Option<String>,
@@ -1364,7 +1363,6 @@ pub fn claude_connect_start(
 
     // Reader thread: scrapes + redacts the token, streams the rest.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         let account_id = id.clone();
         let email = email
@@ -1391,7 +1389,7 @@ pub fn claude_connect_start(
                     );
                     let msg = "\r\n\x1b[31mThat login didn't work — the API rejected the token. \
                                Please start over and run the login again.\x1b[0m\r\n";
-                    emit_connect_data(&app, &session_id, msg.as_bytes());
+                    emit_connect_data(&session_id, msg.as_bytes());
                     // No `claude-connect-captured`: the workspace stays
                     // disconnected, and the connect modal's exit handler shows
                     // its "Login didn't finish / Start over" affordance.
@@ -1401,7 +1399,7 @@ pub fn claude_connect_start(
                 if let Err(e) = store_claude_token(&account_id, &token, email.as_deref()) {
                     tracing::warn!("failed to store captured Claude token: {e}");
                 }
-                let _ = app.emit(
+                let _ = crate::emit::all(
                     "claude-connect-captured",
                     serde_json::json!({ "sessionId": session_id }),
                 );
@@ -1412,20 +1410,20 @@ pub fn claude_connect_start(
                     Ok(n) => n,
                 };
                 if session.captured.load(Ordering::Relaxed) {
-                    emit_connect_data(&app, &session_id, &buf[..n]);
+                    emit_connect_data(&session_id, &buf[..n]);
                     continue;
                 }
                 carry.extend_from_slice(&buf[..n]);
                 let (emit, token) = redact_token_stream(&mut carry, false);
                 if !emit.is_empty() {
-                    emit_connect_data(&app, &session_id, &emit);
+                    emit_connect_data(&session_id, &emit);
                 }
                 if let Some(token) = token {
                     store_and_signal(token);
                     // The retained tail is unrelated text now — flush it raw.
                     if !carry.is_empty() {
                         let tail = std::mem::take(&mut carry);
-                        emit_connect_data(&app, &session_id, &tail);
+                        emit_connect_data(&session_id, &tail);
                     }
                 }
             }
@@ -1433,21 +1431,20 @@ pub fn claude_connect_start(
             if !session.captured.load(Ordering::Relaxed) {
                 let (emit, token) = redact_token_stream(&mut carry, true);
                 if !emit.is_empty() {
-                    emit_connect_data(&app, &session_id, &emit);
+                    emit_connect_data(&session_id, &emit);
                 }
                 if let Some(token) = token {
                     store_and_signal(token);
                 }
             } else if !carry.is_empty() {
                 let tail = std::mem::take(&mut carry);
-                emit_connect_data(&app, &session_id, &tail);
+                emit_connect_data(&session_id, &tail);
             }
         });
     }
 
     // Waiter thread: reaps the child, drops the registry entry, signals exit.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         std::thread::spawn(move || {
             let code = match child.wait() {
@@ -1458,7 +1455,7 @@ pub fn claude_connect_start(
             if let Ok(mut map) = CONNECT_REGISTRY.lock() {
                 map.remove(&session_id);
             }
-            let _ = app.emit(
+            let _ = crate::emit::all(
                 "claude-connect-exit",
                 serde_json::json!({ "sessionId": session_id, "exitCode": code }),
             );
@@ -1469,7 +1466,7 @@ pub fn claude_connect_start(
 }
 
 /// Forward keystrokes (e.g. the pasted authorization code) to a connect PTY.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(data))]
 pub fn claude_connect_write(session_id: String, data: Vec<u8>) -> Result<(), CommandError> {
     let session = {
@@ -1493,7 +1490,7 @@ pub fn claude_connect_write(session_id: String, data: Vec<u8>) -> Result<(), Com
 }
 
 /// Resize a connect PTY to match the on-screen terminal.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn claude_connect_resize(session_id: String, cols: u16, rows: u16) -> Result<(), CommandError> {
     let session = {
@@ -1529,7 +1526,7 @@ pub fn claude_connect_resize(session_id: String, cols: u16, rows: u16) -> Result
 
 /// Kill a connect PTY and drop its registry entry. Idempotent — called when the
 /// user closes the connect modal (whether or not a token was captured).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn claude_connect_close(session_id: String) -> Result<(), CommandError> {
     let session = {
@@ -1548,14 +1545,14 @@ pub fn claude_connect_close(session_id: String) -> Result<(), CommandError> {
 
 /// Disconnect a workspace's Claude login: clears its captured token, email, and
 /// expiry. The workspace's terminals fall back to no injected token (logged out).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn disconnect_claude_account(id: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
     if id == DEFAULT_ACCOUNT_ID {
         return Err(CommandError::Validation {
             field: "id".into(),
-            reason: "The Default workspace's Claude login isn't managed by Ship Studio; \
+            reason: "The Default workspace's Claude login isn't managed by Harbr; \
                      run `claude` and use /logout there instead."
                 .into(),
         });
@@ -1620,8 +1617,8 @@ impl ConnectService {
 }
 
 /// Emit a chunk of PTY output to the webview for a workspace-connect session.
-fn emit_workspace_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
-    let _ = app.emit(
+fn emit_workspace_connect_data(session_id: &str, bytes: &[u8]) {
+    let _ = crate::emit::all(
         "workspace-connect-data",
         serde_json::json!({ "sessionId": session_id, "data": bytes }),
     );
@@ -1638,10 +1635,9 @@ fn emit_workspace_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) 
 /// `workspace-connect-exit` when the process ends. For GitHub we watch for the
 /// "Press Enter to open…" prompt and send Enter once so the browser opens
 /// immediately.
-#[tauri::command]
-#[tracing::instrument(skip(app), fields(session_id = %session_id, id = %id, service = %service))]
+#[ship_command]
+#[tracing::instrument(fields(session_id = %session_id, id = %id, service = %service))]
 pub fn workspace_connect_start(
-    app: AppHandle,
     session_id: String,
     id: String,
     service: String,
@@ -1740,7 +1736,6 @@ pub fn workspace_connect_start(
     // Reader thread: stream output verbatim. For GitHub, auto-send Enter once we
     // see the "Press Enter to open…" prompt so the browser launches itself.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         let session = session.clone();
         let auto_enter = svc.auto_enter();
@@ -1755,7 +1750,7 @@ pub fn workspace_connect_start(
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
-                emit_workspace_connect_data(&app, &session_id, &buf[..n]);
+                emit_workspace_connect_data(&session_id, &buf[..n]);
                 if auto_enter && !sent_enter {
                     tail.extend_from_slice(&buf[..n]);
                     let hay = String::from_utf8_lossy(&tail).to_lowercase();
@@ -1777,7 +1772,6 @@ pub fn workspace_connect_start(
 
     // Waiter thread: reaps the child, drops the registry entry, signals exit.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         let is_github = matches!(svc, ConnectService::Github);
         std::thread::spawn(move || {
@@ -1795,7 +1789,7 @@ pub fn workspace_connect_start(
             if is_github {
                 crate::commands::github::invalidate_github_username_cache();
             }
-            let _ = app.emit(
+            let _ = crate::emit::all(
                 "workspace-connect-exit",
                 serde_json::json!({ "sessionId": session_id, "exitCode": code }),
             );
@@ -1806,7 +1800,7 @@ pub fn workspace_connect_start(
 }
 
 /// Forward keystrokes to a workspace-connect PTY.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(data))]
 pub fn workspace_connect_write(session_id: String, data: Vec<u8>) -> Result<(), CommandError> {
     let session = {
@@ -1830,7 +1824,7 @@ pub fn workspace_connect_write(session_id: String, data: Vec<u8>) -> Result<(), 
 }
 
 /// Resize a workspace-connect PTY to match the on-screen terminal.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn workspace_connect_resize(
     session_id: String,
@@ -1865,7 +1859,7 @@ pub fn workspace_connect_resize(
 }
 
 /// Kill a workspace-connect PTY and drop its registry entry. Idempotent.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn workspace_connect_close(session_id: String) -> Result<(), CommandError> {
     let session = {
@@ -1886,7 +1880,7 @@ pub fn workspace_connect_close(session_id: String) -> Result<(), CommandError> {
 /// running the CLI's logout under the workspace's isolated env. Best-effort:
 /// returns the captured output for surfacing, but a non-zero exit (already
 /// logged out) is not treated as an error.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn workspace_disconnect_service(id: String, service: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
@@ -1986,7 +1980,7 @@ mod tests {
         // The real token is gone from what the webview would see; placeholder stays.
         let shown = String::from_utf8_lossy(&emit);
         assert!(!shown.contains("oat01-abcDEF"), "token leaked: {shown}");
-        assert!(shown.contains("sk-ant-[redacted by Ship Studio]"));
+        assert!(shown.contains("sk-ant-[redacted by Harbr]"));
         // Surrounding text is preserved verbatim.
         assert!(shown.contains("Long-lived token created!"));
         assert!(shown.contains("Store it."));
@@ -2005,7 +1999,7 @@ mod tests {
         );
         let shown = String::from_utf8_lossy(&emit);
         assert!(!shown.contains("AbC+dEf"), "token leaked: {shown}");
-        assert!(shown.contains("sk-ant-[redacted by Ship Studio]"));
+        assert!(shown.contains("sk-ant-[redacted by Harbr]"));
         assert!(shown.contains("trailing"));
     }
 
@@ -2112,7 +2106,7 @@ mod tests {
             !shown.contains("splitAcrossTwoReads"),
             "token leaked: {shown}"
         );
-        assert!(shown.contains("sk-ant-[redacted by Ship Studio]"));
+        assert!(shown.contains("sk-ant-[redacted by Harbr]"));
         assert!(shown.contains("(done)"));
     }
 

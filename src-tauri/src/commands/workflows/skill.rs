@@ -3,14 +3,14 @@
 //! This is the discovery mechanism for the whole feature, and it is the reason
 //! the workflow file format is plain markdown rather than an API.
 //!
-//! Nobody browses a new tab. But everyone using Ship Studio is already talking
+//! Nobody browses a new tab. But everyone using Harbr is already talking
 //! to an agent all day, and they routinely say things like "check the bundle
 //! size before every release" or "I keep forgetting to look at dependency
 //! advisories". A skill turns those sentences into the moment the feature
 //! introduces itself — in the tool they're already in, at the moment it's
 //! relevant, in their own words. The agent then writes the workflow file itself.
 //!
-//! Ship Studio writes the skill into each installed agent's user-scope skills
+//! Harbr writes the skill into each installed agent's user-scope skills
 //! directory (`~/.claude/skills/`, `~/.codex/skills/`) on startup. The write is
 //! idempotent and version-stamped, so an app update refreshes it and an
 //! unchanged version costs one string comparison.
@@ -34,32 +34,32 @@ const SKILL_DIR_NAME: &str = "shipstudio-workflows";
 ///    each release", "keep an eye on") rather than the word "workflow", which
 ///    is the one word a user who hasn't discovered the feature will never say.
 /// 2. **Author.** Once loaded, the format spec is complete enough that the
-///    agent can write a valid file without asking Ship Studio anything.
+///    agent can write a valid file without asking Harbr anything.
 pub(crate) fn skill_markdown() -> String {
     format!(
         r#"---
 name: shipstudio-workflows
 description: >-
-  Create and manage Ship Studio workflows — saved instructions that run on a
+  Create and manage Harbr workflows — saved instructions that run on a
   schedule or on demand in this project and file what they find to the user's
-  Ship Studio inbox. Use this whenever the user says they want something
+  Harbr inbox. Use this whenever the user says they want something
   checked regularly or repeatedly ("every time", "each week", "before every
   release", "keep an eye on", "remind me to check", "I keep forgetting to"),
   asks to automate a review or audit, or mentions workflows, scheduled checks,
-  or the Ship Studio inbox.
+  or the Harbr inbox.
 metadata:
   shipstudio-skill-version: "{SKILL_VERSION}"
 ---
 
-# Ship Studio workflows
+# Harbr workflows
 
-A **workflow** is a saved instruction that Ship Studio runs against this project
+A **workflow** is a saved instruction that Harbr runs against this project
 with a headless agent CLI, on demand or on a schedule. Whatever it reports goes
-to the user's Ship Studio inbox.
+to the user's Harbr inbox.
 
 A workflow is one markdown file in `.shipstudio/workflows/<slug>.md` in the
 project root. There is no API and no service: writing the file *is* creating
-the workflow, and Ship Studio picks it up immediately.
+the workflow, and Harbr picks it up immediately.
 
 ## When to offer one
 
@@ -67,7 +67,7 @@ If the user describes wanting something checked more than once — on a cadence,
 before a recurring event, or "every time X happens" — offer to save it as a
 workflow. Keep the offer to one sentence, and only make it once per topic.
 
-> That's a good candidate for a Ship Studio workflow — I can save it so it runs
+> That's a good candidate for a Harbr workflow — I can save it so it runs
 > every morning and files anything it finds to your inbox. Want me to?
 
 Do **not** offer a workflow for one-off work, for something the user is asking
@@ -108,11 +108,11 @@ back to `manual`, so the workflow still works — it just won't be scheduled.
 
 ### Say what a schedule actually promises
 
-Scheduled workflows run **only while Ship Studio is open**. There is no server
+Scheduled workflows run **only while Harbr is open**. There is no server
 and no background daemon: a `daily at 09:00` workflow runs at the first check
 after 09:00 that the app is running for, and if the app was closed all morning
 it simply runs late, once — never once per missed day. `on push` and `on pr`
-fire when Ship Studio itself performs those actions.
+fire when Harbr itself performs those actions.
 
 Tell the user this when you set a schedule up. "It'll run every morning" is the
 one sentence here that can turn out to be false, and they will find out on the
@@ -121,7 +121,7 @@ morning they were relying on it.
 ### The body is the instruction
 
 Everything after the frontmatter is the prompt handed to the agent on each run.
-Write it as a direct instruction. Ship Studio automatically prepends what
+Write it as a direct instruction. Harbr automatically prepends what
 changed since the workflow last ran, the findings it has already filed, and the
 reporting format — so do **not** write any of that into the body yourself.
 
@@ -144,7 +144,7 @@ reporting format — so do **not** write any of that into the body yourself.
 
 1. Write the file to `.shipstudio/workflows/<slug>.md` (kebab-case slug from the
    name). Create the directory if it doesn't exist.
-2. Tell the user it's saved, and that it's in **Workflows** in Ship Studio's
+2. Tell the user it's saved, and that it's in **Workflows** in Harbr's
    sidebar where they can press Run to try it immediately. Suggest they do —
    a workflow nobody has watched run once is a schedule nobody trusts.
 
@@ -241,7 +241,7 @@ mod tests {
         // promise would be made. Every other surface says this plainly.
         let body = skill_markdown();
         assert!(
-            body.contains("only while Ship Studio is open"),
+            body.contains("only while Harbr is open"),
             "the skill must not let an agent promise a clock the app cannot keep"
         );
         assert!(body.contains("runs late, once"));

@@ -34,7 +34,7 @@ export function ProjectBulkActionsBar({
       <div className="project-bulk-actions-summary">
         <strong>{projectCountLabel(selectedCount)} selected</strong>
         {selectedIncludesExternalProject && (
-          <span>External projects can only be removed from Ship Studio.</span>
+          <span>External projects can only be removed from Harbr.</span>
         )}
       </div>
       <div className="project-bulk-actions-controls">
@@ -56,7 +56,7 @@ export function ProjectBulkActionsBar({
           disabled={selectedIncludesExternalProject}
           title={
             selectedIncludesExternalProject
-              ? 'External projects can only be removed from Ship Studio'
+              ? 'External projects can only be removed from Harbr'
               : 'Delete selected project folders from this computer'
           }
           onClick={onDelete}

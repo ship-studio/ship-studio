@@ -28,6 +28,8 @@ import {
   getStepItems,
   findFirstIncompleteStep,
   needsCmdExeWrapper,
+  manualInstallHint,
+  defaultShellPath,
 } from './setup';
 import {
   FRESH_INSTALL_ITEMS,
@@ -763,5 +765,82 @@ describe('findFirstIncompleteStep', () => {
       return i;
     });
     expect(findFirstIncompleteStep(items)).toBe('hosting');
+  });
+});
+
+/**
+ * Linux is the detect-only platform: Harbr never installs system
+ * packages there, so the package-manager item is absent and the tools it
+ * used to gate must not be reported as blocked.
+ *
+ * platform() caches its navigator.userAgent read at module load, so every
+ * case below needs a fresh module graph under a Linux UA — flipping a mock
+ * mid-suite would be read too late to matter.
+ */
+describe('Linux detect-only setup flow', () => {
+  async function underLinux<T>(fn: (mod: typeof import('./setup')) => T): Promise<T> {
+    const originalUserAgent = navigator.userAgent;
+    vi.resetModules();
+    Object.defineProperty(globalThis.navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+      configurable: true,
+    });
+    try {
+      // Awaited, not just returned: an async `fn` must finish before the
+      // finally block restores the userAgent and resets the module graph.
+      return await fn(await import('./setup'));
+    } finally {
+      Object.defineProperty(globalThis.navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+      vi.resetModules();
+    }
+  }
+
+  it('drops the homebrew dependency so tools never read as blocked', async () => {
+    await underLinux((mod) => {
+      const deps = mod.getSetupDependencies();
+      expect(deps.node).toEqual([]);
+      expect(deps.git).toEqual([]);
+      expect(deps.gh).toEqual([]);
+    });
+  });
+
+  it('reports a manual install hint for distro-provided tools', async () => {
+    await underLinux((mod) => {
+      expect(mod.manualInstallHint('node')).toContain('nodejs');
+      expect(mod.manualInstallHint('git')).toContain('git');
+      expect(mod.manualInstallHint('gh')).toContain('gh');
+    });
+  });
+
+  it('has no manual hint for tools Harbr does install itself', async () => {
+    await underLinux((mod) => {
+      // Agents ship their own installers and are unaffected by the Linux flow.
+      expect(mod.manualInstallHint('claude')).toBeNull();
+      expect(mod.manualInstallHint('vercel')).toBeNull();
+    });
+  });
+
+  it('refuses to shell out to a package manager', async () => {
+    await underLinux(async (mod) => {
+      await expect(mod.installPackages(['node'])).rejects.toThrow(
+        /doesn't install system packages/
+      );
+    });
+  });
+
+  it('spawns bash, which a stock distro has, rather than zsh', async () => {
+    await underLinux((mod) => {
+      expect(mod.defaultShellPath()).toBe('/bin/bash');
+      expect(mod.defaultShellProcessName()).toBe('bash');
+    });
+  });
+
+  it('keeps zsh on macOS, where it is the default shell', () => {
+    // The suite pins a macOS userAgent, so this is the top-level import.
+    expect(defaultShellPath()).toBe('/bin/zsh');
+    expect(manualInstallHint('node')).toBeNull();
   });
 });

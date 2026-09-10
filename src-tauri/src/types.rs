@@ -1,6 +1,6 @@
 //! # Shared Types
 //!
-//! This module contains all shared structs and types used across the Ship Studio backend.
+//! This module contains all shared structs and types used across the Harbr backend.
 
 use serde::{Deserialize, Serialize};
 
@@ -253,7 +253,7 @@ pub struct ProjectMetadata {
     pub default_base_branch: Option<String>,
     /// Records where each branch was cut from (branch name → base branch), set at
     /// creation time. Powers the branch-graph visual's fork lineage; branches
-    /// created outside Ship Studio fall back to a `git merge-base` heuristic.
+    /// created outside Harbr fall back to a `git merge-base` heuristic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch_lineage: Option<std::collections::HashMap<String, String>>,
     /// Keys this app version doesn't know about, preserved verbatim across
@@ -270,7 +270,7 @@ fn default_schema_version() -> u32 {
 impl Default for ProjectMetadata {
     fn default() -> Self {
         ProjectMetadata {
-            description: "Ship Studio project metadata. Auto-generated - safe to delete if needed, will be recreated.".to_string(),
+            description: "Harbr project metadata. Auto-generated - safe to delete if needed, will be recreated.".to_string(),
             schema_version: PROJECT_METADATA_SCHEMA_VERSION,
             hosting: None,
             last_opened: None,
@@ -843,6 +843,8 @@ pub struct QuickSetupCheck {
 #[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppState {
+    /// Harbr has checked for supported legacy Harbr JSON state.
+    pub legacy_state_migration_complete: bool,
     /// Whether full setup has been completed at least once
     pub setup_complete: bool,
     /// Timestamp when setup was completed (Unix ms)
@@ -894,13 +896,13 @@ pub struct AppState {
     /// Defaults to true so existing users retain the current preview layout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub element_breadcrumb_enabled: Option<bool>,
-    /// Whether commits Ship Studio makes carry the `Made-With` attribution
+    /// Whether commits Harbr makes carry the `Made-With` attribution
     /// trailer. Defaults to on. It is a trailer rather than a subject-line
     /// suffix, so `git log --oneline` reads exactly as it did before and the
     /// cost of leaving it on is one line nobody reads twice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit_attribution_enabled: Option<bool>,
-    /// Whether pushing from Ship Studio also writes a team record into
+    /// Whether pushing from Harbr also writes a team record into
     /// `.shipstudio-team/`. Defaults to on: a feed nobody writes to is the
     /// GitHub half forever, which is the state the feature exists to improve.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -75,8 +75,8 @@ export function TeamPeoplePanel({
     <div className={`team-people${compact ? ' is-compact' : ''}`}>
       {!compact && (
         <p className="team-people-note">
-          Everyone with access to this repository on GitHub. Roles come from GitHub. Ship Studio has
-          no accounts of its own, so there is nothing here to invite anyone to.
+          Everyone with access to this repository on GitHub. Roles come from GitHub. Harbr has no
+          accounts of its own, so there is nothing here to invite anyone to.
         </p>
       )}
 

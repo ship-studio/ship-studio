@@ -1,6 +1,6 @@
 # CSS ownership and load order
 
-This is the ownership baseline for Ship Studio's application styles. The executable inventory is
+This is the ownership baseline for Harbr's application styles. The executable inventory is
 `scripts/check-css-ownership.mjs`; run `pnpm exec node scripts/check-css-ownership.mjs --report` to
 print the current stylesheet-by-stylesheet ownership table, including the importer, selector
 policy, and load-order dependency. The check runs as part of `pnpm check:patterns` and fails on

@@ -1,5 +1,5 @@
 /**
- * Automatic error reporting to the Ship Studio admin agent.
+ * Automatic error reporting to the Harbr admin agent.
  *
  * Uncaught frontend errors (ErrorBoundary, window.onerror, unhandledrejection)
  * are forwarded to the Rust backend (`report_frontend_error`), which scrubs
@@ -69,11 +69,10 @@ export function reportError(report: ErrorReport): void {
   try {
     if (!reportingEnabled()) return;
     if (!shouldReport(report)) return;
-    void invoke('report_frontend_error', {
+    void invoke('log_frontend_event', {
+      level: 'error',
       message: report.message,
-      stack: report.stack,
-      source: report.source ?? 'frontend',
-      fingerprint: report.fingerprint,
+      context: { stack: report.stack, source: report.source, fingerprint: report.fingerprint },
     }).catch(() => {});
   } catch {
     // Error reporting must never be the thing that crashes the app.

@@ -15,6 +15,7 @@
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -33,7 +34,7 @@ pub struct WorkspaceInfo {
     pub is_web: bool,
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn detect_workspaces(project_path: String) -> Result<Vec<WorkspaceInfo>, CommandError> {
     let root = validate_project_path(&project_path)?;

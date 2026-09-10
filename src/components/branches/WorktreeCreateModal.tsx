@@ -72,7 +72,7 @@ function WorktreeCreateForm({
 
   const effectiveBranch = mode === 'new' ? sanitizeBranchName(branchName) : existingBranch;
   const destinationHint = effectiveBranch
-    ? `~/ShipStudio/.worktrees/${basename(projectPath)}/${worktreeFolderName(effectiveBranch)}`
+    ? `~/Harbr/.worktrees/${basename(projectPath)}/${worktreeFolderName(effectiveBranch)}`
     : null;
   const canSubmit = !isCreating && effectiveBranch.length > 0;
 

@@ -4,7 +4,7 @@
  * session in the active workspace.
  *
  * Shared libraries let a user carry their own skills and reference docs across
- * a workspace's projects: Ship Studio passes each registered folder to the
+ * a workspace's projects: Harbr passes each registered folder to the
  * agent via its additional-directory flag (Claude Code's `--add-dir`), so the
  * folder's skills load and its files are readable in every project. The
  * folder's own CLAUDE.md is never loaded, so it can't override the project's

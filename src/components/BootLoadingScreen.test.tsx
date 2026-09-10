@@ -27,8 +27,8 @@ describe('BootLoadingScreen', () => {
 
   it('shows the logo and progress bar initially', () => {
     render(<BootLoadingScreen />);
-    expect(screen.getByAltText('Ship Studio')).toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'Starting Ship Studio' })).toHaveAttribute(
+    expect(screen.getByAltText('Harbr')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Starting Harbr' })).toHaveAttribute(
       'aria-valuenow',
       '0'
     );
@@ -49,8 +49,8 @@ describe('BootLoadingScreen', () => {
       vi.advanceTimersByTime(BOOT_WATCHDOG_MS);
     });
     expect(screen.getByText(/taking longer than expected/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Restart Ship Studio' })).toBeInTheDocument();
-    expect(screen.getByText(/~\/Library\/Logs\/ShipStudio\//)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restart Harbr' })).toBeInTheDocument();
+    expect(screen.getByText(/~\/Library\/Logs\/Harbr\//)).toBeInTheDocument();
   });
 
   it('calls relaunch when the restart button is clicked', async () => {
@@ -58,7 +58,7 @@ describe('BootLoadingScreen', () => {
     act(() => {
       vi.advanceTimersByTime(BOOT_WATCHDOG_MS);
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Restart Ship Studio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restart Harbr' }));
     await act(async () => {
       await vi.runAllTimersAsync();
     });

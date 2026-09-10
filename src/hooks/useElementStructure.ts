@@ -94,7 +94,7 @@ const RESELECT_WINDOW_MS = 8000;
  */
 export function structuralEditMessage(message: string): string {
   if (message.includes('no class in source to anchor')) {
-    return 'This element has no class for Ship Studio to find it in your code. Add a class to it first (the Add class action), then try again.';
+    return 'This element has no class for Harbr to find it in your code. Add a class to it first (the Add class action), then try again.';
   }
   if (
     message.includes('several places whose markup differs') ||
@@ -121,7 +121,7 @@ export function structuralEditMessage(message: string): string {
   // #789). Rephrased, but NOT treated as expected below: it still points at
   // markup the span mapper can't read, which is worth a report.
   if (message.includes("couldn't map this element to its source markup")) {
-    return "Ship Studio couldn't read this element's full markup in your code. Select a more specific element, or ask your agent to make this change.";
+    return "Harbr couldn't read this element's full markup in your code. Select a more specific element, or ask your agent to make this change.";
   }
   return message;
 }

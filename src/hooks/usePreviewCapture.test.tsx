@@ -32,7 +32,7 @@ let screenshotGate: Promise<void> = Promise.resolve();
 vi.mock('tauri-plugin-screenshots-api', () => ({
   getScreenshotableWindows: async () => {
     await screenshotGate;
-    return [{ id: 1, title: 'Ship Studio' }];
+    return [{ id: 1, title: 'Harbr' }];
   },
   getWindowScreenshot: () => Promise.resolve('/tmp/shot.png'),
 }));

@@ -320,8 +320,8 @@ enum OsascriptOutcome {
 /// the read and control paths say the same thing.
 #[cfg(target_os = "macos")]
 const PERMISSION_DENIED_MESSAGE: &str =
-    "Ship Studio isn't allowed to control Spotify. Enable it in System Settings → \
-     Privacy & Security → Automation, under Ship Studio.";
+    "Harbr isn't allowed to control Spotify. Enable it in System Settings → \
+     Privacy & Security → Automation, under Harbr.";
 
 #[cfg(target_os = "macos")]
 const NOT_RUNNING_MESSAGE: &str = "Spotify isn't running.";
@@ -352,7 +352,7 @@ async fn platform_get_state() -> Result<SpotifyState, CommandError> {
 ///
 /// Never fails just because Spotify is closed or unapproved — those are
 /// reported through [`SpotifyState::status`], not through `Err`.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn get_spotify_state() -> Result<SpotifyState, CommandError> {
     platform_get_state().await
@@ -453,7 +453,7 @@ async fn platform_control(action: String, value: Option<f64>) -> Result<(), Comm
 /// window). Anything else is a
 /// [`CommandError::Validation`]; controlling a closed Spotify is a clean
 /// [`CommandError::Expected`] rather than a launch.
-#[tauri::command]
+#[ship_studio_macros::ship_command]
 #[tracing::instrument]
 pub async fn spotify_control(action: String, value: Option<f64>) -> Result<(), CommandError> {
     platform_control(action, value).await

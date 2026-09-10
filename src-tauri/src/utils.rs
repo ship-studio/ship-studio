@@ -1,6 +1,6 @@
 //! # Shared Utilities
 //!
-//! This module contains shared utility functions used across the Ship Studio backend.
+//! This module contains shared utility functions used across the Harbr backend.
 
 use std::process::Command;
 use std::sync::{LazyLock, Mutex, RwLock};
@@ -71,7 +71,15 @@ fn get_login_shell_path() -> Option<String> {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // $SHELL is set in virtually every real session; the fallback only matters
+    // for odd launch contexts. It must still be a shell that exists — zsh is
+    // macOS's default but is absent from a stock Linux distro.
+    #[cfg(target_os = "macos")]
+    const FALLBACK_SHELL: &str = "/bin/zsh";
+    #[cfg(not(target_os = "macos"))]
+    const FALLBACK_SHELL: &str = "/bin/bash";
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| FALLBACK_SHELL.to_string());
 
     // -l (login) + -i (interactive) so the shell sources the rc files that set up
     // version managers (nvm/fnm/asdf typically live in the interactive rc). A
@@ -439,7 +447,7 @@ pub fn git_command() -> Result<Command, crate::errors::CommandError> {
         // wizard handles, not an app malfunction.
         None => Err(crate::errors::CommandError::expected(
             "Git isn't installed or couldn't be located. Install Git \
-             (https://git-scm.com) and restart Ship Studio, then try again",
+             (https://git-scm.com) and restart Harbr, then try again",
         )),
     }
 }
@@ -447,7 +455,7 @@ pub fn git_command() -> Result<Command, crate::errors::CommandError> {
 /// Like [`git_command`], but scoped to a repository directory: sets the
 /// working directory and passes `-c safe.directory=<dir>` so git's
 /// dubious-ownership safeguard (CVE-2022-24765) doesn't hard-fail when the
-/// repo is owned by a different OS user than the one running Ship Studio —
+/// repo is owned by a different OS user than the one running Harbr —
 /// e.g. a project restored or synced from another Windows profile (issue
 /// #305). Trust is scoped per-invocation to this exact directory (which
 /// callers have already passed through `validate_project_path`); nothing is
@@ -620,9 +628,9 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
         && lower.contains("operation not permitted")
     {
         return Some(crate::errors::CommandError::expected(
-            "Ship Studio isn't allowed to read this project's folder — macOS blocked access. \
+            "Harbr isn't allowed to read this project's folder — macOS blocked access. \
              Grant access in System Settings → Privacy & Security → Files & Folders (or give \
-             Ship Studio Full Disk Access), then try again.",
+             Harbr Full Disk Access), then try again.",
         ));
     }
     // git's allocator giving up ("fatal: Out of memory, malloc failed (tried
@@ -725,13 +733,13 @@ pub fn classify_fs_error(
 ) -> crate::errors::CommandError {
     if cfg!(target_os = "macos") && e.raw_os_error() == Some(1) {
         crate::errors::CommandError::expected(format!(
-            "Ship Studio isn't allowed to {action} ({}). Grant access in System Settings → \
+            "Harbr isn't allowed to {action} ({}). Grant access in System Settings → \
              Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
             path.display()
         ))
     } else if cfg!(windows) && e.raw_os_error() == Some(5) {
         crate::errors::CommandError::expected(format!(
-            "Ship Studio couldn't {action} ({}) — Windows denied access. The file may be \
+            "Harbr couldn't {action} ({}) — Windows denied access. The file may be \
              briefly locked by antivirus, another program, or cloud sync (e.g. OneDrive). \
              Try again in a moment.",
             path.display()
@@ -740,7 +748,7 @@ pub fn classify_fs_error(
         || (cfg!(windows) && e.raw_os_error() == Some(19))
     {
         crate::errors::CommandError::expected(format!(
-            "Ship Studio couldn't {action} ({}) — the disk or volume is read-only. Move \
+            "Harbr couldn't {action} ({}) — the disk or volume is read-only. Move \
              the project to a writable location, then try again.",
             path.display()
         ))
@@ -749,7 +757,7 @@ pub fn classify_fs_error(
         // by root after a `sudo` install), not a malfunction — give the fix and
         // skip telemetry, matching `opencode_config_save`'s #471 treatment.
         crate::errors::CommandError::expected(format!(
-            "Ship Studio isn't allowed to {action} ({}) — permission denied. The file or \
+            "Harbr isn't allowed to {action} ({}) — permission denied. The file or \
              folder is likely owned by another user. In a terminal, run: \
              sudo chown -R $(whoami) \"{}\" — then try again.",
             path.display(),
@@ -760,7 +768,7 @@ pub fn classify_fs_error(
         // cloud-sync provider's file-provider daemon didn't materialize the
         // file in time. Environment friction, not corruption (issue #758).
         crate::errors::CommandError::expected(format!(
-            "Ship Studio timed out trying to {action} ({}). The folder looks like it's on a \
+            "Harbr timed out trying to {action} ({}). The folder looks like it's on a \
              cloud drive (Google Drive, OneDrive, Dropbox, iCloud) that's still syncing — \
              wait for sync to finish and try again, or keep the project on your local disk.",
             path.display()
@@ -771,13 +779,13 @@ pub fn classify_fs_error(
         // ENOSPC / ERROR_DISK_FULL: the disk is full. An environment condition
         // with a user-side fix, not a malfunction (issue #846).
         crate::errors::CommandError::expected(format!(
-            "Ship Studio couldn't {action} ({}) — the disk is full. Free up some space, \
+            "Harbr couldn't {action} ({}) — the disk is full. Free up some space, \
              then try again.",
             path.display()
         ))
     } else if cfg!(windows) && e.raw_os_error() == Some(1224) {
         crate::errors::CommandError::expected(format!(
-            "Ship Studio couldn't {action} ({}) — another program currently has the file open \
+            "Harbr couldn't {action} ({}) — another program currently has the file open \
              (often a dev server, code editor, or antivirus). Close it or wait a moment, then \
              try again.",
             path.display()
@@ -993,16 +1001,16 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
 /// [`invalidate_projects_root_cache`] when the setting changes.
 static PROJECTS_ROOT_CACHE: RwLock<Option<std::path::PathBuf>> = RwLock::new(None);
 
-/// The built-in default projects root, `~/ShipStudio`.
+/// The built-in default projects root, `~/Harbr`.
 ///
 /// This always remains a valid location even when the user configures a custom
 /// root, so projects already living in `~/ShipStudio` keep opening.
 pub fn default_projects_root() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    Ok(home.join("ShipStudio"))
+    Ok(home.join("Harbr"))
 }
 
-/// The directory Ship Studio uses to list and create projects.
+/// The directory Harbr uses to list and create projects.
 ///
 /// Resolves the user-configured root from persisted app state (cached), falling
 /// back to `~/ShipStudio`. A configured path that no longer exists on disk falls
@@ -1113,6 +1121,9 @@ pub(crate) fn allowed_project_roots() -> Vec<std::path::PathBuf> {
     if let Some(d) = default {
         roots.push(d);
     }
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join("ShipStudio"));
+    }
 
     // Canonicalize (so symlinked roots match the canonicalized candidate) + dedup.
     let mut out: Vec<std::path::PathBuf> = Vec::new();
@@ -1186,7 +1197,7 @@ pub fn canonicalize_tagged(
             // malfunction: say so plainly and keep it out of telemetry
             // (issues #365/#372, same family as #300/#342).
             crate::errors::CommandError::expected(format!(
-                "The folder '{}' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+                "The folder '{}' no longer exists — it may have been moved, renamed, or deleted outside Harbr",
                 path.display()
             ))
         } else {

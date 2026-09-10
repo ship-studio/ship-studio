@@ -1,7 +1,7 @@
 //! # Shared Libraries Commands ("attached libraries" internally)
 //!
 //! Shared libraries are local directories the user registers once per
-//! workspace and Ship Studio rides along into every agent session in that
+//! workspace and Harbr rides along into every agent session in that
 //! workspace via the agent's additional-directory flag (e.g. Claude Code's
 //! `--add-dir`). The directory's skills load and its files become readable,
 //! but its `CLAUDE.md` is deliberately NOT loaded, so a library can't hijack
@@ -12,7 +12,7 @@
 //! resolved backend-side so the frontend can't act on a stale id.
 //!
 //! The registry mirrors [`super::external_projects`]: a small JSON file under
-//! `~/ShipStudio/.shipstudio`, populated only through a native folder picker so
+//! the active projects root's `.shipstudio` directory, populated only through a native folder picker so
 //! a compromised webview can't silently attach a sensitive directory. The
 //! selected path rides into the agent as a plain CLI argument (not a validated
 //! cwd), so no path-root validation is needed here — the picker is the trust
@@ -24,18 +24,16 @@ use crate::types::{
     AttachedLibrariesConfig, AttachedLibrary, ATTACHED_LIBRARIES_CONFIG_SCHEMA_VERSION,
 };
 use serde::Deserialize;
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 // ============ Helper Functions ============
 
 /// Path to the attached libraries config file.
 fn get_config_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    Ok(home
-        .join("ShipStudio")
+    Ok(crate::utils::projects_root()?
         .join(".shipstudio")
         .join("attached-libraries.json"))
 }
@@ -129,7 +127,7 @@ fn is_registered(libraries: &[AttachedLibrary], canonical: &Path) -> bool {
 /// List the active workspace's shared libraries (for the management UI).
 /// Entries are returned exactly as stored — a directory may no longer exist on
 /// disk, which the UI can surface.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_attached_libraries() -> Result<Vec<AttachedLibrary>, CommandError> {
     let config = load_config()?;
@@ -146,7 +144,7 @@ pub async fn list_attached_libraries() -> Result<Vec<AttachedLibrary>, CommandEr
 /// Used at agent-launch to build the additional-directory flags. Missing or
 /// non-directory entries are skipped so a moved or deleted library never breaks
 /// an agent spawn.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn attached_library_dirs() -> Result<Vec<String>, CommandError> {
     let config = load_config()?;
@@ -168,20 +166,28 @@ pub async fn attached_library_dirs() -> Result<Vec<String>, CommandError> {
 ///
 /// The picker is the trust boundary: a directory can only enter the registry
 /// through explicit user selection, never a path supplied by the webview.
-#[tauri::command]
-#[tracing::instrument(skip(app))]
-pub async fn add_attached_library(app: AppHandle) -> Result<Option<String>, CommandError> {
-    let folder = app
-        .dialog()
-        .file()
-        .set_title("Select a library folder")
-        .blocking_pick_folder();
-
-    let folder_path = match folder {
-        Some(path) => path
-            .into_path()
-            .map_err(|e| format!("Invalid folder path: {e}"))?,
-        None => return Ok(None), // User cancelled
+#[ship_command]
+#[tracing::instrument]
+pub async fn add_attached_library(
+    selected_path: Option<String>,
+) -> Result<Option<String>, CommandError> {
+    let folder_path = match selected_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let Some(app) = crate::emit::tauri_app() else {
+                return Ok(None);
+            };
+            let Some(path) = app
+                .dialog()
+                .file()
+                .set_title("Select a library folder")
+                .blocking_pick_folder()
+            else {
+                return Ok(None);
+            };
+            path.into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?
+        }
     };
 
     let canonical = crate::utils::canonicalize_tagged(&folder_path, "attached_libraries")?;
@@ -214,7 +220,7 @@ pub async fn add_attached_library(app: AppHandle) -> Result<Option<String>, Comm
 
 /// Remove a shared library from the active workspace's registry. Does not
 /// delete the folder on disk.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn remove_attached_library(path: String) -> Result<(), CommandError> {
     let mut config = load_config()?;

@@ -16,7 +16,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button, buttonClassNames } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { ToggleButton } from '../primitives/ToggleButton';
@@ -24,7 +23,6 @@ import { EnumDropdown } from './EnumDropdown';
 import { MultiSourceControl } from './MultiSourceControl';
 import { UsageScope } from './UsageScope';
 import { CodeIcon } from './CodeIcon';
-import { SlackIcon } from '@/components/icons';
 import {
   CheckIcon,
   CloseIcon,
@@ -68,7 +66,6 @@ import type {
 } from '../../lib/edit';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import type { Selection } from '../../hooks/useVisualEditor';
-import { SLACK_INVITE_URL } from '../../lib/links';
 
 /** Build a ready-to-paste request for the coding agent to change text that's rendered
  *  from code/data (so it can't be edited inline). The user pastes it into the terminal
@@ -763,16 +760,6 @@ export function VisualEditorPanel({
           <strong>Visual editor is in beta.</strong> Hit a bug or have feedback? We'd genuinely
           appreciate hearing about it.
         </p>
-        <Button
-          variant="default"
-          width="fill"
-          leftIcon={<SlackIcon size={12} />}
-          className="ss-edit-panel__slack"
-          onClick={() => void openUrl(SLACK_INVITE_URL)}
-          title="Join the Ship Studio community on Slack"
-        >
-          Join the Slack
-        </Button>
       </div>
 
       {controlsVisible && (

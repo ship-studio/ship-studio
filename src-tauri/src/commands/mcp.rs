@@ -11,6 +11,7 @@
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 
 /// Represents an MCP server configured for an agent.
 #[derive(Debug, Serialize, Clone)]
@@ -185,7 +186,7 @@ fn parse_scope_from_mcp_get(output: &str) -> String {
 /// Strategy: Parse `<binary> mcp list` output which contains name, command/URL,
 /// and status for each server. Then run `<binary> mcp get <name>` per server
 /// to enrich with scope information.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(project = ?project_path, agent = ?agent_id))]
 pub async fn list_mcp_servers(
     project_path: Option<String>,
@@ -294,7 +295,7 @@ fn opencode_config_load() -> Result<(std::path::PathBuf, serde_json::Value), Com
             .map_err(|e| format!("Failed to read OpenCode config {}: {e}", path.display()))?;
         serde_json::from_str(&raw).map_err(|e| {
             CommandError::expected(format!(
-                "OpenCode's config ({}) isn't valid JSON, so Ship Studio won't edit it. Fix the file, then try again. (parse error: {e})",
+                "OpenCode's config ({}) isn't valid JSON, so Harbr won't edit it. Fix the file, then try again. (parse error: {e})",
                 path.display()
             ))
         })?
@@ -321,7 +322,7 @@ fn opencode_config_save(
             // telemetry (issue #471).
             if e.raw_os_error() == Some(13) || e.kind() == std::io::ErrorKind::PermissionDenied {
                 crate::errors::CommandError::expected(format!(
-                    "Ship Studio can't write OpenCode's config at {} — permission denied. The                      folder is likely owned by another user (often from a sudo install). In a                      terminal, run: sudo chown -R $(whoami) ~/.config/opencode — then try again.",
+                    "Harbr can't write OpenCode's config at {} — permission denied. The                      folder is likely owned by another user (often from a sudo install). In a                      terminal, run: sudo chown -R $(whoami) ~/.config/opencode — then try again.",
                     path.display()
                 ))
             } else {
@@ -378,7 +379,7 @@ fn add_opencode_mcp_server(args_str: &str) -> Result<(), CommandError> {
     let (path, mut root) = opencode_config_load()?;
     let Some(root_obj) = root.as_object_mut() else {
         return Err(CommandError::expected(format!(
-            "OpenCode's config ({}) doesn't have a JSON object at its root, so Ship Studio won't edit it.",
+            "OpenCode's config ({}) doesn't have a JSON object at its root, so Harbr won't edit it.",
             path.display()
         )));
     };
@@ -387,7 +388,7 @@ fn add_opencode_mcp_server(args_str: &str) -> Result<(), CommandError> {
         .or_insert_with(|| serde_json::json!({}));
     let Some(servers_obj) = servers.as_object_mut() else {
         return Err(CommandError::expected(format!(
-            "OpenCode's config ({}) has a non-object `mcp` key, so Ship Studio won't edit it.",
+            "OpenCode's config ({}) has a non-object `mcp` key, so Harbr won't edit it.",
             path.display()
         )));
     };
@@ -425,7 +426,7 @@ fn remove_opencode_mcp_server(name: &str) -> Result<(), CommandError> {
 /// "my-server -- npx -y @some/mcp-server"
 ///
 /// For Claude Code, appends `-s <scope>` for the configuration scope.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(agent = ?agent_id))]
 pub async fn add_mcp_server(
     raw_args: String,
@@ -509,7 +510,7 @@ pub async fn add_mcp_server(
 
 /// Turn a failed `<agent> mcp …` invocation's output into a `CommandError`,
 /// classifying the shapes that reflect machine state, org policy or the
-/// user's own agent config — not a Ship Studio bug — as `Expected` so they
+/// user's own agent config — not a Harbr bug — as `Expected` so they
 /// stay out of telemetry.
 ///
 /// Shared by the add, remove and list paths: the add path has classified
@@ -689,7 +690,7 @@ fn mcp_server_not_found(details: &str) -> bool {
 }
 
 /// Remove an MCP server by name using the agent's CLI.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(agent = ?agent_id))]
 pub async fn remove_mcp_server(
     name: String,
@@ -1193,7 +1194,7 @@ mod tests {
 
     #[test]
     fn invalid_env_var_format_is_expected() {
-        // Nothing Ship Studio can fix, either way — but the same refusal fires
+        // Nothing Harbr can fix, either way — but the same refusal fires
         // for a genuine typo in the user's own entry, so the message must lead
         // with the format requirement and offer the known upstream CLI bug
         // (issue #763, anthropics/claude-code#23365) as a possibility rather

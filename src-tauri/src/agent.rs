@@ -9,7 +9,7 @@
 
 use std::sync::RwLock;
 
-/// Configuration for an AI coding agent integrated with Ship Studio.
+/// Configuration for an AI coding agent integrated with Harbr.
 pub struct AgentConfig {
     /// Unique identifier (e.g., "claude-code")
     pub id: &'static str,
