@@ -564,6 +564,17 @@ export async function startDevServer(
   // Track whether we've registered the PTY (to avoid double registration)
   let ptyRegistered = false;
 
+  // Track whether the child has already exited. Resolving its OS pid is an
+  // async round-trip to the backend, and a dev server that dies immediately
+  // (a bad port, a broken install) can exit inside that gap — after `onExit`
+  // has already unregistered, so a late registration would put a dead pid
+  // back in the registry. The OS reuses pids, so the next teardown would then
+  // SIGKILL whatever process inherited it. Killing an unrelated process is
+  // the exact failure this whole change exists to remove, so the window is
+  // closed on both sides: skip registering after an exit, and unregister
+  // again if the exit lands while the registration is still in flight.
+  let ptyExited = false;
+
   // Function to register the PTY once we have a PID
   const registerPty = (pid: number) => {
     if (ptyRegistered) return;
@@ -583,6 +594,13 @@ export async function startDevServer(
           windowLabel,
           projectPath,
         });
+        if (ptyExited) {
+          logger.info('[DevServer] PTY exited while registering; unregistering', {
+            ptyId,
+            pid,
+          });
+          invoke('unregister_external_pty', { ptyId }).catch(() => {});
+        }
       })
       .catch((e) => {
         logger.warn('[DevServer] Failed to register PTY with backend', { error: e });
@@ -620,6 +638,13 @@ export async function startDevServer(
           });
           return;
         }
+        if (ptyExited) {
+          logger.info('[DevServer] PTY exited before its pid resolved; not registering', {
+            ptyId,
+            handle,
+          });
+          return;
+        }
         logger.info('[DevServer] OS pid resolved for PTY', { pid, handle, ptyId });
         registerPty(pid);
       })
@@ -630,6 +655,7 @@ export async function startDevServer(
 
   // Unregister when PTY exits (if it exits normally before window close)
   pty.onExit((e) => {
+    ptyExited = true;
     logger.info('[DevServer] PTY exited', { ptyId, exitCode: e.exitCode, signal: e.signal });
     invoke('unregister_external_pty', { ptyId }).catch(() => {
       // Ignore - might already be cleaned up by window close

@@ -420,11 +420,23 @@ fn append_panic_record(dir: &Path, message: &str, location: Option<&str>, backtr
 
     let _ = std::fs::create_dir_all(dir);
     let path = dir.join(PANIC_CRASHLOG_FILENAME);
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    else {
+
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    // Owner-only. This file is deliberately unscrubbed — it holds the user's
+    // own paths and panic messages, which is the point of a local crash record
+    // — and `get_log_dir` falls back to /tmp/ship-studio-logs when the home
+    // directory cannot be resolved. /tmp is world-readable, so on that path
+    // the default umask would publish a crash log to every account on the
+    // machine. The mode applies only at creation; an existing file keeps its
+    // own, which is correct for a log the user may have chosen to share.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let Ok(mut file) = options.open(&path) else {
         return;
     };
 
@@ -662,6 +674,24 @@ mod tests {
         assert!(written.contains("first death"), "earlier panic was lost");
         assert!(written.contains("second death"));
         assert_eq!(written.matches("===== PANIC =====").count(), 2);
+    }
+
+    /// The crash log carries unscrubbed paths, and the log directory falls
+    /// back to world-readable /tmp when the home directory is unavailable.
+    #[cfg(unix)]
+    #[test]
+    fn panic_crashlog_is_readable_only_by_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        append_panic_record(dir.path(), "secrets in the path", None, "bt");
+
+        let mode = std::fs::metadata(dir.path().join(PANIC_CRASHLOG_FILENAME))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "crash log was created group/world readable");
     }
 
     #[test]
