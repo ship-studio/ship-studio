@@ -17,6 +17,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('pomodoroReducer', () => {
@@ -131,6 +132,44 @@ describe('restorePomodoroState', () => {
     expect(restorePomodoroState('{nope')).toEqual(createInitialPomodoroState());
   });
 
+  it.each(['Infinity', '-Infinity', 'NaN', 'invalid', null, true, {}, [], '12'])(
+    'zeros invalid persisted counters: %j',
+    (value) => {
+      const restored = restorePomodoroState(
+        JSON.stringify({
+          ...createInitialPomodoroState(),
+          status: 'paused',
+          remainingSeconds: value,
+          completedFocusCount: value,
+        })
+      );
+      expect(restored).toMatchObject({
+        status: 'paused',
+        remainingSeconds: 0,
+        completedFocusCount: 0,
+      });
+    }
+  );
+
+  it('zeros numeric overflow and preserves finite rounding and clamping', () => {
+    const serialized = JSON.stringify(createInitialPomodoroState());
+    expect(restorePomodoroState(serialized.replace('1500', '1e400')).remainingSeconds).toBe(0);
+    for (const [value, seconds, count] of [
+      [12.6, 13, 12],
+      [-12.6, 0, 0],
+    ]) {
+      expect(
+        restorePomodoroState(
+          JSON.stringify({
+            ...createInitialPomodoroState(),
+            remainingSeconds: value,
+            completedFocusCount: value,
+          })
+        )
+      ).toMatchObject({ remainingSeconds: seconds, completedFocusCount: count });
+    }
+  });
+
   it('restores legacy running timers paused without deducting time away', () => {
     const persisted = JSON.stringify({
       ...createInitialPomodoroState(),
@@ -184,5 +223,36 @@ describe('usePomodoroTimer persistence', () => {
     expect(restarted.remainingSeconds).toBe(1490);
     const resumed = pomodoroReducer(restarted, { type: 'start', now: Date.now() });
     expect(resumed.targetTimestamp).toBe(Date.now() + 1490_000);
+  });
+});
+
+describe('usePomodoroTimer storage failures', () => {
+  it('uses initial state when reading storage throws', async () => {
+    vi.resetModules();
+    const { usePomodoroTimer: useTimer } = await import('./usePomodoroTimer');
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Storage blocked');
+    });
+    const timer = renderHook(() => useTimer());
+    expect(timer.result.current.state).toEqual(createInitialPomodoroState());
+    timer.unmount();
+  });
+
+  it('keeps ticking and retains the session across remounts when writes fail', async () => {
+    vi.resetModules();
+    localStorage.clear();
+    const { usePomodoroTimer: useTimer } = await import('./usePomodoroTimer');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Storage full');
+    });
+    const timer = renderHook(() => useTimer());
+    act(() => timer.result.current.start());
+    await act(() => vi.advanceTimersByTime(10_000));
+    expect(timer.result.current.remainingSeconds).toBe(1490);
+    timer.unmount();
+    const remounted = renderHook(() => useTimer());
+    expect(remounted.result.current.state.status).toBe('running');
+    expect(remounted.result.current.remainingSeconds).toBe(1490);
+    remounted.unmount();
   });
 });

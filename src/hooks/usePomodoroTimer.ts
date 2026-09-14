@@ -183,12 +183,20 @@ export function restorePomodoroState(serializedState: string | null): PomodoroSt
     const state: PomodoroState = {
       phase: persisted.phase as PomodoroPhase,
       status: persisted.status as PomodoroStatus,
-      remainingSeconds: Math.max(0, Math.ceil(Number(persisted.remainingSeconds) || 0)),
+      remainingSeconds:
+        typeof persisted.remainingSeconds === 'number' &&
+        Number.isFinite(persisted.remainingSeconds)
+          ? Math.max(0, Math.ceil(persisted.remainingSeconds))
+          : 0,
       targetTimestamp:
         typeof persisted.targetTimestamp === 'number' && Number.isFinite(persisted.targetTimestamp)
           ? persisted.targetTimestamp
           : null,
-      completedFocusCount: Math.max(0, Math.floor(Number(persisted.completedFocusCount) || 0)),
+      completedFocusCount:
+        typeof persisted.completedFocusCount === 'number' &&
+        Number.isFinite(persisted.completedFocusCount)
+          ? Math.max(0, Math.floor(persisted.completedFocusCount))
+          : 0,
       settings,
       needsAttention: persisted.needsAttention === true,
     };
@@ -212,13 +220,16 @@ export function formatPomodoroTime(seconds: number): string {
 
 export function usePomodoroTimer() {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
-  const [state, dispatch] = useReducer(pomodoroReducer, undefined, () =>
-    sessionState
-      ? pomodoroReducer(sessionState, { type: 'tick', now: Date.now() })
-      : restorePomodoroState(
-          typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
-        )
-  );
+  const [state, dispatch] = useReducer(pomodoroReducer, undefined, () => {
+    if (sessionState) return pomodoroReducer(sessionState, { type: 'tick', now: Date.now() });
+    try {
+      return restorePomodoroState(
+        typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
+      );
+    } catch {
+      return createInitialPomodoroState();
+    }
+  });
 
   useEffect(() => {
     sessionState = state;
@@ -226,7 +237,11 @@ export function usePomodoroTimer() {
     // This also works when the OS terminates the process without an unload event.
     const checkpoint =
       state.status === 'running' ? { ...state, status: 'paused', targetTimestamp: null } : state;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(checkpoint));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(checkpoint));
+    } catch {
+      // Storage may be blocked or full; sessionState keeps the timer usable across remounts.
+    }
   }, [state]);
 
   useEffect(() => {
