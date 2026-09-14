@@ -137,6 +137,16 @@ jobs:
           CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # The vendored PTY plugin is a path dependency, not a workspace member,
+      # so the run above compiles it but never runs its tests. It owns the
+      # assertion that `process_id` returns a real OS PID rather than a session
+      # handler — the thing standing between us and the app SIGKILLing its own
+      # process group again — and an untested guard is not a guard.
+      - name: Run PTY plugin tests
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
+        run: cargo test --manifest-path src-tauri/plugins/tauri-plugin-pty/Cargo.toml
+
   # Windows smoke test — the codebase has substantial Windows-specific logic
   # (PATH building, cmd.exe wrapping, .exe resolution in src-tauri/src/utils.rs
   # and the pty/setup/ide commands) that until now only compiled in CI on
