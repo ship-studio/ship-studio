@@ -377,9 +377,70 @@ pub fn install_panic_hook() {
         // `force_capture` ignores RUST_BACKTRACE, so user machines don't need
         // any env setup for the frames to exist.
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        // Write the local crash record FIRST, before the network report and
+        // before any chained hook. A panic that aborts the process (unwinding
+        // across an FFI/dispatch boundary, issue #684) gets no orderly
+        // shutdown, and the normal log file is behind `tracing_appender`'s
+        // non-blocking worker thread — so anything logged through `tracing`
+        // here dies buffered and the user's log just stops mid-line, with no
+        // `.ips` from the OS either. That is the "it silently vanished"
+        // report: the app leaves no evidence of its own death on the machine
+        // it died on. This write is synchronous and flushed, so it survives.
+        write_panic_crashlog(&message, location.as_deref(), &backtrace);
         report_panic(&message, location.as_deref(), &backtrace);
         prev(info);
     }));
+}
+
+/// Filename the panic hook appends to, beside the rotating `ship-studio.log`
+/// files. Deliberately NOT one of them: the rotating writer prunes to the
+/// last 14 days and a crash record is the one line worth keeping past that.
+const PANIC_CRASHLOG_FILENAME: &str = "ship-studio-crash.log";
+
+/// Append a panic to `<log dir>/ship-studio-crash.log`, synchronously.
+///
+/// Deliberately bypasses `tracing`: the file layer is a
+/// `tracing_appender::non_blocking` writer, whose worker thread never gets
+/// scheduled when a panic aborts the process, so a `tracing::error!` here
+/// would be lost exactly when it matters most. Opened, written and flushed
+/// inline instead — best-effort, and every failure is swallowed, because a
+/// panic hook that panics aborts with even less to show for it.
+///
+/// Unscrubbed on purpose: this file never leaves the machine (the scrubbed
+/// copy goes to the admin agent via `report_panic`), and stripping the
+/// user's own paths out of their own crash log only makes it harder to read.
+fn write_panic_crashlog(message: &str, location: Option<&str>, backtrace: &str) {
+    append_panic_record(&crate::logging::get_log_dir(), message, location, backtrace);
+}
+
+/// The write itself, with the directory injected so it is testable without
+/// touching the real log directory.
+fn append_panic_record(dir: &Path, message: &str, location: Option<&str>, backtrace: &str) {
+    use std::io::Write;
+
+    let _ = std::fs::create_dir_all(dir);
+    let path = dir.join(PANIC_CRASHLOG_FILENAME);
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        return;
+    };
+
+    let when = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let record = format!(
+        "\n===== PANIC =====\nunix_time: {when}\nversion:   {}\npid:       {}\nthread:    {}\nlocation:  {}\nmessage:   {message}\nbacktrace:\n{backtrace}\n",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id(),
+        std::thread::current().name().unwrap_or("<unnamed>"),
+        location.unwrap_or("<unknown>"),
+    );
+    let _ = file.write_all(record.as_bytes());
+    let _ = file.flush();
 }
 
 /// Derive a stable fingerprint for a `CommandError` crossing the IPC
@@ -568,6 +629,61 @@ pub fn report_frontend_error(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn panic_crashlog_records_message_location_and_backtrace() {
+        let dir = tempfile::tempdir().unwrap();
+        append_panic_record(
+            dir.path(),
+            "attempt to unwrap a None value",
+            Some("src/commands/ide/screenshots/webview_snapshot.rs:241:17"),
+            "0: ship_studio_lib::snapshot\n1: objc2::rc::autoreleasepool",
+        );
+
+        let written = std::fs::read_to_string(dir.path().join(PANIC_CRASHLOG_FILENAME)).unwrap();
+        assert!(written.contains("attempt to unwrap a None value"));
+        assert!(written.contains("webview_snapshot.rs:241:17"));
+        assert!(written.contains("objc2::rc::autoreleasepool"));
+        // The whole point is knowing WHICH run died — a record with no pid or
+        // version can't be matched against the user's log file.
+        assert!(written.contains(&std::process::id().to_string()));
+        assert!(written.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn panic_crashlog_appends_rather_than_truncating() {
+        let dir = tempfile::tempdir().unwrap();
+        append_panic_record(dir.path(), "first death", None, "bt-one");
+        append_panic_record(dir.path(), "second death", None, "bt-two");
+
+        let written = std::fs::read_to_string(dir.path().join(PANIC_CRASHLOG_FILENAME)).unwrap();
+        // Crashing five times in a day is the actual report this exists to
+        // answer; a writer that truncates would keep only the last one.
+        assert!(written.contains("first death"), "earlier panic was lost");
+        assert!(written.contains("second death"));
+        assert_eq!(written.matches("===== PANIC =====").count(), 2);
+    }
+
+    #[test]
+    fn panic_crashlog_creates_a_missing_log_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("Logs").join("ShipStudio");
+        append_panic_record(&nested, "panic before logging was set up", None, "bt");
+
+        assert!(nested.join(PANIC_CRASHLOG_FILENAME).exists());
+    }
+
+    #[test]
+    fn panic_crashlog_never_propagates_a_failure() {
+        // An unwritable destination must be swallowed: this runs inside the
+        // panic hook, where a second panic aborts with nothing recorded.
+        let dir = tempfile::tempdir().unwrap();
+        let blocked = dir.path().join("taken");
+        std::fs::write(&blocked, "I am a file, not a directory").unwrap();
+
+        append_panic_record(&blocked, "message", None, "bt");
+    }
+
     use super::*;
 
     // Issue #672: the "not a git repository" telemetry skip must survive

@@ -102,7 +102,7 @@ fn scrub_event(event: &mut sentry::protocol::Event<'static>) {
 }
 
 /// Get the log directory path
-fn get_log_dir() -> PathBuf {
+pub(crate) fn get_log_dir() -> PathBuf {
     // Use platform-specific log directories
     #[cfg(target_os = "macos")]
     {
