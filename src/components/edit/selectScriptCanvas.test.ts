@@ -3,9 +3,15 @@ import scriptHtml from '../../../src-tauri/src/proxy/select_script.html?raw';
 
 const scriptJs = scriptHtml.replace(/^<script>/, '').replace(/<\/script>\s*$/, '');
 
+/** Every event type the script put on `window` while it loaded. */
+let listenersAtLoad: string[] = [];
+
 beforeAll(() => {
   vi.useFakeTimers();
+  const add = vi.spyOn(window, 'addEventListener');
   window.eval(scriptJs);
+  listenersAtLoad = add.mock.calls.map(([type]) => type);
+  add.mockRestore();
 });
 
 afterAll(() => {
@@ -156,5 +162,42 @@ it('drops the selection and its boxes when the host says the canvas was clicked'
   // And the host is told, so its panels, toolbar and tree let go at the same
   // moment rather than describing an element nothing points at.
   expect(post).toHaveBeenCalledWith({ type: 'ss:deselect' }, '*');
+  post.mockRestore();
+});
+
+it('gives the single preview no wheel or pinch listener, and the canvas one only while it lasts', () => {
+  // A guard: the spy has to have seen the script register listeners at all,
+  // or the "none of them is a wheel" assertion below would pass on nothing.
+  expect(listenersAtLoad).toContain('message');
+  // Issue #959. A non-passive wheel listener costs the page its trackpad
+  // scrolling in WebKit even when it returns straight away, so the ordinary
+  // preview must not carry one.
+  expect(listenersAtLoad.filter((type) => /^(wheel|gesture)/.test(type))).toEqual([]);
+
+  const ctrlWheel = () => {
+    const event = new WheelEvent('wheel', { deltaY: 10, ctrlKey: true, cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  const post = vi.spyOn(window.parent, 'postMessage');
+
+  // On a canvas, a pinch-zoom over the frame still belongs to the canvas.
+  window.dispatchEvent(
+    new MessageEvent('message', { data: { type: 'ss:canvas', on: true, vh: 700 } })
+  );
+  expect(ctrlWheel()).toBe(true);
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'ss:wheelZoom' }), '*');
+
+  // Back to the single preview: the listeners go, not just their effect.
+  const remove = vi.spyOn(window, 'removeEventListener');
+  window.dispatchEvent(new MessageEvent('message', { data: { type: 'ss:canvas', on: false } }));
+  expect(remove.mock.calls.map(([type]) => type)).toEqual(
+    expect.arrayContaining(['wheel', 'gesturestart', 'gesturechange', 'gestureend'])
+  );
+  post.mockClear();
+  expect(ctrlWheel()).toBe(false);
+  expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ss:wheelZoom' }), '*');
+
+  remove.mockRestore();
   post.mockRestore();
 });
