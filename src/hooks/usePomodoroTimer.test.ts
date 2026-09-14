@@ -1,3 +1,4 @@
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -6,6 +7,7 @@ import {
   formatPomodoroTime,
   pomodoroReducer,
   restorePomodoroState,
+  usePomodoroTimer,
 } from './usePomodoroTimer';
 
 beforeEach(() => {
@@ -126,23 +128,22 @@ describe('pomodoroReducer', () => {
 
 describe('restorePomodoroState', () => {
   it('falls back to defaults for corrupt persisted JSON', () => {
-    expect(restorePomodoroState('{nope', Date.parse('2026-09-07T09:00:00Z'))).toEqual(
-      createInitialPomodoroState()
-    );
+    expect(restorePomodoroState('{nope')).toEqual(createInitialPomodoroState());
   });
 
-  it('resolves an elapsed persisted target to complete exactly once', () => {
+  it('restores legacy running timers paused without deducting time away', () => {
     const persisted = JSON.stringify({
       ...createInitialPomodoroState(),
       status: 'running',
       targetTimestamp: 1_000,
     });
-    const restored = restorePomodoroState(persisted, 2_000);
+    const restored = restorePomodoroState(persisted);
     expect(restored).toMatchObject({
-      status: 'complete',
-      remainingSeconds: 0,
-      completedFocusCount: 1,
-      needsAttention: true,
+      status: 'paused',
+      remainingSeconds: 1500,
+      targetTimestamp: null,
+      completedFocusCount: 0,
+      needsAttention: false,
     });
     expect(pomodoroReducer(restored, { type: 'tick', now: 3_000 })).toEqual(restored);
   });
@@ -152,5 +153,36 @@ describe('formatPomodoroTime', () => {
   it('formats remaining seconds as minutes and seconds', () => {
     expect(formatPomodoroTime(1_500)).toBe('25:00');
     expect(formatPomodoroTime(5)).toBe('00:05');
+  });
+});
+
+describe('usePomodoroTimer persistence', () => {
+  it('keeps running across workspace remounts but saves a paused restart checkpoint', async () => {
+    localStorage.clear();
+    const first = renderHook(() => usePomodoroTimer());
+    act(() => first.result.current.start());
+    await act(() => vi.advanceTimersByTime(10_000));
+    expect(first.result.current.remainingSeconds).toBe(1490);
+
+    const checkpoint = localStorage.getItem('ss:pomodoro:v1');
+    expect(JSON.parse(checkpoint!)).toMatchObject({
+      status: 'paused',
+      remainingSeconds: 1490,
+      targetTimestamp: null,
+    });
+    first.unmount();
+    await act(() => vi.advanceTimersByTime(60_000));
+
+    const second = renderHook(() => usePomodoroTimer());
+    expect(second.result.current.state.status).toBe('running');
+    expect(second.result.current.remainingSeconds).toBe(1430);
+    second.unmount();
+
+    // A fresh app process has no in-memory session and restores the checkpoint.
+    const restarted = restorePomodoroState(checkpoint);
+    expect(restarted.status).toBe('paused');
+    expect(restarted.remainingSeconds).toBe(1490);
+    const resumed = pomodoroReducer(restarted, { type: 'start', now: Date.now() });
+    expect(resumed.targetTimestamp).toBe(Date.now() + 1490_000);
   });
 });

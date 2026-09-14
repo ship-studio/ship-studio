@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PomodoroState } from '../../hooks/usePomodoroTimer';
@@ -123,6 +123,22 @@ describe('PomodoroTimer', () => {
     await user.click(screen.getByRole('button', { name: 'Open Pomodoro timer' }));
     await user.click(screen.getByRole('button', { name: 'Outside' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('closes when focus moves into the preview iframe, including after reopening', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <PomodoroTimer />
+        <iframe title="Project preview" />
+      </>
+    );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await user.click(screen.getByRole('button', { name: 'Open Pomodoro timer' }));
+      screen.getByTitle('Project preview').focus();
+      fireEvent(window, new Event('blur'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    }
   });
 
   it('sends completion feedback once only on a running-to-complete transition', () => {

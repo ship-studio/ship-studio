@@ -45,7 +45,30 @@ export function useClickOutside<T extends HTMLElement>(
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    let blurTimeout: ReturnType<typeof setTimeout> | undefined;
+    const handleWindowBlur = () => {
+      // Iframe clicks do not bubble into this document. Wait for the browser
+      // to update activeElement after focus moves into the embedded preview.
+      clearTimeout(blurTimeout);
+      blurTimeout = setTimeout(() => {
+        const target = document.activeElement;
+        if (
+          target instanceof HTMLIFrameElement &&
+          ref.current &&
+          !ref.current.contains(target) &&
+          !(excludeSelector && target.closest(excludeSelector))
+        ) {
+          callback();
+        }
+      }, 0);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      clearTimeout(blurTimeout);
+    };
   }, [ref, callback, enabled, excludeSelector]);
 }

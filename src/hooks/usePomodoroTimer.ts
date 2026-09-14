@@ -37,6 +37,8 @@ export const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
 };
 
 const STORAGE_KEY = 'ss:pomodoro:v1';
+// Keep the live deadline across workspace remounts, only for this app window.
+let sessionState: PomodoroState | null = null;
 const PHASES: PomodoroPhase[] = ['focus', 'shortBreak', 'longBreak'];
 const STATUSES: PomodoroStatus[] = ['idle', 'running', 'paused', 'complete'];
 
@@ -154,7 +156,7 @@ export function pomodoroReducer(state: PomodoroState, action: PomodoroAction): P
   }
 }
 
-export function restorePomodoroState(serializedState: string | null, now: number): PomodoroState {
+export function restorePomodoroState(serializedState: string | null): PomodoroState {
   if (!serializedState) return createInitialPomodoroState();
 
   try {
@@ -193,7 +195,7 @@ export function restorePomodoroState(serializedState: string | null, now: number
 
     if (state.status === 'running') {
       if (state.targetTimestamp === null) return createInitialPomodoroState();
-      return pomodoroReducer(state, { type: 'tick', now });
+      return { ...state, status: 'paused', targetTimestamp: null };
     }
     return state;
   } catch {
@@ -211,14 +213,20 @@ export function formatPomodoroTime(seconds: number): string {
 export function usePomodoroTimer() {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [state, dispatch] = useReducer(pomodoroReducer, undefined, () =>
-    restorePomodoroState(
-      typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY),
-      Date.now()
-    )
+    sessionState
+      ? pomodoroReducer(sessionState, { type: 'tick', now: Date.now() })
+      : restorePomodoroState(
+          typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
+        )
   );
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    sessionState = state;
+    // Persist a paused checkpoint so time spent outside the app is never deducted.
+    // This also works when the OS terminates the process without an unload event.
+    const checkpoint =
+      state.status === 'running' ? { ...state, status: 'paused', targetTimestamp: null } : state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(checkpoint));
   }, [state]);
 
   useEffect(() => {
