@@ -7,4 +7,5 @@ permissions = [
     "allow-resize",
     "allow-kill",
     "allow-exitstatus",
+    "allow-process-id",
 ]

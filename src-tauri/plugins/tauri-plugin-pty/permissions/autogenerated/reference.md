@@ -10,6 +10,7 @@ Allows all PTY commands
 - `allow-resize`
 - `allow-kill`
 - `allow-exitstatus`
+- `allow-process-id`
 
 ## Permission Table
 
@@ -68,6 +69,32 @@ Enables the kill command without any pre-configured scope.
 <td>
 
 Denies the kill command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`pty:allow-process-id`
+
+</td>
+<td>
+
+Enables the process_id command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`pty:deny-process-id`
+
+</td>
+<td>
+
+Denies the process_id command without any pre-configured scope.
 
 </td>
 </tr>

@@ -256,6 +256,59 @@ mod tests {
         assert_eq!(clamp_pty_size(24, 80), (24, 80));
         assert_eq!(clamp_pty_size(u16::MAX, u16::MAX), (u16::MAX, u16::MAX));
     }
+
+    /// Spawns a real PTY and checks the ID `process_id` hands back is an
+    /// actual, live OS process — not the session handler.
+    ///
+    /// This is the assertion the whole self-kill fix rests on. A handler is a
+    /// counter from 0, and `kill(2)` reads 0 as "my own process group", so a
+    /// `process_id` that quietly returned a handler would restore the exact
+    /// bug it was written to remove. Asserting `>= 2` is not pedantry: 0 and 1
+    /// are precisely the values that were fatal.
+    #[cfg(unix)]
+    #[test]
+    fn process_id_returns_a_live_os_pid_not_a_handler() {
+        use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+
+        // `sleep` so the child is still alive when we ask — a child that has
+        // already exited legitimately reports None, which would make this
+        // test pass for the wrong reason.
+        let mut cmd = CommandBuilder::new("sleep");
+        cmd.arg("30");
+        let child = pair.slave.spawn_command(cmd).expect("spawn");
+
+        let pid = child.process_id().expect("a running child must have an OS pid");
+
+        assert!(
+            pid >= 2,
+            "process_id returned {pid}: 0 is our own process group and 1 is launchd, so \
+             signalling this would kill Ship Studio rather than the dev server"
+        );
+
+        // The handler counter starts at 0 and stays tiny; a real macOS/Linux
+        // PID never lands in that range for a process we just spawned. If
+        // these ever coincide the assertion above is the one that matters.
+        let os_pid_exists = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status()
+            .expect("kill -0")
+            .success();
+        assert!(os_pid_exists, "PID {pid} does not name a live process");
+
+        let mut child = child;
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 /// The OS process ID of the PTY's child, as opposed to [`PtyHandler`].
