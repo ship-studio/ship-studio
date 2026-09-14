@@ -598,14 +598,30 @@ export async function startDevServer(
   const ptyInit = (pty as any)._init as Promise<unknown> | undefined;
   if (ptyInit) {
     ptyInit
-      .then(() => {
-        const pid = pty.pid;
-        if (typeof pid === 'number') {
-          logger.info('[DevServer] PID available via _init', { pid, ptyId });
-          registerPty(pid);
-        } else {
-          logger.warn('[DevServer] _init resolved without a PID', { ptyId });
+      .then(async () => {
+        // `pty.pid` is NOT an OS process ID, despite tauri-pty's own type
+        // saying so: it is the plugin's session handler, an AtomicU32 counter
+        // that starts at 0 on every app launch. Registering it for cleanup
+        // meant the backend later ran `kill -TERM <handler>` — and handler 0,
+        // which the session's first dev server always gets, means "every
+        // process in my own process group" to kill(2). Ship Studio SIGKILLed
+        // itself: no crash report, no exit hook, the log just stopped. Ask the
+        // plugin for the child's real PID instead.
+        const handle = pty.pid;
+        if (typeof handle !== 'number') {
+          logger.warn('[DevServer] _init resolved without a PTY handle', { ptyId });
+          return;
         }
+        const pid = await invoke<number | null>('plugin:pty|process_id', { pid: handle });
+        if (typeof pid !== 'number') {
+          logger.warn('[DevServer] No OS pid for PTY handle; skipping registration', {
+            ptyId,
+            handle,
+          });
+          return;
+        }
+        logger.info('[DevServer] OS pid resolved for PTY', { pid, handle, ptyId });
+        registerPty(pid);
       })
       .catch((e) => {
         logger.warn('[DevServer] _init rejected', { ptyId, error: String(e) });

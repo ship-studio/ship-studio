@@ -36,9 +36,39 @@ pub(super) struct PtyInfo {
 pub(super) static PTY_REGISTRY: LazyLock<Mutex<HashMap<u32, PtyInfo>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Lowest PID we will ever signal.
+///
+/// `kill(2)` gives PIDs below 2 a meaning that has nothing to do with "this
+/// process": **0 is every process in the caller's own process group** — which
+/// is Ship Studio — and 1 is init/launchd. A dev server is never either one,
+/// so anything under this floor is a bug in the caller, not a process to kill.
+///
+/// This floor exists because of a real incident, not as defensive decoration:
+/// the frontend registered `pty.pid` from tauri-pty, which is the plugin's
+/// session *handler* (an `AtomicU32` counter starting at 0), not an OS PID.
+/// The first dev server of every app session therefore registered as PID 0,
+/// and tearing it down ran `kill -TERM 0` → `kill -9 0`, SIGKILLing Ship
+/// Studio's own process group. The app vanished mid-frame with no crash
+/// report, no `RunEvent::Exit` cleanup, and a log that simply stopped — five
+/// times in one day before anyone traced it. The registration is fixed at the
+/// source too, but the floor is what makes "the app kills itself" structurally
+/// impossible rather than merely unlikely.
+const LOWEST_SIGNALABLE_PID: u32 = 2;
+
+/// True when `pid` is safe to pass to `kill`. See [`LOWEST_SIGNALABLE_PID`].
+pub(super) fn is_signalable_pid(pid: u32) -> bool {
+    pid >= LOWEST_SIGNALABLE_PID
+}
+
 /// Check if a process with the given PID is still running
 #[cfg(unix)]
 pub(super) fn is_process_running(pid: u32) -> bool {
+    // `kill -0 0` succeeds for as long as WE are alive (it probes our own
+    // process group), so without this guard a bogus 0 reads as "still
+    // running" forever and pushes every caller down its force-kill path.
+    if !is_signalable_pid(pid) {
+        return false;
+    }
     // kill -0 checks if process exists without actually sending a signal
     create_command("kill")
         .args(["-0", &pid.to_string()])
@@ -49,6 +79,15 @@ pub(super) fn is_process_running(pid: u32) -> bool {
 
 /// Kill a process by PID with graceful shutdown
 pub(super) fn kill_process(pid: u32) {
+    if !is_signalable_pid(pid) {
+        tracing::error!(
+            pid,
+            "Refusing to kill PID {pid}: signalling it would hit Ship Studio's own \
+             process group (0) or launchd (1), not a child process"
+        );
+        return;
+    }
+
     #[cfg(unix)]
     {
         // Send SIGTERM first for graceful shutdown
@@ -243,4 +282,60 @@ pub fn get_system_env() -> std::collections::HashMap<String, String> {
     }
 
     env
+}
+
+#[cfg(test)]
+mod pid_guard_tests {
+    use super::*;
+
+    /// The incident this guard exists for: tauri-pty hands out session
+    /// handlers starting at 0, the frontend registered one as a PID, and
+    /// `kill -TERM 0` signalled Ship Studio's own process group.
+    #[test]
+    fn pid_zero_is_never_signalable() {
+        assert!(
+            !is_signalable_pid(0),
+            "PID 0 is the caller's own process group — signalling it kills Ship Studio"
+        );
+    }
+
+    #[test]
+    fn pid_one_is_never_signalable() {
+        assert!(
+            !is_signalable_pid(1),
+            "PID 1 is launchd/init, never our child"
+        );
+    }
+
+    #[test]
+    fn real_pids_stay_signalable() {
+        // The guard must not cost us the ability to kill actual dev servers.
+        for pid in [2, 3, 42, 3814, 99_999] {
+            assert!(
+                is_signalable_pid(pid),
+                "PID {pid} is a real process and must be killable"
+            );
+        }
+    }
+
+    /// `kill -0 0` succeeds while we are alive, so an unguarded liveness probe
+    /// reports a bogus PID as "still running" forever — which pushed
+    /// `kill_process` past its grace period and into `kill -9` every time.
+    #[cfg(unix)]
+    #[test]
+    fn bogus_pids_never_read_as_running() {
+        assert!(!is_process_running(0));
+        assert!(!is_process_running(1));
+    }
+
+    /// Belt and braces: calling the killer with 0 must return without
+    /// signalling anything. If this regresses, the test process (and the test
+    /// runner's whole process group) is what gets killed — which is precisely
+    /// the failure being guarded, so a regression is unmissable.
+    #[cfg(unix)]
+    #[test]
+    fn killing_pid_zero_is_a_no_op() {
+        kill_process(0);
+        kill_process(1);
+    }
 }

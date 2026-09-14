@@ -258,11 +258,42 @@ mod tests {
     }
 }
 
+/// The OS process ID of the PTY's child, as opposed to [`PtyHandler`].
+///
+/// `spawn` returns a `PtyHandler` — an `AtomicU32` counter that starts at 0
+/// and is only meaningful to this plugin's session map. The JS wrapper stores
+/// that value in `IPty.pid` and its type declaration calls it "the process ID
+/// of the outer process", which is simply untrue: the session's first PTY is
+/// always handler 0.
+///
+/// Anything that intends to *signal* the child needs the real thing, and a
+/// handler passed to `kill(2)` is actively dangerous — PID 0 means "every
+/// process in my own process group". Ship Studio shipped that bug: dev servers
+/// were registered for cleanup under their handler, and tearing down handler 0
+/// SIGKILLed the app itself.
+///
+/// `None` when the child has already been reaped and the OS ID is gone.
+#[tauri::command]
+async fn process_id(
+    pid: PtyHandler,
+    state: tauri::State<'_, PluginState>,
+) -> Result<Option<u32>, String> {
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&pid)
+        .ok_or("Unavaliable pid")?
+        .clone();
+    let process_id = session.child.lock().await.process_id();
+    Ok(process_id)
+}
+
 /// Initializes the plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::<R>::new("pty")
         .invoke_handler(tauri::generate_handler![
-            spawn, write, read, resize, kill, exitstatus
+            spawn, write, read, resize, kill, exitstatus, process_id
         ])
         .setup(|app_handle, _api| {
             app_handle.manage(PluginState::default());

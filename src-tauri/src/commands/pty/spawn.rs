@@ -252,6 +252,29 @@ pub fn register_external_pty(
     description: String,
     project_path: Option<String>,
 ) -> Result<(), CommandError> {
+    // Reject a PID we could never legitimately signal before it reaches the
+    // registry. PID 0 means "my own process group" to `kill(2)`, so storing it
+    // here is how Ship Studio used to kill itself on the next teardown: the
+    // frontend passed tauri-pty's session handler (a counter from 0) instead
+    // of an OS PID, and the session's first dev server always handed us 0.
+    // `kill_process` refuses it too; rejecting here means the registry never
+    // holds a lie in the first place, and the caller hears about it.
+    if !super::is_signalable_pid(pid) {
+        tracing::error!(
+            pty_id,
+            pid,
+            %window_label,
+            "Refusing to register PTY with PID {pid} — not an OS process ID"
+        );
+        return Err(CommandError::Validation {
+            field: "pid".to_string(),
+            reason: format!(
+                "{pid} is not a real process ID (0 means this app's own process group, \
+                 1 means launchd), so PTY {pty_id} cannot be tracked for cleanup"
+            ),
+        });
+    }
+
     if let Ok(mut registry) = PTY_REGISTRY.lock() {
         registry.insert(
             pty_id,
@@ -298,6 +321,58 @@ pub fn unregister_external_pty(pty_id: u32) -> Result<(), CommandError> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// The registry must never hold a PID that would signal us. This is the
+    /// exact shape the frontend used to send: tauri-pty's session handler,
+    /// which is 0 for the first dev server of every app launch.
+    #[test]
+    fn register_external_pty_rejects_pid_zero() {
+        let err = register_external_pty(
+            "main".to_string(),
+            0,
+            123_456,
+            "Dev server on port 3814".to_string(),
+            Some("/tmp/project".to_string()),
+        )
+        .expect_err("PID 0 must be rejected — it is our own process group");
+
+        assert!(matches!(err, CommandError::Validation { .. }));
+        assert!(
+            !PTY_REGISTRY.lock().unwrap().contains_key(&123_456),
+            "a rejected PID must not reach the registry"
+        );
+    }
+
+    #[test]
+    fn register_external_pty_rejects_pid_one() {
+        let err = register_external_pty(
+            "main".to_string(),
+            1,
+            123_457,
+            "Dev server".to_string(),
+            None,
+        )
+        .expect_err("PID 1 is launchd");
+        assert!(matches!(err, CommandError::Validation { .. }));
+        assert!(!PTY_REGISTRY.lock().unwrap().contains_key(&123_457));
+    }
+
+    #[test]
+    fn register_external_pty_accepts_a_real_pid() {
+        register_external_pty(
+            "main".to_string(),
+            48_231,
+            123_458,
+            "Dev server on port 3000".to_string(),
+            Some("/tmp/project".to_string()),
+        )
+        .expect("a real PID must still register");
+
+        let registry = PTY_REGISTRY.lock().unwrap();
+        assert_eq!(registry.get(&123_458).map(|info| info.pid), Some(48_231));
+    }
+
     use super::describe_signal_termination;
 
     // The #589 shape: pnpm install OOM-killed mid-import surfaced only as
