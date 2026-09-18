@@ -19,6 +19,7 @@ import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
+import { getWorkspaceSubpath, resolveWorkspacePath } from '../lib/project';
 
 /** How often to refresh the page list (ms). This drives a real filesystem
  *  walk on the backend (`list_pages` → `scan_astro_pages`), not a cheap
@@ -228,7 +229,22 @@ export function usePreviewConnection({
   // Load pages
   const loadPages = useCallback(async () => {
     try {
-      const pageList = await invoke<PageInfo[]>('list_pages', { projectPath });
+      // Monorepo projects serve their pages out of a workspace subdir (e.g.
+      // `apps/web`), which is where the dev server actually runs (see
+      // useDevServer's resolveDevServerCwd). Scanning the raw `projectPath`
+      // instead left the page selector permanently empty for those projects,
+      // since none of the app/src/pages directories `list_pages` looks for
+      // exist at the repo root.
+      let workspacePath = projectPath;
+      try {
+        const subpath = await getWorkspaceSubpath(projectPath);
+        workspacePath = resolveWorkspacePath(projectPath, subpath);
+      } catch (err) {
+        logger.warn('[Preview] getWorkspaceSubpath failed; scanning repo root for pages', {
+          error: formatCommandError(asCommandError(err)),
+        });
+      }
+      const pageList = await invoke<PageInfo[]>('list_pages', { projectPath: workspacePath });
       setPages(pageList);
     } catch (error) {
       // `list_pages` rejects with a plain CommandError object (not an Error
