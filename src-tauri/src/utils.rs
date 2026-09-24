@@ -649,6 +649,18 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
              sudo chown -R $(whoami) <project>/.git), then try again.",
         ));
     }
+    // The same failure at the write-temp-then-rename step. Besides a full disk
+    // or permissions, it is what Git for Windows reports for a project on a
+    // WSL share (`\\wsl.localhost\...`), whose rename semantics don't match a
+    // local volume (issue #955).
+    if lower.contains("unable to write new_index file") {
+        return Some(crate::errors::CommandError::expected(
+            "Git couldn't write this project's index file. Check that the disk isn't full and \
+             that the project's .git folder is writable. If the project is on a network or WSL \
+             drive (\\\\wsl.localhost\\…), Git for Windows often can't write there — run git \
+             from inside WSL or move the project to a local folder, then try again.",
+        ));
+    }
     None
 }
 
@@ -1745,6 +1757,17 @@ mod tests {
             assert!(matches!(err, CommandError::Expected { .. }));
             assert!(err.to_string().contains("index file"));
             assert!(git_environment_gap("fatal: bad object HEAD").is_none());
+        }
+
+        /// #955: `git commit` on a project reached through a WSL share.
+        #[test]
+        fn unable_to_write_new_index_is_an_environment_gap() {
+            let stderr = "warning: encountered old-style '//wsl.localhost/Ubuntu/home/u/repos/x' \
+                that should be '%(prefix)///wsl.localhost/Ubuntu/home/u/repos/x'\n\
+                fatal: unable to write new_index file";
+            let err = git_environment_gap(stderr).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("WSL"), "got: {err}");
         }
 
         /// #1027: a commit-graph entry whose object is gone, as `git merge`

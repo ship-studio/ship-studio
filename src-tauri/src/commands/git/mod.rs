@@ -423,6 +423,13 @@ pub fn git_stage_and_commit_authored(
                     .into());
             }
         } else {
+            // Environment gaps (Xcode licence, OOM, an unwritable index…)
+            // stop staging as surely as `git status` — classify them the same
+            // way instead of leaking the raw text (issue #955).
+            if let Some(gap) = crate::utils::git_environment_gap(&add_stderr) {
+                tracing::warn!(error = %add_stderr.trim(), "git blocked by an environment gap while staging");
+                return Err(gap);
+            }
             return Err(add_stderr.into());
         }
     }
@@ -487,6 +494,10 @@ pub fn git_stage_and_commit_authored(
         } else {
             stderr.to_string()
         };
+        if let Some(gap) = crate::utils::git_environment_gap(&detail) {
+            tracing::warn!(error = %detail.trim(), "git blocked by an environment gap while committing");
+            return Err(gap);
+        }
         return Err(detail.into());
     }
 
