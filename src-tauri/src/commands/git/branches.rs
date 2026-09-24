@@ -353,10 +353,14 @@ pub async fn switch_branch(
     } else {
         checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
     }
-    let checkout_output =
+    // `checkout` rewrites the index, so it can lose the `.git/index.lock` race
+    // to the snapshot watcher or the user's agent like every other
+    // index-mutating call site — ride it out rather than fail (issue #1028).
+    let checkout_output = crate::utils::output_retrying_index_lock(|| {
         crate::external_command::spawn_with_pressure_retry("git checkout", || {
             checkout_cmd.output()
-        })?;
+        })
+    })?;
 
     if !checkout_output.status.success() {
         // Checkout failed - restore the stash if we made one
@@ -540,8 +544,11 @@ pub async fn create_branch(
         // Create branch from current HEAD (preserves local changes)
         let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
         co_cmd.args(["checkout", "-b", &branch_name]);
-        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
-            co_cmd.output()
+        // Index-mutating: retry a lost `.git/index.lock` race (issue #1028).
+        let output = crate::utils::output_retrying_index_lock(|| {
+            crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+                co_cmd.output()
+            })
         })?;
 
         if !output.status.success() {
@@ -584,8 +591,11 @@ pub async fn create_branch(
 
         let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
         co_cmd.args(["checkout", "-b", &branch_name, &base_ref]);
-        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
-            co_cmd.output()
+        // Index-mutating: retry a lost `.git/index.lock` race (issue #1028).
+        let output = crate::utils::output_retrying_index_lock(|| {
+            crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+                co_cmd.output()
+            })
         })?;
 
         if !output.status.success() {
