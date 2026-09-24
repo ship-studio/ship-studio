@@ -20,6 +20,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import { mockIPC } from '@tauri-apps/api/mocks';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { SpotifyWidget } from './SpotifyWidget';
 import { ToastContext } from '../../contexts/ToastContext';
 import type { SpotifyState } from '../../lib/spotify';
@@ -123,6 +124,28 @@ describe('SpotifyWidget', () => {
     expect(screen.getByRole('button', { name: 'Open Privacy Settings' })).toBeInTheDocument();
     // Not the "ok" transport row.
     expect(screen.queryByLabelText('Pause')).not.toBeInTheDocument();
+  });
+
+  it('opens Automation settings, and says so when the system refuses', async () => {
+    spotifyState = state({ status: 'permission_denied', playerState: null, trackName: null });
+    // Verbatim from issue #994: what a missing capability scope produces.
+    vi.mocked(openUrl).mockRejectedValueOnce(
+      'Not allowed to open url x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
+    );
+
+    const showToast = vi.fn();
+    render(
+      <ToastContext.Provider value={{ toasts: [], showToast, dismissToast: vi.fn() }}>
+        <SpotifyWidget />
+      </ToastContext.Provider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Privacy Settings' }));
+
+    expect(openUrl).toHaveBeenCalledWith(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
+    );
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.any(String), 'error'));
   });
 
   it('does not render the permission-denied row when the sidebar is collapsed', async () => {
