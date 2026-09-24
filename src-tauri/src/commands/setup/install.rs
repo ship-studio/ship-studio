@@ -107,6 +107,26 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
         ));
     }
 
+    // Homebrew couldn't download its own bundled "portable ruby" runtime —
+    // a network/firewall/proxy (or local disk) problem reaching ghcr.io or
+    // github.com, unrelated to the packages being installed. The header line
+    // alone says nothing about *why*, so carry curl's error along when brew
+    // printed one (issue #1025).
+    if stderr.contains("Failed to download ruby from the following locations") {
+        let curl = stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("curl: ("))
+            .map(|l| format!(" ({l})"))
+            .unwrap_or_default();
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew couldn't download the Ruby runtime it needs to run{curl}. \
+             This is usually a network, firewall or proxy blocking ghcr.io or github.com. \
+             Check your connection and retry this step; if it keeps failing, open Terminal \
+             and run: brew update-reset"
+        ));
+    }
+
     // Generic failure: surface the real error, not brew's auto-update banner.
     (format!("{context}: {}", brew_error_line(stderr))).into()
 }
@@ -498,6 +518,33 @@ mod tests {
             "got: {line}"
         );
         assert!(!line.contains("brew.rb:26"), "got: {line}");
+    }
+
+    /// Issue #1025: Homebrew failing to fetch its own portable Ruby is a
+    /// network/environment state — Expected, keeping curl's reason.
+    #[test]
+    fn portable_ruby_download_failure_is_expected_with_curl_reason() {
+        let stderr = "Error: Failed to download ruby from the following locations:\n\
+                      \x20 - https://ghcr.io/v2/homebrew/portable-ruby/portable-ruby/blobs/sha256:abc\n\
+                      curl: (23) Failure writing output to destination\n";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("curl: (23) Failure writing output to destination"),
+            "got: {msg}"
+        );
+        assert!(msg.contains("brew update-reset"), "got: {msg}");
+
+        let bare = humanize_brew_failure(
+            "Failed to install packages",
+            "Error: Failed to download ruby from the following locations:",
+        );
+        assert!(
+            matches!(bare, CommandError::Expected { .. }),
+            "got: {bare:?}"
+        );
+        assert!(!bare.to_string().contains("()"), "got: {bare}");
     }
 
     /// Issue #581: a "legacy DSL" formula error means the local formula
