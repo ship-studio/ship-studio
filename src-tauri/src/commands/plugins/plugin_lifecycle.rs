@@ -109,6 +109,10 @@ fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
         || lower.contains("connection timed out")
         || lower.contains("connection refused")
         || lower.contains("network is unreachable")
+        // curl's TCP connect failure: "Failed to connect to github.com port
+        // 443 after 1074 ms: Couldn't connect to server" (issue #1026).
+        || lower.contains("couldn't connect to server")
+        || lower.contains("failed to connect to")
     {
         return Some(CommandError::expected(
             "Couldn't reach the plugin's repository — check your internet connection and \
@@ -1060,6 +1064,18 @@ mod tests {
         );
         assert!(matches!(err, CommandError::Expected { .. }));
         assert!(err.to_string().contains("doesn't look like a git repository"));
+    }
+
+    #[test]
+    fn classifies_curl_connect_failure_as_expected() {
+        // Issue #1026: outbound HTTPS blocked or dropped (firewall/VPN/proxy).
+        let err = classify_clone_failure(
+            "Cloning into '.tmp-install'...\n\
+             fatal: unable to access 'https://github.com/owner/repo/': Failed to connect to \
+             github.com port 443 after 1074 ms: Couldn't connect to server\n",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("check your internet connection"));
     }
 
     #[test]
