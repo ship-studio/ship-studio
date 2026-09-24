@@ -21,9 +21,13 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: (cmd: string, args?: Record<string, unknown>) => invokeMock(cmd, args),
 }));
 
-vi.mock('../lib/logger', () => ({
-  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+const loggerMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
 }));
+vi.mock('../lib/logger', () => ({ logger: loggerMock }));
 
 vi.mock('../lib/analytics', () => ({
   trackEvent: vi.fn().mockResolvedValue(undefined),
@@ -228,6 +232,45 @@ describe('useScreenshotManagement auto-capture consent gate', () => {
     });
     expect(invokeMock).toHaveBeenCalledTimes(2);
     expect(setThumbnailsEnabled).not.toHaveBeenCalled();
+  });
+
+  it('expected failure exhausting retries is logged as a warning, not an error', async () => {
+    // Issue #969: a CommandError::expected thumbnail failure must not be
+    // auto-reported once the immediate retries run out.
+    vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
+    invokeMock.mockRejectedValue({
+      type: 'Other',
+      expected: true,
+      message:
+        "The capture browser finished without writing a screenshot — the page probably didn't render in time. The thumbnail will be retried automatically.",
+    });
+    const { result } = renderHook(() => useScreenshotManagement(makeParams()));
+
+    await triggerAutoCapture(result);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000 * 6);
+    });
+    expect(invokeMock).toHaveBeenCalledTimes(5);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      '[Thumbnail] Capture still failing after retries',
+      expect.objectContaining({ attempts: 5 })
+    );
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
+
+  it('unexpected failure exhausting retries is still logged as an error', async () => {
+    vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
+    invokeMock.mockRejectedValue('Browser screenshot failed: exit code 7, no output');
+    const { result } = renderHook(() => useScreenshotManagement(makeParams()));
+
+    await triggerAutoCapture(result);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000 * 6);
+    });
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Failed to capture thumbnail after retries',
+      expect.anything()
+    );
   });
 
   it('missing project folder: stops retrying on the NotFound wording too', async () => {
