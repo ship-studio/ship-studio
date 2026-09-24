@@ -743,6 +743,14 @@ describe('isRecognizedGitFailure — pre-commit hook refusal (issue #766)', () =
       'below), then try again.\n\nhusky - pre-commit script failed (code 1)';
     expect(isRecognizedGitFailure({ type: 'Other', message })).toBe(true);
   });
+
+  it('recognizes the commit-msg hook (commitlint) refusal (issue #1031)', () => {
+    const message =
+      "This project's commit-message checks rejected the commit message (a commit-msg hook, " +
+      "such as commitlint). Commit with a message that follows the project's rules (what " +
+      'they reported is below), then try again.\n\n✖   found 3 problems, 0 warnings';
+    expect(isRecognizedGitFailure({ type: 'Other', message })).toBe(true);
+  });
 });
 
 describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {

@@ -142,6 +142,9 @@ const BACKEND_HUMANIZED_GIT_PHRASES = [
   // project's own husky/lint-staged/test chain rejecting the commit is the
   // project working as configured, not an app malfunction.
   'pre-commit checks blocked the commit',
+  // …and its commit-msg sibling (issue #1031): commitlint rejecting the
+  // message is the project's own rules working as configured.
+  'commit-message checks rejected the commit message',
   // create_branch's taken-name refusal (issue #791). Paired with the raw-git
   // case in humanizeGitError below: because that case reconstructs this exact
   // sentence, the inequality test alone can't see it.

@@ -194,11 +194,37 @@ pub async fn has_conflicts(project_path: String) -> Result<bool, CommandError> {
 /// antivirus interference), and "Failed to check for conflicted files: " with
 /// nothing after the colon is a dead end (#921). The exit code is what made the
 /// Windows NTSTATUS failures (#850/#853/#888) diagnosable for `git status`.
+///
+/// Known environment gaps are classified *before* the repository check, for
+/// two reasons. Every signature `git_environment_gap` / `git_exit_code_gap`
+/// recognises elsewhere (OOM, Xcode licence, NTSTATUS crashes…) used to leak
+/// through raw here (#950, #962). And several of them — a macOS TCC denial on
+/// the project folder most of all — break the `rev-parse` probe just as
+/// surely as the diff, so asking "is this a repository?" first would read the
+/// denial as "no" and report a clean "no conflicts" over a real, fixable
+/// permission problem (#940).
 fn unmerged_paths_failure(
     project: &std::path::Path,
     output: &std::process::Output,
     what: &str,
 ) -> Option<CommandError> {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    let gap = if stderr.is_empty() {
+        crate::utils::git_exit_code_gap(output.status.code())
+    } else {
+        crate::utils::git_environment_gap(stderr)
+    };
+    if let Some(gap) = gap {
+        tracing::warn!(
+            error = %stderr,
+            exit_code = ?output.status.code(),
+            "[conflicts] git blocked by an environment gap while trying to {}",
+            what
+        );
+        return Some(gap);
+    }
+
     if !is_git_repository(project) {
         tracing::debug!(
             "[conflicts] {} in a folder that is not a git repository — no unmerged paths",
@@ -207,8 +233,6 @@ fn unmerged_paths_failure(
         return None;
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stderr = stderr.trim();
     if stderr.is_empty() {
         return Some(
             match output.status.code() {
@@ -902,6 +926,75 @@ mod tests {
             )
             .expect("a repository failure must report");
             assert!(err.to_string().len() < 700, "not capped: {}", err);
+        }
+
+        /// #950: a stderr `git_environment_gap` already recognises must be
+        /// classified here too, not passed through raw.
+        #[test]
+        fn a_known_environment_gap_is_classified() {
+            let dir = tempfile::tempdir().unwrap();
+            repo(dir.path());
+            for stderr in [
+                "fatal: Out of memory, (tried to allocate 5879 wchar_t's)",
+                "fatal: Out of memory, malloc failed (tried to allocate 1048576 bytes)",
+                "You have not agreed to the Xcode license agreements. Please run 'sudo \
+                 xcodebuild -license' from within a Terminal window to review and agree to \
+                 the Xcode and Apple SDKs license.",
+            ] {
+                let err = unmerged_paths_failure(
+                    dir.path(),
+                    &failed(stderr, Some(128)),
+                    "check for conflicted files",
+                )
+                .expect("an environment gap must report");
+                assert!(
+                    matches!(err, CommandError::Expected { .. }),
+                    "not classified for {stderr:?}: {err:?}"
+                );
+            }
+        }
+
+        /// #940: a TCC denial breaks the `rev-parse` probe as well, so it must
+        /// be recognised before that probe gets to call the folder "not a
+        /// repository" and answer "no conflicts". The tempdir here is not a
+        /// repository, which is exactly what the probe would conclude.
+        #[test]
+        fn a_tcc_denial_is_not_swallowed_as_no_conflicts() {
+            let dir = tempfile::tempdir().unwrap();
+            let out = failed(
+                "fatal: Unable to read current working directory: Operation not permitted",
+                Some(128),
+            );
+            let err = unmerged_paths_failure(dir.path(), &out, "check for conflicted files")
+                .expect("a permission denial must not read as 'no conflicts'");
+            assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+            assert!(err.to_string().contains("Privacy & Security"), "got: {err}");
+        }
+
+        /// #962: silent Windows NTSTATUS crashes classify the same way they do
+        /// for `git status`. Windows-only: a Unix wait status carries just 8
+        /// bits of exit code, so these values can't be synthesised there.
+        #[cfg(windows)]
+        #[test]
+        fn a_known_windows_crash_code_is_classified() {
+            let dir = tempfile::tempdir().unwrap();
+            repo(dir.path());
+            for code in [
+                0xC0000142_u32 as i32,
+                0xC0000005_u32 as i32,
+                0xC000012D_u32 as i32,
+            ] {
+                let err = unmerged_paths_failure(
+                    dir.path(),
+                    &failed("", Some(code)),
+                    "check for conflicted files",
+                )
+                .expect("a crash must report");
+                assert!(
+                    matches!(err, CommandError::Expected { .. }),
+                    "code {code}: {err:?}"
+                );
+            }
         }
 
         #[test]

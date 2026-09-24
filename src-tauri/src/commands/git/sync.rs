@@ -156,6 +156,10 @@ pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
         if let Some(err) = super::classify_git_net_error(&stderr) {
             return Err(err);
         }
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr.trim(), "git blocked by an environment gap while pulling");
+            return Err(gap);
+        }
         return Err((format!("Failed to pull: {stderr}")).into());
     }
 
@@ -238,6 +242,13 @@ pub async fn pull_and_merge(
         if let Some(err) = super::classify_git_net_error(&stderr) {
             return Err(err);
         }
+        // Machine/repository conditions git_environment_gap already knows —
+        // a corrupted object store, OOM, an unaccepted Xcode licence — are
+        // not merge malfunctions (issue #1027).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr.trim(), "git blocked by an environment gap while merging");
+            return Err(gap);
+        }
         return Err((format!("Failed to merge: {stderr}")).into());
     }
 
@@ -302,9 +313,9 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["checkout", "."])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            // `From` keeps the typed io::Error so a Windows out-of-memory spawn
+            // failure classifies as Expected (issues #861/#984).
+            .map_err(CommandError::from)
     })?;
 
     if !checkout_output.status.success() {
@@ -317,9 +328,9 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["clean", "-fd"])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            // `From` keeps the typed io::Error so a Windows out-of-memory spawn
+            // failure classifies as Expected (issues #861/#984).
+            .map_err(CommandError::from)
     })?;
 
     if !clean_output.status.success() {
