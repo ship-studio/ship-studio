@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isExpectedCommandError } from '../lib/errors';
 import { listen } from '@tauri-apps/api/event';
 import {
   executeBridgeTool,
@@ -101,11 +101,17 @@ export function useAgentBridge({
       try {
         url = await getAgentBridgeUrl(projectPath);
       } catch (err) {
-        logger.error('[AgentBridge] Failed to get bridge URL', {
-          // CommandError rejections are plain objects — String() logs
-          // "[object Object]" (issue #405).
-          error: formatCommandError(asCommandError(err)),
-        });
+        // A refusal the backend classifies Expected (the project folder is
+        // gone, or its path isn't in an allowed location — issue #974) is an
+        // environment state, not a bug: warn, so it doesn't auto-file a report.
+        // CommandError rejections are plain objects — String() logs
+        // "[object Object]" (issue #405).
+        const context = { error: formatCommandError(asCommandError(err)) };
+        if (isExpectedCommandError(err)) {
+          logger.warn('[AgentBridge] Failed to get bridge URL', context);
+        } else {
+          logger.error('[AgentBridge] Failed to get bridge URL', context);
+        }
         return;
       }
       if (cancelled) return;
