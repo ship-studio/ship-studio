@@ -302,9 +302,9 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["checkout", "."])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            // `From` keeps the typed io::Error so a Windows out-of-memory spawn
+            // failure classifies as Expected (issues #861/#984).
+            .map_err(CommandError::from)
     })?;
 
     if !checkout_output.status.success() {
@@ -317,9 +317,9 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["clean", "-fd"])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            // `From` keeps the typed io::Error so a Windows out-of-memory spawn
+            // failure classifies as Expected (issues #861/#984).
+            .map_err(CommandError::from)
     })?;
 
     if !clean_output.status.success() {
