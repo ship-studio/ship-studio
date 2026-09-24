@@ -765,6 +765,83 @@ describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {
   });
 });
 
+describe('describeProcessError — prisma generate postinstall (issue #941)', () => {
+  it('names the missing variable from PrismaConfigEnvError', () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      '> holma@0.1.0 postinstall',
+      '> prisma generate',
+      'Failed to load config file "C:\\Users\\me\\holma" as a TypeScript/JavaScript module. Error: PrismaConfigEnvError: Cannot resolve environment variable: DIRECT_URL.',
+      'npm error code 1',
+      'npm error path C:\\Users\\me\\holma',
+      'npm error command failed',
+      'npm error command C:\\WINDOWS\\system32\\cmd.exe /d /s /c prisma generate',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('`DIRECT_URL`');
+    expect(info.message).toContain('.env');
+  });
+
+  it("recognizes a failed prisma generate without Prisma's own line", () => {
+    const info = describeProcessError('⠙npm error command sh -c prisma generate');
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('prisma generate');
+  });
+
+  it('leaves other failing lifecycle scripts unclassified', () => {
+    expect(describeProcessError('npm error command sh -c node scripts/build.js').expected).toBe(
+      false
+    );
+  });
+});
+
+describe('describeProcessError — npm EEXIST (issue #943)', () => {
+  it('maps the conflict to expected guidance naming the file', () => {
+    const raw = [
+      'npm error code EEXIST',
+      'npm error path /Users/me/proj/node_modules/.bin/next',
+      'npm error EEXIST: file already exists',
+      'npm error File exists: /Users/me/proj/node_modules/.bin/next',
+      'npm error Remove the existing file and try again, or run npm',
+      'npm error with --force to overwrite files recklessly.',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('(/Users/me/proj/node_modules/.bin/next)');
+    expect(info.message).toContain('node_modules');
+  });
+
+  it('matches the advice line alone (a truncated tail)', () => {
+    const info = describeProcessError('⠸npm error with --force to overwrite files recklessly.');
+    expect(info.expected).toBe(true);
+    expect(info.message).not.toContain('(');
+  });
+});
+
+describe("describeProcessError — npm Arborist 'edgesOut' crash (issue #939)", () => {
+  it('maps the crash to cache/lockfile cleanup guidance', () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "npm error Cannot read properties of null (reading 'edgesOut')",
+      'npm notice',
+      'npm notice New major version of npm available! 10.9.8 -> 12.0.2',
+      'npm error A complete log of this run can be found in: ~/.npm/_logs/2026-09-09T07_03_36_106Z-debug-0.log',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('npm cache clean --force');
+    expect(info.message).toContain('package-lock.json');
+  });
+
+  it('does not fire on other null-property crashes', () => {
+    const info = describeProcessError("TypeError: Cannot read properties of null (reading 'foo')");
+    expect(info.expected).toBe(false);
+  });
+});
+
 describe('describeProcessError — npm network blips (issue #883)', () => {
   const raw = [
     'npm error code ECONNRESET',

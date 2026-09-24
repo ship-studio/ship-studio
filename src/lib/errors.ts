@@ -702,6 +702,55 @@ export function describeProcessError(
         "This project's dependencies have a version conflict npm won't resolve on its own (see the peer dependency mismatch in the output). Update the conflicting package to a version they agree on, or re-run the install with `--legacy-peer-deps` if that's safe for this project.",
     };
   }
+  // The project's own setup script (a package.json postinstall running
+  // `prisma generate`) needing an environment variable this machine doesn't
+  // have — Prisma's "PrismaConfigEnvError: Cannot resolve environment
+  // variable: DATABASE_URL". A fresh clone never has the project's .env, and
+  // nothing Ship Studio does can supply it: project configuration, not an app
+  // bug. The tail doesn't always carry Prisma's own line, so a failed
+  // `prisma generate` lifecycle command is recognized on its own too — a
+  // project script failing is the project's to fix (issue #941).
+  const prismaEnv = msg.match(/PrismaConfigEnvError: Cannot resolve environment variable: (\w+)/i);
+  if (prismaEnv) {
+    return {
+      expected: true,
+      message: `This project's setup script (\`prisma generate\`) needs the environment variable \`${prismaEnv[1]}\`, which isn't set. Add it to a \`.env\` file in the project (the project's README or .env.example usually says what it should be), then retry the install.`,
+    };
+  }
+  if (/npm (?:error|err!) command .*\bprisma generate\b/.test(lower)) {
+    return {
+      expected: true,
+      message:
+        "This project's setup script (`prisma generate`) failed — most often because an environment variable it needs, such as DATABASE_URL, isn't set. Check the terminal output, add what's missing to a `.env` file in the project, then retry the install.",
+    };
+  }
+  // npm refusing to overwrite a file that already exists where it wants to
+  // create one ("npm error code EEXIST" … "npm install -f to overwrite files
+  // recklessly") — typically a stale node_modules/.bin entry left by an
+  // earlier or partial install. Local project state, not an app bug; name the
+  // conflicting file when npm printed it (issue #943).
+  if (
+    /npm (?:error|err!) code eexist\b/.test(lower) ||
+    lower.includes('overwrite files recklessly')
+  ) {
+    const existing = msg.match(/File exists:\s*(\S[^\n]*)/)?.[1]?.trim();
+    const where = existing ? ` (${existing})` : '';
+    return {
+      expected: true,
+      message: `npm found a file that already exists where it needs to create one${where} — usually left over from an earlier or interrupted install. Delete the project's node_modules folder, then retry the install.`,
+    };
+  }
+  // npm's Arborist crashing on its own dependency graph ("Cannot read
+  // properties of null (reading 'edgesOut')") — a known npm bug triggered by
+  // a corrupted package-lock.json, a half-finished earlier install, or a stale
+  // npm cache. Local project/machine state, not an app bug (issue #939).
+  if (lower.includes("cannot read properties of null (reading 'edgesout')")) {
+    return {
+      expected: true,
+      message:
+        "npm crashed while reading this project's dependency tree — usually a corrupted package-lock.json, a half-finished earlier install, or a stale npm cache. Run `npm cache clean --force`, delete the project's node_modules folder and package-lock.json, then retry the install.",
+    };
+  }
   // A clone whose pack transfer was cut off partway. curl 92
   // (CURLE_HTTP2_STREAM) with "stream ... was not closed cleanly" is the
   // HTTP/2 flavour — a flaky link, a proxy or VPN multiplexing badly, or a
