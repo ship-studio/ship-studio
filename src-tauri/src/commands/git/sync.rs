@@ -362,7 +362,7 @@ pub async fn commit_changes(project_path: String, message: String) -> Result<boo
     // Self-heal a missing user.name/user.email from the gh CLI identity before
     // committing, mirroring push_to_github — without it, Submit for Review's
     // auto-commit dies on git's "Please tell me who you are" (issue #276).
-    let _ = crate::commands::github::ensure_git_identity(&validated_path);
+    let _ = crate::commands::github::ensure_git_identity(&validated_path).await;
     let committed = git_stage_and_commit(&validated_path, &message)?;
     if committed {
         GIT_CACHE.invalidate_status(&project_path);

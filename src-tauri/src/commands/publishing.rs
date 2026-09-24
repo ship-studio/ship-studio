@@ -196,7 +196,7 @@ pub async fn publish_branch(
     info!(branch = %branch, message = %message, "Publishing branch");
 
     // Ensure git identity matches GitHub account before committing
-    let _ = ensure_git_identity(&validated_path);
+    let _ = ensure_git_identity(&validated_path).await;
 
     // Stage and commit through the shared helper. The old hand-rolled sequence
     // discarded `git add -A`'s result entirely, so a staging failure surfaced
@@ -237,7 +237,10 @@ pub async fn publish_branch(
             return Err(CommandError::expected(format!("PUSH_REJECTED:{stderr}")));
         }
         if let Some(err) = push_auth_error(&stderr) {
-            error!(error = %stderr, branch = %branch, "Authentication error");
+            // warn!, not error!: every error! is forwarded to telemetry by
+            // callsite regardless of the NotAuthenticated classification
+            // below, which paged on routine no-write-access pushes (#992).
+            warn!(error = %stderr, branch = %branch, "Authentication error");
             return Err(err);
         }
         if let Some(err) = push_missing_remote_error(&stderr) {
