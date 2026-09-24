@@ -1063,7 +1063,9 @@ mod tests {
              repository?\n",
         );
         assert!(matches!(err, CommandError::Expected { .. }));
-        assert!(err.to_string().contains("doesn't look like a git repository"));
+        assert!(err
+            .to_string()
+            .contains("doesn't look like a git repository"));
     }
 
     #[test]
