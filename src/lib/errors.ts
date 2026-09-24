@@ -654,6 +654,22 @@ export function describeProcessError(
         "This project's dependencies have a version conflict npm won't resolve on its own (see the peer dependency mismatch in the output). Update the conflicting package to a version they agree on, or re-run the install with `--legacy-peer-deps` if that's safe for this project.",
     };
   }
+  // npm refusing to overwrite a file that already exists where it wants to
+  // create one ("npm error code EEXIST" … "npm install -f to overwrite files
+  // recklessly") — typically a stale node_modules/.bin entry left by an
+  // earlier or partial install. Local project state, not an app bug; name the
+  // conflicting file when npm printed it (issue #943).
+  if (
+    /npm (?:error|err!) code eexist\b/.test(lower) ||
+    lower.includes('overwrite files recklessly')
+  ) {
+    const existing = msg.match(/File exists:\s*(\S[^\n]*)/)?.[1]?.trim();
+    const where = existing ? ` (${existing})` : '';
+    return {
+      expected: true,
+      message: `npm found a file that already exists where it needs to create one${where} — usually left over from an earlier or interrupted install. Delete the project's node_modules folder, then retry the install.`,
+    };
+  }
   // npm's Arborist crashing on its own dependency graph ("Cannot read
   // properties of null (reading 'edgesOut')") — a known npm bug triggered by
   // a corrupted package-lock.json, a half-finished earlier install, or a stale

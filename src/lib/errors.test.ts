@@ -743,6 +743,29 @@ describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {
   });
 });
 
+describe('describeProcessError — npm EEXIST (issue #943)', () => {
+  it('maps the conflict to expected guidance naming the file', () => {
+    const raw = [
+      'npm error code EEXIST',
+      'npm error path /Users/me/proj/node_modules/.bin/next',
+      'npm error EEXIST: file already exists',
+      'npm error File exists: /Users/me/proj/node_modules/.bin/next',
+      'npm error Remove the existing file and try again, or run npm',
+      'npm error with --force to overwrite files recklessly.',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('(/Users/me/proj/node_modules/.bin/next)');
+    expect(info.message).toContain('node_modules');
+  });
+
+  it('matches the advice line alone (a truncated tail)', () => {
+    const info = describeProcessError('⠸npm error with --force to overwrite files recklessly.');
+    expect(info.expected).toBe(true);
+    expect(info.message).not.toContain('(');
+  });
+});
+
 describe("describeProcessError — npm Arborist 'edgesOut' crash (issue #939)", () => {
   it('maps the crash to cache/lockfile cleanup guidance', () => {
     const raw = [
