@@ -120,6 +120,7 @@ async fn status_for_link(
         lookup: None,
         transport_error: None,
         retry_after_secs: None,
+        link_missing: false,
         fetched_at: now_ms(),
         from_cache: false,
     };
@@ -165,6 +166,21 @@ async fn status_for_link(
             transport_error: Some(message),
             ..base
         },
+        Err(http::HostingHttpError::NotFound { message }) => {
+            // A documented provider answer, not an adapter bug: the project
+            // behind this link is gone or the id/scope we hold is stale.
+            // Issue #985 — this used to be reported as "couldn't read".
+            tracing::warn!(
+                provider = link.provider.label(),
+                error = %message,
+                "Hosting provider has no record of the linked project"
+            );
+            ProviderStatus {
+                token_source: Some(resolved.source),
+                link_missing: true,
+                ..base
+            }
+        }
         Err(http::HostingHttpError::Malformed { message }) => {
             // Ours to fix: either the provider changed shape or the adapter is
             // wrong. Logged loudly, shown to the user as "couldn't read".
@@ -393,6 +409,7 @@ mod tests {
             }),
             transport_error: None,
             retry_after_secs: None,
+            link_missing: false,
             fetched_at: 0,
             from_cache: false,
         }

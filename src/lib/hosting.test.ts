@@ -242,6 +242,20 @@ describe('deriveSectionState', () => {
       expect(state.retryAfterSecs).toBe(30);
     });
 
+    it('says the linked project is gone rather than that the provider was unreachable', () => {
+      // Issue #985: Vercel answered a clean 404 "Project not found" and the
+      // row said "Couldn't read Vercel's response".
+      const s = status([provider({ link_missing: true })]);
+      const state = deriveSectionState(s, { now: NOW });
+      expect(state.kind).toBe('link_missing');
+      expect(shouldPoll(state.kind)).toBe(false);
+    });
+
+    it('still prefers an auth problem over a missing link', () => {
+      const s = status([provider({ auth: { kind: 'rejected' }, link_missing: true })]);
+      expect(deriveSectionState(s, { now: NOW }).kind).toBe('token_rejected');
+    });
+
     it('prefers an auth problem over a transport one', () => {
       // A rejected token is actionable; a network blip on top of it is noise.
       const s = status([provider({ auth: { kind: 'rejected' }, transport_error: 'timeout' })]);
