@@ -64,6 +64,34 @@ fn find_agent_binary(
         .ok_or_else(|| CommandError::expected(format!("{} binary not found", agent.display_name)))
 }
 
+/// Environment fixes for every `claude mcp …` invocation.
+///
+/// - Unset CLAUDECODE, or the CLI refuses to run as a "nested session".
+/// - Drop a CLAUDE_CODE_GIT_BASH_PATH that names a file which doesn't exist.
+///   Claude Code validates that variable at startup and refuses *every*
+///   subcommand when it's stale ("Claude Code was unable to find
+///   CLAUDE_CODE_GIT_BASH_PATH path …") — which silently disabled the preview
+///   bridge's registration on machines where Git for Windows had moved. The
+///   `mcp` subcommands never run bash; unset, the CLI falls back to its own
+///   Git Bash discovery (issue #1014). A valid value is left alone.
+fn prepare_claude_env(cmd: &mut std::process::Command) {
+    cmd.env_remove("CLAUDECODE");
+    if git_bash_path_is_stale(std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH").as_deref()) {
+        tracing::warn!(
+            "CLAUDE_CODE_GIT_BASH_PATH points at a missing file; unsetting it for claude mcp"
+        );
+        cmd.env_remove("CLAUDE_CODE_GIT_BASH_PATH");
+    }
+}
+
+/// Is this CLAUDE_CODE_GIT_BASH_PATH value set but pointing at nothing?
+fn git_bash_path_is_stale(value: Option<&std::ffi::OsStr>) -> bool {
+    match value {
+        Some(v) if !v.is_empty() => !std::path::Path::new(v).is_file(),
+        _ => false,
+    }
+}
+
 /// Parse the output of `claude mcp list` which has the format:
 ///
 /// ```text
@@ -216,7 +244,7 @@ pub async fn list_mcp_servers(
 
     // For Claude Code, unset CLAUDECODE to avoid nested-session error
     if agent.id == "claude-code" {
-        list_cmd.env_remove("CLAUDECODE");
+        prepare_claude_env(&mut list_cmd);
     }
 
     if let Some(ref path) = validated_cwd {
@@ -258,7 +286,7 @@ pub async fn list_mcp_servers(
             .envs(crate::commands::accounts::get_env_vars_for_active_account());
 
         if agent.id == "claude-code" {
-            get_cmd.env_remove("CLAUDECODE");
+            prepare_claude_env(&mut get_cmd);
         }
 
         if let Some(ref path) = validated_cwd {
@@ -473,7 +501,7 @@ pub async fn add_mcp_server(
         .env("HOME", &home);
 
     if agent.id == "claude-code" {
-        cmd.env_remove("CLAUDECODE");
+        prepare_claude_env(&mut cmd);
         // Add scope flag for Claude Code
         if let Some(ref s) = scope {
             cmd.args(["-s", s]);
@@ -759,7 +787,7 @@ pub async fn remove_mcp_server(
         .env("HOME", &home);
 
     if agent.id == "claude-code" {
-        cmd.env_remove("CLAUDECODE");
+        prepare_claude_env(&mut cmd);
         if let Some(ref s) = scope {
             cmd.args(["-s", s]);
         }
@@ -1144,6 +1172,20 @@ mod tests {
             }
             other => panic!("expected Expected, got {other:?}"),
         }
+    }
+
+    // #1014: only a set-but-missing path is stale; unset, empty and real
+    // paths are left for the CLI to handle.
+    #[test]
+    fn git_bash_path_staleness() {
+        use std::ffi::OsStr;
+        assert!(!git_bash_path_is_stale(None));
+        assert!(!git_bash_path_is_stale(Some(OsStr::new(""))));
+        assert!(git_bash_path_is_stale(Some(OsStr::new(
+            "/definitely/not/here/Git/bin/bash.exe"
+        ))));
+        let real = std::env::current_exe().expect("test binary path");
+        assert!(!git_bash_path_is_stale(Some(real.as_os_str())));
     }
 
     #[test]
