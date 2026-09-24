@@ -8,7 +8,10 @@
 
 import { useCallback, useMemo } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
+import { switchBranch, type BranchInfo, type PullRequestInfo } from '../../lib/branches';
+import { queueBranchSwitch } from '../../lib/branchSwitchHandoff';
+import { trackEvent } from '../../lib/analytics';
+import { useOptionalToast } from '../../contexts/ToastContext';
 import { remoteLabel, type ProjectGitHubStatus } from '../../lib/github';
 import type { GitHubState } from '../../hooks/useIntegrationStatus';
 import {
@@ -80,6 +83,30 @@ export function BranchesMenu({
   onModalClose,
 }: BranchesMenuProps) {
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+  const { showToast } = useOptionalToast();
+
+  // `onBranchSwitch` only syncs the UI to a switch that already happened — the
+  // checkout is ours to run. Without it the UI showed the target branch until
+  // the next git poll snapped it back (issue #1012). Anything short of a clean
+  // switch goes to the Branches view, which owns the uncommitted-changes,
+  // worktree and paused-merge flows; it re-runs the switch and voices errors.
+  const switchTo = async (branchName: string) => {
+    close();
+    const result = await switchBranch(projectPath, branchName, false).catch(() => null);
+    if (result?.success) {
+      onBranchSwitch(branchName);
+      void trackEvent('branch_switched', { $screen_name: 'Workspace' });
+      showToast(
+        result.stashApplied
+          ? `Switched to ${branchName} and restored your stashed changes`
+          : `Switched to ${branchName}`,
+        'success'
+      );
+      return;
+    }
+    queueBranchSwitch(projectPath, branchName);
+    onViewBranches();
+  };
 
   // Pulling and switching branches are plain git. A project on another forge
   // is ready for all of it without `gh` — it just can't have the GitHub-only
@@ -256,7 +283,7 @@ export function BranchesMenu({
                   className="branches-menu-row branches-menu-branch-row"
                   key={`${branch.isRemote ? 'remote' : 'local'}:${branch.name}`}
                   disabled={isBranchSwitching}
-                  onClick={() => runAndClose(() => onBranchSwitch(branch.name))}
+                  onClick={() => void switchTo(branch.name)}
                 >
                   <span className="branches-menu-row-icon">
                     {branchIcon(branch.name, index === recentBranches.length - 1)}
