@@ -198,6 +198,16 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              signed in with, or switch it to one that has them, then try again."
         )));
     }
+    // The provider turning the request away because the selected model is
+    // overloaded — transient and provider-side, not an account state, so the
+    // advice is "try again or pick another model", not a reset time
+    // (issue #1030).
+    if lower.contains("model is at capacity") {
+        return Some(CommandError::expected(format!(
+            "The model {agent_name} is set to is at capacity right now, so AI generation isn't \
+             available. Try again in a few minutes, or switch {agent_name} to a different model."
+        )));
+    }
     if lower.contains("failed to load models cache")
         || lower.contains("codex_models_manager::cache")
     {
@@ -1057,6 +1067,21 @@ mod tests {
         assert!(msg.contains("out of credits"), "got: {msg}");
         assert!(!msg.contains("/usage-credits"), "got: {msg}");
         assert!(!msg.contains("resets automatically"), "got: {msg}");
+    }
+
+    // #1030: Codex's provider-side capacity refusal, behind a transcript and
+    // an unrelated temp-dir warning.
+    #[test]
+    fn classify_agent_cli_failure_model_at_capacity_is_expected() {
+        let detail = "WARNING: failed to clean up stale arg0 temp dirs: Permission denied (os error 13)\n\
+                      OpenAI Codex v0.155.1\n--------\nmodel: gpt-6-astra\n--------\nuser\n[prompt omitted]\n\n\
+                      ERROR: Selected model is at capacity. Please try a different model.\n\
+                      ERROR: Selected model is at capacity. Please try a different model.";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("at capacity"), "got: {msg}");
+        assert!(msg.contains("different model"), "got: {msg}");
     }
 
     // Expired sign-in ("run /login") is user-fixable, not a malfunction.
