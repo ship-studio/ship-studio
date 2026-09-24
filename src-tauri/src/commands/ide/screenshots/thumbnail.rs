@@ -194,8 +194,14 @@ fn browser_crash_exit_message(code: i32) -> Option<String> {
     }
     // NTSTATUS values with the error severity bits set (0xC0000000–0xCFFFFFFF)
     // are the crash codes Windows reports for a fatally faulting process.
+    // STATUS_BREAKPOINT (0x80000003) carries warning rather than error
+    // severity, so it sits outside that range — but as an exit code it is
+    // Chromium's own CHECK/ImmediateCrash trap (or security software's
+    // breakpoint hook going wrong) reaching the default handler: a crash all
+    // the same (issue #961).
+    const STATUS_BREAKPOINT: u32 = 0x8000_0003;
     let unsigned = code as u32;
-    if (0xC000_0000..=0xCFFF_FFFF).contains(&unsigned) {
+    if unsigned == STATUS_BREAKPOINT || (0xC000_0000..=0xCFFF_FFFF).contains(&unsigned) {
         return Some(format!(
             "The capture browser crashed (Windows fatal exception 0x{unsigned:08X})."
         ));
@@ -798,6 +804,16 @@ mod browser_environment_tests {
                 .unwrap_or_else(|| panic!("{code} must be named as a crash"));
             assert!(message.contains("crashed"), "got: {message}");
         }
+    }
+
+    #[test]
+    fn windows_status_breakpoint_is_named() {
+        // Issue #961: "exit code -2147483645" is 0x80000003, STATUS_BREAKPOINT.
+        let message = browser_crash_exit_message(-2147483645).expect("must be named");
+        assert!(message.contains("crashed"), "got: {message}");
+        assert!(message.contains("0x80000003"), "got: {message}");
+        // Neighbouring warning-severity codes are not crash exits.
+        assert_eq!(browser_crash_exit_message(0x8000_0005u32 as i32), None);
     }
 
     #[test]
