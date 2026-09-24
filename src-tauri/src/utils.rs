@@ -765,6 +765,17 @@ pub fn classify_fs_error(
              wait for sync to finish and try again, or keep the project on your local disk.",
             path.display()
         ))
+    } else if cfg!(target_os = "macos") && e.raw_os_error() == Some(89) {
+        // ECANCELED (macOS os error 89): the file-coordination / File
+        // Provider layer abandoned the read — the same "not really on disk
+        // yet" cloud-sync class as the ETIMEDOUT branch above (issue #948).
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — macOS canceled the read. The folder looks \
+             like it's on a cloud drive (iCloud, Google Drive, OneDrive, Dropbox) that's still \
+             syncing — wait for sync to finish and try again, or keep the project on your local \
+             disk.",
+            path.display()
+        ))
     } else if (cfg!(unix) && e.raw_os_error() == Some(28))
         || (cfg!(windows) && e.raw_os_error() == Some(112))
     {
@@ -1915,6 +1926,27 @@ mod tests {
             let msg = err.to_string();
             assert!(msg.contains("cloud drive"), "got: {msg}");
             assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #948 shape: ECANCELED reading the plugin registry from a
+        // cloud-backed folder whose provider aborted the read.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_ecanceled_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(89);
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/.shipstudio/plugins/registry.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("cloud drive"), "got: {msg}");
+            assert!(msg.contains("registry.json"), "got: {msg}");
+            assert!(!msg.contains("os error"), "got: {msg}");
         }
 
         // The #625 shape: EROFS on a project.json write (read-only volume).
