@@ -16,7 +16,12 @@ import {
   IFRAME_BLANK_TIMEOUT_MS,
 } from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
 
@@ -243,6 +248,12 @@ export function usePreviewConnection({
         logger.warn('Failed to load pages — project folder no longer exists', {
           error: message,
         });
+      } else if (isExpectedCommandError(error)) {
+        // Any other backend-Expected state — e.g. macOS privacy (TCC) denying
+        // a project under ~/Desktop, which classify_fs_error turns into
+        // actionable guidance. Same poll, same reason to stay out of
+        // telemetry (issue #944).
+        logger.warn('Failed to load pages — expected environment state', { error: message });
       } else {
         logger.error('Failed to load pages', { error: message });
       }
