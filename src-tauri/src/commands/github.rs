@@ -819,7 +819,12 @@ pub(crate) fn gh_tls_error(stderr: &str) -> Option<CommandError> {
     // "x509:" prefixes every Go certificate-verification failure variant
     // (unknown authority, expired, hostname mismatch, …) and appears nowhere
     // in ordinary gh/GraphQL output.
-    let cert_unverifiable = s.contains("failed to verify certificate") || s.contains("x509:");
+    let cert_unverifiable = s.contains("failed to verify certificate")
+        || s.contains("x509:")
+        // A TLS 1.3 handshake mangled in transit — the signature of an
+        // intercepting proxy/antivirus that doesn't implement TLS 1.3's
+        // middlebox-compatibility mode. Same cause, same remedy (issue #990).
+        || s.contains("did not echo the legacy session id");
     cert_unverifiable.then(|| {
         CommandError::expected(
             "GitHub's secure connection couldn't be verified. This usually means a corporate \
@@ -1778,6 +1783,14 @@ mod tests {
         // gh_common_error routes it to the TLS message, not the network one.
         let common = gh_common_error(stderr).expect("common classifier must cover TLS");
         assert!(format!("{common}").contains("couldn't be verified"));
+    }
+
+    #[test]
+    fn gh_tls_error_classifies_legacy_session_id_handshake_failure() {
+        let stderr = r#"Post "https://api.github.com/graphql": tls: server did not echo the legacy session ID"#;
+        let err = gh_common_error(stderr).expect("should classify as TLS interception");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("proxy"), "got: {err}");
     }
 
     #[test]
