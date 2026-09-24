@@ -517,6 +517,27 @@ fn origin_matches_repo(origin_url: &str, repo_name: &str) -> bool {
     existing.rsplit('/').next() == Some(target.as_str())
 }
 
+/// Classify a failed `git push -u origin HEAD` on the existing-origin retry
+/// path. GitHub's pre-receive declines (GH001 large file, GH005 ref too long)
+/// and its transient 5xx get the same treatment `publish_branch` gives them;
+/// this path used to skip both and file them as `git push` bugs (issue #999).
+fn existing_origin_push_error(stderr: &str, exit_code: Option<i32>) -> CommandError {
+    if let Some(err) = crate::commands::publishing::push_pre_receive_error(stderr) {
+        return err;
+    }
+    if let Some(err) = crate::commands::publishing::push_transient_server_error(stderr) {
+        return err;
+    }
+    if let Some(err) = crate::commands::git::classify_git_net_error(stderr) {
+        return err;
+    }
+    CommandError::Process {
+        cmd: "git push".to_string(),
+        exit_code: exit_code.unwrap_or(-1),
+        stderr: truncate_output(stderr),
+    }
+}
+
 /// Finish a run that already created the GitHub repo and wired up `origin`:
 /// push the branch and report the repo URL derived from the *actual* remote
 /// (never a guessed one). Failures classify through the shared git/gh
@@ -532,14 +553,7 @@ async fn push_to_existing_origin(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("Everything up-to-date") {
-            if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
-                return Err(err);
-            }
-            return Err(CommandError::Process {
-                cmd: "git push".to_string(),
-                exit_code: output.status.code().unwrap_or(-1),
-                stderr: truncate_output(&stderr),
-            });
+            return Err(existing_origin_push_error(&stderr, output.status.code()));
         }
     }
 
@@ -1301,6 +1315,27 @@ mod tests {
     /// `invalidate_github_username_cache` clears the whole cache, so without this
     /// these tests race under cargo's default multi-threaded runner.
     static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// #999: GH001 on the existing-origin retry path, as reported.
+    #[test]
+    fn existing_origin_push_classifies_large_file_rejection() {
+        let stderr = "remote: error: See https://gh.io/lfs for more information.\n\
+            remote: error: File .wrangler/state/v3/x.sqlite is 170.88 MB; this exceeds GitHub's \
+            file size limit of 100.00 MB\n\
+            remote: error: GH001: Large files detected. You may want to try Git Large File \
+            Storage - https://git-lfs.github.com.\n\
+            To https://github.com/o/r.git\n ! [remote rejected] HEAD -> main (pre-receive hook \
+            declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        let err = existing_origin_push_error(stderr, Some(1));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("100 MB"), "got: {err}");
+    }
+
+    #[test]
+    fn existing_origin_push_keeps_unknown_failures_as_process_errors() {
+        let err = existing_origin_push_error("error: something unexpected", Some(1));
+        assert!(matches!(err, CommandError::Process { .. }), "got: {err:?}");
+    }
 
     // The #686 contract: ImportProject.tsx special-cases the "took too long"
     // wording to suggest retrying (not re-authenticating), and errors.ts's
