@@ -877,7 +877,12 @@ pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
         || s.contains("gateway timeout")
         // The prose GitHub uses for its GraphQL 504s ("We couldn't respond to
         // your request in time. Sorry about that. Please try resubmitting…").
-        || s.contains("respond to your request in time");
+        || s.contains("respond to your request in time")
+        // GitHub's GraphQL wording for its own internal error ("Something
+        // went wrong while executing your query on <time>. Please include
+        // `<id>` when reporting this issue.") — no HTTP status in it, same
+        // retry-and-it-works footing (issue #978).
+        || s.contains("something went wrong while executing your query");
     is_transient.then(|| {
         CommandError::expected(
             "GitHub's API is temporarily unavailable (a GitHub server error). \
@@ -1814,6 +1819,16 @@ mod tests {
             gh_server_error("HTTP 502: Bad Gateway (https://api.github.com/graphql)").is_some()
         );
         assert!(gh_server_error("HTTP 503: Service Unavailable").is_some());
+    }
+
+    #[test]
+    fn gh_server_error_classifies_graphql_internal_error_as_expected() {
+        let stderr = "pull request create failed: GraphQL: Something went wrong while executing your query on 2026-09-13T08:56:01Z. Please include `ED52:33E5F1:1321910:179CD48:6AA6651C` when reporting this issue.";
+        let err = gh_common_error(stderr).expect("should classify as a GitHub server error");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Try again"), "got: {err}");
+        // The unprefixed shape seen from other call sites.
+        assert!(gh_server_error("GraphQL: Something went wrong while executing your query on 2026-09-22T04:03:06Z.").is_some());
     }
 
     // The #806 shape: GitHub's edge answering 499 ("Client Closed Request")
