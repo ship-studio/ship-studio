@@ -647,6 +647,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // What the search field holds, read as an address (`/path?q`, `?q`, `#h`, or
   // a pasted localhost URL). Null means it's just a page search.
   const typedAddress = parsePreviewAddress(conn.pageSearch, conn.currentPage);
+  // Every route starts with "/", so "/bl" is still a page search: while it
+  // matches listed pages, Enter keeps picking the first of them and the
+  // "Go to" row sits below them. A query, hash or pasted URL is unambiguous.
+  const typedIsPageSearch =
+    typedAddress !== null && !/[?#]/.test(typedAddress) && conn.filteredPages.length > 0;
+  const showGoToRow =
+    typedAddress !== null && !conn.filteredPages.some((page) => page.route === typedAddress);
   const currentSuffix = conn.currentLocation.slice(conn.currentPage.length);
   const goToTypedAddress = () => {
     if (!typedAddress) return;
@@ -657,6 +664,12 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       $screen_name: 'Workspace',
     });
   };
+  const goToRow = typedAddress && (
+    <DropdownItem onSelect={goToTypedAddress}>
+      <span className="page-item-hint">Go to</span>
+      <span className="page-item-route">{typedAddress}</span>
+    </DropdownItem>
+  );
   // Seed the field with the full current URL so a query param can be tweaked
   // rather than retyped.
   const editCurrentAddress = () => {
@@ -1543,7 +1556,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 value={conn.pageSearch}
                 onChange={(e) => conn.setPageSearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && typedAddress) {
+                  if (e.key === 'Enter' && typedAddress && !typedIsPageSearch) {
                     e.preventDefault();
                     goToTypedAddress();
                     return;
@@ -1576,12 +1589,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               />
             </div>
             <div className="page-list">
-              {typedAddress && (
-                <DropdownItem onSelect={goToTypedAddress}>
-                  <span className="page-item-hint">Go to</span>
-                  <span className="page-item-route">{typedAddress}</span>
-                </DropdownItem>
-              )}
+              {showGoToRow && !typedIsPageSearch && goToRow}
               {conn.filteredPages.length === 0
                 ? !typedAddress && <div className="page-list-empty">No pages found</div>
                 : conn.filteredPages.map((page) => (
@@ -1594,6 +1602,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                       {page.route === '/' && <span className="page-item-hint">Home</span>}
                     </DropdownItem>
                   ))}
+              {showGoToRow && typedIsPageSearch && goToRow}
             </div>
           </Dropdown>
         </div>
