@@ -906,6 +906,24 @@ pub(crate) fn gh_rate_limit_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// gh's own literal when an operation needs git and gh can't find it on PATH —
+/// "unable to find git executable in PATH; please install Git for Windows
+/// before retrying". Ship Studio already hands gh an extended PATH that
+/// includes Git for Windows' usual locations, so this means git genuinely
+/// isn't installed (or lives somewhere unusual) — an environment gap, not a
+/// malfunction (issue #1018). Mirrors `git_command()`'s wording.
+pub(crate) fn gh_git_missing_error(stderr: &str) -> Option<CommandError> {
+    stderr
+        .to_lowercase()
+        .contains("unable to find git executable in path")
+        .then(|| {
+            CommandError::expected(
+                "Git isn't installed or couldn't be located, and the GitHub CLI needs it. \
+                 Install Git (https://git-scm.com) and restart Ship Studio, then try again.",
+            )
+        })
+}
+
 /// gh failing before it even runs a subcommand because it can't read its own
 /// config file — "failed to load config: open …/.config/gh/config.yml:
 /// permission denied" / "failed to create root command: failed to read
@@ -1043,6 +1061,7 @@ pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
         .or_else(|| gh_rate_limit_error(stderr))
+        .or_else(|| gh_git_missing_error(stderr))
         .or_else(|| gh_config_error(stderr))
         .or_else(|| gh_permission_error(stderr))
         // Before gh_crash_error: a wrong-binary crash needs its own remedy,
@@ -1707,7 +1726,8 @@ mod tests {
             gh_user_identity_error(signed_out),
             CommandError::NotAuthenticated { .. }
         ));
-        let offline = r#"Get "https://api.github.com/user": dial tcp: lookup api.github.com: no such host"#;
+        let offline =
+            r#"Get "https://api.github.com/user": dial tcp: lookup api.github.com: no such host"#;
         assert!(matches!(
             gh_user_identity_error(offline),
             CommandError::Expected { .. }
@@ -1715,7 +1735,10 @@ mod tests {
         // Only an unexplained failure keeps the manual-configuration advice.
         let other = gh_user_identity_error("something unrecognised");
         assert!(!matches!(other, CommandError::Expected { .. }));
-        assert!(other.to_string().contains("configure git manually"), "got: {other}");
+        assert!(
+            other.to_string().contains("configure git manually"),
+            "got: {other}"
+        );
     }
 
     #[test]
@@ -1844,7 +1867,10 @@ mod tests {
         assert!(matches!(err, CommandError::Expected { .. }));
         assert!(err.to_string().contains("Try again"), "got: {err}");
         // The unprefixed shape seen from other call sites.
-        assert!(gh_server_error("GraphQL: Something went wrong while executing your query on 2026-09-22T04:03:06Z.").is_some());
+        assert!(gh_server_error(
+            "GraphQL: Something went wrong while executing your query on 2026-09-22T04:03:06Z."
+        )
+        .is_some());
     }
 
     #[test]
@@ -1855,6 +1881,16 @@ mod tests {
         assert!(err.to_string().contains("rate limit"), "got: {err}");
         assert!(gh_rate_limit_error("You have exceeded a secondary rate limit.").is_some());
         assert!(gh_rate_limit_error("GraphQL: name already exists on this account").is_none());
+    }
+
+    #[test]
+    fn gh_git_missing_error_classifies_windows_git_not_found_as_expected() {
+        let stderr =
+            "unable to find git executable in PATH; please install Git for Windows before retrying";
+        let err = gh_common_error(stderr).expect("should classify as missing git");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("git-scm.com"), "got: {err}");
+        assert!(gh_git_missing_error("failed to run git: exit status 128").is_none());
     }
 
     // The #806 shape: GitHub's edge answering 499 ("Client Closed Request")

@@ -566,6 +566,18 @@ export function describeProcessError(
         "GitHub couldn't authenticate this computer over HTTPS — git needed to ask for a password, and there's no saved credential to use. Open a terminal and run `gh auth login`, then `gh auth setup-git`, and try again.",
     };
   }
+  // gh's own literal when it needs git and can't find it on PATH ("unable to
+  // find git executable in PATH; please install Git for Windows before
+  // retrying"). git isn't installed, or lives somewhere neither gh nor the
+  // app's extended PATH looks — an environment gap, not an app bug. Mirrors
+  // the backend's gh_git_missing_error (issue #1018).
+  if (lower.includes('unable to find git executable in path')) {
+    return {
+      expected: true,
+      message:
+        "Git isn't installed or couldn't be located, and the GitHub CLI needs it. Install Git (https://git-scm.com) and restart Ship Studio, then try again.",
+    };
+  }
   // Windows path-length limit during clone checkout: the download itself
   // succeeded, but git couldn't write files whose paths exceed Windows'
   // 260-character default ("error: unable to create file <path>: Filename too

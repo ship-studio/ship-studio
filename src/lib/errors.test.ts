@@ -125,6 +125,14 @@ describe('friendlyProcessError', () => {
     expect(info.message).not.toContain('Cloning into');
   });
 
+  it("maps gh's git-not-found literal to install-Git guidance (issue #1018)", () => {
+    const raw =
+      'Process exited with code 1\n\nunable to find git executable in PATH; please install Git for Windows before retrying';
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('git-scm.com');
+  });
+
   it('maps npm E401 registry auth failures to `npm login` guidance (issue #505)', () => {
     const raw =
       'Process exited with code 1\n\nnpm warn deprecated something\nnpm error code E401\nnpm error Incorrect or missing password.\nnpm error To correct this please try logging in again with:\nnpm error   npm login';
