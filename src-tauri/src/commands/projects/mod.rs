@@ -1014,7 +1014,7 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
 
     let content = if gitignore_path.exists() {
         std::fs::read_to_string(&gitignore_path)
-            .map_err(|e| format!("Failed to read .gitignore: {e}"))?
+            .map_err(|e| crate::utils::classify_fs_error("read .gitignore", &gitignore_path, &e))?
     } else {
         String::new()
     };
@@ -1040,7 +1040,7 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
     };
 
     std::fs::write(&gitignore_path, new_content)
-        .map_err(|e| format!("Failed to write .gitignore: {e}"))?;
+        .map_err(|e| crate::utils::classify_fs_error("write .gitignore", &gitignore_path, &e))?;
 
     Ok(())
 }
@@ -1068,7 +1068,7 @@ pub async fn create_blank_project(project_path: String) -> Result<(), CommandErr
     // Add .shipstudio/ to gitignore
     let gitignore = path.join(".gitignore");
     std::fs::write(&gitignore, ".shipstudio/\n")
-        .map_err(|e| format!("Failed to create .gitignore: {e}"))?;
+        .map_err(|e| crate::utils::classify_fs_error("create .gitignore", &gitignore, &e))?;
 
     Ok(())
 }
