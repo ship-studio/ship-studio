@@ -85,7 +85,7 @@ const HEAD_SCAN_CAP: usize = 256 * 1024;
 /// A subframe load that WebKit aborts (e.g. an auth redirect loop, issue #179)
 /// renders empty and never runs this script, so the watchdog fires and the app
 /// can surface the failure instead of showing a silent blank pane.
-const NAV_SCRIPT: &str = r#"<script>(function(){window.parent.postMessage({type:'shipstudio:alive'},'*');var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n()})()</script>"#;
+const NAV_SCRIPT: &str = r#"<script>(function(){window.parent.postMessage({type:'shipstudio:alive'},'*');var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname,search:location.search,hash:location.hash},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n()})()</script>"#;
 
 /// Visual-editor selection layer, injected into every preview HTML response but
 /// **inert until** the parent posts `ss:activate`. When active it outlines the

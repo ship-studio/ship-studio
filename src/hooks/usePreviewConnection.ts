@@ -16,6 +16,7 @@ import {
   IFRAME_BLANK_TIMEOUT_MS,
 } from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
+import { splitLocation } from '../lib/previewUrl';
 import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
@@ -97,6 +98,12 @@ export function usePreviewConnection({
   const [serverReady, setServerReady] = useState(false);
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [currentPage, setCurrentPage] = useState('/');
+  // `?query#hash` of the page the frame is actually on. Kept apart from
+  // `currentPage` because everything that matches routes (the page list,
+  // locales, the agent bridge) wants the bare pathname; only the URL that
+  // reloads the frame needs the rest.
+  const [currentSuffix, setCurrentSuffix] = useState('');
+  const currentLocation = `${currentPage}${currentSuffix}`;
   const [iframePath, setIframePath] = useState('/');
   const [showPageDropdown, setShowPageDropdown] = useState(false);
   const [pageSearch, setPageSearch] = useState('');
@@ -189,6 +196,7 @@ export function usePreviewConnection({
     setRetryCount(-1);
     setIsStopped(false);
     setCurrentPage('/');
+    setCurrentSuffix('');
     setIframePath('/');
     setPages([]);
     setShowPageDropdown(false);
@@ -409,6 +417,8 @@ export function usePreviewConnection({
       event: MessageEvent<{
         type?: string;
         pathname?: string;
+        search?: string;
+        hash?: string;
         status?: number;
         message?: string;
       }>
@@ -427,6 +437,11 @@ export function usePreviewConnection({
       if (data && data.type === 'shipstudio:navigate' && typeof data.pathname === 'string') {
         const pathname: string = data.pathname || '/';
         setCurrentPage((prev) => (prev === pathname ? prev : pathname));
+        // Older injected scripts (a page loaded before an app update) omit these.
+        const suffix = `${typeof data.search === 'string' ? data.search : ''}${
+          typeof data.hash === 'string' ? data.hash : ''
+        }`;
+        setCurrentSuffix((prev) => (prev === suffix ? prev : suffix));
       }
       if (data && data.type === 'shipstudio:error') {
         logger.warn('[Preview] Dev server error detected via proxy', {
@@ -684,25 +699,29 @@ export function usePreviewConnection({
 
   // Handlers
   const handleRefresh = useCallback(() => {
-    if (iframePath === currentPage) {
+    if (iframePath === currentLocation) {
       // Same URL — a src diff won't reload; request an imperative reload.
       setReloadToken((t) => t + 1);
     } else {
       // Path changed — the src change itself performs a fresh load.
-      setIframePath(currentPage);
+      setIframePath(currentLocation);
     }
-  }, [currentPage, iframePath]);
+  }, [currentLocation, iframePath]);
 
+  /** Load a location: a bare route from the page list, or a typed `/path?query#hash`. */
   const handlePageSelect = useCallback(
-    (route: string) => {
-      setCurrentPage(route);
+    (location: string) => {
+      const { pathname, suffix } = splitLocation(location);
+      const target = `${pathname}${suffix}`;
+      setCurrentPage(pathname);
+      setCurrentSuffix(suffix);
       setShowPageDropdown(false);
       setPageSearch('');
-      if (iframePath === route) {
+      if (iframePath === target) {
         // Re-selecting the visible page acts as a refresh.
         setReloadToken((t) => t + 1);
       } else {
-        setIframePath(route);
+        setIframePath(target);
       }
     },
     [iframePath]
@@ -760,6 +779,7 @@ export function usePreviewConnection({
 
     // Page navigation
     currentPage,
+    currentLocation,
     iframePath,
     setIframePath,
     showPageDropdown,

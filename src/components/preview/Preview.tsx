@@ -32,6 +32,8 @@ import { usePreviewEditorFrame } from '../../hooks/usePreviewEditorFrame';
 import { DEFAULT_DEVICE_HEIGHT, DEVICE_HEIGHTS, type CanvasFrame } from '../../lib/previewCanvas';
 import { Button } from '../primitives/Button';
 import { MenuButton } from '../primitives/MenuButton';
+import { IconButton } from '../primitives/IconButton';
+import { parsePreviewAddress } from '../../lib/previewUrl';
 import { ToggleButton } from '../primitives/ToggleButton';
 import {
   usePreviewResize,
@@ -73,6 +75,7 @@ import {
   CompactIcon,
   ChevronIcon,
   DesktopIcon,
+  EditFieldIcon,
   EditIcon,
   ExpandIcon,
   FullBreakpointIcon,
@@ -452,10 +455,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       // Leaving the canvas remounts the single preview frame, and it would open
       // at the path it was last TOLD to load — not where the canvas actually
       // is. Follow the navigation the user did on the canvas.
-      if (!next && conn.currentPage !== conn.iframePath) conn.setIframePath(conn.currentPage);
+      if (!next && conn.currentLocation !== conn.iframePath)
+        conn.setIframePath(conn.currentLocation);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- specific conn properties are listed; conn object changes on every render
-    [conn.currentPage, conn.iframePath, conn.setIframePath]
+    [conn.currentLocation, conn.iframePath, conn.setIframePath]
   );
   const toggleCanvasMode = useCallback(
     () => setCanvasEnabled(!canvasMode),
@@ -640,6 +644,31 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // fewer than 2 configured languages). Used to keep page selection inside
   // the language currently being previewed.
   const [localeConfig, setLocaleConfig] = useState<PreviewLocaleConfig | null>(null);
+  // What the search field holds, read as an address (`/path?q`, `?q`, `#h`, or
+  // a pasted localhost URL). Null means it's just a page search.
+  const typedAddress = parsePreviewAddress(conn.pageSearch, conn.currentPage);
+  const currentSuffix = conn.currentLocation.slice(conn.currentPage.length);
+  const goToTypedAddress = () => {
+    if (!typedAddress) return;
+    conn.handlePageSelect(typedAddress);
+    void trackEvent('preview_url_entered', {
+      has_query: typedAddress.includes('?'),
+      has_hash: typedAddress.includes('#'),
+      $screen_name: 'Workspace',
+    });
+  };
+  // Seed the field with the full current URL so a query param can be tweaked
+  // rather than retyped.
+  const editCurrentAddress = () => {
+    conn.setPageSearch(conn.currentLocation);
+    requestAnimationFrame(() => {
+      const input = conn.searchInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  };
+
   const selectPageKeepingLocale = (route: string) => {
     if (localeConfig) {
       const active = pathLocale(conn.currentPage, localeConfig.locales, localeConfig.defaultLocale);
@@ -1149,8 +1178,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // not the stale iframe src attribute (which doesn't update on client-side navigation).
   const refresh = useCallback(() => {
     if (iframeRef.current && conn.serverReady) {
-      conn.setIframePath(conn.currentPage);
-      const refreshUrl = `${conn.baseUrl}${conn.currentPage === '/' ? '' : conn.currentPage}`;
+      conn.setIframePath(conn.currentLocation);
+      const refreshUrl = `${conn.baseUrl}${conn.currentLocation === '/' ? '' : conn.currentLocation}`;
       iframeRef.current.src = 'about:blank';
       setTimeout(() => {
         if (iframeRef.current) {
@@ -1159,7 +1188,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       }, 100);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- specific conn properties are listed; conn object changes on every render
-  }, [conn.serverReady, conn.baseUrl, conn.currentPage, conn.setIframePath]);
+  }, [conn.serverReady, conn.baseUrl, conn.currentLocation, conn.setIframePath]);
 
   // Imperative reload requests from the connection hook (toolbar refresh on the
   // current page, static-project file changes). Token 0 is the "no reload
@@ -1494,51 +1523,77 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 className="page-switcher-trigger"
                 rightIcon={<ChevronIcon size={12} />}
               >
-                <span className="page-route">{conn.currentPage}</span>
-                {conn.currentPage === '/' && <span className="page-route-context">Home</span>}
+                <span className="page-route">
+                  {conn.currentPage}
+                  {currentSuffix && <span className="page-route-suffix">{currentSuffix}</span>}
+                </span>
+                {conn.currentPage === '/' && !currentSuffix && (
+                  <span className="page-route-context">Home</span>
+                )}
               </MenuButton>
             )}
           >
-            <input
-              ref={conn.searchInputRef}
-              type="text"
-              className="page-search"
-              placeholder="Search pages..."
-              value={conn.pageSearch}
-              onChange={(e) => conn.setPageSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && conn.filteredPages.length > 0) {
-                  e.preventDefault();
-                  selectPageKeepingLocale(conn.filteredPages[0].route);
-                  conn.setShowPageDropdown(false);
-                  conn.setPageSearch('');
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  conn.setShowPageDropdown(false);
-                  conn.setPageSearch('');
-                }
-              }}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
+            <div className="page-search-row">
+              <input
+                ref={conn.searchInputRef}
+                type="text"
+                className="page-search"
+                placeholder="Search pages or type a URL…"
+                aria-label="Search pages or type a URL"
+                value={conn.pageSearch}
+                onChange={(e) => conn.setPageSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && typedAddress) {
+                    e.preventDefault();
+                    goToTypedAddress();
+                    return;
+                  }
+                  if (e.key === 'Enter' && conn.filteredPages.length > 0) {
+                    e.preventDefault();
+                    selectPageKeepingLocale(conn.filteredPages[0].route);
+                    conn.setShowPageDropdown(false);
+                    conn.setPageSearch('');
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    conn.setShowPageDropdown(false);
+                    conn.setPageSearch('');
+                  }
+                }}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
+              <IconButton
+                variant="ghost"
+                size="compact"
+                className="page-search-edit"
+                icon={<EditFieldIcon size={14} />}
+                aria-label="Edit current URL"
+                title="Edit current URL"
+                onClick={editCurrentAddress}
+              />
+            </div>
             <div className="page-list">
-              {conn.filteredPages.length === 0 ? (
-                <div className="page-list-empty">No pages found</div>
-              ) : (
-                conn.filteredPages.map((page) => (
-                  <DropdownItem
-                    key={page.route}
-                    active={page.route === conn.currentPage}
-                    onSelect={() => selectPageKeepingLocale(page.route)}
-                  >
-                    <span className="page-item-route">{page.route}</span>
-                    {page.route === '/' && <span className="page-item-hint">Home</span>}
-                  </DropdownItem>
-                ))
+              {typedAddress && (
+                <DropdownItem onSelect={goToTypedAddress}>
+                  <span className="page-item-hint">Go to</span>
+                  <span className="page-item-route">{typedAddress}</span>
+                </DropdownItem>
               )}
+              {conn.filteredPages.length === 0
+                ? !typedAddress && <div className="page-list-empty">No pages found</div>
+                : conn.filteredPages.map((page) => (
+                    <DropdownItem
+                      key={page.route}
+                      active={page.route === conn.currentPage}
+                      onSelect={() => selectPageKeepingLocale(page.route)}
+                    >
+                      <span className="page-item-route">{page.route}</span>
+                      {page.route === '/' && <span className="page-item-hint">Home</span>}
+                    </DropdownItem>
+                  ))}
             </div>
           </Dropdown>
         </div>
@@ -1692,7 +1747,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               // Passive frames follow wherever the page actually is; `navSignal`
               // changes only on a deliberate navigation, so a link click inside
               // the active frame doesn't reload that same frame.
-              url={`${conn.baseUrl}${conn.currentPage === '/' ? '' : conn.currentPage}`}
+              url={`${conn.baseUrl}${conn.currentLocation === '/' ? '' : conn.currentLocation}`}
               navSignal={conn.iframePath}
               activeFrameId={canvasFrameId}
               reloadToken={conn.reloadToken}

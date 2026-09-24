@@ -575,4 +575,12 @@ mod tests {
         assert!(NAV_SCRIPT.contains("shipstudio:alive"));
         assert!(NAV_SCRIPT.contains("shipstudio:navigate"));
     }
+
+    #[test]
+    fn nav_script_reports_query_and_hash() {
+        // The preview's URL editor round-trips `?query#hash`; a refresh rebuilds
+        // the frame from what this reports, so dropping them loses the user's URL.
+        assert!(NAV_SCRIPT.contains("search:location.search"));
+        assert!(NAV_SCRIPT.contains("hash:location.hash"));
+    }
 }
