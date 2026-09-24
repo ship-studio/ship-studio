@@ -743,6 +743,28 @@ describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {
   });
 });
 
+describe("describeProcessError — npm Arborist 'edgesOut' crash (issue #939)", () => {
+  it('maps the crash to cache/lockfile cleanup guidance', () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "npm error Cannot read properties of null (reading 'edgesOut')",
+      'npm notice',
+      'npm notice New major version of npm available! 10.9.8 -> 12.0.2',
+      'npm error A complete log of this run can be found in: ~/.npm/_logs/2026-09-09T07_03_36_106Z-debug-0.log',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('npm cache clean --force');
+    expect(info.message).toContain('package-lock.json');
+  });
+
+  it('does not fire on other null-property crashes', () => {
+    const info = describeProcessError("TypeError: Cannot read properties of null (reading 'foo')");
+    expect(info.expected).toBe(false);
+  });
+});
+
 describe('describeProcessError — npm network blips (issue #883)', () => {
   const raw = [
     'npm error code ECONNRESET',

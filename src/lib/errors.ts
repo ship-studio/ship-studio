@@ -654,6 +654,17 @@ export function describeProcessError(
         "This project's dependencies have a version conflict npm won't resolve on its own (see the peer dependency mismatch in the output). Update the conflicting package to a version they agree on, or re-run the install with `--legacy-peer-deps` if that's safe for this project.",
     };
   }
+  // npm's Arborist crashing on its own dependency graph ("Cannot read
+  // properties of null (reading 'edgesOut')") — a known npm bug triggered by
+  // a corrupted package-lock.json, a half-finished earlier install, or a stale
+  // npm cache. Local project/machine state, not an app bug (issue #939).
+  if (lower.includes("cannot read properties of null (reading 'edgesout')")) {
+    return {
+      expected: true,
+      message:
+        "npm crashed while reading this project's dependency tree — usually a corrupted package-lock.json, a half-finished earlier install, or a stale npm cache. Run `npm cache clean --force`, delete the project's node_modules folder and package-lock.json, then retry the install.",
+    };
+  }
   // A clone whose pack transfer was cut off partway. curl 92
   // (CURLE_HTTP2_STREAM) with "stream ... was not closed cleanly" is the
   // HTTP/2 flavour — a flaky link, a proxy or VPN multiplexing badly, or a
