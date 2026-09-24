@@ -79,6 +79,15 @@ async fn run_capture_script(
     Ok(output)
 }
 
+/// Embed `value` in a generated capture script as a JavaScript string literal.
+/// A JSON string is a valid JS string expression, and serde escapes every
+/// character that could end it early — a hand-rolled `'...'` literal broke on
+/// any project path containing an apostrophe ("Oscar's POV"), failing every
+/// capture with a SyntaxError before Playwright ran (issue #936).
+fn js_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 /// How a failed process exited, in words. A capture that wrote nothing at all
 /// must still be able to say *whether* it crashed, was killed, or exited
 /// cleanly (issues #829/#796).
@@ -556,7 +565,7 @@ const {{ chromium }} = require('playwright');
         // The retry gets double the budget: 60s twice was still not enough on
         // slow Windows dev servers (issue #606).
         try {{
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
             const msg = String((err && err.message) || err);
             // A refused connection here, right after the Rust-side TCP
@@ -574,7 +583,7 @@ const {{ chromium }} = require('playwright');
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
             }}
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 120000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 120000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
@@ -655,7 +664,7 @@ const {{ chromium }} = require('playwright');
         // that can exceed Playwright's default 30s action timeout, and the
         // overall script budget leaves room for it, so give it real headroom
         // (issue #461).
-        await screenshotWithRetry({{ path: '{}', fullPage: true, timeout: 120000 }});
+        await screenshotWithRetry({{ path: {}, fullPage: true, timeout: 120000 }});
         console.log('Screenshot saved successfully');
     }} finally {{
         if (browser) await browser.close();
@@ -667,9 +676,9 @@ const {{ chromium }} = require('playwright');
     process.exit(1);
 }});
 "#,
-        url,
-        url,
-        screenshot_path_str.replace('\\', "\\\\")
+        js_string(&url),
+        js_string(&url),
+        js_string(&screenshot_path_str)
     );
 
     // Write script to the playwright env directory (where node_modules is).
@@ -778,7 +787,7 @@ const {{ chromium }} = require('playwright');
         // the compile keeps progressing server-side while we wait
         // (issue #606).
         try {{
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
             const msg = String((err && err.message) || err);
             // A refused connection here, right after the Rust-side TCP
@@ -796,7 +805,7 @@ const {{ chromium }} = require('playwright');
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
             }}
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 120000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 120000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
@@ -849,7 +858,7 @@ const {{ chromium }} = require('playwright');
         // Playwright's 30s action default, which slow machines exceeded — the
         // full-page capture already has this, the viewport one was missed
         // (issue #568).
-        await screenshotWithRetry({{ path: '{}', timeout: 120000 }});
+        await screenshotWithRetry({{ path: {}, timeout: 120000 }});
     }} finally {{
         if (browser) await browser.close();
     }}
@@ -860,9 +869,9 @@ const {{ chromium }} = require('playwright');
     process.exit(1);
 }});
 "#,
-        url,
-        url,
-        screenshot_path_str.replace('\\', "\\\\")
+        js_string(&url),
+        js_string(&url),
+        js_string(&screenshot_path_str)
     );
 
     // Write script to the playwright env directory. Unique per invocation —
@@ -920,6 +929,22 @@ mod capture_error_tests {
             stdout: Vec::new(),
             stderr: stderr.as_bytes().to_vec(),
         }
+    }
+
+    #[test]
+    fn js_string_survives_apostrophes_and_windows_paths() {
+        // Issue #936: an apostrophe in the project path ended the old
+        // single-quoted literal early; a Windows path needs its backslashes
+        // escaped too.
+        assert_eq!(
+            js_string("/Users/a/Oscar's POV/shot.png"),
+            r#""/Users/a/Oscar's POV/shot.png""#
+        );
+        assert_eq!(
+            js_string(r"G:\it's\test\shot.png"),
+            r#""G:\\it's\\test\\shot.png""#
+        );
+        assert_eq!(js_string(r#"a"b"#), r#""a\"b""#);
     }
 
     #[test]
