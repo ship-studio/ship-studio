@@ -629,6 +629,16 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // Claude Code validates CLAUDE_CODE_GIT_BASH_PATH at startup and refuses
+    // every subcommand when it names a bash.exe that doesn't exist ("Claude
+    // Code was unable to find CLAUDE_CODE_GIT_BASH_PATH path …"). A stale
+    // variable on the user's machine — the app never sets it (issue #1013).
+    if lower.contains("claude_code_git_bash_path") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe CLAUDE_CODE_GIT_BASH_PATH environment variable on this computer points at a Git Bash that no longer exists. Remove the variable, or point it at your current bash.exe (usually C:\\Program Files\\Git\\bin\\bash.exe after installing Git for Windows), then restart Ship Studio and try again."
+        ));
+    }
+
     // The agent CLI failed to write its own config file because the OS
     // denied access — Windows "Access is denied. (os error 5)" (e.g. Codex
     // persisting ~/.codex/config.toml) or POSIX EACCES/"Permission denied".
@@ -1098,6 +1108,20 @@ mod tests {
                 assert!(message.contains("Reinstall the CLI"), "got: {message}")
             }
             other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    // #1013: a stale CLAUDE_CODE_GIT_BASH_PATH blocks every claude subcommand.
+    #[test]
+    fn stale_git_bash_path_is_expected_on_every_action() {
+        let details = r#"Claude Code was unable to find CLAUDE_CODE_GIT_BASH_PATH path "C:\Program Files\Git\bin\bash.exe""#;
+        for action in ["add MCP server", "remove MCP server", "list MCP servers"] {
+            match classify_mcp_failure(action, details) {
+                CommandError::Expected { message } => {
+                    assert!(message.contains("no longer exists"), "got: {message}")
+                }
+                other => panic!("expected Expected for {action}, got {other:?}"),
+            }
         }
     }
 
