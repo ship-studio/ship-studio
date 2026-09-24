@@ -125,6 +125,19 @@ describe('friendlyProcessError', () => {
     expect(info.message).not.toContain('Cloning into');
   });
 
+  it('maps an unaccepted Xcode license during clone to xcodebuild guidance (issue #1001)', () => {
+    const raw =
+      "Process exited with code 1\n\nYou have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.\nfailed to run git: exit status 69";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('sudo xcodebuild -license accept');
+    expect(
+      describeProcessError(
+        'xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), missing xcrun'
+      ).message
+    ).toContain('xcode-select --install');
+  });
+
   it("maps gh's git-not-found literal to install-Git guidance (issue #1018)", () => {
     const raw =
       'Process exited with code 1\n\nunable to find git executable in PATH; please install Git for Windows before retrying';

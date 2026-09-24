@@ -566,6 +566,28 @@ export function describeProcessError(
         "GitHub couldn't authenticate this computer over HTTPS — git needed to ask for a password, and there's no saved credential to use. Open a terminal and run `gh auth login`, then `gh auth setup-git`, and try again.",
     };
   }
+  // macOS git (the Xcode Command Line Tools shim) refusing to run at all:
+  // an unaccepted Xcode license, or missing/broken Command Line Tools.
+  // `gh repo clone` wraps git and exits 1 (git's own 69 only appears inside
+  // the text), so the exit-code table can't catch it. The same wording the
+  // backend's git_environment_gap already recognises (issue #1001).
+  if (lower.includes('you have not agreed to the xcode license agreements')) {
+    return {
+      expected: true,
+      message:
+        "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run `sudo xcodebuild -license accept`, then try again.",
+    };
+  }
+  if (
+    lower.includes('invalid active developer path') ||
+    lower.includes('no developer tools were found')
+  ) {
+    return {
+      expected: true,
+      message:
+        'The Xcode Command Line Tools (which provide git on macOS) are missing or broken. Run `xcode-select --install` in Terminal, then try again.',
+    };
+  }
   // gh's own literal when it needs git and can't find it on PATH ("unable to
   // find git executable in PATH; please install Git for Windows before
   // retrying"). git isn't installed, or lives somewhere neither gh nor the
