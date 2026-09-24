@@ -171,6 +171,10 @@ describe('isExpectedPluginFailure', () => {
       "Ship Studio isn't allowed to read this project's plugin registry (/x). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
       "The folder '/x' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
       'Plugin bundle not found: /x/.shipstudio/plugins/vercel/dist/index.js',
+      // #947: ETIMEDOUT on a cloud-synced registry.json
+      "Ship Studio timed out trying to read this project's plugin registry (/x/registry.json). The folder looks like it's on a cloud drive (Google Drive, OneDrive, Dropbox, iCloud) that's still syncing — wait for sync to finish and try again, or keep the project on your local disk.",
+      // #948: macOS ECANCELED on the same read
+      "Ship Studio couldn't read this project's plugin registry (/x/registry.json) — macOS canceled the read. The folder looks like it's on a cloud drive (iCloud, Google Drive, OneDrive, Dropbox) that's still syncing — wait for sync to finish and try again, or keep the project on your local disk.",
     ]) {
       expect(isExpectedPluginFailure({ type: 'Other', message })).toBe(true);
     }

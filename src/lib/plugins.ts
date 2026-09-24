@@ -267,6 +267,9 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
   'Windows denied access',
   'the disk or volume is read-only',
   'no longer exists — it may have been moved',
+  // A cloud-sync provider that hasn't materialized the file: ETIMEDOUT
+  // (#758, #947) and macOS ECANCELED (#948) share this wording.
+  "that's still syncing — wait for sync to finish",
 ];
 
 /** True when a plugin-command failure is one of the backend's by-design
