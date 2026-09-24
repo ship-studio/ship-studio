@@ -528,7 +528,7 @@ pub async fn complete_merge(project_path: String) -> Result<(), CommandError> {
     }
 
     // Ensure git identity matches GitHub account before committing
-    let _ = ensure_git_identity(&validated_path);
+    let _ = ensure_git_identity(&validated_path).await;
 
     // Create the merge commit
     let commit_output = commit_merge(&validated_path, MERGE_COMMIT_MESSAGE)?;

@@ -196,7 +196,7 @@ pub async fn publish_branch(
     info!(branch = %branch, message = %message, "Publishing branch");
 
     // Ensure git identity matches GitHub account before committing
-    let _ = ensure_git_identity(&validated_path);
+    let _ = ensure_git_identity(&validated_path).await;
 
     // Stage and commit through the shared helper. The old hand-rolled sequence
     // discarded `git add -A`'s result entirely, so a staging failure surfaced

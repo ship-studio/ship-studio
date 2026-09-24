@@ -416,9 +416,23 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
     result
 }
 
+/// Why `gh api user` failed inside [`ensure_git_identity`]. Routed through the
+/// same classifiers as every other gh call — a signed-out gh is the
+/// reconnect-GitHub state and a network/API blip is `Expected` — so the
+/// "configure git manually" advice is only given for a failure nothing else
+/// explains. It used to be given for all of them, as an unclassified `Other`
+/// (issue #1006).
+fn gh_user_identity_error(stderr: &str) -> CommandError {
+    gh_auth_error(stderr)
+        .or_else(|| gh_common_error(stderr))
+        .unwrap_or_else(|| {
+            "Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string().into()
+        })
+}
+
 /// Ensures git user.name and user.email are configured for the repo.
 /// If not set, fetches the user's identity from GitHub CLI and sets it locally.
-pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandError> {
+pub async fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandError> {
     let has_name = crate::utils::git_command_in(repo_path)?
         .args(["config", "user.name"])
         .output()
@@ -437,13 +451,22 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
 
     // Fetch identity from GitHub CLI, scoped to this repo's workspace so the
     // committed author matches the workspace's GitHub login, not the active one.
-    let gh_output = get_gh_command_for_project(repo_path)
-        .args(["api", "user", "--jq", r#".login, .name, .email"#])
-        .output()
-        .map_err(|e| format!("Failed to get GitHub user info: {e}"))?;
+    // Bounded like every other gh call here: this used to be a bare
+    // `.output()` that could block forever on a hung network (issue #1006).
+    let mut cmd = get_gh_command_for_project(repo_path);
+    cmd.args(["api", "user", "--jq", r#".login, .name, .email"#]);
+    let gh_output =
+        match run_command_with_timeout(cmd, "gh api user", GITHUB_CLI_TIMEOUT_SECS).await {
+            Err(CommandError::Timeout { .. }) => {
+                return Err(CommandError::expected(GH_TIMEOUT_MESSAGE))
+            }
+            other => other?,
+        };
 
     if !gh_output.status.success() {
-        return Err(("Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string()).into());
+        return Err(gh_user_identity_error(&String::from_utf8_lossy(
+            &gh_output.stderr,
+        )));
     }
 
     let info = String::from_utf8_lossy(&gh_output.stdout);
@@ -571,7 +594,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     }
 
     // Ensure git identity is configured (required for commits)
-    ensure_git_identity(&validated_path)?;
+    ensure_git_identity(&validated_path).await?;
 
     // Whether the repo already has a commit decides the message. `git_dir`
     // can't answer that here — the `git init` above just created it, so the
@@ -1649,6 +1672,26 @@ mod tests {
 
     // gh_common_error is the one-stop classifier every gh call site funnels
     // through — it must cover each shared family and stay quiet otherwise.
+    // Issue #1006: `gh api user` failing inside ensure_git_identity went out
+    // as an unclassified "configure git manually" Other for every cause.
+    #[test]
+    fn gh_user_identity_error_reuses_gh_classification() {
+        let signed_out = "To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.";
+        assert!(matches!(
+            gh_user_identity_error(signed_out),
+            CommandError::NotAuthenticated { .. }
+        ));
+        let offline = r#"Get "https://api.github.com/user": dial tcp: lookup api.github.com: no such host"#;
+        assert!(matches!(
+            gh_user_identity_error(offline),
+            CommandError::Expected { .. }
+        ));
+        // Only an unexplained failure keeps the manual-configuration advice.
+        let other = gh_user_identity_error("something unrecognised");
+        assert!(!matches!(other, CommandError::Expected { .. }));
+        assert!(other.to_string().contains("configure git manually"), "got: {other}");
+    }
+
     #[test]
     fn gh_common_error_covers_shared_families() {
         assert!(gh_common_error("dial tcp 1.2.3.4:443: connect: connection refused").is_some());
