@@ -43,6 +43,22 @@ fn with_clipboard_retry<T>(
     Err(last_err)
 }
 
+/// Map a clipboard read failure (after [`with_clipboard_retry`] gave up) to a
+/// `CommandError`.
+///
+/// `ClipboardOccupied` means another process (a clipboard manager, RDP, an AV
+/// scanner) still held the clipboard lock through every retry — an
+/// environment state the retry loop exists for and the frontend already
+/// falls back from, so it is Expected and stays out of telemetry (issue
+/// #977). Anything else is still reported.
+fn clipboard_read_error(what: &str, err: arboard::Error) -> CommandError {
+    let message = format!("Failed to read clipboard {what}: {err}");
+    match err {
+        arboard::Error::ClipboardOccupied => CommandError::expected(message),
+        _ => CommandError::Other { message },
+    }
+}
+
 /// Read the system clipboard as text.
 ///
 /// Returns `Ok(None)` when the clipboard holds no text (e.g. it's empty or
@@ -54,9 +70,7 @@ pub fn read_clipboard_text() -> Result<Option<String>, CommandError> {
     match with_clipboard_retry(|clipboard| clipboard.get_text()) {
         Ok(text) => Ok(Some(text)),
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
-        Err(err) => Err(CommandError::Other {
-            message: format!("Failed to read clipboard text: {err}"),
-        }),
+        Err(err) => Err(clipboard_read_error("text", err)),
     }
 }
 
@@ -69,11 +83,7 @@ pub fn stage_clipboard_image() -> Result<Option<String>, CommandError> {
     let image = match with_clipboard_retry(|clipboard| clipboard.get_image()) {
         Ok(image) => image,
         Err(arboard::Error::ContentNotAvailable) => return Ok(None),
-        Err(err) => {
-            return Err(CommandError::Other {
-                message: format!("Failed to read clipboard image: {err}"),
-            })
-        }
+        Err(err) => return Err(clipboard_read_error("image", err)),
     };
 
     let path = std::env::temp_dir().join(format!("shipstudio-paste-{}.png", uuid::Uuid::new_v4()));
@@ -133,6 +143,28 @@ fn write_rgba_png(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_held_by_another_app_is_expected() {
+        let err = clipboard_read_error("text", arboard::Error::ClipboardOccupied);
+        let json = serde_json::to_string(&err).expect("serialize");
+        assert!(json.contains("\"expected\":true"), "got: {json}");
+        assert!(
+            json.contains("Failed to read clipboard text: The native clipboard is not accessible"),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn other_clipboard_failures_are_still_reported() {
+        let err = clipboard_read_error("image", arboard::Error::ConversionFailure);
+        let json = serde_json::to_string(&err).expect("serialize");
+        assert!(!json.contains("\"expected\":true"), "got: {json}");
+        assert!(
+            json.contains("Failed to read clipboard image:"),
+            "got: {json}"
+        );
+    }
 
     #[test]
     fn write_rgba_png_produces_a_decodable_png() {
