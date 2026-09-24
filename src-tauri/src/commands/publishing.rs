@@ -237,7 +237,10 @@ pub async fn publish_branch(
             return Err(CommandError::expected(format!("PUSH_REJECTED:{stderr}")));
         }
         if let Some(err) = push_auth_error(&stderr) {
-            error!(error = %stderr, branch = %branch, "Authentication error");
+            // warn!, not error!: every error! is forwarded to telemetry by
+            // callsite regardless of the NotAuthenticated classification
+            // below, which paged on routine no-write-access pushes (#992).
+            warn!(error = %stderr, branch = %branch, "Authentication error");
             return Err(err);
         }
         if let Some(err) = push_missing_remote_error(&stderr) {
