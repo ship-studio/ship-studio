@@ -891,6 +891,21 @@ pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// GitHub refusing the request because the account has spent its API budget —
+/// "GraphQL: API rate limit already exceeded for user ID …" (primary limit) or
+/// "You have exceeded a secondary rate limit" (burst limit). The request was
+/// fine and nothing is broken; the budget refills on its own, so waiting is
+/// the whole remedy (issue #1002). `Expected` keeps it out of telemetry.
+pub(crate) fn gh_rate_limit_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    (s.contains("api rate limit") || s.contains("secondary rate limit")).then(|| {
+        CommandError::expected(
+            "GitHub is temporarily limiting requests from your account (API rate limit \
+             reached). Wait a few minutes, then try again.",
+        )
+    })
+}
+
 /// gh failing before it even runs a subcommand because it can't read its own
 /// config file — "failed to load config: open …/.config/gh/config.yml:
 /// permission denied" / "failed to create root command: failed to read
@@ -1027,6 +1042,7 @@ pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
         .or_else(|| gh_network_error(stderr))
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
+        .or_else(|| gh_rate_limit_error(stderr))
         .or_else(|| gh_config_error(stderr))
         .or_else(|| gh_permission_error(stderr))
         // Before gh_crash_error: a wrong-binary crash needs its own remedy,
@@ -1829,6 +1845,16 @@ mod tests {
         assert!(err.to_string().contains("Try again"), "got: {err}");
         // The unprefixed shape seen from other call sites.
         assert!(gh_server_error("GraphQL: Something went wrong while executing your query on 2026-09-22T04:03:06Z.").is_some());
+    }
+
+    #[test]
+    fn gh_rate_limit_error_classifies_graphql_rate_limit_as_expected() {
+        let stderr = "GraphQL: API rate limit already exceeded for user ID 12345.";
+        let err = gh_common_error(stderr).expect("should classify as rate limited");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("rate limit"), "got: {err}");
+        assert!(gh_rate_limit_error("You have exceeded a secondary rate limit.").is_some());
+        assert!(gh_rate_limit_error("GraphQL: name already exists on this account").is_none());
     }
 
     // The #806 shape: GitHub's edge answering 499 ("Client Closed Request")
