@@ -154,6 +154,16 @@ describe('isExpectedPluginFailure', () => {
     }
   });
 
+  it('recognizes git environment gaps from plugin git calls (issues #986/#987/#988)', async () => {
+    const { isExpectedPluginFailure } = await loadPlugins();
+    for (const message of [
+      "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run `sudo xcodebuild -license accept`, then try again.",
+      'The Xcode Command Line Tools (which provide git on macOS) are missing or broken. Run `xcode-select --install` in Terminal, then try again.',
+    ]) {
+      expect(isExpectedPluginFailure({ type: 'Other', message })).toBe(true);
+    }
+  });
+
   it('recognizes filesystem/project environment states (issues #762/#831/#770)', async () => {
     const { isExpectedPluginFailure } = await loadPlugins();
     for (const message of [

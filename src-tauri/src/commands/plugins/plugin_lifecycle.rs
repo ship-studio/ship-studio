@@ -61,6 +61,12 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
 /// shapes we recognize (issues #803, #732); `None` for anything else so a
 /// genuinely novel git failure still reaches telemetry with its raw stderr.
 fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
+    // git can't run at all on this machine (unaccepted Xcode license, missing
+    // CLT, …) — the shared classifier every other git call site uses
+    // (issues #986/#987/#988).
+    if let Some(gap) = crate::utils::git_environment_gap(stderr) {
+        return Some(gap);
+    }
     let lower = stderr.to_lowercase();
     // git fell back to an interactive credential prompt and there's no tty in a
     // GUI-spawned process, so it dies with "Device not configured" (macOS) or
@@ -1020,6 +1026,18 @@ mod tests {
             "fatal: unable to access '...': Could not resolve host: github.com",
         );
         assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn classifies_xcode_license_gap_as_expected() {
+        // Issues #986/#987/#988: git can't run until the license is accepted.
+        let stderr = "You have not agreed to the Xcode license agreements. Please run \
+                      'sudo xcodebuild -license' from within a Terminal window to review and \
+                      agree to the Xcode and Apple SDKs license.";
+        let err = classify_clone_failure(stderr);
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("xcodebuild -license"));
+        assert!(classify_remote_git_failure(stderr).is_some());
     }
 
     #[test]

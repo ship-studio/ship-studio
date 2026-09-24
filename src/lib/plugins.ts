@@ -257,6 +257,9 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
   "Couldn't reach the plugin's repository",
   'repository requires sign-in',
   "Git isn't installed or couldn't be located",
+  // git can't run on this machine (utils::git_environment_gap, #986/#987/#988)
+  "Xcode's license hasn't been accepted yet",
+  'The Xcode Command Line Tools (which provide git on macOS) are missing or broken',
   // Filesystem / project-folder environment states (classify_fs_error,
   // validate_project_path)
   'Grant access in System Settings',
