@@ -235,6 +235,17 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              then try again."
         )));
     }
+    // Codex couldn't reach OpenAI at all: the models refresh got a CDN
+    // block page and every WebSocket/HTTPS reconnect failed with "workspace
+    // routing discovery failed". Network, VPN/firewall or an OpenAI outage —
+    // matched on that exact phrase, never on a bare "403" (issue #1032).
+    if lower.contains("workspace routing discovery failed") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} couldn't reach OpenAI's servers, so AI generation isn't available \
+             right now. Check your internet connection (a VPN, proxy or firewall can block it) \
+             and OpenAI's status page, then try again."
+        )));
+    }
     if lower.contains("failed to load models cache")
         || lower.contains("codex_models_manager::cache")
     {
@@ -1143,6 +1154,24 @@ mod tests {
     fn classify_agent_cli_failure_retired_model_needs_both_on_one_line() {
         let detail = "model: gpt-5\n--------\nThat endpoint is no longer available";
         assert!(classify_agent_cli_failure("Codex", detail).is_none());
+    }
+
+    // #1032: Codex blocked at the network/CDN layer. Matched on the routing
+    // phrase, never on the bare 403.
+    #[test]
+    fn classify_agent_cli_failure_codex_network_block_is_expected() {
+        let detail = "ERROR codex_models_manager::manager: failed to refresh available models: unexpected status 403 Forbidden: <html>Unable to load site</html>\n\
+                      ERROR: Reconnecting... 2/5\n\
+                      warning: Falling back from WebSockets to HTTPS transport. workspace routing discovery failed\n\
+                      ERROR: Reconnecting... 5/5\n\
+                      ERROR: workspace routing discovery failed";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("couldn't reach OpenAI"));
+        assert!(
+            classify_agent_cli_failure("Codex", "unexpected status 403 Forbidden").is_none(),
+            "a bare 403 is too generic to classify"
+        );
     }
 
     // Expired sign-in ("run /login") is user-fixable, not a malfunction.
