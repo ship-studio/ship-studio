@@ -119,12 +119,18 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
 /// first line surfaces the banner and swallows the error (issue #580).
 /// Prefer the first `Error:` line (brew prefixes real errors with it); fall
 /// back to the last non-banner line.
+///
+/// An *uncaught* Ruby exception prints a backtrace whose last line is always
+/// Homebrew's entry point (`from .../brew.rb:26:in '<main>'`), so backtrace
+/// frames are skipped too — leaving the header line that carries the actual
+/// exception message and class (issue #957).
 fn brew_error_line(stderr: &str) -> &str {
     let is_banner = |l: &str| {
         l.is_empty()
             || l.starts_with("==>")
             || l.starts_with("Updating Homebrew")
             || l.starts_with("Warning:")
+            || (l.starts_with("from ") && l.contains(":in "))
             || l.chars()
                 .all(|c| matches!(c, '#' | '%' | '.' | ' ' | '-' | '=') || c.is_ascii_digit())
     };
@@ -476,6 +482,22 @@ mod tests {
             "Unknown error"
         );
         assert_eq!(brew_error_line(""), "Unknown error");
+    }
+
+    /// Issue #957: an uncaught Ruby exception must surface its message line,
+    /// not the outermost `brew.rb:26:in '<main>'` backtrace frame.
+    #[test]
+    fn skips_ruby_backtrace_frames_and_finds_exception_line() {
+        let stderr = "/opt/homebrew/Library/Homebrew/some_file.rb:123:in `some_method': \
+                      something broke (RuntimeError)\n\
+                      \tfrom /opt/homebrew/Library/Homebrew/some_other.rb:45:in `some_caller'\n\
+                      \tfrom /opt/homebrew/Library/Homebrew/brew.rb:26:in `<main>'\n";
+        let line = brew_error_line(stderr);
+        assert!(
+            line.contains("something broke (RuntimeError)"),
+            "got: {line}"
+        );
+        assert!(!line.contains("brew.rb:26"), "got: {line}");
     }
 
     /// Issue #581: a "legacy DSL" formula error means the local formula
