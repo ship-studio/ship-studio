@@ -1747,6 +1747,20 @@ mod tests {
             assert!(git_environment_gap("fatal: bad object HEAD").is_none());
         }
 
+        /// #1027: a commit-graph entry whose object is gone, as `git merge`
+        /// reports it. Must get the "damaged history" wording.
+        #[test]
+        fn commit_graph_missing_object_is_repo_corruption() {
+            let stderr = "fatal: You are attempting to fetch \
+                0fc08367ab4e76ca9ccda764da800b59500e9728, which is in the commit graph file but \
+                not in the object database.\nThis is probably due to repo corruption.\nIf you \
+                are attempting to repair this repo corruption by refetching the missing object, \
+                use 'git fetch --refetch' with the missing object.";
+            let err = git_environment_gap(stderr).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("damaged"), "got: {err}");
+        }
+
         #[test]
         fn windows_crash_exit_codes_are_environment_gaps() {
             // STATUS_DLL_INIT_FAILED (issue #850) and STATUS_ACCESS_VIOLATION
