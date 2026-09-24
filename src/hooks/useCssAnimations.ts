@@ -25,6 +25,7 @@ import { isKeyframesSelector } from '../lib/cssStructures';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import type { ToastOptions } from './useToasts';
 
 function toastText(err: unknown): string {
   return formatCommandError(asCommandError(err));
@@ -52,7 +53,7 @@ export interface AnimationRow {
 interface Params {
   projectPath: string;
   enabled: boolean;
-  onToast: (message: string, type?: 'success' | 'error') => void;
+  onToast: (message: string, type?: 'success' | 'error', options?: ToastOptions) => void;
 }
 
 export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
@@ -159,7 +160,8 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         }
       }
       if (!file) {
-        onToast('No stylesheet found to add the animation to.', 'error');
+        // A project state the user can act on, not a malfunction (issue #1015).
+        onToast('No stylesheet found to add the animation to.', 'error', { expected: true });
         return;
       }
       try {
