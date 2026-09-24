@@ -184,8 +184,9 @@ const MCP_ADD_VALUE_FLAGS = new Set([
  * raw `error: missing required argument 'commandOrUrl'` — catch the shape
  * before shelling out. Mirrors the backend's leniency: the
  * `<binary> mcp add` prefix is optional, flags may precede the name
- * (`--transport http name url`), and either a `--url <value>`, a URL token,
- * or a command (bare token / `-- command...`) satisfies the requirement.
+ * (`--transport http name url`), and either a URL token, a command (bare
+ * token / `-- command...`), or — for Codex, never Claude Code, whose CLI has
+ * no such flag (issue #998) — a `--url <value>` satisfies the requirement.
  *
  * For OpenCode (`agentId === 'opencode'`) the generic flag-aware grammar is
  * wrong: OpenCode's `mcp add` is interactive-only, so the backend writes its
@@ -224,8 +225,15 @@ export function validateMcpAddCommand(
     return null;
   }
 
-  const invalid =
-    'Include what the server runs or connects to: a command after the name (e.g. `my-server -- npx -y @some/mcp-server`) or a URL (e.g. `my-server --url https://example.com/mcp`).';
+  // Claude Code's `mcp add` has no `--url` flag: a remote server's URL is
+  // positional (`--transport http <name> <url>`), and the CLI rejects `--url`
+  // with "error: unknown option '--url'". Codex does accept `--url`, so only
+  // Claude is steered away from it (issue #998).
+  const isClaude = agentId === 'claude-code' || (!agentId && agentBinaryName === 'claude');
+  const urlExample = isClaude
+    ? '`--transport http my-server https://example.com/mcp`'
+    : '`my-server --url https://example.com/mcp`';
+  const invalid = `Include what the server runs or connects to: a command after the name (e.g. \`my-server -- npx -y @some/mcp-server\`) or a URL (e.g. ${urlExample}).`;
   const tokens = text.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return invalid;
 
@@ -241,6 +249,9 @@ export function validateMcpAddCommand(
       break;
     }
     if (t === '--url' || t === '-u') {
+      if (isClaude) {
+        return `Claude Code has no ${t} option — put the URL after the name instead, e.g. ${urlExample}.`;
+      }
       if (i + 1 >= tokens.length) return invalid;
       hasUrl = true;
       i++;

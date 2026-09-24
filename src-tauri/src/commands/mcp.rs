@@ -639,6 +639,16 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // Claude Code's `mcp add` has no `--url` flag — a remote server's URL is
+    // positional (`--transport http <name> <url>`). Commander rejects it with
+    // "error: unknown option '--url'" (issue #998). Codex does accept --url,
+    // so this only ever fires for a CLI that doesn't.
+    if lower.contains("unknown option '--url'") {
+        return CommandError::expected(format!(
+            "{message}\n\nThis agent CLI has no --url option. Add a remote server with its URL after the name instead, e.g. `--transport http my-server https://example.com/mcp`."
+        ));
+    }
+
     // The agent CLI failed to write its own config file because the OS
     // denied access — Windows "Access is denied. (os error 5)" (e.g. Codex
     // persisting ~/.codex/config.toml) or POSIX EACCES/"Permission denied".
@@ -1122,6 +1132,17 @@ mod tests {
                 }
                 other => panic!("expected Expected for {action}, got {other:?}"),
             }
+        }
+    }
+
+    // #998: Claude Code rejecting a --url flag it doesn't have.
+    #[test]
+    fn unknown_url_option_is_expected_with_the_right_syntax() {
+        match classify_mcp_failure("add MCP server", "error: unknown option '--url'") {
+            CommandError::Expected { message } => {
+                assert!(message.contains("--transport http"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
         }
     }
 
