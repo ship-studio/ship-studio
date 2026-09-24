@@ -519,21 +519,67 @@ export function useCssCascadeEditor({
     [projectPath, onToast, post]
   );
 
+  /**
+   * Run a structural edit (delete / wrap / rename) against a rule, with the
+   * same one-shot recovery `saveRule` has: when the backend rejects the rule as
+   * stale (body drift, or the selector no longer matching since the card was
+   * seeded), re-locate it in the current source and retry once against where
+   * and what it is now (issue #1008). Rethrows the original error when the
+   * rule can't be re-located. Returns the file the edit landed in.
+   */
+  const withStaleRuleRetry = useCallback(
+    async (
+      key: string,
+      file: string,
+      selector: string,
+      mediaText: string | null,
+      op: (file: string, oldInner: string) => Promise<unknown>
+    ): Promise<string> => {
+      try {
+        await op(file, baselineInner.current[key] ?? '');
+        return file;
+      } catch (err) {
+        if (!isStaleCssRuleError(err)) throw err;
+        const loc = await locateCssRules(projectPath, [{ selector, mediaText, href: null }])
+          .then((locs) => locs[0])
+          .catch(() => undefined);
+        if (!loc || loc.status !== 'resolved') throw err;
+        await op(loc.file, loc.inner_text);
+        baselineInner.current[key] = loc.inner_text;
+        return loc.file;
+      }
+    },
+    [projectPath]
+  );
+
+  /** Log a failed structural edit — a rule that is still stale after the retry
+   *  is an expected environment state (an agent/external edit), so it warns
+   *  rather than auto-filing a bug report; the toast tells the user either way. */
+  const reportRuleEditFailure = useCallback(
+    (what: string, err: unknown) => {
+      const error = formatCommandError(asCommandError(err));
+      if (isStaleCssRuleError(err)) {
+        logger.warn(`[CssCascade] ${what} rejected as stale after retry`, { error });
+      } else {
+        logger.error(`[CssCascade] ${what} failed`, { error });
+      }
+      onToast(toastText(err), 'error');
+    },
+    [onToast]
+  );
+
   /** Delete a whole rule from source, drop its card, and remove it live. */
   const deleteRule = useCallback(
     async (key: string) => {
       const row = rowByKeyRef.current.get(key);
       if (!row || !row.editable || row.file == null || row.selector == null) return;
+      const selector = row.selector;
       clearTimeout(previewTimers.current[key]);
       clearTimeout(saveTimers.current[key]);
       post({ type: 'ss:suppressReload' });
       try {
-        await deleteCssRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
-          baselineInner.current[key] ?? ''
+        await withStaleRuleRetry(key, row.file, row.selector, row.mediaText, (file, inner) =>
+          deleteCssRule(projectPath, file, selector, row.mediaText, inner)
         );
         post({ type: 'ss:clearRulePreview', ruleKey: key });
         post({
@@ -552,13 +598,10 @@ export function useCssCascadeEditor({
         delete baselineInner.current[key];
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] delete failed', {
-          error: formatCommandError(asCommandError(err)),
-        });
-        onToast(toastText(err), 'error');
+        reportRuleEditFailure('delete', err);
       }
     },
-    [projectPath, onToast, post]
+    [projectPath, post, withStaleRuleRetry, reportRuleEditFailure]
   );
 
   /** Wrap a top-level rule in an at-rule (the `@` above the selector). For `@media`
@@ -568,15 +611,11 @@ export function useCssCascadeEditor({
     async (key: string, atPrelude: string) => {
       const row = rowByKeyRef.current.get(key);
       if (!row || !row.editable || row.file == null || row.selector == null) return;
+      const selector = row.selector;
       post({ type: 'ss:suppressReload' });
       try {
-        await wrapCssRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
-          atPrelude,
-          baselineInner.current[key] ?? ''
+        await withStaleRuleRetry(key, row.file, row.selector, row.mediaText, (file, inner) =>
+          wrapCssRule(projectPath, file, selector, row.mediaText, atPrelude, inner)
         );
         const m = atPrelude.trim();
         const cond = m.toLowerCase().startsWith('@media') ? m.slice('@media'.length).trim() : null;
@@ -585,13 +624,10 @@ export function useCssCascadeEditor({
         else onToast('Wrapped — reselect the element to keep editing.', 'success');
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] wrap failed', {
-          error: formatCommandError(asCommandError(err)),
-        });
-        onToast(toastText(err), 'error');
+        reportRuleEditFailure('wrap', err);
       }
     },
-    [projectPath, onToast, post]
+    [projectPath, onToast, post, withStaleRuleRetry, reportRuleEditFailure]
   );
 
   /** Create a brand-new rule for `selector` and add it as an editable card you can
@@ -774,6 +810,7 @@ export function useCssCascadeEditor({
       const row = rowByKeyRef.current.get(key);
       const ns = newSelector.trim();
       if (!row || !row.editable || row.file == null || row.selector == null) return;
+      const selector = row.selector;
       if (!ns || ns === row.selector) return;
       // Cancel any in-flight debounced preview/save on the OLD key — once we re-key below
       // it would fire against a dead key and silently drop the edit.
@@ -781,15 +818,15 @@ export function useCssCascadeEditor({
       clearTimeout(saveTimers.current[key]);
       post({ type: 'ss:suppressReload' });
       try {
-        await renameCssSelector(
-          projectPath,
+        const file = await withStaleRuleRetry(
+          key,
           row.file,
           row.selector,
           row.mediaText,
-          baselineInner.current[key] ?? '',
-          ns
+          (target, inner) =>
+            renameCssSelector(projectPath, target, selector, row.mediaText, inner, ns)
         );
-        const newRow: CascadeRow = { ...row, selector: ns };
+        const newRow: CascadeRow = { ...row, file, selector: ns };
         const newKey = rowKey(newRow);
         // Move the per-rule state to the new key.
         if (bodiesRef.current[key]) {
@@ -822,13 +859,10 @@ export function useCssCascadeEditor({
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] rename failed', {
-          error: formatCommandError(asCommandError(err)),
-        });
-        onToast(toastText(err), 'error');
+        reportRuleEditFailure('rename', err);
       }
     },
-    [projectPath, onToast, post, saveRule]
+    [projectPath, post, saveRule, withStaleRuleRetry, reportRuleEditFailure]
   );
 
   /** Change the `@media` condition wrapping a rule. Re-keys on the new media; HMR
@@ -838,6 +872,7 @@ export function useCssCascadeEditor({
       const row = rowByKeyRef.current.get(key);
       const nm = newMedia.trim();
       if (!row || !row.editable || row.file == null || row.selector == null || !nm) return;
+      const selector = row.selector;
       const sourceFile = row.file;
       if (nm === row.mediaText) return;
       // Cancel any in-flight debounced preview/save on the OLD key (re-keyed below).
@@ -845,13 +880,8 @@ export function useCssCascadeEditor({
       clearTimeout(saveTimers.current[key]);
       post({ type: 'ss:suppressReload' });
       try {
-        await renameCssAtRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
-          baselineInner.current[key] ?? '',
-          nm
+        await withStaleRuleRetry(key, row.file, row.selector, row.mediaText, (file, inner) =>
+          renameCssAtRule(projectPath, file, selector, row.mediaText, inner, nm)
         );
         const minMatch = /min-width\s*:\s*([\d.]+)px/i.exec(nm);
         const nextMediaMinPx = minMatch ? Math.round(parseFloat(minMatch[1])) : null;
@@ -930,13 +960,10 @@ export function useCssCascadeEditor({
         }
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] rename at-rule failed', {
-          error: formatCommandError(asCommandError(err)),
-        });
-        onToast(toastText(err), 'error');
+        reportRuleEditFailure('rename at-rule', err);
       }
     },
-    [projectPath, onToast, post, saveRule]
+    [projectPath, post, saveRule, withStaleRuleRetry, reportRuleEditFailure]
   );
 
   /** Update one card's body model → debounced live preview + auto-save. */
