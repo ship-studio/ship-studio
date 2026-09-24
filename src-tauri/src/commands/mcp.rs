@@ -529,6 +529,17 @@ pub async fn add_mcp_server(
         } else {
             stderr
         };
+        // A hard crash leaves both streams empty; only the exit code says
+        // what happened (issue #917).
+        if details.trim().is_empty() {
+            if let Some(err) = agent_cli_crash(
+                agent.display_name,
+                "add the MCP server",
+                output.status.code(),
+            ) {
+                return Err(err);
+            }
+        }
         return Err(classify_mcp_failure("add MCP server", &details));
     }
 
@@ -700,6 +711,30 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
     message.into()
 }
 
+/// Recognise a Windows crash of the agent CLI process itself from its exit
+/// code alone — the process was killed, so stdout and stderr are empty and
+/// `classify_mcp_failure` has no text to match. `STATUS_STACK_BUFFER_OVERRUN`
+/// (0xC0000409, -1073740791) is Windows' fail-fast termination after a
+/// stack-cookie/CFG check: antivirus/EDR interference or a corrupted
+/// install, not an app bug (issue #917 — the agent-CLI counterpart of
+/// `git_exit_code_gap`'s NTSTATUS handling for git).
+fn agent_cli_crash(
+    display_name: &str,
+    action: &str,
+    exit_code: Option<i32>,
+) -> Option<CommandError> {
+    const STATUS_STACK_BUFFER_OVERRUN: i32 = 0xC0000409_u32 as i32; // -1073740791
+    match exit_code {
+        Some(STATUS_STACK_BUFFER_OVERRUN) => Some(CommandError::expected(format!(
+            "{display_name} crashed while trying to {action} (Windows stopped it after a \
+             stack-corruption check failed). This is usually antivirus or security software \
+             interfering with the CLI, or a corrupted install. Reinstall {display_name}, or \
+             check whether your antivirus quarantined one of its files, then try again."
+        ))),
+        _ => None,
+    }
+}
+
 /// Pull the line number out of a TOML syntax error, which reports its
 /// position twice — once as `…/config.toml:7:2: <reason>` and once as
 /// `TOML parse error at line 7, column 2` (issue #911). Either form will do;
@@ -825,6 +860,13 @@ pub async fn remove_mcp_server(
         // "Failed to remove MCP server: " — an empty string with no signal
         // for the user or for telemetry. Keep the exit code instead (#710).
         if details.trim().is_empty() {
+            if let Some(err) = agent_cli_crash(
+                agent.display_name,
+                "remove the MCP server",
+                output.status.code(),
+            ) {
+                return Err(err);
+            }
             return Err(CommandError::Process {
                 cmd: format!("{} mcp remove", agent.binary_name),
                 exit_code: output.status.code().unwrap_or(-1),
@@ -1186,6 +1228,21 @@ mod tests {
         ))));
         let real = std::env::current_exe().expect("test binary path");
         assert!(!git_bash_path_is_stale(Some(real.as_os_str())));
+    }
+
+    // #917: `claude mcp remove` exiting with STATUS_STACK_BUFFER_OVERRUN and
+    // no output at all.
+    #[test]
+    fn stack_buffer_overrun_crash_is_expected() {
+        match agent_cli_crash("Claude Code", "remove the MCP server", Some(-1073740791)) {
+            Some(CommandError::Expected { message }) => {
+                assert!(message.contains("crashed"), "got: {message}");
+                assert!(message.contains("antivirus"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+        assert!(agent_cli_crash("Claude Code", "remove the MCP server", Some(1)).is_none());
+        assert!(agent_cli_crash("Claude Code", "remove the MCP server", None).is_none());
     }
 
     #[test]
