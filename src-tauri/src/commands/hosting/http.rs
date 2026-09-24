@@ -139,6 +139,26 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
         .ok()
 }
 
+/// Classify a 400 from a provider.
+///
+/// Cloudflare rejects a token it can't parse as a bearer credential with a
+/// 400, not a 401: `{"code":6003,"message":"Invalid request headers",
+/// "error_chain":[{"code":6111,"message":"Invalid format for Authorization
+/// header"}]}` (issue #966). That is the saved credential being refused just
+/// as surely as an expired one, and the only fix is the same — reconnect — so
+/// it is `Rejected`. Any other 400 is a request we built wrong, which is ours.
+fn classify_bad_request(body: &str) -> HostingHttpError {
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("\"code\":6111") || lower.contains("invalid format for authorization header")
+    {
+        return HostingHttpError::Rejected;
+    }
+    let snippet: String = body.chars().take(200).collect();
+    HostingHttpError::Malformed {
+        message: format!("HTTP 400 Bad Request: {snippet}"),
+    }
+}
+
 /// GET a provider endpoint with a bearer token and decode the JSON body.
 ///
 /// Status is classified before the body is touched, so a provider that returns
@@ -162,6 +182,11 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
 
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(HostingHttpError::Rejected);
+    }
+
+    if status == reqwest::StatusCode::BAD_REQUEST {
+        let body = response.text().await.unwrap_or_default();
+        return Err(classify_bad_request(&body));
     }
 
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -306,6 +331,25 @@ mod tests {
         }
         .into_command_error("Netlify");
         assert!(matches!(limited, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn cloudflare_unparseable_authorization_header_is_a_rejected_credential() {
+        // Verbatim from the error report in issue #966.
+        let body = r#"{"success":false,"errors":[{"code":6003,"message":"Invalid request headers","error_chain":[{"code":6111,"message":"Invalid format for Authorization header"}]}],"messages":[],"result":null}"#;
+        assert!(matches!(
+            classify_bad_request(body),
+            HostingHttpError::Rejected
+        ));
+    }
+
+    #[test]
+    fn any_other_bad_request_stays_reportable() {
+        let body = r#"{"success":false,"errors":[{"code":8000000,"message":"bad per_page"}]}"#;
+        match classify_bad_request(body) {
+            HostingHttpError::Malformed { message } => assert!(message.contains("400")),
+            other => panic!("expected Malformed, got {other:?}"),
+        }
     }
 
     #[test]
