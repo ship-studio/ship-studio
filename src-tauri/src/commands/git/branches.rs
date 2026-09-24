@@ -357,9 +357,7 @@ pub async fn switch_branch(
     // to the snapshot watcher or the user's agent like every other
     // index-mutating call site — ride it out rather than fail (issue #1028).
     let checkout_output = crate::utils::output_retrying_index_lock(|| {
-        crate::external_command::spawn_with_pressure_retry("git checkout", || {
-            checkout_cmd.output()
-        })
+        crate::external_command::spawn_with_pressure_retry("git checkout", || checkout_cmd.output())
     })?;
 
     if !checkout_output.status.success() {
@@ -557,7 +555,7 @@ pub async fn create_branch(
                 warn!(error = %stderr, "Branch creation blocked: name already taken");
                 return Err(branch_already_exists_error(&branch_name));
             }
-            return Err((stderr.to_string()).into());
+            return Err(raw_branch_failure(&stderr, "creating a branch"));
         }
     } else {
         // Creating from a branch other than the one checked out. Prefer a LOCAL
@@ -634,6 +632,10 @@ pub async fn create_branch(
             if is_branch_already_exists_error(&stderr) {
                 warn!(error = %stderr, "Branch creation blocked: name already taken");
                 return Err(branch_already_exists_error(&branch_name));
+            }
+            if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+                warn!(error = %stderr.trim(), "git blocked by an environment gap while creating a branch");
+                return Err(gap);
             }
             error!(error = %stderr, "Failed to create branch");
             return Err((stderr.to_string()).into());
@@ -725,6 +727,18 @@ pub async fn push_branch(
         crate::commands::workflows::WorkflowEvent::Push,
     );
     Ok(())
+}
+
+/// The last-resort error for a failed `checkout -b` / `branch -D`: git's own
+/// stderr, verbatim (the frontend matches its wording) — unless it is an
+/// environment gap such as an unaccepted Xcode licence, which stops every git
+/// invocation and must not reach telemetry as a malfunction (issue #1007).
+fn raw_branch_failure(stderr: &str, doing: &str) -> CommandError {
+    if let Some(gap) = crate::utils::git_environment_gap(stderr) {
+        warn!(error = %stderr.trim(), "git blocked by an environment gap while {}", doing);
+        return gap;
+    }
+    stderr.to_string().into()
 }
 
 /// Git refusing `checkout -b <new> <base>` because the base ref doesn't
@@ -823,7 +837,7 @@ pub async fn delete_branch(
             )));
         }
         if !stderr.contains("not found") {
-            return Err((stderr.to_string()).into());
+            return Err(raw_branch_failure(&stderr, "deleting a branch"));
         }
     }
 
@@ -909,7 +923,32 @@ mod tests {
     use super::{
         is_branch_already_exists_error, is_default_branch_delete_refusal,
         is_missing_base_ref_error, is_worktree_delete_refusal, list_branches_failure_message,
+        raw_branch_failure,
     };
+
+    /// #1007: an unaccepted Xcode licence stops `checkout -b` / `branch -D`
+    /// too, and used to reach telemetry as bare unprefixed stderr.
+    #[test]
+    fn raw_branch_failure_classifies_environment_gaps() {
+        let err = raw_branch_failure(
+            "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild \
+             -license' from within a Terminal window to review and agree to the Xcode and \
+             Apple SDKs license.",
+            "creating a branch",
+        );
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn raw_branch_failure_keeps_other_stderr_verbatim() {
+        let stderr = "fatal: some other git failure";
+        let err = raw_branch_failure(stderr, "deleting a branch");
+        assert!(!matches!(err, crate::errors::CommandError::Expected { .. }));
+        assert_eq!(err.to_string(), stderr);
+    }
 
     // The #562 shape: deleting a branch that another worktree has checked out.
     #[test]
