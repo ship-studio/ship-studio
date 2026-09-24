@@ -142,6 +142,9 @@ const BACKEND_HUMANIZED_GIT_PHRASES = [
   // project's own husky/lint-staged/test chain rejecting the commit is the
   // project working as configured, not an app malfunction.
   'pre-commit checks blocked the commit',
+  // …and its commit-msg sibling (issue #1031): commitlint rejecting the
+  // message is the project's own rules working as configured.
+  'commit-message checks rejected the commit message',
   // create_branch's taken-name refusal (issue #791). Paired with the raw-git
   // case in humanizeGitError below: because that case reconstructs this exact
   // sentence, the inequality test alone can't see it.
@@ -445,6 +448,20 @@ export function isExpectedProjectImportRefusal(message: string): boolean {
 }
 
 /**
+ * True when a `rename_project` failure is a by-design refusal the rename modal
+ * renders inline — not a malfunction to report: any input `Validation` error
+ * (slashes, `.`/`..`, … — issue #979), anything the backend tagged Expected
+ * (e.g. renaming an external project — issue #968), and the legacy phrase
+ * checks for a taken name / a project open elsewhere.
+ */
+export function isExpectedRenameRefusal(value: unknown): boolean {
+  const err = asCommandError(value);
+  if (err.type === 'Validation' || isExpectedCommandError(err)) return true;
+  const message = formatCommandError(err);
+  return message.includes('already exists') || message.includes('Close this project');
+}
+
+/**
  * True when a caught error means the selected agent's CLI isn't installed —
  * the backend's `find_agent_binary` returns `CommandError::expected("<Agent>
  * binary not found")` for exactly this (issue #250), but Expected can't cross
@@ -566,6 +583,40 @@ export function describeProcessError(
         "GitHub couldn't authenticate this computer over HTTPS — git needed to ask for a password, and there's no saved credential to use. Open a terminal and run `gh auth login`, then `gh auth setup-git`, and try again.",
     };
   }
+  // macOS git (the Xcode Command Line Tools shim) refusing to run at all:
+  // an unaccepted Xcode license, or missing/broken Command Line Tools.
+  // `gh repo clone` wraps git and exits 1 (git's own 69 only appears inside
+  // the text), so the exit-code table can't catch it. The same wording the
+  // backend's git_environment_gap already recognises (issue #1001).
+  if (lower.includes('you have not agreed to the xcode license agreements')) {
+    return {
+      expected: true,
+      message:
+        "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run `sudo xcodebuild -license accept`, then try again.",
+    };
+  }
+  if (
+    lower.includes('invalid active developer path') ||
+    lower.includes('no developer tools were found')
+  ) {
+    return {
+      expected: true,
+      message:
+        'The Xcode Command Line Tools (which provide git on macOS) are missing or broken. Run `xcode-select --install` in Terminal, then try again.',
+    };
+  }
+  // gh's own literal when it needs git and can't find it on PATH ("unable to
+  // find git executable in PATH; please install Git for Windows before
+  // retrying"). git isn't installed, or lives somewhere neither gh nor the
+  // app's extended PATH looks — an environment gap, not an app bug. Mirrors
+  // the backend's gh_git_missing_error (issue #1018).
+  if (lower.includes('unable to find git executable in path')) {
+    return {
+      expected: true,
+      message:
+        "Git isn't installed or couldn't be located, and the GitHub CLI needs it. Install Git (https://git-scm.com) and restart Ship Studio, then try again.",
+    };
+  }
   // Windows path-length limit during clone checkout: the download itself
   // succeeded, but git couldn't write files whose paths exceed Windows'
   // 260-character default ("error: unable to create file <path>: Filename too
@@ -652,6 +703,55 @@ export function describeProcessError(
       expected: true,
       message:
         "This project's dependencies have a version conflict npm won't resolve on its own (see the peer dependency mismatch in the output). Update the conflicting package to a version they agree on, or re-run the install with `--legacy-peer-deps` if that's safe for this project.",
+    };
+  }
+  // The project's own setup script (a package.json postinstall running
+  // `prisma generate`) needing an environment variable this machine doesn't
+  // have — Prisma's "PrismaConfigEnvError: Cannot resolve environment
+  // variable: DATABASE_URL". A fresh clone never has the project's .env, and
+  // nothing Ship Studio does can supply it: project configuration, not an app
+  // bug. The tail doesn't always carry Prisma's own line, so a failed
+  // `prisma generate` lifecycle command is recognized on its own too — a
+  // project script failing is the project's to fix (issue #941).
+  const prismaEnv = msg.match(/PrismaConfigEnvError: Cannot resolve environment variable: (\w+)/i);
+  if (prismaEnv) {
+    return {
+      expected: true,
+      message: `This project's setup script (\`prisma generate\`) needs the environment variable \`${prismaEnv[1]}\`, which isn't set. Add it to a \`.env\` file in the project (the project's README or .env.example usually says what it should be), then retry the install.`,
+    };
+  }
+  if (/npm (?:error|err!) command .*\bprisma generate\b/.test(lower)) {
+    return {
+      expected: true,
+      message:
+        "This project's setup script (`prisma generate`) failed — most often because an environment variable it needs, such as DATABASE_URL, isn't set. Check the terminal output, add what's missing to a `.env` file in the project, then retry the install.",
+    };
+  }
+  // npm refusing to overwrite a file that already exists where it wants to
+  // create one ("npm error code EEXIST" … "npm install -f to overwrite files
+  // recklessly") — typically a stale node_modules/.bin entry left by an
+  // earlier or partial install. Local project state, not an app bug; name the
+  // conflicting file when npm printed it (issue #943).
+  if (
+    /npm (?:error|err!) code eexist\b/.test(lower) ||
+    lower.includes('overwrite files recklessly')
+  ) {
+    const existing = msg.match(/File exists:\s*(\S[^\n]*)/)?.[1]?.trim();
+    const where = existing ? ` (${existing})` : '';
+    return {
+      expected: true,
+      message: `npm found a file that already exists where it needs to create one${where} — usually left over from an earlier or interrupted install. Delete the project's node_modules folder, then retry the install.`,
+    };
+  }
+  // npm's Arborist crashing on its own dependency graph ("Cannot read
+  // properties of null (reading 'edgesOut')") — a known npm bug triggered by
+  // a corrupted package-lock.json, a half-finished earlier install, or a stale
+  // npm cache. Local project/machine state, not an app bug (issue #939).
+  if (lower.includes("cannot read properties of null (reading 'edgesout')")) {
+    return {
+      expected: true,
+      message:
+        "npm crashed while reading this project's dependency tree — usually a corrupted package-lock.json, a half-finished earlier install, or a stale npm cache. Run `npm cache clean --force`, delete the project's node_modules folder and package-lock.json, then retry the install.",
     };
   }
   // A clone whose pack transfer was cut off partway. curl 92

@@ -14,7 +14,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../../lib/logger';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, isExpectedCommandError } from '../../lib/errors';
 import { CheckIcon, CloseIcon, FileIcon, PendingCircleIcon, UploadIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
@@ -201,10 +201,14 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
         // Surface the failure (don't block the modal) — a silent catch left the
         // button snapping back to "Continue" with no explanation.
         const detail = formatCommandError(asCommandError(err));
-        logger.error('Failed to download community template', {
-          template: selectedCommunityTemplate.name,
-          error: detail,
-        });
+        // Network failures and stale signed links come back Expected — the
+        // user's environment, not a bug to auto-file (issue #1036).
+        const context = { template: selectedCommunityTemplate.name, error: detail };
+        if (isExpectedCommandError(err)) {
+          logger.warn('Failed to download community template', context);
+        } else {
+          logger.error('Failed to download community template', context);
+        }
         setError(
           `Couldn't download "${selectedCommunityTemplate.name}": ${detail}. ` +
             'Check your connection and try again.'

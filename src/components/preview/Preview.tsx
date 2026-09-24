@@ -42,6 +42,7 @@ import {
   type Breakpoint,
 } from '../../hooks/usePreviewResize';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import type { ToastOptions } from '../../hooks/useToasts';
 import { DevServerStatus } from '../terminal/DevServerStatus';
 import { stripAnsi } from '../../lib/ansi';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -365,7 +366,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // inline function here would change every render, re-firing their load effects (and
   // wiping optimistic edits like a just-added keyframe step before it saves).
   const onToast = useCallback(
-    (message: string, type?: 'success' | 'error' | 'info') => showToast(message, type),
+    (message: string, type?: 'success' | 'error' | 'info', options?: ToastOptions) =>
+      showToast(message, type, undefined, options),
     [showToast]
   );
   // Server connection, health checks, page navigation (extracted to hook)

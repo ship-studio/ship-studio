@@ -842,6 +842,31 @@ where
     Ok(value)
 }
 
+/// [`coalesce`], with `budget` bounding the caller's *whole* wait — the time
+/// spent queued behind an in-flight run as well as its own run — measured from
+/// when it arrived.
+///
+/// Bounding only the run let waits stack: a load arriving while a slow scan
+/// was in flight queued for that scan's full budget, then ran a whole scan of
+/// its own, and the pair outlasted the frontend's own ceiling — so the user
+/// got a bare "timed out" instead of the backend's explanation (issue #970).
+async fn coalesce_within<T, E, F, Fut>(
+    slot: &tokio::sync::Mutex<Option<Coalesced<T>>>,
+    budget: std::time::Duration,
+    on_timeout: impl FnOnce() -> E,
+    work: F,
+) -> Result<T, E>
+where
+    T: Clone,
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+{
+    let arrived_at = std::time::Instant::now();
+    tokio::time::timeout(budget, coalesce(slot, arrived_at, work))
+        .await
+        .unwrap_or_else(|_| Err(on_timeout()))
+}
+
 /// Coalescing slot for [`get_dashboard_projects`]. Three concurrent identical
 /// calls used to run the same expensive scan three times over.
 static DASHBOARD_SCAN_GATE: tokio::sync::Mutex<Option<Coalesced<Vec<DashboardProject>>>> =
@@ -851,9 +876,15 @@ static DASHBOARD_SCAN_GATE: tokio::sync::Mutex<Option<Coalesced<Vec<DashboardPro
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandError> {
-    let arrived_at = std::time::Instant::now();
-    coalesce(&DASHBOARD_SCAN_GATE, arrived_at, || async {
-        let scan = async {
+    coalesce_within(
+        &DASHBOARD_SCAN_GATE,
+        std::time::Duration::from_secs(DASHBOARD_SCAN_BUDGET_SECS),
+        || {
+            CommandError::expected(format!(
+                "Reading your projects folder took longer than {DASHBOARD_SCAN_BUDGET_SECS}s and was stopped. This usually means a project is on a disconnected network drive or an unmounted volume."
+            ))
+        },
+        || async {
             let root = crate::utils::projects_root()?;
             // Reading app state, the removed-project registry and the
             // external-project registry is three more file opens — off the
@@ -862,19 +893,8 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 .await
                 .map_err(|e| CommandError::from(format!("Dashboard scan panicked: {e}")))??;
             scan_dashboard_projects_in(root, inputs).await
-        };
-
-        tokio::time::timeout(
-            std::time::Duration::from_secs(DASHBOARD_SCAN_BUDGET_SECS),
-            scan,
-        )
-        .await
-        .map_err(|_| {
-            CommandError::expected(format!(
-                "Reading your projects folder took longer than {DASHBOARD_SCAN_BUDGET_SECS}s and was stopped. This usually means a project is on a disconnected network drive or an unmounted volume."
-            ))
-        })?
-    })
+        },
+    )
     .await
 }
 
@@ -1014,7 +1034,7 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
 
     let content = if gitignore_path.exists() {
         std::fs::read_to_string(&gitignore_path)
-            .map_err(|e| format!("Failed to read .gitignore: {e}"))?
+            .map_err(|e| crate::utils::classify_fs_error("read .gitignore", &gitignore_path, &e))?
     } else {
         String::new()
     };
@@ -1040,7 +1060,7 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
     };
 
     std::fs::write(&gitignore_path, new_content)
-        .map_err(|e| format!("Failed to write .gitignore: {e}"))?;
+        .map_err(|e| crate::utils::classify_fs_error("write .gitignore", &gitignore_path, &e))?;
 
     Ok(())
 }
@@ -1068,7 +1088,7 @@ pub async fn create_blank_project(project_path: String) -> Result<(), CommandErr
     // Add .shipstudio/ to gitignore
     let gitignore = path.join(".gitignore");
     std::fs::write(&gitignore, ".shipstudio/\n")
-        .map_err(|e| format!("Failed to create .gitignore: {e}"))?;
+        .map_err(|e| crate::utils::classify_fs_error("create .gitignore", &gitignore, &e))?;
 
     Ok(())
 }
@@ -2327,6 +2347,45 @@ mod scan_tests {
 
         assert_eq!((first, second), (0, 1));
         assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// The budget covers the wait, not just the run: a call that arrives while
+    /// a slow run is in flight must give up when *its* budget is spent, not
+    /// queue out the whole in-flight run and then start a full one of its own
+    /// (issue #970). The first caller's budget is generous, so only the
+    /// queued caller's clock is under test.
+    #[test]
+    fn a_queued_call_is_bounded_from_its_arrival() {
+        let slot: tokio::sync::Mutex<Option<Coalesced<u32>>> = tokio::sync::Mutex::const_new(None);
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let run = || {
+            let runs = runs.clone();
+            async move {
+                runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                Ok::<_, &str>(1)
+            }
+        };
+
+        let (first, second, waited) = block_on(2, async {
+            let first = coalesce_within(&slot, Duration::from_secs(5), || "first timed out", run);
+            let second = async {
+                // Arrive mid-run, so this call can't reuse the in-flight answer.
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let started = Instant::now();
+                let result =
+                    coalesce_within(&slot, Duration::from_millis(100), || "timed out", run).await;
+                (result, started.elapsed())
+            };
+            let (first, (second, waited)) = futures_util::future::join(first, second).await;
+            (first, second, waited)
+        });
+
+        assert_eq!(first, Ok(1));
+        assert_eq!(second, Err("timed out"));
+        assert!(waited < Duration::from_millis(140), "waited {waited:?}");
+        // The queued call never got to start a run of its own.
+        assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     // ---------- git pass budget ----------

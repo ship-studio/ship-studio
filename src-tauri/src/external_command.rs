@@ -124,6 +124,18 @@ fn map_spawn_io_error(label: &str, io_err: &std::io::Error) -> CommandError {
              incomplete (side-by-side configuration is incorrect). Reinstall or repair that \
              program, then try again."
         ))
+    } else if cfg!(target_os = "macos") && io_err.raw_os_error() == Some(86) {
+        // macOS EBADARCH, "Bad CPU type in executable": the binary on PATH
+        // is built for another architecture — typically an Intel-only Node
+        // on Apple Silicon without Rosetta. A local install problem, not an
+        // app malfunction (issue #1000). 86 means something unrelated on
+        // other platforms, hence the cfg gate.
+        CommandError::expected(format!(
+            "`{label}` couldn't be launched: the program it runs is built for a different \
+             CPU architecture than this Mac. If you installed it (e.g. Node.js) for Intel \
+             Macs, reinstall the Apple Silicon (arm64) build, or install Rosetta with \
+             softwareupdate --install-rosetta — then try again."
+        ))
     } else if io_err.kind() == std::io::ErrorKind::InvalidInput
         && io_err
             .to_string()
@@ -655,6 +667,21 @@ mod tests {
                     "got: {message}"
                 );
                 assert!(message.contains("Reinstall or repair"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn map_spawn_io_error_classifies_bad_cpu_type_as_expected() {
+        // macOS EBADARCH (issue #1000): "Bad CPU type in executable".
+        let e = std::io::Error::from_raw_os_error(86);
+        match map_spawn_io_error("playwright capture", &e) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("`playwright capture`"), "got: {message}");
+                assert!(message.contains("CPU architecture"), "got: {message}");
+                assert!(message.contains("--install-rosetta"), "got: {message}");
             }
             other => panic!("expected Expected, got {other:?}"),
         }

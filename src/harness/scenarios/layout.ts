@@ -77,6 +77,18 @@ export const layoutScenarios: Scenario[] = [
   },
 
   {
+    id: 'layout-focus-mode',
+    title: 'Flexible panels — Focus mode with the agent docked right',
+    looksRightWhen:
+      'The agent fills the whole workspace. No preview, no "Starting dev server…" and no code viewer beside it: Focus hides the preview column, and a hidden column that still took half the width left the agent stuck on the right with no handle to widen it (issue #1019).',
+    project: WORKSPACE_PROJECT,
+    storage: { [LAYOUT_KEY]: layout(['preview', 'agent'], []) },
+    steps: [{ click: '.workspace-tab[aria-label="Focus"]' }],
+    requires: '.workspace-dock__center[hidden]',
+    commands: workspaceCommands,
+  },
+
+  {
     id: 'layout-three-docked',
     title: 'Flexible panels — Team, Agent and the preview, all docked',
     looksRightWhen:

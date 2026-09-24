@@ -23,6 +23,7 @@ import {
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import type { ToastOptions } from './useToasts';
 
 function toastText(err: unknown): string {
   return formatCommandError(asCommandError(err));
@@ -52,7 +53,7 @@ interface Params {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   projectPath: string;
   enabled: boolean;
-  onToast: (message: string, type?: 'success' | 'error') => void;
+  onToast: (message: string, type?: 'success' | 'error', options?: ToastOptions) => void;
   /** Keep the Visual Editor's unsaved/live class state in sync with source rewrites. */
   onVariableDeleted?: (name: string, value: string) => void;
 }
@@ -283,7 +284,8 @@ export function useCssVariables({
         }
       }
       if (!file) {
-        onToast('No stylesheet found to add the variable to.', 'error');
+        // A project state the user can act on, not a malfunction (issue #1015).
+        onToast('No stylesheet found to add the variable to.', 'error', { expected: true });
         return;
       }
       try {

@@ -30,6 +30,27 @@ fn network_failure(context: &str, e: &reqwest::Error) -> CommandError {
     CommandError::expected(format!("{context}: {}", describe_reqwest_error(e)))
 }
 
+/// Classify a non-success status from a template zip download.
+///
+/// `zip_url` is a signed link that expires (the gallery re-fetches every 50
+/// minutes to stay ahead of the one-hour expiry, but a laptop asleep past that
+/// still holds a stale one), so a 4xx is a stale/refused link and a 5xx is the
+/// storage host being unavailable — neither is an app malfunction, and both
+/// were reaching telemetry as `Other` (issue #1036), unlike every sibling
+/// failure in this file.
+fn download_status_error(status: reqwest::StatusCode) -> CommandError {
+    if status.is_client_error() {
+        CommandError::expected(format!(
+            "the download link was refused (server returned {status}) — it may have \
+             expired, and reopening New Project fetches a fresh one"
+        ))
+    } else {
+        CommandError::expected(format!(
+            "the template download is unavailable right now (server returned {status})"
+        ))
+    }
+}
+
 /// Fetch community templates from the Ship Studio API.
 /// Accepts optional query parameters that map to the API spec.
 /// Returns the raw JSON string so the frontend can parse it.
@@ -111,7 +132,7 @@ pub async fn download_template_zip(url: String) -> Result<String, CommandError> 
         .map_err(|e| network_failure("Failed to download template", &e))?;
 
     if !response.status().is_success() {
-        return Err((format!("Download failed with status {}", response.status())).into());
+        return Err(download_status_error(response.status()));
     }
 
     // A truncated/interrupted download is a network condition too, and the
@@ -136,4 +157,36 @@ pub async fn download_template_zip(url: String) -> Result<String, CommandError> 
         .ok_or_else(|| CommandError::Other {
             message: "Invalid temp file path".to_string(),
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::download_status_error;
+    use crate::errors::CommandError;
+
+    /// Issue #1036: a refused/expired signed download link is Expected, not
+    /// an auto-reported `Other`.
+    #[test]
+    fn download_status_errors_are_expected() {
+        let refused = download_status_error(reqwest::StatusCode::BAD_REQUEST);
+        assert!(
+            matches!(refused, CommandError::Expected { .. }),
+            "got: {refused:?}"
+        );
+        assert!(
+            refused.to_string().contains("400 Bad Request"),
+            "got: {refused}"
+        );
+        assert!(
+            refused.to_string().contains("may have expired"),
+            "got: {refused}"
+        );
+
+        let down = download_status_error(reqwest::StatusCode::BAD_GATEWAY);
+        assert!(
+            matches!(down, CommandError::Expected { .. }),
+            "got: {down:?}"
+        );
+        assert!(down.to_string().contains("502"), "got: {down}");
+    }
 }

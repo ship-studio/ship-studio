@@ -197,11 +197,18 @@ fn is_permission_denied(stderr: &str) -> bool {
 }
 
 /// True when osascript failed because Spotify vanished between the `pgrep`
-/// guard and the Apple Event (`-600` is `procNotFound`). A benign race, not a
-/// malfunction.
+/// guard and the Apple Event. A benign race, not a malfunction.
+///
+/// `-600` is `procNotFound`. `-609` is `connectionInvalid`: the Apple Event
+/// connection to Spotify died mid-call because it quit or relaunched — the
+/// same race, reported by a different layer (issue #980). Codes are matched
+/// rather than message text because the message is localized ("Ongeldige
+/// verbinding" on a Dutch system).
 #[cfg(target_os = "macos")]
 fn is_not_running_error(stderr: &str) -> bool {
-    stderr.contains("-600") || stderr.to_ascii_lowercase().contains("isn't running")
+    stderr.contains("-600")
+        || stderr.contains("-609")
+        || stderr.to_ascii_lowercase().contains("isn't running")
 }
 
 /// Actions accepted by [`spotify_control`]. A fixed allowlist — no
@@ -720,5 +727,14 @@ mod tests {
             "execution error: Spotify isn't running. (-600)"
         ));
         assert!(!is_not_running_error("execution error: something else"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn recognizes_a_dropped_apple_event_connection_as_the_same_race() {
+        // Verbatim from issue #980 (Dutch-localized system).
+        assert!(is_not_running_error(
+            "216:220: execution error: Spotify kreeg een fout: Ongeldige verbinding. (-609)"
+        ));
     }
 }

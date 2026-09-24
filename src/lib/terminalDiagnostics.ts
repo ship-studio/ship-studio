@@ -57,10 +57,12 @@ const ERROR_LINE_PATTERN = /error|not recognized|not found|EACCES|EPERM|EEXIST|E
  * blurb. Both are printed on failures regardless of cause, and both match
  * {@link ERROR_LINE_PATTERN}, so without this filter the last "error" line is
  * a log path or a bug-tracker URL instead of what actually broke (issue
- * #717).
+ * #717). npm's EEXIST advice ("Remove the existing file and try again, or
+ * run … --force to overwrite files recklessly") is the same kind of generic
+ * trailer, and hid the conflicting path above it (issue #943).
  */
 const NOISE_LINE_PATTERN =
-  /complete log of this run|[\\/]_logs[\\/].*\.log\b|report this error at|this is an error with npm itself|github\.com[\\/]npm[\\/]cli[\\/]issues/i;
+  /complete log of this run|[\\/]_logs[\\/].*\.log\b|report this error at|this is an error with npm itself|github\.com[\\/]npm[\\/]cli[\\/]issues|remove the existing file and try again|overwrite files recklessly/i;
 
 /**
  * "npm/node isn't on PATH" — cmd.exe ("'npm' is not recognized as an internal

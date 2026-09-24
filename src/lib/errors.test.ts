@@ -9,6 +9,7 @@ import {
   isAgentNotInstalledError,
   isExpectedCommandError,
   isExpectedProjectImportRefusal,
+  isExpectedRenameRefusal,
   isMergeConflictError,
   isMissingUpstreamError,
   isProjectFolderGoneError,
@@ -123,6 +124,27 @@ describe('friendlyProcessError', () => {
     expect(info.message).toMatch(/SSH/);
     expect(info.message).toContain('gh config set git_protocol https');
     expect(info.message).not.toContain('Cloning into');
+  });
+
+  it('maps an unaccepted Xcode license during clone to xcodebuild guidance (issue #1001)', () => {
+    const raw =
+      "Process exited with code 1\n\nYou have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.\nfailed to run git: exit status 69";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('sudo xcodebuild -license accept');
+    expect(
+      describeProcessError(
+        'xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), missing xcrun'
+      ).message
+    ).toContain('xcode-select --install');
+  });
+
+  it("maps gh's git-not-found literal to install-Git guidance (issue #1018)", () => {
+    const raw =
+      'Process exited with code 1\n\nunable to find git executable in PATH; please install Git for Windows before retrying';
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('git-scm.com');
   });
 
   it('maps npm E401 registry auth failures to `npm login` guidance (issue #505)', () => {
@@ -721,6 +743,14 @@ describe('isRecognizedGitFailure — pre-commit hook refusal (issue #766)', () =
       'below), then try again.\n\nhusky - pre-commit script failed (code 1)';
     expect(isRecognizedGitFailure({ type: 'Other', message })).toBe(true);
   });
+
+  it('recognizes the commit-msg hook (commitlint) refusal (issue #1031)', () => {
+    const message =
+      "This project's commit-message checks rejected the commit message (a commit-msg hook, " +
+      "such as commitlint). Commit with a message that follows the project's rules (what " +
+      'they reported is below), then try again.\n\n✖   found 3 problems, 0 warnings';
+    expect(isRecognizedGitFailure({ type: 'Other', message })).toBe(true);
+  });
 });
 
 describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {
@@ -740,6 +770,83 @@ describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {
 
   it('matches the wording alone, without the ERESOLVE code', () => {
     expect(describeProcessError('ERESOLVE unable to resolve dependency tree').expected).toBe(true);
+  });
+});
+
+describe('describeProcessError — prisma generate postinstall (issue #941)', () => {
+  it('names the missing variable from PrismaConfigEnvError', () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      '> holma@0.1.0 postinstall',
+      '> prisma generate',
+      'Failed to load config file "C:\\Users\\me\\holma" as a TypeScript/JavaScript module. Error: PrismaConfigEnvError: Cannot resolve environment variable: DIRECT_URL.',
+      'npm error code 1',
+      'npm error path C:\\Users\\me\\holma',
+      'npm error command failed',
+      'npm error command C:\\WINDOWS\\system32\\cmd.exe /d /s /c prisma generate',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('`DIRECT_URL`');
+    expect(info.message).toContain('.env');
+  });
+
+  it("recognizes a failed prisma generate without Prisma's own line", () => {
+    const info = describeProcessError('⠙npm error command sh -c prisma generate');
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('prisma generate');
+  });
+
+  it('leaves other failing lifecycle scripts unclassified', () => {
+    expect(describeProcessError('npm error command sh -c node scripts/build.js').expected).toBe(
+      false
+    );
+  });
+});
+
+describe('describeProcessError — npm EEXIST (issue #943)', () => {
+  it('maps the conflict to expected guidance naming the file', () => {
+    const raw = [
+      'npm error code EEXIST',
+      'npm error path /Users/me/proj/node_modules/.bin/next',
+      'npm error EEXIST: file already exists',
+      'npm error File exists: /Users/me/proj/node_modules/.bin/next',
+      'npm error Remove the existing file and try again, or run npm',
+      'npm error with --force to overwrite files recklessly.',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('(/Users/me/proj/node_modules/.bin/next)');
+    expect(info.message).toContain('node_modules');
+  });
+
+  it('matches the advice line alone (a truncated tail)', () => {
+    const info = describeProcessError('⠸npm error with --force to overwrite files recklessly.');
+    expect(info.expected).toBe(true);
+    expect(info.message).not.toContain('(');
+  });
+});
+
+describe("describeProcessError — npm Arborist 'edgesOut' crash (issue #939)", () => {
+  it('maps the crash to cache/lockfile cleanup guidance', () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "npm error Cannot read properties of null (reading 'edgesOut')",
+      'npm notice',
+      'npm notice New major version of npm available! 10.9.8 -> 12.0.2',
+      'npm error A complete log of this run can be found in: ~/.npm/_logs/2026-09-09T07_03_36_106Z-debug-0.log',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('npm cache clean --force');
+    expect(info.message).toContain('package-lock.json');
+  });
+
+  it('does not fire on other null-property crashes', () => {
+    const info = describeProcessError("TypeError: Cannot read properties of null (reading 'foo')");
+    expect(info.expected).toBe(false);
   });
 });
 
@@ -983,5 +1090,38 @@ describe('isRecognizedGitFailure — trusts the backend flag and switch_branch w
     expect(isRecognizedGitFailure('error: you need to resolve your current index first')).toBe(
       true
     );
+  });
+});
+
+describe('isExpectedRenameRefusal', () => {
+  it('treats any Validation error as a refusal (#979)', () => {
+    expect(
+      isExpectedRenameRefusal({
+        type: 'Validation',
+        field: 'new_name',
+        reason: 'Project name cannot contain slashes',
+      })
+    ).toBe(true);
+  });
+
+  it('treats a backend-Expected refusal as a refusal (#968)', () => {
+    expect(
+      isExpectedRenameRefusal({
+        type: 'Other',
+        message:
+          "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name.",
+        expected: true,
+      })
+    ).toBe(true);
+  });
+
+  it('keeps the legacy phrase checks', () => {
+    expect(isExpectedRenameRefusal('A project named "x" already exists.')).toBe(true);
+    expect(isExpectedRenameRefusal('Close this project in its other window first')).toBe(true);
+  });
+
+  it('reports anything else', () => {
+    expect(isExpectedRenameRefusal({ type: 'Other', message: 'rename(2) failed' })).toBe(false);
+    expect(isExpectedRenameRefusal({ type: 'Io', message: 'disk full' })).toBe(false);
   });
 });

@@ -69,7 +69,7 @@ import { useWorkspaceNumberShortcuts } from './hooks/useWorkspaceNumberShortcuts
 import { TooltipProvider } from './components/primitives/Tooltip';
 import { DevDesignSystemTools } from './components/design-system/DevDesignSystemTools';
 import { logger } from './lib/logger';
-import { asCommandError, formatCommandError } from './lib/errors';
+import { asCommandError, formatCommandError, isExpectedRenameRefusal } from './lib/errors';
 import { trackEvent, trackPageview } from './lib/analytics';
 import {
   getSnapshot as getWorkflowsSnapshot,
@@ -639,9 +639,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         void trackEvent('project_renamed', { $screen_name: 'Workspace' });
       } catch (error) {
         const message = formatCommandError(asCommandError(error));
-        const isExpectedRefusal =
-          message.includes('already exists') || message.includes('Close this project');
-        logger[isExpectedRefusal ? 'warn' : 'error']('[RenameProject] failed', {
+        logger[isExpectedRenameRefusal(error) ? 'warn' : 'error']('[RenameProject] failed', {
           projectPath,
           error: message,
         });

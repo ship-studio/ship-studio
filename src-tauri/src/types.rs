@@ -173,7 +173,11 @@ pub struct TerminalState {
 /// Project metadata stored in .shipstudio/project.json
 #[derive(Serialize, Deserialize)]
 pub struct ProjectMetadata {
-    #[serde(rename = "_description")]
+    /// Cosmetic marker for anyone opening the file by hand; never read for
+    /// logic. Defaulted so a file without it (hand-edited, or written by
+    /// something other than this app) still parses — a missing cosmetic key
+    /// used to fail the whole read, hosting state included (issue #1023).
+    #[serde(rename = "_description", default = "default_description")]
     pub description: String,
     /// Schema version for migration support. Defaults to 1 if not present (legacy files).
     #[serde(default = "default_schema_version")]
@@ -267,10 +271,15 @@ fn default_schema_version() -> u32 {
     1
 }
 
+fn default_description() -> String {
+    "Ship Studio project metadata. Auto-generated - safe to delete if needed, will be recreated."
+        .to_string()
+}
+
 impl Default for ProjectMetadata {
     fn default() -> Self {
         ProjectMetadata {
-            description: "Ship Studio project metadata. Auto-generated - safe to delete if needed, will be recreated.".to_string(),
+            description: default_description(),
             schema_version: PROJECT_METADATA_SCHEMA_VERSION,
             hosting: None,
             last_opened: None,
@@ -1026,6 +1035,20 @@ mod metadata_tests {
         assert!(!legacy_json.contains("force_static_serve"));
         let parsed: ProjectMetadata = serde_json::from_str(&legacy_json).unwrap();
         assert_eq!(parsed.force_static_serve, None);
+    }
+
+    // #1023: a project.json without `_description` failed the whole parse
+    // ("missing field `_description`"), taking the hosting link down with it.
+    #[test]
+    fn missing_description_defaults_instead_of_failing_the_parse() {
+        let json = r#"{"schema_version":4,"last_opened":1700000000000}"#;
+        let parsed: ProjectMetadata =
+            serde_json::from_str(json).expect("missing _description must parse");
+        assert_eq!(parsed.description, ProjectMetadata::default().description);
+        assert_eq!(parsed.last_opened, Some(1_700_000_000_000));
+        // And it is written back, so the file self-heals on the next save.
+        let out = serde_json::to_string(&parsed).unwrap();
+        assert!(out.contains("\"_description\""), "got: {out}");
     }
 }
 

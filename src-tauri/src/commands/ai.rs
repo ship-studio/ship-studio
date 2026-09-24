@@ -15,6 +15,13 @@ use tracing::{debug, error, info, warn};
 /// Maximum diff size in bytes to send to Claude (~40KB)
 const MAX_DIFF_SIZE: usize = 40_000;
 
+/// Cap for each of the other prompt sections — the commit subject list, the
+/// `git diff --stat` listing and the porcelain status. Only the diff used to
+/// be bounded, so a badly diverged base branch (or a tree full of untracked
+/// files) could still push the prompt past 1.6M characters, over Codex's 1MB
+/// input limit (issue #1024).
+const MAX_CONTEXT_SECTION_SIZE: usize = 10_000;
+
 /// Timeout for the underlying AI agent CLI call. Claude can be slow, so 60s.
 const AGENT_CLI_TIMEOUT_SECS: u64 = 60;
 
@@ -187,6 +194,75 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              top up, or /model to switch to one your plan covers. ({detail})"
         )));
     }
+    // The API-billed flavour of the same state: "Credit balance is too low"
+    // arrives when the CLI is authenticated with an API key whose account has
+    // run dry. There is no /usage-credits for that — the remedy is the
+    // account's billing, not a slash command (issue #919, second occurrence).
+    if lower.contains("credit balance is too low") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s account is out of credits (\"Credit balance is too low\"), so AI \
+             generation isn't available right now. Add credits to the account {agent_name} is \
+             signed in with, or switch it to one that has them, then try again."
+        )));
+    }
+    // The provider turning the request away because the selected model is
+    // overloaded — transient and provider-side, not an account state, so the
+    // advice is "try again or pick another model", not a reset time
+    // (issue #1030).
+    if lower.contains("model is at capacity") {
+        return Some(CommandError::expected(format!(
+            "The model {agent_name} is set to is at capacity right now, so AI generation isn't \
+             available. Try again in a few minutes, or switch {agent_name} to a different model."
+        )));
+    }
+    // The configured model was retired by its provider; the CLI's own error
+    // names the replacement ("Model \"x\" is no longer available. Use \"y\"
+    // instead."), so keep that sentence (issue #971, second occurrence).
+    if lower
+        .lines()
+        .any(|line| line.contains("model") && line.contains("is no longer available"))
+    {
+        let detail = crate::external_command::truncate_output_head_tail(detail);
+        return Some(CommandError::expected(format!(
+            "The model {agent_name} is set to is no longer available. Switch {agent_name} to a \
+             current model in its settings, then try again. ({detail})"
+        )));
+    }
+    // Opencode's own local server failing without saying why — a known
+    // upstream Opencode bug with several triggers that all print this same
+    // generic error (anomalyco/opencode#33766, #36601). Nothing the app sent
+    // is implicated, and the real cause lives only in Opencode's logs
+    // (issue #971).
+    if lower.contains("unexpected server error")
+        && (lower.contains("unknownerror") || lower.contains("check server logs"))
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} hit an internal server error without saying why (a known {agent_name} \
+             issue). Check that {agent_name} works with its current model in an agent terminal, \
+             then try again."
+        )));
+    }
+    // Codex couldn't reach OpenAI at all: the models refresh got a CDN
+    // block page and every WebSocket/HTTPS reconnect failed with "workspace
+    // routing discovery failed". Network, VPN/firewall or an OpenAI outage —
+    // matched on that exact phrase, never on a bare "403" (issue #1032).
+    if lower.contains("workspace routing discovery failed") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} couldn't reach OpenAI's servers, so AI generation isn't available \
+             right now. Check your internet connection (a VPN, proxy or firewall can block it) \
+             and OpenAI's status page, then try again."
+        )));
+    }
+    // The prompt was larger than the CLI accepts (Codex: "Input exceeds the
+    // maximum length of 1048576 characters", input_error_code
+    // "input_too_large"). The prompt builders cap every piece they include,
+    // so this is a last line of defence (issue #1024).
+    if lower.contains("input_too_large") || lower.contains("input exceeds the maximum length") {
+        return Some(CommandError::expected(format!(
+            "These changes are too large for {agent_name} to summarize automatically. Write \
+             it yourself, or split the work into smaller pieces."
+        )));
+    }
     if lower.contains("failed to load models cache")
         || lower.contains("codex_models_manager::cache")
     {
@@ -270,6 +346,23 @@ fn strip_prompt_echo(output: &str, prompt: &str) -> String {
     output.replace(prompt, "[prompt omitted]")
 }
 
+/// Drop stderr lines that are known informational banners rather than
+/// errors. Claude Code prints "⚠ claude.ai connectors are disabled because
+/// ANTHROPIC_API_KEY or another auth source is set …" whenever a project's
+/// workspace credentials are injected — every run, success or failure — so it
+/// never explains a failure (issue #996).
+fn strip_benign_banners(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| {
+            !line
+                .to_ascii_lowercase()
+                .contains("claude.ai connectors are disabled")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Run the active agent headlessly with `prompt` in `cwd` and return its final
 /// answer text. `extra_envs` is injected on top of the extended PATH.
 async fn run_agent_headless(
@@ -346,17 +439,23 @@ async fn run_agent_headless(
         // the echo BEFORE any capping or classification: it's the user's own
         // data reflected back as an "error", and it buries the real failure
         // line (issue #665).
-        let stderr = strip_prompt_echo(&String::from_utf8_lossy(&output.stderr), prompt);
+        let raw_stderr = strip_prompt_echo(&String::from_utf8_lossy(&output.stderr), prompt);
+        // Informational banners the CLI prints on every run under some
+        // configurations say nothing about why it failed; a stderr holding
+        // only those must not hide the real reason on stdout (issue #996).
+        let stderr = strip_benign_banners(&raw_stderr);
         // A silent non-zero exit (empty stderr) used to surface as the
         // undiagnosable "Claude Code CLI failed: " — fall back to the exit code
         // and stdout so there's something to act on (issue #269).
         let full_detail = if stderr.trim().is_empty() {
             let stdout = strip_prompt_echo(&String::from_utf8_lossy(&output.stdout), prompt);
             let stdout = stdout.trim();
-            if stdout.is_empty() {
-                format!("exit code {:?}, no output", output.status.code())
-            } else {
-                format!("exit code {:?}: {stdout}", output.status.code())
+            let banner = raw_stderr.trim();
+            match (stdout.is_empty(), banner.is_empty()) {
+                (false, _) => format!("exit code {:?}: {stdout}", output.status.code()),
+                // Nothing else to go on: the banner is still better than nothing.
+                (true, false) => format!("exit code {:?}: {banner}", output.status.code()),
+                (true, true) => format!("exit code {:?}, no output", output.status.code()),
             }
         } else {
             stderr
@@ -431,6 +530,9 @@ pub async fn generate_pr_description(
     }
 
     let truncated_diff = truncate_diff(&diff);
+    let commits = cap_context_section(&commits, false);
+    // `--stat` ends with the "N files changed" summary — worth keeping.
+    let diff_stat = cap_context_section(&diff_stat, true);
 
     let prompt = build_prompt(
         &branch_name,
@@ -550,6 +652,39 @@ fn truncate_diff(diff: &str) -> String {
         ),
         None => format!("{truncated}\n\n[... diff truncated ...]"),
     }
+}
+
+/// Cap a line-oriented prompt section at [`MAX_CONTEXT_SECTION_SIZE`] bytes,
+/// cutting on a line boundary and saying how many lines were dropped. With
+/// `keep_last_line` the final line survives the cut (the `--stat` summary).
+fn cap_context_section(text: &str, keep_last_line: bool) -> String {
+    if text.len() <= MAX_CONTEXT_SECTION_SIZE {
+        return text.to_string();
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let last = if keep_last_line {
+        lines.last().copied()
+    } else {
+        None
+    };
+    let budget = MAX_CONTEXT_SECTION_SIZE.saturating_sub(last.map_or(0, |l| l.len() + 1));
+    let mut out = String::new();
+    let mut kept = 0;
+    for line in &lines {
+        if out.len() + line.len() + 1 > budget {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+        kept += 1;
+    }
+    let dropped = lines.len() - kept - usize::from(last.is_some());
+    out.push_str(&format!("[... {dropped} more lines truncated ...]"));
+    if let Some(last) = last {
+        out.push('\n');
+        out.push_str(last);
+    }
+    out
 }
 
 fn build_prompt(
@@ -724,6 +859,7 @@ pub async fn run_working_tree_prompt(
     if status.trim().is_empty() {
         return Err(CommandError::expected("No changes to summarize"));
     }
+    let status = cap_context_section(&status, false);
     let diff = truncate_diff(&git_working_diff(path));
 
     debug!(
@@ -775,6 +911,7 @@ pub async fn generate_commit_message_for_path(
     if status.trim().is_empty() {
         return Err("No changes to summarize".to_string().into());
     }
+    let status = cap_context_section(&status, false);
     let diff = truncate_diff(&git_working_diff(path));
     let prompt = build_commit_prompt(&status, &diff);
 
@@ -1032,6 +1169,98 @@ mod tests {
         );
     }
 
+    // #919's second wording: API-key billing, not a subscription. There is
+    // no /usage-credits for it, so the advice must not name one.
+    #[test]
+    fn classify_agent_cli_failure_credit_balance_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Claude Code",
+            "exit code Some(1): Credit balance is too low",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("out of credits"), "got: {msg}");
+        assert!(!msg.contains("/usage-credits"), "got: {msg}");
+        assert!(!msg.contains("resets automatically"), "got: {msg}");
+    }
+
+    // #1030: Codex's provider-side capacity refusal, behind a transcript and
+    // an unrelated temp-dir warning.
+    #[test]
+    fn classify_agent_cli_failure_model_at_capacity_is_expected() {
+        let detail = "WARNING: failed to clean up stale arg0 temp dirs: Permission denied (os error 13)\n\
+                      OpenAI Codex v0.155.1\n--------\nmodel: gpt-6-astra\n--------\nuser\n[prompt omitted]\n\n\
+                      ERROR: Selected model is at capacity. Please try a different model.\n\
+                      ERROR: Selected model is at capacity. Please try a different model.";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("at capacity"), "got: {msg}");
+        assert!(msg.contains("different model"), "got: {msg}");
+    }
+
+    // #971: Opencode's opaque internal-server error, with and without the
+    // "[autotitle] Module loaded" line seen on macOS.
+    #[test]
+    fn classify_agent_cli_failure_opencode_unknown_error_is_expected() {
+        for detail in [
+            "Error: {\n  \"name\": \"UnknownError\",\n  \"data\": {\n    \"message\": \"Unexpected server error. Check server logs for details.\",\n    \"ref\": \"err_25f872e8\"\n  }\n}",
+            "[autotitle] Module loaded\nError: {\n  \"name\": \"UnknownError\",\n  \"data\": {\n    \"message\": \"Unexpected server error. Check server logs for details.\",\n    \"ref\": \"err_ea142463\"\n  }\n}",
+        ] {
+            let err = classify_agent_cli_failure("Opencode", detail).expect("must classify");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(format!("{err}").contains("internal server error"));
+        }
+    }
+
+    // #971's second shape: a retired model. The CLI names the replacement,
+    // and that name must reach the user.
+    #[test]
+    fn classify_agent_cli_failure_retired_model_keeps_the_replacement() {
+        let detail = "\n> build · minimax-m2.7\n\nError: Model \"minimax-m2.7\" is no longer available. Use \"minimax-m3\" instead.";
+        let err = classify_agent_cli_failure("Opencode", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("no longer available"), "got: {msg}");
+        assert!(msg.contains("minimax-m3"), "got: {msg}");
+    }
+
+    // "model" and "no longer available" on unrelated lines of a transcript
+    // are not a retired-model refusal.
+    #[test]
+    fn classify_agent_cli_failure_retired_model_needs_both_on_one_line() {
+        let detail = "model: gpt-5\n--------\nThat endpoint is no longer available";
+        assert!(classify_agent_cli_failure("Codex", detail).is_none());
+    }
+
+    // #1032: Codex blocked at the network/CDN layer. Matched on the routing
+    // phrase, never on the bare 403.
+    #[test]
+    fn classify_agent_cli_failure_codex_network_block_is_expected() {
+        let detail = "ERROR codex_models_manager::manager: failed to refresh available models: unexpected status 403 Forbidden: <html>Unable to load site</html>\n\
+                      ERROR: Reconnecting... 2/5\n\
+                      warning: Falling back from WebSockets to HTTPS transport. workspace routing discovery failed\n\
+                      ERROR: Reconnecting... 5/5\n\
+                      ERROR: workspace routing discovery failed";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("couldn't reach OpenAI"));
+        assert!(
+            classify_agent_cli_failure("Codex", "unexpected status 403 Forbidden").is_none(),
+            "a bare 403 is too generic to classify"
+        );
+    }
+
+    // #1024: Codex's JSON-RPC refusal of an oversized prompt.
+    #[test]
+    fn classify_agent_cli_failure_input_too_large_is_expected() {
+        let detail = "Error: turn/start: turn/start failed: Input exceeds the maximum length of 1048576 characters. (code -32602), data: {\"input_error_code\":\"input_too_large\",\"max_chars\":1048576,\"actual_chars\":1619065}";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("too large"));
+    }
+
     // Expired sign-in ("run /login") is user-fixable, not a malfunction.
     #[test]
     fn classify_agent_cli_failure_expired_login_is_expected() {
@@ -1215,6 +1444,55 @@ mod tests {
 
     // The #565 shape: a commit-message CLI timeout is best-effort noise (the
     // caller falls back to the default message) — Expected, not telemetry.
+    #[test]
+    fn cap_context_section_leaves_small_sections_alone() {
+        assert_eq!(cap_context_section("a\nb", false), "a\nb");
+    }
+
+    // #1024: a diverged base produced a commit list and --stat listing big
+    // enough to push the prompt past Codex's 1MB limit.
+    #[test]
+    fn cap_context_section_bounds_huge_sections() {
+        let commits: String = (0..50_000)
+            .map(|i| format!("Commit subject {i}\n"))
+            .collect();
+        let capped = cap_context_section(&commits, false);
+        assert!(
+            capped.len() <= MAX_CONTEXT_SECTION_SIZE + 64,
+            "len {}",
+            capped.len()
+        );
+        assert!(capped.starts_with("Commit subject 0\n"));
+        assert!(capped.contains("more lines truncated"));
+    }
+
+    #[test]
+    fn cap_context_section_keeps_the_stat_summary() {
+        let mut stat: String = (0..5_000)
+            .map(|i| format!(" src/file_{i}.rs | 2 +-\n"))
+            .collect();
+        stat.push_str(" 5000 files changed, 5000 insertions(+), 5000 deletions(-)");
+        let capped = cap_context_section(&stat, true);
+        assert!(
+            capped.len() <= MAX_CONTEXT_SECTION_SIZE + 64,
+            "len {}",
+            capped.len()
+        );
+        assert!(capped.ends_with("5000 files changed, 5000 insertions(+), 5000 deletions(-)"));
+        assert!(capped.contains("more lines truncated"));
+    }
+
+    // #996: the connectors banner is noise on every credentialed run; a
+    // stderr holding only it counts as empty so stdout gets consulted.
+    #[test]
+    fn strip_benign_banners_drops_the_connectors_warning() {
+        let banner = "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors";
+        assert!(strip_benign_banners(banner).trim().is_empty());
+        let mixed = format!("{banner}\nError: Invalid API key");
+        assert_eq!(strip_benign_banners(&mixed), "Error: Invalid API key");
+        assert_eq!(strip_benign_banners("Error: boom"), "Error: boom");
+    }
+
     #[test]
     fn soften_commit_timeout_maps_timeout_to_expected() {
         let softened = soften_commit_timeout(CommandError::Timeout {

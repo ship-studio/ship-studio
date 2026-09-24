@@ -295,6 +295,16 @@ export function copyFor(
         action: 'Connect',
       };
 
+    case 'link_missing':
+      return {
+        title: `Relink ${host}`,
+        // The provider answered, clearly: this is not "couldn't reach", and
+        // it is not a failed deploy.
+        status: 'Linked project not found',
+        hint: `${host} has no record of it — it may have been deleted or renamed.`,
+        action: 'Relink',
+      };
+
     case 'no_link':
       return {
         title: 'See if each push went live',

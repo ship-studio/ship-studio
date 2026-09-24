@@ -44,6 +44,7 @@ const ALL_KINDS = [
   'no_token',
   'token_rejected',
   'no_link',
+  'link_missing',
   'offline',
   'rate_limited',
   'unavailable',
@@ -162,7 +163,12 @@ describe('hosting copy', () => {
    * make as long as they like. Clipping that is legitimate; clipping a sentence
    * we wrote is not.
    */
-  const OUR_OWN_TITLE = new Set<SectionStateKind>(['no_token', 'token_rejected', 'no_link']);
+  const OUR_OWN_TITLE = new Set<SectionStateKind>([
+    'no_token',
+    'token_rejected',
+    'no_link',
+    'link_missing',
+  ]);
 
   it('writes both upper lines to fit the column they render in', () => {
     for (const kind of ALL_KINDS) {
