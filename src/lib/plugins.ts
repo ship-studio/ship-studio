@@ -254,6 +254,7 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
   'Plugin repository URL',
   'points at a page inside a repository',
   "Couldn't find a git repository at that URL",
+  "That URL doesn't look like a git repository",
   "Couldn't reach the plugin's repository",
   'repository requires sign-in',
   "Git isn't installed or couldn't be located",

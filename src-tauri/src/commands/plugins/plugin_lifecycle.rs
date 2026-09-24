@@ -83,6 +83,16 @@ fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
              and add it with Link Dev Plugin.",
         ));
     }
+    // git's dumb-HTTP probe rejected the URL — typically a repo link with
+    // extra characters (a pasted `?fbclid=…` tracking parameter) that the
+    // smart-HTTP endpoint won't serve (issue #975).
+    if lower.contains("is this a git repository") {
+        return Some(CommandError::expected(
+            "That URL doesn't look like a git repository. Double-check the plugin's repository \
+             link — extra characters such as tracking parameters after the repository name can \
+             break it.",
+        ));
+    }
     // A mistyped, renamed, deleted, or private repository URL (issue #803).
     if lower.contains("repository not found")
         || lower.contains("could not read from remote repository")
@@ -1038,6 +1048,18 @@ mod tests {
         assert!(matches!(err, CommandError::Expected { .. }));
         assert!(err.to_string().contains("xcodebuild -license"));
         assert!(classify_remote_git_failure(stderr).is_some());
+    }
+
+    #[test]
+    fn classifies_dumb_http_probe_failure_as_expected() {
+        // Issue #975: a repo URL with a tracking query string appended.
+        let err = classify_clone_failure(
+            "Cloning into '.tmp-install'...\n\
+             fatal: https://github.com/owner/repo?fbclid=abc/info/refs not valid: is this a git \
+             repository?\n",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("doesn't look like a git repository"));
     }
 
     #[test]

@@ -147,6 +147,7 @@ describe('isExpectedPluginFailure', () => {
       "Couldn't find a git repository at that URL. Double-check the plugin's repository link …",
       "This plugin's repository requires sign-in, and Ship Studio can't authenticate to it …",
       "Couldn't reach the plugin's repository — check your internet connection and try again.",
+      "That URL doesn't look like a git repository. Double-check the plugin's repository link …",
       'That link points at a page inside a repository, not the repository itself. …',
       'Plugin repository URL must be an https://, ssh://, git:// or git@ remote',
     ]) {
