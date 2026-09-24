@@ -208,6 +208,33 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              available. Try again in a few minutes, or switch {agent_name} to a different model."
         )));
     }
+    // The configured model was retired by its provider; the CLI's own error
+    // names the replacement ("Model \"x\" is no longer available. Use \"y\"
+    // instead."), so keep that sentence (issue #971, second occurrence).
+    if lower
+        .lines()
+        .any(|line| line.contains("model") && line.contains("is no longer available"))
+    {
+        let detail = crate::external_command::truncate_output_head_tail(detail);
+        return Some(CommandError::expected(format!(
+            "The model {agent_name} is set to is no longer available. Switch {agent_name} to a \
+             current model in its settings, then try again. ({detail})"
+        )));
+    }
+    // Opencode's own local server failing without saying why — a known
+    // upstream Opencode bug with several triggers that all print this same
+    // generic error (anomalyco/opencode#33766, #36601). Nothing the app sent
+    // is implicated, and the real cause lives only in Opencode's logs
+    // (issue #971).
+    if lower.contains("unexpected server error")
+        && (lower.contains("unknownerror") || lower.contains("check server logs"))
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} hit an internal server error without saying why (a known {agent_name} \
+             issue). Check that {agent_name} works with its current model in an agent terminal, \
+             then try again."
+        )));
+    }
     if lower.contains("failed to load models cache")
         || lower.contains("codex_models_manager::cache")
     {
@@ -1082,6 +1109,40 @@ mod tests {
         let msg = format!("{err}");
         assert!(msg.contains("at capacity"), "got: {msg}");
         assert!(msg.contains("different model"), "got: {msg}");
+    }
+
+    // #971: Opencode's opaque internal-server error, with and without the
+    // "[autotitle] Module loaded" line seen on macOS.
+    #[test]
+    fn classify_agent_cli_failure_opencode_unknown_error_is_expected() {
+        for detail in [
+            "Error: {\n  \"name\": \"UnknownError\",\n  \"data\": {\n    \"message\": \"Unexpected server error. Check server logs for details.\",\n    \"ref\": \"err_25f872e8\"\n  }\n}",
+            "[autotitle] Module loaded\nError: {\n  \"name\": \"UnknownError\",\n  \"data\": {\n    \"message\": \"Unexpected server error. Check server logs for details.\",\n    \"ref\": \"err_ea142463\"\n  }\n}",
+        ] {
+            let err = classify_agent_cli_failure("Opencode", detail).expect("must classify");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(format!("{err}").contains("internal server error"));
+        }
+    }
+
+    // #971's second shape: a retired model. The CLI names the replacement,
+    // and that name must reach the user.
+    #[test]
+    fn classify_agent_cli_failure_retired_model_keeps_the_replacement() {
+        let detail = "\n> build · minimax-m2.7\n\nError: Model \"minimax-m2.7\" is no longer available. Use \"minimax-m3\" instead.";
+        let err = classify_agent_cli_failure("Opencode", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("no longer available"), "got: {msg}");
+        assert!(msg.contains("minimax-m3"), "got: {msg}");
+    }
+
+    // "model" and "no longer available" on unrelated lines of a transcript
+    // are not a retired-model refusal.
+    #[test]
+    fn classify_agent_cli_failure_retired_model_needs_both_on_one_line() {
+        let detail = "model: gpt-5\n--------\nThat endpoint is no longer available";
+        assert!(classify_agent_cli_failure("Codex", detail).is_none());
     }
 
     // Expired sign-in ("run /login") is user-fixable, not a malfunction.
