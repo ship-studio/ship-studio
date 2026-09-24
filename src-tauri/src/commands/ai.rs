@@ -346,6 +346,23 @@ fn strip_prompt_echo(output: &str, prompt: &str) -> String {
     output.replace(prompt, "[prompt omitted]")
 }
 
+/// Drop stderr lines that are known informational banners rather than
+/// errors. Claude Code prints "⚠ claude.ai connectors are disabled because
+/// ANTHROPIC_API_KEY or another auth source is set …" whenever a project's
+/// workspace credentials are injected — every run, success or failure — so it
+/// never explains a failure (issue #996).
+fn strip_benign_banners(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| {
+            !line
+                .to_ascii_lowercase()
+                .contains("claude.ai connectors are disabled")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Run the active agent headlessly with `prompt` in `cwd` and return its final
 /// answer text. `extra_envs` is injected on top of the extended PATH.
 async fn run_agent_headless(
@@ -422,17 +439,23 @@ async fn run_agent_headless(
         // the echo BEFORE any capping or classification: it's the user's own
         // data reflected back as an "error", and it buries the real failure
         // line (issue #665).
-        let stderr = strip_prompt_echo(&String::from_utf8_lossy(&output.stderr), prompt);
+        let raw_stderr = strip_prompt_echo(&String::from_utf8_lossy(&output.stderr), prompt);
+        // Informational banners the CLI prints on every run under some
+        // configurations say nothing about why it failed; a stderr holding
+        // only those must not hide the real reason on stdout (issue #996).
+        let stderr = strip_benign_banners(&raw_stderr);
         // A silent non-zero exit (empty stderr) used to surface as the
         // undiagnosable "Claude Code CLI failed: " — fall back to the exit code
         // and stdout so there's something to act on (issue #269).
         let full_detail = if stderr.trim().is_empty() {
             let stdout = strip_prompt_echo(&String::from_utf8_lossy(&output.stdout), prompt);
             let stdout = stdout.trim();
-            if stdout.is_empty() {
-                format!("exit code {:?}, no output", output.status.code())
-            } else {
-                format!("exit code {:?}: {stdout}", output.status.code())
+            let banner = raw_stderr.trim();
+            match (stdout.is_empty(), banner.is_empty()) {
+                (false, _) => format!("exit code {:?}: {stdout}", output.status.code()),
+                // Nothing else to go on: the banner is still better than nothing.
+                (true, false) => format!("exit code {:?}: {banner}", output.status.code()),
+                (true, true) => format!("exit code {:?}, no output", output.status.code()),
             }
         } else {
             stderr
@@ -1457,6 +1480,17 @@ mod tests {
         );
         assert!(capped.ends_with("5000 files changed, 5000 insertions(+), 5000 deletions(-)"));
         assert!(capped.contains("more lines truncated"));
+    }
+
+    // #996: the connectors banner is noise on every credentialed run; a
+    // stderr holding only it counts as empty so stdout gets consulted.
+    #[test]
+    fn strip_benign_banners_drops_the_connectors_warning() {
+        let banner = "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors";
+        assert!(strip_benign_banners(banner).trim().is_empty());
+        let mixed = format!("{banner}\nError: Invalid API key");
+        assert_eq!(strip_benign_banners(&mixed), "Error: Invalid API key");
+        assert_eq!(strip_benign_banners("Error: boom"), "Error: boom");
     }
 
     #[test]
