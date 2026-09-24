@@ -321,6 +321,19 @@ fn is_hook_failure_output(output: &str) -> bool {
         || output.contains("hook exited with code")
 }
 
+/// Markers that identify a failed `git commit` as the project's commit-msg
+/// hook (commitlint, typically enforcing Conventional Commits) rejecting the
+/// *message* — distinct from the pre-commit markers above, which commitlint's
+/// `⧗ input:` / `✖ found N problems` report shares none of (issue #1031).
+/// Checked first: husky runs commit-msg hooks too, and would otherwise be
+/// mislabelled as "pre-commit checks".
+fn is_commit_msg_hook_failure_output(output: &str) -> bool {
+    output.contains("commitlint")
+        || output.contains("commit-msg")
+        || output.contains("⧗   input:")
+        || (output.contains("✖   found ") && output.contains(" problems, "))
+}
+
 /// Last `max_bytes` of hook output, cut at a line boundary — the failure
 /// reason (a failing test, a type error) is almost always at the tail, and
 /// the full dump is unreadable in a toast (issue #604).
@@ -453,6 +466,14 @@ pub fn git_stage_and_commit_authored(
         // failure lives, and classify Expected so it stays out of telemetry.
         // Hook output lands on either stream depending on the runner.
         let combined = format!("{stdout}{stderr}");
+        if is_commit_msg_hook_failure_output(&combined) {
+            let tail = tail_of_output(&combined, 1000);
+            return Err(CommandError::expected(format!(
+                "This project's commit-message checks rejected the commit message (a commit-msg \
+                 hook, such as commitlint). Commit with a message that follows the project's \
+                 rules (what they reported is below), then try again.\n\n{tail}"
+            )));
+        }
         if is_hook_failure_output(&combined) {
             let tail = tail_of_output(&combined, 1000);
             return Err(CommandError::expected(format!(
@@ -966,6 +987,29 @@ mod tests {
             "error: gpg failed to sign the data"
         ));
         assert!(!is_hook_failure_output(""));
+    }
+
+    // The #1031 shape: commitlint in a commit-msg hook rejecting the message.
+    #[test]
+    fn commit_msg_hook_failure_matches_commitlint_output() {
+        let commitlint = "completeness: 23 blocks and 12 document types, all whole.\n\
+            ⧗   input: Tag menu sign-ups by concert, fix the partner tag, extend the lineup\n\
+            ✖   body's lines must not be longer than 100 characters [body-max-line-length]\n\
+            ✖   subject may not be empty [subject-empty]\n\
+            ✖   type may not be empty [type-empty]\n\n\
+            ✖   found 3 problems, 0 warnings";
+        assert!(is_commit_msg_hook_failure_output(commitlint));
+        assert!(is_commit_msg_hook_failure_output(
+            "husky - commit-msg script failed (code 1)"
+        ));
+        // Pre-commit hook and plain git failures are not commit-msg failures.
+        assert!(!is_commit_msg_hook_failure_output(
+            "husky - pre-commit script failed (code 1)"
+        ));
+        assert!(!is_commit_msg_hook_failure_output(
+            "fatal: unable to auto-detect email address"
+        ));
+        assert!(!is_commit_msg_hook_failure_output(""));
     }
 
     #[test]
