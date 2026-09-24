@@ -15,6 +15,13 @@ use tracing::{debug, error, info, warn};
 /// Maximum diff size in bytes to send to Claude (~40KB)
 const MAX_DIFF_SIZE: usize = 40_000;
 
+/// Cap for each of the other prompt sections — the commit subject list, the
+/// `git diff --stat` listing and the porcelain status. Only the diff used to
+/// be bounded, so a badly diverged base branch (or a tree full of untracked
+/// files) could still push the prompt past 1.6M characters, over Codex's 1MB
+/// input limit (issue #1024).
+const MAX_CONTEXT_SECTION_SIZE: usize = 10_000;
+
 /// Timeout for the underlying AI agent CLI call. Claude can be slow, so 60s.
 const AGENT_CLI_TIMEOUT_SECS: u64 = 60;
 
@@ -244,6 +251,16 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
             "{agent_name} couldn't reach OpenAI's servers, so AI generation isn't available \
              right now. Check your internet connection (a VPN, proxy or firewall can block it) \
              and OpenAI's status page, then try again."
+        )));
+    }
+    // The prompt was larger than the CLI accepts (Codex: "Input exceeds the
+    // maximum length of 1048576 characters", input_error_code
+    // "input_too_large"). The prompt builders cap every piece they include,
+    // so this is a last line of defence (issue #1024).
+    if lower.contains("input_too_large") || lower.contains("input exceeds the maximum length") {
+        return Some(CommandError::expected(format!(
+            "These changes are too large for {agent_name} to summarize automatically. Write \
+             it yourself, or split the work into smaller pieces."
         )));
     }
     if lower.contains("failed to load models cache")
@@ -490,6 +507,9 @@ pub async fn generate_pr_description(
     }
 
     let truncated_diff = truncate_diff(&diff);
+    let commits = cap_context_section(&commits, false);
+    // `--stat` ends with the "N files changed" summary — worth keeping.
+    let diff_stat = cap_context_section(&diff_stat, true);
 
     let prompt = build_prompt(
         &branch_name,
@@ -609,6 +629,39 @@ fn truncate_diff(diff: &str) -> String {
         ),
         None => format!("{truncated}\n\n[... diff truncated ...]"),
     }
+}
+
+/// Cap a line-oriented prompt section at [`MAX_CONTEXT_SECTION_SIZE`] bytes,
+/// cutting on a line boundary and saying how many lines were dropped. With
+/// `keep_last_line` the final line survives the cut (the `--stat` summary).
+fn cap_context_section(text: &str, keep_last_line: bool) -> String {
+    if text.len() <= MAX_CONTEXT_SECTION_SIZE {
+        return text.to_string();
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let last = if keep_last_line {
+        lines.last().copied()
+    } else {
+        None
+    };
+    let budget = MAX_CONTEXT_SECTION_SIZE.saturating_sub(last.map_or(0, |l| l.len() + 1));
+    let mut out = String::new();
+    let mut kept = 0;
+    for line in &lines {
+        if out.len() + line.len() + 1 > budget {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+        kept += 1;
+    }
+    let dropped = lines.len() - kept - usize::from(last.is_some());
+    out.push_str(&format!("[... {dropped} more lines truncated ...]"));
+    if let Some(last) = last {
+        out.push('\n');
+        out.push_str(last);
+    }
+    out
 }
 
 fn build_prompt(
@@ -783,6 +836,7 @@ pub async fn run_working_tree_prompt(
     if status.trim().is_empty() {
         return Err(CommandError::expected("No changes to summarize"));
     }
+    let status = cap_context_section(&status, false);
     let diff = truncate_diff(&git_working_diff(path));
 
     debug!(
@@ -834,6 +888,7 @@ pub async fn generate_commit_message_for_path(
     if status.trim().is_empty() {
         return Err("No changes to summarize".to_string().into());
     }
+    let status = cap_context_section(&status, false);
     let diff = truncate_diff(&git_working_diff(path));
     let prompt = build_commit_prompt(&status, &diff);
 
@@ -1174,6 +1229,15 @@ mod tests {
         );
     }
 
+    // #1024: Codex's JSON-RPC refusal of an oversized prompt.
+    #[test]
+    fn classify_agent_cli_failure_input_too_large_is_expected() {
+        let detail = "Error: turn/start: turn/start failed: Input exceeds the maximum length of 1048576 characters. (code -32602), data: {\"input_error_code\":\"input_too_large\",\"max_chars\":1048576,\"actual_chars\":1619065}";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("too large"));
+    }
+
     // Expired sign-in ("run /login") is user-fixable, not a malfunction.
     #[test]
     fn classify_agent_cli_failure_expired_login_is_expected() {
@@ -1357,6 +1421,44 @@ mod tests {
 
     // The #565 shape: a commit-message CLI timeout is best-effort noise (the
     // caller falls back to the default message) — Expected, not telemetry.
+    #[test]
+    fn cap_context_section_leaves_small_sections_alone() {
+        assert_eq!(cap_context_section("a\nb", false), "a\nb");
+    }
+
+    // #1024: a diverged base produced a commit list and --stat listing big
+    // enough to push the prompt past Codex's 1MB limit.
+    #[test]
+    fn cap_context_section_bounds_huge_sections() {
+        let commits: String = (0..50_000)
+            .map(|i| format!("Commit subject {i}\n"))
+            .collect();
+        let capped = cap_context_section(&commits, false);
+        assert!(
+            capped.len() <= MAX_CONTEXT_SECTION_SIZE + 64,
+            "len {}",
+            capped.len()
+        );
+        assert!(capped.starts_with("Commit subject 0\n"));
+        assert!(capped.contains("more lines truncated"));
+    }
+
+    #[test]
+    fn cap_context_section_keeps_the_stat_summary() {
+        let mut stat: String = (0..5_000)
+            .map(|i| format!(" src/file_{i}.rs | 2 +-\n"))
+            .collect();
+        stat.push_str(" 5000 files changed, 5000 insertions(+), 5000 deletions(-)");
+        let capped = cap_context_section(&stat, true);
+        assert!(
+            capped.len() <= MAX_CONTEXT_SECTION_SIZE + 64,
+            "len {}",
+            capped.len()
+        );
+        assert!(capped.ends_with("5000 files changed, 5000 insertions(+), 5000 deletions(-)"));
+        assert!(capped.contains("more lines truncated"));
+    }
+
     #[test]
     fn soften_commit_timeout_maps_timeout_to_expected() {
         let softened = soften_commit_timeout(CommandError::Timeout {
