@@ -31,7 +31,7 @@ vi.mock('../lib/logger', () => ({
 vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undefined) }));
 
 import { useFileTree } from './useFileTree';
-import { readProjectFile, saveProjectFile } from '../lib/code';
+import { listProjectFiles, readProjectFile, saveProjectFile } from '../lib/code';
 import { logger } from '../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
@@ -265,6 +265,9 @@ describe('useFileTree — discard-confirmation guard', () => {
   });
 });
 
+const FOLDER_GONE =
+  "The folder '/Users/x/ShipStudio/p' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio";
+
 describe('useFileTree — read-failure log level', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -300,9 +303,51 @@ describe('useFileTree — read-failure log level', () => {
     expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
+  it('warns when the whole project folder is gone (#1022)', async () => {
+    await openFailing(FOLDER_GONE);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith('Failed to read file', {
+      path: 'a.ts',
+      error: FOLDER_GONE,
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
   it('still errors on a genuine read failure', async () => {
     await openFailing("Failed to resolve file 'a.ts': something unexpected");
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.error as Fn).toHaveBeenCalled();
+  });
+});
+
+describe('useFileTree — tree-load failure log level', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it('warns (not errors) when the project folder is gone (#1021)', async () => {
+    (listProjectFiles as Fn).mockRejectedValueOnce({
+      type: 'Other',
+      message: FOLDER_GONE,
+      expected: true,
+    });
+    await setup();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith('Failed to load file tree', {
+      error: FOLDER_GONE,
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
+  it('still errors on a genuine tree-load failure', async () => {
+    (listProjectFiles as Fn).mockRejectedValueOnce({ type: 'Other', message: 'walk failed' });
+    await setup();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).toHaveBeenCalledWith('Failed to load file tree', {
+      error: 'walk failed',
+    });
   });
 });
