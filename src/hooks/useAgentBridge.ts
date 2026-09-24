@@ -107,7 +107,8 @@ export function useAgentBridge({
         url = await getAgentBridgeUrl(projectPath);
       } catch (err) {
         // A project folder moved/deleted outside the app (or any other
-        // backend-Expected state) is not a malfunction — logger.error would
+        // backend-Expected state, e.g. a path outside the allowed roots — #974)
+        // is not a malfunction — logger.error would
         // auto-file it as one (issue #973).
         const expected = isExpectedCommandError(err) || isProjectFolderGoneError(err);
         logger[expected ? 'warn' : 'error']('[AgentBridge] Failed to get bridge URL', {

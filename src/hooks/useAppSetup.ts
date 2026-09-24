@@ -24,6 +24,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { basename } from '../lib/paths';
 import { withTimeout } from '../lib/withTimeout';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import type { AppView } from '../lib/types';
 import type { WorkspaceTab } from '../components/workspace/workspaceViewState';
 
@@ -244,6 +245,24 @@ export function useAppSetup({
 
         // If we have a reserved port, this is likely an HMR reload
         if (existingPort !== null && storedProjectPath) {
+          // Same guarantee handleSelectProject gives a normal open: a project
+          // outside the projects root must be registered before anything
+          // validates its path, or every backend call it makes — the agent
+          // bridge first — is refused as "outside the projects directory"
+          // (issue #974). If it can't be, don't restore; the normal open flow
+          // explains why the project can't be opened.
+          try {
+            await invoke<boolean>('ensure_external_project_registered', {
+              path: storedProjectPath,
+            });
+          } catch (error) {
+            logger.warn('[HMR Recovery] Project could not be registered, skipping restore', {
+              projectPath: storedProjectPath,
+              error: formatCommandError(asCommandError(error)),
+            });
+            return;
+          }
+
           // Mark as handled to prevent the auto-open effect from also firing
           autoOpenAttemptedRef.current = true;
 

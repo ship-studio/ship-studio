@@ -1,12 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BranchesMenu } from './BranchesMenu';
 import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
+import { takeQueuedBranchSwitch } from '../../lib/branchSwitchHandoff';
+
+const { switchBranch } = vi.hoisted(() => ({ switchBranch: vi.fn() }));
+vi.mock('../../lib/branches', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/branches')>()),
+  switchBranch,
+}));
 
 const { openUrl } = vi.hoisted(() => ({ openUrl: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({
   openUrl,
 }));
+
+vi.mock('../../lib/analytics', () => ({ trackEvent: vi.fn() }));
 
 vi.mock('./GitHubButton', () => ({
   GitHubButton: () => <button type="button">Connect GitHub</button>,
@@ -177,13 +186,34 @@ describe('BranchesMenu', () => {
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('switches a recent branch and closes the menu', () => {
+  it('checks out a recent branch, then syncs the UI and closes the menu', async () => {
+    switchBranch.mockResolvedValueOnce({ success: true, stashApplied: false, error: null });
     const props = makeProps();
     render(<BranchesMenu {...props} />);
 
     fireEvent.click(screen.getByText('newer'));
-    expect(props.onBranchSwitch).toHaveBeenCalledWith('newer');
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    // The checkout runs first; the UI sync only follows a real switch (#1012).
+    expect(switchBranch).toHaveBeenCalledWith('/test/project', 'newer', false);
+    await waitFor(() => expect(props.onBranchSwitch).toHaveBeenCalledWith('newer'));
+    expect(props.onViewBranches).not.toHaveBeenCalled();
+  });
+
+  it('hands a switch it cannot finish to the Branches view', async () => {
+    switchBranch.mockResolvedValueOnce({
+      success: false,
+      stashApplied: false,
+      error: 'Uncommitted changes. Please stash or commit them first.',
+    });
+    const props = makeProps();
+    render(<BranchesMenu {...props} />);
+
+    fireEvent.click(screen.getByText('newer'));
+    await waitFor(() => expect(props.onViewBranches).toHaveBeenCalledTimes(1));
+    expect(props.onBranchSwitch).not.toHaveBeenCalled();
+    expect(takeQueuedBranchSwitch('/test/project')).toBe('newer');
+    // Taking it clears it, so a remounted view never replays the switch.
+    expect(takeQueuedBranchSwitch('/test/project')).toBeNull();
   });
 
   it('links to an existing PR for the current branch', () => {

@@ -3,7 +3,12 @@ import { getDashboardProjects, getProjectThumbnail } from '../../lib/project';
 import { listFolders, getFiledProjectPaths } from '../../lib/folders';
 import type { DashboardProject } from '../../lib/project';
 import type { FolderInfo } from '../../lib/folders';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../../lib/errors';
 import { TimeoutError, withTimeout } from '../../lib/withTimeout';
 import { logger } from '../../lib/logger';
 import { classifyThumbnailLoadFailure } from './projectThumbnailErrors';
@@ -97,18 +102,25 @@ export function useProjectListData(activeAccountId: string | null | undefined) {
       }
     } catch (error) {
       const message = formatCommandError(asCommandError(error));
-      logger.error('Failed to load projects', { error: message });
+      // The backend's own budget refusal (a disconnected network drive, an
+      // unmounted volume) is classified Expected — an environment state, not
+      // a bug, so it warns rather than auto-filing a report (issue #970).
+      if (isExpectedCommandError(error)) {
+        logger.warn('Failed to load projects', { error: message });
+      } else {
+        logger.error('Failed to load projects', { error: message });
+      }
       if (seq === undefined || seq === loadSeqRef.current) {
         // A backend refusal reaches the user in the backend's own words. A
         // timeout does not: `TimeoutError`'s message is written for a log line
         // ("Loading projects timed out after 40000ms"), and this is a sentence
         // on screen. Say what was observed and name the two things that
         // actually cause it — a permissions prompt waiting for an answer is the
-        // one this was watched failing on.
+        // one this was watched failing on. Not "macOS": it fires on Windows too.
         setLoadError(
           error instanceof TimeoutError
-            ? 'Scanning your projects folder took longer than 40 seconds. macOS may be waiting ' +
-                'on a permissions prompt, or the folder may be on a drive that isn’t responding.'
+            ? 'Scanning your projects folder took longer than 40 seconds. A permissions prompt ' +
+                'may be waiting for an answer, or the folder may be on a drive that isn’t responding.'
             : message
         );
       }

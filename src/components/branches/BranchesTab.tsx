@@ -14,7 +14,8 @@
  * @module components/BranchesTab
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { subscribeQueuedBranchSwitch, takeQueuedBranchSwitch } from '../../lib/branchSwitchHandoff';
 import {
   BranchInfo,
   PullRequestInfo,
@@ -371,6 +372,20 @@ export function BranchesTab({
       setSwitchingBranch(null);
     }
   };
+
+  // A switch the header's Branches menu couldn't finish on its own (uncommitted
+  // changes, another worktree, a paused merge) is handed here to go through
+  // the flow above. The ref keeps the subscription on the latest closure.
+  const handleSwitchRef = useRef(handleSwitch);
+  handleSwitchRef.current = handleSwitch;
+  useEffect(() => {
+    const drain = () => {
+      const queued = takeQueuedBranchSwitch(projectPath);
+      if (queued) void handleSwitchRef.current(queued);
+    };
+    drain();
+    return subscribeQueuedBranchSwitch(drain);
+  }, [projectPath]);
 
   // ---- Worktrees (git worktree remove / prune) ----
   const [worktreeToRemove, setWorktreeToRemove] = useState<WorktreeInfo | null>(null);

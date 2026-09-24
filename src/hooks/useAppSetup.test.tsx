@@ -115,4 +115,42 @@ describe('useAppSetup HMR recovery vs. closing a project', () => {
     clearStoredAutoOpenProject(PROJECT_PATH);
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
+
+  it('registers the project before restoring it, like a normal open (#974)', async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      if (cmd === 'quick_setup_check') return { setupCompleteCached: true, allPresent: true };
+      if (cmd === 'get_reserved_port_for_window') return 3000;
+      if (cmd === 'ensure_external_project_registered') return false;
+      return undefined;
+    });
+    const params = makeParams();
+    params.setCurrentProject.mockImplementation(() => calls.push('setCurrentProject'));
+    renderAcrossClose(params).toProjectsView();
+
+    await waitFor(() => expect(params.setCurrentProject).toHaveBeenCalled());
+    expect(calls.indexOf('ensure_external_project_registered')).toBeGreaterThan(-1);
+    expect(calls.indexOf('ensure_external_project_registered')).toBeLessThan(
+      calls.indexOf('setCurrentProject')
+    );
+  });
+
+  it('does not restore a project that cannot be registered (#974)', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'quick_setup_check') return { setupCompleteCached: true, allPresent: true };
+      if (cmd === 'get_reserved_port_for_window') return 3000;
+      if (cmd === 'ensure_external_project_registered') {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- the CommandError shape under test
+        throw { type: 'Other', message: 'does not look like a project directory', expected: true };
+      }
+      return undefined;
+    });
+    const params = makeParams();
+    renderAcrossClose(params).toProjectsView();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(params.setCurrentProject).not.toHaveBeenCalled();
+    expect(params.setView).not.toHaveBeenCalledWith('workspace');
+  });
 });
