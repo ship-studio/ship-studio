@@ -9,6 +9,7 @@ import {
   isAgentNotInstalledError,
   isExpectedCommandError,
   isExpectedProjectImportRefusal,
+  isExpectedRenameRefusal,
   isMergeConflictError,
   isMissingUpstreamError,
   isProjectFolderGoneError,
@@ -983,5 +984,38 @@ describe('isRecognizedGitFailure — trusts the backend flag and switch_branch w
     expect(isRecognizedGitFailure('error: you need to resolve your current index first')).toBe(
       true
     );
+  });
+});
+
+describe('isExpectedRenameRefusal', () => {
+  it('treats any Validation error as a refusal (#979)', () => {
+    expect(
+      isExpectedRenameRefusal({
+        type: 'Validation',
+        field: 'new_name',
+        reason: 'Project name cannot contain slashes',
+      })
+    ).toBe(true);
+  });
+
+  it('treats a backend-Expected refusal as a refusal (#968)', () => {
+    expect(
+      isExpectedRenameRefusal({
+        type: 'Other',
+        message:
+          "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name.",
+        expected: true,
+      })
+    ).toBe(true);
+  });
+
+  it('keeps the legacy phrase checks', () => {
+    expect(isExpectedRenameRefusal('A project named "x" already exists.')).toBe(true);
+    expect(isExpectedRenameRefusal('Close this project in its other window first')).toBe(true);
+  });
+
+  it('reports anything else', () => {
+    expect(isExpectedRenameRefusal({ type: 'Other', message: 'rename(2) failed' })).toBe(false);
+    expect(isExpectedRenameRefusal({ type: 'Io', message: 'disk full' })).toBe(false);
   });
 });

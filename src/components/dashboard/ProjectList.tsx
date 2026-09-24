@@ -28,6 +28,7 @@ import {
   asCommandError,
   formatCommandError,
   isExpectedCommandError,
+  isExpectedRenameRefusal,
   isProjectFolderGoneError,
 } from '../../lib/errors';
 import { logger } from '../../lib/logger';
@@ -334,11 +335,9 @@ export function ProjectList({
       await loadAll();
     } catch (error) {
       const message = formatCommandError(asCommandError(error));
-      // Anticipated refusals (name taken, project open elsewhere) are rendered
+      // Anticipated refusals (bad name, name taken, project open elsewhere) are rendered
       // inline by the modal — they're user states, not malfunctions.
-      const isExpectedRefusal =
-        message.includes('already exists') || message.includes('Close this project');
-      if (isExpectedRefusal) {
+      if (isExpectedRenameRefusal(error)) {
         logger.warn('Rename refused', { error: message });
       } else {
         trackError('project_rename', error, 'Dashboard');
