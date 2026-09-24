@@ -150,12 +150,15 @@ fn list_files_recursive(
     dir: &PathBuf,
     root_dir: &PathBuf,
     assets: &mut Vec<Asset>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     if !dir.exists() {
         return Ok(());
     }
 
-    let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
+    // Classified so a macOS privacy (TCC) refusal / EACCES comes back as
+    // actionable guidance rather than a bare OS string (issue #946).
+    let entries = fs::read_dir(dir)
+        .map_err(|e| crate::utils::classify_fs_error("read this assets folder", dir, &e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -585,6 +588,33 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("permission denied"), "got: {message}");
         assert!(!message.contains("os error"), "got: {message}");
+    }
+
+    /// Issue #946: an unreadable folder inside the assets root used to fail the
+    /// whole listing with a bare "Failed to read directory: ..." `Other`. Same
+    /// non-root assumption as the test above.
+    #[test]
+    #[cfg(unix)]
+    fn list_files_recursive_classifies_unreadable_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        let locked_dir = root.join("locked");
+        std::fs::create_dir_all(&locked_dir).unwrap();
+        std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let mut assets = Vec::new();
+        let result = list_files_recursive(&locked_dir, &root, &mut assets);
+
+        std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = result.expect_err("an unreadable directory must fail");
+        assert!(
+            matches!(err, CommandError::Expected { .. }),
+            "expected CommandError::Expected, got {err:?}"
+        );
+        assert!(err.to_string().contains("assets folder"), "got: {err}");
     }
 
     #[test]
