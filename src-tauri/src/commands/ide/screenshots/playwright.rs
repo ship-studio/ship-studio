@@ -290,6 +290,19 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              fully, then try again."
         ));
     }
+    // Only the in-script retries after a CDP "Unable to capture screenshot"
+    // run on the short 30s budget (the first attempt gets 120s), so a
+    // `page.screenshot` timeout at 30000ms is that same transient renderer
+    // failure (#657) persisting through its retry — classify it the same way.
+    // A first-attempt timeout at the full budget stays reportable
+    // (see non_goto_timeouts_are_not_swallowed_as_expected; issue #1020).
+    if stderr.contains("page.screenshot: Timeout 30000ms exceeded") {
+        return CommandError::expected(
+            "The screenshot browser couldn't render the capture (a transient graphics/memory \
+             hiccup in headless Chromium). Try again in a moment — if it keeps happening, \
+             closing other applications or restarting your machine usually clears it.",
+        );
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let status = exit_status_detail(output);
     // A capture that produced neither stdout nor stderr told us nothing about
@@ -928,6 +941,24 @@ mod capture_error_tests {
             status: failed_status(),
             stdout: Vec::new(),
             stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn screenshot_action_timeout_is_expected_not_telemetry() {
+        // Issue #1020: the reported stderr, verbatim — the short-budget retry
+        // after a transient CDP failure timing out.
+        let output = failed_output(
+            "page.screenshot: Timeout 30000ms exceeded.\nCall log:\n  - taking page screenshot",
+        );
+        match capture_script_error("Playwright screenshot", "http://localhost:3000", &output) {
+            CommandError::Expected { message } => {
+                assert!(
+                    message.contains("couldn't render the capture"),
+                    "got: {message}"
+                )
+            }
+            other => panic!("expected Expected, got {other:?}"),
         }
     }
 
