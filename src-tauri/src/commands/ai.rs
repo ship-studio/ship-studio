@@ -187,6 +187,17 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              top up, or /model to switch to one your plan covers. ({detail})"
         )));
     }
+    // The API-billed flavour of the same state: "Credit balance is too low"
+    // arrives when the CLI is authenticated with an API key whose account has
+    // run dry. There is no /usage-credits for that — the remedy is the
+    // account's billing, not a slash command (issue #919, second occurrence).
+    if lower.contains("credit balance is too low") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s account is out of credits (\"Credit balance is too low\"), so AI \
+             generation isn't available right now. Add credits to the account {agent_name} is \
+             signed in with, or switch it to one that has them, then try again."
+        )));
+    }
     if lower.contains("failed to load models cache")
         || lower.contains("codex_models_manager::cache")
     {
@@ -1030,6 +1041,22 @@ mod tests {
             !msg.contains("resets automatically"),
             "credits don't reset on a clock — got: {msg}"
         );
+    }
+
+    // #919's second wording: API-key billing, not a subscription. There is
+    // no /usage-credits for it, so the advice must not name one.
+    #[test]
+    fn classify_agent_cli_failure_credit_balance_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Claude Code",
+            "exit code Some(1): Credit balance is too low",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("out of credits"), "got: {msg}");
+        assert!(!msg.contains("/usage-credits"), "got: {msg}");
+        assert!(!msg.contains("resets automatically"), "got: {msg}");
     }
 
     // Expired sign-in ("run /login") is user-fixable, not a malfunction.
