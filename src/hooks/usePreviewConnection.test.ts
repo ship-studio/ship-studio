@@ -579,3 +579,71 @@ describe('usePreviewConnection page-list load failures (issue #541)', () => {
     });
   });
 });
+
+describe('usePreviewConnection typed URLs (query + hash)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function renderReadyPreview() {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({} as Response));
+    const utils = renderHook(() => usePreviewConnection(baseParams));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(utils.result.current.serverReady).toBe(true);
+    return utils;
+  }
+
+  function navigate(data: Record<string, string>) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'shipstudio:navigate', ...data },
+        origin: 'http://localhost:8080',
+      })
+    );
+  }
+
+  it('loads a typed query into the frame but keeps currentPage a bare pathname', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    act(() => result.current.handlePageSelect('/pricing?plan=pro#faq'));
+    expect(result.current.currentPage).toBe('/pricing');
+    expect(result.current.currentLocation).toBe('/pricing?plan=pro#faq');
+    expect(result.current.currentUrl).toBe('http://localhost:8080/pricing?plan=pro#faq');
+
+    unmount();
+  });
+
+  it('tracks the query the page reports, so refresh does not drop it', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    act(() => navigate({ pathname: '/blog', search: '?tag=news', hash: '' }));
+    expect(result.current.currentLocation).toBe('/blog?tag=news');
+
+    act(() => result.current.handleRefresh());
+    expect(result.current.iframePath).toBe('/blog?tag=news');
+
+    unmount();
+  });
+
+  it('treats a navigate message without search/hash (older injected script) as none', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    act(() => result.current.handlePageSelect('/a?x=1'));
+    act(() => navigate({ pathname: '/b' }));
+    expect(result.current.currentLocation).toBe('/b');
+
+    unmount();
+  });
+});

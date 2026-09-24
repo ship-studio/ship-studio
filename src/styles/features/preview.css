@@ -134,6 +134,30 @@
   overflow: hidden;
 }
 
+.page-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3xs);
+  padding-right: var(--spacing-2xs);
+  background: var(--surface-control);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.page-search-row .page-search {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+}
+
+.page-search-edit {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.page-route-suffix {
+  color: var(--text-muted);
+}
+
 .page-search {
   width: 100%;
   padding: 10px 12px;
