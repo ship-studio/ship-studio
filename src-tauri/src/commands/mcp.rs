@@ -609,6 +609,16 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // Codex with no usable sign-in at all — no ChatGPT session and no
+    // OPENAI_API_KEY — refuses every subcommand with "Missing openai API
+    // key. Set the environment variable OPENAI_API_KEY and re-run this
+    // command." The user's CLI isn't authenticated; not an app bug (#1016).
+    if lower.contains("missing openai api key") {
+        return CommandError::expected(format!(
+            "{message}\n\nCodex isn't signed in. Run `codex login` in a terminal (or set the OPENAI_API_KEY environment variable), then try again."
+        ));
+    }
+
     // The agent CLI failed to write its own config file because the OS
     // denied access — Windows "Access is denied. (os error 5)" (e.g. Codex
     // persisting ~/.codex/config.toml) or POSIX EACCES/"Permission denied".
@@ -1056,6 +1066,18 @@ mod tests {
             ),
             CommandError::Expected { .. }
         ));
+    }
+
+    // #1016: Codex with no sign-in and no API key.
+    #[test]
+    fn codex_missing_api_key_is_expected() {
+        let details = "\n\nMissing openai API key.\n\nSet the environment variable OPENAI_API_KEY and re-run this command.\nYou can create a key here: https://platform.openai.com/account/api-keys\n";
+        match classify_mcp_failure("add MCP server", details) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("codex login"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
     }
 
     #[test]
