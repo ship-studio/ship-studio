@@ -36,6 +36,12 @@ pub enum HostingHttpError {
     /// Network, DNS, TLS, timeout, or a provider 5xx. Not the user's fault and
     /// not ours — shown as "couldn't reach", kept out of telemetry.
     Transport { message: String },
+    /// The provider answered 404: the project (or scope) we hold an id for
+    /// doesn't exist on its side — deleted, renamed, or linked under a
+    /// different account. A well-formed, documented answer, so neither an
+    /// adapter bug (`Malformed`) nor a blip (`Transport`): the fix is to relink.
+    /// `message` keeps the provider's body for the log, never for the UI.
+    NotFound { message: String },
     /// The call succeeded but the body wasn't what we expect. This one *is*
     /// ours: either the provider changed shape or our adapter is wrong, and we
     /// want to hear about it.
@@ -59,6 +65,9 @@ impl HostingHttpError {
             HostingHttpError::Transport { message } => {
                 CommandError::expected(format!("Couldn't reach {provider}: {message}"))
             }
+            HostingHttpError::NotFound { .. } => CommandError::expected(format!(
+                "{provider} couldn't find the linked project. It may have been deleted."
+            )),
             HostingHttpError::Malformed { message } => CommandError::Other {
                 message: format!("Unexpected response from {provider}: {message}"),
             },
@@ -189,6 +198,14 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
         return Err(classify_bad_request(&body));
     }
 
+    if status == reqwest::StatusCode::NOT_FOUND {
+        let body = response.text().await.unwrap_or_default();
+        let snippet: String = body.chars().take(200).collect();
+        return Err(HostingHttpError::NotFound {
+            message: format!("HTTP {status}: {snippet}"),
+        });
+    }
+
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         return Err(HostingHttpError::RateLimited {
             retry_after_secs: parse_retry_after(response.headers()),
@@ -205,9 +222,6 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
     }
 
     if !status.is_success() {
-        // A 404 on a deployments endpoint means the project id we hold is
-        // wrong or the project was deleted — a real, reportable mismatch
-        // rather than a transient blip.
         let body = response.text().await.unwrap_or_default();
         let snippet: String = body.chars().take(200).collect();
         return Err(HostingHttpError::Malformed {
@@ -349,6 +363,23 @@ mod tests {
         match classify_bad_request(body) {
             HostingHttpError::Malformed { message } => assert!(message.contains("400")),
             other => panic!("expected Malformed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_project_is_expected_and_says_so_without_the_raw_body() {
+        // Issue #985: Vercel's documented answer for a deleted project.
+        let err = HostingHttpError::NotFound {
+            message: r#"HTTP 404 Not Found: {"error":{"code":"not_found","message":"Project not found"}}"#
+                .into(),
+        }
+        .into_command_error("Vercel");
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("linked project"), "{message}");
+                assert!(!message.contains("HTTP"), "{message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
         }
     }
 
