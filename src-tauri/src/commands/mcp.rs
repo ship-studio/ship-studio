@@ -619,6 +619,16 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // cmd.exe's own refusal when the agent CLI's `.cmd` shim points at a
+    // script that no longer exists — a broken or interrupted global npm
+    // install/update, or antivirus quarantine (npm/cli#7731). The install is
+    // the user's; reinstalling it is the fix (issue #991).
+    if lower.contains("the batch file cannot be found") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent CLI's Windows launcher points at files that are no longer there — usually an interrupted or broken npm install or update. Reinstall the CLI (Claude Code: `npm install -g @anthropic-ai/claude-code`, Codex: `npm install -g @openai/codex`), then try again."
+        ));
+    }
+
     // The agent CLI failed to write its own config file because the OS
     // denied access — Windows "Access is denied. (os error 5)" (e.g. Codex
     // persisting ~/.codex/config.toml) or POSIX EACCES/"Permission denied".
@@ -1075,6 +1085,17 @@ mod tests {
         match classify_mcp_failure("add MCP server", details) {
             CommandError::Expected { message } => {
                 assert!(message.contains("codex login"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    // #991: a Windows .cmd shim whose target script is gone.
+    #[test]
+    fn missing_batch_file_is_expected() {
+        match classify_mcp_failure("add MCP server", "The batch file cannot be found.") {
+            CommandError::Expected { message } => {
+                assert!(message.contains("Reinstall the CLI"), "got: {message}")
             }
             other => panic!("expected Expected, got {other:?}"),
         }
