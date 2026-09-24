@@ -445,6 +445,20 @@ export function isExpectedProjectImportRefusal(message: string): boolean {
 }
 
 /**
+ * True when a `rename_project` failure is a by-design refusal the rename modal
+ * renders inline — not a malfunction to report: any input `Validation` error
+ * (slashes, `.`/`..`, … — issue #979), anything the backend tagged Expected
+ * (e.g. renaming an external project — issue #968), and the legacy phrase
+ * checks for a taken name / a project open elsewhere.
+ */
+export function isExpectedRenameRefusal(value: unknown): boolean {
+  const err = asCommandError(value);
+  if (err.type === 'Validation' || isExpectedCommandError(err)) return true;
+  const message = formatCommandError(err);
+  return message.includes('already exists') || message.includes('Close this project');
+}
+
+/**
  * True when a caught error means the selected agent's CLI isn't installed —
  * the backend's `find_agent_binary` returns `CommandError::expected("<Agent>
  * binary not found")` for exactly this (issue #250), but Expected can't cross

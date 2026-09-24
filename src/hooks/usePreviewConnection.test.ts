@@ -542,4 +542,40 @@ describe('usePreviewConnection page-list load failures (issue #541)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
   });
+  it('warn-logs a backend-Expected rejection such as a macOS TCC denial (issue #944)', async () => {
+    const tccMessage =
+      "Ship Studio isn't allowed to read this project's page routes (/p/src/pages). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then try again.";
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === 'start_preview_proxy') return Promise.resolve(8080);
+      if (cmd === 'list_pages')
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- deliberately a plain CommandError object, the shape under test
+        return Promise.reject({ type: 'Other', message: tccMessage, expected: true });
+      return Promise.resolve(undefined);
+    });
+    const server = installSlowServerFetch();
+    const { unmount } = renderHook(() => usePreviewConnection(baseParams));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    await act(async () => {
+      server.finishCompile();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the mock's calls, not invoking it bound
+    const warnCalls = vi.mocked(logger.warn).mock.calls;
+    const warned = warnCalls.find(([msg]) => msg.includes('Failed to load pages'));
+    expect(warned?.[1]).toEqual({ error: tccMessage });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the mock's calls, not invoking it bound
+    const errorCalls = vi.mocked(logger.error).mock.calls;
+    expect(errorCalls.find(([msg]) => msg.includes('Failed to load pages'))).toBeUndefined();
+
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
 });

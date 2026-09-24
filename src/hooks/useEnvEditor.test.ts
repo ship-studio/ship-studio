@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { describeInvalidEnvKey, splitEnvEntry, useEnvEditor } from './useEnvEditor';
+import {
+  describeInvalidEnvFileName,
+  describeInvalidEnvKey,
+  splitEnvEntry,
+  useEnvEditor,
+} from './useEnvEditor';
 
 // Mock external dependencies
 vi.mock('@tauri-apps/api/core', () => ({
@@ -215,5 +220,24 @@ describe('describeInvalidEnvKey', () => {
 
   it('rejects a name longer than the backend limit', () => {
     expect(describeInvalidEnvKey('A'.repeat(257))).toContain('too long');
+  });
+});
+
+describe('describeInvalidEnvFileName', () => {
+  it('accepts names create_env_file accepts', () => {
+    for (const name of ['.env', '.env.local', '.env.production.local', '.dev.env']) {
+      expect(describeInvalidEnvFileName(name)).toBeNull();
+    }
+  });
+
+  it('explains a missing leading dot or missing "env" (#989)', () => {
+    expect(describeInvalidEnvFileName('env.local')).toContain('must start with "."');
+    expect(describeInvalidEnvFileName('.secrets')).toContain('must start with "."');
+  });
+
+  it('rejects path separators and traversal', () => {
+    expect(describeInvalidEnvFileName('.env/../x')).toContain('slashes');
+    expect(describeInvalidEnvFileName('..env')).toContain('slashes');
+    expect(describeInvalidEnvFileName('.env\\x')).toContain('slashes');
   });
 });

@@ -41,6 +41,7 @@ import { useFrameRebind } from './useFrameRebind';
 import { useSelectionCleared } from './useSelectionCleared';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import type { ToastOptions } from './useToasts';
 
 function toastText(err: unknown): string {
   return formatCommandError(asCommandError(err));
@@ -87,7 +88,7 @@ interface Params {
   /** The project bundles CSS Modules (Next.js) — unmapped module-hashed selectors
    *  get a CSS-Modules explanation instead of the generic read-only reason. */
   cssModulesHint?: boolean;
-  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info', options?: ToastOptions) => void;
 }
 
 export function useCssCascadeEditor({
@@ -676,7 +677,8 @@ export function useCssCascadeEditor({
         }
       }
       if (!targetFile) {
-        onToast('No stylesheet found to add the rule to.', 'error');
+        // A project state the user can act on, not a malfunction (issue #1015).
+        onToast('No stylesheet found to add the rule to.', 'error', { expected: true });
         return;
       }
 

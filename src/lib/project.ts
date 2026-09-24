@@ -15,7 +15,12 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { logger } from './logger';
 import { readProjectFile } from './code';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from './errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from './errors';
 import { trackError } from './analytics';
 import { isWindows } from './setup';
 import { detectPackageManager } from './github';
@@ -468,6 +473,14 @@ export async function startDevServer(
         // while its session stayed open — an environment state, not an app bug
         // (issue #822). Same treatment as the missing-package.json case.
         logger.warn('[DevServer] Project folder is gone; falling back to script runner', {
+          projectPath,
+        });
+      } else if (isExpectedCommandError(e)) {
+        // Any other backend-Expected state — e.g. macOS privacy (TCC) denying
+        // a project under ~/Desktop or ~/Documents, which classify_fs_error
+        // already turns into actionable guidance. Not an app bug (issue #945).
+        logger.warn('[DevServer] package.json unreadable; falling back to script runner', {
+          error: errorMessage,
           projectPath,
         });
       } else {

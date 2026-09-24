@@ -24,7 +24,13 @@ import {
   setDevServerPort,
 } from '../../lib/project';
 import { preferredPortForProject } from '../../lib/ports';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isExpectedRenameRefusal,
+  isProjectFolderGoneError,
+} from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
 import {
@@ -329,11 +335,9 @@ export function ProjectList({
       await loadAll();
     } catch (error) {
       const message = formatCommandError(asCommandError(error));
-      // Anticipated refusals (name taken, project open elsewhere) are rendered
+      // Anticipated refusals (bad name, name taken, project open elsewhere) are rendered
       // inline by the modal — they're user states, not malfunctions.
-      const isExpectedRefusal =
-        message.includes('already exists') || message.includes('Close this project');
-      if (isExpectedRefusal) {
+      if (isExpectedRenameRefusal(error)) {
         logger.warn('Rename refused', { error: message });
       } else {
         trackError('project_rename', error, 'Dashboard');
@@ -515,9 +519,13 @@ export function ProjectList({
         setProjectSettingsPort(savedPort ?? preferredPortForProject(project.path));
         projectSettingsModal.open();
       } catch (error) {
+        // A folder moved/deleted outside the app, or a sandbox refusal, is a
+        // backend-Expected state: still shown, but not filed as a bug (#951).
         showToast(
           `Couldn't load settings for ${project.name}: ${formatCommandError(asCommandError(error))}`,
-          'error'
+          'error',
+          undefined,
+          { expected: isExpectedCommandError(error) || isProjectFolderGoneError(error) }
         );
       }
     },

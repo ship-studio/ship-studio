@@ -8,7 +8,12 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { listen } from '@tauri-apps/api/event';
 import {
   executeBridgeTool,
@@ -101,7 +106,11 @@ export function useAgentBridge({
       try {
         url = await getAgentBridgeUrl(projectPath);
       } catch (err) {
-        logger.error('[AgentBridge] Failed to get bridge URL', {
+        // A project folder moved/deleted outside the app (or any other
+        // backend-Expected state) is not a malfunction — logger.error would
+        // auto-file it as one (issue #973).
+        const expected = isExpectedCommandError(err) || isProjectFolderGoneError(err);
+        logger[expected ? 'warn' : 'error']('[AgentBridge] Failed to get bridge URL', {
           // CommandError rejections are plain objects — String() logs
           // "[object Object]" (issue #405).
           error: formatCommandError(asCommandError(err)),
