@@ -10,7 +10,6 @@ describe('validateMcpAddCommand (#588)', () => {
   const validInputs = [
     'my-server -- npx -y @some/mcp-server', // command after --
     'my-server npx -y @some/mcp-server', // command without --
-    'my-server --url https://example.com/mcp', // remote via --url
     'my-server https://example.com/mcp', // bare URL as commandOrUrl
     '--transport http sentry https://mcp.sentry.dev/mcp', // flags before name
     'my-server --env FOO=bar -- npx -y pkg', // env flag + separator
@@ -26,20 +25,42 @@ describe('validateMcpAddCommand (#588)', () => {
     'my-server', // name only — the exact #588 report shape
     'claude mcp add my-server', // name only behind the prefix
     'my-server --scope user', // name + flags, still no command/URL
-    'my-server --url', // --url with no value
     'my-server --', // separator with nothing after it
   ];
 
   it.each(invalidInputs)('rejects with guidance: %s', (input) => {
     const message = validateMcpAddCommand(input);
     expect(message).not.toBeNull();
-    expect(message).toContain('--url');
+    expect(message).toContain('--transport http');
     expect(message).toContain('npx');
   });
 
   it('strips the prefix for the configured agent binary', () => {
     expect(validateMcpAddCommand('codex mcp add my-server -- npx pkg', 'codex')).toBeNull();
     expect(validateMcpAddCommand('codex mcp add my-server', 'codex')).not.toBeNull();
+  });
+});
+
+describe('validateMcpAddCommand --url handling (#998)', () => {
+  it.each([
+    ['claude', undefined],
+    ['claude', 'claude-code'],
+  ])('rejects --url for Claude Code (%s / %s) and shows the positional syntax', (bin, id) => {
+    const message = validateMcpAddCommand('my-server --url https://example.com/mcp', bin, id);
+    expect(message).toContain('no --url option');
+    expect(message).toContain('--transport http my-server https://example.com/mcp');
+  });
+
+  it('never suggests --url to a Claude Code user', () => {
+    expect(validateMcpAddCommand('my-server')).not.toContain('--url');
+  });
+
+  it('keeps accepting --url for Codex, whose CLI has it', () => {
+    expect(
+      validateMcpAddCommand('my-server --url https://example.com/mcp', 'codex', 'codex')
+    ).toBeNull();
+    expect(validateMcpAddCommand('my-server --url', 'codex', 'codex')).toContain('--url');
+    expect(validateMcpAddCommand('my-server', 'codex', 'codex')).toContain('--url');
   });
 });
 
