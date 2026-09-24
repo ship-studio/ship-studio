@@ -261,10 +261,15 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
 /// delete loses a race against antivirus (or the installer itself) still
 /// holding the file open. The package is usually installed by then, so this
 /// exit code says nothing about whether the install worked (issue #780).
+///
+/// The same sharing violation can also surface as the bare HRESULT
+/// (`0x80070020 : The process cannot access the file because it is being
+/// used by another process.`) without the `remove:` prefix (issue #976) —
+/// same locked-file condition, same "did it land anyway?" check.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn is_winget_cleanup_race(stderr: &str, stdout: &str) -> bool {
     let combined = format!("{stderr}\n{stdout}").to_lowercase();
-    combined.contains("remove:") && combined.contains("being used by another process")
+    combined.contains("0x80070020") || combined.contains("being used by another process")
 }
 
 /// Turn a winget *spawn* failure (the process never started, so there's no
@@ -393,9 +398,10 @@ pub async fn install_winget_packages(
             if stdout.contains("already installed") || stderr.contains("already installed") {
                 continue;
             }
-            // winget's temp-file cleanup lost a race with antivirus. The
-            // install step already ran, so ask winget whether the package
-            // landed before calling this a failure (issue #780).
+            // A file winget needed was locked by another process (usually
+            // antivirus) — during temp-file cleanup (#780) or the install
+            // itself (#976). Ask winget whether the package landed before
+            // calling this a failure.
             if is_winget_cleanup_race(&stderr, &stdout) {
                 if winget_package_installed(&winget, package) {
                     tracing::warn!(
@@ -407,7 +413,7 @@ pub async fn install_winget_packages(
                 }
                 return Err(CommandError::expected(format!(
                     "Windows couldn't finish installing {package} because another program \
-                     (usually antivirus) still had winget's temporary installer file open. \
+                     (usually antivirus) still had a file it needed open. \
                      Try this step again in a moment."
                 )));
             }
@@ -642,6 +648,12 @@ mod tests {
                       another process.: \"C:\\Users\\me\\AppData\\Local\\Temp\\WinGet\\GitHub.cli.2.97.0\\abc\"";
         assert!(is_winget_cleanup_race(stderr, ""));
         assert!(is_winget_cleanup_race("", stderr));
+        // Issue #976: the HRESULT-prefixed sharing violation, no `remove:`.
+        assert!(is_winget_cleanup_race(
+            "0x80070020 : The process cannot access the file because it is being used by \
+             another process.",
+            ""
+        ));
         assert!(!is_winget_cleanup_race(
             "failed when searching source: msstore",
             ""
