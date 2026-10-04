@@ -50,8 +50,19 @@ import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows, needsCmdExeWrapper, resolveCliPath, type ResolvedCli } from '../../lib/setup';
-import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
+import {
+  isMac,
+  isWindows,
+  needsCmdExeWrapper,
+  resolveCliPath,
+  type ResolvedCli,
+} from '../../lib/setup';
+import {
+  isCopySelectionChord,
+  isPasteChord,
+  readClipboardText,
+  stageClipboardImage,
+} from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { isResourcePressureError } from '../../lib/errorReporting';
@@ -68,6 +79,7 @@ import {
   RESPAWN_GRACE_MS,
   STARTUP_TIMEOUT_MS,
 } from './startupWatchdog';
+import { bindTerminalCopyOnSelect, copyTerminalText } from './terminalCopy';
 import { createTerminalOptions } from './terminalTheme';
 import { agentPromptArgs, type AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
@@ -426,6 +438,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Open terminal in container
     term.open(container);
+    const disposeCopyOnSelect = bindTerminalCopyOnSelect(term, container);
 
     // Use WebGL renderer for GPU-accelerated rendering (reduces flickering).
     // Gated by a user setting — some macOS beta / GPU-driver combinations render corrupted
@@ -1034,8 +1047,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // kill the silent session and respawn once with the same config. Only
         // if the respawn is also silent do we surface the error text. Policy
         // and timings are shared with the onboarding terminal (startupWatchdog.ts).
+        // endOffset is every byte this process has ever written. A remount
+        // onto a live session (Claude waiting at /login, an idle agent)
+        // replays that history and then goes quiet — that is not a wedged
+        // first spawn, and killing it respawns with the same session id
+        // the live process still holds (issues #1074, #712).
+        const alreadyProducedOutput = attach.endOffset > 0;
         startupTimeout = setTimeout(() => {
-          const action = decideStartupTimeoutAction({ receivedOutput, mounted, autoRespawnUsed });
+          const action = decideStartupTimeoutAction({
+            receivedOutput,
+            alreadyProducedOutput,
+            mounted,
+            autoRespawnUsed,
+          });
           if (action === 'none') return;
 
           if (action === 'respawn') {
@@ -1125,15 +1149,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         // Handle special key combinations
         term.attachCustomKeyEventHandler((event) => {
-          // Ctrl+C with selection: copy to clipboard instead of sending SIGINT
-          if (event.key === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
+          // Ctrl+C / Cmd+C with a selection copies instead of signaling the
+          // PTY. With no selection, Ctrl+C still goes through as SIGINT.
+          if (isCopySelectionChord(event, isMac())) {
             const selection = term.getSelection();
             if (selection) {
-              navigator.clipboard.writeText(selection).catch((err: unknown) => {
-                logger.warn('[Terminal] Failed to copy selection to clipboard', {
-                  error: formatCommandError(asCommandError(err)),
-                });
-              });
+              void copyTerminalText(selection);
               term.clearSelection();
               return false;
             }
@@ -1278,6 +1299,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       disposeWebgl?.();
       resizeObserver.disconnect();
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      disposeCopyOnSelect();
       if (startupTimer) clearTimeout(startupTimer);
       if (respawnTimer) clearTimeout(respawnTimer);
       if (textarea) {

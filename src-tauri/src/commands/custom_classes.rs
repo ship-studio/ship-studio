@@ -994,6 +994,70 @@ const KNOWN_UTILITY_NAMES: &[&str] = &[
     "invisible",
     "collapse",
     "antialiased",
+    // Flex and grid alignment. Compiled or vendored Tailwind CSS redeclares
+    // these as plain rules (`.flex-col { … }`), which made the guard reject
+    // real utilities (issue #1044). Exempting a real utility is safe.
+    "flex-row",
+    "flex-row-reverse",
+    "flex-col",
+    "flex-col-reverse",
+    "flex-wrap",
+    "flex-wrap-reverse",
+    "flex-nowrap",
+    "justify-normal",
+    "justify-start",
+    "justify-end",
+    "justify-center",
+    "justify-between",
+    "justify-around",
+    "justify-evenly",
+    "justify-stretch",
+    "justify-items-start",
+    "justify-items-end",
+    "justify-items-center",
+    "justify-items-stretch",
+    "justify-self-auto",
+    "justify-self-start",
+    "justify-self-end",
+    "justify-self-center",
+    "justify-self-stretch",
+    "items-start",
+    "items-end",
+    "items-center",
+    "items-baseline",
+    "items-stretch",
+    "content-normal",
+    "content-center",
+    "content-start",
+    "content-end",
+    "content-between",
+    "content-around",
+    "content-evenly",
+    "content-baseline",
+    "content-stretch",
+    "self-auto",
+    "self-start",
+    "self-end",
+    "self-center",
+    "self-stretch",
+    "self-baseline",
+    "place-content-center",
+    "place-content-start",
+    "place-content-end",
+    "place-content-between",
+    "place-content-around",
+    "place-content-evenly",
+    "place-content-stretch",
+    "place-items-start",
+    "place-items-end",
+    "place-items-center",
+    "place-items-baseline",
+    "place-items-stretch",
+    "place-self-auto",
+    "place-self-start",
+    "place-self-end",
+    "place-self-center",
+    "place-self-stretch",
 ];
 
 /// The bare class name a token would resolve to for `@apply` — strip any variant
@@ -1048,11 +1112,24 @@ fn unsafe_apply_tokens(css: &str, kind: &[CssKind], tokens: &[String]) -> Vec<St
 /// one (a global, a component CSS, a vendored sheet) and still break `@apply`.
 /// Build the index across ALL of the project's CSS (node_modules excluded) so
 /// the guard isn't blind to those. Returns (plain-class names, `@utility` names).
+///
+/// Compiled Tailwind output (`dist`, `build`, `.next`, …) restates every utility
+/// as a plain `.flex-col {}` rule. Those directories are skipped even when a
+/// project commits them, so a build artifact can't make `@apply flex-col` look
+/// unsafe (issue #1044). `standard_filters` already drops hidden dirs like `.next`.
+fn is_generated_css_dir(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("dist" | "build" | "out" | "coverage" | ".next" | ".turbo" | "storybook-static")
+    )
+}
+
 fn collect_project_class_index(root: &Path) -> (HashSet<String>, HashSet<String>) {
     let mut plains = HashSet::new();
     let mut utils = HashSet::new();
     for entry in ignore::WalkBuilder::new(root)
         .standard_filters(true)
+        .filter_entry(|entry| !is_generated_css_dir(entry.path()))
         .build()
         .flatten()
     {
@@ -1779,6 +1856,50 @@ div.card { @apply p-4; }
             ),
             vec!["brandbox".to_string()]
         );
+    }
+
+    #[test]
+    fn guard_exempts_flex_alignment_utilities_that_collide_with_plain_classes() {
+        // Vendored or compiled CSS often redeclares these exact utilities as
+        // plain rules. They must stay applicable (issue #1044).
+        let css = ".flex-col { flex-direction: column; }\n\
+                   .justify-center { justify-content: center; }\n\
+                   .items-center { align-items: center; }\n\
+                   .justify-between { justify-content: space-between; }\n";
+        let kind = css_scan(css);
+        assert!(unsafe_apply_tokens(
+            css,
+            &kind,
+            &[
+                "flex-col".into(),
+                "justify-center".into(),
+                "items-center".into(),
+                "hover:justify-between".into(),
+            ],
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn project_guard_ignores_plain_classes_in_build_output() {
+        // A committed dist/ bundle must not poison the allowlist. The same
+        // name in authored CSS is still rejected.
+        let dir = tmp("apply-guard-dist");
+        std::fs::write(dir.join("index.css"), "@import \"tailwindcss\";\n").unwrap();
+        std::fs::create_dir_all(dir.join("dist")).unwrap();
+        std::fs::write(
+            dir.join("dist/app.css"),
+            ".brandbox { color: red; }\n.flex-col { display: flex; }\n",
+        )
+        .unwrap();
+        assert!(guard_project_apply_safety(&dir, &["brandbox".into(), "flex-col".into()]).is_ok());
+        std::fs::write(dir.join("src.css"), ".brandbox { color: red; }\n").unwrap();
+        let err = guard_project_apply_safety(&dir, &["brandbox".into()]).unwrap_err();
+        assert!(
+            matches!(err, CommandError::Validation { .. }),
+            "authored CSS is still guarded: {err:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

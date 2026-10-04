@@ -56,6 +56,7 @@ import {
 } from '../lib/external-projects';
 import { registerProjectSession } from '../lib/projectSessions';
 import { sessionRegistry } from '../lib/sessionRegistry';
+import { persistTerminalSessions } from '../lib/terminalStatePersistence';
 import { assignActiveWorkspaceToNewProject } from '../lib/accounts';
 import { getDefaultAgentId } from '../lib/agent';
 import {
@@ -404,35 +405,20 @@ export function useProjectLifecycle({
     const incomingAlreadyRunning = isServerRunning(project.path);
     const reuseIncomingServer = incomingAlreadyRunning;
 
-    // Save the OUTGOING project's terminal state before we clobber it. This
-    // is what lets switching A → B → A restore A's tab layout and resume
-    // its agents via their persisted session IDs. Fire-and-forget; the
-    // write is idempotent and a late failure just means next visit starts
-    // with a cold tab list (safe fallback).
+    // Save the OUTGOING project's terminal state before we clobber the
+    // focused tab list. Switching A → B → A restores A's tabs from this
+    // write. Tab changes and quit also persist (see
+    // usePersistTerminalSessions); this one is immediate so a fast switch
+    // cannot land before the effect flushes. A late failure just means the
+    // next visit starts from the last successful save.
     if (currentProject && currentProject.path !== project.path && terminalTabs.length > 0) {
-      const outgoingPath = currentProject.path;
-      const outgoingTabs = terminalTabs;
-      const outgoingActiveIdx = Math.max(
-        0,
-        outgoingTabs.findIndex((t) => t.id === activeTerminalTab)
-      );
-      const outgoingCustomTitles = sessionRegistry.getCustomTitles(outgoingPath);
-      invoke('set_terminal_state', {
-        projectPath: outgoingPath,
-        state: {
-          tabs: outgoingTabs.map((t) => ({
-            agent_id: t.agentId,
-            session_id: t.sessionId,
-            custom_title: outgoingCustomTitles.get(t.id),
-          })),
-          active_tab_index: outgoingActiveIdx,
+      void persistTerminalSessions([
+        {
+          projectPath: currentProject.path,
+          tabs: terminalTabs,
+          activeTabId: activeTerminalTab,
         },
-      }).catch((err) => {
-        logger.warn('[OpenProject] Failed to save outgoing terminal state', {
-          project: outgoingPath,
-          error: String(err),
-        });
-      });
+      ]);
     }
 
     // Fetch auto-accept BEFORE the workspace renders. The Terminal
@@ -975,27 +961,16 @@ export function useProjectLifecycle({
   const handleBackToProjects = () => {
     const leavingProjectPath = currentProject?.path ?? null;
 
-    // Save terminal state in background (non-blocking)
+    // Save terminal state in the background. The hot session stays in
+    // memory, and this write is what a later quit-less relaunch restores.
     if (currentProject && terminalTabs.length > 0) {
-      const activeIdx = terminalTabs.findIndex((t) => t.id === activeTerminalTab);
-      const customTitles = sessionRegistry.getCustomTitles(currentProject.path);
-      invoke('set_terminal_state', {
-        projectPath: currentProject.path,
-        state: {
-          tabs: terminalTabs.map((t) => ({
-            agent_id: t.agentId,
-            session_id: t.sessionId,
-            custom_title: customTitles.get(t.id),
-          })),
-          active_tab_index: Math.max(0, activeIdx),
+      void persistTerminalSessions([
+        {
+          projectPath: currentProject.path,
+          tabs: terminalTabs,
+          activeTabId: activeTerminalTab,
         },
-      })
-        .then(() => {
-          logger.info('[BackToProjects] Saved terminal state', { tabCount: terminalTabs.length });
-        })
-        .catch((err) => {
-          logger.warn('[BackToProjects] Failed to save terminal state', { error: String(err) });
-        });
+      ]);
     }
 
     // Mark that user explicitly went back to projects - this prevents auto-open from

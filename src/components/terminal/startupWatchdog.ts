@@ -39,6 +39,14 @@ export const RESPAWN_GRACE_MS = 500;
 export interface StartupTimeoutState {
   /** True once any PTY output arrived for the current spawn. */
   receivedOutput: boolean;
+  /**
+   * True when this process already wrote bytes before the watchdog was
+   * armed. A remount replays that history from the attach snapshot and
+   * does not count it as `receivedOutput`, so a Claude login screen — or
+   * any agent that painted and then waited — would otherwise look silent
+   * and get killed (issues #1074, #712).
+   */
+  alreadyProducedOutput: boolean;
   /** True while the owning effect instance is still mounted. */
   mounted: boolean;
   /** True once the single allowed automatic respawn has been used. */
@@ -55,6 +63,6 @@ export type StartupTimeoutAction = 'none' | 'respawn' | 'error';
  * - `'error'`   — the respawn was also silent: surface the error text.
  */
 export function decideStartupTimeoutAction(state: StartupTimeoutState): StartupTimeoutAction {
-  if (state.receivedOutput || !state.mounted) return 'none';
+  if (state.receivedOutput || state.alreadyProducedOutput || !state.mounted) return 'none';
   return state.autoRespawnUsed ? 'error' : 'respawn';
 }

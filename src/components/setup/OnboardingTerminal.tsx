@@ -16,8 +16,8 @@ import { homeDir } from '@tauri-apps/api/path';
 import { getSystemEnv, getShellPath } from '../../lib/project';
 import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows, needsCmdExeWrapper, resolveCliPath, ResolvedCli } from '../../lib/setup';
-import { isPasteChord, readClipboardText } from '../../lib/clipboard';
+import { isMac, isWindows, needsCmdExeWrapper, resolveCliPath, ResolvedCli } from '../../lib/setup';
+import { isCopySelectionChord, isPasteChord, readClipboardText } from '../../lib/clipboard';
 import { createPtyChunkDecoder, toPtyBytes, type PtyChunk } from '../../lib/terminalDiagnostics';
 import {
   decideStartupTimeoutAction,
@@ -26,6 +26,7 @@ import {
 } from '../terminal/startupWatchdog';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { bindTerminalCopyOnSelect, copyTerminalText } from '../terminal/terminalCopy';
 import { createTerminalOptions } from '../terminal/terminalTheme';
 import '@xterm/xterm/css/xterm.css';
 
@@ -125,6 +126,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     // Open terminal in container
     term.open(container);
+    const disposeCopyOnSelect = bindTerminalCopyOnSelect(term, container);
 
     // Initial fit
     setTimeout(() => {
@@ -436,6 +438,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         startupTimer = setTimeout(() => {
           const action = decideStartupTimeoutAction({
             receivedOutput,
+            // Onboarding spawns a fresh PTY per mount; there is no attach
+            // snapshot of a previous run to treat as "already spoke".
+            alreadyProducedOutput: false,
             mounted,
             autoRespawnUsed,
           });
@@ -502,18 +507,14 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
       ptyRef.current?.write(data);
     });
 
-    // Intercept Ctrl+C: copy selection to clipboard instead of sending SIGINT
+    // Ctrl+C / Cmd+C with a selection copies instead of signaling the PTY.
     term.attachCustomKeyEventHandler((event) => {
-      if (event.key === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
+      if (isCopySelectionChord(event, isMac())) {
         const selection = term.getSelection();
         if (selection) {
-          navigator.clipboard.writeText(selection).catch((err: unknown) => {
-            logger.warn('[OnboardingTerminal] Failed to copy selection to clipboard', {
-              error: String(err),
-            });
-          });
+          void copyTerminalText(selection);
           term.clearSelection();
-          return false; // Prevent sending to PTY
+          return false;
         }
       }
       // Windows-only: Ctrl+V paste (auth codes) via the native clipboard.
@@ -568,6 +569,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     return () => {
       mounted = false;
+      disposeCopyOnSelect();
       if (startupTimer) clearTimeout(startupTimer);
       resizeObserver.disconnect();
       cleanup();

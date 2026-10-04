@@ -56,3 +56,19 @@ export function isPasteChord(event: PasteChordEvent): boolean {
     event.key.toLowerCase() === 'v'
   );
 }
+
+/**
+ * True when this keydown should copy the terminal selection instead of
+ * going to the PTY.
+ *
+ * Ctrl+C on every platform. Cmd+C only when `mac` is set — on Windows Meta
+ * is the Windows key and must not steal the chord. Shift and Alt stay with
+ * the PTY (Ctrl+Shift+C is a different shortcut). Callers still check that
+ * a selection exists; with no selection, Ctrl+C remains SIGINT.
+ */
+export function isCopySelectionChord(event: PasteChordEvent, mac: boolean): boolean {
+  if (event.type !== 'keydown' || event.shiftKey || event.altKey) return false;
+  if (event.key.toLowerCase() !== 'c') return false;
+  if (event.ctrlKey && !event.metaKey) return true;
+  return mac && event.metaKey && !event.ctrlKey;
+}

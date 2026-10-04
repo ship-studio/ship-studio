@@ -187,8 +187,8 @@ function isBackendHumanizedGitMessage(message: string): boolean {
 /**
  * Turn a raw git/GitHub error into a plain-language message a non-git-expert can
  * act on. Recognizes the common failures (empty branch, merge conflict, out of
- * date, auth, network, protected branch, existing PR, unsaved changes) and falls
- * back to the formatted raw message when nothing matches.
+ * date, auth, network, protected branch, existing PR, unsaved changes, Windows
+ * path length) and falls back to the formatted raw message when nothing matches.
  */
 export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): string {
   const raw = formatCommandError(asCommandError(value));
@@ -374,6 +374,16 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `This project isn't set up with git yet.`;
   }
 
+  // Windows MAX_PATH during a worktree checkout (or any other git write that
+  // reaches this humanizer). Match only "filename too long": "unable to
+  // checkout working tree" and "could not reset index file" also cover
+  // permissions and corrupt objects. Clone flows have their own sentence in
+  // describeProcessError (issue #701) — this one must not say the repository
+  // was downloaded (issue #1041).
+  if (m.includes('filename too long')) {
+    return `Git couldn't write some files because their names or paths are longer than Windows allows by default. Open a terminal and run \`git config --global core.longpaths true\`, and turn on Windows long-path support (LongPathsEnabled) if it still fails, then try again.`;
+  }
+
   return raw;
 }
 
@@ -382,7 +392,7 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
  * known, user-actionable git/GitHub conditions (nothing to review, conflicts,
  * out of date, auth, network, protected branch, repo-name collision, existing
  * PR, unsaved changes, worktree collision, unmergeable ref, missing ref, not
- * a repo).
+ * a repo, Windows path length).
  *
  * The backend classifies many of these as `CommandError::Expected`, but that
  * variant deliberately serializes identically to `Other` across IPC, so the

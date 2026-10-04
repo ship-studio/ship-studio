@@ -182,11 +182,23 @@ fn run_worktree_git(cwd: &Path, args: &[&str]) -> Result<std::process::Output, C
         })
 }
 
-/// `git worktree remove` without `--force` refusing to delete a tree that
-/// still has modified or untracked files.
+/// `git worktree remove` refusing to delete a tree without enough `--force`.
+/// Dirty trees say "contains modified or untracked files" / "use --force".
+/// Locked trees say "cannot remove a locked working tree" and
+/// "use 'remove -f -f'", which contains neither of those (issue #1040).
 fn is_dirty_worktree_refusal(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
-    lower.contains("contains modified or untracked files") || lower.contains("use --force")
+    lower.contains("contains modified or untracked files")
+        || lower.contains("use --force")
+        || lower.contains("locked working tree")
+        || lower.contains("remove -f -f")
+}
+
+/// Windows `MAX_PATH` refusing a worktree checkout. `git worktree add` reports
+/// "Filename too long" and then "Could not reset index file to revision" —
+/// a machine setting, not an app bug (issue #1041).
+fn is_long_path_checkout_failure(stderr: &str) -> bool {
+    stderr.to_lowercase().contains("filename too long")
 }
 
 fn process_error(args: &[&str], output: &std::process::Output) -> CommandError {
@@ -350,6 +362,17 @@ pub async fn add_worktree(
     info!(dest = %dest.display(), create_branch, "Adding git worktree");
     let output = run_worktree_git(&validated_path, &args)?;
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if is_long_path_checkout_failure(&stderr) {
+            // Keep git's stderr in the message so the modal's humanizer still
+            // matches "filename too long". Expected, so it isn't filed as a bug.
+            return Err(CommandError::expected(format!(
+                "`git {}` exited with status {}: {}",
+                args.join(" "),
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
         // Pass git's own message through — it covers "already checked out",
         // "already exists", unknown refs, etc. faithfully.
         return Err(process_error(&args, &output));
@@ -421,9 +444,9 @@ fn copy_env_files(from: &Path, to: &Path) {
 }
 
 /// Removes a linked worktree via `git worktree remove`. Refuses the main
-/// worktree. A dirty tree makes git refuse without `force` — the resulting
-/// `Process` error carries git's stderr so the UI can offer force-removal.
-/// The branch is left alone, matching git's own semantics.
+/// worktree. A dirty or locked tree makes git refuse without enough `force`
+/// — the resulting error carries git's stderr so the UI can offer
+/// force-removal. The branch is left alone, matching git's own semantics.
 #[tauri::command]
 #[instrument(name = "remove_worktree", skip(project_path, worktree_path), fields(project = %project_path, worktree = %worktree_path))]
 pub async fn remove_worktree(
@@ -461,10 +484,10 @@ pub async fn remove_worktree(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !force && is_dirty_worktree_refusal(&stderr) {
-            // git declining to delete uncommitted work is the safety rail
-            // working; the UI already offers the force path. Expected, with
-            // the raw stderr kept so the frontend's own matcher still fires
-            // (issue #744).
+            // git declining to delete uncommitted work, or a locked tree, is
+            // the safety rail working; the UI offers the force path. Expected,
+            // with the raw stderr kept so the frontend's matcher still fires
+            // (issues #744, #1040).
             return Err(CommandError::expected(format!(
                 "`git {}` exited with status {}: {}",
                 args.join(" "),
@@ -621,8 +644,31 @@ branch refs/heads/feature
         assert!(is_dirty_worktree_refusal(
             "fatal: '/x/y.worktrees/z' contains modified or untracked files, use --force to delete it"
         ));
+        // Locked trees use different wording and still need the force path
+        // (issue #1040). Either line alone is enough — output can be truncated.
+        assert!(is_dirty_worktree_refusal(
+            "fatal: cannot remove a locked working tree, lock reason: claude session\nuse 'remove -f -f' to override or unlock first"
+        ));
+        assert!(is_dirty_worktree_refusal(
+            "use 'remove -f -f' to override or unlock first"
+        ));
         assert!(!is_dirty_worktree_refusal(
             "fatal: '/x/y' is not a working tree"
+        ));
+    }
+
+    #[test]
+    fn long_path_checkout_failure_is_recognized() {
+        assert!(is_long_path_checkout_failure(
+            "error: unable to create file public/photo.jpeg: Filename too long\nfatal: Could not reset index file to revision 'HEAD'."
+        ));
+        assert!(!is_long_path_checkout_failure(
+            "fatal: 'main' is already checked out at '/other'"
+        ));
+        // A generic checkout fatal without the path-length phrase is a
+        // different failure (permissions, corrupt object) — don't claim it.
+        assert!(!is_long_path_checkout_failure(
+            "fatal: Could not reset index file to revision 'HEAD'."
         ));
     }
 

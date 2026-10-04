@@ -271,16 +271,17 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
                 // add a 12px content gutter on every edge so
                 // xterm has the same breathing room from the
                 // pane chrome that single-pane mode gives it
-                // from the sidebar. Opencode is full-bleed by
-                // design (its TUI fills the viewport) — skip
-                // the content gutter for it.
+                // from the sidebar. Opencode and a plain terminal
+                // are full-bleed by design (their TUIs fill the
+                // viewport) — skip the content gutter for them
+                // (issue #748).
                 let paneStyle: CSSProperties | undefined;
                 if (inSplitPane && splitPaneSizes) {
                   const leftPct = splitPaneSizes.slice(0, paneIdx).reduce((a, b) => a + b, 0);
                   const rightPct = splitPaneSizes.slice(paneIdx + 1).reduce((a, b) => a + b, 0);
                   const leftAbutsHandle = paneIdx > 0;
                   const rightAbutsHandle = paneIdx < splitPaneSizes.length - 1;
-                  const gutter = tab.agentId === 'opencode' ? 0 : 12;
+                  const gutter = tab.agentId === 'opencode' || tab.agentId === 'terminal' ? 0 : 12;
                   const leftOffset = (leftAbutsHandle ? 4 : 0) + gutter;
                   const rightOffset = (rightAbutsHandle ? 4 : 0) + gutter;
                   paneStyle = {

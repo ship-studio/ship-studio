@@ -17,6 +17,8 @@
  * `activeTerminalTab`, `splitPaneTabIds`, …) re-derived via an epoch counter.
  * Consumed by App.tsx, which threads it into WorkspaceView,
  * TerminalSplitHeaders, and useProjectLifecycle (tab save/restore on switch).
+ * `usePersistTerminalSessions` writes the lists through on every change and
+ * on quit — this hook still does not touch the disk itself.
  *
  * Boundaries: no Tauri calls of its own — PTYs are driven through
  * `TerminalHandle` refs (`terminalRefsMap`, keyed `${projectPath}::${tabId}`);

@@ -180,12 +180,24 @@ pub fn set_dashboard_header_hidden(hidden: bool) -> Result<(), CommandError> {
     write_app_state(&state).map_err(CommandError::from)
 }
 
-/// Get whether the terminal uses WebGL (GPU-accelerated) rendering. Defaults to true.
+/// WebGL is the default everywhere except Windows.
+///
+/// Some Windows GPU drivers smear the xterm WebGL atlas while scrolling, so
+/// the agent transcript paints old lines on top of new ones (issue #1035).
+/// Canvas rendering is the safe default there. An explicit Settings choice
+/// (`Some`) still wins on every platform.
+pub(crate) fn default_terminal_gpu_enabled() -> bool {
+    !cfg!(windows)
+}
+
+/// Get whether the terminal uses WebGL (GPU-accelerated) rendering.
 #[tauri::command]
 #[tracing::instrument]
 pub fn get_terminal_gpu_enabled() -> Result<bool, CommandError> {
     let state = read_app_state();
-    Ok(state.terminal_gpu_enabled.unwrap_or(true))
+    Ok(state
+        .terminal_gpu_enabled
+        .unwrap_or(default_terminal_gpu_enabled()))
 }
 
 /// Set whether the terminal uses WebGL rendering (persisted to app state).
@@ -445,5 +457,17 @@ mod tests {
     fn invalid_saved_values_use_the_brand_icon() {
         assert_eq!(normalized_app_icon(Some("system")), "brand");
         assert_eq!(normalized_app_icon(None), "brand");
+    }
+
+    #[test]
+    fn windows_defaults_the_terminal_renderer_to_canvas() {
+        // Issue #1035: WebGL smears scrollback on some Windows GPUs. The
+        // unset preference follows the platform; a saved choice is separate
+        // and is not what this default decides.
+        if cfg!(windows) {
+            assert!(!super::default_terminal_gpu_enabled());
+        } else {
+            assert!(super::default_terminal_gpu_enabled());
+        }
     }
 }

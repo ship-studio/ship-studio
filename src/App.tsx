@@ -78,6 +78,7 @@ import {
 } from './lib/workflowsStore';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
+import { usePersistTerminalSessions } from './hooks/usePersistTerminalSessions';
 import type { AppView } from './lib/types';
 import './styles/index.css';
 
@@ -206,6 +207,10 @@ function AppContents({ initialProjectPath }: AppProps) {
     removeSplitPane,
     setSplitPaneSizes,
   } = useTerminalManagement(currentProject?.path ?? null);
+
+  // Disk copy of those tabs. Quit and crash restore from this, not only
+  // from a project switch (issue #1073).
+  usePersistTerminalSessions(allSessions);
 
   // Mirror EVERY active session's tabs into the session registry so the
   // sidebar reflects both the current project's live tabs and every

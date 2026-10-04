@@ -378,12 +378,17 @@ export function BranchesTab({
   const [worktreeRemoveError, setWorktreeRemoveError] = useState<string | null>(null);
   const [isPruningWorktrees, setIsPruningWorktrees] = useState(false);
 
-  /** Git refuses to remove a dirty worktree without `--force` — detect its
-   *  phrasing so the confirm modal can escalate to a Force Remove button. */
-  const isDirtyWorktreeError = (e: unknown): boolean => {
-    const text = typeof e === 'string' ? e : errText(e);
-    return /contains modified or untracked files|use --force/i.test(text);
-  };
+  /** Git refuses to remove a dirty or locked worktree without enough
+   *  `--force`. Locked trees say "locked working tree" / "remove -f -f",
+   *  which the dirty-tree phrase doesn't cover (issue #1040). Detect either
+   *  so the confirm modal can escalate to a Force Remove button. */
+  const worktreeRemoveText = (e: unknown): string => (typeof e === 'string' ? e : errText(e));
+  const isDirtyWorktreeError = (e: unknown): boolean =>
+    /contains modified or untracked files|use --force|locked working tree|remove -f -f/i.test(
+      worktreeRemoveText(e)
+    );
+  const isLockedWorktreeError = (e: unknown): boolean =>
+    /locked working tree|remove -f -f/i.test(worktreeRemoveText(e));
 
   // Anchor mutation commands at the main worktree: removing the worktree the
   // command's cwd sits inside would fail (or leave a dangling cwd).
@@ -1006,8 +1011,17 @@ export function BranchesTab({
                 <p>{worktreeRemoveError}</p>
                 {isDirtyWorktreeError(worktreeRemoveError) && (
                   <p>
-                    <strong>The worktree has uncommitted changes.</strong> Force-removing discards
-                    them permanently.
+                    {isLockedWorktreeError(worktreeRemoveError) ? (
+                      <>
+                        <strong>This worktree is locked.</strong> Force-removing overrides the lock
+                        and deletes the folder. Any uncommitted changes in it are discarded.
+                      </>
+                    ) : (
+                      <>
+                        <strong>The worktree has uncommitted changes.</strong> Force-removing
+                        discards them permanently.
+                      </>
+                    )}
                   </p>
                 )}
               </div>

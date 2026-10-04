@@ -7,6 +7,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { isWindows } from './setup';
 
 /** Event fired after a dashboard visibility preference is persisted. */
 export const DASHBOARD_VISIBILITY_CHANGED_EVENT = 'shipstudio:dashboard-visibility-changed';
@@ -141,15 +142,18 @@ export async function setAppIcon(icon: AppIcon): Promise<void> {
 }
 
 /**
- * Check whether the terminal uses WebGL (GPU-accelerated) rendering. Defaults to true.
- * Users on macOS beta builds or certain GPU drivers may see corrupted glyphs with WebGL
- * and should disable this.
+ * Check whether the terminal uses WebGL (GPU-accelerated) rendering.
+ *
+ * Windows defaults to the canvas renderer. Some GPU drivers there smear
+ * scrolling text in the agent terminal (issue #1035). Every other platform
+ * defaults to WebGL, and a saved Settings choice wins everywhere. If the
+ * preference can't be read, Windows stays on canvas.
  */
 export async function getTerminalGpuEnabled(): Promise<boolean> {
   try {
     return await invoke<boolean>('get_terminal_gpu_enabled');
   } catch {
-    return true;
+    return !isWindows();
   }
 }
 
