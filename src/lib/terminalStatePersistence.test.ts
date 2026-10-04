@@ -4,6 +4,7 @@ import {
   flushTerminalSessions,
   persistTerminalSessions,
   registerTerminalSessionSource,
+  snapshotTerminalSessions,
   terminalStateSignature,
   type PersistDeps,
   type SavedTerminalState,
@@ -49,6 +50,26 @@ describe('buildSavedTerminalState', () => {
 
   it('refuses to save an empty list, which would wipe a previous restore', () => {
     expect(buildSavedTerminalState(session({ tabs: [] }), new Map())).toBeNull();
+  });
+});
+
+describe('snapshotTerminalSessions', () => {
+  it('copies the store so a later edit does not change the snapshot', () => {
+    const tabs = [
+      { id: 1, agentId: 'claude-code', sessionId: 'old' },
+      { id: 2, agentId: 'claude-code', sessionId: 'new' },
+    ];
+    const states = new Map([['C:\\work\\app', { activeTabId: 2, tabs }]]);
+
+    const snap = snapshotTerminalSessions(states);
+    expect(snap).toEqual([
+      {
+        projectPath: 'C:\\work\\app',
+        activeTabId: 2,
+        tabs,
+      },
+    ]);
+    expect(snap[0]?.tabs).not.toBe(tabs);
   });
 });
 

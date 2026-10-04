@@ -184,6 +184,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     activeTerminalTab,
     terminalSessionId,
     allSessions,
+    readLiveSessions,
     terminalRefsMap,
     maxTerminalTabs,
     setActiveTerminalTab,
@@ -210,7 +211,7 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   // Disk copy of those tabs. Quit and crash restore from this, not only
   // from a project switch (issue #1073).
-  usePersistTerminalSessions(allSessions);
+  usePersistTerminalSessions(allSessions, readLiveSessions);
 
   // Mirror EVERY active session's tabs into the session registry so the
   // sidebar reflects both the current project's live tabs and every

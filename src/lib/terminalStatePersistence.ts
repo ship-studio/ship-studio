@@ -31,6 +31,34 @@ export interface PersistDeps {
   signatures: Map<string, string>;
 }
 
+/**
+ * Copy the in-memory tab store. Quit calls this directly so a tab added
+ * before the next React commit is still on disk (issue #1073).
+ */
+export function snapshotTerminalSessions(
+  states: ReadonlyMap<
+    string,
+    {
+      activeTabId: number;
+      tabs: ReadonlyArray<{ id: number; agentId: string; sessionId: string }>;
+    }
+  >
+): TerminalSessionSnapshot[] {
+  const out: TerminalSessionSnapshot[] = [];
+  for (const [projectPath, state] of states) {
+    out.push({
+      projectPath,
+      activeTabId: state.activeTabId,
+      tabs: state.tabs.map((tab) => ({
+        id: tab.id,
+        agentId: tab.agentId,
+        sessionId: tab.sessionId,
+      })),
+    });
+  }
+  return out;
+}
+
 /** Stable identity of a saved tab list. Equal signatures skip the disk write. */
 export function terminalStateSignature(state: SavedTerminalState): string {
   const tabs = state.tabs
