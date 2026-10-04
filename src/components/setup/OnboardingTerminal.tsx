@@ -6,7 +6,7 @@
  * Reuses xterm.js setup from Terminal.tsx but without drag-drop handling.
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
@@ -26,7 +26,12 @@ import {
 } from '../terminal/startupWatchdog';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
-import { bindTerminalCopyOnSelect, copyTerminalText } from '../terminal/terminalCopy';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import {
+  bindTerminalCopyOnSelect,
+  copyTerminalSelection,
+  terminalCopyFailureMessage,
+} from '../terminal/terminalCopy';
 import { createTerminalOptions } from '../terminal/terminalTheme';
 import '@xterm/xterm/css/xterm.css';
 
@@ -55,6 +60,11 @@ interface OnboardingTerminalProps {
 
 export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { showToast } = useOptionalToast();
+  const showToastRef = useRef(showToast);
+  useLayoutEffect(() => {
+    showToastRef.current = showToast;
+  });
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<OnboardingPty | null>(null);
@@ -126,7 +136,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     // Open terminal in container
     term.open(container);
-    const disposeCopyOnSelect = bindTerminalCopyOnSelect(term, container);
+    const disposeCopyOnSelect = bindTerminalCopyOnSelect(term, container, (error) => {
+      showToastRef.current(terminalCopyFailureMessage(error), 'error');
+    });
 
     // Initial fit
     setTimeout(() => {
@@ -512,8 +524,11 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
       if (isCopySelectionChord(event, isMac())) {
         const selection = term.getSelection();
         if (selection) {
-          void copyTerminalText(selection);
-          term.clearSelection();
+          void copyTerminalSelection(selection, () => term.clearSelection()).catch(
+            (error: Error) => {
+              showToastRef.current(terminalCopyFailureMessage(error), 'error');
+            }
+          );
           return false;
         }
       }

@@ -61,12 +61,41 @@ export function buildSavedTerminalState(
 
 const signatures = new Map<string, string>();
 
+/**
+ * In-flight saves, per signature map and project. A newer tab list has to
+ * land after an older write, and quit has to wait its turn — otherwise a
+ * slow save can put the previous tabs back on disk.
+ */
+const writeChains = new WeakMap<Map<string, string>, Map<string, Promise<void>>>();
+
 function defaultDeps(): PersistDeps {
   return {
     write: setTerminalState,
     customTitles: (projectPath) => sessionRegistry.getCustomTitles(projectPath),
     signatures,
   };
+}
+
+function enqueueWrite(
+  deps: PersistDeps,
+  projectPath: string,
+  task: () => Promise<void>
+): Promise<void> {
+  let byProject = writeChains.get(deps.signatures);
+  if (!byProject) {
+    byProject = new Map();
+    writeChains.set(deps.signatures, byProject);
+  }
+  const previous = byProject.get(projectPath) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  byProject.set(
+    projectPath,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
 }
 
 let source: (() => readonly TerminalSessionSnapshot[]) | null = null;
@@ -78,43 +107,56 @@ export function registerTerminalSessionSource(
   source = next;
 }
 
+/** One project's save. A failed write stays unsigned so the next change retries. */
+async function writeSession(session: TerminalSessionSnapshot, deps: PersistDeps): Promise<void> {
+  const saved = buildSavedTerminalState(session, deps.customTitles(session.projectPath));
+  if (!saved) return;
+  const signature = terminalStateSignature(saved);
+  if (deps.signatures.get(session.projectPath) === signature) return;
+  try {
+    await deps.write(session.projectPath, saved);
+    deps.signatures.set(session.projectPath, signature);
+    logger.info('[TerminalState] Saved terminal tabs', {
+      projectPath: session.projectPath,
+      tabCount: saved.tabs.length,
+    });
+  } catch (err) {
+    logger.warn('[TerminalState] Failed to save terminal tabs', {
+      projectPath: session.projectPath,
+      error: String(err),
+    });
+  }
+}
+
 /**
- * Write each session whose tab list changed. Failures are logged and left
- * unsigned so the next change retries — a failed write must not look saved.
+ * Write each session whose tab list changed. Saves for one project run in
+ * order, so a slow older write cannot replace a newer tab list.
  */
 export async function persistTerminalSessions(
   sessions: readonly TerminalSessionSnapshot[],
   deps: PersistDeps = defaultDeps()
 ): Promise<void> {
   await Promise.all(
-    sessions.map(async (session) => {
-      const saved = buildSavedTerminalState(session, deps.customTitles(session.projectPath));
-      if (!saved) return;
-      const signature = terminalStateSignature(saved);
-      if (deps.signatures.get(session.projectPath) === signature) return;
-      try {
-        await deps.write(session.projectPath, saved);
-        deps.signatures.set(session.projectPath, signature);
-        logger.info('[TerminalState] Saved terminal tabs', {
-          projectPath: session.projectPath,
-          tabCount: saved.tabs.length,
-        });
-      } catch (err) {
-        logger.warn('[TerminalState] Failed to save terminal tabs', {
-          projectPath: session.projectPath,
-          error: String(err),
-        });
-      }
-    })
+    sessions.map((session) =>
+      enqueueWrite(deps, session.projectPath, () => writeSession(session, deps))
+    )
   );
 }
 
 /**
  * Write every live session even if this process already thinks it did.
- * Quit can race the debounced render that would have saved a just-added tab.
+ * Quit can race the render that would have saved a just-added tab, so this
+ * waits for any save already in flight and then writes the snapshot it was
+ * given.
  */
 export function flushTerminalSessions(deps: PersistDeps = defaultDeps()): Promise<void> {
   const sessions = source?.() ?? [];
-  for (const session of sessions) deps.signatures.delete(session.projectPath);
-  return persistTerminalSessions(sessions, deps);
+  return Promise.all(
+    sessions.map((session) =>
+      enqueueWrite(deps, session.projectPath, async () => {
+        deps.signatures.delete(session.projectPath);
+        await writeSession(session, deps);
+      })
+    )
+  ).then(() => undefined);
 }

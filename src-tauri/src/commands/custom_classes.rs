@@ -1116,8 +1116,24 @@ fn unsafe_apply_tokens(css: &str, kind: &[CssKind], tokens: &[String]) -> Vec<St
 /// Compiled Tailwind output (`dist`, `build`, `.next`, …) restates every utility
 /// as a plain `.flex-col {}` rule. Those directories are skipped even when a
 /// project commits them, so a build artifact can't make `@apply flex-col` look
-/// unsafe (issue #1044). `standard_filters` already drops hidden dirs like `.next`.
-fn is_generated_css_dir(path: &Path) -> bool {
+/// unsafe (issue #1044). The same names inside `src/` (`src/build/theme.css`)
+/// are authored and stay indexed. `standard_filters` already drops hidden dirs
+/// like `.next`.
+fn is_inside_src(path: &Path, root: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let mut components = relative.components();
+    // The directory's own name is not an ancestor. `src/build` is inside
+    // `src`; `packages/app/dist` is not.
+    let _own_name = components.next_back();
+    components.any(|component| component.as_os_str() == "src")
+}
+
+fn is_generated_css_dir(path: &Path, root: &Path) -> bool {
+    if is_inside_src(path, root) {
+        return false;
+    }
     matches!(
         path.file_name().and_then(|name| name.to_str()),
         Some("dist" | "build" | "out" | "coverage" | ".next" | ".turbo" | "storybook-static")
@@ -1127,9 +1143,14 @@ fn is_generated_css_dir(path: &Path) -> bool {
 fn collect_project_class_index(root: &Path) -> (HashSet<String>, HashSet<String>) {
     let mut plains = HashSet::new();
     let mut utils = HashSet::new();
+    // filter_entry stores the closure for the walk, so it cannot borrow `root`.
+    let root_owned = root.to_path_buf();
     for entry in ignore::WalkBuilder::new(root)
         .standard_filters(true)
-        .filter_entry(|entry| !is_generated_css_dir(entry.path()))
+        .filter_entry(move |entry| {
+            let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
+            !is_dir || !is_generated_css_dir(entry.path(), &root_owned)
+        })
         .build()
         .flatten()
     {
@@ -1899,6 +1920,29 @@ div.card { @apply p-4; }
             matches!(err, CommandError::Validation { .. }),
             "authored CSS is still guarded: {err:?}"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn project_guard_keeps_authored_classes_in_a_source_build_dir() {
+        // `src/build` is a place someone names a folder, not compile output.
+        // A plain class there still has to be rejected. Root `dist/` stays ignored.
+        let dir = tmp("apply-guard-src-build");
+        std::fs::write(dir.join("index.css"), "@import \"tailwindcss\";\n").unwrap();
+        std::fs::create_dir_all(dir.join("src/build")).unwrap();
+        std::fs::write(
+            dir.join("src/build/theme.css"),
+            ".brandbox { color: red; }\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join("dist")).unwrap();
+        std::fs::write(dir.join("dist/app.css"), ".fromdist { color: blue; }\n").unwrap();
+        let err = guard_project_apply_safety(&dir, &["brandbox".into()]).unwrap_err();
+        assert!(
+            matches!(err, CommandError::Validation { .. }),
+            "authored CSS under src/build is still guarded: {err:?}"
+        );
+        assert!(guard_project_apply_safety(&dir, &["fromdist".into()]).is_ok());
         std::fs::remove_dir_all(&dir).ok();
     }
 

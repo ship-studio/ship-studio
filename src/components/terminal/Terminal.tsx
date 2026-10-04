@@ -12,7 +12,15 @@
  * @module components/Terminal
  */
 
-import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
@@ -79,7 +87,12 @@ import {
   RESPAWN_GRACE_MS,
   STARTUP_TIMEOUT_MS,
 } from './startupWatchdog';
-import { bindTerminalCopyOnSelect, copyTerminalText } from './terminalCopy';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import {
+  bindTerminalCopyOnSelect,
+  copyTerminalSelection,
+  terminalCopyFailureMessage,
+} from './terminalCopy';
 import { createTerminalOptions } from './terminalTheme';
 import { agentPromptArgs, type AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
@@ -165,6 +178,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { showToast } = useOptionalToast();
+  const showToastRef = useRef(showToast);
+  useLayoutEffect(() => {
+    showToastRef.current = showToast;
+  });
   // The prompt this tab was born with, captured once. See the spawn effect.
   const initialPromptRef = useRef(initialPrompt);
 
@@ -438,7 +456,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Open terminal in container
     term.open(container);
-    const disposeCopyOnSelect = bindTerminalCopyOnSelect(term, container);
+    const disposeCopyOnSelect = bindTerminalCopyOnSelect(term, container, (error) => {
+      showToastRef.current(terminalCopyFailureMessage(error), 'error');
+    });
 
     // Use WebGL renderer for GPU-accelerated rendering (reduces flickering).
     // Gated by a user setting — some macOS beta / GPU-driver combinations render corrupted
@@ -1154,8 +1174,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           if (isCopySelectionChord(event, isMac())) {
             const selection = term.getSelection();
             if (selection) {
-              void copyTerminalText(selection);
-              term.clearSelection();
+              void copyTerminalSelection(selection, () => term.clearSelection()).catch(
+                (error: Error) => {
+                  showToastRef.current(terminalCopyFailureMessage(error), 'error');
+                }
+              );
               return false;
             }
           }

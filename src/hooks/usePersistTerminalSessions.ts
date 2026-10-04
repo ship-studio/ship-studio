@@ -8,7 +8,7 @@
  * @module hooks/usePersistTerminalSessions
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import {
   persistTerminalSessions,
   registerTerminalSessionSource,
@@ -17,11 +17,13 @@ import {
 
 export function usePersistTerminalSessions(sessions: readonly TerminalSessionSnapshot[]): void {
   const sessionsRef = useRef(sessions);
-  // Quit reads this ref from outside React and can arrive before effects run.
-  // The snapshot has to be current during render, or the flush saves the
-  // previous tabs (issue #1073).
-  // eslint-disable-next-line react-hooks/refs -- quit flush must see this render's tabs
-  sessionsRef.current = sessions;
+  // Quit reads this ref from outside React. The assignment waits until the
+  // render commits: a layout effect still runs before the browser can take
+  // the next click, and a discarded render cannot leak tabs that never
+  // became the screen (issue #1073).
+  useLayoutEffect(() => {
+    sessionsRef.current = sessions;
+  });
 
   useEffect(() => {
     registerTerminalSessionSource(() => sessionsRef.current);

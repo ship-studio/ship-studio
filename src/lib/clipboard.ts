@@ -35,6 +35,8 @@ export async function stageClipboardImage(): Promise<string | null> {
 export interface PasteChordEvent {
   type: string;
   key: string;
+  /** Physical key, so Ctrl+C still matches on a non-Latin layout. */
+  code?: string;
   ctrlKey: boolean;
   shiftKey: boolean;
   altKey: boolean;
@@ -68,7 +70,10 @@ export function isPasteChord(event: PasteChordEvent): boolean {
  */
 export function isCopySelectionChord(event: PasteChordEvent, mac: boolean): boolean {
   if (event.type !== 'keydown' || event.shiftKey || event.altKey) return false;
-  if (event.key.toLowerCase() !== 'c') return false;
+  // `key` is the character, which is not "c" on a Cyrillic or Greek layout.
+  // `code` is the physical key, which stays KeyC. Either match is the copy chord.
+  const copyKey = event.key.toLowerCase() === 'c' || event.code === 'KeyC';
+  if (!copyKey) return false;
   if (event.ctrlKey && !event.metaKey) return true;
   return mac && event.metaKey && !event.ctrlKey;
 }

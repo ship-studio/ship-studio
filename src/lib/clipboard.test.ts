@@ -120,4 +120,11 @@ describe('isCopySelectionChord', () => {
     expect(isCopySelectionChord({ ...ctrlC, type: 'keyup' }, true)).toBe(false);
     expect(isCopySelectionChord({ ...ctrlC, key: 'v' }, true)).toBe(false);
   });
+
+  it('matches the physical C key when the layout does not produce "c"', () => {
+    expect(isCopySelectionChord({ ...ctrlC, key: 'с', code: 'KeyC' }, false)).toBe(true);
+    const cmdC = { ...ctrlC, key: 'с', code: 'KeyC', ctrlKey: false, metaKey: true };
+    expect(isCopySelectionChord(cmdC, true)).toBe(true);
+    expect(isCopySelectionChord({ ...ctrlC, key: 'с', code: 'KeyV' }, false)).toBe(false);
+  });
 });

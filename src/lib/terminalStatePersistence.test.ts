@@ -6,6 +6,7 @@ import {
   registerTerminalSessionSource,
   terminalStateSignature,
   type PersistDeps,
+  type SavedTerminalState,
   type TerminalSessionSnapshot,
 } from './terminalStatePersistence';
 
@@ -79,6 +80,31 @@ describe('persistTerminalSessions', () => {
     );
   });
 
+  it('lets a newer tab list win when an older write is still in flight', async () => {
+    let releaseFirst: () => void = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    const write = vi.fn((_path: string, _state: SavedTerminalState) => {
+      calls += 1;
+      return calls === 1 ? firstGate : Promise.resolve();
+    });
+    const io = deps(write);
+
+    const older = persistTerminalSessions([session()], io);
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    const newer = persistTerminalSessions([session({ activeTabId: 2 })], io);
+    releaseFirst();
+    await older;
+    await newer;
+
+    expect(write.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ active_tab_index: 0 }));
+    expect(write.mock.calls[write.mock.calls.length - 1]?.[1]).toEqual(
+      expect.objectContaining({ active_tab_index: 1 })
+    );
+  });
+
   it('retries after a failed write instead of treating it as saved', async () => {
     const write = vi
       .fn<() => Promise<void>>()
@@ -104,6 +130,33 @@ describe('flushTerminalSessions', () => {
     await flushTerminalSessions(io);
 
     expect(io.write).toHaveBeenCalledTimes(2);
+    registerTerminalSessionSource(null);
+  });
+
+  it('lands after an older in-flight save', async () => {
+    let releaseFirst: () => void = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    const write = vi.fn((_path: string, _state: SavedTerminalState) => {
+      calls += 1;
+      return calls === 1 ? firstGate : Promise.resolve();
+    });
+    const io = deps(write);
+    const sessions = [session({ activeTabId: 2 })];
+    registerTerminalSessionSource(() => sessions);
+
+    const older = persistTerminalSessions([session()], io);
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    const flushed = flushTerminalSessions(io);
+    releaseFirst();
+    await older;
+    await flushed;
+
+    expect(write.mock.calls[write.mock.calls.length - 1]?.[1]).toEqual(
+      expect.objectContaining({ active_tab_index: 1 })
+    );
     registerTerminalSessionSource(null);
   });
 
