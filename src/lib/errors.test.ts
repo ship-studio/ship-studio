@@ -887,6 +887,21 @@ describe('humanizeGitError — raw-git cases added in sweep 18', () => {
     ).toMatch(/already an open pull request/i);
   });
 
+  it('points a worktree checkout at Windows long paths without the clone wording (#1041)', () => {
+    const raw =
+      "error: unable to create file public/content/photo.jpeg: Filename too long\nfatal: Could not reset index file to revision 'HEAD'.";
+    const message = humanizeGitError(raw);
+    expect(message).toContain('git config --global core.longpaths true');
+    expect(message).toMatch(/LongPathsEnabled/);
+    expect(message).not.toMatch(/repository was downloaded/i);
+    expect(message).not.toContain('photo.jpeg');
+    expect(isRecognizedGitFailure(raw)).toBe(true);
+    // The reset-index fatal also happens for permissions and corrupt objects.
+    expect(humanizeGitError("fatal: Could not reset index file to revision 'HEAD'.")).toContain(
+      'Could not reset index file'
+    );
+  });
+
   it("explains git's multi-remote checkout refusal (#729 residual)", () => {
     const raw = "fatal: 'shared' matched multiple (2) remote tracking branches";
     const message = humanizeGitError(raw, { branch: 'shared' });

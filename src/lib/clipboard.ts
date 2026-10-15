@@ -35,6 +35,8 @@ export async function stageClipboardImage(): Promise<string | null> {
 export interface PasteChordEvent {
   type: string;
   key: string;
+  /** Physical key, so Ctrl+C still matches on a non-Latin layout. */
+  code?: string;
   ctrlKey: boolean;
   shiftKey: boolean;
   altKey: boolean;
@@ -55,4 +57,23 @@ export function isPasteChord(event: PasteChordEvent): boolean {
     !event.metaKey &&
     event.key.toLowerCase() === 'v'
   );
+}
+
+/**
+ * True when this keydown should copy the terminal selection instead of
+ * going to the PTY.
+ *
+ * Ctrl+C on every platform. Cmd+C only when `mac` is set — on Windows Meta
+ * is the Windows key and must not steal the chord. Shift and Alt stay with
+ * the PTY (Ctrl+Shift+C is a different shortcut). Callers still check that
+ * a selection exists; with no selection, Ctrl+C remains SIGINT.
+ */
+export function isCopySelectionChord(event: PasteChordEvent, mac: boolean): boolean {
+  if (event.type !== 'keydown' || event.shiftKey || event.altKey) return false;
+  // `key` is the character, which is not "c" on a Cyrillic or Greek layout.
+  // `code` is the physical key, which stays KeyC. Either match is the copy chord.
+  const copyKey = event.key.toLowerCase() === 'c' || event.code === 'KeyC';
+  if (!copyKey) return false;
+  if (event.ctrlKey && !event.metaKey) return true;
+  return mac && event.metaKey && !event.ctrlKey;
 }

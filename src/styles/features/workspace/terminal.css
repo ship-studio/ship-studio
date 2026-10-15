@@ -279,17 +279,18 @@
   background: color-mix(in srgb, var(--surface-app) 80%, var(--surface-control) 20%);
 }
 
-/* Opencode draws its own full-bleed TUI — it wants 100% of the tab, no
-   gutter on any side. Claude and Codex keep their 12px left gutter. */
-.terminal-tab-content[data-agent-id='opencode'] {
+/* Opencode and a plain terminal (Grok and other CLIs launched as a shell)
+   draw their own full-bleed TUI — they want 100% of the tab, no gutter on
+   any side. Claude and Codex keep their 12px left gutter (issue #748). */
+.terminal-tab-content:is([data-agent-id='opencode'], [data-agent-id='terminal']) {
   left: 0;
   padding: 0;
   background: var(--surface-app);
 }
 
-.terminal-tab-content[data-agent-id='opencode'] .xterm,
-.terminal-tab-content[data-agent-id='opencode'] .xterm-viewport,
-.terminal-tab-content[data-agent-id='opencode'] .xterm-screen {
+.terminal-tab-content:is([data-agent-id='opencode'], [data-agent-id='terminal']) .xterm,
+.terminal-tab-content:is([data-agent-id='opencode'], [data-agent-id='terminal']) .xterm-viewport,
+.terminal-tab-content:is([data-agent-id='opencode'], [data-agent-id='terminal']) .xterm-screen {
   width: 100% !important;
   height: 100% !important;
   padding: 0 !important;
@@ -297,12 +298,13 @@
   background: var(--surface-app) !important;
 }
 
-.terminal-tab-content[data-agent-id='opencode'] .xterm-viewport {
+.terminal-tab-content:is([data-agent-id='opencode'], [data-agent-id='terminal']) .xterm-viewport {
   scrollbar-width: none;
   overflow: hidden !important;
 }
 
-.terminal-tab-content[data-agent-id='opencode'] .xterm-viewport::-webkit-scrollbar {
+.terminal-tab-content:is([data-agent-id='opencode'], [data-agent-id='terminal'])
+  .xterm-viewport::-webkit-scrollbar {
   display: none;
 }
 
@@ -314,12 +316,14 @@
   background: var(--surface-app);
 }
 
-.terminal-tab-content:not([data-agent-id='opencode']) .terminal-instance {
+.terminal-tab-content:not(:is([data-agent-id='opencode'], [data-agent-id='terminal']))
+  .terminal-instance {
   left: -12px;
   width: calc(100% + 12px) !important;
 }
 
-.terminal-tab-content:not([data-agent-id='opencode']) .terminal-instance-container {
+.terminal-tab-content:not(:is([data-agent-id='opencode'], [data-agent-id='terminal']))
+  .terminal-instance-container {
   width: calc(100% - 12px) !important;
   margin-left: 12px;
 }

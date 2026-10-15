@@ -559,9 +559,9 @@ export function SettingsModal({
                   <div className="settings-row-info">
                     <span className="settings-row-label">Terminal GPU acceleration</span>
                     <span className="settings-row-description">
-                      Use GPU rendering for faster, smoother terminals. Turn off if agent output
-                      looks garbled or fragmented (a known issue on some macOS beta builds). Applies
-                      to newly opened terminals.
+                      Use GPU rendering for faster, smoother terminals. Windows starts on the canvas
+                      renderer because some GPU drivers smear scrolling text. Turn this off anywhere
+                      the transcript looks garbled or fragmented. Applies to newly opened terminals.
                     </span>
                   </div>
                   <button

@@ -4,8 +4,9 @@
  *
  * This module used to emit window focus/blur, idle and quit events as well.
  * Those told us when the window was in front, not which features people use,
- * so they were removed. What remains is the one thing quitting has to do for
- * analytics: flush `project_session_ended` so the session's duration lands.
+ * so they were removed. Quitting still has two jobs: flush the open agent
+ * tabs to disk (issue #1073) and flush `project_session_ended` so the
+ * session's duration lands.
  *
  * @module lib/appLifecycle
  */
@@ -15,6 +16,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { trackEvent } from './analytics';
 import { endProjectSession } from './session';
 import { logger } from './logger';
+import { flushTerminalSessions } from './terminalStatePersistence';
 
 /**
  * Window we hold the close open for so the analytics IPC + Rust HTTP
@@ -51,6 +53,9 @@ export function installAppLifecycleTracking(): () => void {
       quitInProgress = true;
       event.preventDefault();
       void (async () => {
+        await flushTerminalSessions().catch((err) => {
+          logger.warn('[appLifecycle] terminal state flush failed', { error: String(err) });
+        });
         flushProjectSession();
         await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));
         try {
@@ -109,6 +114,9 @@ function flushProjectSession(): void {
 export async function quitAppWithTracking(): Promise<void> {
   if (quitInProgress) return;
   quitInProgress = true;
+  await flushTerminalSessions().catch((err) => {
+    logger.warn('[appLifecycle] terminal state flush failed', { error: String(err) });
+  });
   flushProjectSession();
   // Same flush window the OS-close path uses.
   await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));

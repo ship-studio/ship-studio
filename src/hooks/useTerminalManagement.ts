@@ -17,6 +17,8 @@
  * `activeTerminalTab`, `splitPaneTabIds`, …) re-derived via an epoch counter.
  * Consumed by App.tsx, which threads it into WorkspaceView,
  * TerminalSplitHeaders, and useProjectLifecycle (tab save/restore on switch).
+ * `usePersistTerminalSessions` writes the lists through on every change and
+ * on quit — this hook still does not touch the disk itself.
  *
  * Boundaries: no Tauri calls of its own — PTYs are driven through
  * `TerminalHandle` refs (`terminalRefsMap`, keyed `${projectPath}::${tabId}`);
@@ -36,6 +38,10 @@ import type { TerminalHandle } from '../components/terminal/Terminal';
 import { getAgentById, getDefaultAgentId } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import { trackEvent } from '../lib/analytics';
+import {
+  snapshotTerminalSessions,
+  type TerminalSessionSnapshot,
+} from '../lib/terminalStatePersistence';
 import { logger } from '../lib/logger';
 
 /** Maximum number of terminal tabs allowed per project */
@@ -106,6 +112,8 @@ export interface UseTerminalManagementReturn {
   /** Every active session — render Terminal components for all of them,
    *  hide non-current via CSS so PTYs stay alive. */
   allSessions: TerminalSessionView[];
+  /** Tab lists as they are right now, including mutations React has not committed. */
+  readLiveSessions: () => TerminalSessionSnapshot[];
   /** Refs for every mounted Terminal, keyed by `${projectPath}::${tabId}`. */
   terminalRefsMap: React.MutableRefObject<Map<string, TerminalHandle | null>>;
   maxTerminalTabs: number;
@@ -223,6 +231,8 @@ export function useTerminalManagement(
   const terminalSessionId = currentState?.sessionEpoch ?? 1;
   const splitPaneTabIds = currentState?.splitPaneTabIds ?? null;
   const splitPaneSizes = currentState?.splitPaneSizes ?? null;
+
+  const readLiveSessions = useCallback(() => snapshotTerminalSessions(statesRef.current), []);
 
   const allSessions = useMemo<TerminalSessionView[]>(() => {
     void epoch;
@@ -636,6 +646,7 @@ export function useTerminalManagement(
     activeTerminalTab,
     terminalSessionId,
     allSessions,
+    readLiveSessions,
     terminalRefsMap,
     maxTerminalTabs: MAX_TERMINAL_TABS,
     setActiveTerminalTab,

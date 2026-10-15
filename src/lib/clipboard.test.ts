@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { isPasteChord, readClipboardText, stageClipboardImage } from './clipboard';
+import {
+  isCopySelectionChord,
+  isPasteChord,
+  readClipboardText,
+  stageClipboardImage,
+} from './clipboard';
 
 // The global afterEach (test/setup.ts) clearMocks() wipes the IPC handler
 // after each test, so each test installs its own mockIPC.
@@ -84,5 +89,42 @@ describe('isPasteChord', () => {
   it('rejects other keys', () => {
     expect(isPasteChord({ ...base, key: 'c' })).toBe(false);
     expect(isPasteChord({ ...base, key: 'Enter' })).toBe(false);
+  });
+});
+
+describe('isCopySelectionChord', () => {
+  const ctrlC = {
+    type: 'keydown',
+    key: 'c',
+    ctrlKey: true,
+    shiftKey: false,
+    altKey: false,
+    metaKey: false,
+  };
+
+  it('matches Ctrl+C on every platform', () => {
+    expect(isCopySelectionChord(ctrlC, false)).toBe(true);
+    expect(isCopySelectionChord(ctrlC, true)).toBe(true);
+    expect(isCopySelectionChord({ ...ctrlC, key: 'C' }, false)).toBe(true);
+  });
+
+  it('matches Cmd+C only on macOS', () => {
+    const cmdC = { ...ctrlC, ctrlKey: false, metaKey: true };
+    expect(isCopySelectionChord(cmdC, true)).toBe(true);
+    expect(isCopySelectionChord(cmdC, false)).toBe(false);
+  });
+
+  it('leaves Shift, Alt, and keyup alone so the PTY still sees them', () => {
+    expect(isCopySelectionChord({ ...ctrlC, shiftKey: true }, true)).toBe(false);
+    expect(isCopySelectionChord({ ...ctrlC, altKey: true }, true)).toBe(false);
+    expect(isCopySelectionChord({ ...ctrlC, type: 'keyup' }, true)).toBe(false);
+    expect(isCopySelectionChord({ ...ctrlC, key: 'v' }, true)).toBe(false);
+  });
+
+  it('matches the physical C key when the layout does not produce "c"', () => {
+    expect(isCopySelectionChord({ ...ctrlC, key: 'с', code: 'KeyC' }, false)).toBe(true);
+    const cmdC = { ...ctrlC, key: 'с', code: 'KeyC', ctrlKey: false, metaKey: true };
+    expect(isCopySelectionChord(cmdC, true)).toBe(true);
+    expect(isCopySelectionChord({ ...ctrlC, key: 'с', code: 'KeyV' }, false)).toBe(false);
   });
 });
