@@ -169,6 +169,11 @@ pub fn try_read_app_state() -> Result<AppState, std::io::Error> {
 pub fn update_app_state<T>(
     mutate: impl FnOnce(&mut AppState) -> T,
 ) -> Result<T, crate::errors::CommandError> {
+    // Held across the read AND the write so two concurrent updates can't both
+    // read the old state and have the second silently drop the first's change.
+    let _guard = APP_STATE_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut state = try_read_app_state().map_err(|e| {
         crate::errors::CommandError::expected(format!(
             "Ship Studio couldn't read its saved settings ({e}), so nothing was changed — \
@@ -176,12 +181,25 @@ pub fn update_app_state<T>(
         ))
     })?;
     let out = mutate(&mut state);
-    write_app_state(&state)?;
+    write_app_state_locked(&state)?;
     Ok(out)
 }
 
+/// Serializes every write of `app_state.json` within this process. Tauri runs
+/// commands concurrently, and many independent paths persist app state
+/// (settings, accounts, analytics device id, window tabs, setup).
+static APP_STATE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Write the app state to disk
 pub fn write_app_state(state: &AppState) -> Result<(), crate::errors::CommandError> {
+    let _guard = APP_STATE_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    write_app_state_locked(state)
+}
+
+/// The write itself. Callers must hold `APP_STATE_WRITE_LOCK`.
+fn write_app_state_locked(state: &AppState) -> Result<(), crate::errors::CommandError> {
     let path = state::get_app_state_path();
 
     // Ensure parent directory exists. Filesystem failures go through the
@@ -203,11 +221,37 @@ pub fn write_app_state(state: &AppState) -> Result<(), crate::errors::CommandErr
     // real `app_state.json` is left intact rather than truncated. A truncated
     // state file is unparseable and silently resets to defaults, which is how a
     // freshly-created Workspace could vanish on the next launch.
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)
-        .map_err(|e| crate::utils::classify_fs_error("write the app state file", &tmp_path, &e))?;
-    std::fs::rename(&tmp_path, &path)
-        .map_err(|e| crate::utils::classify_fs_error("persist the app state file", &path, &e))
+    write_atomically(&path, json.as_bytes())
+}
+
+/// Write `contents` to a uniquely-named sibling temp file, then rename it over
+/// `path`. The temp name is unique per call: a single fixed
+/// `app_state.json.tmp` let two overlapping writers share one staging file,
+/// so the first rename consumed it and the second failed with "file not
+/// found" (os error 2, issue #964). The lock above serializes writers in this
+/// process; the unique name also covers a second app instance.
+fn write_atomically(
+    path: &std::path::Path,
+    contents: &[u8],
+) -> Result<(), crate::errors::CommandError> {
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "app_state.json".to_string());
+    let tmp_path =
+        path.with_file_name(format!("{file_name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+    if let Err(e) = std::fs::write(&tmp_path, contents) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(crate::utils::classify_fs_error(
+            "write the app state file",
+            &tmp_path,
+            &e,
+        ));
+    }
+    std::fs::rename(&tmp_path, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        crate::utils::classify_fs_error("persist the app state file", path, &e)
+    })
 }
 
 // ============ Mock Mode ============
@@ -421,6 +465,39 @@ pub(super) fn is_mock_installed(item_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ============ write_atomically (#964) ============
+
+    /// Overlapping writers used to share one fixed `.tmp` staging file; the
+    /// loser's rename then failed with os error 2. Each call now stages its own.
+    #[test]
+    fn concurrent_atomic_writes_never_race_on_the_temp_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("app_state.json");
+        let handles: Vec<_> = (0..16)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for j in 0..25 {
+                        write_atomically(&path, format!("{{\"w\":{i},\"n\":{j}}}").as_bytes())
+                            .expect("write must not fail");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer thread");
+        }
+        let final_json = std::fs::read_to_string(&path).expect("final file");
+        assert!(serde_json::from_str::<serde_json::Value>(&final_json).is_ok());
+        // No staging files left behind.
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "leftover temp files: {leftovers:?}");
+    }
 
     // ============ get_scenario_items ============
 

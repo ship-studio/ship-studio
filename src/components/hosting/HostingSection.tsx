@@ -115,6 +115,7 @@ export function HostingSection({ projectPath, open, pushedAt }: Props) {
         setConnecting(state.provider ?? 'vercel');
         return;
       case 'no_link':
+      case 'link_missing':
         setPicking(true);
         return;
       case 'offline':

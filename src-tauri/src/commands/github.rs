@@ -416,9 +416,23 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
     result
 }
 
+/// Why `gh api user` failed inside [`ensure_git_identity`]. Routed through the
+/// same classifiers as every other gh call — a signed-out gh is the
+/// reconnect-GitHub state and a network/API blip is `Expected` — so the
+/// "configure git manually" advice is only given for a failure nothing else
+/// explains. It used to be given for all of them, as an unclassified `Other`
+/// (issue #1006).
+fn gh_user_identity_error(stderr: &str) -> CommandError {
+    gh_auth_error(stderr)
+        .or_else(|| gh_common_error(stderr))
+        .unwrap_or_else(|| {
+            "Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string().into()
+        })
+}
+
 /// Ensures git user.name and user.email are configured for the repo.
 /// If not set, fetches the user's identity from GitHub CLI and sets it locally.
-pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandError> {
+pub async fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandError> {
     let has_name = crate::utils::git_command_in(repo_path)?
         .args(["config", "user.name"])
         .output()
@@ -437,13 +451,22 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
 
     // Fetch identity from GitHub CLI, scoped to this repo's workspace so the
     // committed author matches the workspace's GitHub login, not the active one.
-    let gh_output = get_gh_command_for_project(repo_path)
-        .args(["api", "user", "--jq", r#".login, .name, .email"#])
-        .output()
-        .map_err(|e| format!("Failed to get GitHub user info: {e}"))?;
+    // Bounded like every other gh call here: this used to be a bare
+    // `.output()` that could block forever on a hung network (issue #1006).
+    let mut cmd = get_gh_command_for_project(repo_path);
+    cmd.args(["api", "user", "--jq", r#".login, .name, .email"#]);
+    let gh_output =
+        match run_command_with_timeout(cmd, "gh api user", GITHUB_CLI_TIMEOUT_SECS).await {
+            Err(CommandError::Timeout { .. }) => {
+                return Err(CommandError::expected(GH_TIMEOUT_MESSAGE))
+            }
+            other => other?,
+        };
 
     if !gh_output.status.success() {
-        return Err(("Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string()).into());
+        return Err(gh_user_identity_error(&String::from_utf8_lossy(
+            &gh_output.stderr,
+        )));
     }
 
     let info = String::from_utf8_lossy(&gh_output.stdout);
@@ -517,6 +540,27 @@ fn origin_matches_repo(origin_url: &str, repo_name: &str) -> bool {
     existing.rsplit('/').next() == Some(target.as_str())
 }
 
+/// Classify a failed `git push -u origin HEAD` on the existing-origin retry
+/// path. GitHub's pre-receive declines (GH001 large file, GH005 ref too long)
+/// and its transient 5xx get the same treatment `publish_branch` gives them;
+/// this path used to skip both and file them as `git push` bugs (issue #999).
+fn existing_origin_push_error(stderr: &str, exit_code: Option<i32>) -> CommandError {
+    if let Some(err) = crate::commands::publishing::push_pre_receive_error(stderr) {
+        return err;
+    }
+    if let Some(err) = crate::commands::publishing::push_transient_server_error(stderr) {
+        return err;
+    }
+    if let Some(err) = crate::commands::git::classify_git_net_error(stderr) {
+        return err;
+    }
+    CommandError::Process {
+        cmd: "git push".to_string(),
+        exit_code: exit_code.unwrap_or(-1),
+        stderr: truncate_output(stderr),
+    }
+}
+
 /// Finish a run that already created the GitHub repo and wired up `origin`:
 /// push the branch and report the repo URL derived from the *actual* remote
 /// (never a guessed one). Failures classify through the shared git/gh
@@ -532,14 +576,7 @@ async fn push_to_existing_origin(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("Everything up-to-date") {
-            if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
-                return Err(err);
-            }
-            return Err(CommandError::Process {
-                cmd: "git push".to_string(),
-                exit_code: output.status.code().unwrap_or(-1),
-                stderr: truncate_output(&stderr),
-            });
+            return Err(existing_origin_push_error(&stderr, output.status.code()));
         }
     }
 
@@ -571,7 +608,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     }
 
     // Ensure git identity is configured (required for commits)
-    ensure_git_identity(&validated_path)?;
+    ensure_git_identity(&validated_path).await?;
 
     // Whether the repo already has a commit decides the message. `git_dir`
     // can't answer that here — the `git init` above just created it, so the
@@ -796,7 +833,12 @@ pub(crate) fn gh_tls_error(stderr: &str) -> Option<CommandError> {
     // "x509:" prefixes every Go certificate-verification failure variant
     // (unknown authority, expired, hostname mismatch, …) and appears nowhere
     // in ordinary gh/GraphQL output.
-    let cert_unverifiable = s.contains("failed to verify certificate") || s.contains("x509:");
+    let cert_unverifiable = s.contains("failed to verify certificate")
+        || s.contains("x509:")
+        // A TLS 1.3 handshake mangled in transit — the signature of an
+        // intercepting proxy/antivirus that doesn't implement TLS 1.3's
+        // middlebox-compatibility mode. Same cause, same remedy (issue #990).
+        || s.contains("did not echo the legacy session id");
     cert_unverifiable.then(|| {
         CommandError::expected(
             "GitHub's secure connection couldn't be verified. This usually means a corporate \
@@ -849,13 +891,51 @@ pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
         || s.contains("gateway timeout")
         // The prose GitHub uses for its GraphQL 504s ("We couldn't respond to
         // your request in time. Sorry about that. Please try resubmitting…").
-        || s.contains("respond to your request in time");
+        || s.contains("respond to your request in time")
+        // GitHub's GraphQL wording for its own internal error ("Something
+        // went wrong while executing your query on <time>. Please include
+        // `<id>` when reporting this issue.") — no HTTP status in it, same
+        // retry-and-it-works footing (issue #978).
+        || s.contains("something went wrong while executing your query");
     is_transient.then(|| {
         CommandError::expected(
             "GitHub's API is temporarily unavailable (a GitHub server error). \
              Try again in a moment.",
         )
     })
+}
+
+/// GitHub refusing the request because the account has spent its API budget —
+/// "GraphQL: API rate limit already exceeded for user ID …" (primary limit) or
+/// "You have exceeded a secondary rate limit" (burst limit). The request was
+/// fine and nothing is broken; the budget refills on its own, so waiting is
+/// the whole remedy (issue #1002). `Expected` keeps it out of telemetry.
+pub(crate) fn gh_rate_limit_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    (s.contains("api rate limit") || s.contains("secondary rate limit")).then(|| {
+        CommandError::expected(
+            "GitHub is temporarily limiting requests from your account (API rate limit \
+             reached). Wait a few minutes, then try again.",
+        )
+    })
+}
+
+/// gh's own literal when an operation needs git and gh can't find it on PATH —
+/// "unable to find git executable in PATH; please install Git for Windows
+/// before retrying". Ship Studio already hands gh an extended PATH that
+/// includes Git for Windows' usual locations, so this means git genuinely
+/// isn't installed (or lives somewhere unusual) — an environment gap, not a
+/// malfunction (issue #1018). Mirrors `git_command()`'s wording.
+pub(crate) fn gh_git_missing_error(stderr: &str) -> Option<CommandError> {
+    stderr
+        .to_lowercase()
+        .contains("unable to find git executable in path")
+        .then(|| {
+            CommandError::expected(
+                "Git isn't installed or couldn't be located, and the GitHub CLI needs it. \
+                 Install Git (https://git-scm.com) and restart Ship Studio, then try again.",
+            )
+        })
 }
 
 /// gh failing before it even runs a subcommand because it can't read its own
@@ -994,6 +1074,8 @@ pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
         .or_else(|| gh_network_error(stderr))
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
+        .or_else(|| gh_rate_limit_error(stderr))
+        .or_else(|| gh_git_missing_error(stderr))
         .or_else(|| gh_config_error(stderr))
         .or_else(|| gh_permission_error(stderr))
         // Before gh_crash_error: a wrong-binary crash needs its own remedy,
@@ -1301,6 +1383,27 @@ mod tests {
     /// `invalidate_github_username_cache` clears the whole cache, so without this
     /// these tests race under cargo's default multi-threaded runner.
     static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// #999: GH001 on the existing-origin retry path, as reported.
+    #[test]
+    fn existing_origin_push_classifies_large_file_rejection() {
+        let stderr = "remote: error: See https://gh.io/lfs for more information.\n\
+            remote: error: File .wrangler/state/v3/x.sqlite is 170.88 MB; this exceeds GitHub's \
+            file size limit of 100.00 MB\n\
+            remote: error: GH001: Large files detected. You may want to try Git Large File \
+            Storage - https://git-lfs.github.com.\n\
+            To https://github.com/o/r.git\n ! [remote rejected] HEAD -> main (pre-receive hook \
+            declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        let err = existing_origin_push_error(stderr, Some(1));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("100 MB"), "got: {err}");
+    }
+
+    #[test]
+    fn existing_origin_push_keeps_unknown_failures_as_process_errors() {
+        let err = existing_origin_push_error("error: something unexpected", Some(1));
+        assert!(matches!(err, CommandError::Process { .. }), "got: {err:?}");
+    }
 
     // The #686 contract: ImportProject.tsx special-cases the "took too long"
     // wording to suggest retrying (not re-authenticating), and errors.ts's
@@ -1649,6 +1752,30 @@ mod tests {
 
     // gh_common_error is the one-stop classifier every gh call site funnels
     // through — it must cover each shared family and stay quiet otherwise.
+    // Issue #1006: `gh api user` failing inside ensure_git_identity went out
+    // as an unclassified "configure git manually" Other for every cause.
+    #[test]
+    fn gh_user_identity_error_reuses_gh_classification() {
+        let signed_out = "To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.";
+        assert!(matches!(
+            gh_user_identity_error(signed_out),
+            CommandError::NotAuthenticated { .. }
+        ));
+        let offline =
+            r#"Get "https://api.github.com/user": dial tcp: lookup api.github.com: no such host"#;
+        assert!(matches!(
+            gh_user_identity_error(offline),
+            CommandError::Expected { .. }
+        ));
+        // Only an unexplained failure keeps the manual-configuration advice.
+        let other = gh_user_identity_error("something unrecognised");
+        assert!(!matches!(other, CommandError::Expected { .. }));
+        assert!(
+            other.to_string().contains("configure git manually"),
+            "got: {other}"
+        );
+    }
+
     #[test]
     fn gh_common_error_covers_shared_families() {
         assert!(gh_common_error("dial tcp 1.2.3.4:443: connect: connection refused").is_some());
@@ -1738,6 +1865,14 @@ mod tests {
     }
 
     #[test]
+    fn gh_tls_error_classifies_legacy_session_id_handshake_failure() {
+        let stderr = r#"Post "https://api.github.com/graphql": tls: server did not echo the legacy session ID"#;
+        let err = gh_common_error(stderr).expect("should classify as TLS interception");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("proxy"), "got: {err}");
+    }
+
+    #[test]
     fn gh_tls_error_ignores_unrelated_stderr() {
         assert!(gh_tls_error("GraphQL: name already exists on this account").is_none());
         assert!(gh_tls_error("dial tcp 1.2.3.4:443: connect: connection refused").is_none());
@@ -1758,6 +1893,39 @@ mod tests {
             gh_server_error("HTTP 502: Bad Gateway (https://api.github.com/graphql)").is_some()
         );
         assert!(gh_server_error("HTTP 503: Service Unavailable").is_some());
+    }
+
+    #[test]
+    fn gh_server_error_classifies_graphql_internal_error_as_expected() {
+        let stderr = "pull request create failed: GraphQL: Something went wrong while executing your query on 2026-09-13T08:56:01Z. Please include `ED52:33E5F1:1321910:179CD48:6AA6651C` when reporting this issue.";
+        let err = gh_common_error(stderr).expect("should classify as a GitHub server error");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Try again"), "got: {err}");
+        // The unprefixed shape seen from other call sites.
+        assert!(gh_server_error(
+            "GraphQL: Something went wrong while executing your query on 2026-09-22T04:03:06Z."
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn gh_rate_limit_error_classifies_graphql_rate_limit_as_expected() {
+        let stderr = "GraphQL: API rate limit already exceeded for user ID 12345.";
+        let err = gh_common_error(stderr).expect("should classify as rate limited");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("rate limit"), "got: {err}");
+        assert!(gh_rate_limit_error("You have exceeded a secondary rate limit.").is_some());
+        assert!(gh_rate_limit_error("GraphQL: name already exists on this account").is_none());
+    }
+
+    #[test]
+    fn gh_git_missing_error_classifies_windows_git_not_found_as_expected() {
+        let stderr =
+            "unable to find git executable in PATH; please install Git for Windows before retrying";
+        let err = gh_common_error(stderr).expect("should classify as missing git");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("git-scm.com"), "got: {err}");
+        assert!(gh_git_missing_error("failed to run git: exit status 128").is_none());
     }
 
     // The #806 shape: GitHub's edge answering 499 ("Client Closed Request")

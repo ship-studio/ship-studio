@@ -36,6 +36,7 @@ const DOT_TONES: Record<SectionState['kind'], DotTone> = {
   no_token: 'none',
   token_rejected: 'error',
   no_link: 'none',
+  link_missing: 'error',
   offline: 'muted',
   rate_limited: 'muted',
   // No dot: there is no deployment to have a state, and a muted dot would

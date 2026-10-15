@@ -107,6 +107,26 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
         ));
     }
 
+    // Homebrew couldn't download its own bundled "portable ruby" runtime —
+    // a network/firewall/proxy (or local disk) problem reaching ghcr.io or
+    // github.com, unrelated to the packages being installed. The header line
+    // alone says nothing about *why*, so carry curl's error along when brew
+    // printed one (issue #1025).
+    if stderr.contains("Failed to download ruby from the following locations") {
+        let curl = stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("curl: ("))
+            .map(|l| format!(" ({l})"))
+            .unwrap_or_default();
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew couldn't download the Ruby runtime it needs to run{curl}. \
+             This is usually a network, firewall or proxy blocking ghcr.io or github.com. \
+             Check your connection and retry this step; if it keeps failing, open Terminal \
+             and run: brew update-reset"
+        ));
+    }
+
     // Generic failure: surface the real error, not brew's auto-update banner.
     (format!("{context}: {}", brew_error_line(stderr))).into()
 }
@@ -119,12 +139,18 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
 /// first line surfaces the banner and swallows the error (issue #580).
 /// Prefer the first `Error:` line (brew prefixes real errors with it); fall
 /// back to the last non-banner line.
+///
+/// An *uncaught* Ruby exception prints a backtrace whose last line is always
+/// Homebrew's entry point (`from .../brew.rb:26:in '<main>'`), so backtrace
+/// frames are skipped too — leaving the header line that carries the actual
+/// exception message and class (issue #957).
 fn brew_error_line(stderr: &str) -> &str {
     let is_banner = |l: &str| {
         l.is_empty()
             || l.starts_with("==>")
             || l.starts_with("Updating Homebrew")
             || l.starts_with("Warning:")
+            || (l.starts_with("from ") && l.contains(":in "))
             || l.chars()
                 .all(|c| matches!(c, '#' | '%' | '.' | ' ' | '-' | '=') || c.is_ascii_digit())
     };
@@ -235,10 +261,15 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
 /// delete loses a race against antivirus (or the installer itself) still
 /// holding the file open. The package is usually installed by then, so this
 /// exit code says nothing about whether the install worked (issue #780).
+///
+/// The same sharing violation can also surface as the bare HRESULT
+/// (`0x80070020 : The process cannot access the file because it is being
+/// used by another process.`) without the `remove:` prefix (issue #976) —
+/// same locked-file condition, same "did it land anyway?" check.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn is_winget_cleanup_race(stderr: &str, stdout: &str) -> bool {
     let combined = format!("{stderr}\n{stdout}").to_lowercase();
-    combined.contains("remove:") && combined.contains("being used by another process")
+    combined.contains("0x80070020") || combined.contains("being used by another process")
 }
 
 /// Turn a winget *spawn* failure (the process never started, so there's no
@@ -367,9 +398,10 @@ pub async fn install_winget_packages(
             if stdout.contains("already installed") || stderr.contains("already installed") {
                 continue;
             }
-            // winget's temp-file cleanup lost a race with antivirus. The
-            // install step already ran, so ask winget whether the package
-            // landed before calling this a failure (issue #780).
+            // A file winget needed was locked by another process (usually
+            // antivirus) — during temp-file cleanup (#780) or the install
+            // itself (#976). Ask winget whether the package landed before
+            // calling this a failure.
             if is_winget_cleanup_race(&stderr, &stdout) {
                 if winget_package_installed(&winget, package) {
                     tracing::warn!(
@@ -381,7 +413,7 @@ pub async fn install_winget_packages(
                 }
                 return Err(CommandError::expected(format!(
                     "Windows couldn't finish installing {package} because another program \
-                     (usually antivirus) still had winget's temporary installer file open. \
+                     (usually antivirus) still had a file it needed open. \
                      Try this step again in a moment."
                 )));
             }
@@ -476,6 +508,49 @@ mod tests {
             "Unknown error"
         );
         assert_eq!(brew_error_line(""), "Unknown error");
+    }
+
+    /// Issue #957: an uncaught Ruby exception must surface its message line,
+    /// not the outermost `brew.rb:26:in '<main>'` backtrace frame.
+    #[test]
+    fn skips_ruby_backtrace_frames_and_finds_exception_line() {
+        let stderr = "/opt/homebrew/Library/Homebrew/some_file.rb:123:in `some_method': \
+                      something broke (RuntimeError)\n\
+                      \tfrom /opt/homebrew/Library/Homebrew/some_other.rb:45:in `some_caller'\n\
+                      \tfrom /opt/homebrew/Library/Homebrew/brew.rb:26:in `<main>'\n";
+        let line = brew_error_line(stderr);
+        assert!(
+            line.contains("something broke (RuntimeError)"),
+            "got: {line}"
+        );
+        assert!(!line.contains("brew.rb:26"), "got: {line}");
+    }
+
+    /// Issue #1025: Homebrew failing to fetch its own portable Ruby is a
+    /// network/environment state — Expected, keeping curl's reason.
+    #[test]
+    fn portable_ruby_download_failure_is_expected_with_curl_reason() {
+        let stderr = "Error: Failed to download ruby from the following locations:\n\
+                      \x20 - https://ghcr.io/v2/homebrew/portable-ruby/portable-ruby/blobs/sha256:abc\n\
+                      curl: (23) Failure writing output to destination\n";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("curl: (23) Failure writing output to destination"),
+            "got: {msg}"
+        );
+        assert!(msg.contains("brew update-reset"), "got: {msg}");
+
+        let bare = humanize_brew_failure(
+            "Failed to install packages",
+            "Error: Failed to download ruby from the following locations:",
+        );
+        assert!(
+            matches!(bare, CommandError::Expected { .. }),
+            "got: {bare:?}"
+        );
+        assert!(!bare.to_string().contains("()"), "got: {bare}");
     }
 
     /// Issue #581: a "legacy DSL" formula error means the local formula
@@ -573,6 +648,12 @@ mod tests {
                       another process.: \"C:\\Users\\me\\AppData\\Local\\Temp\\WinGet\\GitHub.cli.2.97.0\\abc\"";
         assert!(is_winget_cleanup_race(stderr, ""));
         assert!(is_winget_cleanup_race("", stderr));
+        // Issue #976: the HRESULT-prefixed sharing violation, no `remove:`.
+        assert!(is_winget_cleanup_race(
+            "0x80070020 : The process cannot access the file because it is being used by \
+             another process.",
+            ""
+        ));
         assert!(!is_winget_cleanup_race(
             "failed when searching source: msstore",
             ""

@@ -649,6 +649,18 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
              sudo chown -R $(whoami) <project>/.git), then try again.",
         ));
     }
+    // The same failure at the write-temp-then-rename step. Besides a full disk
+    // or permissions, it is what Git for Windows reports for a project on a
+    // WSL share (`\\wsl.localhost\...`), whose rename semantics don't match a
+    // local volume (issue #955).
+    if lower.contains("unable to write new_index file") {
+        return Some(crate::errors::CommandError::expected(
+            "Git couldn't write this project's index file. Check that the disk isn't full and \
+             that the project's .git folder is writable. If the project is on a network or WSL \
+             drive (\\\\wsl.localhost\\…), Git for Windows often can't write there — run git \
+             from inside WSL or move the project to a local folder, then try again.",
+        ));
+    }
     None
 }
 
@@ -660,13 +672,15 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
 /// a memory commit (`STATUS_COMMITMENT_LIMIT`, issue #888) — the same
 /// pagefile-exhaustion condition `git_environment_gap`'s "paging file is too
 /// small" branch handles, just arriving here because this occurrence had no
-/// stderr at all. All three are the Git installation, something interfering
+/// stderr at all — and git overflowing its stack (`STATUS_STACK_OVERFLOW`,
+/// issue #1034). All four are the Git installation, something interfering
 /// with it (antivirus, a broken update), or a Windows-level resource limit —
 /// not an app malfunction. Returns `None` for any other code.
 pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::CommandError> {
     const STATUS_DLL_INIT_FAILED: i32 = 0xC0000142_u32 as i32; // -1073741502
     const STATUS_ACCESS_VIOLATION: i32 = 0xC0000005_u32 as i32; // -1073741819
     const STATUS_COMMITMENT_LIMIT: i32 = 0xC000012D_u32 as i32; // -1073741523
+    const STATUS_STACK_OVERFLOW: i32 = 0xC00000FD_u32 as i32; // -1073741571
     match exit_code {
         Some(STATUS_DLL_INIT_FAILED) => Some(crate::errors::CommandError::expected(
             "Git failed to start correctly on Windows — a component of the Git installation \
@@ -682,6 +696,11 @@ pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::Comman
             "Windows ran out of virtual memory while git was working (the paging file is too \
              small). Close some other apps or increase the paging file size (Settings → System → \
              About → Advanced system settings → Performance → Virtual memory), then try again.",
+        )),
+        Some(STATUS_STACK_OVERFLOW) => Some(crate::errors::CommandError::expected(
+            "Git crashed on Windows (a stack overflow). This is usually antivirus \
+             interference or a corrupted Git install: add Git to your antivirus exclusions or \
+             reinstall Git for Windows, then try again.",
         )),
         _ => None,
     }
@@ -763,6 +782,17 @@ pub fn classify_fs_error(
             "Ship Studio timed out trying to {action} ({}). The folder looks like it's on a \
              cloud drive (Google Drive, OneDrive, Dropbox, iCloud) that's still syncing — \
              wait for sync to finish and try again, or keep the project on your local disk.",
+            path.display()
+        ))
+    } else if cfg!(target_os = "macos") && e.raw_os_error() == Some(89) {
+        // ECANCELED (macOS os error 89): the file-coordination / File
+        // Provider layer abandoned the read — the same "not really on disk
+        // yet" cloud-sync class as the ETIMEDOUT branch above (issue #948).
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — macOS canceled the read. The folder looks \
+             like it's on a cloud drive (iCloud, Google Drive, OneDrive, Dropbox) that's still \
+             syncing — wait for sync to finish and try again, or keep the project on your local \
+             disk.",
             path.display()
         ))
     } else if (cfg!(unix) && e.raw_os_error() == Some(28))
@@ -1740,6 +1770,31 @@ mod tests {
             assert!(git_environment_gap("fatal: bad object HEAD").is_none());
         }
 
+        /// #955: `git commit` on a project reached through a WSL share.
+        #[test]
+        fn unable_to_write_new_index_is_an_environment_gap() {
+            let stderr = "warning: encountered old-style '//wsl.localhost/Ubuntu/home/u/repos/x' \
+                that should be '%(prefix)///wsl.localhost/Ubuntu/home/u/repos/x'\n\
+                fatal: unable to write new_index file";
+            let err = git_environment_gap(stderr).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("WSL"), "got: {err}");
+        }
+
+        /// #1027: a commit-graph entry whose object is gone, as `git merge`
+        /// reports it. Must get the "damaged history" wording.
+        #[test]
+        fn commit_graph_missing_object_is_repo_corruption() {
+            let stderr = "fatal: You are attempting to fetch \
+                0fc08367ab4e76ca9ccda764da800b59500e9728, which is in the commit graph file but \
+                not in the object database.\nThis is probably due to repo corruption.\nIf you \
+                are attempting to repair this repo corruption by refetching the missing object, \
+                use 'git fetch --refetch' with the missing object.";
+            let err = git_environment_gap(stderr).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("damaged"), "got: {err}");
+        }
+
         #[test]
         fn windows_crash_exit_codes_are_environment_gaps() {
             // STATUS_DLL_INIT_FAILED (issue #850) and STATUS_ACCESS_VIOLATION
@@ -1764,6 +1819,15 @@ mod tests {
             let err = git_exit_code_gap(Some(-1073741523)).expect("classified");
             assert!(matches!(err, CommandError::Expected { .. }));
             assert!(err.to_string().contains("paging file"), "got: {err}");
+        }
+
+        #[test]
+        fn windows_stack_overflow_exit_code_is_an_environment_gap() {
+            // STATUS_STACK_OVERFLOW 0xC00000FD (issue #1034), as git.exe
+            // reports it from `git status` with empty stderr.
+            let err = git_exit_code_gap(Some(-1073741571)).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("stack overflow"), "got: {err}");
         }
     }
 
@@ -1915,6 +1979,27 @@ mod tests {
             let msg = err.to_string();
             assert!(msg.contains("cloud drive"), "got: {msg}");
             assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #948 shape: ECANCELED reading the plugin registry from a
+        // cloud-backed folder whose provider aborted the read.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_ecanceled_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(89);
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/.shipstudio/plugins/registry.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("cloud drive"), "got: {msg}");
+            assert!(msg.contains("registry.json"), "got: {msg}");
+            assert!(!msg.contains("os error"), "got: {msg}");
         }
 
         // The #625 shape: EROFS on a project.json write (read-only volume).

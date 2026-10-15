@@ -87,6 +87,20 @@ describe('extractTerminalError', () => {
     );
   });
 
+  it("skips npm's EEXIST advice trailer and keeps the conflicting path (issue #943)", () => {
+    const tail = [
+      'npm error code EEXIST',
+      'npm error path /Users/me/proj/node_modules/.bin/next',
+      'npm error EEXIST: file already exists',
+      'npm error File exists: /Users/me/proj/node_modules/.bin/next',
+      'npm error Remove the existing file and try again, or run npm',
+      'npm error with --force to overwrite files recklessly.',
+    ].join('\n');
+    expect(extractTerminalError(tail)).toBe(
+      'npm error File exists: /Users/me/proj/node_modules/.bin/next'
+    );
+  });
+
   it('strips ANSI codes from the extracted line', () => {
     const tail = 'installing...\n\x1b[31mnpm ERR!\x1b[0m code EACCES\n';
     expect(extractTerminalError(tail)).toBe('npm ERR! code EACCES');

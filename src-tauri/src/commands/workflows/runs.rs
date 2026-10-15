@@ -550,7 +550,8 @@ async fn invoke_agent(
                     }
                 },
             )
-            .await?;
+            .await
+            .map_err(explain_run_timeout)?;
             check_status(agent, &output, prompt)?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             Ok(parse_claude_stream(&stdout))
@@ -597,7 +598,7 @@ async fn invoke_agent(
             .await;
             let message = std::fs::read_to_string(&output_file).ok();
             let _ = std::fs::remove_file(&output_file);
-            let output = result?;
+            let output = result.map_err(explain_run_timeout)?;
             check_status(agent, &output, prompt)?;
             Ok(AgentReply {
                 text: message.unwrap_or_else(|| String::from_utf8_lossy(&output.stdout).to_string()),
@@ -610,6 +611,30 @@ async fn invoke_agent(
             "{} can't run a workflow yet — it has no headless mode. Pick Claude Code or Codex for this workflow.",
             agent.display_name
         ))),
+    }
+}
+
+/// A run that outlives [`RUN_TIMEOUT_SECS`] is a workflow asking for more
+/// than one run allows, not an app malfunction: say so in the run history in
+/// words a workflow author can act on, and keep it out of telemetry, where a
+/// bare `Timeout` was reported as a bug on every occurrence (issue #949).
+/// Whether the limit should be configurable per workflow is a separate call.
+fn explain_run_timeout(err: CommandError) -> CommandError {
+    match err {
+        CommandError::Timeout { cmd, secs } => {
+            warn!(cmd = %cmd, secs, "workflow run hit the run time limit");
+            let limit = if secs % 60 == 0 {
+                format!("{}-minute", secs / 60)
+            } else {
+                format!("{secs}-second")
+            };
+            CommandError::expected(format!(
+                "This workflow ran past the {limit} limit for a run and was stopped. Narrow its \
+                 instructions (fewer files or checks), or split it into several workflows, then \
+                 run it again."
+            ))
+        }
+        other => other,
     }
 }
 
@@ -1187,6 +1212,26 @@ fn next_clock(now_ms_utc: i64, at_hour: u32, at_minute: u32, weekday: Option<u32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // #949: the 600s ceiling reads as a limit the author can work with, and
+    // stays out of telemetry.
+    #[test]
+    fn run_timeout_is_explained_and_expected() {
+        let err = explain_run_timeout(CommandError::Timeout {
+            cmd: "Claude Code CLI".into(),
+            secs: RUN_TIMEOUT_SECS,
+        });
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("10-minute limit"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+        let other = explain_run_timeout(CommandError::Other {
+            message: "boom".into(),
+        });
+        assert!(matches!(other, CommandError::Other { .. }));
+    }
 
     #[test]
     fn duration_buckets_are_contiguous() {

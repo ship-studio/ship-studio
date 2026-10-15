@@ -199,9 +199,16 @@ export function SpotifyWidget({ isSidebarHidden }: SpotifyWidgetProps) {
     }
   }, [showToast]);
 
+  // The `x-apple.systempreferences:` scheme is outside the opener plugin's
+  // default http/https/mailto/tel allowlist, so it needs its own scope entry
+  // in `capabilities/default.json` (issue #994). Caught here so a regression
+  // there says so instead of becoming a silent unhandled rejection.
   const handleOpenAutomationSettings = useCallback(() => {
-    void openUrl(AUTOMATION_SETTINGS_URL);
-  }, []);
+    void openUrl(AUTOMATION_SETTINGS_URL).catch((err: unknown) => {
+      logger.warn('[Spotify] failed to open Automation settings', { error: String(err) });
+      showToast("Couldn't open System Settings. Go to Privacy & Security → Automation.", 'error');
+    });
+  }, [showToast]);
 
   // Live-updates the painted fill while dragging/clicking; doesn't call the
   // backend by itself (React's onChange fires continuously for range inputs,

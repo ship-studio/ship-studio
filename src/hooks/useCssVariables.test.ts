@@ -119,6 +119,22 @@ describe('useCssVariables', () => {
     );
   });
 
+  it('shows "no stylesheet" as an expected error toast, not a bug (#1015)', async () => {
+    vi.mocked(getCssVariables).mockResolvedValue([]);
+    vi.mocked(listStylesheets).mockResolvedValue([]);
+    const { result, onToast } = setup();
+    await waitFor(() => expect(getCssVariables).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.addVariable('new-token', '1rem');
+    });
+
+    expect(onToast).toHaveBeenCalledWith('No stylesheet found to add the variable to.', 'error', {
+      expected: true,
+    });
+    expect(addCssVariable).not.toHaveBeenCalled();
+  });
+
   it('persists a projected order for one exact source rule', async () => {
     vi.mocked(getCssVariables).mockResolvedValue([
       { name: '--first', value: 'red', selector: ':root', file: 'styles.css', line: 1 },

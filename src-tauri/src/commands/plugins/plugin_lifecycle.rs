@@ -61,6 +61,12 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
 /// shapes we recognize (issues #803, #732); `None` for anything else so a
 /// genuinely novel git failure still reaches telemetry with its raw stderr.
 fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
+    // git can't run at all on this machine (unaccepted Xcode license, missing
+    // CLT, …) — the shared classifier every other git call site uses
+    // (issues #986/#987/#988).
+    if let Some(gap) = crate::utils::git_environment_gap(stderr) {
+        return Some(gap);
+    }
     let lower = stderr.to_lowercase();
     // git fell back to an interactive credential prompt and there's no tty in a
     // GUI-spawned process, so it dies with "Device not configured" (macOS) or
@@ -75,6 +81,16 @@ fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
             "This plugin's repository requires sign-in, and Ship Studio can't authenticate to \
              it automatically. Use a plugin hosted in a public repository, or clone it yourself \
              and add it with Link Dev Plugin.",
+        ));
+    }
+    // git's dumb-HTTP probe rejected the URL — typically a repo link with
+    // extra characters (a pasted `?fbclid=…` tracking parameter) that the
+    // smart-HTTP endpoint won't serve (issue #975).
+    if lower.contains("is this a git repository") {
+        return Some(CommandError::expected(
+            "That URL doesn't look like a git repository. Double-check the plugin's repository \
+             link — extra characters such as tracking parameters after the repository name can \
+             break it.",
         ));
     }
     // A mistyped, renamed, deleted, or private repository URL (issue #803).
@@ -93,6 +109,10 @@ fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
         || lower.contains("connection timed out")
         || lower.contains("connection refused")
         || lower.contains("network is unreachable")
+        // curl's TCP connect failure: "Failed to connect to github.com port
+        // 443 after 1074 ms: Couldn't connect to server" (issue #1026).
+        || lower.contains("couldn't connect to server")
+        || lower.contains("failed to connect to")
     {
         return Some(CommandError::expected(
             "Couldn't reach the plugin's repository — check your internet connection and \
@@ -1020,6 +1040,44 @@ mod tests {
             "fatal: unable to access '...': Could not resolve host: github.com",
         );
         assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn classifies_xcode_license_gap_as_expected() {
+        // Issues #986/#987/#988: git can't run until the license is accepted.
+        let stderr = "You have not agreed to the Xcode license agreements. Please run \
+                      'sudo xcodebuild -license' from within a Terminal window to review and \
+                      agree to the Xcode and Apple SDKs license.";
+        let err = classify_clone_failure(stderr);
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("xcodebuild -license"));
+        assert!(classify_remote_git_failure(stderr).is_some());
+    }
+
+    #[test]
+    fn classifies_dumb_http_probe_failure_as_expected() {
+        // Issue #975: a repo URL with a tracking query string appended.
+        let err = classify_clone_failure(
+            "Cloning into '.tmp-install'...\n\
+             fatal: https://github.com/owner/repo?fbclid=abc/info/refs not valid: is this a git \
+             repository?\n",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err
+            .to_string()
+            .contains("doesn't look like a git repository"));
+    }
+
+    #[test]
+    fn classifies_curl_connect_failure_as_expected() {
+        // Issue #1026: outbound HTTPS blocked or dropped (firewall/VPN/proxy).
+        let err = classify_clone_failure(
+            "Cloning into '.tmp-install'...\n\
+             fatal: unable to access 'https://github.com/owner/repo/': Failed to connect to \
+             github.com port 443 after 1074 ms: Couldn't connect to server\n",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("check your internet connection"));
     }
 
     #[test]

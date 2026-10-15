@@ -380,7 +380,15 @@ pub async fn export_project_as_template(
 
     // Walk the project directory
     for entry in WalkDir::new(&project) {
-        let entry = entry.map_err(|e| format!("Failed to read directory: {e}"))?;
+        // Classify the underlying io::Error (TCC/EPERM, EACCES, ...) when
+        // walkdir has one (issue #946); a symlink loop has none and stays Other.
+        let entry = entry.map_err(|e| {
+            let at = e.path().unwrap_or(&project).to_path_buf();
+            match e.io_error() {
+                Some(io) => crate::utils::classify_fs_error("read this project folder", &at, io),
+                None => CommandError::from(format!("Failed to read directory: {e}")),
+            }
+        })?;
         let path = entry.path();
 
         // Get relative path from project root

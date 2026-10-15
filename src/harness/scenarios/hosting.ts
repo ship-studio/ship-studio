@@ -287,6 +287,20 @@ export const hostingScenarios: Scenario[] = [
     },
   },
   {
+    id: 'hosting-link-missing',
+    title: 'Push popover — linked project deleted on the provider',
+    looksRightWhen:
+      'Says the linked project was not found and offers Relink. Must NOT say "couldn\'t reach" or "couldn\'t read" (the provider answered clearly), and must not imply a failed deploy.',
+    project: WORKSPACE_PROJECT,
+    openSelector: '.source-control-push-button',
+    clipSelector: '.publish-dropdown-menu',
+    requires: '.hosting-row[data-state="link_missing"]',
+    commands: {
+      ...workspaceCommands,
+      get_hosting_status: status(null, { lookup: null, link_missing: true }),
+    },
+  },
+  {
     id: 'hosting-unlinked',
     title: 'Push popover — project deploys nowhere',
     looksRightWhen: 'An invitation to connect hosting, not an error state and not an empty void.',

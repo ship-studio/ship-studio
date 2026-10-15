@@ -18,7 +18,12 @@ import {
   type FileContent,
 } from '../lib/code';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { trackEvent } from '../lib/analytics';
 import { useAsyncState } from './useAsyncState';
 
@@ -40,8 +45,12 @@ const CODE_EDIT_MODE_KEY = 'shipstudio:code-edit-mode';
  * `CommandError::Expected`, but Expected serializes identically to Other
  * across IPC, so the message shape is re-checked here.
  */
-function isExpectedFileAccessError(message: string): boolean {
-  const lower = message.toLowerCase();
+function isExpectedFileAccessError(err: unknown): boolean {
+  // The whole project folder moved/renamed/deleted outside the app (#1021,
+  // #1022) — and any other failure the backend tagged Expected when the flag
+  // survives IPC.
+  if (isExpectedCommandError(err) || isProjectFolderGoneError(err)) return true;
+  const lower = formatCommandError(asCommandError(err)).toLowerCase();
   return (
     lower.includes('file not found:') ||
     lower.includes('locked by another program') ||
@@ -111,7 +120,10 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // CommandError rejections are plain objects — String() renders
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to load file tree', { error: msg });
+      // logger.error auto-files a bug report; a vanished project folder isn't one.
+      logger[isExpectedFileAccessError(err) ? 'warn' : 'error']('Failed to load file tree', {
+        error: msg,
+      });
       throw err;
     }
   }, []);
@@ -132,7 +144,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
       // logger.error auto-files a bug report; a gone or locked file isn't one.
-      logger[isExpectedFileAccessError(msg) ? 'warn' : 'error']('Failed to read file', {
+      logger[isExpectedFileAccessError(err) ? 'warn' : 'error']('Failed to read file', {
         path,
         error: msg,
       });
@@ -357,7 +369,10 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       return 'saved';
     } catch (err) {
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to save file', { path, error: msg });
+      logger[isExpectedFileAccessError(err) ? 'warn' : 'error']('Failed to save file', {
+        path,
+        error: msg,
+      });
       setSaveError(msg);
       return { error: msg };
     } finally {

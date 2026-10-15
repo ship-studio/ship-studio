@@ -88,6 +88,13 @@
   min-height: 0;
 }
 
+/* Focus mode hides the preview column with the `hidden` attribute, which the
+   `display: flex` above would otherwise override — the hidden column kept half
+   the rail and pinned the stretched agent column to one side (issue 1019). */
+.workspace-dock__center[hidden] {
+  display: none;
+}
+
 /* The seam between a panel and its neighbour. Absolutely positioned inside the
    slot rather than placed in the row: the docked surface above it is fixed and
    body-portaled, so a handle laid out as a sibling in the flex row would be

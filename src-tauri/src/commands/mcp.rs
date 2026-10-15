@@ -64,6 +64,34 @@ fn find_agent_binary(
         .ok_or_else(|| CommandError::expected(format!("{} binary not found", agent.display_name)))
 }
 
+/// Environment fixes for every `claude mcp …` invocation.
+///
+/// - Unset CLAUDECODE, or the CLI refuses to run as a "nested session".
+/// - Drop a CLAUDE_CODE_GIT_BASH_PATH that names a file which doesn't exist.
+///   Claude Code validates that variable at startup and refuses *every*
+///   subcommand when it's stale ("Claude Code was unable to find
+///   CLAUDE_CODE_GIT_BASH_PATH path …") — which silently disabled the preview
+///   bridge's registration on machines where Git for Windows had moved. The
+///   `mcp` subcommands never run bash; unset, the CLI falls back to its own
+///   Git Bash discovery (issue #1014). A valid value is left alone.
+fn prepare_claude_env(cmd: &mut std::process::Command) {
+    cmd.env_remove("CLAUDECODE");
+    if git_bash_path_is_stale(std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH").as_deref()) {
+        tracing::warn!(
+            "CLAUDE_CODE_GIT_BASH_PATH points at a missing file; unsetting it for claude mcp"
+        );
+        cmd.env_remove("CLAUDE_CODE_GIT_BASH_PATH");
+    }
+}
+
+/// Is this CLAUDE_CODE_GIT_BASH_PATH value set but pointing at nothing?
+fn git_bash_path_is_stale(value: Option<&std::ffi::OsStr>) -> bool {
+    match value {
+        Some(v) if !v.is_empty() => !std::path::Path::new(v).is_file(),
+        _ => false,
+    }
+}
+
 /// Parse the output of `claude mcp list` which has the format:
 ///
 /// ```text
@@ -216,7 +244,7 @@ pub async fn list_mcp_servers(
 
     // For Claude Code, unset CLAUDECODE to avoid nested-session error
     if agent.id == "claude-code" {
-        list_cmd.env_remove("CLAUDECODE");
+        prepare_claude_env(&mut list_cmd);
     }
 
     if let Some(ref path) = validated_cwd {
@@ -258,7 +286,7 @@ pub async fn list_mcp_servers(
             .envs(crate::commands::accounts::get_env_vars_for_active_account());
 
         if agent.id == "claude-code" {
-            get_cmd.env_remove("CLAUDECODE");
+            prepare_claude_env(&mut get_cmd);
         }
 
         if let Some(ref path) = validated_cwd {
@@ -473,7 +501,7 @@ pub async fn add_mcp_server(
         .env("HOME", &home);
 
     if agent.id == "claude-code" {
-        cmd.env_remove("CLAUDECODE");
+        prepare_claude_env(&mut cmd);
         // Add scope flag for Claude Code
         if let Some(ref s) = scope {
             cmd.args(["-s", s]);
@@ -501,6 +529,17 @@ pub async fn add_mcp_server(
         } else {
             stderr
         };
+        // A hard crash leaves both streams empty; only the exit code says
+        // what happened (issue #917).
+        if details.trim().is_empty() {
+            if let Some(err) = agent_cli_crash(
+                agent.display_name,
+                "add the MCP server",
+                output.status.code(),
+            ) {
+                return Err(err);
+            }
+        }
         return Err(classify_mcp_failure("add MCP server", &details));
     }
 
@@ -609,6 +648,46 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // Codex with no usable sign-in at all — no ChatGPT session and no
+    // OPENAI_API_KEY — refuses every subcommand with "Missing openai API
+    // key. Set the environment variable OPENAI_API_KEY and re-run this
+    // command." The user's CLI isn't authenticated; not an app bug (#1016).
+    if lower.contains("missing openai api key") {
+        return CommandError::expected(format!(
+            "{message}\n\nCodex isn't signed in. Run `codex login` in a terminal (or set the OPENAI_API_KEY environment variable), then try again."
+        ));
+    }
+
+    // cmd.exe's own refusal when the agent CLI's `.cmd` shim points at a
+    // script that no longer exists — a broken or interrupted global npm
+    // install/update, or antivirus quarantine (npm/cli#7731). The install is
+    // the user's; reinstalling it is the fix (issue #991).
+    if lower.contains("the batch file cannot be found") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent CLI's Windows launcher points at files that are no longer there — usually an interrupted or broken npm install or update. Reinstall the CLI (Claude Code: `npm install -g @anthropic-ai/claude-code`, Codex: `npm install -g @openai/codex`), then try again."
+        ));
+    }
+
+    // Claude Code validates CLAUDE_CODE_GIT_BASH_PATH at startup and refuses
+    // every subcommand when it names a bash.exe that doesn't exist ("Claude
+    // Code was unable to find CLAUDE_CODE_GIT_BASH_PATH path …"). A stale
+    // variable on the user's machine — the app never sets it (issue #1013).
+    if lower.contains("claude_code_git_bash_path") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe CLAUDE_CODE_GIT_BASH_PATH environment variable on this computer points at a Git Bash that no longer exists. Remove the variable, or point it at your current bash.exe (usually C:\\Program Files\\Git\\bin\\bash.exe after installing Git for Windows), then restart Ship Studio and try again."
+        ));
+    }
+
+    // Claude Code's `mcp add` has no `--url` flag — a remote server's URL is
+    // positional (`--transport http <name> <url>`). Commander rejects it with
+    // "error: unknown option '--url'" (issue #998). Codex does accept --url,
+    // so this only ever fires for a CLI that doesn't.
+    if lower.contains("unknown option '--url'") {
+        return CommandError::expected(format!(
+            "{message}\n\nThis agent CLI has no --url option. Add a remote server with its URL after the name instead, e.g. `--transport http my-server https://example.com/mcp`."
+        ));
+    }
+
     // The agent CLI failed to write its own config file because the OS
     // denied access — Windows "Access is denied. (os error 5)" (e.g. Codex
     // persisting ~/.codex/config.toml) or POSIX EACCES/"Permission denied".
@@ -630,6 +709,30 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
     }
 
     message.into()
+}
+
+/// Recognise a Windows crash of the agent CLI process itself from its exit
+/// code alone — the process was killed, so stdout and stderr are empty and
+/// `classify_mcp_failure` has no text to match. `STATUS_STACK_BUFFER_OVERRUN`
+/// (0xC0000409, -1073740791) is Windows' fail-fast termination after a
+/// stack-cookie/CFG check: antivirus/EDR interference or a corrupted
+/// install, not an app bug (issue #917 — the agent-CLI counterpart of
+/// `git_exit_code_gap`'s NTSTATUS handling for git).
+fn agent_cli_crash(
+    display_name: &str,
+    action: &str,
+    exit_code: Option<i32>,
+) -> Option<CommandError> {
+    const STATUS_STACK_BUFFER_OVERRUN: i32 = 0xC0000409_u32 as i32; // -1073740791
+    match exit_code {
+        Some(STATUS_STACK_BUFFER_OVERRUN) => Some(CommandError::expected(format!(
+            "{display_name} crashed while trying to {action} (Windows stopped it after a \
+             stack-corruption check failed). This is usually antivirus or security software \
+             interfering with the CLI, or a corrupted install. Reinstall {display_name}, or \
+             check whether your antivirus quarantined one of its files, then try again."
+        ))),
+        _ => None,
+    }
 }
 
 /// Pull the line number out of a TOML syntax error, which reports its
@@ -719,7 +822,7 @@ pub async fn remove_mcp_server(
         .env("HOME", &home);
 
     if agent.id == "claude-code" {
-        cmd.env_remove("CLAUDECODE");
+        prepare_claude_env(&mut cmd);
         if let Some(ref s) = scope {
             cmd.args(["-s", s]);
         }
@@ -757,6 +860,13 @@ pub async fn remove_mcp_server(
         // "Failed to remove MCP server: " — an empty string with no signal
         // for the user or for telemetry. Keep the exit code instead (#710).
         if details.trim().is_empty() {
+            if let Some(err) = agent_cli_crash(
+                agent.display_name,
+                "remove the MCP server",
+                output.status.code(),
+            ) {
+                return Err(err);
+            }
             return Err(CommandError::Process {
                 cmd: format!("{} mcp remove", agent.binary_name),
                 exit_code: output.status.code().unwrap_or(-1),
@@ -1056,6 +1166,83 @@ mod tests {
             ),
             CommandError::Expected { .. }
         ));
+    }
+
+    // #1016: Codex with no sign-in and no API key.
+    #[test]
+    fn codex_missing_api_key_is_expected() {
+        let details = "\n\nMissing openai API key.\n\nSet the environment variable OPENAI_API_KEY and re-run this command.\nYou can create a key here: https://platform.openai.com/account/api-keys\n";
+        match classify_mcp_failure("add MCP server", details) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("codex login"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    // #991: a Windows .cmd shim whose target script is gone.
+    #[test]
+    fn missing_batch_file_is_expected() {
+        match classify_mcp_failure("add MCP server", "The batch file cannot be found.") {
+            CommandError::Expected { message } => {
+                assert!(message.contains("Reinstall the CLI"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    // #1013: a stale CLAUDE_CODE_GIT_BASH_PATH blocks every claude subcommand.
+    #[test]
+    fn stale_git_bash_path_is_expected_on_every_action() {
+        let details = r#"Claude Code was unable to find CLAUDE_CODE_GIT_BASH_PATH path "C:\Program Files\Git\bin\bash.exe""#;
+        for action in ["add MCP server", "remove MCP server", "list MCP servers"] {
+            match classify_mcp_failure(action, details) {
+                CommandError::Expected { message } => {
+                    assert!(message.contains("no longer exists"), "got: {message}")
+                }
+                other => panic!("expected Expected for {action}, got {other:?}"),
+            }
+        }
+    }
+
+    // #998: Claude Code rejecting a --url flag it doesn't have.
+    #[test]
+    fn unknown_url_option_is_expected_with_the_right_syntax() {
+        match classify_mcp_failure("add MCP server", "error: unknown option '--url'") {
+            CommandError::Expected { message } => {
+                assert!(message.contains("--transport http"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    // #1014: only a set-but-missing path is stale; unset, empty and real
+    // paths are left for the CLI to handle.
+    #[test]
+    fn git_bash_path_staleness() {
+        use std::ffi::OsStr;
+        assert!(!git_bash_path_is_stale(None));
+        assert!(!git_bash_path_is_stale(Some(OsStr::new(""))));
+        assert!(git_bash_path_is_stale(Some(OsStr::new(
+            "/definitely/not/here/Git/bin/bash.exe"
+        ))));
+        let real = std::env::current_exe().expect("test binary path");
+        assert!(!git_bash_path_is_stale(Some(real.as_os_str())));
+    }
+
+    // #917: `claude mcp remove` exiting with STATUS_STACK_BUFFER_OVERRUN and
+    // no output at all.
+    #[test]
+    fn stack_buffer_overrun_crash_is_expected() {
+        match agent_cli_crash("Claude Code", "remove the MCP server", Some(-1073740791)) {
+            Some(CommandError::Expected { message }) => {
+                assert!(message.contains("crashed"), "got: {message}");
+                assert!(message.contains("antivirus"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+        assert!(agent_cli_crash("Claude Code", "remove the MCP server", Some(1)).is_none());
+        assert!(agent_cli_crash("Claude Code", "remove the MCP server", None).is_none());
     }
 
     #[test]

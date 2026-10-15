@@ -177,9 +177,10 @@ fn run_worktree_git(cwd: &Path, args: &[&str]) -> Result<std::process::Output, C
     crate::utils::git_command_in(cwd)?
         .args(args)
         .output()
-        .map_err(|e| CommandError::Io {
-            message: e.to_string(),
-        })
+        // Not a hand-built `CommandError::Io`: `From` keeps the typed io::Error
+        // so a Windows out-of-memory spawn failure classifies as Expected
+        // instead of reaching telemetry as a bare OS string (issue #984).
+        .map_err(CommandError::from)
 }
 
 /// `git worktree remove` without `--force` refusing to delete a tree that

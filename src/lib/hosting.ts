@@ -134,6 +134,8 @@ export interface ProviderStatus {
   lookup?: Lookup | null;
   transport_error?: string | null;
   retry_after_secs?: number | null;
+  /** The provider has no record of the linked project (it answered 404). */
+  link_missing?: boolean;
   fetched_at: number;
   from_cache: boolean;
 }
@@ -231,6 +233,13 @@ export type SectionStateKind =
   | 'no_link'
   | 'offline'
   | 'rate_limited'
+  /**
+   * The provider says the linked project doesn't exist — deleted, renamed, or
+   * linked under another account. Its own state because the only fix is to
+   * relink: showing it as `offline` ("couldn't reach") was untrue, since the
+   * provider answered clearly, and it is never a failed deploy.
+   */
+  | 'link_missing'
   /**
    * We could not even ask. `get_hosting_status` rejected, so there is no
    * status to reduce and there never will be until something changes.
@@ -353,6 +362,8 @@ export function deriveSectionState(
   if (p.auth.kind === 'no_token') return { kind: 'no_token', provider };
   if (p.auth.kind === 'rejected') return { kind: 'token_rejected', provider, tokenSource };
 
+  if (p.link_missing) return { kind: 'link_missing', provider };
+
   if (p.retry_after_secs != null || p.transport_error?.includes('rate limiting')) {
     return {
       kind: 'rate_limited',
@@ -419,6 +430,7 @@ const IDLE_KINDS = new Set<SectionStateKind>([
   'no_token',
   'token_rejected',
   'no_link',
+  'link_missing',
   'not_pushed',
 ]);
 

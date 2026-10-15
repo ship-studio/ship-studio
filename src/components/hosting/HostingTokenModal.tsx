@@ -19,7 +19,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { setAccountCredential, type CredentialKey } from '../../lib/accounts';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, isExpectedCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { PROVIDER_LABELS, type HostingProvider } from '../../lib/hosting';
 
@@ -88,9 +88,13 @@ export function HostingTokenModal({
       await setAccountCredential(accountId, copy.credentialKey, trimmed);
       onSaved();
     } catch (err) {
+      // A by-design refusal (e.g. no credential vault on this platform) is
+      // still shown, but not filed as a bug (issue #942).
       showToast(
         `Couldn't save the ${name} token: ${formatCommandError(asCommandError(err))}`,
-        'error'
+        'error',
+        undefined,
+        { expected: isExpectedCommandError(err) }
       );
     } finally {
       setSaving(false);

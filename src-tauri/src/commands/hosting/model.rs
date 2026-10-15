@@ -378,6 +378,11 @@ pub struct ProviderStatus {
     /// Seconds to wait before retrying, from a rate-limit response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_after_secs: Option<u64>,
+    /// The provider answered 404 for the linked project: it was deleted, or
+    /// the id/scope we hold is wrong. Not a transport failure and not a
+    /// failed deploy — the link itself needs redoing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub link_missing: bool,
     pub fetched_at: u64,
     pub from_cache: bool,
 }

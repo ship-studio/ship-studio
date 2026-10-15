@@ -254,15 +254,22 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
   'Plugin repository URL',
   'points at a page inside a repository',
   "Couldn't find a git repository at that URL",
+  "That URL doesn't look like a git repository",
   "Couldn't reach the plugin's repository",
   'repository requires sign-in',
   "Git isn't installed or couldn't be located",
+  // git can't run on this machine (utils::git_environment_gap, #986/#987/#988)
+  "Xcode's license hasn't been accepted yet",
+  'The Xcode Command Line Tools (which provide git on macOS) are missing or broken',
   // Filesystem / project-folder environment states (classify_fs_error,
   // validate_project_path)
   'Grant access in System Settings',
   'Windows denied access',
   'the disk or volume is read-only',
   'no longer exists — it may have been moved',
+  // A cloud-sync provider that hasn't materialized the file: ETIMEDOUT
+  // (#758, #947) and macOS ECANCELED (#948) share this wording.
+  "that's still syncing — wait for sync to finish",
 ];
 
 /** True when a plugin-command failure is one of the backend's by-design

@@ -12,7 +12,12 @@ import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getThumbnailsEnabled, setThumbnailsEnabled } from '../lib/settings';
 import { decideAutoCapture, isPermissionDenialError } from '../lib/thumbnailGate';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { captureThumbnailFromPreview } from '../lib/previewSnapshot';
 
 /** Backend rejection meaning a capture for this project is already running
@@ -247,6 +252,15 @@ export function useScreenshotManagement({
           setTimeout(() => {
             void captureScreenshot(projectPath, sessionId, attempt + 1);
           }, SCREENSHOT_RETRY_DELAY_MS);
+        } else if (isExpectedCommandError(error)) {
+          // The backend classified this as an environment condition (page
+          // still compiling, browser crashed, damaged install…) that the
+          // 5-minute capture timer retries anyway — not a bug to report
+          // (issue #969).
+          logger.warn('[Thumbnail] Capture still failing after retries', {
+            error,
+            attempts: attempt,
+          });
         } else {
           logger.error('Failed to capture thumbnail after retries', {
             error,

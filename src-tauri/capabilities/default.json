@@ -15,6 +15,12 @@
     "core:webview:allow-create-webview-window",
     "core:event:default",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "x-apple.systempreferences:*" }
+      ]
+    },
     "shell:default",
     "shell:allow-spawn",
     "shell:allow-execute",
