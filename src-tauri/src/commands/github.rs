@@ -63,6 +63,8 @@ pub fn get_gh_command() -> Command {
         create_command("gh")
     };
     cmd.env("PATH", get_extended_path());
+    // gh hands its environment to the git it runs — see git_command().
+    cmd.env("LC_ALL", "C");
     cmd.envs(crate::commands::accounts::get_env_vars_for_active_account());
     // No caller feeds gh stdin, and a GUI-spawned gh has no tty — if gh ever
     // decides to prompt (stale credential, ambiguous host) it must fail fast
@@ -84,6 +86,7 @@ pub fn get_gh_command_for_project(project_path: &std::path::Path) -> Command {
         create_command("gh")
     };
     cmd.env("PATH", get_extended_path());
+    cmd.env("LC_ALL", "C");
     cmd.envs(crate::commands::accounts::get_env_vars_for_project(
         project_path,
     ));
