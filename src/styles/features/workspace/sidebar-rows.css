@@ -28,8 +28,8 @@
 
 /* Agent/terminal row needs user attention — the label goes green (success)
  * so a user scanning the sidebar from any project can spot a tab they need
- * to check. The dot keeps its amber pulse from `.dot-attention` as the
- * urgency cue; the label color is the "come-look-at-me" affordance.
+ * to check. The dot keeps its amber glow from `.dot-attention` as the urgency
+ * cue; the label color is the "come-look-at-me" affordance.
  * Scoped to non-active rows because the active row is where the user
  * already is (attention clears on activate). */
 .sidebar-row.is-attention .sidebar-row-label {
@@ -38,11 +38,19 @@
 }
 
 .sidebar-row-dot {
+  --sidebar-row-dot-color: var(--text-muted);
+
   width: var(--size-sidebar-status-indicator);
   height: var(--size-sidebar-status-indicator);
   border-radius: var(--radius-full);
   flex-shrink: 0;
-  background: var(--text-muted);
+  background: var(--sidebar-row-dot-color);
+  box-shadow:
+    0 0 var(--size-sidebar-server-glow-rest-inner-radius)
+      color-mix(in srgb, var(--sidebar-row-dot-color) 35%, transparent),
+    0 0 var(--size-sidebar-server-glow-rest-outer-radius)
+      color-mix(in srgb, var(--sidebar-row-dot-color) 15%, transparent);
+  animation: sidebar-row-dot-glow var(--duration-sidebar-server-glow) ease-in-out infinite;
 }
 
 /* Both the ordinary dot and the pixel loader share this fixed status slot, so
@@ -63,96 +71,74 @@
 }
 
 .sidebar-row-dot.dot-idle {
-  background: var(--text-muted);
+  --sidebar-row-dot-color: var(--text-muted);
 }
 
 .sidebar-row-dot.dot-muted {
-  background: var(--border-default);
+  --sidebar-row-dot-color: var(--border-default);
 }
 
 .sidebar-row-dot.dot-active {
-  background: var(--accent-success);
-  box-shadow: 0 0 0 2px rgba(var(--accent-success-rgb), 0.15);
+  --sidebar-row-dot-color: var(--accent-success);
 }
 
 .sidebar-row-dot.dot-attention {
-  background: var(--accent-warning);
-  box-shadow: 0 0 0 2px rgba(var(--accent-warning-rgb), 0.2);
-  animation: sidebar-pulse 1.6s ease-in-out infinite;
+  --sidebar-row-dot-color: var(--accent-warning);
 }
 
 .sidebar-row-dot.dot-waiting {
-  background: var(--accent-warning);
-  box-shadow: 0 0 0 2px rgba(var(--accent-warning-rgb), 0.2);
+  --sidebar-row-dot-color: var(--accent-warning);
 }
 
 .sidebar-row-dot.dot-error {
-  background: var(--accent-error);
-  box-shadow: 0 0 0 2px rgba(var(--accent-error-rgb), 0.2);
+  --sidebar-row-dot-color: var(--accent-error);
 }
 
 .sidebar-row-dot.dot-server-starting {
-  background: var(--accent-focus);
-  animation: sidebar-pulse 1.6s ease-in-out infinite;
+  --sidebar-row-dot-color: var(--accent-focus);
 }
 
 .sidebar-row-dot.dot-server-ready {
-  background: var(--accent-success);
-  box-shadow:
-    0 0 var(--size-sidebar-server-glow-rest-inner-radius)
-      color-mix(in srgb, var(--accent-success) 35%, transparent),
-    0 0 var(--size-sidebar-server-glow-rest-outer-radius)
-      color-mix(in srgb, var(--accent-success) 15%, transparent);
-  animation: sidebar-server-light-glow var(--duration-sidebar-server-glow) ease-in-out infinite;
-}
-
-.sidebar-project.is-current .sidebar-row-dot.dot-server-ready {
-  opacity: 1;
-  box-shadow:
-    0 0 var(--size-sidebar-server-glow-current-inner-radius)
-      color-mix(in srgb, var(--accent-success) 85%, transparent),
-    0 0 var(--size-sidebar-server-glow-current-outer-radius)
-      color-mix(in srgb, var(--accent-success) 55%, transparent);
-  animation: none;
+  --sidebar-row-dot-color: var(--accent-success);
 }
 
 .sidebar-row-dot.dot-server-stopped {
-  background: var(--border-default);
+  --sidebar-row-dot-color: var(--border-default);
 }
 
-@keyframes sidebar-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+.sidebar-project.is-current .sidebar-row-dot {
+  opacity: 1;
+  box-shadow:
+    0 0 var(--size-sidebar-server-glow-current-inner-radius)
+      color-mix(in srgb, var(--sidebar-row-dot-color) 85%, transparent),
+    0 0 var(--size-sidebar-server-glow-current-outer-radius)
+      color-mix(in srgb, var(--sidebar-row-dot-color) 55%, transparent);
+  animation: none;
 }
 
-@keyframes sidebar-server-light-glow {
+@keyframes sidebar-row-dot-glow {
   0%,
   100% {
     opacity: 0.55;
     box-shadow:
       0 0 var(--size-sidebar-server-glow-rest-inner-radius)
-        color-mix(in srgb, var(--accent-success) 35%, transparent),
+        color-mix(in srgb, var(--sidebar-row-dot-color) 35%, transparent),
       0 0 var(--size-sidebar-server-glow-rest-outer-radius)
-        color-mix(in srgb, var(--accent-success) 15%, transparent);
+        color-mix(in srgb, var(--sidebar-row-dot-color) 15%, transparent);
   }
 
   50% {
     opacity: 1;
     box-shadow:
       0 0 var(--size-sidebar-server-glow-current-inner-radius)
-        color-mix(in srgb, var(--accent-success) 85%, transparent),
+        color-mix(in srgb, var(--sidebar-row-dot-color) 85%, transparent),
       0 0 var(--size-sidebar-server-glow-current-outer-radius)
-        color-mix(in srgb, var(--accent-success) 55%, transparent);
+        color-mix(in srgb, var(--sidebar-row-dot-color) 55%, transparent);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-row-dot.dot-server-ready {
+  .sidebar-row-dot {
     animation: none;
   }
 }

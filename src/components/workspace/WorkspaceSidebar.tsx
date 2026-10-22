@@ -384,29 +384,6 @@ function serverStatusDot(
   }
 }
 
-/**
- * Project-row dot — now driven by the tabs themselves (authoritative)
- * instead of the registry's `lastAgentStatus` (which was "last status
- * anybody posted" and got stuck on `waiting`). Priority:
- *   - any tab attention or crash → attention
- *   - session error               → attention
- *   - session inactive/suspended  → muted
- *   - any tab running             → active
- *   - otherwise                   → muted
- */
-function projectDotState(
-  row: PinnedProjectRow,
-  tabs: ReadonlyArray<SessionTerminalTab> | undefined
-): SidebarItem['dotState'] {
-  const list = tabs ?? [];
-  if (list.some((t) => t.status === 'crashed') || row.status === 'error') return 'error';
-  if (list.some((t) => t.attention || t.status === 'waiting')) return 'waiting';
-  if (row.status === 'inactive' || row.status === 'suspended') return 'muted';
-  if (list.some((t) => t.status === 'thinking')) return 'thinking';
-  if (list.some((t) => t.status === 'running' || t.status === 'starting')) return 'active';
-  return row.status === 'active' ? 'idle' : 'muted';
-}
-
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   isHomeActive,
   activeNav,
@@ -2178,40 +2155,28 @@ function ProjectGroup({
   // Parent WorkspaceSidebar subscribes to the registry; this snapshot is
   // therefore re-read on every relevant change.
   const snap = sessionRegistry.snapshot(row.projectPath);
-  const baseDot = projectDotState(row, snap?.terminalTabs);
   const snapshotActivity = projectActivityStatus(row, snap?.terminalTabs);
   const activityStatus: ProjectActivityStatus =
     snapshotActivity === 'idle' && isWorking ? 'working' : snapshotActivity;
-  const dot =
+  const serverDot = serverStatusDot(serverSnapshot.status);
+  const isExpandedBackgroundServerReady =
+    isExpanded && !isCurrent && serverSnapshot.status === 'ready';
+  // One title-row signal: attention and agent work take precedence over the
+  // server lifecycle, which in turn takes precedence over idle/closed state.
+  const projectDot =
     activityStatus === 'error'
       ? 'error'
       : activityStatus === 'waiting'
         ? 'waiting'
         : activityStatus === 'working'
-          ? !isExpanded && baseDot === 'thinking'
-            ? 'thinking'
-            : 'active'
-          : activityStatus === 'idle'
-            ? 'idle'
-            : 'muted';
-  const serverDot = serverStatusDot(serverSnapshot.status);
-  const isExpandedBackgroundServerReady =
-    isExpanded && !isCurrent && serverSnapshot.status === 'ready';
-  const projectDot =
-    isExpandedBackgroundServerReady && (activityStatus === 'idle' || activityStatus === 'closed')
-      ? 'active'
-      : dot;
-  // A ready server is the most useful signal on an otherwise idle project
-  // row. Avoid showing the neutral agent dot beside it; attention and active
-  // work still keep their own indicator so both live states remain visible.
-  const showAgentStatus =
-    isExpandedBackgroundServerReady ||
-    serverSnapshot.status !== 'ready' ||
-    (activityStatus !== 'idle' && activityStatus !== 'closed');
-  // Expanded background projects show their server status in the Dev Server
-  // child row. Keep the parent indicator for collapsed rows and the current
-  // project, whose selected-row treatment is intentionally different.
-  const showProjectServerDot = !isExpanded || isCurrent;
+          ? 'active'
+          : serverDot
+            ? isExpandedBackgroundServerReady
+              ? 'active'
+              : serverDot
+            : activityStatus === 'idle'
+              ? 'idle'
+              : 'muted';
   const accessibleStatus = [
     projectActivityLabel(activityStatus),
     serverStatusLabel(serverSnapshot.status),
@@ -2311,11 +2276,8 @@ function ProjectGroup({
                     size="sm"
                     label={`Working on ${row.fallbackName}`}
                   />
-                ) : showAgentStatus ? (
+                ) : (
                   <span className={`sidebar-row-dot dot-${projectDot}`} aria-hidden="true" />
-                ) : null}
-                {showProjectServerDot && serverDot && (
-                  <span className={`sidebar-row-dot dot-${serverDot}`} aria-hidden="true" />
                 )}
               </span>
             )}
@@ -2359,7 +2321,7 @@ function ProjectGroup({
             shortcutNumber={shortcutNumber}
             isCurrent={isCurrent}
             isExpanded={isExpanded}
-            dot={dot}
+            dot={projectDot}
           />
         }
         collapseWhenDragging
