@@ -9,7 +9,6 @@ interface Params {
   hasPreview: boolean;
   projectTypeResolved: boolean;
   setIsPreviewHidden: (hidden: boolean) => void;
-  setIsAgentPanelHidden: (hidden: boolean) => void;
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   togglePreviewLogs: () => void;
   onSelectPreview?: () => void;
@@ -54,7 +53,6 @@ export function useWorkspaceShortcutControls({
   hasPreview,
   projectTypeResolved,
   setIsPreviewHidden,
-  setIsAgentPanelHidden,
   setWorkspaceTab,
   togglePreviewLogs,
   onSelectPreview,
@@ -71,7 +69,6 @@ export function useWorkspaceShortcutControls({
         setWorkspaceTab('preview');
         onSelectPreview?.();
       } else if (index === 1) {
-        setIsAgentPanelHidden(false);
         setIsPreviewHidden(true);
       } else {
         setIsPreviewHidden(false);
@@ -179,7 +176,6 @@ export function useWorkspaceShortcutControls({
     onSelectPreview,
     previewRef,
     projectTypeResolved,
-    setIsAgentPanelHidden,
     setIsPreviewHidden,
     setWorkspaceTab,
     togglePreviewLogs,

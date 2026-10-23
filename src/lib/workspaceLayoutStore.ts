@@ -34,9 +34,11 @@ import {
   type PanelId,
   type WorkspaceLayout,
 } from './workspaceLayout';
+import { DEFAULT_FOCUS_SPLIT_RATIO } from './workspaceFocusSplit';
 
 const DEFAULT_KEY = 'shipstudio.layout.default';
 const PROJECT_PREFIX = 'shipstudio.layout.project:';
+const FOCUS_SPLIT_PREFIX = 'shipstudio.focus.split:';
 /** The one app-level preference controlling whether edits are shared. */
 export const LAYOUT_SCOPE_KEY = 'shipstudio.layout.scope';
 /** Set once the one-time read of the pre-rail per-panel flags has happened. */
@@ -95,6 +97,10 @@ export function writeLayoutScope(scope: LayoutScope): void {
 
 function projectKey(projectPath: string): string {
   return `${PROJECT_PREFIX}${projectPath}`;
+}
+
+function focusSplitKey(projectPath: string): string {
+  return `${FOCUS_SPLIT_PREFIX}${projectPath}`;
 }
 
 // ============ Migration from the pre-rail preferences ============
@@ -216,6 +222,20 @@ export function readProjectLayout(projectPath: string): WorkspaceLayout {
 
 export function writeProjectLayout(projectPath: string, layout: WorkspaceLayout): void {
   write(projectKey(projectPath), normalizeLayout(layout));
+}
+
+/** The topbar Focus split ratio for this project, or an even split by default. */
+export function readProjectFocusSplitRatio(projectPath: string): number {
+  const ratio = read(focusSplitKey(projectPath));
+  return typeof ratio === 'number' && Number.isFinite(ratio) && ratio >= 0 && ratio <= 1
+    ? ratio
+    : DEFAULT_FOCUS_SPLIT_RATIO;
+}
+
+/** Save an explicit Focus resize without coupling it to the workspace layout. */
+export function writeProjectFocusSplitRatio(projectPath: string, ratio: number): void {
+  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) return;
+  write(focusSplitKey(projectPath), ratio);
 }
 
 /**

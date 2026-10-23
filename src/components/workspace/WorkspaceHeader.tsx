@@ -77,6 +77,7 @@ export interface WorkspaceHeaderProps {
   // to the Cmd+K palette.
   onOpenAssetsPanel: () => void;
   assetsPanelVisible: boolean;
+  isFocusMode: boolean;
   elementTreeVisible: boolean;
   elementTreeAvailable: boolean;
   onToggleElementTree: () => void;
@@ -295,6 +296,7 @@ export function WorkspaceHeader({
   compactWorkspaceToolbarEnabled,
   onOpenAssetsPanel,
   assetsPanelVisible,
+  isFocusMode,
   elementTreeVisible,
   elementTreeAvailable,
   onToggleElementTree,
@@ -491,7 +493,13 @@ export function WorkspaceHeader({
         pressed={elementTreeVisible}
         onClick={onToggleElementTree}
         disabled={!elementTreeAvailable}
-        title={elementTreeAvailable ? 'Elements' : 'Elements are available in Preview'}
+        title={
+          elementTreeAvailable
+            ? 'Elements'
+            : isFocusMode
+              ? 'Elements are hidden in Focus mode'
+              : 'Elements are available in Preview'
+        }
         leftIcon={<ElementsIcon size={16} />}
         aria-label="Elements"
         data-workspace-panel="elements"

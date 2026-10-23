@@ -229,7 +229,11 @@ class PresenceStore {
 // ============ The context ============
 
 interface PanelDockValue {
+  /** Project scope for per-project dock and Focus preferences. */
+  projectPath: string;
   layout: WorkspaceLayout;
+  /** Temporary topbar Focus projection; it never changes the saved layout. */
+  focusMode: boolean;
   /** Whether layout edits belong to this project or every project. */
   layoutScope: LayoutScope;
   /** True once this project has an arrangement of its own, rather than following the default. */
@@ -297,9 +301,11 @@ function columnHint(layout: WorkspaceLayout, columnIndex: number | null): string
 
 export function PanelDockProvider({
   projectPath,
+  focusMode = false,
   children,
 }: {
   projectPath: string;
+  focusMode?: boolean;
   children: ReactNode;
 }) {
   const [layoutScope, setLayoutScopeState] = useState<LayoutScope>(readLayoutScope);
@@ -580,7 +586,9 @@ export function PanelDockProvider({
 
   const value = useMemo<PanelDockValue>(
     () => ({
+      projectPath,
       layout,
+      focusMode,
       layoutScope,
       isCustomised,
       differsFromDefault: !layoutsEqual(layout, defaultLayout),
@@ -615,7 +623,9 @@ export function PanelDockProvider({
       setPreviewFullscreen,
     }),
     [
+      projectPath,
       layout,
+      focusMode,
       layoutScope,
       isCustomised,
       defaultLayout,
@@ -733,6 +743,8 @@ export function usePanelDockBinding(
     () =>
       context && id
         ? {
+            panel: id,
+            focusMode: context.focusMode,
             slotElement,
             layoutKey,
             onDragStart,
@@ -764,6 +776,10 @@ export function usePanelDockBinding(
 
 /** What `DockablePanel` accepts to take part in a rail. */
 export interface PanelDockBinding {
+  /** Which workspace panel this binding represents. */
+  panel: PanelId;
+  /** Whether temporary topbar Focus is projecting the workspace rail. */
+  focusMode: boolean;
   /** Where to portal the placeholder, or null to leave it inline. */
   slotElement: HTMLElement | null;
   /** Changes whenever the arrangement does, so a moved slot is re-measured. */

@@ -46,7 +46,6 @@ function renderControls(
       hasPreview: true,
       projectTypeResolved: true,
       setIsPreviewHidden: vi.fn(),
-      setIsAgentPanelHidden: vi.fn(),
       setWorkspaceTab: vi.fn(),
       togglePreviewLogs: vi.fn(),
       ...overrides,
@@ -92,7 +91,6 @@ describe('useWorkspaceShortcutControls', () => {
 
   it('handles native mode and Edit events on macOS', () => {
     const setIsPreviewHidden = vi.fn();
-    const setIsAgentPanelHidden = vi.fn();
     const setWorkspaceTab = vi.fn();
     const toggleEditMode = vi.fn();
     renderControls({
@@ -100,12 +98,10 @@ describe('useWorkspaceShortcutControls', () => {
         current: { toggleEditMode } as unknown as PreviewHandle,
       },
       setIsPreviewHidden,
-      setIsAgentPanelHidden,
       setWorkspaceTab,
     });
 
     nativeListeners.get('switch-workspace-mode-shortcut')?.({ payload: 2 });
-    expect(setIsAgentPanelHidden).toHaveBeenCalledWith(false);
     expect(setIsPreviewHidden).toHaveBeenCalledWith(true);
 
     nativeListeners.get('toggle-edit-mode-shortcut')?.({ payload: undefined });

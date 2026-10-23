@@ -9,7 +9,6 @@ export interface WorkspaceModesProps {
   isPreviewHidden: boolean;
   workspaceTab: WorkspaceTab;
   setIsPreviewHidden: (hidden: boolean) => void;
-  setIsAgentPanelHidden: (hidden: boolean) => void;
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   /** Fired when the Preview tab is picked. The parent starts the dev server
    *  if it isn't running, so selecting Preview always leads to a preview. */
@@ -23,7 +22,6 @@ export function WorkspaceModes({
   isPreviewHidden,
   workspaceTab,
   setIsPreviewHidden,
-  setIsAgentPanelHidden,
   setWorkspaceTab,
   onSelectPreview,
 }: WorkspaceModesProps) {
@@ -34,7 +32,6 @@ export function WorkspaceModes({
       className="workspace-tabs"
       onValueChange={(next) => {
         if (next === 'focus') {
-          setIsAgentPanelHidden(false);
           setIsPreviewHidden(true);
           return;
         }
@@ -64,7 +61,7 @@ export function WorkspaceModes({
           value="focus"
           className="workspace-tab"
           leftIcon={<EyeOffIcon size={14} />}
-          title={isPreviewHidden ? 'Exit focus mode' : 'Hide preview — agent only'}
+          title={isPreviewHidden ? 'Exit Focus mode' : 'Show Agent beside the current tab'}
           aria-label="Focus"
         >
           <span className="workspace-mode-label">Focus</span>

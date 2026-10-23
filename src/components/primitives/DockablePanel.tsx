@@ -174,6 +174,10 @@ export function DockablePanel({
   dockedZIndex,
   dock,
 }: DockablePanelProps) {
+  // Focus is a temporary workspace projection. It forces Agent into the rail
+  // and suppresses every other rail-bound portal without changing feature
+  // visibility preferences, so the ordinary arrangement returns on exit.
+  const panelVisible = dock?.focusMode ? dock.panel === 'agent' : visible;
   const internalPlaceholderRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [initialSavedSize] = useState(() => readSize(sizeKey));
@@ -289,9 +293,9 @@ export function DockablePanel({
   const setPresent = dock?.setPresent;
   useLayoutEffect(() => {
     if (!setPresent) return;
-    setPresent(visible);
+    setPresent(panelVisible);
     return () => setPresent(false);
-  }, [setPresent, visible]);
+  }, [setPresent, panelVisible]);
 
   useEffect(() => {
     if (docked || savedSizeRef.current) return;
@@ -668,11 +672,12 @@ export function DockablePanel({
           className={`dockable-panel__surface ${
             docked ? 'dockable-panel__surface--docked' : 'dockable-panel__surface--floating'
           }${draggingFromDock ? ' dockable-panel__surface--dragging' : ''}${
-            !visible || awaitingDock ? ' is-hidden' : ''
+            !panelVisible || awaitingDock ? ' is-hidden' : ''
           }${surfaceClassName ? ` ${surfaceClassName}` : ''}`}
           style={surfaceStyle}
           aria-label={ariaLabel}
-          aria-hidden={!visible}
+          aria-hidden={!panelVisible || awaitingDock}
+          inert={!panelVisible || awaitingDock}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
