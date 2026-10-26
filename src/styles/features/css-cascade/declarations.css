@@ -2,6 +2,7 @@
 /* Prop + value are plain WRAPPING text (clicking edits in place), so a long
    prop or value just wraps and is never cut off; a short one reads `prop: value`. */
 .ss-decl {
+  --ss-decl-line-height: calc(var(--size-icon-button) + 2 * var(--space-01));
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -56,6 +57,9 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.ss-decl__prop.ss-decl__edit {
+  line-height: var(--ss-decl-line-height);
+}
 .ss-decl__prop:hover {
   background: var(--property-field-hover);
 }
@@ -79,6 +83,8 @@
   overflow-wrap: anywhere;
 }
 .ss-decl__value-text {
+  /* The first line is exactly one action chip plus its two outer insets. */
+  line-height: var(--ss-decl-line-height);
   display: block;
   width: 100%;
   min-width: 0;
@@ -146,13 +152,15 @@
    never reserve width and squeeze the value column into per-character wrapping.
    A solid chip backdrop keeps them legible when they overlay a long value. */
 .ss-decl__actions {
+  /* Match the value field's padding on all three first-line edges. */
+  --ss-decl-action-inset: var(--spacing-2xs);
   position: absolute;
-  top: 1px;
-  right: 2px;
+  inset-block-start: var(--ss-decl-action-inset);
+  inset-inline-end: var(--ss-decl-action-inset);
   display: inline-flex;
   align-items: center;
   gap: 1px; /* css-ok: tight action cluster */
-  padding: 1px;
+  padding: var(--space-01);
   border-radius: var(--radius-sm);
   background: var(--surface-panel);
   opacity: 0;
@@ -160,6 +168,7 @@
   transition: opacity var(--transition-fast);
 }
 .ss-decl:hover .ss-decl__actions,
+.ss-decl__actions:focus-within,
 .ss-decl__actions:has(.is-open) {
   opacity: 1;
   pointer-events: auto;
@@ -200,6 +209,7 @@
   min-width: 0;
 }
 .ss-value-pop--inline .ss-value-pop__field {
+  position: relative;
   box-sizing: border-box;
   width: 100%;
   min-height: var(--control-height-compact);
@@ -228,9 +238,17 @@
   background: var(--tint-subtle);
 }
 .ss-value-pop--inline .ss-value-pop__scrub {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  z-index: var(--z-editor-spacing-surface);
   width: var(--size-control-compact);
   height: var(--size-control-compact);
   border-radius: calc(var(--radius-sm) - var(--stroke-1));
+}
+.ss-value-pop--inline .ss-value-pop__scrub + .ss-value-pop__inputwrap .ss-value-pop__input,
+.ss-value-pop--inline .ss-value-pop__scrub + .ss-value-pop__inputwrap .ss-value-pop__ghost {
+  padding-inline-end: var(--size-control-compact);
 }
 .ss-value-pop__input {
   all: unset;
@@ -251,7 +269,7 @@
   background: transparent;
   line-height: 1.5;
   resize: none;
-  overflow: hidden;
+  overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -286,26 +304,35 @@
   min-width: 0;
 }
 .ss-value-pop--inline .ss-value-pop__inputwrap {
-  display: grid;
+  display: block;
   align-self: stretch;
   min-height: var(--control-height-compact);
 }
 .ss-value-pop--inline .ss-value-pop__sizer,
 .ss-value-pop--inline .ss-value-pop__input {
-  grid-area: 1 / 1;
   box-sizing: border-box;
   width: 100%;
   min-height: var(--control-height-compact);
-  padding: var(--space-02) var(--space-06);
+  padding: var(--spacing-2xs) var(--spacing-tight);
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
   line-height: 1.5;
-  white-space: normal;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.ss-value-pop--inline .ss-value-pop__input {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
 .ss-value-pop--inline .ss-value-pop__sizer {
+  display: block;
   visibility: hidden;
   pointer-events: none;
+}
+.ss-value-pop--inline .ss-value-pop__sizer > .ss-css-value-text {
+  display: inline;
+  white-space: inherit;
 }
 .ss-value-pop__ghost {
   position: absolute;
@@ -321,11 +348,16 @@
   overflow: hidden;
 }
 .ss-value-pop--inline .ss-value-pop__ghost {
-  padding: 0 var(--space-06);
+  padding: var(--spacing-2xs) var(--spacing-tight);
   border: 0;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.ss-decl .ss-value-pop--inline .ss-value-pop__sizer,
+.ss-decl .ss-value-pop--inline .ss-value-pop__input,
+.ss-decl .ss-value-pop--inline .ss-value-pop__ghost {
+  line-height: var(--ss-decl-line-height);
 }
 .ss-value-pop__ghost-typed {
   color: transparent;
@@ -355,6 +387,8 @@
 }
 .ss-decl:hover .ss-decl__remove,
 .ss-decl:hover .ss-decl__nest-btn,
+.ss-decl__actions:focus-within .ss-decl__remove,
+.ss-decl__actions:focus-within .ss-decl__nest-btn,
 .ss-decl__nest-btn.is-open {
   opacity: 1;
 }
@@ -370,6 +404,7 @@
 /* nest-this-declaration menu (enum-style) */
 .ss-decl__nest {
   position: relative;
+  display: flex;
   flex: 0 0 auto;
 }
 .ss-decl__nest-menu {

@@ -754,6 +754,9 @@ function selectEl(el){reportHover(null);restoreSel();selectedSet=matching(el);se
   },0);});
 }
 
+/* A viewport resize changes media matches without changing the selection. */
+window.addEventListener('resize',function(){if(!active||!cascadeMode||!selPrimary||!selPrimary.isConnected)return;try{window.parent.postMessage({type:'ss:cascadeActivity',selectionId:contrastSelectionId,rules:cascade(selPrimary)},'*');}catch(e){}});
+
 /* Is `el` a plausible stand-in for the signature? Shared by the structural fast
    path and the fuzzy scan: never an editor overlay / internal node, and it must
    still carry every class the signature had (the user may have ADDED some). */

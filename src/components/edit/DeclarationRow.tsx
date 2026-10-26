@@ -227,6 +227,7 @@ export function DeclarationRow(props: Props) {
           inline
           anchor={valueAnchor}
           initial={initialValue}
+          initialSwatch={Boolean(swatchColor)}
           options={options}
           variables={props.colorVariables}
           variableSelector={props.variableSelector}
@@ -286,21 +287,24 @@ export function DeclarationRow(props: Props) {
               onClose={closeValueEditor}
             />
           )}
+          {editing !== 'prop' && (
+            <span className="ss-decl__actions">
+              {props.showNest !== false && (
+                <NestControl nestTargets={nestTargets} onNest={onNest} />
+              )}
+              <button
+                type="button"
+                className="ss-decl__remove"
+                title="Remove property"
+                aria-label="Remove property"
+                onClick={(e) => onRemove(e.currentTarget.closest('.ss-decl'))}
+              >
+                <CloseIcon size={11} />
+              </button>
+            </span>
+          )}
         </div>
       )}
-
-      <span className="ss-decl__actions">
-        {props.showNest !== false && <NestControl nestTargets={nestTargets} onNest={onNest} />}
-        <button
-          type="button"
-          className="ss-decl__remove"
-          title="Remove property"
-          aria-label="Remove property"
-          onClick={(e) => onRemove(e.currentTarget.closest('.ss-decl'))}
-        >
-          <CloseIcon size={11} />
-        </button>
-      </span>
     </div>
   );
 }

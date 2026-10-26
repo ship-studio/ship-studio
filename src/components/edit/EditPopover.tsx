@@ -51,6 +51,8 @@ interface Props {
   /** Render the text editor in document flow instead of in a floating surface. */
   inline?: boolean;
   initial: string;
+  /** Reserve the displayed color swatch's space when sizing an inline value. */
+  initialSwatch?: boolean;
   /** Autocomplete options (text mode) — filtered as you type. */
   options?: string[];
   /** Keep color values in the text editor instead of opening the picker. */
@@ -72,6 +74,7 @@ export function EditPopover({
   anchor,
   inline = false,
   initial,
+  initialSwatch = false,
   options,
   enableColorPicker = true,
   colorProperty = false,
@@ -84,6 +87,7 @@ export function EditPopover({
   onClose,
 }: Props) {
   const [text, setText] = useState(initial);
+  const [initialDisplay] = useState(() => ({ text: initial, swatch: initialSwatch }));
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -313,7 +317,8 @@ export function EditPopover({
           <span className="ss-value-pop__inputwrap">
             {inline && (
               <span className="ss-value-pop__sizer" aria-hidden="true">
-                <CssValueText value={`${text}${ghostSuffix}` || placeholder || ' '} />
+                {initialDisplay.swatch && <span className="ss-decl__swatch-space" />}
+                <CssValueText value={initialDisplay.text || placeholder || ' '} />
               </span>
             )}
             {ghostSuffix && (

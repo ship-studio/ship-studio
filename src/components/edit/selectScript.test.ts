@@ -576,6 +576,48 @@ it('emits the matching rules in cascade order with active/overridden flags', asy
   send({ type: 'ss:deactivate' });
 });
 
+it('reports changed media activity for the selected element when its viewport resizes', async () => {
+  let matches = false;
+  const original = window.matchMedia;
+  window.matchMedia = vi.fn().mockImplementation(() => ({ matches }));
+  try {
+    document.body.innerHTML =
+      '<style>.resize-test{color:red}@media (min-width: 700px){.resize-test{color:blue}}</style>' +
+      '<button class="resize-test">x</button>';
+    send({ type: 'ss:activate', cascade: true });
+    const selected = nextSelect();
+    const initial = nextCascade();
+    document
+      .querySelector('.resize-test')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const selection = await selected;
+    const before = await initial;
+    const responsiveColor = (rules: CascadeRule[]) =>
+      rules
+        .find(
+          (rule) =>
+            rule.selector === '.resize-test' &&
+            rule.declarations.some((declaration) => declaration.value === 'blue')
+        )!
+        .declarations.find((declaration) => declaration.prop === 'color')!;
+
+    // sourceOrder spans every stylesheet, including the persistent #ss-preview sheet.
+    expect(responsiveColor(before.rules).active).toBe(false);
+    matches = true;
+    const updated = nextMessage<{ selectionId: string; rules: CascadeRule[] }>(
+      'ss:cascadeActivity'
+    );
+    window.dispatchEvent(new Event('resize'));
+    const after = await updated;
+    expect(after.selectionId).toBeTruthy();
+    expect(selection.signature.className).toBe('resize-test');
+    expect(responsiveColor(after.rules).active).toBe(true);
+  } finally {
+    send({ type: 'ss:deactivate' });
+    window.matchMedia = original;
+  }
+});
+
 it('ranks a higher-specificity selector above a later equal-class rule', async () => {
   // `#hero .btn` (id+class) beats both single-class rules regardless of source order.
   document.body.innerHTML =

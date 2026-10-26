@@ -91,6 +91,34 @@ interface Params {
   onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+function findActivity(row: CascadeRow, rules: MatchedRule[]): MatchedRule | undefined {
+  return rules.find(
+    (rule) => rule.sourceOrder === row.sourceOrder && rule.selector === row.selector
+  );
+}
+
+function applyCascadeActivity(rows: CascadeRow[], rules: MatchedRule[]): CascadeRow[] {
+  return rows.map((row) => {
+    const match = findActivity(row, rules);
+    return match
+      ? { ...row, inactiveMedia: match.inactiveMedia, declarations: match.declarations }
+      : row;
+  });
+}
+
+function cascadeActivityOverrides(
+  rows: Map<string, CascadeRow>,
+  rules: MatchedRule[],
+  previous: Record<string, Map<string, string>>
+): Record<string, Map<string, string>> {
+  const next = { ...previous };
+  for (const [key, row] of rows) {
+    const match = findActivity(row, rules);
+    if (match) next[key] = overriddenProps(match);
+  }
+  return next;
+}
+
 export function useCssCascadeEditor({
   iframeRef,
   projectPath,
@@ -123,6 +151,7 @@ export function useCssCascadeEditor({
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const selTokenRef = useRef(0);
+  const activityRef = useRef<MatchedRule[] | null>(null);
   // The last selected element's signature — replayed after an HMR reload so the
   // panel re-reads the element's current source (instant sync after edits).
   const lastSignatureRef = useRef<ElementSignature | null>(null);
@@ -173,6 +202,8 @@ export function useCssCascadeEditor({
   // background and dropped the selection.
   const forgetSelection = useCallback(() => {
     contrastSelectionRef.current = null;
+    activityRef.current = null;
+    ++selTokenRef.current;
     selectedInstanceCountRef.current = 1;
     setSelection(null);
     setRows([]);
@@ -351,6 +382,7 @@ export function useCssCascadeEditor({
             ? prevPath === nextPath
             : prev.tagName === signature.tagName && prev.className === signature.className);
         lastSignatureRef.current = signature;
+        activityRef.current = null;
         ++selTokenRef.current;
         clearTimers();
         post({ type: 'ss:clearRulePreview' });
@@ -366,6 +398,18 @@ export function useCssCascadeEditor({
           setSavingKeys(new Set());
         }
         setLoading(true);
+        return;
+      }
+
+      if (d.type === 'ss:cascadeActivity' && Array.isArray(d.rules)) {
+        if (
+          !contrastSelectionRef.current ||
+          d.selectionId !== contrastSelectionRef.current.selectionId
+        )
+          return;
+        activityRef.current = d.rules;
+        setRows((prev) => applyCascadeActivity(prev, d.rules!));
+        setOverridden((prev) => cascadeActivityOverrides(rowByKeyRef.current, d.rules!, prev));
         return;
       }
 
@@ -485,11 +529,20 @@ export function useCssCascadeEditor({
               }
             }
 
-            setRows(finalRows);
+            const activity = activityRef.current;
+            setRows(activity ? applyCascadeActivity(finalRows, activity) : finalRows);
             setBodies(nextBodies);
             bodiesRef.current = nextBodies;
             baselineInner.current = nextBaseline;
-            setOverridden(nextOverridden);
+            setOverridden(
+              activity
+                ? cascadeActivityOverrides(
+                    new Map(finalRows.map((r) => [rowKey(r), r])),
+                    activity,
+                    nextOverridden
+                  )
+                : nextOverridden
+            );
           } catch (err) {
             logger.error('[CssCascade] locate failed', {
               error: formatCommandError(asCommandError(err)),
