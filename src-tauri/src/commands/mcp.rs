@@ -197,9 +197,11 @@ pub async fn list_mcp_servers(
         .unwrap_or_else(crate::agent::get_active_agent);
 
     let binary = find_agent_binary(agent)?;
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
+    // Only set HOME when it resolved: an explicitly empty HOME stopped Codex
+    // finding its own home directory and crashed it (issue #1117). Otherwise the
+    // child inherits the app's environment and the CLI's own lookup (USERPROFILE
+    // on Windows).
+    let home = dirs::home_dir();
 
     // Constrain the agent's working directory to a known project.
     let validated_cwd = match &project_path {
@@ -212,7 +214,7 @@ pub async fn list_mcp_servers(
     list_cmd
         .args(["mcp", "list"])
         .env("PATH", get_extended_path())
-        .env("HOME", &home);
+        .envs(home.as_ref().map(|h| ("HOME", h)));
 
     // For Claude Code, unset CLAUDECODE to avoid nested-session error
     if agent.id == "claude-code" {
@@ -225,7 +227,7 @@ pub async fn list_mcp_servers(
 
     let list_output = list_cmd
         .output()
-        .map_err(|e| format!("Failed to run {} mcp list: {}", agent.display_name, e))?;
+        .map_err(|e| mcp_spawn_error(agent, "list", &e))?;
 
     let stdout = String::from_utf8_lossy(&list_output.stdout);
 
@@ -254,7 +256,7 @@ pub async fn list_mcp_servers(
         get_cmd
             .args(["mcp", "get", &server.name])
             .env("PATH", get_extended_path())
-            .env("HOME", &home)
+            .envs(home.as_ref().map(|h| ("HOME", h)))
             .envs(crate::commands::accounts::get_env_vars_for_active_account());
 
         if agent.id == "claude-code" {
@@ -439,9 +441,7 @@ pub async fn add_mcp_server(
         .unwrap_or_else(crate::agent::get_active_agent);
 
     let binary = find_agent_binary(agent)?;
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let home = dirs::home_dir();
 
     // Strip any leading binary name / "mcp add" prefix the user may have included
     let args_str = raw_args.trim();
@@ -470,7 +470,7 @@ pub async fn add_mcp_server(
     cmd.arg("mcp")
         .arg("add")
         .env("PATH", get_extended_path())
-        .env("HOME", &home);
+        .envs(home.as_ref().map(|h| ("HOME", h)));
 
     if agent.id == "claude-code" {
         cmd.env_remove("CLAUDECODE");
@@ -491,7 +491,7 @@ pub async fn add_mcp_server(
 
     let output = cmd
         .output()
-        .map_err(|e| format!("Failed to run {} mcp add: {}", agent.display_name, e))?;
+        .map_err(|e| mcp_spawn_error(agent, "add", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -629,7 +629,34 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // The agent CLI itself crashed — a Rust stack overflow in Codex
+    // ("thread 'codex-main' has overflowed its stack"), seen after its
+    // "could not create PATH aliases: Could not find home directory" warning.
+    // An upstream CLI crash on the user's machine, not a Ship Studio bug
+    // (issue #1117).
+    if lower.contains("has overflowed its stack") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent CLI crashed while running this command. Update the agent CLI to its latest version and try again."
+        ));
+    }
+
     message.into()
+}
+
+/// The agent CLI's `mcp <subcommand>` process failed to start at all. Formatting
+/// the `io::Error` straight into a string skipped `windows_out_of_memory`, so a
+/// Windows pagefile exhaustion (os error 1455) reached telemetry as a raw OS
+/// string (issue #1137, the #742 fix for this file's three spawn sites).
+fn mcp_spawn_error(
+    agent: &crate::agent::AgentConfig,
+    subcommand: &str,
+    e: &std::io::Error,
+) -> CommandError {
+    let label = format!("{} mcp {subcommand}", agent.binary_name);
+    if let Some(oom) = crate::errors::windows_out_of_memory(e, Some(&label)) {
+        return oom;
+    }
+    format!("Failed to run {} mcp {subcommand}: {e}", agent.display_name).into()
 }
 
 /// Pull the line number out of a TOML syntax error, which reports its
@@ -703,9 +730,7 @@ pub async fn remove_mcp_server(
         .unwrap_or_else(crate::agent::get_active_agent);
 
     let binary = find_agent_binary(agent)?;
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let home = dirs::home_dir();
 
     // OpenCode has no `mcp remove` subcommand — edit its config file instead
     // (issue #308).
@@ -716,7 +741,7 @@ pub async fn remove_mcp_server(
     let mut cmd = create_command(&binary);
     cmd.args(["mcp", "remove"])
         .env("PATH", get_extended_path())
-        .env("HOME", &home);
+        .envs(home.as_ref().map(|h| ("HOME", h)));
 
     if agent.id == "claude-code" {
         cmd.env_remove("CLAUDECODE");
@@ -733,7 +758,7 @@ pub async fn remove_mcp_server(
 
     let output = cmd
         .output()
-        .map_err(|e| format!("Failed to run {} mcp remove: {}", agent.display_name, e))?;
+        .map_err(|e| mcp_spawn_error(agent, "remove", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -823,6 +848,31 @@ fn shell_split(input: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Issue #1137: pagefile exhaustion spawning `codex mcp remove`.
+    #[test]
+    fn mcp_spawn_pagefile_exhaustion_is_expected() {
+        let agent = crate::agent::get_agent_by_id("codex");
+        let err = mcp_spawn_error(agent, "remove", &std::io::Error::from_raw_os_error(1455));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("paging file"), "got: {err}");
+        let other = mcp_spawn_error(agent, "remove", &std::io::Error::other("boom"));
+        assert!(
+            matches!(other, CommandError::Other { .. }),
+            "got: {other:?}"
+        );
+    }
+
+    // Issue #1117: Codex crashing with a stack overflow during `mcp remove`.
+    #[test]
+    fn classify_mcp_failure_agent_stack_overflow_is_expected() {
+        let details = "WARNING: proceeding, even though we could not create PATH aliases: \
+                       Could not find home directory\n\n\
+                       thread 'codex-main' (63760) has overflowed its stack";
+        let err = classify_mcp_failure("remove MCP server", details);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("crashed"), "got: {err}");
+    }
 
     #[test]
     fn opencode_entry_remote_url() {
