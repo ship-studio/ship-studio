@@ -332,6 +332,17 @@ fn is_hook_failure_output(output: &str) -> bool {
         || output.contains("hook exited with code")
 }
 
+/// A commit-msg hook running commitlint rejecting the commit *message*. None
+/// of the pre-commit runner markers above appear in its output — it prints
+/// `⧗   input: <subject>`, `✖   <reason> [rule-name]` lines and a closing
+/// `✖   found N problems, M warnings` — so it fell through to the raw dump
+/// (issue #1031). Matched on commitlint's own summary/input literals, which no
+/// git message contains.
+fn is_commit_msg_hook_failure_output(output: &str) -> bool {
+    output.contains("commitlint")
+        || (output.contains("⧗   input:") && output.contains("✖   found "))
+}
+
 /// Last `max_bytes` of hook output, cut at a line boundary — the failure
 /// reason (a failing test, a type error) is almost always at the tail, and
 /// the full dump is unreadable in a toast (issue #604).
@@ -437,6 +448,10 @@ pub fn git_stage_and_commit_authored(
             }
         } else if let Some(err) = persistent_index_lock_error(&add_stderr) {
             return Err(err);
+        } else if let Some(gap) = crate::utils::git_environment_gap(&add_stderr) {
+            // Same shared classifier as the commit step below (issue #955).
+            tracing::warn!(error = %add_stderr.trim(), "git add blocked by an environment gap");
+            return Err(gap);
         } else {
             return Err(add_stderr.into());
         }
@@ -481,6 +496,17 @@ pub fn git_stage_and_commit_authored(
         // failure lives, and classify Expected so it stays out of telemetry.
         // Hook output lands on either stream depending on the runner.
         let combined = format!("{stdout}{stderr}");
+        // Checked first: a project can run husky *and* commitlint, and the
+        // message is what needs changing then, not the code (issue #1031).
+        if is_commit_msg_hook_failure_output(&combined) {
+            let tail = tail_of_output(&combined, 1000);
+            return Err(CommandError::expected(format!(
+                "This project's commit-message check (commitlint) rejected the commit message — \
+                 it requires a specific format, such as \"feat: …\". Commit with a message in \
+                 that format, or adjust the project's commitlint rules (its report is below).\
+                 \n\n{tail}"
+            )));
+        }
         if is_hook_failure_output(&combined) {
             let tail = tail_of_output(&combined, 1000);
             return Err(CommandError::expected(format!(
@@ -491,6 +517,12 @@ pub fn git_stage_and_commit_authored(
         }
         if let Some(err) = persistent_index_lock_error(&stderr) {
             return Err(err);
+        }
+        // The shared machine-state classifier — status/branches/stash already
+        // consult it, staging and committing didn't (issue #955).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            tracing::warn!(error = %stderr.trim(), "git commit blocked by an environment gap");
+            return Err(gap);
         }
         let detail = if stderr.trim().is_empty() {
             stdout.to_string()
@@ -991,6 +1023,24 @@ mod tests {
             "error: gpg failed to sign the data"
         ));
         assert!(!is_hook_failure_output(""));
+    }
+
+    // The #1031 shape: a commit-msg hook running commitlint, whose output
+    // carries none of the pre-commit runner markers.
+    #[test]
+    fn commit_msg_hook_failure_matches_commitlint_output() {
+        let commitlint = "completeness: 23 blocks and 12 document types, all whole.\ncss coverage: 187 classes, all defined and used.\n⧗   input: Tag menu sign-ups by concert, fix the partner tag, extend the lineup\n\nMade-With: Claude Code in Ship Studio\n✖   body's lines must not be longer than 100 characters [body-max-line-length]\n✖   subject may not be empty [subject-empty]\n✖   type may not be empty [type-empty]\n\n✖   found 3 problems, 0 warnings\n";
+        assert!(!is_hook_failure_output(commitlint));
+        assert!(is_commit_msg_hook_failure_output(commitlint));
+        assert!(is_commit_msg_hook_failure_output(
+            "ⓘ   Get help: https://github.com/conventional-changelog/commitlint/#what-is-commitlint"
+        ));
+        assert!(!is_commit_msg_hook_failure_output(
+            "husky - pre-commit script failed (code 1)"
+        ));
+        assert!(!is_commit_msg_hook_failure_output(
+            "fatal: unable to auto-detect email address"
+        ));
     }
 
     #[test]

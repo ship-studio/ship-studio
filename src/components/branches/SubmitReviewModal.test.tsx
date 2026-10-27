@@ -28,7 +28,12 @@ vi.mock('../../lib/logger', () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-import { createPullRequest, getDefaultBaseBranch } from '../../lib/branches';
+import {
+  createPullRequest,
+  getDefaultBaseBranch,
+  mergePullRequest,
+  switchBranch,
+} from '../../lib/branches';
 import { logger } from '../../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
@@ -145,5 +150,46 @@ describe('SubmitReviewModal — expected-refusal toast routing (#538)', () => {
     );
     // The inline modal error still carries the real detail.
     expect(await screen.findByText(/some completely novel gh failure/)).toBeInTheDocument();
+  });
+});
+
+describe('SubmitReviewModal — post-merge cleanup switch refusal (#1047)', () => {
+  const props = {
+    projectPath: '/path/to/project',
+    branchName: 'feat/x',
+    baseBranches: ['main'],
+    aiAvailable: false,
+    onSuccess: vi.fn(),
+    onClose: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getDefaultBaseBranch).mockResolvedValue(null);
+  });
+
+  it('humanizes a worktree collision and toasts it as info, not error', async () => {
+    vi.mocked(createPullRequest).mockResolvedValue('https://github.com/o/r/pull/7');
+    vi.mocked(mergePullRequest).mockResolvedValue(undefined);
+    vi.mocked(switchBranch).mockResolvedValue({
+      success: false,
+      stashedChanges: false,
+      pendingStashFrom: null,
+      stashApplied: false,
+      error: "fatal: 'main' is already used by worktree at '/private/tmp/keystone-main'",
+    });
+
+    const { showToast } = renderWithToasts(<SubmitReviewModal {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /create pull request/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /merge into main/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /yes, clean up/i }));
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringMatching(/already checked out in another worktree/i),
+        'info'
+      )
+    );
+    expect(showToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
   });
 });

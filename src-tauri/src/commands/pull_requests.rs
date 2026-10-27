@@ -141,6 +141,15 @@ fn pr_create_refusal(stderr: &str, base: &str) -> Option<CommandError> {
              pull request. It was most likely started separately instead of from \"{base}\"."
         )));
     }
+    // gh's client-side refusal when the checked-out branch *is* the base:
+    // 'head branch "main" is the same as base branch "main", cannot create a
+    // pull request' (issue #1046).
+    if lower.contains("is the same as base branch") {
+        return Some(CommandError::expected(format!(
+            "You're on \"{base}\" itself, so there's nothing to compare it against. Create or \
+             switch to a separate branch for your changes, then submit that for review."
+        )));
+    }
     None
 }
 
@@ -476,6 +485,21 @@ mod tests {
             "must name the base branch, got: {msg}"
         );
         assert!(!msg.contains("GraphQL"), "must not forward gh's raw text");
+    }
+
+    /// The #1046 shape: submitting the base branch against itself.
+    #[test]
+    fn pr_create_refusal_classifies_head_same_as_base() {
+        let stderr =
+            "head branch \"main\" is the same as base branch \"main\", cannot create a pull request";
+        let err = pr_create_refusal(stderr, "main").expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("\"main\""), "must name the base, got: {msg}");
+        assert!(
+            !msg.contains("cannot create"),
+            "must not forward gh's raw text"
+        );
     }
 
     /// The #428 refusals must keep their raw text (the frontend rephrases
