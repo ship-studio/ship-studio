@@ -297,14 +297,14 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
     // Discard changes to tracked files. `checkout .` writes to the index, so
     // it can lose the .git lock race against the background snapshot watcher
     // or a concurrent commit exactly like add/commit — retry on contention the
-    // same way git_stage_and_commit does (issues #377/#597).
+    // same way git_stage_and_commit does (issues #377/#597). Spawn failures
+    // go through `CommandError::from` so Windows pagefile exhaustion keeps its
+    // `windows_out_of_memory` classification (issue #1107).
     let checkout_output = crate::utils::output_retrying_index_lock(|| {
         crate::utils::git_command_in(&validated_path)?
             .args(["checkout", "."])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(crate::errors::CommandError::from)
     })?;
 
     if !checkout_output.status.success() {
@@ -317,9 +317,7 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["clean", "-fd"])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(crate::errors::CommandError::from)
     })?;
 
     if !clean_output.status.success() {
@@ -377,6 +375,20 @@ mod tests {
         is_overwrite_refusal, is_unmergeable_ref, is_unresolved_merge_in_progress,
     };
     use std::process::Command;
+
+    /// Issue #1107: `discard_changes` hand-built `CommandError::Io` from its
+    /// spawn errors, so "O arquivo de paginação é muito pequeno… (os error
+    /// 1455)" skipped the `From` impl's `windows_out_of_memory` check. Its
+    /// spawns now map with `CommandError::from`, which must classify Expected.
+    #[test]
+    fn discard_spawn_failure_keeps_the_windows_out_of_memory_classification() {
+        let err = crate::errors::CommandError::from(std::io::Error::from_raw_os_error(1455));
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+        assert!(err.to_string().contains("paging file"), "got: {err}");
+    }
 
     // The #674 shape: the ref handed to `git merge` doesn't resolve locally
     // (remote branch deleted/renamed, or the best-effort fetch failed) — an
