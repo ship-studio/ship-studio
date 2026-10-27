@@ -288,11 +288,92 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              wildcard before the rest of the command. Fix or remove that rule, then try again."
         )));
     }
-    if lower.contains("has not been trusted") || lower.contains("hastrustdialogaccepted") {
+    if lower.contains("has not been trusted")
+        || lower.contains("hastrustdialogaccepted")
+        // Cursor's wording for the same refusal: "⚠ Workspace Trust Required
+        // … Do you trust the contents of this directory?" (issue #1054).
+        || lower.contains("workspace trust required")
+        || lower.contains("do you trust the contents of this directory")
+    {
         return Some(CommandError::expected(format!(
             "{agent_name} hasn't trusted this project's folder yet, so it won't run \
              non-interactively here. Open an agent terminal in this project once and accept \
              the trust prompt, then try again."
+        )));
+    }
+    // Claude's `--print` not seeing the piped prompt inside its own 3s stdin
+    // window, with no trust warning alongside it (issue #963; #660 was the
+    // variant with one). A slow CLI cold start — antivirus scanning the
+    // binary, a cold disk — so the remedy is to retry.
+    if lower.contains("no stdin data received")
+        && lower.contains("input must be provided either through stdin")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} started too slowly to read the request, so AI generation didn't run. \
+             Try again — if it keeps happening, open an agent terminal in this project once so \
+             {agent_name} can finish any first-run setup."
+        )));
+    }
+    // A provider-side refusal: the selected model is overloaded. Transient,
+    // and not an account limit, so no reset time (issue #1030).
+    if lower.contains("selected model is at capacity") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s selected model is at capacity right now. Try again in a few \
+             minutes, or switch to a different model (/model in an agent terminal)."
+        )));
+    }
+    // The model behind Opencode rejecting the tool schemas Opencode sends
+    // because they nest deeper than it allows ("JSON schema exceeds the
+    // maximum nesting depth of 10 levels"). The provider's limit and
+    // Opencode's schemas — neither is ours (issue #1062).
+    if lower.contains("exceeds the maximum nesting depth") {
+        return Some(CommandError::expected(format!(
+            "The model {agent_name} is set to rejected its tool definitions (they nest deeper \
+             than that model allows), so AI generation isn't available with it. Switch \
+             {agent_name} to a different model, then try again."
+        )));
+    }
+    // Opencode's own local server failing with no detail ("UnknownError" /
+    // "Unexpected server error. Check server logs for details.") — a known
+    // upstream Opencode failure with several causes, none of them in the
+    // request we sent (issue #971).
+    if lower.contains("unknownerror") && lower.contains("unexpected server error") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s local server hit an internal error, so AI generation didn't run. \
+             Try again; if it keeps happening, check {agent_name}'s model settings or update \
+             {agent_name}."
+        )));
+    }
+    // Codex couldn't reach OpenAI at all: an edge block on the models refresh
+    // and repeated reconnect failures ending in "workspace routing discovery
+    // failed". VPN, firewall or an OpenAI outage. Matched on the distinctive
+    // lines, never a bare 403 (issue #1032).
+    if lower.contains("workspace routing discovery failed")
+        || (lower.contains("failed to refresh available models") && lower.contains("403 forbidden"))
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} couldn't reach OpenAI's servers, so AI generation isn't available \
+             right now. If you're on a VPN or a restrictive network, try without it, or check \
+             status.openai.com for an outage, then try again."
+        )));
+    }
+    // The prompt was larger than the CLI accepts ("Input exceeds the maximum
+    // length of 1048576 characters", `input_too_large`). Every section of the
+    // prompt is capped now, so this is a backstop (issue #1024).
+    if lower.contains("input_too_large") || lower.contains("input exceeds the maximum length") {
+        return Some(CommandError::expected(format!(
+            "These changes are too large for {agent_name} to summarize automatically. Write \
+             the summary yourself, or split the work into smaller pieces."
+        )));
+    }
+    // Windows' cmd.exe running the agent's npm `.cmd` shim whose target is
+    // gone — a broken or half-finished global install (issue #1045, the
+    // AI-generation twin of the MCP path's #991).
+    if lower.contains("the batch file cannot be found") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s install looks broken (Windows can't find the file its launcher \
+             points to). Reinstall {agent_name} — for Claude Code, `npm install -g \
+             @anthropic-ai/claude-code` — then try again."
         )));
     }
     None
@@ -312,6 +393,26 @@ fn strip_prompt_echo(output: &str, prompt: &str) -> String {
         return output.to_string();
     }
     output.replace(prompt, "[prompt omitted]")
+}
+
+/// Drop stderr lines that are informational banners, not failure reasons.
+///
+/// Claude Code prints "⚠ claude.ai connectors are disabled because
+/// ANTHROPIC_API_KEY or another auth source is set …" whenever a project's
+/// workspace credentials are in the environment — which Ship Studio sets on
+/// purpose. When that banner was the only stderr, it was reported as the
+/// failure and the real reason on stdout was never read (issue #996). With it
+/// removed, an otherwise-empty stderr falls back to the exit code and stdout.
+fn strip_benign_banners(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| {
+            !line
+                .to_lowercase()
+                .contains("claude.ai connectors are disabled")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Run the active agent headlessly with `prompt` in `cwd` and return its final
@@ -390,7 +491,10 @@ async fn run_agent_headless(
         // the echo BEFORE any capping or classification: it's the user's own
         // data reflected back as an "error", and it buries the real failure
         // line (issue #665).
-        let stderr = strip_prompt_echo(&String::from_utf8_lossy(&output.stderr), prompt);
+        let stderr = strip_benign_banners(&strip_prompt_echo(
+            &String::from_utf8_lossy(&output.stderr),
+            prompt,
+        ));
         // A silent non-zero exit (empty stderr) used to surface as the
         // undiagnosable "Claude Code CLI failed: " — fall back to the exit code
         // and stdout so there's something to act on (issue #269).
@@ -479,8 +583,8 @@ pub async fn generate_pr_description(
     let prompt = build_prompt(
         &branch_name,
         &base_branch,
-        &commits,
-        &diff_stat,
+        &truncate_section(&commits, MAX_CONTEXT_SECTION_SIZE, "commit list"),
+        &truncate_section(&diff_stat, MAX_CONTEXT_SECTION_SIZE, "file list"),
         &truncated_diff,
     );
 
@@ -572,27 +676,38 @@ async fn get_diff(path: &std::path::Path, base: &str) -> Result<String, CommandE
 /// it already fits. The cut is floored to a UTF-8 char boundary so slicing a
 /// multi-byte sequence can never panic.
 fn truncate_diff(diff: &str) -> String {
-    if diff.len() <= MAX_DIFF_SIZE {
-        return diff.to_string();
+    truncate_section(diff, MAX_DIFF_SIZE, "diff")
+}
+
+/// Cap for each of the prompt's other sections — the commit subjects, the
+/// `--stat` file list, and `git status --porcelain`. Only the diff used to be
+/// capped, so a base branch that had diverged badly produced a 1.6M-character
+/// prompt from the commit list and file list alone, past Codex's 1MB input
+/// ceiling (issue #1024). With every section capped the whole prompt has a
+/// fixed upper bound.
+const MAX_CONTEXT_SECTION_SIZE: usize = 20_000;
+
+/// Truncate one prompt section to `max` bytes at a newline boundary, with a
+/// marker saying how much of `what` was dropped. The cut is floored to a
+/// UTF-8 char boundary so slicing a multi-byte sequence can never panic.
+fn truncate_section(text: &str, max: usize, what: &str) -> String {
+    if text.len() <= max {
+        return text.to_string();
     }
-    warn!(
-        "Diff is {} bytes, truncating to {}",
-        diff.len(),
-        MAX_DIFF_SIZE
-    );
-    let mut end = MAX_DIFF_SIZE;
-    while end > 0 && !diff.is_char_boundary(end) {
+    warn!("{} is {} bytes, truncating to {}", what, text.len(), max);
+    let mut end = max;
+    while end > 0 && !text.is_char_boundary(end) {
         end -= 1;
     }
-    let truncated = &diff[..end];
+    let truncated = &text[..end];
     // Try to cut at a newline boundary for cleaner output
     match truncated.rfind('\n') {
         Some(pos) => format!(
-            "{}\n\n[... diff truncated, {} more bytes ...]",
+            "{}\n\n[... {what} truncated, {} more bytes ...]",
             &truncated[..pos],
-            diff.len() - pos
+            text.len() - pos
         ),
-        None => format!("{truncated}\n\n[... diff truncated ...]"),
+        None => format!("{truncated}\n\n[... {what} truncated ...]"),
     }
 }
 
@@ -777,7 +892,7 @@ pub async fn run_working_tree_prompt(
     run_agent_headless(
         agent,
         &agent_path,
-        &build(&status, &diff),
+        &build(&cap_status(&status), &diff),
         path,
         HashMap::new(),
         timeout_secs,
@@ -820,7 +935,7 @@ pub async fn generate_commit_message_for_path(
         return Err("No changes to summarize".to_string().into());
     }
     let diff = truncate_diff(&git_working_diff(path));
-    let prompt = build_commit_prompt(&status, &diff);
+    let prompt = build_commit_prompt(&cap_status(&status), &diff);
 
     debug!("Calling {} CLI for commit message", agent.display_name);
 
@@ -852,6 +967,12 @@ fn soften_commit_timeout(err: CommandError) -> CommandError {
         }
         other => other,
     }
+}
+
+/// `git status --porcelain` capped for the prompt — a working tree with
+/// thousands of untracked files is as unbounded as the commit list (#1024).
+fn cap_status(status: &str) -> String {
+    truncate_section(status, MAX_CONTEXT_SECTION_SIZE, "file list")
 }
 
 fn git_status_porcelain(path: &std::path::Path) -> Result<String, CommandError> {
@@ -1274,6 +1395,112 @@ mod tests {
         assert!(classify_agent_cli_failure("Claude Code", "").is_none());
     }
 
+    fn assert_expected(agent: &str, detail: &str, needle: &str) {
+        match classify_agent_cli_failure(agent, detail) {
+            Some(CommandError::Expected { message }) => {
+                assert!(message.contains(needle), "got: {message}")
+            }
+            other => panic!("expected Expected for {detail:?}, got {other:?}"),
+        }
+    }
+
+    // Issue #1054: Cursor's workspace-trust refusal, exact text.
+    #[test]
+    fn classify_agent_cli_failure_cursor_workspace_trust_is_expected() {
+        let detail = "⚠ Workspace Trust Required\n\n  Cursor Agent can execute code and access \
+                      files in this directory.\n  Do you trust the contents of this directory?\n\n    \
+                      /Users/me/ShipStudio/site\n\n  To proceed, you can either:\n    • Run 'agent' \
+                      interactively to decide\n    • Pass --trust, --yolo, or -f if you trust this \
+                      directory";
+        assert_expected("Cursor", detail, "trust prompt");
+    }
+
+    // Issue #963: the stdin race with no trust warning alongside it.
+    #[test]
+    fn classify_agent_cli_failure_bare_stdin_race_is_expected() {
+        let detail =
+            "Warning: no stdin data received in 3s, proceeding without it. If piping from \
+                      a slow command, redirect stdin explicitly: < /dev/null to skip, or wait \
+                      longer.\nError: Input must be provided either through stdin or as a prompt \
+                      argument when using --print";
+        assert_expected("Claude Code", detail, "Try again");
+    }
+
+    // Issue #1030: Codex's model-at-capacity refusal, mid-transcript.
+    #[test]
+    fn classify_agent_cli_failure_model_at_capacity_is_expected() {
+        let detail = "WARNING: failed to clean up stale arg0 temp dirs: Permission denied (os \
+                      error 13)\nOpenAI Codex v0.155.1\n--------\nmodel: gpt-6-astra\n--------\n\
+                      user\n[prompt omitted]\n\nERROR: Selected model is at capacity. Please try a \
+                      different model.\nERROR: Selected model is at capacity. Please try a \
+                      different model.";
+        assert_expected("Codex", detail, "at capacity");
+    }
+
+    // Issue #1062: Opencode's model rejecting deeply nested tool schemas.
+    #[test]
+    fn classify_agent_cli_failure_schema_nesting_depth_is_expected() {
+        let detail = "\n> build · muse-spark-1.3-contributor-free\n\nError: JSON schema exceeds \
+                      the maximum nesting depth of 10 levels";
+        assert_expected("Opencode", detail, "different model");
+    }
+
+    // Issue #971: Opencode's opaque internal server error.
+    #[test]
+    fn classify_agent_cli_failure_opencode_unknown_error_is_expected() {
+        let detail = "Error: {\n  \"name\": \"UnknownError\",\n  \"data\": {\n    \"message\": \
+                      \"Unexpected server error. Check server logs for details.\",\n    \"ref\": \
+                      \"err_25f872e8\"\n  }\n}";
+        assert_expected("Opencode", detail, "internal error");
+        // A bare "unexpected server error" from anything else stays reportable.
+        assert!(classify_agent_cli_failure("Opencode", "Unexpected server error").is_none());
+    }
+
+    // Issue #1032: Codex blocked from reaching OpenAI.
+    #[test]
+    fn classify_agent_cli_failure_codex_network_block_is_expected() {
+        let detail = "ERROR codex_models_manager::manager: failed to refresh available models: \
+                      unexpected status 403 Forbidden: <html>Unable to load site</html>\nERROR: \
+                      Reconnecting... 2/5\nwarning: Falling back from WebSockets to HTTPS \
+                      transport. workspace routing discovery failed\nERROR: workspace routing \
+                      discovery failed";
+        assert_expected("Codex", detail, "VPN");
+        // A bare 403 is too generic to classify.
+        assert!(classify_agent_cli_failure("Codex", "unexpected status 403 Forbidden").is_none());
+    }
+
+    // Issue #1024: Codex's input-size ceiling, as a backstop to the caps.
+    #[test]
+    fn classify_agent_cli_failure_input_too_large_is_expected() {
+        let detail = "Error: turn/start: turn/start failed: Input exceeds the maximum length of \
+                      1048576 characters. (code -32602), data: \
+                      {\"input_error_code\":\"input_too_large\",\"max_chars\":1048576,\
+                      \"actual_chars\":1619065}";
+        assert_expected("Codex", detail, "too large");
+    }
+
+    // Issue #1045: cmd.exe can't find the npm shim's target.
+    #[test]
+    fn classify_agent_cli_failure_broken_windows_shim_is_expected() {
+        assert_expected(
+            "Claude Code",
+            "The batch file cannot be found.",
+            "Reinstall Claude Code",
+        );
+    }
+
+    // Issue #996: the connectors banner is not the failure reason, so it is
+    // removed and an otherwise-empty stderr falls back to stdout.
+    #[test]
+    fn strip_benign_banners_removes_the_connectors_warning_only() {
+        let banner = "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another \
+                      auth source is set and takes precedence over your claude.ai login · Unset \
+                      it to load your organization's connectors";
+        assert!(strip_benign_banners(banner).trim().is_empty());
+        let mixed = format!("{banner}\nError: something real");
+        assert_eq!(strip_benign_banners(&mixed), "Error: something real");
+    }
+
     // The #665 data-exposure shape: Codex's failure transcript echoes the
     // prompt we sent — git diff included — and it must be excised before the
     // text reaches an error message or telemetry.
@@ -1466,6 +1693,26 @@ mod tests {
         let diff = "é".repeat(MAX_DIFF_SIZE); // 2 bytes each → well over the limit
         let result = truncate_diff(&diff);
         assert!(result.contains("diff truncated"));
+    }
+
+    // Issue #1024: the commit list and file list are capped too, so the whole
+    // prompt stays far below Codex's 1,048,576-character ceiling.
+    #[test]
+    fn pr_prompt_is_bounded_whatever_the_history_size() {
+        let commits = "Fix a thing\n".repeat(200_000); // ~2.4MB
+        let stat = " src/file.rs | 2 +-\n".repeat(100_000); // ~2MB
+        let diff = "+line\n".repeat(100_000);
+        let prompt = build_prompt(
+            "feature",
+            "main",
+            &truncate_section(&commits, MAX_CONTEXT_SECTION_SIZE, "commit list"),
+            &truncate_section(&stat, MAX_CONTEXT_SECTION_SIZE, "file list"),
+            &truncate_diff(&diff),
+        );
+        assert!(prompt.len() < 100_000, "prompt is {} bytes", prompt.len());
+        assert!(prompt.contains("commit list truncated"));
+        assert!(prompt.contains("file list truncated"));
+        assert!(cap_status(&"?? a\n".repeat(100_000)).contains("file list truncated"));
     }
 
     #[tokio::test]
