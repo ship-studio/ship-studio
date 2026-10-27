@@ -883,7 +883,18 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let root = validate_project_path(&project_path)?;
+    list_pages_in(&root)
+}
+
+/// Scan the pages of the project at `root`, in its **active workspace**.
+///
+/// A monorepo app lives in `workspace_subpath` (e.g. `apps/web`), which is
+/// where the dev server runs. Scanning the repo root instead found none of
+/// `app/`, `src/app/`, `pages/` or `src/pages/`, so the page selector and the
+/// agent's `preview_status` were permanently empty for those projects (#1009).
+fn list_pages_in(root: &Path) -> Result<Vec<PageInfo>, CommandError> {
+    let project = crate::utils::resolve_workspace_path(root);
     let project_type = detection::detect_project_type(&project);
 
     match project_type {
@@ -2546,5 +2557,72 @@ mod scan_tests {
         println!("git pass   : {git_pass:?}");
         println!("total      : {total:?}");
         println!("==================================\n");
+    }
+}
+
+#[cfg(test)]
+mod list_pages_tests {
+    use super::*;
+
+    fn write(path: &Path, contents: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+    }
+
+    fn routes_of(root: &Path) -> Vec<String> {
+        list_pages_in(root)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.route)
+            .collect()
+    }
+
+    /// A pnpm monorepo whose Next.js app lives in `apps/web` (#1009).
+    #[test]
+    fn scans_the_workspace_subpath_of_a_monorepo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(
+            &root.join("package.json"),
+            r#"{"name":"mono","private":true}"#,
+        );
+        write(&root.join("pnpm-workspace.yaml"), "packages:\n  - apps/*\n");
+        write(
+            &root.join(".shipstudio").join("project.json"),
+            r#"{"_description":"x","workspace_subpath":"apps/web"}"#,
+        );
+        let app = root.join("apps").join("web");
+        write(
+            &app.join("package.json"),
+            r#"{"name":"web","dependencies":{"next":"15.0.0"}}"#,
+        );
+        write(
+            &app.join("app").join("page.tsx"),
+            "export default function P() {}",
+        );
+        write(
+            &app.join("app").join("about").join("page.tsx"),
+            "export default function P() {}",
+        );
+
+        let routes = routes_of(root);
+        assert!(routes.contains(&"/".to_string()), "{routes:?}");
+        assert!(routes.contains(&"/about".to_string()), "{routes:?}");
+    }
+
+    #[test]
+    fn single_app_projects_still_scan_the_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(
+            &root.join("package.json"),
+            r#"{"name":"web","dependencies":{"next":"15.0.0"}}"#,
+        );
+        write(
+            &root.join("app").join("page.tsx"),
+            "export default function P() {}",
+        );
+
+        assert_eq!(routes_of(root), vec!["/".to_string()]);
     }
 }
