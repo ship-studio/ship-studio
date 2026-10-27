@@ -56,10 +56,15 @@ async function resolveDevServerCwd(projectPath: string): Promise<string> {
     const subpath = await getWorkspaceSubpath(projectPath);
     return resolveWorkspacePath(projectPath, subpath);
   } catch (err) {
-    logger.error('[DevServer] getWorkspaceSubpath failed; using repo root as cwd', {
-      projectPath,
-      error: formatCommandError(asCommandError(err)),
-    });
+    // A project folder that vanished while its session stayed open is a
+    // by-design Expected state (canonicalize_tagged), not a bug — warn
+    // instead of auto-filing a report (issue #1075).
+    const context = { projectPath, error: formatCommandError(asCommandError(err)) };
+    if (isProjectFolderGoneError(err)) {
+      logger.warn('[DevServer] getWorkspaceSubpath failed; using repo root as cwd', context);
+    } else {
+      logger.error('[DevServer] getWorkspaceSubpath failed; using repo root as cwd', context);
+    }
     return projectPath;
   }
 }
@@ -84,7 +89,7 @@ import { getWindowLabel } from '../lib/window';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
 import { stripAnsi } from '../lib/ansi';
 import { extractAnnouncedPort } from '../lib/ports';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
 import { useOptionalToast } from '../contexts/ToastContext';
 
 /**
