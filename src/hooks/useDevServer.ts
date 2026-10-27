@@ -1226,20 +1226,31 @@ export function useDevServer(currentProjectPath: string | null) {
         bump();
         await delay(500);
         if (!isCurrentRestart()) return;
+        const spawn = startDevServer(
+          cwd,
+          effectivePort,
+          getWindowLabel(),
+          createOutputHandler(projectPath),
+          customCmd
+        );
         const startPromise = withTimeoutFallback(
-          startDevServer(
-            cwd,
-            effectivePort,
-            getWindowLabel(),
-            createOutputHandler(projectPath),
-            customCmd
-          ),
+          spawn,
           RESTART_SPAWN_TIMEOUT_MS,
           null as unknown as DevServerHandle
         );
         const startTask = Promise.resolve(startPromise).then(async (handle) => {
-          if (!handle || !isCurrentRestart()) {
-            if (handle) await handle.stop().catch(() => undefined);
+          if (!handle) {
+            // Timed out — but the spawn is still going. If it finishes after
+            // all, nothing holds its handle: the server would run on, holding
+            // the port, under a preview that says it's stopped and a Stop
+            // button that can't reach it (issue #906). Stop it when it lands.
+            void Promise.resolve(spawn)
+              .then((late) => late?.stop())
+              .catch(() => undefined);
+            return null;
+          }
+          if (!isCurrentRestart()) {
+            await handle.stop().catch(() => undefined);
             return null;
           }
           s.handle = handle;

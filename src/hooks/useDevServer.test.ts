@@ -41,6 +41,13 @@ vi.mock('../lib/window', () => ({
   getWindowLabel: vi.fn().mockReturnValue('main'),
 }));
 
+// Stable across renders, like the real no-op fallback: `showToast` is a
+// dependency of the hook's callbacks.
+const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
+vi.mock('../contexts/ToastContext', () => ({
+  useOptionalToast: () => toast,
+}));
+
 vi.mock('../lib/logger', () => ({
   logger: {
     error: vi.fn(),
@@ -723,6 +730,50 @@ describe('useDevServer', () => {
       });
       expect(result.current.devServerUnexpectedExit).toBeNull();
       expect(result.current.isServerRunning('/path/to/project')).toBe(true);
+    });
+  });
+
+  describe('restart that outruns its spawn budget (issue #906)', () => {
+    it('says so, and stops the server if the spawn lands after all', async () => {
+      const project = await import('../lib/project');
+      let resolveSpawn!: (handle: never) => void;
+      vi.mocked(project.startDevServer).mockImplementationOnce(
+        () =>
+          new Promise<never>((resolve) => {
+            resolveSpawn = resolve;
+          })
+      );
+      const stopLate = vi.fn().mockResolvedValue(undefined);
+      const path = '/path/to/project';
+      const { result } = renderHook(() => useDevServer(path));
+
+      vi.useFakeTimers();
+      try {
+        let restart!: Promise<void>;
+        await act(async () => {
+          restart = result.current.handleRestartDevServer(path);
+          await vi.waitFor(() => expect(project.startDevServer).toHaveBeenCalledOnce());
+          await vi.advanceTimersByTimeAsync(30_000);
+          await restart;
+        });
+
+        expect(toast.showToast).toHaveBeenCalledWith(
+          expect.stringContaining("didn't come back"),
+          'error'
+        );
+        expect(result.current.isServerRunning(path)).toBe(false);
+
+        // The PTY finally comes up. Nothing owns it, so it must not be left
+        // running on the port behind a preview that says it's stopped.
+        await act(async () => {
+          resolveSpawn({ pty: { kill: vi.fn() }, stop: stopLate } as never);
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(stopLate).toHaveBeenCalledOnce();
+        expect(result.current.isServerRunning(path)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
