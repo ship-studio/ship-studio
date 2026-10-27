@@ -33,11 +33,20 @@ use super::{
 /// to list branches: " — an empty, undiagnosable report (issue #811). Fall
 /// back to the exit code so telemetry always carries something, mirroring
 /// `git_status_failure_message` in status.rs (issue #682).
-fn list_branches_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -> String {
+fn list_branches_failure_message(
+    stderr_trimmed: &str,
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+) -> String {
     if stderr_trimmed.is_empty() {
-        return match exit_code {
-            Some(code) => format!("Failed to list branches (exit {code})"),
-            None => "Failed to list branches (terminated by signal)".to_string(),
+        return match (exit_code, signal) {
+            (Some(code), _) => format!("Failed to list branches (exit {code})"),
+            // Name the signal, like status.rs (issue #1088).
+            (None, Some(sig)) => format!(
+                "Failed to list branches: git was terminated by {}",
+                crate::external_command::describe_signal(sig)
+            ),
+            (None, None) => "Failed to list branches (terminated by signal)".to_string(),
         };
     }
     // Include git's stderr — a bare "Failed to list branches" is
@@ -110,7 +119,12 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
                 return Err(gap);
             }
         }
-        return Err(list_branches_failure_message(stderr.trim(), output.status.code()).into());
+        return Err(list_branches_failure_message(
+            stderr.trim(),
+            output.status.code(),
+            crate::external_command::exit_signal(&output.status),
+        )
+        .into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -970,15 +984,20 @@ mod tests {
     #[test]
     fn list_branches_failure_message_falls_back_to_exit_code() {
         assert_eq!(
-            list_branches_failure_message("", Some(128)),
+            list_branches_failure_message("", Some(128), None),
             "Failed to list branches (exit 128)"
         );
         assert_eq!(
-            list_branches_failure_message("", None),
+            list_branches_failure_message("", None, None),
             "Failed to list branches (terminated by signal)"
         );
         assert_eq!(
-            list_branches_failure_message("fatal: bad object", Some(128)),
+            list_branches_failure_message("", None, Some(11)),
+            "Failed to list branches: git was terminated by signal 11 (SIGSEGV) — the program \
+             crashed (segmentation fault)"
+        );
+        assert_eq!(
+            list_branches_failure_message("fatal: bad object", Some(128), None),
             "Failed to list branches: fatal: bad object"
         );
     }
@@ -988,7 +1007,7 @@ mod tests {
     #[test]
     fn list_branches_failure_message_truncates_a_huge_stderr() {
         let huge = "x".repeat(5000);
-        let msg = list_branches_failure_message(&huge, Some(128));
+        let msg = list_branches_failure_message(&huge, Some(128), None);
         assert!(msg.len() < 700, "must be capped, got {} chars", msg.len());
         assert!(msg.ends_with('…'), "got tail: {}", &msg[msg.len() - 20..]);
         assert!(msg.starts_with("Failed to list branches: xxx"));
