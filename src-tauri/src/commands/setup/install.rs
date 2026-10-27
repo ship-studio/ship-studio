@@ -95,6 +95,37 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
         ));
     }
 
+    // "Error: 'git' must be installed and in your PATH!" — Homebrew needs a
+    // working git for its own bookkeeping, even when the package being
+    // installed is git itself. Missing/broken Xcode CLT, not the app
+    // (issue #1132).
+    if stderr.contains("must be installed and in your PATH") {
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew needs a working `git` on your PATH to install anything (even \
+             to install git itself). Open Terminal and run: xcode-select --install — then \
+             retry this step."
+        ));
+    }
+
+    // "Bottle destination already exists: …/var/homebrew/tmp/.cellar/<f>/<v>"
+    // — a previous brew install was interrupted mid-extraction and left its
+    // staged copy behind, so every retry refuses (issues #1081, #1082).
+    if let Some(line) = stderr
+        .lines()
+        .find(|l| l.contains("Bottle destination already exists"))
+    {
+        let path = line
+            .split_once("already exists:")
+            .map(|(_, p)| p.trim())
+            .filter(|p| p.starts_with('/'))
+            // The whole temp cellar is safe to clear if the format changes.
+            .unwrap_or("$(brew --prefix)/var/homebrew/tmp/.cellar");
+        return crate::errors::CommandError::expected(format!(
+            "{context}: a previous, interrupted Homebrew install left a stale staged copy at \
+             {path}. Open Terminal and run: rm -rf \"{path}\" — then retry this step."
+        ));
+    }
+
     // version.rb TypeError ("Version value must be a string; got a NilClass")
     // — Homebrew's own Ruby crashing because it can't read the macOS version;
     // a broken/mixed Homebrew install, not something the app did (issue #571).
@@ -241,6 +272,27 @@ fn is_winget_cleanup_race(stderr: &str, stdout: &str) -> bool {
     combined.contains("remove:") && combined.contains("being used by another process")
 }
 
+/// The wrapped MSI installer ending with ERROR_INSTALL_USEREXIT ("Installer
+/// failed with exit code: 1602"). Despite the name it rarely means a person
+/// clicked Cancel: antivirus killing the installer, or an elevation prompt a
+/// silent, non-interactive install can't answer, both report it. A machine
+/// state, not an app malfunction (issue #1102).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn winget_installer_cancelled_error(
+    package: &str,
+    stderr: &str,
+    stdout: &str,
+) -> Option<CommandError> {
+    let combined = format!("{stderr}\n{stdout}").to_lowercase();
+    combined.contains("exit code: 1602").then(|| {
+        CommandError::expected(format!(
+            "Windows reported the {package} install as cancelled — usually antivirus \
+             interrupted it, or it needed a permission prompt this automatic install couldn't \
+             answer. Try this step again; if it keeps happening, install {package} manually."
+        ))
+    })
+}
+
 /// Turn a winget *spawn* failure (the process never started, so there's no
 /// output to classify) into a user-facing error.
 ///
@@ -385,6 +437,9 @@ pub async fn install_winget_packages(
                      Try this step again in a moment."
                 )));
             }
+            if let Some(err) = winget_installer_cancelled_error(package, &stderr, &stdout) {
+                return Err(err);
+            }
             return Err((format!(
                 "Failed to install {}: {}",
                 package,
@@ -437,7 +492,7 @@ pub async fn check_npm_cache_permissions() -> String {
 mod tests {
     use super::{
         brew_error_line, extract_winget_error, humanize_brew_failure, is_winget_cleanup_race,
-        winget_spawn_error,
+        winget_installer_cancelled_error, winget_spawn_error,
     };
     use crate::errors::CommandError;
 
@@ -488,6 +543,52 @@ mod tests {
         assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
         let msg = err.to_string();
         assert!(msg.contains("brew update-reset"), "got: {msg}");
+    }
+
+    /// Issue #1132: Homebrew can't find a working git for its own bookkeeping.
+    #[test]
+    fn missing_git_for_homebrew_is_expected_with_clt_advice() {
+        let stderr = "Error: 'git' must be installed and in your PATH!";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(
+            err.to_string().contains("xcode-select --install"),
+            "got: {err}"
+        );
+    }
+
+    /// Issues #1081/#1082: a stale staged bottle from an interrupted install.
+    #[test]
+    fn stale_bottle_destination_is_expected_and_names_the_path() {
+        let stderr = "Error: Bottle destination already exists: \
+                      /usr/local/var/homebrew/tmp/.cellar/libffi/3.8.0";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("rm -rf \"/usr/local/var/homebrew/tmp/.cellar/libffi/3.8.0\""),
+            "got: {msg}"
+        );
+    }
+
+    /// Issue #1102: MSI exit 1602 (ERROR_INSTALL_USEREXIT) under a silent
+    /// winget install is a machine state, not an app bug.
+    #[test]
+    fn winget_installer_exit_1602_is_expected() {
+        let err = winget_installer_cancelled_error(
+            "GitHub.cli",
+            "",
+            "Installer failed with exit code: 1602",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("GitHub.cli"), "got: {err}");
+        assert!(winget_installer_cancelled_error(
+            "GitHub.cli",
+            "",
+            "Installer failed with exit code: 1603"
+        )
+        .is_none());
     }
 
     /// Issue #571: Homebrew's version.rb TypeError is a broken Homebrew
