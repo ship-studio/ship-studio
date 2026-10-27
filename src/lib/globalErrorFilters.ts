@@ -67,8 +67,9 @@ function describeOpaqueObject(r: object): string {
     if ((typeof value === 'string' && value) || typeof value === 'number') fields[key] = value;
   }
   if (Object.keys(fields).length > 0) return `${label} ${JSON.stringify(fields)}`;
-  const rendered = String(r);
-  return rendered === '[object Object]' ? `${label} {}` : rendered;
+  // The built-in tag still tells a Map from a Set from a plain class instance.
+  const tag = Object.prototype.toString.call(r);
+  return tag === '[object Object]' ? `${label} {}` : tag;
 }
 
 /**

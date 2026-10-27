@@ -428,10 +428,12 @@ describe('useDevServer', () => {
         await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
       });
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
       expect(logger.warn).toHaveBeenCalledWith(
         '[DevServer] getWorkspaceSubpath failed; using repo root as cwd',
         expect.objectContaining({ projectPath: '/path/to/project' })
       );
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
       expect(logger.error).not.toHaveBeenCalledWith(
         '[DevServer] getWorkspaceSubpath failed; using repo root as cwd',
         expect.anything()

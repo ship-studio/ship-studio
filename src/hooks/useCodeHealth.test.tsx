@@ -10,7 +10,8 @@ import { renderHook, act } from '@testing-library/react';
 import { useCodeHealth } from './useCodeHealth';
 import * as health from '../lib/health';
 import type { DetectedScripts } from '../lib/health';
-import { logger } from '../lib/logger';
+
+const logger = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }));
 
 vi.mock('../lib/health', async () => {
   const actual = await vi.importActual<typeof import('../lib/health')>('../lib/health');
@@ -22,9 +23,7 @@ vi.mock('../lib/health', async () => {
   };
 });
 
-vi.mock('../lib/logger', () => ({
-  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
-}));
+vi.mock('../lib/logger', () => ({ logger }));
 
 const detectHealthScripts = vi.mocked(health.detectHealthScripts);
 const getHealthStatus = vi.mocked(health.getHealthStatus);
