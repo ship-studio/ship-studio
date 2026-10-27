@@ -313,6 +313,17 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              fully, then try again."
         ));
     }
+    // The screenshot action itself outlasting its budget (120s on the first
+    // attempt, 30s on a retry) after navigation succeeded: Chromium stalled
+    // rendering or encoding the capture — GPU/CPU pressure or security
+    // software intercepting the write (issues #1079/#1020), not an app bug.
+    if stderr.contains("page.screenshot") && stderr.contains("Timeout") {
+        return CommandError::expected(
+            "The screenshot is taking unusually long — the headless browser stalled while \
+             rendering the page (usually heavy load on this machine, or security software \
+             slowing the capture). Try again in a moment.",
+        );
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let status = exit_status_detail(output);
     // A capture that produced neither stdout nor stderr told us nothing about
@@ -1276,16 +1287,25 @@ mod capture_error_tests {
     }
 
     #[test]
-    fn non_goto_timeouts_are_not_swallowed_as_expected() {
-        // A timeout elsewhere (e.g. the screenshot action) isn't the
-        // slow-compile navigation shape — keep it a real, detailed error.
-        let output = failed_output("page.screenshot: Timeout 120000ms exceeded.");
+    fn unrecognized_timeouts_are_not_swallowed_as_expected() {
+        // A timeout in some other step isn't a known environmental shape —
+        // keep it a real, detailed error.
+        let output = failed_output("page.evaluate: Timeout 30000ms exceeded.");
         let err = capture_script_error(
             "Playwright viewport screenshot",
             "http://localhost:3000",
             &output,
         );
         assert!(!matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn screenshot_action_timeout_is_expected() {
+        // Verbatim from issue #1079 (first attempt, full 120s budget).
+        assert_expected_capture(
+            "page.screenshot: Timeout 120000ms exceeded.\nCall log:\n  - taking page screenshot",
+            "taking unusually long",
+        );
     }
 }
 
