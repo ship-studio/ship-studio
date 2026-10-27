@@ -867,3 +867,15 @@ describe('isExpectedStructuralRefusal', () => {
     );
   });
 });
+
+describe('drag-move racing a preview reload (issue #1043)', () => {
+  it.each([
+    'The source or target is no longer present in the preview.',
+    'The preview changed before the move could be resolved.',
+  ])('rephrases %s and treats it as expected', (raw) => {
+    expect(structuralEditMessage(raw)).toBe(
+      'The page changed before the move could finish — try dragging it again.'
+    );
+    expect(isExpectedStructuralRefusal(raw)).toBe(true);
+  });
+});
