@@ -1849,6 +1849,19 @@ fn build_launch_command(
     }
 }
 
+/// [`build_launch_command`], refusing a project that isn't Flutter / React
+/// Native. That refusal is by design — the device mirror renders it as its
+/// "unsupported" state — so it is Expected, not a malfunction (issue #1052).
+fn launch_command_or_refusal(
+    project_path: &std::path::Path,
+    platform: crate::state::Platform,
+    device_id: &str,
+) -> Result<String, CommandError> {
+    build_launch_command(project_path, platform, device_id).ok_or_else(|| {
+        CommandError::expected("This project type can't be launched on this device yet.")
+    })
+}
+
 /// Locate a usable JDK for Gradle (the Android build needs `JAVA_HOME`). The build
 /// runs in a login shell, so it inherits the user's profile — but `JAVA_HOME` is
 /// often unset there even when a JDK exists. We probe the common install locations
@@ -1937,10 +1950,7 @@ pub async fn get_simulator_launch_command(
 ) -> Result<String, CommandError> {
     let project = crate::utils::validate_project_path(&project_path)?;
     let workspace = crate::utils::resolve_workspace_path(&project);
-    let cmd =
-        build_launch_command(&workspace, platform, &udid).ok_or_else(|| -> CommandError {
-            "This project type can't be launched on this device yet.".into()
-        })?;
+    let cmd = launch_command_or_refusal(&workspace, platform, &udid)?;
     Ok(with_android_build_env(platform, cmd))
 }
 
@@ -2881,6 +2891,20 @@ mod tests {
     fn parse_adb_devices_empty_when_none_attached() {
         assert!(parse_adb_devices("List of devices attached\n\n").is_empty());
         assert!(parse_adb_devices("").is_empty());
+    }
+
+    #[test]
+    fn unsupported_project_launch_refusal_is_expected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let err =
+            launch_command_or_refusal(dir.path(), crate::state::Platform::Ios, "UDID").unwrap_err();
+        match err {
+            CommandError::Expected { message } => assert_eq!(
+                message,
+                "This project type can't be launched on this device yet."
+            ),
+            other => panic!("expected Expected, got {other:?}"),
+        }
     }
 
     #[test]

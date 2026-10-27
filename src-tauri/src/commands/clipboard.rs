@@ -54,9 +54,25 @@ pub fn read_clipboard_text() -> Result<Option<String>, CommandError> {
     match with_clipboard_retry(|clipboard| clipboard.get_text()) {
         Ok(text) => Ok(Some(text)),
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
-        Err(err) => Err(CommandError::Other {
-            message: format!("Failed to read clipboard text: {err}"),
-        }),
+        Err(err) => Err(clipboard_read_error("text", err)),
+    }
+}
+
+/// Map a clipboard read that failed through every retry to a `CommandError`.
+/// Another app still holding the Windows clipboard lock after the retries
+/// (a clipboard manager, RDP, security software scanning it) is an
+/// environment state the frontend already recovers from — the terminal
+/// falls back to the webview clipboard — so it is Expected, not a bug
+/// (issue #977). Anything else stays reportable.
+fn clipboard_read_error(what: &str, err: arboard::Error) -> CommandError {
+    if matches!(err, arboard::Error::ClipboardOccupied) {
+        return CommandError::expected(format!(
+            "Couldn't read the clipboard {what} because another app is holding the clipboard. \
+             Try pasting again in a moment."
+        ));
+    }
+    CommandError::Other {
+        message: format!("Failed to read clipboard {what}: {err}"),
     }
 }
 
@@ -69,11 +85,7 @@ pub fn stage_clipboard_image() -> Result<Option<String>, CommandError> {
     let image = match with_clipboard_retry(|clipboard| clipboard.get_image()) {
         Ok(image) => image,
         Err(arboard::Error::ContentNotAvailable) => return Ok(None),
-        Err(err) => {
-            return Err(CommandError::Other {
-                message: format!("Failed to read clipboard image: {err}"),
-            })
-        }
+        Err(err) => return Err(clipboard_read_error("image", err)),
     };
 
     let path = std::env::temp_dir().join(format!("shipstudio-paste-{}.png", uuid::Uuid::new_v4()));
@@ -133,6 +145,19 @@ fn write_rgba_png(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_held_by_another_app_is_expected() {
+        // Issue #977: "Failed to read clipboard text: The native clipboard is
+        // not accessible due to being held by another party."
+        let err = clipboard_read_error("text", arboard::Error::ClipboardOccupied);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let other = clipboard_read_error("text", arboard::Error::ConversionFailure);
+        assert!(
+            matches!(other, CommandError::Other { .. }),
+            "got: {other:?}"
+        );
+    }
 
     #[test]
     fn write_rgba_png_produces_a_decodable_png() {
