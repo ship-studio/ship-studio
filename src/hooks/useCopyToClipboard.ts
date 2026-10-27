@@ -30,25 +30,52 @@ export function describeClipboardError(error: Error): string {
   return error.message;
 }
 
-/** How long to wait for the window to regain focus before giving up. */
-const FOCUS_RETRY_MS = 400;
+/** How long to wait for the window to regain focus before retrying. */
+const FOCUS_RETRY_MS = 1000;
+/** Further pauses before each extra retry while the write is still denied. */
+const DENIED_BACKOFF_MS = [150, 500];
+
+function isNotAllowed(e: unknown): boolean {
+  return e instanceof Error && e.name === 'NotAllowedError';
+}
 
 /**
  * `navigator.clipboard.writeText` throws NotAllowedError when the document
  * isn't focused at the moment of the call — which happens routinely when a
  * click lands while another window was frontmost (issue #753). Rather than
- * making the user click twice, wait briefly for focus and retry once; a real
- * permission denial still surfaces on the second attempt.
+ * making the user click twice, wait for focus and retry; a real permission
+ * denial still surfaces once the retries run out.
+ *
+ * One retry after at most 400ms of waiting kept failing on macOS across four
+ * releases (issue #1010): the focus event can arrive before the webview will
+ * actually grant the write. So wait longer for focus, then back off a couple
+ * of times more, and record whether the window had focus when it still
+ * failed — which says whether this is timing or a genuine denial.
  */
 export async function writeTextWithFocusRetry(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
+    return;
   } catch (e) {
-    const notAllowed = e instanceof Error && e.name === 'NotAllowedError';
-    if (!notAllowed) throw e;
-    window.focus();
-    if (!document.hasFocus()) await waitForFocus(FOCUS_RETRY_MS);
-    await navigator.clipboard.writeText(text);
+    if (!isNotAllowed(e)) throw e;
+  }
+  window.focus();
+  if (!document.hasFocus()) await waitForFocus(FOCUS_RETRY_MS);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (e) {
+      if (!isNotAllowed(e)) throw e;
+      if (attempt >= DENIED_BACKOFF_MS.length) {
+        logger.warn('[Clipboard] write still denied after retries', {
+          hasFocus: document.hasFocus(),
+          attempts: attempt + 2,
+        });
+        throw e;
+      }
+      await new Promise((resolve) => setTimeout(resolve, DENIED_BACKOFF_MS[attempt]));
+    }
   }
 }
 
