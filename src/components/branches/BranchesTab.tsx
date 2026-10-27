@@ -385,6 +385,15 @@ export function BranchesTab({
     return /contains modified or untracked files|use --force/i.test(text);
   };
 
+  /** …and a *locked* worktree (often by an agent session that created it)
+   *  without `--force --force`. Different wording, same escalation; without
+   *  it the modal offered only the plain Remove that fails every time
+   *  (issue #1040). */
+  const isLockedWorktreeError = (e: unknown): boolean => {
+    const text = typeof e === 'string' ? e : errText(e);
+    return /cannot remove a locked working tree|remove -f -f/i.test(text);
+  };
+
   // Anchor mutation commands at the main worktree: removing the worktree the
   // command's cwd sits inside would fail (or leave a dangling cwd).
   const mainWorktreePath = worktrees.find((w) => w.isMain)?.path ?? projectPath;
@@ -1004,11 +1013,19 @@ export function BranchesTab({
             {worktreeRemoveError && (
               <div className="worktree-remove-error">
                 <p>{worktreeRemoveError}</p>
-                {isDirtyWorktreeError(worktreeRemoveError) && (
+                {isLockedWorktreeError(worktreeRemoveError) ? (
                   <p>
-                    <strong>The worktree has uncommitted changes.</strong> Force-removing discards
-                    them permanently.
+                    <strong>The worktree is locked</strong>, usually by an agent session that may
+                    still be working in it. Force-removing deletes the folder anyway, including any
+                    uncommitted changes.
                   </p>
+                ) : (
+                  isDirtyWorktreeError(worktreeRemoveError) && (
+                    <p>
+                      <strong>The worktree has uncommitted changes.</strong> Force-removing discards
+                      them permanently.
+                    </p>
+                  )
                 )}
               </div>
             )}
@@ -1024,7 +1041,9 @@ export function BranchesTab({
             >
               Cancel
             </Button>
-            {worktreeRemoveError && isDirtyWorktreeError(worktreeRemoveError) ? (
+            {worktreeRemoveError &&
+            (isDirtyWorktreeError(worktreeRemoveError) ||
+              isLockedWorktreeError(worktreeRemoveError)) ? (
               <Button
                 variant="danger"
                 onClick={() => void handleRemoveWorktree(true)}
