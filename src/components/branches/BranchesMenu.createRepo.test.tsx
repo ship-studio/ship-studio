@@ -58,7 +58,7 @@ function Harness() {
       isOpen={isOpen}
       onOpenChange={setIsOpen}
       onPullLatest={vi.fn()}
-      onBranchSwitch={vi.fn()}
+      onSwitchBranch={vi.fn()}
       onViewBranches={vi.fn()}
       onCreateBranch={vi.fn()}
       onViewPRs={vi.fn()}

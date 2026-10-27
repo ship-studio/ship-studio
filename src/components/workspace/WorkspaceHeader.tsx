@@ -123,7 +123,8 @@ export interface WorkspaceHeaderProps {
   isBranchSwitching: boolean;
   isRepositoryViewActive: boolean;
   onPullLatest: () => void;
-  onBranchSwitch: (branch: string) => void;
+  /** Performs the checkout (with its unsaved-changes and worktree handling). */
+  onSwitchBranch: (branch: string) => void;
   onViewBranches: () => void;
   onCreateBranch: () => void;
   onViewPRs: () => void;
@@ -320,7 +321,7 @@ export function WorkspaceHeader({
   isBranchSwitching,
   isRepositoryViewActive,
   onPullLatest,
-  onBranchSwitch,
+  onSwitchBranch,
   onViewBranches,
   onCreateBranch,
   onViewPRs,
@@ -415,7 +416,7 @@ export function WorkspaceHeader({
         isOpen={openSourceMenu === 'branches'}
         onOpenChange={(open) => setOpenSourceMenu(open ? 'branches' : null)}
         onPullLatest={onPullLatest}
-        onBranchSwitch={onBranchSwitch}
+        onSwitchBranch={onSwitchBranch}
         onViewBranches={onViewBranches}
         onCreateBranch={onCreateBranch}
         onViewPRs={onViewPRs}
