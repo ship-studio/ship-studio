@@ -92,6 +92,20 @@ export function isExpectedCommandError(value: unknown): boolean {
   return err.type === 'Other' && err.expected === true;
 }
 
+/**
+ * True when a `rename_project` failure is a refusal the rename modal already
+ * renders inline — not a malfunction: input validation (slashes, `.`/`..` —
+ * issue #979), any Expected refusal such as "Renaming external projects isn't
+ * supported yet" (issue #968), a taken name, or the project being open
+ * elsewhere.
+ */
+export function isExpectedRenameRefusal(value: unknown): boolean {
+  const err = asCommandError(value);
+  if (err.type === 'Validation' || isExpectedCommandError(err)) return true;
+  const message = formatCommandError(err);
+  return message.includes('already exists') || message.includes('Close this project');
+}
+
 /** True when a caught error is the tagged MergeConflict variant. */
 export function isMergeConflictError(value: unknown): boolean {
   return asCommandError(value).type === 'MergeConflict';

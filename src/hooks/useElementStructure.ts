@@ -128,6 +128,11 @@ interface Params {
   onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+/** `resolveDragNodes` rejections: the preview no longer has the dragged node or
+ *  its drop target, or never answered before the timeout. */
+const DRAG_NODES_GONE = 'The source or target is no longer present in the preview.';
+const DRAG_NODES_TIMEOUT = 'The preview changed before the move could be resolved.';
+
 /** How long after a write the iframe `load` handler still replays the reselect. */
 const RESELECT_WINDOW_MS = 8000;
 
@@ -200,6 +205,11 @@ export function structuralEditMessage(message: string): string {
   if (message.includes('this component root cannot have a sibling')) {
     return 'This is the root of a component, so nothing can sit beside it. Drop it inside instead.';
   }
+  // The preview reloaded (HMR) while a drag was resolving its nodes, so the
+  // dragged element or its drop target was gone — a race, not a bug (#1043).
+  if (message === DRAG_NODES_GONE || message === DRAG_NODES_TIMEOUT) {
+    return 'The page changed before the move could finish — try dragging it again.';
+  }
   // `element_span` walked off the end of the file looking for this element's
   // closing tag — raw internal wording that meant nothing to the user (issue
   // #789). Rephrased, but NOT treated as expected below: it still points at
@@ -239,7 +249,10 @@ export function isExpectedStructuralRefusal(message: string): boolean {
     /<(html|head|body)> cannot be moved/.test(message) ||
     /<[^>\s]+> cannot contain children/.test(message) ||
     /nothing can be placed beside <(html|head|body)>/.test(message) ||
-    message.includes('this component root cannot have a sibling')
+    message.includes('this component root cannot have a sibling') ||
+    // A drag racing a preview reload (#1043).
+    message === DRAG_NODES_GONE ||
+    message === DRAG_NODES_TIMEOUT
   );
 }
 
@@ -296,7 +309,7 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
           const pending = dragRequestsRef.current.get(requestId);
           if (!pending) return;
           dragRequestsRef.current.delete(requestId);
-          pending.reject(new Error('The preview changed before the move could be resolved.'));
+          pending.reject(new Error(DRAG_NODES_TIMEOUT));
         }, 2000);
       }),
     [post]
@@ -360,7 +373,7 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
         if (!pending) return;
         dragRequestsRef.current.delete(d.requestId);
         if (d.source && d.target) pending.resolve({ source: d.source, target: d.target });
-        else pending.reject(new Error('The source or target is no longer present in the preview.'));
+        else pending.reject(new Error(DRAG_NODES_GONE));
       } else if (
         d.type === 'ss:elementShortcut' &&
         (d.key === 'c' || d.key === 'x' || d.key === 'v' || d.key === 'd' || d.key === 'backspace')
