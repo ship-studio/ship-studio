@@ -156,6 +156,11 @@ pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
         if let Some(err) = super::classify_git_net_error(&stderr) {
             return Err(err);
         }
+        // Same machine-state classifier as status/branches/stash (#1027).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr, "git blocked by an environment gap while pulling");
+            return Err(gap);
+        }
         return Err((format!("Failed to pull: {stderr}")).into());
     }
 
@@ -237,6 +242,13 @@ pub async fn pull_and_merge(
         }
         if let Some(err) = super::classify_git_net_error(&stderr) {
             return Err(err);
+        }
+        // A damaged object store, the Xcode license, OOM… — the shared
+        // classifier the other git call sites already consult. The #1027
+        // shape: a commit-graph entry whose object isn't in the database.
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr, "git blocked by an environment gap while merging");
+            return Err(gap);
         }
         return Err((format!("Failed to merge: {stderr}")).into());
     }
@@ -425,6 +437,22 @@ mod tests {
         assert!(!is_missing_upstream(stderr));
         assert!(!is_overwrite_refusal(stderr));
         assert!(!is_unmergeable_ref(stderr));
+    }
+
+    // Issue #1027: local repo corruption surfacing from `git merge`. None of
+    // the merge-specific or network classifiers may claim it first, and the
+    // shared environment classifier must.
+    #[test]
+    fn merge_on_a_corrupt_repo_reaches_the_environment_classifier() {
+        let stderr = "fatal: You are attempting to fetch 0fc08367ab4e76ca9ccda764da800b59500e9728, which is in the commit graph file but not in the object database.\nThis is probably due to repo corruption.\nIf you are attempting to repair this repo corruption by refetching the missing object, use 'git fetch --refetch' with the missing object.\n";
+        assert!(!is_missing_upstream(stderr));
+        assert!(!is_overwrite_refusal(stderr));
+        assert!(!is_unmergeable_ref(stderr));
+        assert!(!is_unresolved_merge_in_progress(stderr));
+        assert!(super::super::classify_git_net_error(stderr).is_none());
+        let err = crate::utils::git_environment_gap(stderr).expect("classified");
+        assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+        assert!(err.to_string().contains("damaged"), "got: {err}");
     }
 
     #[test]

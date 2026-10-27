@@ -358,19 +358,19 @@ pub async fn switch_branch(
             .map(|o| o.status.success())
             .unwrap_or(false);
 
-    let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
-    if origin_exists {
-        checkout_cmd
-            .arg("checkout")
-            .arg("--track")
-            .arg(format!("origin/{branch_name}"));
-    } else {
-        checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
-    }
-    let checkout_output =
-        crate::external_command::spawn_with_pressure_retry("git checkout", || {
-            checkout_cmd.output()
-        })?;
+    // Retried on index.lock contention, same as create_branch (issue #1028).
+    let checkout_output = crate::utils::output_retrying_index_lock(|| {
+        let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
+        if origin_exists {
+            checkout_cmd
+                .arg("checkout")
+                .arg("--track")
+                .arg(format!("origin/{branch_name}"));
+        } else {
+            checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
+        }
+        crate::external_command::spawn_with_pressure_retry("git checkout", || checkout_cmd.output())
+    })?;
 
     if !checkout_output.status.success() {
         // Checkout failed - restore the stash if we made one
@@ -551,11 +551,15 @@ pub async fn create_branch(
         .to_string();
 
     if is_from_current {
-        // Create branch from current HEAD (preserves local changes)
-        let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
-        co_cmd.args(["checkout", "-b", &branch_name]);
-        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
-            co_cmd.output()
+        // Create branch from current HEAD (preserves local changes). Writes
+        // the index, so it rides out index.lock contention like every other
+        // index-mutating call site (issue #1028).
+        let output = crate::utils::output_retrying_index_lock(|| {
+            let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
+            co_cmd.args(["checkout", "-b", &branch_name]);
+            crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+                co_cmd.output()
+            })
         })?;
 
         if !output.status.success() {
@@ -563,6 +567,10 @@ pub async fn create_branch(
             if is_branch_already_exists_error(&stderr) {
                 warn!(error = %stderr, "Branch creation blocked: name already taken");
                 return Err(branch_already_exists_error(&branch_name));
+            }
+            if let Some(err) = branch_environment_error(&stderr) {
+                warn!(error = %stderr.trim(), "Branch creation blocked by the environment");
+                return Err(err);
             }
             return Err((stderr.to_string()).into());
         }
@@ -596,10 +604,12 @@ pub async fn create_branch(
             format!("origin/{plain}")
         };
 
-        let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
-        co_cmd.args(["checkout", "-b", &branch_name, &base_ref]);
-        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
-            co_cmd.output()
+        let output = crate::utils::output_retrying_index_lock(|| {
+            let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
+            co_cmd.args(["checkout", "-b", &branch_name, &base_ref]);
+            crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+                co_cmd.output()
+            })
         })?;
 
         if !output.status.success() {
@@ -638,6 +648,10 @@ pub async fn create_branch(
             if is_branch_already_exists_error(&stderr) {
                 warn!(error = %stderr, "Branch creation blocked: name already taken");
                 return Err(branch_already_exists_error(&branch_name));
+            }
+            if let Some(err) = branch_environment_error(&stderr) {
+                warn!(error = %stderr.trim(), "Branch creation blocked by the environment");
+                return Err(err);
             }
             error!(error = %stderr, "Failed to create branch");
             return Err((stderr.to_string()).into());
@@ -739,6 +753,14 @@ fn is_missing_base_ref_error(stderr: &str) -> bool {
     stderr.contains("is not a commit and a branch")
 }
 
+/// Failures of `checkout -b` / `branch -D` that are the machine, not the
+/// branch: an environment gap git can't run past (the unaccepted Xcode
+/// license arrives here as bare, unprefixed stderr — issue #1007), or
+/// index.lock contention that outlasted the retries (issue #1028).
+fn branch_environment_error(stderr: &str) -> Option<CommandError> {
+    crate::utils::git_environment_gap(stderr).or_else(|| super::persistent_index_lock_error(stderr))
+}
+
 /// Git refusing `checkout -b <name>` because that branch name is taken —
 /// "fatal: a branch named 'X' already exists". An everyday user state (a
 /// retried create, or a stale branch list), not a malfunction (issue #791).
@@ -827,6 +849,10 @@ pub async fn delete_branch(
             )));
         }
         if !stderr.contains("not found") {
+            if let Some(err) = branch_environment_error(&stderr) {
+                warn!(error = %stderr.trim(), "Branch delete blocked by the environment");
+                return Err(err);
+            }
             return Err((stderr.to_string()).into());
         }
     }
@@ -911,7 +937,7 @@ pub async fn delete_branch(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_branch_already_exists_error, is_default_branch_delete_refusal,
+        branch_environment_error, is_branch_already_exists_error, is_default_branch_delete_refusal,
         is_missing_base_ref_error, is_worktree_delete_refusal, list_branches_failure_message,
     };
 
@@ -963,6 +989,27 @@ mod tests {
             "a pull request for branch \"feature/x\" already exists"
         ));
         assert!(!is_branch_already_exists_error(""));
+    }
+
+    // #1007 (bare Xcode license text) and #1028 (index.lock still held after
+    // the retries) from create/delete_branch's raw-passthrough fallbacks.
+    #[test]
+    fn branch_environment_error_classifies_machine_states() {
+        use crate::errors::CommandError;
+        let license = "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.";
+        let err = branch_environment_error(license).expect("classified");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(
+            err.to_string().contains("xcodebuild -license"),
+            "got: {err}"
+        );
+
+        let lock = "fatal: Unable to create '/p/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale";
+        let err = branch_environment_error(lock).expect("classified");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("index.lock"), "got: {err}");
+
+        assert!(branch_environment_error("fatal: invalid reference: x").is_none());
     }
 
     // The #792 shape: GitHub refusing to delete the repo's default branch,
