@@ -192,6 +192,13 @@ impl From<std::io::Error> for CommandError {
         if let Some(oom) = windows_out_of_memory(&err, None) {
             return oom;
         }
+        // A path that vanished (os error 2/3) is the environment moving or
+        // deleting something under us — the same call `map_spawn_io_error`
+        // makes for spawns. Same text, just kept out of telemetry
+        // (issue #1017).
+        if err.kind() == std::io::ErrorKind::NotFound {
+            return CommandError::expected(format!("I/O error: {err}"));
+        }
         CommandError::Io {
             message: err.to_string(),
         }
@@ -300,12 +307,28 @@ mod tests {
 
     #[test]
     fn from_io_error_maps_to_io() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let io_err = std::io::Error::new(std::io::ErrorKind::InvalidData, "corrupt");
         let err: CommandError = io_err.into();
         match err {
-            CommandError::Io { message } => assert!(message.contains("missing")),
+            CommandError::Io { message } => assert!(message.contains("corrupt")),
             _ => panic!("expected Io variant"),
         }
+    }
+
+    /// Issue #1017: "The system cannot find the path specified. (os error 3)"
+    /// arrived bare through `?` and was reported as a malfunction.
+    #[test]
+    fn from_io_error_not_found_is_expected_with_the_same_text() {
+        let io_err = std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "The system cannot find the path specified. (os error 3)",
+        );
+        let err: CommandError = io_err.into();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            "I/O error: The system cannot find the path specified. (os error 3)"
+        );
     }
 
     #[test]
