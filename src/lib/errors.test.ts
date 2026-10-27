@@ -621,6 +621,8 @@ describe('isExpectedProjectImportRefusal', () => {
     'This project is already inside your projects folder. It will appear automatically.',
     'This folder is already registered.',
     "That's your home directory — pick the project folder itself.",
+    // issue #1060
+    'That folder is your projects folder itself, not a project. Pick one of the project folders inside it instead.',
   ];
 
   it.each(expectedMessages)('classifies as expected: %s', (message) => {
@@ -771,6 +773,85 @@ describe('describeProcessError — npm network blips (issue #883)', () => {
   it('does not false-positive on unrelated text', () => {
     expect(describeProcessError('npm error code ERESOLVE').expected).toBe(true); // sanity: still its own branch
     expect(describeProcessError(new Error('segfault in importer')).expected).toBe(false);
+  });
+});
+
+describe('describeProcessError — install and clone environment states', () => {
+  it('maps an unaccepted Xcode license during clone (issue #1001)', () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.",
+      'failed to run git: exit status 69',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('xcodebuild -license accept');
+  });
+
+  it("maps pnpm's git-dependency build gate (issue #1067)", () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      'Lockfile is up to date, resolution step is skipped',
+      'Error: ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED',
+      '  × installing dependencies',
+      '  ╰─▶ The git-hosted package "@chenglou/pretext@0.0.4" needs to execute build',
+      '      scripts but is not in the "allowBuilds" allowlist.',
+      '  help: Add the package to "allowBuilds" in your project\'s pnpm-workspace.yaml',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('@chenglou/pretext@0.0.4');
+    expect(info.message).toContain('allowBuilds');
+    expect(info.message).not.toContain('approve-builds');
+  });
+
+  it("maps npm's Arborist edgesOut crash (issue #939)", () => {
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "npm error Cannot read properties of null (reading 'edgesOut')",
+      'npm notice',
+      'npm notice New major version of npm available! 10.9.8 -> 12.0.2',
+      'npm error A complete log of this run can be found in: ~/.npm/_logs/2026-09-09T07_03_36_106Z-debug-0.log',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('package-lock.json');
+  });
+
+  it('maps an npm EEXIST conflict and names the file (issue #943)', () => {
+    const raw = [
+      'npm error code EEXIST',
+      'npm error path /Users/x/proj/node_modules/.bin/next',
+      'npm error EEXIST: file already exists',
+      'npm error File exists: /Users/x/proj/node_modules/.bin/next',
+      'npm error Remove the existing file and try again, or run npm',
+      '⠸npm error with --force to overwrite files recklessly.',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('/Users/x/proj/node_modules/.bin/next');
+    expect(info.message).not.toContain('recklessly');
+    // The toast's one-line tail alone still classifies.
+    expect(
+      describeProcessError('⠸npm error with --force to overwrite files recklessly.').expected
+    ).toBe(true);
+  });
+
+  it('maps a postinstall script missing an env var (issue #941)', () => {
+    const raw = [
+      '> holma@0.1.0 postinstall',
+      '> prisma generate',
+      'Failed to load config file "<project>\\holma" as a TypeScript/JavaScript module. Error: PrismaConfigEnvError: Cannot resolve environment variable: DIRECT_URL.',
+      'npm error code 1',
+      'npm error command failed',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('`DIRECT_URL`');
+    expect(info.message).toContain('.env');
   });
 });
 

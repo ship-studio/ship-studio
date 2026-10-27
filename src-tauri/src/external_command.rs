@@ -124,6 +124,17 @@ fn map_spawn_io_error(label: &str, io_err: &std::io::Error) -> CommandError {
              incomplete (side-by-side configuration is incorrect). Reinstall or repair that \
              program, then try again."
         ))
+    } else if cfg!(target_os = "macos") && io_err.raw_os_error() == Some(86) {
+        // EBADARCH ("Bad CPU type in executable"): an Intel-only binary — most
+        // often an old Homebrew/nvm `node` carried over from an Intel Mac — on
+        // Apple Silicon without Rosetta. A broken install, not the app
+        // (issue #1000). 86 means something else off macOS.
+        CommandError::expected(format!(
+            "`{label}` couldn't be launched: the program on your PATH is built for a different \
+             CPU (an Intel-only install on an Apple Silicon Mac). Reinstall an Apple Silicon \
+             build of it — usually Node.js — or install Rosetta with \
+             `softwareupdate --install-rosetta`, then try again."
+        ))
     } else if io_err.kind() == std::io::ErrorKind::InvalidInput
         && io_err
             .to_string()
@@ -611,6 +622,18 @@ mod tests {
             }
             other => panic!("expected Expected, got {other:?}"),
         }
+    }
+
+    // The #1000 shape: "Bad CPU type in executable (os error 86)" spawning an
+    // Intel-only `node` on Apple Silicon.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn map_spawn_io_error_classifies_bad_cpu_type_as_expected() {
+        let err = map_spawn_io_error("playwright capture", &std::io::Error::from_raw_os_error(86));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("`playwright capture`"), "got: {msg}");
+        assert!(msg.contains("Rosetta"), "got: {msg}");
     }
 
     #[test]

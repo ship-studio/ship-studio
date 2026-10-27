@@ -263,6 +263,10 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
   'Windows denied access',
   'the disk or volume is read-only',
   'no longer exists — it may have been moved',
+  // A cloud-sync drive that hasn't materialized the file yet: ETIMEDOUT
+  // (#758) or macOS ECANCELED (#948) — issue #947
+  'Ship Studio timed out trying to',
+  'macOS canceled the read',
 ];
 
 /** True when a plugin-command failure is one of the backend's by-design

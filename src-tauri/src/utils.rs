@@ -812,6 +812,17 @@ pub fn classify_fs_error(
              wait for sync to finish and try again, or keep the project on your local disk.",
             path.display()
         ))
+    } else if cfg!(target_os = "macos") && e.raw_os_error() == Some(89) {
+        // ECANCELED: macOS's file-coordination layer gave up on a cloud-backed
+        // file (iCloud Drive or another File Provider) before it materialized.
+        // Same environment class as the ETIMEDOUT branch above (issue #948).
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — macOS canceled the read. The folder looks \
+             like it's on a cloud drive (iCloud, Google Drive, OneDrive, Dropbox) that hasn't \
+             finished downloading the file — wait for sync to finish and try again, or keep the \
+             project on your local disk.",
+            path.display()
+        ))
     } else if (cfg!(unix) && e.raw_os_error() == Some(28))
         || (cfg!(windows) && e.raw_os_error() == Some(112))
     {
@@ -2035,6 +2046,27 @@ mod tests {
             let msg = err.to_string();
             assert!(msg.contains("cloud drive"), "got: {msg}");
             assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #948 shape: "Operation canceled (os error 89)" reading the
+        // plugin registry from a File Provider-backed folder.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_ecanceled_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(89);
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/.shipstudio/plugins/registry.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("cloud drive"), "got: {msg}");
+            assert!(msg.contains("registry.json"), "got: {msg}");
+            assert!(!msg.contains("os error"), "got: {msg}");
         }
 
         // The #625 shape: EROFS on a project.json write (read-only volume).
