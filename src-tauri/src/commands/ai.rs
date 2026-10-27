@@ -130,8 +130,9 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 ///
 /// - Subscription session/usage/rate limits — "You've hit your session limit
 ///   · resets 4:40pm (Asia/Dubai)", usage-limit and rate-limit wordings
-///   (issue #653). The raw detail is appended so the CLI's reset time
-///   survives into the message.
+///   (issue #653), and Claude's "You've hit your weekly limit" (issue #1110).
+///   The raw detail is appended so the CLI's reset time survives into the
+///   message.
 /// - Expired/missing sign-in — "OAuth token has expired · Please run /login"
 ///   family (issue #653's session-expired sibling).
 /// - Untrusted workspace — Claude Code refusing headless runs in a folder the
@@ -153,6 +154,15 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 ///   account-level setting only the user's admin can change (issue #765).
 /// - The agent's skill loader rejecting a user-installed SKILL.md — "failed to
 ///   load skill …: missing field `description`" (issue #805).
+/// - Claude Code's concurrent OAuth-refresh race — "Failed to refresh OAuth
+///   token: another Claude Code process is refreshing it…": transient by the
+///   CLI's own account, so it gets retry guidance, not re-sign-in (issue #1103).
+/// - An expired provider API key — Opencode's "This API key has expired.
+///   Create a new API key…": rotating the key is the fix, signing in again
+///   isn't (issue #1125).
+/// - Codex configured with a model its ChatGPT-account login can't use — "The
+///   'gpt-5.5' model is not supported when using Codex with a ChatGPT
+///   account" (issue #1129).
 ///
 /// Callers must pass the FULL failure detail, never a truncated copy — Codex
 /// dumps a whole session transcript on failure and the matching line can sit
@@ -164,6 +174,8 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
         || lower.contains("usage limit")
         || lower.contains("rate limit")
         || lower.contains("quota exceeded")
+        // Claude Code's weekly-ceiling wording (issue #1110).
+        || lower.contains("weekly limit")
     {
         // The raw detail carries the CLI's reset time — keep it, but capped
         // (head+tail, since it may be a full transcript) so a user-facing
@@ -193,6 +205,38 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
         return Some(CommandError::expected(format!(
             "{agent_name}'s local model cache is stale, so AI generation isn't available \
              right now. Delete ~/.codex/models_cache.json and try again."
+        )));
+    }
+    // Two Claude Code processes racing to refresh the same stored credential.
+    // The CLI itself calls it transient — checked before the expired-sign-in
+    // branch so the user is told to retry rather than to sign in (issue #1103).
+    if lower.contains("failed to refresh oauth token")
+        || lower.contains("another claude code process is refreshing it")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} couldn't refresh its sign-in because another {agent_name} process \
+             was doing the same. This is usually temporary — try again in a minute. If it \
+             keeps happening, close other {agent_name} sessions or sign in again."
+        )));
+    }
+    // A provider API key that has expired. Not a sign-in problem — the CLI says
+    // signing in again won't renew it — so it can't share that branch's remedy
+    // (issue #1125).
+    if lower.contains("api key has expired") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s API key has expired, so AI generation isn't available right now. \
+             Create a new API key with your provider (for Opencode, in the OpenCode Console), \
+             update it in {agent_name}'s settings, then try again."
+        )));
+    }
+    // Codex's own config selects a model the user's ChatGPT-account login
+    // doesn't cover. Ship Studio never passes a model flag, so this is the
+    // user's CLI configuration, not ours (issue #1129).
+    if lower.contains("not supported when using codex with a chatgpt account") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} is set to a model your ChatGPT account can't use, so AI generation \
+             isn't available right now. Open an agent terminal and run /model to pick one \
+             your plan supports (or change the model in ~/.codex/config.toml), then try again."
         )));
     }
     if lower.contains("please run /login")
@@ -1042,6 +1086,66 @@ mod tests {
         .expect("must classify");
         assert!(matches!(err, CommandError::Expected { .. }));
         assert!(format!("{err}").contains("sign in again"));
+    }
+
+    // Issue #1110: Claude Code's weekly-ceiling wording keeps the reset time.
+    #[test]
+    fn classify_agent_cli_failure_weekly_limit_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Claude Code",
+            "exit code Some(1): You've hit your weekly limit · resets 7am (Africa/Johannesburg)",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("resets 7am"), "got: {err}");
+    }
+
+    // Issue #1103: the concurrent OAuth-refresh race is transient — retry
+    // guidance, classified Expected.
+    #[test]
+    fn classify_agent_cli_failure_oauth_refresh_race_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Claude Code",
+            "exit code Some(1): Failed to refresh OAuth token: another Claude Code process is \
+             refreshing it or exited mid-refresh. This is usually transient; retry in a minute, \
+             and if it persists close other Claude Code processes or sign in again",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(
+            format!("{err}").contains("try again in a minute"),
+            "got: {err}"
+        );
+    }
+
+    // Issue #1125: Opencode's expired API key — rotate the key, not sign in.
+    #[test]
+    fn classify_agent_cli_failure_expired_api_key_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Opencode",
+            "\n> build · deepseek-v4.1-flash\n\nError: This API key has expired. Create a new API \
+             key in OpenCode Console and replace it in your client or secret store. Signing in \
+             again will not renew this key.",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("API key has expired"), "got: {msg}");
+        assert!(!msg.contains("sign in again"), "got: {msg}");
+    }
+
+    // Issue #1129: Codex set to a model its ChatGPT-account login can't use.
+    #[test]
+    fn classify_agent_cli_failure_codex_chatgpt_model_is_expected() {
+        let detail = "OpenAI Codex v0.163.0\n--------\nmodel: gpt-5.5\nprovider: openai\n\
+                      --------\nuser\n[prompt omitted]\n\nwarning: Model metadata for `gpt-5.5` \
+                      not found. Defaulting to fallback metadata; this can degrade performance \
+                      and cause issues.\nERROR: {\"type\":\"error\",\"status\":400,\"error\":\
+                      {\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is \
+                      not supported when using Codex with a ChatGPT account.\"}}";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("/model"), "got: {err}");
     }
 
     // The untrusted-workspace compound error (trust warning + stdin race +
