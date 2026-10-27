@@ -18,7 +18,12 @@ import {
   type FileContent,
 } from '../lib/code';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { trackEvent } from '../lib/analytics';
 import { useAsyncState } from './useAsyncState';
 
@@ -48,6 +53,12 @@ function isExpectedFileAccessError(message: string): boolean {
     lower.includes('permission denied') ||
     lower.includes("doesn't have permission")
   );
+}
+
+/** The project folder vanished outside Ship Studio, or the backend otherwise
+ *  classified the failure Expected — not a bug (issues #1021/#1022). */
+function isGoneOrExpected(err: unknown): boolean {
+  return isProjectFolderGoneError(err) || isExpectedCommandError(err);
 }
 
 /**
@@ -111,7 +122,10 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // CommandError rejections are plain objects — String() renders
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to load file tree', { error: msg });
+      // A project folder moved/deleted outside Ship Studio is a by-design
+      // Expected state, not a bug — the tree's retry UI still shows it
+      // (issue #1021).
+      logger[isGoneOrExpected(err) ? 'warn' : 'error']('Failed to load file tree', { error: msg });
       throw err;
     }
   }, []);
@@ -132,7 +146,9 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
       // logger.error auto-files a bug report; a gone or locked file isn't one.
-      logger[isExpectedFileAccessError(msg) ? 'warn' : 'error']('Failed to read file', {
+      // …and neither is the whole project folder being gone (issue #1022).
+      const expected = isExpectedFileAccessError(msg) || isGoneOrExpected(err);
+      logger[expected ? 'warn' : 'error']('Failed to read file', {
         path,
         error: msg,
       });
@@ -357,7 +373,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       return 'saved';
     } catch (err) {
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to save file', { path, error: msg });
+      logger[isGoneOrExpected(err) ? 'warn' : 'error']('Failed to save file', { path, error: msg });
       setSaveError(msg);
       return { error: msg };
     } finally {
