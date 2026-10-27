@@ -6,6 +6,11 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.6.3
+
+- **Security updates** - Ship Studio's dependencies are patched against the latest advisories, and every starter template now starts on patched versions (including the October Next.js and Astro fixes)
+
+
 ## What's New in v1.6.2
 
 - **Remote access: new projects and switching** - Your assistant can create a new project (shared and opened automatically), switch between shared projects, and screenshot a project that isn't showing without asking you to switch over

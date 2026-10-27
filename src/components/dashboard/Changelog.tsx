@@ -26,6 +26,12 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.3', // v1.6.3
+    items: [
+      'Security updates: Ship Studio’s own dependencies are patched against the latest advisories, and every starter template now begins on patched versions — including the October Next.js and Astro fixes',
+    ],
+  },
+  {
     version: '1.6.2', // v1.6.2
     items: [
       'Remote access can now create a new project for you — ask your assistant for “a new Next.js project called bakery” and it’s made, shared for remote access and opened, ready for an agent to build in',

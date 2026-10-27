@@ -38,25 +38,23 @@ pub fn init_sentry() {
         "production"
     };
 
-    let guard = sentry::init((
-        SENTRY_DSN,
-        sentry::ClientOptions {
-            release: Some(env!("CARGO_PKG_VERSION").into()),
-            environment: Some(environment.into()),
-            send_default_pii: false,
-            before_send: Some(std::sync::Arc::new(|mut event| {
-                scrub_event(&mut event);
-                Some(event)
-            })),
-            before_breadcrumb: Some(std::sync::Arc::new(|mut breadcrumb| {
-                if let Some(msg) = breadcrumb.message.as_mut() {
-                    *msg = scrub_string(msg);
-                }
-                Some(breadcrumb)
-            })),
-            ..Default::default()
-        },
-    ));
+    // `ClientOptions` is non-exhaustive, so it's built from the default and
+    // then filled in rather than with a struct literal.
+    let mut options = sentry::ClientOptions::default();
+    options.release = Some(env!("CARGO_PKG_VERSION").into());
+    options.environment = Some(environment.into());
+    options.send_default_pii = false;
+    options.before_send = Some(std::sync::Arc::new(|mut event| {
+        scrub_event(&mut event);
+        Some(event)
+    }));
+    options.before_breadcrumb = Some(std::sync::Arc::new(|mut breadcrumb| {
+        if let Some(msg) = breadcrumb.message.as_mut() {
+            *msg = scrub_string(msg);
+        }
+        Some(breadcrumb)
+    }));
+    let guard = sentry::init((SENTRY_DSN, options));
     let _ = SENTRY_GUARD.set(guard);
 }
 
