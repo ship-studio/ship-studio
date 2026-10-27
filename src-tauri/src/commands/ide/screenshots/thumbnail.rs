@@ -91,13 +91,17 @@ fn sweep_stale_thumbnail_profiles(shipstudio_dir: &Path) {
 /// and the allocator double-load warning (issues #498–#500), Windows' PDH
 /// CPU-telemetry counter registration failing inside Hyper-V-backed VMs
 /// (issue #807), and macOS CoreVideo's display-link probe finding no display
-/// in a headless process (issue #817). A headless capture emits these freely;
+/// in a headless process (issue #817), and the segmentation platform's ML
+/// classifier chatter (issue #1119). A headless capture emits these freely;
 /// keeping them buries the actionable line.
 fn is_chromium_noise(line: &str) -> bool {
     const NOISE_MARKERS: &[&str] = &[
         "crashpad",
         "TransactNamedPipe",
         "chrome/updater/",
+        // Windows logs the same updater source path with backslashes
+        // (`chrome\updater\ipc\update_service_dialer_win.cc`, issue #1099).
+        "chrome\\updater\\",
         "GoogleUpdater",
         "google_apis/gcm",
         "Registration response error message",
@@ -108,6 +112,9 @@ fn is_chromium_noise(line: &str) -> bool {
         "PdhAddEnglishCounter",
         "cv_display_link_mac",
         "CVDisplayLinkCreateWithCGDisplay",
+        // The segmentation platform's shopping/topics classifiers failing
+        // their input step — ML chatter, not a capture failure (#591/#1119).
+        "segmentation_platform",
     ];
     NOISE_MARKERS.iter().any(|m| line.contains(m))
 }
@@ -673,6 +680,26 @@ mod browser_stderr_tests {
         assert!(!detail.contains("GoogleUpdater"));
         assert!(!detail.contains("PHONE_REGISTRATION_ERROR"));
         assert!(!detail.contains("XNNPACK"));
+    }
+
+    #[test]
+    fn windows_backslash_updater_noise_is_filtered() {
+        // Verbatim from issue #1099.
+        let stderr = "[26268:21232:1008/231915.267:ERROR:chrome\\updater\\ipc\\update_service_dialer_win.cc:75] Failed to open named pipe server process 27580: Access is denied. (0x5)\n\
+            [26268:30436:1008/231923.565:ERROR:chrome\\updater\\ipc\\update_service_dialer_win.cc:75] Failed to open named pipe server process 24912: Access is denied. (0x5)";
+        assert_eq!(browser_failure_detail(stderr), None);
+    }
+
+    #[test]
+    fn segmentation_platform_noise_is_filtered() {
+        // Verbatim from issue #1119.
+        let stderr = "[34185:4236629:1014/111106.035300:ERROR:components/segmentation_platform/internal/execution/processing/feature_processor_state.cc:44] Processing error occured: model ShoppingUser failed with CustomInputError, message:\n\
+            [34185:4236629:1014/111106.035341:ERROR:components/segmentation_platform/internal/execution/processing/feature_processor_state.cc:44] Processing error occured: model ShoppingUser failed with CustomInputError, message:\n\
+            real failure line";
+        assert_eq!(
+            browser_failure_detail(stderr).as_deref(),
+            Some("real failure line")
+        );
     }
 
     #[test]
