@@ -162,6 +162,44 @@ export function structuralEditMessage(message: string): string {
   if (insertNextTo) {
     return `Nothing can sit beside <${insertNextTo[1]}> — it's part of the page itself. Use "Insert inside" instead.`;
   }
+  // `splice_inside`'s guard for any open-tag-only span — a void tag, or a
+  // custom component / SVG shape written self-closing (`<Card />`), which the
+  // toolbar's VOID_ELEMENTS gate can't see (issue #1085). Its reason is
+  // already user-facing; drop the "Validation failed for `position`:" prefix.
+  if (message.includes("This element can't contain children")) {
+    return "This element can't contain children — insert before or after it instead.";
+  }
+  // The drift guards: the file changed (HMR, a formatter, an agent) between
+  // selecting the element and writing to it (issue #1078).
+  if (/(source|target) no longer matches — reselect the element/.test(message)) {
+    return 'The source changed since you selected this element — reselect it and try again.';
+  }
+  // `move_element`'s guards (edit_structure.rs). By design, but worded as
+  // internal rules (issues #1104/#1056).
+  if (message.includes('an element cannot be moved inside its own descendant')) {
+    return "You can't drop an element inside itself or one of its own children.";
+  }
+  if (message.includes('an element cannot be moved relative to itself')) {
+    return "You can't drop an element onto itself. Drop it before, after, or inside another element.";
+  }
+  if (message.includes('source and target must belong to the same source file')) {
+    return 'Elements can only be moved within the same file. Ask your agent to move it to another file.';
+  }
+  const unmovable = /<(html|head|body)> cannot be moved/.exec(message);
+  if (unmovable) {
+    return `<${unmovable[1]}> is part of the page itself, so it can't be moved. Pick an element inside it instead.`;
+  }
+  const childless = /<([^>\s]+)> cannot contain children/.exec(message);
+  if (childless) {
+    return `<${childless[1]}> can't contain children — drop it before or after instead.`;
+  }
+  const besideStructural = /nothing can be placed beside <(html|head|body)>/.exec(message);
+  if (besideStructural) {
+    return `Nothing can sit beside <${besideStructural[1]}> — it's part of the page itself. Drop it inside instead.`;
+  }
+  if (message.includes('this component root cannot have a sibling')) {
+    return 'This is the root of a component, so nothing can sit beside it. Drop it inside instead.';
+  }
   // `element_span` walked off the end of the file looking for this element's
   // closing tag — raw internal wording that meant nothing to the user (issue
   // #789). Rephrased, but NOT treated as expected below: it still points at
@@ -190,7 +228,18 @@ export function isExpectedStructuralRefusal(message: string): boolean {
     message.includes("Couldn't tell which <") ||
     message.includes('without a class in source') ||
     /<(html|head|body)> can't be (deleted|duplicated)\./.test(message) ||
-    /Can't insert next to <(html|head|body)>/.test(message)
+    /Can't insert next to <(html|head|body)>/.test(message) ||
+    // Self-closing span has no inside (#1085), and the drift guards (#1078).
+    message.includes("This element can't contain children") ||
+    /(source|target) no longer matches — reselect the element/.test(message) ||
+    // move_element's by-design guards (#1104/#1056).
+    message.includes('an element cannot be moved inside its own descendant') ||
+    message.includes('an element cannot be moved relative to itself') ||
+    message.includes('source and target must belong to the same source file') ||
+    /<(html|head|body)> cannot be moved/.test(message) ||
+    /<[^>\s]+> cannot contain children/.test(message) ||
+    /nothing can be placed beside <(html|head|body)>/.test(message) ||
+    message.includes('this component root cannot have a sibling')
   );
 }
 
