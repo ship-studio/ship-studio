@@ -655,10 +655,30 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
              try again.",
         ));
     }
+    // Git for Windows writing the index of a repository it reaches through
+    // WSL's `\\wsl.localhost\…` (or `\\wsl$\…`) share: the 9P filesystem
+    // doesn't give it the write-temp-then-rename semantics an index update
+    // relies on. The mount shows up in git's own "old-style path" warnings
+    // about the `safe.directory` entries such repos need (issue #955). Ahead
+    // of the generic index-write branch so the user hears about the mount
+    // rather than about disk space.
+    if lower.contains("unable to write new_index file")
+        && (lower.contains("wsl.localhost") || lower.contains("wsl$"))
+    {
+        return Some(crate::errors::CommandError::expected(
+            "Git for Windows couldn't write this project's index because the project lives \
+             inside WSL (a \\\\wsl.localhost path), which it can't reliably write to. Commit from \
+             a terminal inside WSL, or move the project to a folder on your Windows drive, then \
+             try again.",
+        ));
+    }
     // git couldn't write `.git/index` itself (not the `.lock` race, which
     // `output_retrying_index_lock` handles): a full disk or a `.git` folder
     // the user can't write to. Environment, not malfunction (issue #861).
-    if lower.contains("could not write index") || lower.contains("unable to write index") {
+    if lower.contains("could not write index")
+        || lower.contains("unable to write index")
+        || lower.contains("unable to write new_index file")
+    {
         return Some(crate::errors::CommandError::expected(
             "Git couldn't write this project's index file. Check that the disk isn't full \
              and that the project's .git folder is writable (in a terminal: \
@@ -676,13 +696,15 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
 /// a memory commit (`STATUS_COMMITMENT_LIMIT`, issue #888) — the same
 /// pagefile-exhaustion condition `git_environment_gap`'s "paging file is too
 /// small" branch handles, just arriving here because this occurrence had no
-/// stderr at all. All three are the Git installation, something interfering
+/// stderr at all — and git overflowing its stack (`STATUS_STACK_OVERFLOW`,
+/// issue #1034). All four are the Git installation, something interfering
 /// with it (antivirus, a broken update), or a Windows-level resource limit —
 /// not an app malfunction. Returns `None` for any other code.
 pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::CommandError> {
     const STATUS_DLL_INIT_FAILED: i32 = 0xC0000142_u32 as i32; // -1073741502
     const STATUS_ACCESS_VIOLATION: i32 = 0xC0000005_u32 as i32; // -1073741819
     const STATUS_COMMITMENT_LIMIT: i32 = 0xC000012D_u32 as i32; // -1073741523
+    const STATUS_STACK_OVERFLOW: i32 = 0xC00000FD_u32 as i32; // -1073741571
     match exit_code {
         Some(STATUS_DLL_INIT_FAILED) => Some(crate::errors::CommandError::expected(
             "Git failed to start correctly on Windows — a component of the Git installation \
@@ -698,6 +720,11 @@ pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::Comman
             "Windows ran out of virtual memory while git was working (the paging file is too \
              small). Close some other apps or increase the paging file size (Settings → System → \
              About → Advanced system settings → Performance → Virtual memory), then try again.",
+        )),
+        Some(STATUS_STACK_OVERFLOW) => Some(crate::errors::CommandError::expected(
+            "Git crashed on Windows (a stack overflow). This is usually antivirus \
+             interference or a corrupted Git install: add Git to your antivirus exclusions or \
+             reinstall Git for Windows, then try again.",
         )),
         _ => None,
     }
@@ -1796,6 +1823,34 @@ mod tests {
             let err = git_exit_code_gap(Some(-1073741523)).expect("classified");
             assert!(matches!(err, CommandError::Expected { .. }));
             assert!(err.to_string().contains("paging file"), "got: {err}");
+        }
+
+        #[test]
+        fn windows_stack_overflow_exit_code_is_an_environment_gap() {
+            // STATUS_STACK_OVERFLOW (issue #1034): "Failed to get git status
+            // (exit -1073741571)" — git.exe died with no stderr.
+            let err = git_exit_code_gap(Some(-1073741571)).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("stack overflow"), "got: {err}");
+        }
+
+        #[test]
+        fn wsl_new_index_write_failure_names_the_mount() {
+            // Issue #955: a commit in a repo opened through \\wsl.localhost.
+            let stderr =
+                "warning: encountered old-style '//wsl.localhost/Ubuntu/home/u/repos/git_test' \
+                          that should be '%(prefix)///wsl.localhost/Ubuntu/home/u/repos/git_test'\n\
+                          fatal: unable to write new_index file";
+            let err = git_environment_gap(stderr).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("WSL"), "got: {err}");
+            // Off a WSL mount it's the ordinary disk/permissions case.
+            let plain =
+                git_environment_gap("fatal: unable to write new_index file").expect("classified");
+            assert!(
+                plain.to_string().contains("disk isn't full"),
+                "got: {plain}"
+            );
         }
     }
 
