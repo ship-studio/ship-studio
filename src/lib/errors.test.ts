@@ -9,6 +9,7 @@ import {
   isAgentNotInstalledError,
   isExpectedCommandError,
   isExpectedProjectImportRefusal,
+  isExpectedRenameRefusal,
   isMergeConflictError,
   isMissingUpstreamError,
   isProjectFolderGoneError,
@@ -607,6 +608,48 @@ describe('isMissingUpstreamError', () => {
       false
     );
     expect(isMissingUpstreamError(new Error('fatal: not a git repository'))).toBe(false);
+  });
+});
+
+describe('project settings load failure (#951)', () => {
+  it('recognizes the reported folder-gone message so the toast is marked expected', () => {
+    expect(
+      isProjectFolderGoneError({
+        type: 'Other',
+        expected: true,
+        message:
+          "The folder '/Users/<redacted>/ShipStudio/just-checking' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+      })
+    ).toBe(true);
+  });
+});
+
+describe('isExpectedRenameRefusal', () => {
+  it('treats a Validation refusal as expected (#979)', () => {
+    expect(
+      isExpectedRenameRefusal({
+        type: 'Validation',
+        field: 'new_name',
+        reason: 'Project name cannot contain slashes',
+      })
+    ).toBe(true);
+  });
+
+  it('treats the external-project refusal as expected (#968)', () => {
+    expect(
+      isExpectedRenameRefusal({
+        type: 'Other',
+        expected: true,
+        message:
+          "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name.",
+      })
+    ).toBe(true);
+  });
+
+  it('keeps the name-taken and open-elsewhere refusals, and reports the rest', () => {
+    expect(isExpectedRenameRefusal('A project named "x" already exists')).toBe(true);
+    expect(isExpectedRenameRefusal('Close this project in its other window first')).toBe(true);
+    expect(isExpectedRenameRefusal({ type: 'Io', message: 'disk on fire' })).toBe(false);
   });
 });
 

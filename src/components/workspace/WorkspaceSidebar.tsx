@@ -65,7 +65,12 @@ import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
 import { kbd } from '../../lib/shortcuts';
 import { basename } from '../../lib/paths';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { setActiveAccountId, type Account } from '../../lib/accounts';
 import { DragSortHandle, DragSortItem, DragSortScope } from '../primitives/DragSort';
@@ -503,9 +508,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         setProjectSettingsPort(savedPort ?? preferredPortForProject(row.projectPath));
         sidebarProjectSettingsModal.open();
       } catch (error) {
+        // A folder moved/deleted outside Ship Studio is Expected — still shown,
+        // not filed as a bug (issue #951).
         showToast(
           `Couldn't load settings for ${row.fallbackName}: ${formatCommandError(asCommandError(error))}`,
-          'error'
+          'error',
+          undefined,
+          { expected: isProjectFolderGoneError(error) || isExpectedCommandError(error) }
         );
       }
     },
