@@ -812,6 +812,54 @@ describe('isExpectedStructuralRefusal', () => {
     }
   });
 
+  // Issues #1104/#1085/#1078/#1056: move guards, the self-closing "Inside"
+  // refusal and the drift guard were reported as bugs with raw wording.
+  it.each([
+    [
+      'Validation failed for `target`: an element cannot be moved inside its own descendant',
+      "You can't drop an element inside itself or one of its own children.",
+    ],
+    [
+      "Validation failed for `position`: This element can't contain children — insert before or after it instead.",
+      "This element can't contain children — insert before or after it instead.",
+    ],
+    [
+      'Validation failed for `element`: source no longer matches — reselect the element',
+      'The source changed since you selected this element — reselect it and try again.',
+    ],
+    [
+      'Validation failed for `target_html`: target no longer matches — reselect the element',
+      'The source changed since you selected this element — reselect it and try again.',
+    ],
+    [
+      'Validation failed for `target`: an element cannot be moved relative to itself',
+      "You can't drop an element onto itself. Drop it before, after, or inside another element.",
+    ],
+    [
+      'Validation failed for `target`: source and target must belong to the same source file',
+      'Elements can only be moved within the same file. Ask your agent to move it to another file.',
+    ],
+    [
+      'Validation failed for `source`: <body> cannot be moved',
+      "<body> is part of the page itself, so it can't be moved. Pick an element inside it instead.",
+    ],
+    [
+      'Validation failed for `position`: <img> cannot contain children',
+      "<img> can't contain children — drop it before or after instead.",
+    ],
+    [
+      'Validation failed for `target`: nothing can be placed beside <head>',
+      "Nothing can sit beside <head> — it's part of the page itself. Drop it inside instead.",
+    ],
+    [
+      'Validation failed for `position`: this component root cannot have a sibling; choose Inside instead',
+      'This is the root of a component, so nothing can sit beside it. Drop it inside instead.',
+    ],
+  ])('treats %j as an expected refusal with friendly wording', (raw, friendly) => {
+    expect(isExpectedStructuralRefusal(raw)).toBe(true);
+    expect(structuralEditMessage(raw)).toBe(friendly);
+  });
+
   it('does not swallow genuine failures', () => {
     expect(isExpectedStructuralRefusal('I/O error: disk full')).toBe(false);
     expect(isExpectedStructuralRefusal("couldn't map this element to its source markup")).toBe(

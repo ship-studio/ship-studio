@@ -11,6 +11,8 @@ import { useCodeHealth } from './useCodeHealth';
 import * as health from '../lib/health';
 import type { DetectedScripts } from '../lib/health';
 
+const logger = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }));
+
 vi.mock('../lib/health', async () => {
   const actual = await vi.importActual<typeof import('../lib/health')>('../lib/health');
   return {
@@ -20,6 +22,8 @@ vi.mock('../lib/health', async () => {
     runHealthScript: vi.fn(),
   };
 });
+
+vi.mock('../lib/logger', () => ({ logger }));
 
 const detectHealthScripts = vi.mocked(health.detectHealthScripts);
 const getHealthStatus = vi.mocked(health.getHealthStatus);
@@ -82,5 +86,41 @@ describe('useCodeHealth runCheck error toasts (#786)', () => {
 
     const toastTypes = onToast.mock.calls.map((call) => call[1]);
     expect(toastTypes).toContain('error');
+  });
+});
+
+describe('useCodeHealth script detection logging (#1091)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getHealthStatus.mockResolvedValue(null);
+  });
+
+  it('warns, not errors, when the project folder no longer exists', async () => {
+    const message =
+      "The folder '<project>' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio";
+    detectHealthScripts.mockRejectedValue({ type: 'Other', message, expected: true });
+
+    renderHook(() => useCodeHealth({ projectPath: '/tmp/project' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith('Failed to detect health scripts', {
+      error: message,
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('still logs an error for an unclassified detection failure', async () => {
+    detectHealthScripts.mockRejectedValue({ type: 'Other', message: 'Something broke' });
+
+    renderHook(() => useCodeHealth({ projectPath: '/tmp/project' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(logger.error).toHaveBeenCalledWith('Failed to detect health scripts', {
+      error: 'Something broke',
+    });
   });
 });

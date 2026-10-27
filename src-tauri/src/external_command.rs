@@ -393,6 +393,43 @@ pub fn truncate_output(text: &str) -> String {
     format!("{}… (truncated)", head.trim_end())
 }
 
+/// The signal that terminated a process which exited without a code. Always
+/// `None` off Unix, where `ExitStatus::code()` is always present.
+pub fn exit_signal(status: &std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
+    }
+}
+
+/// "signal 9 (SIGKILL) — likely killed by …": names the common signals and
+/// hints at the usual culprit, so a signal death says *which* signal and what
+/// it usually means (issues #589/#1088).
+pub fn describe_signal(sig: i32) -> String {
+    let name = match sig {
+        1 => " (SIGHUP)",
+        2 => " (SIGINT)",
+        6 => " (SIGABRT)",
+        9 => " (SIGKILL)",
+        11 => " (SIGSEGV)",
+        13 => " (SIGPIPE)",
+        15 => " (SIGTERM)",
+        _ => "",
+    };
+    let hint = match sig {
+        9 => " — likely killed by the operating system, e.g. because it ran out of memory",
+        11 => " — the program crashed (segmentation fault)",
+        _ => "",
+    };
+    format!("signal {sig}{name}{hint}")
+}
+
 /// Like [`truncate_output`], but keeps both ends: the first and last
 /// [`MAX_ERROR_OUTPUT_CHARS`]/2 characters with an omission marker in between.
 /// For output where the useful line can live at either end — a banner up top,

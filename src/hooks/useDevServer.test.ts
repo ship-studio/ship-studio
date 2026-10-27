@@ -411,6 +411,35 @@ describe('useDevServer', () => {
       );
     });
 
+    it('warns instead of reporting when the project folder is gone (issue #1075)', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { getWorkspaceSubpath } = await import('../lib/project');
+      const { logger } = await import('../lib/logger');
+      vi.mocked(detectProjectType).mockResolvedValue('generic');
+      vi.mocked(getWorkspaceSubpath).mockRejectedValue({
+        type: 'Other',
+        message:
+          "The folder '<redacted>' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+        expected: true,
+      });
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[DevServer] getWorkspaceSubpath failed; using repo root as cwd',
+        expect.objectContaining({ projectPath: '/path/to/project' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+      expect(logger.error).not.toHaveBeenCalledWith(
+        '[DevServer] getWorkspaceSubpath failed; using repo root as cwd',
+        expect.anything()
+      );
+    });
+
     it('falls back to the dev script when a generic custom command is cleared', async () => {
       const { detectProjectType } = await import('../lib/static-server');
       const { getGenericDevCommand, getPackageDevScriptCommand, startDevServer } =

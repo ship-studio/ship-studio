@@ -224,6 +224,38 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              try again, and if it keeps happening, restarting your machine often clears it.",
         );
     }
+    // Windows refusing to launch the headless browser executable. `EBUSY`
+    // means the file is locked — usually security software scanning it, or a
+    // previous capture's process not having released it yet — which clears
+    // on its own (issue #1093). `UNKNOWN` is libuv's catch-all for a
+    // CreateProcess failure it has no errno for; upstream, that is almost
+    // always security software or a policy blocking the unsigned binary
+    // (microsoft/playwright#35363, issue #1092). Neither is an app bug.
+    if stderr.contains("spawn EBUSY") {
+        return CommandError::expected(
+            "The screenshot browser couldn't start because its program file was briefly \
+             locked — usually security software scanning it. Try again in a moment.",
+        );
+    }
+    if stderr.contains("spawn UNKNOWN") {
+        return CommandError::expected(
+            "Windows wouldn't start the screenshot browser. This is usually security software \
+             or a Windows policy blocking it — allow %LOCALAPPDATA%\\ms-playwright in your \
+             security software, then try again.",
+        );
+    }
+    // The disk filling up as the screenshot file is written. The install path
+    // already classifies this (browser_install_error); the capture's own
+    // write needs the same treatment (issue #1116).
+    if stderr.contains("ENOSPC")
+        || stderr.contains("No space left on device")
+        || stderr.contains("not enough space on the disk")
+    {
+        return CommandError::expected(
+            "Couldn't save the screenshot — this computer is out of disk space. Free up some \
+             space, then try again.",
+        );
+    }
     // Chromium's CDP refusing the screenshot outright ("Page.captureScreenshot:
     // Unable to capture screenshot") is a known transient renderer failure —
     // GPU/memory pressure or backing-store limits (puppeteer#5341). The
@@ -280,6 +312,17 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              server is probably still compiling this route. Wait for the preview to load \
              fully, then try again."
         ));
+    }
+    // The screenshot action itself outlasting its budget (120s on the first
+    // attempt, 30s on a retry) after navigation succeeded: Chromium stalled
+    // rendering or encoding the capture — GPU/CPU pressure or security
+    // software intercepting the write (issues #1079/#1020), not an app bug.
+    if stderr.contains("page.screenshot") && stderr.contains("Timeout") {
+        return CommandError::expected(
+            "The screenshot is taking unusually long — the headless browser stalled while \
+             rendering the page (usually heavy load on this machine, or security software \
+             slowing the capture). Try again in a moment.",
+        );
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let status = exit_status_detail(output);
@@ -1202,17 +1245,67 @@ mod capture_error_tests {
         }
     }
 
+    fn assert_expected_capture(stderr: &str, needle: &str) {
+        let err = capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &failed_output(stderr),
+        );
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains(needle), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
     #[test]
-    fn non_goto_timeouts_are_not_swallowed_as_expected() {
-        // A timeout elsewhere (e.g. the screenshot action) isn't the
-        // slow-compile navigation shape — keep it a real, detailed error.
-        let output = failed_output("page.screenshot: Timeout 120000ms exceeded.");
+    fn disk_full_capture_write_is_expected() {
+        // Verbatim from issue #1116.
+        assert_expected_capture(
+            "ENOSPC: no space left on device, open '/Users/<redacted>/ShipStudio/sifou-travels/.shipstudio/screenshots/screenshot-1791900136345.png'",
+            "out of disk space",
+        );
+    }
+
+    #[test]
+    fn locked_browser_executable_is_expected() {
+        // Verbatim from issue #1093.
+        assert_expected_capture(
+            "browserType.launch: spawn EBUSY\nCall log:\n  - <launching> C:\\Users\\<redacted>\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe ... --no-startup-window",
+            "briefly locked",
+        );
+    }
+
+    #[test]
+    fn blocked_browser_executable_is_expected() {
+        // Verbatim from issue #1092.
+        assert_expected_capture(
+            "browserType.launch: spawn UNKNOWN\nCall log:\n  - <launching> C:\\Users\\<redacted>\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1243\\chrome-headless-shell-win64\\chrome-headless-shell.exe --disable-field-trial-config ... --no-startup-window",
+            "ms-playwright",
+        );
+    }
+
+    #[test]
+    fn unrecognized_timeouts_are_not_swallowed_as_expected() {
+        // A timeout in some other step isn't a known environmental shape —
+        // keep it a real, detailed error.
+        let output = failed_output("page.evaluate: Timeout 30000ms exceeded.");
         let err = capture_script_error(
             "Playwright viewport screenshot",
             "http://localhost:3000",
             &output,
         );
         assert!(!matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn screenshot_action_timeout_is_expected() {
+        // Verbatim from issue #1079 (first attempt, full 120s budget).
+        assert_expected_capture(
+            "page.screenshot: Timeout 120000ms exceeded.\nCall log:\n  - taking page screenshot",
+            "taking unusually long",
+        );
     }
 }
 
