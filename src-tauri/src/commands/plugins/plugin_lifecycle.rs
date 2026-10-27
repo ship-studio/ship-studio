@@ -61,6 +61,12 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
 /// shapes we recognize (issues #803, #732); `None` for anything else so a
 /// genuinely novel git failure still reaches telemetry with its raw stderr.
 fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
+    // Machine-wide git breakage (unaccepted Xcode license, missing Command
+    // Line Tools, …) fails every git call the same way; the shared classifier
+    // already knows those shapes (issues #986, #987, #988).
+    if let Some(err) = crate::utils::git_environment_gap(stderr) {
+        return Some(err);
+    }
     let lower = stderr.to_lowercase();
     // git fell back to an interactive credential prompt and there's no tty in a
     // GUI-spawned process, so it dies with "Device not configured" (macOS) or
@@ -87,12 +93,25 @@ fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
              link — it may be mistyped, private, renamed, or deleted.",
         ));
     }
+    // A URL that answers, but not as a git repository — git's dumb-HTTP probe
+    // ("…/info/refs not valid: is this a git repository?"). Seen with a link
+    // carrying a tracking query string (`?fbclid=…`) and with a site's own
+    // page URL (issue #975).
+    if lower.contains("is this a git repository") {
+        return Some(CommandError::expected(
+            "That URL doesn't point to a git repository. Double-check the plugin's repository \
+             link — extra characters such as a tracking parameter (`?fbclid=…`) can break it.",
+        ));
+    }
     // Offline / DNS / firewall — the machine's network, not the app.
     if lower.contains("could not resolve host")
         || lower.contains("could not resolve proxy")
         || lower.contains("connection timed out")
         || lower.contains("connection refused")
         || lower.contains("network is unreachable")
+        // curl's TCP connect failure: "Failed to connect to github.com port
+        // 443 after 1074 ms: Couldn't connect to server" (issue #1026).
+        || lower.contains("couldn't connect to server")
     {
         return Some(CommandError::expected(
             "Couldn't reach the plugin's repository — check your internet connection and \
@@ -1020,6 +1039,52 @@ mod tests {
             "fatal: unable to access '...': Could not resolve host: github.com",
         );
         assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    // Issue #1026: curl's TCP connect failure, exact text.
+    #[test]
+    fn classifies_couldnt_connect_clone_as_expected() {
+        let err = classify_clone_failure(
+            "Cloning into '/Users/me/site/.shipstudio/plugins/.tmp-install'...\nfatal: unable to \
+             access 'https://github.com/ship-studio/plugin-dependency-checker/': Failed to \
+             connect to github.com port 443 after 1074 ms: Couldn't connect to server",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(
+            err.to_string().contains("internet connection"),
+            "got: {err}"
+        );
+    }
+
+    // Issue #975: a URL that isn't a git repository (tracking query string).
+    #[test]
+    fn classifies_not_a_git_repository_as_expected() {
+        let err = classify_clone_failure(
+            "Cloning into 'C:\\proj\\.shipstudio\\plugins\\.tmp-install'...\nfatal: \
+             https://github.com/nextlevelbuilder/ui-ux-pro-max-skill?fbclid=IwAR0abc/info/refs \
+             not valid: is this a git repository?",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("tracking parameter"), "got: {err}");
+    }
+
+    // Issues #986, #987, #988: an unaccepted Xcode license breaks the plugin
+    // clone and the update check's ls-remote the same way as every git call.
+    #[test]
+    fn classifies_xcode_license_gap_as_expected() {
+        let stderr = "You have not agreed to the Xcode license agreements. Please run 'sudo \
+                      xcodebuild -license' from within a Terminal window to review and agree to \
+                      the Xcode and Apple SDKs license.";
+        let err = classify_clone_failure(stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(
+            err.to_string().contains("xcodebuild -license"),
+            "got: {err}"
+        );
+        assert!(matches!(
+            classify_remote_git_failure(stderr),
+            Some(CommandError::Expected { .. })
+        ));
     }
 
     #[test]

@@ -175,6 +175,18 @@ describe('isExpectedPluginFailure', () => {
     }
   });
 
+  it('defers to the backend expected flag for unlisted wordings (issue #988)', async () => {
+    const { isExpectedPluginFailure } = await loadPlugins();
+    expect(
+      isExpectedPluginFailure({
+        type: 'Other',
+        message:
+          "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run `sudo xcodebuild -license accept`, then try again.",
+        expected: true,
+      })
+    ).toBe(true);
+  });
+
   it('leaves genuine defects reportable', async () => {
     const { isExpectedPluginFailure } = await loadPlugins();
     expect(

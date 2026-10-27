@@ -8,7 +8,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { asCommandError, formatCommandError } from './errors';
+import { asCommandError, formatCommandError, isExpectedCommandError } from './errors';
 import { logger } from './logger';
 
 /** Setup item contributed by a plugin */
@@ -270,10 +270,16 @@ const EXPECTED_PLUGIN_FAILURE_PHRASES = [
 ];
 
 /** True when a plugin-command failure is one of the backend's by-design
- *  refusals or environment states (see {@link EXPECTED_PLUGIN_FAILURE_PHRASES}). */
+ *  refusals or environment states (see {@link EXPECTED_PLUGIN_FAILURE_PHRASES}),
+ *  or carries the backend's own `expected` flag — so a backend classification
+ *  whose wording isn't listed above (the shared machine-wide git checks, e.g.
+ *  an unaccepted Xcode license, issue #988) isn't logged as an error anyway. */
 export function isExpectedPluginFailure(value: unknown): boolean {
   const message = formatCommandError(asCommandError(value));
-  return EXPECTED_PLUGIN_FAILURE_PHRASES.some((phrase) => message.includes(phrase));
+  return (
+    EXPECTED_PLUGIN_FAILURE_PHRASES.some((phrase) => message.includes(phrase)) ||
+    isExpectedCommandError(value)
+  );
 }
 
 /** Result of a plugin shell command */
