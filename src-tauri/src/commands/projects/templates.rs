@@ -11,6 +11,13 @@ use walkdir::WalkDir;
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::ZipArchive;
 
+/// The chosen name collides with an existing project folder — a by-design
+/// refusal the user fixes by picking another name, so Expected keeps it out of
+/// telemetry (issue #1146, same as `rename_project`'s collision in #599).
+fn project_exists_error(safe_name: &str) -> CommandError {
+    CommandError::expected(format!("A project named '{safe_name}' already exists"))
+}
+
 /// Extracts a zip template file to create a new project.
 /// The zip file should contain a single root directory (like GitHub downloads).
 /// Returns the path to the created project.
@@ -48,7 +55,7 @@ pub async fn extract_template_zip(
 
     // Check if project already exists
     if project_path.exists() {
-        return Err((format!("A project named '{safe_name}' already exists")).into());
+        return Err(project_exists_error(&safe_name));
     }
 
     // Extract from direct bytes or stream from disk. On-disk zips are opened
@@ -435,10 +442,26 @@ pub async fn export_project_as_template(
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_project_markers, extract_archive_to, is_junk_zip_entry};
+    use super::{
+        contains_project_markers, extract_archive_to, is_junk_zip_entry, project_exists_error,
+    };
     use std::io::Write;
     use tempfile::TempDir;
     use zip::write::SimpleFileOptions;
+
+    // Issue #1146: a name collision is a by-design refusal, not a bug report.
+    #[test]
+    fn project_name_collision_is_expected() {
+        let err = project_exists_error("wilderful");
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+        assert_eq!(
+            err.to_string(),
+            "A project named 'wilderful' already exists"
+        );
+    }
 
     /// Build an in-memory zip with the given (name, content) entries.
     /// Directory entries are names ending in '/'.

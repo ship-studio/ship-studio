@@ -2144,9 +2144,17 @@ async fn ensure_simulator(preferred: Option<String>) -> Result<BootResult, Comma
         SIMCTL_TIMEOUT_SECS,
     )
     .await?;
-    let target = choose_default_simulator(&available)
-        .ok_or("No available iOS simulator to boot. Add one in Xcode › Settings › Components.")?;
+    let target = choose_default_simulator(&available).ok_or_else(no_available_simulator_error)?;
     boot_specific_simulator(&target.udid).await
+}
+
+/// No bootable simulator on this machine (e.g. Xcode installed without a
+/// simulator runtime). An environment state with a user-side fix, not a
+/// malfunction — Expected keeps it out of telemetry (issue #1131).
+fn no_available_simulator_error() -> CommandError {
+    CommandError::expected(
+        "No available iOS simulator to boot. Add one in Xcode › Settings › Components.",
+    )
 }
 
 /// Boot a specific simulator by udid and wait until it's fully ready. Returns it
@@ -2948,6 +2956,17 @@ mod tests {
         }"#;
         assert!(choose_default_simulator(json).is_none());
         assert!(choose_default_simulator(r#"{"devices":{}}"#).is_none());
+    }
+
+    // Issue #1131: no bootable simulator is an environment state, not a bug.
+    #[test]
+    fn no_available_simulator_is_expected() {
+        let err = no_available_simulator_error();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            "No available iOS simulator to boot. Add one in Xcode › Settings › Components."
+        );
     }
 
     #[test]
