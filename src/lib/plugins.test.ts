@@ -165,6 +165,16 @@ describe('isExpectedPluginFailure', () => {
     }
   });
 
+  it('recognizes a registry still syncing from a cloud drive (issue #947)', async () => {
+    const { isExpectedPluginFailure } = await loadPlugins();
+    for (const message of [
+      "Ship Studio timed out trying to read this project's plugin registry (<project>/.shipstudio/plugins/registry.json). The folder looks like it's on a cloud drive (Google Drive, OneDrive, Dropbox, iCloud) that's still syncing — wait for sync to finish and try again, or keep the project on your local disk.",
+      "Ship Studio couldn't read this project's plugin registry (<project>/.shipstudio/plugins/registry.json) — macOS canceled the read. The folder looks like it's on a cloud drive (iCloud, Google Drive, OneDrive, Dropbox) that hasn't finished downloading the file — wait for sync to finish and try again, or keep the project on your local disk.",
+    ]) {
+      expect(isExpectedPluginFailure({ type: 'Other', message })).toBe(true);
+    }
+  });
+
   it('leaves genuine defects reportable', async () => {
     const { isExpectedPluginFailure } = await loadPlugins();
     expect(
