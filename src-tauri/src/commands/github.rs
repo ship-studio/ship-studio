@@ -782,6 +782,29 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// git's smart-HTTP transfer to GitHub cut off partway — "error: RPC failed;
+/// HTTP 400 curl 22 …\nsend-pack: unexpected disconnect while reading sideband
+/// packet\nfatal: the remote end hung up unexpectedly", surfacing from
+/// `gh repo create --push` or a plain push (issue #1087). The connection
+/// dropped mid-pack, not a parseable API response, so neither
+/// `gh_network_error` nor `gh_malformed_request_error` matched it. Same
+/// literals the frontend's clone-side `describeProcessError` already treats
+/// as a cut-off transfer (issue #902).
+pub(crate) fn gh_transport_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    let cut_off = s.contains("rpc failed")
+        || s.contains("was not closed cleanly")
+        || s.contains("unexpected disconnect while reading sideband packet")
+        || s.contains("early eof")
+        || s.contains("invalid index-pack output");
+    cut_off.then(|| {
+        CommandError::expected(
+            "The connection to GitHub was cut off partway through the transfer — usually a \
+             network blip, proxy, or VPN. Check your internet connection and try again.",
+        )
+    })
+}
+
 /// Go's `crypto/tls`/`crypto/x509` error when gh can reach a server but can't
 /// verify the certificate chain it presents — "tls: failed to verify
 /// certificate: x509: certificate signed by unknown authority". Almost always
@@ -901,6 +924,24 @@ pub(crate) fn gh_permission_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// gh's passthrough of a GitHub Enterprise IP-allow-list refusal — "GraphQL:
+/// Although you appear to have the correct authorization credentials, the
+/// `<org>` enterprise has an IP allow list enabled, and your IP address is not
+/// permitted to access this resource." The token is fine; the network isn't
+/// on the org's list. A by-design refusal with a user-side fix, and distinct
+/// from `gh_permission_error` because no scope change or reconnect helps
+/// (issue #1080).
+pub(crate) fn gh_ip_allow_list_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    (s.contains("ip allow list") || s.contains("your ip address is not permitted")).then(|| {
+        CommandError::expected(
+            "Your network's IP address isn't allowed to access this repository — its GitHub \
+             organization restricts access to an IP allow list. Connect from an allowed network \
+             (e.g. your company VPN), then try again.",
+        )
+    })
+}
+
 /// gh (a Go binary) crashing with a Go runtime panic/fatal error — stderr is
 /// the runtime's full crash dump ("fatal error: …\n\nruntime stack:\n…" or
 /// "panic: …\n\ngoroutine N [running]:\n…"), dozens of stack-trace lines that
@@ -992,9 +1033,11 @@ pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
     // not the generic "check your internet connection" message (issue #658).
     gh_tls_error(stderr)
         .or_else(|| gh_network_error(stderr))
+        .or_else(|| gh_transport_error(stderr))
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
         .or_else(|| gh_config_error(stderr))
+        .or_else(|| gh_ip_allow_list_error(stderr))
         .or_else(|| gh_permission_error(stderr))
         // Before gh_crash_error: a wrong-binary crash needs its own remedy,
         // not "reinstalling the GitHub CLI may help" (issue #737).
@@ -1658,6 +1701,33 @@ mod tests {
         );
         assert!(gh_common_error("GraphQL: something app-specific went wrong").is_none());
         assert!(gh_common_error("").is_none());
+    }
+
+    // The #1087 shape: `gh repo create --push` whose pack upload was cut off.
+    #[test]
+    fn gh_transport_error_classifies_cut_off_push() {
+        let stderr = "error: RPC failed; HTTP 400 curl 22 The requested URL returned error: 400\n\
+                      send-pack: unexpected disconnect while reading sideband packet\n\
+                      fatal: the remote end hung up unexpectedly\n\
+                      Everything up-to-date\n\
+                      failed to run git: exit status 1";
+        let err = gh_common_error(stderr).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("cut off"), "got: {err}");
+        assert!(gh_transport_error("fatal: not a git repository").is_none());
+    }
+
+    // The #1080 shape: an enterprise IP allow list refusing a valid token.
+    #[test]
+    fn gh_ip_allow_list_error_is_expected_and_not_a_scope_problem() {
+        let stderr = "GraphQL: Although you appear to have the correct authorization \
+                      credentials, the `databricks-internal` enterprise has an IP allow list \
+                      enabled, and your IP address is not permitted to access this resource. \
+                      (repository)";
+        let err = gh_common_error(stderr).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("IP allow list"), "got: {err}");
+        assert!(gh_auth_error(stderr).is_none());
     }
 
     // The #610 shape: gh's Go runtime failing to reserve its heap arena at
