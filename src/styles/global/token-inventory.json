@@ -4457,7 +4457,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 688
+      "consumerCount": 686
     },
     {
       "name": "--text-faint",
@@ -4502,7 +4502,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 442
+      "consumerCount": 440
     },
     {
       "name": "--border-subtle",
@@ -4583,7 +4583,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 38
+      "consumerCount": 37
     },
     {
       "name": "--focus-ring-width",
@@ -4610,7 +4610,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 90
+      "consumerCount": 80
     },
     {
       "name": "--accent-warning",
@@ -4619,7 +4619,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 92
+      "consumerCount": 90
     },
     {
       "name": "--accent-error",
@@ -4628,7 +4628,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 80
+      "consumerCount": 79
     },
     {
       "name": "--accent-error-light",
@@ -5078,7 +5078,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 30
+      "consumerCount": 29
     },
     {
       "name": "--accent-warning-rgb",
@@ -5087,7 +5087,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 31
+      "consumerCount": 29
     },
     {
       "name": "--accent-error-rgb",
@@ -5096,7 +5096,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 16
+      "consumerCount": 15
     },
     {
       "name": "--accent-error-light-rgb",
