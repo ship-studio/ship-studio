@@ -272,8 +272,13 @@ interface PanelDockValue {
   /** Resolve the drop and report whether the panel was left floating. */
   endDrag: (point: Point) => boolean;
   cancelDrag: () => void;
-  /** Temporarily suppress layout drags while focus mode projects the agent. */
-  setDragDisabled: (disabled: boolean) => void;
+  /**
+   * Focus mode ("agent only") is on. Layout drags are suppressed and every
+   * rail-bound panel but the agent is hidden, without touching the saved
+   * layout or any panel's own open state, so the arrangement returns on exit.
+   */
+  focusMode: boolean;
+  setFocusMode: (focus: boolean) => void;
 
   /** The preview is filling the window, so the rail goes with it. */
   previewFullscreen: boolean;
@@ -311,6 +316,7 @@ export function PanelDockProvider({
     () => layoutScope === 'project' && hasProjectLayout(projectPath)
   );
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [focusMode, setFocusModeState] = useState(false);
 
   // Re-read when the project changes, with React's "adjust state during render"
   // pattern rather than an effect: an effect renders one frame of the previous
@@ -512,10 +518,11 @@ export function PanelDockProvider({
 
   // ---- Drag ----
 
-  const setDragDisabled = useCallback(
-    (disabled: boolean) => {
-      dragDisabledRef.current = disabled;
-      if (disabled) drag.set(null);
+  const setFocusMode = useCallback(
+    (focus: boolean) => {
+      dragDisabledRef.current = focus;
+      if (focus) drag.set(null);
+      setFocusModeState(focus);
     },
     [drag]
   );
@@ -610,7 +617,8 @@ export function PanelDockProvider({
       updateDrag,
       endDrag,
       cancelDrag,
-      setDragDisabled,
+      focusMode,
+      setFocusMode,
       previewFullscreen,
       setPreviewFullscreen,
     }),
@@ -644,7 +652,8 @@ export function PanelDockProvider({
       updateDrag,
       endDrag,
       cancelDrag,
-      setDragDisabled,
+      focusMode,
+      setFocusMode,
       previewFullscreen,
     ]
   );
@@ -722,6 +731,13 @@ export function usePanelDockBinding(
    */
   const dockedZIndex = context?.previewFullscreen ? 'var(--z-floating-panel)' : undefined;
 
+  /**
+   * Focus is "agent only". The rail stops giving other panels a slot, but a
+   * docked surface is body-portaled and keeps its last measured rectangle, so
+   * without this a docked Team panel went on drawing over the agent (#1147).
+   */
+  const hiddenByFocus = Boolean(context?.focusMode) && id !== 'agent';
+
   // Changes whenever the rail's arrangement does, so a panel re-measures after
   // a reorder — which moves its slot without changing its size, and so is
   // invisible to a ResizeObserver.
@@ -743,6 +759,7 @@ export function usePanelDockBinding(
             subscribeGeometry,
             setDefaultWidth,
             dockedZIndex,
+            hiddenByFocus,
           }
         : undefined,
     [
@@ -758,6 +775,7 @@ export function usePanelDockBinding(
       subscribeGeometry,
       setDefaultWidth,
       dockedZIndex,
+      hiddenByFocus,
     ]
   );
 }
@@ -781,6 +799,8 @@ export interface PanelDockBinding {
   setDefaultWidth: (width: number | undefined) => void;
   /** The layer a docked surface belongs on, which fullscreen changes. */
   dockedZIndex?: string;
+  /** Focus mode is on and this panel is not the agent, so it must not show. */
+  hiddenByFocus?: boolean;
 }
 
 /** The rail if there is one. Panels that also render outside a workspace use this. */

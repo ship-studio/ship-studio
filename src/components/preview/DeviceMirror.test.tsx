@@ -13,7 +13,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // ============ Module-level mocks ============
 
-const invokeResults = new Map<string, { value?: unknown; error?: Error; pending?: boolean }>();
+const invokeResults = new Map<string, { value?: unknown; error?: unknown; pending?: boolean }>();
+
+const log = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }));
+vi.mock('../../lib/logger', () => ({ logger: log }));
 
 function mockInvoke(cmd: string, value: unknown) {
   invokeResults.set(cmd, { value });
@@ -26,6 +29,8 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn((cmd: string) => {
     const result = invokeResults.get(cmd);
     if (result?.pending) return new Promise(() => {}); // never resolves
+    // Tauri rejects with the plain CommandError object, not an Error.
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
     if (result?.error) return Promise.reject(result.error);
     return Promise.resolve(result?.value);
   }),
@@ -110,5 +115,25 @@ describe('DeviceMirror — agent-driven setup (fresh user, no toolchain)', () =>
 
     await waitFor(() => expect(screen.getByText(/starting the ios preview/i)).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /set up with ai/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('DeviceMirror — connect failures', () => {
+  it('warns instead of filing a bug for an Expected slow simulator boot (#913)', async () => {
+    const message =
+      'The iOS Simulator is taking a long time to finish booting. Give it a moment and try again — if it stays stuck, quit Simulator.app and retry.';
+    mockInvoke('detect_mobile_targets', { ios: true, android: false });
+    mockInvoke('mobile_platform_support', { ios: true, android: false });
+    invokeResults.set('start_mobile_preview', {
+      error: { type: 'Other', message, expected: true },
+    });
+    vi.clearAllMocks();
+
+    render(<DeviceMirror {...baseProps} onSendToAgent={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(log.warn).toHaveBeenCalledWith('[DeviceMirror] failed', { error: message })
+    );
+    expect(log.error).not.toHaveBeenCalledWith('[DeviceMirror] failed', expect.anything());
   });
 });

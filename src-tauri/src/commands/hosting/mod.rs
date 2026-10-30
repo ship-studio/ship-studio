@@ -165,6 +165,24 @@ async fn status_for_link(
             transport_error: Some(message),
             ..base
         },
+        Err(http::HostingHttpError::NotFound) => {
+            // The provider answered cleanly that the linked project doesn't
+            // exist — a stale link for the user to repair, not an adapter bug
+            // (issue #985).
+            tracing::warn!(
+                provider = link.provider.label(),
+                "Hosting provider says the linked project doesn't exist"
+            );
+            ProviderStatus {
+                token_source: Some(resolved.source),
+                transport_error: Some(format!(
+                    "{} couldn't find the linked project — it may have been deleted. Re-link \
+                     this project.",
+                    link.provider.label()
+                )),
+                ..base
+            }
+        }
         Err(http::HostingHttpError::Malformed { message }) => {
             // Ours to fix: either the provider changed shape or the adapter is
             // wrong. Logged loudly, shown to the user as "couldn't read".

@@ -45,16 +45,16 @@ interface RenderPanelColumn {
 }
 
 export function WorkspaceDock({ preview, previewHidden = false, children }: WorkspaceDockProps) {
-  const { layout, measureRef, previewFullscreen, setDragDisabled, slots } = usePanelDock();
+  const { layout, measureRef, previewFullscreen, setFocusMode, slots } = usePanelDock();
   const present = usePresentPanels();
   const railRef = useRef<HTMLDivElement>(null);
   const presentSet = new Set(present);
   if (previewHidden) presentSet.add('agent');
 
   useLayoutEffect(() => {
-    setDragDisabled(previewHidden);
-    return () => setDragDisabled(false);
-  }, [previewHidden, setDragDisabled]);
+    setFocusMode(previewHidden);
+    return () => setFocusMode(false);
+  }, [previewHidden, setFocusMode]);
 
   useLayoutEffect(() => {
     const rail = railRef.current;

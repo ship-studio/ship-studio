@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
   getProjectThumbnail: vi.fn(),
   listFolders: vi.fn(),
   getFiledProjectPaths: vi.fn(),
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
+
+vi.mock('../../lib/logger', () => ({ logger: mocks.logger }));
 
 vi.mock('../../lib/project', () => ({
   getDashboardProjects: mocks.getDashboardProjects,
@@ -117,6 +120,8 @@ describe('ProjectList loading state', () => {
     mocks.listFolders.mockResolvedValue([]);
     mocks.getFiledProjectPaths.mockResolvedValue([]);
     mocks.getDashboardProjects.mockReset();
+    mocks.logger.error.mockClear();
+    mocks.logger.warn.mockClear();
   });
 
   afterEach(() => {
@@ -152,6 +157,34 @@ describe('ProjectList loading state', () => {
 
     expect(await screen.findByTestId('grid')).toHaveTextContent('beta');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('logs a backend-Expected TCC denial as a warning, not a bug (issue #1139)', async () => {
+    const message =
+      "Ship Studio isn't allowed to read your projects folder (<redacted>). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then reload the dashboard.";
+    mocks.getDashboardProjects.mockRejectedValueOnce({ type: 'Other', message, expected: true });
+    renderList();
+
+    // The backend's own actionable text still reaches the user.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Full Disk Access/);
+    expect(mocks.logger.warn).toHaveBeenCalledWith('Failed to load projects', { error: message });
+    expect(mocks.logger.error).not.toHaveBeenCalledWith(
+      'Failed to load projects',
+      expect.anything()
+    );
+  });
+
+  it('still reports an unclassified scan failure as an error', async () => {
+    mocks.getDashboardProjects.mockRejectedValueOnce({
+      type: 'Other',
+      message: 'projects folder is on a disconnected volume',
+    });
+    renderList();
+
+    await screen.findByRole('alert');
+    expect(mocks.logger.error).toHaveBeenCalledWith('Failed to load projects', {
+      error: 'projects folder is on a disconnected volume',
+    });
   });
 
   it('gives up on a scan that never comes back rather than spinning forever', async () => {

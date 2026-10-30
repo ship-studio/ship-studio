@@ -174,6 +174,10 @@ export function DockablePanel({
   dockedZIndex,
   dock,
 }: DockablePanelProps) {
+  // Focus mode hides every rail-bound panel but the agent. It does so here
+  // rather than through each feature's `visible`, so the panel's own open
+  // state is untouched and it comes back exactly as it was when Focus ends.
+  const panelVisible = visible && !dock?.hiddenByFocus;
   const internalPlaceholderRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [initialSavedSize] = useState(() => readSize(sizeKey));
@@ -289,9 +293,9 @@ export function DockablePanel({
   const setPresent = dock?.setPresent;
   useLayoutEffect(() => {
     if (!setPresent) return;
-    setPresent(visible);
+    setPresent(panelVisible);
     return () => setPresent(false);
-  }, [setPresent, visible]);
+  }, [setPresent, panelVisible]);
 
   useEffect(() => {
     if (docked || savedSizeRef.current) return;
@@ -668,11 +672,12 @@ export function DockablePanel({
           className={`dockable-panel__surface ${
             docked ? 'dockable-panel__surface--docked' : 'dockable-panel__surface--floating'
           }${draggingFromDock ? ' dockable-panel__surface--dragging' : ''}${
-            !visible || awaitingDock ? ' is-hidden' : ''
+            !panelVisible || awaitingDock ? ' is-hidden' : ''
           }${surfaceClassName ? ` ${surfaceClassName}` : ''}`}
           style={surfaceStyle}
           aria-label={ariaLabel}
-          aria-hidden={!visible}
+          aria-hidden={!panelVisible}
+          inert={!panelVisible}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

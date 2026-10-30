@@ -224,8 +224,17 @@ export function validateMcpAddCommand(
     return null;
   }
 
-  const invalid =
-    'Include what the server runs or connects to: a command after the name (e.g. `my-server -- npx -y @some/mcp-server`) or a URL (e.g. `my-server --url https://example.com/mcp`).';
+  // Claude Code and Codex disagree on how a remote server is given: Claude
+  // Code takes the URL as a plain argument after `--transport http` and has
+  // no `--url`; Codex takes `--url <url>` and has no `--transport`. Passing
+  // the other CLI's flag failed with that CLI's raw parse error (issues #998,
+  // #1061), so each gets its own syntax — in the guidance and in what's
+  // accepted. With no agent known, both are accepted as before.
+  const urlExample =
+    agentId === 'claude-code'
+      ? '`--transport http my-server https://example.com/mcp`'
+      : '`my-server --url https://example.com/mcp`';
+  const invalid = `Include what the server runs or connects to: a command after the name (e.g. \`my-server -- npx -y @some/mcp-server\`) or a URL (e.g. ${urlExample}).`;
   const tokens = text.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return invalid;
 
@@ -233,6 +242,7 @@ export function validateMcpAddCommand(
   // their values. A `--` separator means everything after is the command.
   let bare = 0;
   let hasUrl = false;
+  let hasUrlFlag = false;
   let hasSeparatorCommand = false;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -241,17 +251,35 @@ export function validateMcpAddCommand(
       break;
     }
     if (t === '--url' || t === '-u') {
+      if (agentId === 'claude-code') {
+        return `Claude Code has no \`--url\` flag — give the transport and the URL as plain arguments, e.g. ${urlExample}.`;
+      }
       if (i + 1 >= tokens.length) return invalid;
       hasUrl = true;
+      hasUrlFlag = true;
       i++;
       continue;
+    }
+    if (agentId === 'codex' && (t === '--transport' || t === '-t')) {
+      return `Codex has no \`--transport\` flag — add a remote server with ${urlExample}.`;
+    }
+    // Codex won't take a flag-like token in a command that wasn't set off
+    // with `--` ("unexpected argument '-y' found", issue #1059).
+    if (agentId === 'codex' && bare >= 2 && t.startsWith('-')) {
+      return 'Put `--` between the server name and its command, e.g. `my-server -- npx -y @some/mcp-server`.';
     }
     if (MCP_ADD_VALUE_FLAGS.has(t)) {
       i++;
       continue;
     }
     if (t.startsWith('-')) continue;
-    if (/^https?:\/\//i.test(t)) hasUrl = true;
+    if (/^https?:\/\//i.test(t)) {
+      // Codex would take a bare URL as the command to launch.
+      if (agentId === 'codex' && !hasUrlFlag) {
+        return `Codex needs \`--url\` before a server URL, e.g. ${urlExample}.`;
+      }
+      hasUrl = true;
+    }
     bare++;
   }
 

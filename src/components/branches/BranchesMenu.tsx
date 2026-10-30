@@ -45,7 +45,8 @@ interface BranchesMenuProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onPullLatest: () => void;
-  onBranchSwitch: (branch: string) => void;
+  /** Performs the checkout (with its unsaved-changes and worktree handling). */
+  onSwitchBranch: (branch: string) => void;
   onViewBranches: () => void;
   onCreateBranch: () => void;
   onViewPRs: () => void;
@@ -70,7 +71,7 @@ export function BranchesMenu({
   isOpen,
   onOpenChange,
   onPullLatest,
-  onBranchSwitch,
+  onSwitchBranch,
   onViewBranches,
   onCreateBranch,
   onViewPRs,
@@ -256,7 +257,7 @@ export function BranchesMenu({
                   className="branches-menu-row branches-menu-branch-row"
                   key={`${branch.isRemote ? 'remote' : 'local'}:${branch.name}`}
                   disabled={isBranchSwitching}
-                  onClick={() => runAndClose(() => onBranchSwitch(branch.name))}
+                  onClick={() => runAndClose(() => onSwitchBranch(branch.name))}
                 >
                   <span className="branches-menu-row-icon">
                     {branchIcon(branch.name, index === recentBranches.length - 1)}

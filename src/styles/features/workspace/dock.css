@@ -88,6 +88,14 @@
   min-height: 0;
 }
 
+/* Focus mode hides the centre with the `hidden` attribute. An author
+   `display` beats the UA's `[hidden] { display: none }`, so without this the
+   preview (or the code browser) stayed on screen beside a stretched agent
+   that had no resize handle (issues 1147 and 1019). */
+.workspace-dock__center[hidden] {
+  display: none;
+}
+
 /* The seam between a panel and its neighbour. Absolutely positioned inside the
    slot rather than placed in the row: the docked surface above it is fixed and
    body-portaled, so a handle laid out as a sibling in the flex row would be

@@ -36,6 +36,10 @@ pub enum HostingHttpError {
     /// Network, DNS, TLS, timeout, or a provider 5xx. Not the user's fault and
     /// not ours — shown as "couldn't reach", kept out of telemetry.
     Transport { message: String },
+    /// The provider answered 404: the linked project doesn't exist (deleted,
+    /// or the stored id / team scope is wrong). The user's link to repair,
+    /// not an adapter bug.
+    NotFound,
     /// The call succeeded but the body wasn't what we expect. This one *is*
     /// ours: either the provider changed shape or our adapter is wrong, and we
     /// want to hear about it.
@@ -59,6 +63,10 @@ impl HostingHttpError {
             HostingHttpError::Transport { message } => {
                 CommandError::expected(format!("Couldn't reach {provider}: {message}"))
             }
+            HostingHttpError::NotFound => CommandError::expected(format!(
+                "{provider} couldn't find the linked project — it may have been deleted, or it \
+                 belongs to a different team. Re-link this project to fix it."
+            )),
             HostingHttpError::Malformed { message } => CommandError::Other {
                 message: format!("Unexpected response from {provider}: {message}"),
             },
@@ -139,6 +147,32 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
         .ok()
 }
 
+/// Classify a non-2xx answer that isn't one of the statuses `get_json`
+/// handles up front (401/403, 429, 5xx).
+fn classify_error_response(status: reqwest::StatusCode, body: &str) -> HostingHttpError {
+    // A 404 is a well-formed provider answer — "Project not found" — meaning
+    // the link points at a project that was deleted or sits under another
+    // team. That is the user's link to fix, not an adapter bug (issue #985).
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return HostingHttpError::NotFound;
+    }
+    // Cloudflare rejects a token whose *shape* it won't accept as a bearer
+    // credential (wrapping quotes, a pasted "Bearer " prefix, the wrong token
+    // type) with 400 code 6003/6111 rather than 401/403. It is still the
+    // credential being refused, and the fix is the same: reconnect
+    // (issue #966).
+    if status == reqwest::StatusCode::BAD_REQUEST
+        && (body.contains("Invalid format for Authorization header")
+            || body.contains("\"code\":6111"))
+    {
+        return HostingHttpError::Rejected;
+    }
+    let snippet: String = body.chars().take(200).collect();
+    HostingHttpError::Malformed {
+        message: format!("HTTP {status}: {snippet}"),
+    }
+}
+
 /// GET a provider endpoint with a bearer token and decode the JSON body.
 ///
 /// Status is classified before the body is touched, so a provider that returns
@@ -180,14 +214,8 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
     }
 
     if !status.is_success() {
-        // A 404 on a deployments endpoint means the project id we hold is
-        // wrong or the project was deleted — a real, reportable mismatch
-        // rather than a transient blip.
         let body = response.text().await.unwrap_or_default();
-        let snippet: String = body.chars().take(200).collect();
-        return Err(HostingHttpError::Malformed {
-            message: format!("HTTP {status}: {snippet}"),
-        });
+        return Err(classify_error_response(status, &body));
     }
 
     let body = response
@@ -209,6 +237,33 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::*;
     use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+
+    #[test]
+    fn a_404_project_not_found_is_not_found_not_malformed() {
+        // Issue #985.
+        let err = classify_error_response(
+            reqwest::StatusCode::NOT_FOUND,
+            r#"{"error":{"code":"not_found","message":"Project not found"}}"#,
+        );
+        assert!(matches!(err, HostingHttpError::NotFound), "got {err:?}");
+        assert!(matches!(
+            err.into_command_error("Vercel"),
+            CommandError::Expected { .. }
+        ));
+    }
+
+    #[test]
+    fn cloudflare_invalid_authorization_header_is_a_rejected_credential() {
+        // Issue #966.
+        let err = classify_error_response(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"success":false,"errors":[{"code":6003,"message":"Invalid request headers","error_chain":[{"code":6111,"message":"Invalid format for Authorization header"}]}],"messages":[],"result":null}"#,
+        );
+        assert!(matches!(err, HostingHttpError::Rejected), "got {err:?}");
+        // Any other 400 still reaches us as an unexpected answer.
+        let other = classify_error_response(reqwest::StatusCode::BAD_REQUEST, "{}");
+        assert!(matches!(other, HostingHttpError::Malformed { .. }));
+    }
 
     /// The message this produces is not a log line — it becomes
     /// `ProviderStatus::transport_error`, which the reducer folds into

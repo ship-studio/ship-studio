@@ -91,13 +91,17 @@ fn sweep_stale_thumbnail_profiles(shipstudio_dir: &Path) {
 /// and the allocator double-load warning (issues #498–#500), Windows' PDH
 /// CPU-telemetry counter registration failing inside Hyper-V-backed VMs
 /// (issue #807), and macOS CoreVideo's display-link probe finding no display
-/// in a headless process (issue #817). A headless capture emits these freely;
+/// in a headless process (issue #817), and the segmentation platform's ML
+/// classifier chatter (issue #1119). A headless capture emits these freely;
 /// keeping them buries the actionable line.
 fn is_chromium_noise(line: &str) -> bool {
     const NOISE_MARKERS: &[&str] = &[
         "crashpad",
         "TransactNamedPipe",
         "chrome/updater/",
+        // Windows logs the same updater source path with backslashes
+        // (`chrome\updater\ipc\update_service_dialer_win.cc`, issue #1099).
+        "chrome\\updater\\",
         "GoogleUpdater",
         "google_apis/gcm",
         "Registration response error message",
@@ -108,6 +112,9 @@ fn is_chromium_noise(line: &str) -> bool {
         "PdhAddEnglishCounter",
         "cv_display_link_mac",
         "CVDisplayLinkCreateWithCGDisplay",
+        // The segmentation platform's shopping/topics classifiers failing
+        // their input step — ML chatter, not a capture failure (#591/#1119).
+        "segmentation_platform",
     ];
     NOISE_MARKERS.iter().any(|m| line.contains(m))
 }
@@ -176,6 +183,37 @@ fn browser_resource_exhaustion_error(stderr: &str) -> Option<CommandError> {
     None
 }
 
+/// Chromium stderr signatures for transient conditions inside one capture
+/// that the next scheduled capture clears on its own:
+///
+/// - the dev server refusing the connection by the time the CLI fallback ran
+///   (`Page load failed: net::ERR_CONNECTION_REFUSED` from the headless
+///   command handler). The readiness check runs before the Playwright attempt,
+///   which can take up to two minutes, so the server can stop or restart in
+///   between — the same race the Playwright paths classify (issue #1042);
+/// - Windows refusing the GPU process its own persistent cache file because a
+///   not-yet-exited earlier GPU process of the same browser still holds it
+///   (sharing violation 0x20, then `GPU process launch failed: error_code=63`
+///   — issue #1072).
+fn browser_transient_failure_error(stderr: &str) -> Option<CommandError> {
+    if stderr.contains("ERR_CONNECTION_REFUSED") {
+        return Some(CommandError::expected(
+            "The dev server stopped responding before the thumbnail could be captured — it was \
+             probably restarting. The thumbnail will be retried automatically.",
+        ));
+    }
+    if stderr.contains("GPU process launch failed")
+        || (stderr.contains("persistent_cache") && stderr.contains("(0x20)"))
+    {
+        return Some(CommandError::expected(
+            "The capture browser's graphics process couldn't start because its own cache file \
+             was still in use (a brief Windows file-lock race). The thumbnail will be retried \
+             automatically.",
+        ));
+    }
+    None
+}
+
 /// Name the exit codes a capture browser reports when it dies with no output
 /// at all: Crashpad's `kCrashExitCodeNoDump` (0xFFFF7001 — the crash server
 /// never answered, so the process self-terminated after its internal wait,
@@ -183,7 +221,7 @@ fn browser_resource_exhaustion_error(stderr: &str) -> Option<CommandError> {
 /// STATUS_ACCESS_VIOLATION (0xC0000005 — issue #705). Either way the browser
 /// process itself crashed: an environment-level failure (damaged browser
 /// install, graphics driver, security software), not an app malfunction.
-fn browser_crash_exit_message(code: i32) -> Option<String> {
+pub(super) fn browser_crash_exit_message(code: i32) -> Option<String> {
     /// Crashpad's `kCrashExitCodeNoDump`.
     const CRASHPAD_NO_DUMP: i32 = -36863;
     if code == CRASHPAD_NO_DUMP {
@@ -193,14 +231,36 @@ fn browser_crash_exit_message(code: i32) -> Option<String> {
         );
     }
     // NTSTATUS values with the error severity bits set (0xC0000000–0xCFFFFFFF)
-    // are the crash codes Windows reports for a fatally faulting process.
+    // are the crash codes Windows reports for a fatally faulting process; the
+    // warning-severity range (0x80000000–0x8FFFFFFF) holds the unhandled
+    // exceptions that end one just as fatally, e.g. STATUS_BREAKPOINT
+    // 0x80000003 — an int3 trap reaching the default handler, typically
+    // security software's hooks or a Chromium CHECK (issue #961).
     let unsigned = code as u32;
-    if (0xC000_0000..=0xCFFF_FFFF).contains(&unsigned) {
+    if (0xC000_0000..=0xCFFF_FFFF).contains(&unsigned)
+        || (0x8000_0000..=0x8FFF_FFFF).contains(&unsigned)
+    {
         return Some(format!(
             "The capture browser crashed (Windows fatal exception 0x{unsigned:08X})."
         ));
     }
     None
+}
+
+/// A capture browser that exited with the generic failure code 1 and wrote
+/// nothing at all — no stdout, and no stderr beyond known noise. Chromium
+/// exits that way when it is stopped before it can start (security software,
+/// or a damaged/partial browser install); there is no signal to report, and
+/// the capture timer retries on its own, so it is Expected rather than an
+/// unexplained bug (issue #1051). Other bare codes stay reportable.
+fn silent_exit_error(code: i32) -> Option<CommandError> {
+    (code == 1).then(|| {
+        CommandError::expected(
+            "The capture browser exited immediately without producing any output — it was \
+             probably blocked before it could start (security software, or a damaged browser \
+             install). The thumbnail will be retried automatically.",
+        )
+    })
 }
 
 /// Map an `image` crate failure decoding user-uploaded thumbnail bytes to an
@@ -451,6 +511,9 @@ pub async fn capture_project_thumbnail(
             if let Some(err) = browser_resource_exhaustion_error(&stderr) {
                 return Err(err);
             }
+            if let Some(err) = browser_transient_failure_error(&stderr) {
+                return Err(err);
+            }
             // Headless Chromium can die with EMPTY stderr (crash, killed by
             // AV/security software) — fall back to the exit code plus a
             // stdout snippet so the report says something (issue #291).
@@ -509,6 +572,9 @@ pub async fn capture_project_thumbnail(
                                  or a damaged browser install interfering with headless capture \
                                  — the thumbnail will be retried automatically."
                             )));
+                        }
+                        if let Some(err) = output.status.code().and_then(silent_exit_error) {
+                            return Err(err);
                         }
                         format!("exit code {code}, no output")
                     } else {
@@ -676,6 +742,26 @@ mod browser_stderr_tests {
     }
 
     #[test]
+    fn windows_backslash_updater_noise_is_filtered() {
+        // Verbatim from issue #1099.
+        let stderr = "[26268:21232:1008/231915.267:ERROR:chrome\\updater\\ipc\\update_service_dialer_win.cc:75] Failed to open named pipe server process 27580: Access is denied. (0x5)\n\
+            [26268:30436:1008/231923.565:ERROR:chrome\\updater\\ipc\\update_service_dialer_win.cc:75] Failed to open named pipe server process 24912: Access is denied. (0x5)";
+        assert_eq!(browser_failure_detail(stderr), None);
+    }
+
+    #[test]
+    fn segmentation_platform_noise_is_filtered() {
+        // Verbatim from issue #1119.
+        let stderr = "[34185:4236629:1014/111106.035300:ERROR:components/segmentation_platform/internal/execution/processing/feature_processor_state.cc:44] Processing error occured: model ShoppingUser failed with CustomInputError, message:\n\
+            [34185:4236629:1014/111106.035341:ERROR:components/segmentation_platform/internal/execution/processing/feature_processor_state.cc:44] Processing error occured: model ShoppingUser failed with CustomInputError, message:\n\
+            real failure line";
+        assert_eq!(
+            browser_failure_detail(stderr).as_deref(),
+            Some("real failure line")
+        );
+    }
+
+    #[test]
     fn empty_and_whitespace_stderr_yield_none() {
         assert_eq!(browser_failure_detail(""), None);
         assert_eq!(browser_failure_detail("  \n\t\n"), None);
@@ -805,6 +891,47 @@ mod browser_environment_tests {
         assert_eq!(browser_crash_exit_message(1), None);
         assert_eq!(browser_crash_exit_message(21), None);
         assert_eq!(browser_crash_exit_message(-1), None);
+    }
+
+    #[test]
+    fn status_breakpoint_exit_code_is_named() {
+        // Issue #961: "Browser screenshot failed: exit code -2147483645, no
+        // output" — 0x80000003, STATUS_BREAKPOINT.
+        let message = browser_crash_exit_message(-2147483645).expect("must be named");
+        assert!(message.contains("0x80000003"), "got: {message}");
+    }
+
+    #[test]
+    fn silent_exit_code_one_is_expected() {
+        // Issue #1051: "Browser screenshot failed: exit code 1, no output".
+        assert!(matches!(
+            silent_exit_error(1),
+            Some(CommandError::Expected { .. })
+        ));
+        assert!(silent_exit_error(21).is_none());
+    }
+
+    #[test]
+    fn dev_server_refused_in_cli_fallback_is_expected() {
+        // Issue #1042.
+        let stderr = "[22700:4900:0924/124917.534:ERROR:components\\headless\\command_handler\\headless_command_handler.cc:403] Page load failed: net::ERR_CONNECTION_REFUSED";
+        assert!(matches!(
+            browser_transient_failure_error(stderr),
+            Some(CommandError::Expected { .. })
+        ));
+    }
+
+    #[test]
+    fn gpu_cache_sharing_violation_is_expected() {
+        // Issue #1072.
+        let stderr = "[17148:16596:1002/190603.770:ERROR:components\\viz\\host\\persistent_cache_sandboxed_file_factory.cc:153] Failed to open persistent cache files in directory \"C:\\Users\\x\\Projects\\Studio Tests\\GTA_VI\\.shipstudio\\thumbnail_profile_11884_0\\GPUPersistentCache\\DawnGraphiteCache\\H6POMLZSBZPTMTLBCTMXRDH27BAKUDTA\", error: 0: The process cannot access the file because it is being used by another process. (0x20)\n\
+             [17148:16664:1002/190603.838:ERROR:content\\browser\\gpu\\gpu_process_host.cc:1124] GPU process launch failed: error_code=63";
+        assert!(matches!(
+            browser_transient_failure_error(stderr),
+            Some(CommandError::Expected { .. })
+        ));
+        // The disk-full GPU cache case is still named as disk-full first.
+        assert!(browser_transient_failure_error("totally unrelated").is_none());
     }
 }
 

@@ -650,13 +650,48 @@ export function useCssCascadeEditor({
         delete baselineInner.current[key];
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] delete failed', {
+        // Stale (the rule changed or went away since the card was seeded) is
+        // an expected editing race, not a bug. Unlike the body-preserving
+        // writes below this is NOT retried against the re-located rule: that
+        // would delete content the user hasn't seen (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] delete failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
     [projectPath, onToast, post]
+  );
+
+  /**
+   * Run a body-preserving source write (rename, re-condition, wrap) against a
+   * card's rule. When the backend rejects it as stale — the rule was renamed or
+   * reformatted since the card was seeded — re-locate the rule in the current
+   * source and retry ONCE with its real file and body, as `saveRule` does
+   * (issues #584/#1008). Returns the body the write matched against, which
+   * becomes the card's new drift baseline.
+   */
+  const writeWithStaleRetry = useCallback(
+    async (
+      row: CascadeRow & { file: string; selector: string },
+      oldInner: string,
+      write: (file: string, oldInner: string) => Promise<void>
+    ): Promise<string> => {
+      try {
+        await write(row.file, oldInner);
+        return oldInner;
+      } catch (err) {
+        if (!isStaleCssRuleError(err)) throw err;
+        const locs = await locateCssRules(projectPath, [
+          { selector: row.selector, mediaText: row.mediaText, href: null },
+        ]).catch(() => []);
+        const loc = locs[0];
+        if (!loc || loc.status !== 'resolved') throw err;
+        await write(loc.file, loc.inner_text);
+        return loc.inner_text;
+      }
+    },
+    [projectPath]
   );
 
   /** Wrap a top-level rule in an at-rule (the `@` above the selector). For `@media`
@@ -667,14 +702,10 @@ export function useCssCascadeEditor({
       const row = rowByKeyRef.current.get(key);
       if (!row || !row.editable || row.file == null || row.selector == null) return;
       post({ type: 'ss:suppressReload' });
+      const target = { ...row, file: row.file, selector: row.selector };
       try {
-        await wrapCssRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
-          atPrelude,
-          baselineInner.current[key] ?? ''
+        await writeWithStaleRetry(target, baselineInner.current[key] ?? '', (file, oldInner) =>
+          wrapCssRule(projectPath, file, target.selector, target.mediaText, atPrelude, oldInner)
         );
         const m = atPrelude.trim();
         const cond = m.toLowerCase().startsWith('@media') ? m.slice('@media'.length).trim() : null;
@@ -683,13 +714,15 @@ export function useCssCascadeEditor({
         else onToast('Wrapped — reselect the element to keep editing.', 'success');
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] wrap failed', {
+        // Still stale after re-locating: the rule is gone from source — an
+        // expected editing race, not a bug (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] wrap failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post]
+    [projectPath, onToast, post, writeWithStaleRetry]
   );
 
   /** Create a brand-new rule for `selector` and add it as an editable card you can
@@ -774,7 +807,7 @@ export function useCssCascadeEditor({
         }
       }
       if (!targetFile) {
-        onToast('No stylesheet found to add the rule to.', 'error');
+        onToast('No stylesheet found to add the rule to.', 'info');
         return;
       }
 
@@ -878,14 +911,13 @@ export function useCssCascadeEditor({
       clearTimeout(previewTimers.current[key]);
       clearTimeout(saveTimers.current[key]);
       post({ type: 'ss:suppressReload' });
+      const target = { ...row, file: row.file, selector: row.selector };
       try {
-        await renameCssSelector(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
+        const matchedInner = await writeWithStaleRetry(
+          target,
           baselineInner.current[key] ?? '',
-          ns
+          (file, oldInner) =>
+            renameCssSelector(projectPath, file, target.selector, target.mediaText, oldInner, ns)
         );
         const newRow: CascadeRow = { ...row, selector: ns };
         const newKey = rowKey(newRow);
@@ -895,7 +927,9 @@ export function useCssCascadeEditor({
           delete bodiesRef.current[key];
         }
         if (baselineInner.current[key] !== undefined) {
-          baselineInner.current[newKey] = baselineInner.current[key];
+          // The body the rename matched (re-located on a stale retry) is the
+          // new drift baseline.
+          baselineInner.current[newKey] = matchedInner;
           delete baselineInner.current[key];
         }
         setRows((prev) => prev.map((r) => (rowKey(r) === key ? newRow : r)));
@@ -920,13 +954,14 @@ export function useCssCascadeEditor({
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] rename failed', {
+        // Still stale after re-locating — an expected race (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] rename failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post, saveRule]
+    [projectPath, onToast, post, saveRule, writeWithStaleRetry]
   );
 
   /** Change the `@media` condition wrapping a rule. Re-keys on the new media; HMR
@@ -942,15 +977,15 @@ export function useCssCascadeEditor({
       clearTimeout(previewTimers.current[key]);
       clearTimeout(saveTimers.current[key]);
       post({ type: 'ss:suppressReload' });
+      const target = { ...row, file: sourceFile, selector: row.selector };
       try {
-        await renameCssAtRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
+        const matchedInner = await writeWithStaleRetry(
+          target,
           baselineInner.current[key] ?? '',
-          nm
+          (file, oldInner) =>
+            renameCssAtRule(projectPath, file, target.selector, target.mediaText, oldInner, nm)
         );
+        baselineInner.current[key] = matchedInner;
         const minMatch = /min-width\s*:\s*([\d.]+)px/i.exec(nm);
         const nextMediaMinPx = minMatch ? Math.round(parseFloat(minMatch[1])) : null;
         const oldMedia = row.mediaText;
@@ -1028,13 +1063,14 @@ export function useCssCascadeEditor({
         }
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        logger.error('[CssCascade] rename at-rule failed', {
+        // Still stale after re-locating — an expected race (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] rename at-rule failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post, saveRule]
+    [projectPath, onToast, post, saveRule, writeWithStaleRetry]
   );
 
   /** Update one card's body model → debounced live preview + auto-save. */

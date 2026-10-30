@@ -194,11 +194,33 @@ pub async fn has_conflicts(project_path: String) -> Result<bool, CommandError> {
 /// antivirus interference), and "Failed to check for conflicted files: " with
 /// nothing after the colon is a dead end (#921). The exit code is what made the
 /// Windows NTSTATUS failures (#850/#853/#888) diagnosable for `git status`.
+///
+/// The shared environment classifiers run before the repository check: a
+/// macOS TCC denial or a crashing git.exe breaks the `rev-parse` probe just as
+/// it broke the diff, and the probe would otherwise read that as "not a
+/// repository" and answer a clean "no conflicts" over a real, fixable problem
+/// (#940/#950/#962).
 fn unmerged_paths_failure(
     project: &std::path::Path,
     output: &std::process::Output,
     what: &str,
 ) -> Option<CommandError> {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    let gap = if stderr.is_empty() {
+        crate::utils::git_exit_code_gap(output.status.code())
+    } else {
+        crate::utils::git_environment_gap(stderr)
+    };
+    if let Some(gap) = gap {
+        tracing::warn!(
+            error = %stderr,
+            exit_code = ?output.status.code(),
+            "git blocked by an environment gap while checking for conflicts"
+        );
+        return Some(gap);
+    }
+
     if !is_git_repository(project) {
         tracing::debug!(
             "[conflicts] {} in a folder that is not a git repository — no unmerged paths",
@@ -207,8 +229,6 @@ fn unmerged_paths_failure(
         return None;
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stderr = stderr.trim();
     if stderr.is_empty() {
         return Some(
             match output.status.code() {
@@ -902,6 +922,53 @@ mod tests {
             )
             .expect("a repository failure must report");
             assert!(err.to_string().len() < 700, "not capped: {}", err);
+        }
+
+        /// #940: a TCC denial breaks the `rev-parse` probe too, so the probe
+        /// must not get the chance to call it "not a repository". A plain
+        /// tempdir stands in for the folder git can't read.
+        #[test]
+        fn a_tcc_denial_is_reported_not_swallowed_as_no_conflicts() {
+            let dir = tempfile::tempdir().unwrap();
+            let out = failed(
+                "fatal: Unable to read current working directory: Operation not permitted",
+                Some(128),
+            );
+            let err = unmerged_paths_failure(dir.path(), &out, "check for conflicted files")
+                .expect("a TCC denial must report");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("Privacy & Security"), "got: {err}");
+        }
+
+        /// #950: git's allocator failing is classified like everywhere else.
+        #[test]
+        fn an_out_of_memory_git_is_an_environment_gap() {
+            let dir = tempfile::tempdir().unwrap();
+            repo(dir.path());
+            let out = failed(
+                "fatal: Out of memory, (tried to allocate 5879 wchar_t's)",
+                Some(128),
+            );
+            let err = unmerged_paths_failure(dir.path(), &out, "check for conflicted files")
+                .expect("must report");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("out of memory"), "got: {err}");
+        }
+
+        /// #962: "Failed to check for conflicted files (exit -1073741502)" —
+        /// STATUS_DLL_INIT_FAILED with no stderr. Windows-only: a Unix exit
+        /// status can't carry an NTSTATUS code.
+        #[cfg(windows)]
+        #[test]
+        fn a_windows_crash_code_is_an_environment_gap() {
+            let dir = tempfile::tempdir().unwrap();
+            let err = unmerged_paths_failure(
+                dir.path(),
+                &failed("", Some(-1073741502)),
+                "check for conflicted files",
+            )
+            .expect("must report");
+            assert!(matches!(err, CommandError::Expected { .. }));
         }
 
         #[test]

@@ -92,6 +92,20 @@ export function isExpectedCommandError(value: unknown): boolean {
   return err.type === 'Other' && err.expected === true;
 }
 
+/**
+ * True when a `rename_project` failure is a refusal the rename modal already
+ * renders inline — not a malfunction: input validation (slashes, `.`/`..` —
+ * issue #979), any Expected refusal such as "Renaming external projects isn't
+ * supported yet" (issue #968), a taken name, or the project being open
+ * elsewhere.
+ */
+export function isExpectedRenameRefusal(value: unknown): boolean {
+  const err = asCommandError(value);
+  if (err.type === 'Validation' || isExpectedCommandError(err)) return true;
+  const message = formatCommandError(err);
+  return message.includes('already exists') || message.includes('Close this project');
+}
+
 /** True when a caught error is the tagged MergeConflict variant. */
 export function isMergeConflictError(value: unknown): boolean {
   return asCommandError(value).type === 'MergeConflict';
@@ -436,6 +450,8 @@ const EXPECTED_IMPORT_REFUSAL_PHRASES = [
   'already inside your projects folder',
   'already registered',
   'your home directory',
+  // `is_projects_root`'s refusal of the projects root itself (issue #1060)
+  'your projects folder itself',
 ];
 
 /** True when an import-local-folder failure message is one of the backend's
@@ -564,6 +580,18 @@ export function describeProcessError(
       expected: true,
       message:
         "GitHub couldn't authenticate this computer over HTTPS — git needed to ask for a password, and there's no saved credential to use. Open a terminal and run `gh auth login`, then `gh auth setup-git`, and try again.",
+    };
+  }
+  // macOS's git shim refusing to run at all until the Xcode license is
+  // accepted ("You have not agreed to the Xcode license agreements…", git exit
+  // 69). `gh repo clone` wraps it and exits 1, so only the wording identifies
+  // it — the frontend twin of the backend's `git_environment_gap`
+  // (issue #1001).
+  if (lower.includes('have not agreed to the xcode license')) {
+    return {
+      expected: true,
+      message:
+        "Xcode's license hasn't been accepted on this Mac yet, so git can't run. Open Terminal and run `sudo xcodebuild -license accept`, then try again.",
     };
   }
   // Windows path-length limit during clone checkout: the download itself
@@ -715,6 +743,54 @@ export function describeProcessError(
       expected: true,
       message:
         "pnpm's local package cache looks corrupted. Open a terminal and run `pnpm store prune`, then retry the install.",
+    };
+  }
+  // npm's Arborist crashing on its own dependency graph ("Cannot read
+  // properties of null (reading 'edgesOut')") — a known npm bug tripped by a
+  // corrupted lockfile, a half-finished install or a stale cache. Local
+  // project state, not the app (issue #939).
+  if (lower.includes("reading 'edgesout'")) {
+    return {
+      expected: true,
+      message:
+        "npm crashed reading this project's existing install state — usually a corrupted package-lock.json or a half-finished earlier install. Delete `node_modules` and `package-lock.json`, run `npm cache clean --force`, then retry the install.",
+    };
+  }
+  // npm refusing to overwrite a file an earlier install left behind ("npm
+  // error code EEXIST" … "--force to overwrite files recklessly") — a stale
+  // `node_modules/.bin` entry or two packages claiming one bin name. Project
+  // state with a known fix (issue #943).
+  if (
+    /npm (?:error|err!) code eexist/.test(lower) ||
+    lower.includes('overwrite files recklessly')
+  ) {
+    const existing = msg.match(/File exists:\s*(\S+)/i)?.[1];
+    return {
+      expected: true,
+      message: `npm found a file already in the way${existing ? ` (${existing})` : ''}, usually left over from an earlier or interrupted install. Delete the project's \`node_modules\` folder and retry the install.`,
+    };
+  }
+  // A dependency's install script needing an environment variable the
+  // project expects in a `.env` it doesn't commit — Prisma's
+  // "PrismaConfigEnvError: Cannot resolve environment variable: DIRECT_URL"
+  // from a postinstall `prisma generate`. Project configuration; an import
+  // has no way to supply it (issue #941).
+  const missingEnv = msg.match(/Cannot resolve environment variable:\s*([A-Za-z_][A-Za-z0-9_]*)/);
+  if (missingEnv) {
+    return {
+      expected: true,
+      message: `This project's setup script needs the environment variable \`${missingEnv[1]}\`, which isn't set. Add it to a \`.env\` file in the project (the project's README usually says what it should be), then retry the install.`,
+    };
+  }
+  // pnpm's git-dependency gate: a git-hosted package that needs to run build
+  // scripts is refused unless listed under `allowBuilds` in
+  // pnpm-workspace.yaml ("ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED"). A sibling
+  // of the approve-builds gate below with a different fix (issue #1067).
+  if (lower.includes('err_pnpm_git_dep_prepare_not_allowed')) {
+    const pkg = msg.match(/git-hosted package "([^"]+)"/)?.[1];
+    return {
+      expected: true,
+      message: `pnpm blocked ${pkg ? `the git-hosted package \`${pkg}\`` : 'a git-hosted dependency'} from running its build scripts. Add it under \`allowBuilds\` in the project's pnpm-workspace.yaml (pnpm's output shows the exact entry), then retry the install.`,
     };
   }
   // pnpm's build-script approval gate: the install itself succeeded, but

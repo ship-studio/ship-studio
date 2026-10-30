@@ -33,11 +33,20 @@ use super::{
 /// to list branches: " — an empty, undiagnosable report (issue #811). Fall
 /// back to the exit code so telemetry always carries something, mirroring
 /// `git_status_failure_message` in status.rs (issue #682).
-fn list_branches_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -> String {
+fn list_branches_failure_message(
+    stderr_trimmed: &str,
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+) -> String {
     if stderr_trimmed.is_empty() {
-        return match exit_code {
-            Some(code) => format!("Failed to list branches (exit {code})"),
-            None => "Failed to list branches (terminated by signal)".to_string(),
+        return match (exit_code, signal) {
+            (Some(code), _) => format!("Failed to list branches (exit {code})"),
+            // Name the signal, like status.rs (issue #1088).
+            (None, Some(sig)) => format!(
+                "Failed to list branches: git was terminated by {}",
+                crate::external_command::describe_signal(sig)
+            ),
+            (None, None) => "Failed to list branches (terminated by signal)".to_string(),
         };
     }
     // Include git's stderr — a bare "Failed to list branches" is
@@ -110,7 +119,12 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
                 return Err(gap);
             }
         }
-        return Err(list_branches_failure_message(stderr.trim(), output.status.code()).into());
+        return Err(list_branches_failure_message(
+            stderr.trim(),
+            output.status.code(),
+            crate::external_command::exit_signal(&output.status),
+        )
+        .into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -344,19 +358,19 @@ pub async fn switch_branch(
             .map(|o| o.status.success())
             .unwrap_or(false);
 
-    let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
-    if origin_exists {
-        checkout_cmd
-            .arg("checkout")
-            .arg("--track")
-            .arg(format!("origin/{branch_name}"));
-    } else {
-        checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
-    }
-    let checkout_output =
-        crate::external_command::spawn_with_pressure_retry("git checkout", || {
-            checkout_cmd.output()
-        })?;
+    // Retried on index.lock contention, same as create_branch (issue #1028).
+    let checkout_output = crate::utils::output_retrying_index_lock(|| {
+        let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
+        if origin_exists {
+            checkout_cmd
+                .arg("checkout")
+                .arg("--track")
+                .arg(format!("origin/{branch_name}"));
+        } else {
+            checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
+        }
+        crate::external_command::spawn_with_pressure_retry("git checkout", || checkout_cmd.output())
+    })?;
 
     if !checkout_output.status.success() {
         // Checkout failed - restore the stash if we made one
@@ -537,11 +551,15 @@ pub async fn create_branch(
         .to_string();
 
     if is_from_current {
-        // Create branch from current HEAD (preserves local changes)
-        let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
-        co_cmd.args(["checkout", "-b", &branch_name]);
-        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
-            co_cmd.output()
+        // Create branch from current HEAD (preserves local changes). Writes
+        // the index, so it rides out index.lock contention like every other
+        // index-mutating call site (issue #1028).
+        let output = crate::utils::output_retrying_index_lock(|| {
+            let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
+            co_cmd.args(["checkout", "-b", &branch_name]);
+            crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+                co_cmd.output()
+            })
         })?;
 
         if !output.status.success() {
@@ -549,6 +567,10 @@ pub async fn create_branch(
             if is_branch_already_exists_error(&stderr) {
                 warn!(error = %stderr, "Branch creation blocked: name already taken");
                 return Err(branch_already_exists_error(&branch_name));
+            }
+            if let Some(err) = branch_environment_error(&stderr) {
+                warn!(error = %stderr.trim(), "Branch creation blocked by the environment");
+                return Err(err);
             }
             return Err((stderr.to_string()).into());
         }
@@ -582,10 +604,12 @@ pub async fn create_branch(
             format!("origin/{plain}")
         };
 
-        let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
-        co_cmd.args(["checkout", "-b", &branch_name, &base_ref]);
-        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
-            co_cmd.output()
+        let output = crate::utils::output_retrying_index_lock(|| {
+            let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
+            co_cmd.args(["checkout", "-b", &branch_name, &base_ref]);
+            crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+                co_cmd.output()
+            })
         })?;
 
         if !output.status.success() {
@@ -624,6 +648,10 @@ pub async fn create_branch(
             if is_branch_already_exists_error(&stderr) {
                 warn!(error = %stderr, "Branch creation blocked: name already taken");
                 return Err(branch_already_exists_error(&branch_name));
+            }
+            if let Some(err) = branch_environment_error(&stderr) {
+                warn!(error = %stderr.trim(), "Branch creation blocked by the environment");
+                return Err(err);
             }
             error!(error = %stderr, "Failed to create branch");
             return Err((stderr.to_string()).into());
@@ -725,6 +753,14 @@ fn is_missing_base_ref_error(stderr: &str) -> bool {
     stderr.contains("is not a commit and a branch")
 }
 
+/// Failures of `checkout -b` / `branch -D` that are the machine, not the
+/// branch: an environment gap git can't run past (the unaccepted Xcode
+/// license arrives here as bare, unprefixed stderr — issue #1007), or
+/// index.lock contention that outlasted the retries (issue #1028).
+fn branch_environment_error(stderr: &str) -> Option<CommandError> {
+    crate::utils::git_environment_gap(stderr).or_else(|| super::persistent_index_lock_error(stderr))
+}
+
 /// Git refusing `checkout -b <name>` because that branch name is taken —
 /// "fatal: a branch named 'X' already exists". An everyday user state (a
 /// retried create, or a stale branch list), not a malfunction (issue #791).
@@ -813,6 +849,10 @@ pub async fn delete_branch(
             )));
         }
         if !stderr.contains("not found") {
+            if let Some(err) = branch_environment_error(&stderr) {
+                warn!(error = %stderr.trim(), "Branch delete blocked by the environment");
+                return Err(err);
+            }
             return Err((stderr.to_string()).into());
         }
     }
@@ -897,7 +937,7 @@ pub async fn delete_branch(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_branch_already_exists_error, is_default_branch_delete_refusal,
+        branch_environment_error, is_branch_already_exists_error, is_default_branch_delete_refusal,
         is_missing_base_ref_error, is_worktree_delete_refusal, list_branches_failure_message,
     };
 
@@ -951,6 +991,27 @@ mod tests {
         assert!(!is_branch_already_exists_error(""));
     }
 
+    // #1007 (bare Xcode license text) and #1028 (index.lock still held after
+    // the retries) from create/delete_branch's raw-passthrough fallbacks.
+    #[test]
+    fn branch_environment_error_classifies_machine_states() {
+        use crate::errors::CommandError;
+        let license = "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.";
+        let err = branch_environment_error(license).expect("classified");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(
+            err.to_string().contains("xcodebuild -license"),
+            "got: {err}"
+        );
+
+        let lock = "fatal: Unable to create '/p/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale";
+        let err = branch_environment_error(lock).expect("classified");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("index.lock"), "got: {err}");
+
+        assert!(branch_environment_error("fatal: invalid reference: x").is_none());
+    }
+
     // The #792 shape: GitHub refusing to delete the repo's default branch,
     // whatever it's named.
     #[test]
@@ -970,15 +1031,20 @@ mod tests {
     #[test]
     fn list_branches_failure_message_falls_back_to_exit_code() {
         assert_eq!(
-            list_branches_failure_message("", Some(128)),
+            list_branches_failure_message("", Some(128), None),
             "Failed to list branches (exit 128)"
         );
         assert_eq!(
-            list_branches_failure_message("", None),
+            list_branches_failure_message("", None, None),
             "Failed to list branches (terminated by signal)"
         );
         assert_eq!(
-            list_branches_failure_message("fatal: bad object", Some(128)),
+            list_branches_failure_message("", None, Some(11)),
+            "Failed to list branches: git was terminated by signal 11 (SIGSEGV) — the program \
+             crashed (segmentation fault)"
+        );
+        assert_eq!(
+            list_branches_failure_message("fatal: bad object", Some(128), None),
             "Failed to list branches: fatal: bad object"
         );
     }
@@ -988,7 +1054,7 @@ mod tests {
     #[test]
     fn list_branches_failure_message_truncates_a_huge_stderr() {
         let huge = "x".repeat(5000);
-        let msg = list_branches_failure_message(&huge, Some(128));
+        let msg = list_branches_failure_message(&huge, Some(128), None);
         assert!(msg.len() < 700, "must be capped, got {} chars", msg.len());
         assert!(msg.ends_with('…'), "got tail: {}", &msg[msg.len() - 20..]);
         assert!(msg.starts_with("Failed to list branches: xxx"));

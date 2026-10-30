@@ -43,6 +43,45 @@ describe('validateMcpAddCommand (#588)', () => {
   });
 });
 
+describe('validateMcpAddCommand per agent CLI (#998, #1059, #1061)', () => {
+  const claude = (input: string) => validateMcpAddCommand(input, 'claude', 'claude-code');
+  const codex = (input: string) => validateMcpAddCommand(input, 'codex', 'codex');
+
+  it('accepts each CLI’s own remote-server syntax', () => {
+    expect(claude('--transport http sentry https://mcp.sentry.dev/mcp')).toBeNull();
+    expect(claude('my-server https://example.com/mcp')).toBeNull();
+    expect(codex('my-server --url https://example.com/mcp')).toBeNull();
+    expect(codex('my-server -- npx -y @some/mcp-server')).toBeNull();
+    expect(codex('my-server npx pkg')).toBeNull();
+    expect(codex('my-server --env FOO=bar -- npx -y pkg')).toBeNull();
+  });
+
+  it('rejects --url for Claude Code and points at --transport http', () => {
+    const message = claude('my-server --url https://example.com/mcp');
+    expect(message).toContain('no `--url` flag');
+    expect(message).toContain('--transport http my-server https://example.com/mcp');
+  });
+
+  it('rejects --transport for Codex and points at --url', () => {
+    const message = codex('my-server --transport http https://example.com/mcp');
+    expect(message).toContain('no `--transport` flag');
+    expect(message).toContain('my-server --url https://example.com/mcp');
+  });
+
+  it('asks Codex users for -- before a command with flags', () => {
+    expect(codex('my-server npx -y @some/mcp-server')).toContain('Put `--`');
+  });
+
+  it('asks Codex users for --url before a bare URL', () => {
+    expect(codex('my-server https://example.com/mcp')).toContain('needs `--url`');
+  });
+
+  it('shows Claude Code’s syntax in the generic guidance', () => {
+    expect(claude('my-server')).toContain('--transport http');
+    expect(claude('my-server')).not.toContain('--url');
+  });
+});
+
 describe('validateMcpAddCommand for OpenCode (#655)', () => {
   const validate = (input: string) => validateMcpAddCommand(input, 'opencode', 'opencode');
 

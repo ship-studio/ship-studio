@@ -883,7 +883,18 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let root = validate_project_path(&project_path)?;
+    list_pages_in(&root)
+}
+
+/// Scan the pages of the project at `root`, in its **active workspace**.
+///
+/// A monorepo app lives in `workspace_subpath` (e.g. `apps/web`), which is
+/// where the dev server runs. Scanning the repo root instead found none of
+/// `app/`, `src/app/`, `pages/` or `src/pages/`, so the page selector and the
+/// agent's `preview_status` were permanently empty for those projects (#1009).
+fn list_pages_in(root: &Path) -> Result<Vec<PageInfo>, CommandError> {
+    let project = crate::utils::resolve_workspace_path(root);
     let project_type = detection::detect_project_type(&project);
 
     match project_type {
@@ -1008,13 +1019,19 @@ pub async fn open_in_finder(path: String) -> Result<(), CommandError> {
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
-    let gitignore_path = project.join(".gitignore");
+    add_shipstudio_to_gitignore(&project.join(".gitignore"))
+}
 
+/// The body of [`ensure_gitignore_has_shipstudio`], minus the projects-root
+/// check. Runs on every project open, so a `.gitignore` owned by another user
+/// or behind a TCC denial goes through `classify_fs_error` rather than
+/// reaching telemetry as a bare OS string (issue #1029).
+fn add_shipstudio_to_gitignore(gitignore_path: &Path) -> Result<(), CommandError> {
     let entry = ".shipstudio/";
 
     let content = if gitignore_path.exists() {
-        std::fs::read_to_string(&gitignore_path)
-            .map_err(|e| format!("Failed to read .gitignore: {e}"))?
+        std::fs::read_to_string(gitignore_path)
+            .map_err(|e| crate::utils::classify_fs_error("read .gitignore", gitignore_path, &e))?
     } else {
         String::new()
     };
@@ -1039,8 +1056,8 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
         format!("{content}\n\n# ShipStudio metadata\n{entry}\n")
     };
 
-    std::fs::write(&gitignore_path, new_content)
-        .map_err(|e| format!("Failed to write .gitignore: {e}"))?;
+    std::fs::write(gitignore_path, new_content)
+        .map_err(|e| crate::utils::classify_fs_error("write .gitignore", gitignore_path, &e))?;
 
     Ok(())
 }
@@ -1068,7 +1085,7 @@ pub async fn create_blank_project(project_path: String) -> Result<(), CommandErr
     // Add .shipstudio/ to gitignore
     let gitignore = path.join(".gitignore");
     std::fs::write(&gitignore, ".shipstudio/\n")
-        .map_err(|e| format!("Failed to create .gitignore: {e}"))?;
+        .map_err(|e| crate::utils::classify_fs_error("create .gitignore", &gitignore, &e))?;
 
     Ok(())
 }
@@ -1172,7 +1189,11 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || remove_dir_all_robust(&target))
         .await
         .map_err(|e| format!("Project deletion task failed: {e}"))?
-        .map_err(|e| format!("Failed to delete project directory: {e}"))?;
+        // Retries are spent by now; a lock that outlasted them (antivirus,
+        // OneDrive) is still an environment state, not a bug (issue #1066).
+        .map_err(|e| {
+            crate::utils::classify_fs_error("delete this project's folder", &canonical, &e)
+        })?;
 
     // 4. Clear dashboard references (pins, folders) — after the delete, so a
     //    failed delete doesn't strip the pin off a project that still exists.
@@ -1803,6 +1824,38 @@ mod tests {
             started.elapsed() < std::time::Duration::from_secs(10),
             "timeout must bound the call well below the script's sleep"
         );
+    }
+
+    /// Issue #1029: "Failed to write .gitignore: Permission denied (os error
+    /// 13)" reached telemetry as a bare `Other`. Assumes the test process
+    /// isn't root (root ignores the permission bits this relies on).
+    #[test]
+    #[cfg(unix)]
+    fn gitignore_permission_denied_is_expected() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let gitignore = tmp.path().join(".gitignore");
+        std::fs::write(&gitignore, "node_modules\n").unwrap();
+        std::fs::set_permissions(&gitignore, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        let err = add_shipstudio_to_gitignore(&gitignore).expect_err("read-only file");
+        std::fs::set_permissions(&gitignore, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("write .gitignore"), "got: {msg}");
+        assert!(!msg.contains("os error"), "got: {msg}");
+    }
+
+    #[test]
+    fn gitignore_gets_the_shipstudio_entry_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gitignore = tmp.path().join(".gitignore");
+        add_shipstudio_to_gitignore(&gitignore).unwrap();
+        add_shipstudio_to_gitignore(&gitignore).unwrap();
+        let content = std::fs::read_to_string(&gitignore).unwrap();
+        assert_eq!(content.matches(".shipstudio/").count(), 1, "got: {content}");
     }
 
     #[tokio::test]
@@ -2546,5 +2599,72 @@ mod scan_tests {
         println!("git pass   : {git_pass:?}");
         println!("total      : {total:?}");
         println!("==================================\n");
+    }
+}
+
+#[cfg(test)]
+mod list_pages_tests {
+    use super::*;
+
+    fn write(path: &Path, contents: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+    }
+
+    fn routes_of(root: &Path) -> Vec<String> {
+        list_pages_in(root)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.route)
+            .collect()
+    }
+
+    /// A pnpm monorepo whose Next.js app lives in `apps/web` (#1009).
+    #[test]
+    fn scans_the_workspace_subpath_of_a_monorepo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(
+            &root.join("package.json"),
+            r#"{"name":"mono","private":true}"#,
+        );
+        write(&root.join("pnpm-workspace.yaml"), "packages:\n  - apps/*\n");
+        write(
+            &root.join(".shipstudio").join("project.json"),
+            r#"{"_description":"x","workspace_subpath":"apps/web"}"#,
+        );
+        let app = root.join("apps").join("web");
+        write(
+            &app.join("package.json"),
+            r#"{"name":"web","dependencies":{"next":"15.0.0"}}"#,
+        );
+        write(
+            &app.join("app").join("page.tsx"),
+            "export default function P() {}",
+        );
+        write(
+            &app.join("app").join("about").join("page.tsx"),
+            "export default function P() {}",
+        );
+
+        let routes = routes_of(root);
+        assert!(routes.contains(&"/".to_string()), "{routes:?}");
+        assert!(routes.contains(&"/about".to_string()), "{routes:?}");
+    }
+
+    #[test]
+    fn single_app_projects_still_scan_the_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(
+            &root.join("package.json"),
+            r#"{"name":"web","dependencies":{"next":"15.0.0"}}"#,
+        );
+        write(
+            &root.join("app").join("page.tsx"),
+            "export default function P() {}",
+        );
+
+        assert_eq!(routes_of(root), vec!["/".to_string()]);
     }
 }

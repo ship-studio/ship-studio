@@ -171,10 +171,33 @@ pub fn windows_out_of_memory(err: &std::io::Error, label: Option<&str>) -> Optio
     }
 }
 
+/// [`windows_out_of_memory`] for an error that only survives as text — e.g.
+/// `portable_pty`'s `anyhow::Error` from `spawn_command`, which formats the OS
+/// error into its message ("… failed: The paging file is too small for this
+/// operation to complete. (os error 1455)") instead of carrying an `io::Error`
+/// (issue #1138). Matches the `(os error N)` suffix, which Rust appends in
+/// every locale.
+pub fn windows_out_of_memory_in_message(
+    message: &str,
+    label: Option<&str>,
+) -> Option<CommandError> {
+    [1455, 1450, 8]
+        .into_iter()
+        .find(|code| message.contains(&format!("(os error {code})")))
+        .and_then(|code| windows_out_of_memory(&std::io::Error::from_raw_os_error(code), label))
+}
+
 impl From<std::io::Error> for CommandError {
     fn from(err: std::io::Error) -> Self {
         if let Some(oom) = windows_out_of_memory(&err, None) {
             return oom;
+        }
+        // A path that vanished (os error 2/3) is the environment moving or
+        // deleting something under us — the same call `map_spawn_io_error`
+        // makes for spawns. Same text, just kept out of telemetry
+        // (issue #1017).
+        if err.kind() == std::io::ErrorKind::NotFound {
+            return CommandError::expected(format!("I/O error: {err}"));
         }
         CommandError::Io {
             message: err.to_string(),
@@ -284,12 +307,28 @@ mod tests {
 
     #[test]
     fn from_io_error_maps_to_io() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let io_err = std::io::Error::new(std::io::ErrorKind::InvalidData, "corrupt");
         let err: CommandError = io_err.into();
         match err {
-            CommandError::Io { message } => assert!(message.contains("missing")),
+            CommandError::Io { message } => assert!(message.contains("corrupt")),
             _ => panic!("expected Io variant"),
         }
+    }
+
+    /// Issue #1017: "The system cannot find the path specified. (os error 3)"
+    /// arrived bare through `?` and was reported as a malfunction.
+    #[test]
+    fn from_io_error_not_found_is_expected_with_the_same_text() {
+        let io_err = std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "The system cannot find the path specified. (os error 3)",
+        );
+        let err: CommandError = io_err.into();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            "I/O error: The system cannot find the path specified. (os error 3)"
+        );
     }
 
     #[test]
@@ -321,5 +360,20 @@ mod tests {
     fn windows_out_of_memory_ignores_other_os_errors() {
         let io_err = std::io::Error::from_raw_os_error(5);
         assert!(windows_out_of_memory(&io_err, None).is_none());
+    }
+
+    // #1138: portable_pty's spawn failure carries the OS error only as text.
+    #[test]
+    fn windows_out_of_memory_in_message_classifies_pty_spawn_text() {
+        let message = "spawn_command `C:\\Users\\x\\.local\\bin\\claude.exe`: CreateProcessW \
+                       `\"C:\\\\Users\\\\x\\\\.local\\\\bin\\\\claude.exe --session-id 21787bc5\\0\"` \
+                       in cwd `Some(\"C:\\\\Users\\\\x\\\\ShipStudio\\\\p\\0\")` failed: The paging \
+                       file is too small for this operation to complete. (os error 1455)";
+        let err =
+            windows_out_of_memory_in_message(message, Some("claude.exe")).expect("should classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("paging file"), "got: {err}");
+        assert!(windows_out_of_memory_in_message("failed (os error 80)", None).is_none());
+        assert!(windows_out_of_memory_in_message("Access is denied. (os error 5)", None).is_none());
     }
 }

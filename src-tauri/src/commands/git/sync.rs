@@ -156,6 +156,11 @@ pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
         if let Some(err) = super::classify_git_net_error(&stderr) {
             return Err(err);
         }
+        // Same machine-state classifier as status/branches/stash (#1027).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr, "git blocked by an environment gap while pulling");
+            return Err(gap);
+        }
         return Err((format!("Failed to pull: {stderr}")).into());
     }
 
@@ -238,6 +243,13 @@ pub async fn pull_and_merge(
         if let Some(err) = super::classify_git_net_error(&stderr) {
             return Err(err);
         }
+        // A damaged object store, the Xcode license, OOM… — the shared
+        // classifier the other git call sites already consult. The #1027
+        // shape: a commit-graph entry whose object isn't in the database.
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr, "git blocked by an environment gap while merging");
+            return Err(gap);
+        }
         return Err((format!("Failed to merge: {stderr}")).into());
     }
 
@@ -297,14 +309,14 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
     // Discard changes to tracked files. `checkout .` writes to the index, so
     // it can lose the .git lock race against the background snapshot watcher
     // or a concurrent commit exactly like add/commit — retry on contention the
-    // same way git_stage_and_commit does (issues #377/#597).
+    // same way git_stage_and_commit does (issues #377/#597). Spawn failures
+    // go through `CommandError::from` so Windows pagefile exhaustion keeps its
+    // `windows_out_of_memory` classification (issue #1107).
     let checkout_output = crate::utils::output_retrying_index_lock(|| {
         crate::utils::git_command_in(&validated_path)?
             .args(["checkout", "."])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(crate::errors::CommandError::from)
     })?;
 
     if !checkout_output.status.success() {
@@ -317,9 +329,7 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["clean", "-fd"])
             .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(crate::errors::CommandError::from)
     })?;
 
     if !clean_output.status.success() {
@@ -378,6 +388,20 @@ mod tests {
     };
     use std::process::Command;
 
+    /// Issue #1107: `discard_changes` hand-built `CommandError::Io` from its
+    /// spawn errors, so "O arquivo de paginação é muito pequeno… (os error
+    /// 1455)" skipped the `From` impl's `windows_out_of_memory` check. Its
+    /// spawns now map with `CommandError::from`, which must classify Expected.
+    #[test]
+    fn discard_spawn_failure_keeps_the_windows_out_of_memory_classification() {
+        let err = crate::errors::CommandError::from(std::io::Error::from_raw_os_error(1455));
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+        assert!(err.to_string().contains("paging file"), "got: {err}");
+    }
+
     // The #674 shape: the ref handed to `git merge` doesn't resolve locally
     // (remote branch deleted/renamed, or the best-effort fetch failed) — an
     // anticipated state that must classify Expected, not generic Other.
@@ -413,6 +437,22 @@ mod tests {
         assert!(!is_missing_upstream(stderr));
         assert!(!is_overwrite_refusal(stderr));
         assert!(!is_unmergeable_ref(stderr));
+    }
+
+    // Issue #1027: local repo corruption surfacing from `git merge`. None of
+    // the merge-specific or network classifiers may claim it first, and the
+    // shared environment classifier must.
+    #[test]
+    fn merge_on_a_corrupt_repo_reaches_the_environment_classifier() {
+        let stderr = "fatal: You are attempting to fetch 0fc08367ab4e76ca9ccda764da800b59500e9728, which is in the commit graph file but not in the object database.\nThis is probably due to repo corruption.\nIf you are attempting to repair this repo corruption by refetching the missing object, use 'git fetch --refetch' with the missing object.\n";
+        assert!(!is_missing_upstream(stderr));
+        assert!(!is_overwrite_refusal(stderr));
+        assert!(!is_unmergeable_ref(stderr));
+        assert!(!is_unresolved_merge_in_progress(stderr));
+        assert!(super::super::classify_git_net_error(stderr).is_none());
+        let err = crate::utils::git_environment_gap(stderr).expect("classified");
+        assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+        assert!(err.to_string().contains("damaged"), "got: {err}");
     }
 
     #[test]
