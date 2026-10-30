@@ -6,6 +6,16 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.6.4
+
+- **Change your Default workspace colour** - The Default workspace's colour can now be changed like any other (Martin Crandon)
+- **Fixed** - Focus mode now actually hides the preview and every panel except the agent
+- **Fixed** - Picking a branch from the Branches menu now checks it out
+- **Fixed** - Monorepo projects opened at a workspace subpath now list their pages
+- **Fixed** - The finish sound plays again with Claude Code 2.1
+- **Clearer errors** - Dozens of git, GitHub, install, clipboard, screenshot and agent failures now explain what happened and what to do, instead of a generic error
+
+
 ## What's New in v1.6.3
 
 - **Security updates** - Ship Studio's dependencies are patched against the latest advisories, and every starter template now starts on patched versions (including the October Next.js and Astro fixes)
