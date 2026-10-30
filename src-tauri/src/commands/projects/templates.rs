@@ -198,6 +198,7 @@ fn extract_archive_to<R: std::io::Read + std::io::Seek>(
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?
             .name()
+            .map_err(|e| format!("Failed to read zip entry #{i} name: {e}"))?
             .to_string();
         if is_junk_zip_entry(&name) {
             continue;
@@ -239,7 +240,10 @@ fn extract_archive_to<R: std::io::Read + std::io::Seek>(
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?;
 
-        let mut outpath = file.name().to_string();
+        let mut outpath = file
+            .name()
+            .map_err(|e| format!("Failed to read zip entry #{i} name: {e}"))?
+            .to_string();
 
         // Never materialize packaging junk (issue #641).
         if is_junk_zip_entry(&outpath) {
