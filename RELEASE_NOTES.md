@@ -6,6 +6,12 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.6.5
+
+- **Remote access reports back** - Message an agent from your phone and your assistant now waits and tells you when it's finished (its reply, the files it changed and a screenshot), or asks you when the agent needs a decision, instead of stopping at "sent"
+- **Did it deploy?** - Remote access can tell you whether a push went live on Vercel, Cloudflare Pages or Netlify, with the address or the build error
+
+
 ## What's New in v1.6.4
 
 - **Change your Default workspace colour** - The Default workspace's colour can now be changed like any other (Martin Crandon)

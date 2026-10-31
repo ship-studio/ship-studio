@@ -1,6 +1,6 @@
 [package]
 name = "ship-studio"
-version = "1.6.4"
+version = "1.6.5"
 description = "Ship Studio — a desktop app for shipping web projects with AI coding agents."
 authors = ["Julian Galluzzo", "Ship Studio contributors"]
 license = "MIT"

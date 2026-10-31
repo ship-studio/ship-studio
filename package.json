@@ -1,7 +1,7 @@
 {
   "name": "ship-studio",
   "private": true,
-  "version": "1.6.4",
+  "version": "1.6.5",
   "packageManager": "pnpm@9.15.9",
   "description": "Ship Studio — a desktop app for shipping web projects with AI coding agents.",
   "license": "MIT",
