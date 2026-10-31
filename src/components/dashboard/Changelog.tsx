@@ -26,6 +26,14 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.5', // v1.6.5
+    items: [
+      'Remote access now reports back: when you message an agent from your phone, your assistant waits and tells you when it’s finished (with its reply, the files it changed and a screenshot), or asks you when the agent needs a decision — instead of stopping at “sent”',
+      'Remote access can tell you whether a push went live on Vercel, Cloudflare Pages or Netlify, with the address or the build error',
+      'Remote access marks which tools only read, so assistants can ask you to approve fewer steps',
+    ],
+  },
+  {
     version: '1.6.4', // v1.6.4
     items: [
       'You can now change the colour of your Default workspace (Martin Crandon)',
