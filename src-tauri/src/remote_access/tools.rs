@@ -11,24 +11,58 @@
 //! remote code execution with no agent in between, which is exactly the power
 //! the user chose not to hand out.
 
+use super::agent_state::{self, AgentState, QUIET_MS};
 use super::{power, screen, shots, RemoteConfig};
 use crate::commands::pty_session::{self, SessionSummary};
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tauri::Emitter;
 
-/// A tab counts as quiet — the agent has probably finished its turn or is
-/// waiting on the user — after this long with no output.
-const QUIET_MS: u64 = 5_000;
 const MAX_WAIT_SECS: u64 = 50;
+/// How long message_agent waits for the reply by default. Long enough for
+/// most small asks to finish inside one call; short enough that, with a
+/// screenshot after it, the call still answers inside a minute — the budget
+/// chat clients give a tool call before they give up on it.
+const MESSAGE_WAIT_SECS: u64 = 35;
+/// After a key press: long enough to see whether the agent carried on.
+const KEY_WAIT_SECS: u64 = 20;
+/// wait_for_agent's default.
+const FOLLOW_WAIT_SECS: u64 = 45;
+/// A finished step gets its screenshot in the same answer only if the call
+/// has used less than this, and the capture gets at most AUTO_SHOT_TIMEOUT.
+const AUTO_SHOT_BEFORE: Duration = Duration::from_secs(38);
+const AUTO_SHOT_TIMEOUT: Duration = Duration::from_secs(14);
+/// Past this, a still-working report tells the assistant to give the user a
+/// one-line update instead of watching in silence.
+const LONG_RUN_MS: u64 = 5 * 60 * 1000;
 const DEFAULT_LINES: usize = 60;
 const MAX_LINES: usize = 400;
 const MAX_MESSAGE_CHARS: usize = 20_000;
 /// How long start_agent waits for the new tab's terminal to appear.
 const START_AGENT_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How a tool behaves, for the MCP `annotations` clients use to decide what
+/// to confirm with the user. A client that sees `readOnlyHint` can skip its
+/// "allow this tool?" prompt, which on a phone is the difference between a
+/// conversation and a stream of approval taps.
+#[derive(Clone, Copy)]
+enum Effect {
+    /// Looks only. May switch which project Ship Studio is showing.
+    Reads,
+    /// Types into an agent, opens a tab, creates a project.
+    Acts,
+    /// Ends an agent, or sends work out of the machine.
+    Destructive,
+}
+
 struct ToolDef {
     name: &'static str,
+    title: &'static str,
+    effect: Effect,
+    /// Reaches past this computer (GitHub, a host, a starter download).
+    open_world: bool,
     description: &'static str,
     schema: fn() -> Value,
 }
@@ -41,19 +75,32 @@ fn tab_prop() -> Value {
     json!({ "type": "string", "description": "Tab number from list_projects (\"1\", \"2\", …) or its id. Defaults to the agent tab with the most recent output." })
 }
 
+fn wait_prop(default: u64) -> Value {
+    json!({ "type": "integer", "description": format!("Seconds to wait for the agent to finish or ask something (default {default}, max {MAX_WAIT_SECS}). 0 returns at once.") })
+}
+
 const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "computer_status",
+        title: "Computer status",
+        effect: Effect::Reads,
+        open_world: false,
         description: "Is the user's computer in a good state to keep working unattended? Reports mains power / battery level, whether it is being kept awake, and lid-closed mode. Call this at the start of a session and whenever the user asks if things are still running.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {
         name: "list_projects",
-        description: "The projects the user has shared for remote access, with each one's git branch, number of uncommitted changes, and its terminal tabs (agent, running or ended, and how long since it last printed anything). Call first.",
+        title: "List projects and agents",
+        effect: Effect::Reads,
+        open_world: false,
+        description: "Call first. The projects the user has shared for remote access, each with its git branch, uncommitted changes, and its tabs — and for every agent whether it is working, finished, or waiting on a decision from the user. Anything waiting on the user is listed at the top.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {
         name: "create_project",
+        title: "Create a project",
+        effect: Effect::Acts,
+        open_world: true,
         description: "Create a brand-new project in Ship Studio from one of its starter templates, share it for remote access, and open it. Takes a minute or two (download, then installing packages). Then use message_agent on it to have the agent build what the user wants.",
         schema: || json!({
             "type": "object",
@@ -70,6 +117,9 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "open_project",
+        title: "Switch project",
+        effect: Effect::Reads,
+        open_world: false,
         description: "Switch Ship Studio on the computer to one of the shared projects, so its workspace, agents and preview are the ones showing. Screenshot and agent tools already do this themselves when they need to — call it when the user asks to switch, or to warm up a project's preview before showing it.",
         schema: || json!({
             "type": "object",
@@ -78,58 +128,91 @@ const TOOLS: &[ToolDef] = &[
         }),
     },
     ToolDef {
+        name: "message_agent",
+        title: "Message the agent",
+        effect: Effect::Acts,
+        open_world: false,
+        description: "THE DEFAULT for anything the user asks an agent to do. Continues the conversation already running in the project's agent tab (the most recently active one, or the tab you name), exactly as if the user typed it at their desk, then WAITS for the agent and returns its reply, what changed, and — when it's done and something changed — a screenshot. Every result starts with STATUS and ends with NEXT: do what NEXT says. If the agent is busy, the message is still delivered — never start another agent because one is busy. Only if no agent is running at all does this start one.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "project": project_prop(),
+                "tab": tab_prop(),
+                "message": { "type": "string", "description": "What to type, in the user's words." },
+                "wait_seconds": wait_prop(MESSAGE_WAIT_SECS)
+            },
+            "required": ["message"]
+        }),
+    },
+    ToolDef {
+        name: "wait_for_agent",
+        title: "Wait for the agent",
+        effect: Effect::Reads,
+        open_world: false,
+        description: "Keep watching an agent that is still working. Waits until it finishes or asks the user something (or the wait runs out), then reports the same way message_agent does: STATUS, the agent's reply, what changed, a screenshot when it's done, and NEXT. Call it whenever a result says STATUS: working — repeatedly, until it doesn't.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "project": project_prop(),
+                "tab": tab_prop(),
+                "wait_seconds": wait_prop(FOLLOW_WAIT_SECS)
+            }
+        }),
+    },
+    ToolDef {
         name: "read_agent",
-        description: "What an agent tab is showing right now, as plain text (the bottom of its screen plus scrollback). Use wait_seconds after sending a message to wait until the agent has been quiet for 5 seconds — a sign it finished or needs input.",
+        title: "Read an agent's screen",
+        effect: Effect::Reads,
+        open_world: false,
+        description: "The raw text an agent tab is showing right now (the bottom of its screen plus scrollback), with its STATUS. For following work, wait_for_agent is better; use this when the user wants the exact wording, or to see more history.",
         schema: || json!({
             "type": "object",
             "properties": {
                 "project": project_prop(),
                 "tab": tab_prop(),
                 "lines": { "type": "integer", "description": "How many lines from the bottom (default 60, max 400)." },
-                "wait_seconds": { "type": "integer", "description": "Wait up to this long (max 50) for the tab to go quiet before reading." }
+                "wait_seconds": { "type": "integer", "description": "Wait up to this long (max 50) for the agent to finish or ask something before reading." }
             }
         }),
     },
     ToolDef {
-        name: "message_agent",
-        description: "THE DEFAULT for anything the user asks an agent to do. Continues the conversation already running in the project's agent tab (the most recently active one, or the tab you name), exactly as if the user typed it at their desk. If the agent is busy, the message is still delivered — do not start another agent because one is busy. Only if no agent is running at all does this start one.",
-        schema: || json!({
-            "type": "object",
-            "properties": {
-                "project": project_prop(),
-                "tab": tab_prop(),
-                "message": { "type": "string", "description": "What to type." }
-            },
-            "required": ["message"]
-        }),
-    },
-    ToolDef {
         name: "press_key",
-        description: "Press one key in an agent tab — to pick an option in a menu or answer a permission prompt the agent is showing. Read the tab first and choose the key the screen asks for.",
+        title: "Press a key in an agent",
+        effect: Effect::Acts,
+        open_world: false,
+        description: "Press one key in an agent tab — to answer a permission prompt or pick an option in a menu the agent is showing (a result with STATUS: needs_decision lists the options; press the option's number). Then waits and reports what the agent did next, like message_agent.",
         schema: || json!({
             "type": "object",
             "properties": {
                 "project": project_prop(),
                 "tab": tab_prop(),
-                "key": { "type": "string", "enum": ["enter", "escape", "up", "down", "left", "right", "tab", "backspace", "ctrl_c", "y", "n", "1", "2", "3", "4", "5", "6", "7", "8", "9"] }
+                "key": { "type": "string", "enum": ["enter", "escape", "up", "down", "left", "right", "tab", "backspace", "ctrl_c", "y", "n", "1", "2", "3", "4", "5", "6", "7", "8", "9"] },
+                "wait_seconds": wait_prop(KEY_WAIT_SECS)
             },
             "required": ["key"]
         }),
     },
     ToolDef {
         name: "start_agent",
-        description: "Open a SEPARATE, additional agent tab. Only when the user explicitly asks for a new, separate or parallel agent — never to continue work, and never because the current agent is busy (use message_agent for both). The new agent starts with this prompt; don't send it again afterwards.",
+        title: "Start a separate agent",
+        effect: Effect::Acts,
+        open_world: false,
+        description: "Open a SEPARATE, additional agent tab. Only when the user explicitly asks for a new, separate or parallel agent — never to continue work, and never because the current agent is busy (use message_agent for both). The new agent starts with this prompt; don't send it again afterwards. Waits for its first reply and reports like message_agent.",
         schema: || json!({
             "type": "object",
             "properties": {
                 "project": project_prop(),
-                "prompt": { "type": "string", "description": "The agent's first instruction." }
+                "prompt": { "type": "string", "description": "The agent's first instruction." },
+                "wait_seconds": wait_prop(MESSAGE_WAIT_SECS)
             },
             "required": ["prompt"]
         }),
     },
     ToolDef {
         name: "close_agent",
+        title: "Close an agent tab",
+        effect: Effect::Destructive,
+        open_world: false,
         description: "Close an agent tab, ending that agent — like clicking its × in Ship Studio. Confirm with the user which tab first, unless they named it. The project's last remaining tab can't be closed.",
         schema: || json!({
             "type": "object",
@@ -142,13 +225,16 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "show_progress",
-        description: "THE way to report back. Waits (default 30s) for the agent to finish its current step, then returns its state, which files changed, and a sharp screenshot of the site with a link the user can open. Call it after each piece of work and whenever the user asks how it's going, then answer in a sentence or two plus the screenshot.",
+        title: "Show progress",
+        effect: Effect::Reads,
+        open_world: false,
+        description: "THE way to show the user where things are. Waits (default 30s) for the agent to finish its current step, then returns its STATUS and reply, which files changed, errors on the page, and a sharp screenshot with a link the user can open. Use it when the user asks how it's going or wants to see the site.",
         schema: || json!({
             "type": "object",
             "properties": {
                 "project": project_prop(),
                 "tab": tab_prop(),
-                "wait_seconds": { "type": "integer", "description": "How long to wait for the agent to go quiet first (default 30, max 50)." },
+                "wait_seconds": { "type": "integer", "description": "How long to wait for the agent to finish its step first (default 30, max 50)." },
                 "page": { "type": "string", "description": "Path to show, e.g. /pricing. Defaults to whatever the preview is on." },
                 "device": { "type": "string", "enum": ["desktop", "phone", "both"], "description": "Default desktop." }
             }
@@ -156,6 +242,9 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "preview_screenshot",
+        title: "Screenshot the site",
+        effect: Effect::Reads,
+        open_world: false,
         description: "A high-definition screenshot of the project's live site (desktop at 2x, phone at 3x), returned as an image plus a link the user can open for 24 hours. Use page to show a specific route and device for phone or both.",
         schema: || json!({
             "type": "object",
@@ -169,16 +258,25 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "git_status",
+        title: "Git status",
+        effect: Effect::Reads,
+        open_world: false,
         description: "The project's branch, uncommitted files and recent commits.",
         schema: || json!({ "type": "object", "properties": { "project": project_prop() } }),
     },
     ToolDef {
         name: "prepare_push",
+        title: "Prepare a push",
+        effect: Effect::Reads,
+        open_world: false,
         description: "Step 1 of 2 to push. Returns what would be pushed (branch, commits, uncommitted changes that will be committed first). Show the user the summary and ask for their push PIN. Nothing is pushed by this call.",
         schema: || json!({ "type": "object", "properties": { "project": project_prop() } }),
     },
     ToolDef {
         name: "confirm_push",
+        title: "Push (needs the user's PIN)",
+        effect: Effect::Destructive,
+        open_world: true,
         description: "Step 2 of 2. Pushes, if the PIN is right. Only ever pass a PIN the user typed to you in this conversation, for this push. Five wrong PINs lock remote pushing until the user is back at the computer.",
         schema: || json!({
             "type": "object",
@@ -189,12 +287,39 @@ const TOOLS: &[ToolDef] = &[
             "required": ["pin"]
         }),
     },
+    ToolDef {
+        name: "deploy_status",
+        title: "Did it deploy?",
+        effect: Effect::Reads,
+        open_world: true,
+        description: "Whether the commit last pushed from this project went live on its host (Vercel, Cloudflare Pages or Netlify), as the host itself reports it — building, ready (with the site's address) or failed (with the build error). Waits for a build in progress. Call it after confirm_push, and whenever the user asks if their changes are live.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "project": project_prop(),
+                "wait_seconds": { "type": "integer", "description": "Wait up to this long (default 40, max 50) for a build in progress to finish." }
+            }
+        }),
+    },
 ];
 
 pub fn definitions() -> Vec<Value> {
     TOOLS
         .iter()
-        .map(|t| json!({ "name": t.name, "description": t.description, "inputSchema": (t.schema)() }))
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "title": t.title,
+                "description": t.description,
+                "inputSchema": (t.schema)(),
+                "annotations": {
+                    "title": t.title,
+                    "readOnlyHint": matches!(t.effect, Effect::Reads),
+                    "destructiveHint": matches!(t.effect, Effect::Destructive),
+                    "openWorldHint": t.open_world,
+                },
+            })
+        })
         .collect()
 }
 
@@ -228,14 +353,16 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
         "open_project" => open_project(app, &project).await,
         "read_agent" => read_agent(&project, &args).await,
         "message_agent" => message_agent(app, &project, &args).await,
+        "wait_for_agent" => wait_for_agent(app, &project, &args).await,
         "close_agent" => close_agent(app, &project, &args).await,
-        "press_key" => press_key(&project, &args),
+        "press_key" => press_key(app, &project, &args).await,
         "start_agent" => start_agent(app, &project, &args).await,
         "preview_screenshot" => preview_screenshot(app, &project, &args).await,
         "show_progress" => show_progress(app, &project, &args).await,
         "git_status" => git_status(&project).await,
         "prepare_push" => prepare_push(&project).await,
         "confirm_push" => confirm_push(&project, &args).await,
+        "deploy_status" => super::deploy::deploy_status(&project, &args).await,
         _ => error(format!("Unknown tool: {name}")),
     }
 }
@@ -359,16 +486,333 @@ fn ago(ms: u64) -> String {
     }
 }
 
+/// "2m 10s", "45s", "1h 3m".
+fn duration(ms: u64) -> String {
+    let secs = ms / 1000;
+    match secs {
+        0..=59 => format!("{secs}s"),
+        60..=3599 => format!("{}m {}s", secs / 60, secs % 60),
+        _ => format!("{}h {}m", secs / 3600, (secs % 3600) / 60),
+    }
+}
+
+/// A tab's current state, read off its screen.
+fn tab_state(s: &SessionSummary) -> Option<(AgentState, Vec<String>)> {
+    let snap = pty_session::session_snapshot(&s.session_id)?;
+    let lines = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 40);
+    let quiet = super::now_ms().saturating_sub(snap.last_output_ms);
+    Some((agent_state::classify(&lines, snap.alive, quiet), lines))
+}
+
 fn tab_line(n: usize, s: &SessionSummary) -> String {
     let kind = s.agent_id.as_deref().unwrap_or("terminal");
     let state = if !s.alive {
         "ended".to_string()
-    } else if super::now_ms().saturating_sub(s.last_output_ms) >= QUIET_MS {
-        format!("quiet — last output {}", ago(s.last_output_ms))
+    } else if !is_agent_tab(s) {
+        format!("plain terminal, last output {}", ago(s.last_output_ms))
     } else {
-        "working".to_string()
+        match tab_state(s).map(|(state, _)| state) {
+            Some(AgentState::Working { activity }) => match activity {
+                Some(a) => format!("working — {a}"),
+                None => "working".into(),
+            },
+            Some(AgentState::NeedsDecision { question, .. }) => {
+                format!("WAITING FOR THE USER — \"{question}\"")
+            }
+            Some(AgentState::Finished) => {
+                format!(
+                    "finished, ready for a message (last output {})",
+                    ago(s.last_output_ms)
+                )
+            }
+            Some(AgentState::Exited) | None => "ended".into(),
+        }
     };
     format!("  tab {n}: {kind} — {state} (id {})", s.session_id)
+}
+
+// ============================================================================
+// Following an agent: what was asked, when, and what has happened since
+// ============================================================================
+
+/// One message handed to an agent from here, remembered so later checks can
+/// say how long ago it was, find the agent's reply below it, and tell which
+/// files the agent has changed since.
+#[derive(Clone)]
+struct Run {
+    sent_ms: u64,
+    message: String,
+    /// The working tree as git would commit it, before the message.
+    tree_before: Option<String>,
+}
+
+static RUNS: LazyLock<Mutex<HashMap<String, Run>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+const MAX_RUNS: usize = 32;
+
+fn begin_run(session_id: &str, message: &str, tree_before: Option<String>) {
+    let Ok(mut runs) = RUNS.lock() else { return };
+    if runs.len() >= MAX_RUNS && !runs.contains_key(session_id) {
+        if let Some(oldest) = runs
+            .iter()
+            .min_by_key(|(_, r)| r.sent_ms)
+            .map(|(id, _)| id.clone())
+        {
+            runs.remove(&oldest);
+        }
+    }
+    runs.insert(
+        session_id.to_string(),
+        Run {
+            sent_ms: super::now_ms(),
+            message: message.to_string(),
+            tree_before,
+        },
+    );
+}
+
+fn run_for(session_id: &str) -> Option<Run> {
+    RUNS.lock().ok()?.get(session_id).cloned()
+}
+
+/// The working tree's content hash, if this is a git project.
+async fn tree_now(project: &str) -> Option<String> {
+    frozen_tree(project).await.ok().map(|(_, tree)| tree)
+}
+
+/// Files whose content differs from `before`, by name.
+async fn changed_since(project: &str, before: &str) -> Option<Vec<String>> {
+    let after = tree_now(project).await?;
+    if after == before {
+        return Some(Vec::new());
+    }
+    let names = git(project, &["diff", "--name-only", before, &after])
+        .await
+        .ok()?;
+    Some(
+        names
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+/// What a watch saw last.
+struct Observed {
+    state: AgentState,
+    lines: Vec<String>,
+}
+
+/// Watch a tab until the agent finishes, asks something, or exits — or
+/// `wait` runs out — and say what it's doing at that moment. `settle` is a
+/// floor: right after a key press the screen hasn't caught up yet.
+async fn observe(session_id: &str, wait: Duration, settle: Duration) -> Result<Observed, String> {
+    let started = tokio::time::Instant::now();
+    let deadline = started + wait;
+    // Rendering replays the whole buffer; only redo it when output arrived.
+    let mut rendered: Option<(u64, Vec<String>)> = None;
+    loop {
+        let Some(snap) = pty_session::session_snapshot(session_id) else {
+            return Err("That tab was closed.".into());
+        };
+        let quiet = super::now_ms().saturating_sub(snap.last_output_ms);
+        let now = tokio::time::Instant::now();
+        // Output in the last moment can only classify as working (a choice
+        // has to hold still first), so skip the replay while it streams — a
+        // spinner redraws many times a second for the whole turn.
+        if snap.alive && quiet < agent_state::CHOICE_SETTLE_MS && now < deadline {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            continue;
+        }
+        if rendered.as_ref().map(|(at, _)| *at) != Some(snap.last_output_ms) {
+            let lines = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 120);
+            rendered = Some((snap.last_output_ms, lines));
+        }
+        let lines = rendered
+            .as_ref()
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default();
+        let state = agent_state::classify(&lines, snap.alive, quiet);
+        let settled = now.duration_since(started) >= settle;
+        let done = match state {
+            AgentState::Working { .. } => false,
+            AgentState::Exited => true,
+            _ => settled,
+        };
+        if done || now >= deadline {
+            return Ok(Observed { state, lines });
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+fn wait_arg(args: &Value, default: u64) -> Duration {
+    Duration::from_secs(
+        args.get("wait_seconds")
+            .and_then(Value::as_u64)
+            .unwrap_or(default)
+            .min(MAX_WAIT_SECS),
+    )
+}
+
+/// The STATUS line and what goes with it: the activity, the question and its
+/// options, or the agent's reply — the same words from every tool, so the
+/// assistant learns one shape.
+fn describe(state: &AgentState, lines: &[String], head: &str, reply: &[String]) -> Vec<String> {
+    let reply_block = |label: &str, max: usize| -> Option<String> {
+        let shown = &reply[reply.len().saturating_sub(max)..];
+        (!shown.is_empty()).then(|| format!("{label}\n{}", shown.join("\n")))
+    };
+    let mut parts = Vec::new();
+    match state {
+        AgentState::Working { activity } => {
+            parts.push(format!(
+                "STATUS: working — the agent hasn't finished yet{}.\n{head}",
+                activity
+                    .as_deref()
+                    .map(|a| format!(" ({a})"))
+                    .unwrap_or_default()
+            ));
+            parts.extend(reply_block(
+                "Latest on its screen (for you; don't paste it):",
+                8,
+            ));
+        }
+        AgentState::NeedsDecision { question, options } => {
+            let mut block = format!(
+                "STATUS: needs_decision — the agent is waiting for the user to answer: \"{question}\"\n{head}"
+            );
+            if let Some(what) = agent_state::decision_context(lines) {
+                block.push_str(&format!("\nWhat it wants to do: {what}"));
+            }
+            if !options.is_empty() {
+                block.push_str(&format!("\nOptions:\n  {}", options.join("\n  ")));
+            }
+            parts.push(block);
+        }
+        AgentState::Finished => {
+            parts.push(format!(
+                "STATUS: finished — the agent is done and waiting for the next message.\n{head}"
+            ));
+            parts.extend(reply_block(
+                "Its reply (summarise this for the user in plain words; don't paste it):",
+                30,
+            ));
+        }
+        AgentState::Exited => {
+            parts.push(format!(
+                "STATUS: exited — the agent in this tab has stopped.\n{head}"
+            ));
+            parts.extend(reply_block("Last lines on its screen:", 10));
+        }
+    }
+    parts
+}
+
+const NEXT_DECISION: &str = "NEXT: Ask the user now, in one short sentence, what the agent wants to do and which option they want (in plain words). When they answer, call press_key with that option's number (or y / n); for options without numbers, press up / down to move to it, then enter. Don't answer it yourself unless the user already asked for exactly this.";
+const NEXT_EXITED: &str = "NEXT: Tell the user the agent stopped (and why, if the screen says). If they want to carry on, message_agent starts a new one.";
+
+/// "bakery-site · tab 1 (claude-code) · 2m 10s since the message", the
+/// agent's reply below what was sent, and the run it belongs to.
+fn heading(
+    project: &str,
+    n: usize,
+    tab: &SessionSummary,
+    lines: &[String],
+) -> (String, Vec<String>, Option<Run>) {
+    let run = run_for(&tab.session_id);
+    let kind = tab.agent_id.as_deref().unwrap_or("agent");
+    let since = run
+        .as_ref()
+        .map(|r| {
+            format!(
+                " · {} since the message",
+                duration(super::now_ms().saturating_sub(r.sent_ms))
+            )
+        })
+        .unwrap_or_default();
+    let reply = agent_state::latest_reply(lines, run.as_ref().map(|r| r.message.as_str()), 30);
+    (
+        format!("{} · tab {n} ({kind}){since}", project_name(project)),
+        reply,
+        run,
+    )
+}
+
+/// The answer every agent tool gives: STATUS first, the agent's own words,
+/// what changed, a screenshot once it's done, and NEXT — the step the
+/// assistant should take, spelled out so it doesn't stop at "sent".
+async fn agent_outcome(
+    app: &tauri::AppHandle,
+    project: &str,
+    n: usize,
+    tab: &SessionSummary,
+    observed: Observed,
+    lead: &str,
+    call_started: tokio::time::Instant,
+) -> Value {
+    let (head, reply, run) = heading(project, n, tab, &observed.lines);
+    let mut parts = Vec::new();
+    if !lead.is_empty() {
+        parts.push(lead.to_string());
+    }
+    parts.extend(describe(&observed.state, &observed.lines, &head, &reply));
+
+    let mut shots = Vec::new();
+    let next: String = match &observed.state {
+        AgentState::Working { .. } => {
+            let long = run
+                .as_ref()
+                .is_some_and(|r| super::now_ms().saturating_sub(r.sent_ms) > LONG_RUN_MS);
+            if long {
+                "NEXT: It has been going a while. Give the user a one-line update on what it's doing, then keep calling wait_for_agent unless they say otherwise.".into()
+            } else {
+                "NEXT: Call wait_for_agent now (same project and tab), and keep calling it until STATUS is finished or needs_decision. Don't stop and don't reply to the user in between — they asked for the result.".into()
+            }
+        }
+        AgentState::NeedsDecision { .. } => NEXT_DECISION.into(),
+        AgentState::Exited => NEXT_EXITED.into(),
+        AgentState::Finished => {
+            let changed = match run.as_ref().and_then(|r| r.tree_before.as_deref()) {
+                Some(before) => changed_since(project, before).await,
+                None => None,
+            };
+            let changed_any = changed.as_ref().is_some_and(|c| !c.is_empty());
+            if let Some(files) = &changed {
+                parts.push(if files.is_empty() {
+                    "Files changed since the message: none.".into()
+                } else {
+                    format!(
+                        "Files changed since the message ({}):\n{}",
+                        files.len(),
+                        cap_lines(&files.join("\n"), 12)
+                    )
+                });
+            }
+            if changed_any && call_started.elapsed() < AUTO_SHOT_BEFORE {
+                if let Ok(Ok(c)) = tokio::time::timeout(
+                    AUTO_SHOT_TIMEOUT,
+                    capture(app, project, shots::Device::Desktop, false),
+                )
+                .await
+                {
+                    shots.push(c);
+                }
+            }
+            if !shots.is_empty() {
+                "NEXT: Reply to the user now: one or two plain sentences on what the agent did (from its reply), with the screenshot. If its reply asks the user something, put that question to them.".into()
+            } else if changed_any {
+                "NEXT: Call show_progress for a screenshot, then reply to the user in one or two plain sentences on what the agent did. If its reply asks the user something, put that question to them.".into()
+            } else {
+                "NEXT: Reply to the user now with what the agent said, in one or two plain sentences. If its reply asks the user something, put that question to them.".into()
+            }
+        }
+    };
+    let (mut content, shot_lines) = shots_content(&shots);
+    parts.extend(shot_lines);
+    parts.push(next);
+    content.push(json!({ "type": "text", "text": parts.join("\n\n") }));
+    json!({ "content": content })
 }
 
 // ============================================================================
@@ -437,6 +881,7 @@ async fn list_projects(config: &RemoteConfig) -> Value {
         return error("No projects are shared for remote access. The user turns this on per project in Ship Studio → Remote access.");
     }
     let mut out = Vec::new();
+    let mut waiting = Vec::new();
     for project in &config.projects {
         let sessions = sessions_for(project);
         out.push(format!(
@@ -449,8 +894,21 @@ async fn list_projects(config: &RemoteConfig) -> Value {
             out.push("  no tabs open (not open in Ship Studio right now)".into());
         }
         for (i, s) in sessions.iter().enumerate() {
-            out.push(tab_line(i + 1, s));
+            let line = tab_line(i + 1, s);
+            if line.contains("WAITING FOR THE USER") {
+                waiting.push(format!("{} tab {}", project_name(project), i + 1));
+            }
+            out.push(line);
         }
+    }
+    if !waiting.is_empty() {
+        out.insert(
+            0,
+            format!(
+                "Waiting on the user: {}. Tell them what each is asking (wait_for_agent with wait_seconds 0 shows the options).\n",
+                waiting.join(", ")
+            ),
+        );
     }
     text(out.join("\n"))
 }
@@ -465,67 +923,34 @@ async fn read_agent(project: &str, args: &Value) -> Value {
         Ok(t) => t,
         Err(e) => return error(e),
     };
-    let wait = args
-        .get("wait_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-        .min(MAX_WAIT_SECS);
     let lines = args
         .get("lines")
         .and_then(Value::as_u64)
         .map(|n| n as usize)
         .unwrap_or(DEFAULT_LINES)
         .clamp(1, MAX_LINES);
-
-    match wait_and_read(&tab, wait, lines).await {
-        Ok((state, rendered)) => {
-            let kind = tab.agent_id.as_deref().unwrap_or("terminal");
-            text(format!(
-                "{} · tab {n} ({kind}) · {state}\n\n{}",
-                project_name(project),
-                rendered.join("\n")
-            ))
+    let state = match observe(&tab.session_id, wait_arg(args, 0), Duration::ZERO).await {
+        Ok(o) => o.state,
+        Err(e) => return error(e),
+    };
+    let Some(snap) = pty_session::session_snapshot(&tab.session_id) else {
+        return error("That tab was closed.");
+    };
+    let rendered = screen::render_tail(&snap.bytes, snap.rows, snap.cols, lines);
+    let kind = tab.agent_id.as_deref().unwrap_or("terminal");
+    let status = match &state {
+        AgentState::Working { activity: Some(a) } => format!("working ({a})"),
+        AgentState::NeedsDecision { question, .. } => {
+            format!("needs_decision — waiting for the user: \"{question}\"")
         }
-        Err(e) => error(e),
-    }
-}
-
-/// Wait up to `wait` seconds for a tab to go quiet, then return a one-line
-/// state and its rendered screen.
-async fn wait_and_read(
-    tab: &SessionSummary,
-    wait: u64,
-    lines: usize,
-) -> Result<(String, Vec<String>), String> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(wait);
-    let mut timed_out = false;
-    loop {
-        let Some(snap) = pty_session::session_snapshot(&tab.session_id) else {
-            return Err("That tab was closed.".into());
-        };
-        let quiet = super::now_ms().saturating_sub(snap.last_output_ms) >= QUIET_MS;
-        if wait == 0 || quiet || !snap.alive || timed_out {
-            let rendered = screen::render_tail(&snap.bytes, snap.rows, snap.cols, lines);
-            let state = if !snap.alive {
-                "the agent has exited".to_string()
-            } else if quiet {
-                format!(
-                    "quiet since {} — finished or waiting for input",
-                    ago(snap.last_output_ms)
-                )
-            } else if timed_out {
-                "still working".to_string()
-            } else {
-                "working".to_string()
-            };
-            return Ok((state, rendered));
-        }
-        if tokio::time::Instant::now() >= deadline {
-            timed_out = true;
-            continue;
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
+        other => other.keyword().to_string(),
+    };
+    text(format!(
+        "STATUS: {status}\n{} · tab {n} ({kind}) · last output {}\n\n{}",
+        project_name(project),
+        ago(snap.last_output_ms),
+        rendered.join("\n")
+    ))
 }
 
 /// Keep printable text, newlines and tabs; drop every other control
@@ -589,44 +1014,6 @@ fn write(session_id: &str, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Is the bottom of the screen a choice the agent is waiting on? Returns the
-/// question (or the highlighted option) when it is.
-///
-/// Matches the shapes agent CLIs use for permission prompts and menus: a
-/// highlighted numbered option ("❯ 1. Yes"), "Do you want to …?", or a y/n
-/// prompt. Only the last lines are looked at — earlier screens with old
-/// prompts in the scrollback don't count.
-pub(crate) fn awaiting_choice(lines: &[String]) -> Option<String> {
-    let tail: Vec<&str> = lines
-        .iter()
-        .rev()
-        .take(14)
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty())
-        .collect();
-    let highlighted = tail.iter().any(|l| {
-        let rest = l.trim_start_matches(['❯', '>', '›', '▶', '→']);
-        rest.len() < l.len() && {
-            let rest = rest.trim_start();
-            rest.chars().next().is_some_and(|c| c.is_ascii_digit())
-                && rest.chars().skip_while(char::is_ascii_digit).next() == Some('.')
-        }
-    });
-    let question = tail.iter().find(|l| {
-        let lower = l.to_lowercase();
-        lower.starts_with("do you want")
-            || lower.contains("(y/n)")
-            || lower.contains("[y/n]")
-            || lower.starts_with("allow ")
-            || lower.contains("would you like to proceed")
-    });
-    match (question, highlighted) {
-        (Some(q), _) => Some((*q).to_string()),
-        (None, true) => Some("choose an option".to_string()),
-        (None, false) => None,
-    }
-}
-
 /// Validate text bound for an agent, the same way for a message and a prompt.
 fn clean_agent_text(raw: &str, what: &str) -> Result<String, String> {
     let text = sanitize_message(raw);
@@ -676,7 +1063,12 @@ async fn type_into(tab: &SessionSummary, n: usize, message: &str) -> Result<(), 
 /// This exists because, given only "send" and "start", a real assistant
 /// started a fresh agent for most requests: once because the first agent was
 /// busy, and once it re-sent a prompt the new agent had already been given.
+///
+/// It then waits for the answer. Returning at "sent" left the assistant to
+/// remember to come back, and in practice it told the user "I've asked it"
+/// and stopped — the user had to ask again to find out what happened.
 async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let started = tokio::time::Instant::now();
     let message = match clean_agent_text(
         args.get("message").and_then(Value::as_str).unwrap_or(""),
         "message",
@@ -685,18 +1077,17 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
         Err(e) => return error(e),
     };
     let wanted = args.get("tab").and_then(Value::as_str);
+    let wait = wait_arg(args, MESSAGE_WAIT_SECS);
     let sessions = sessions_for(project);
     let has_live_agent = sessions.iter().any(|s| is_agent_tab(s) && s.alive);
 
     // Nothing to continue: start one, and say that's what happened.
     if wanted.is_none() && !has_live_agent {
-        return match start_agent_with(app, project, &not_a_flag(&message)).await {
-            Ok((n, agent)) => text(format!(
-                "No agent was running in {}, so I started one ({agent}, tab {n}) with this message. It already has the message — don't send it again. Use read_agent with wait_seconds to follow it.",
-                project_name(project)
-            )),
-            Err(e) => error(e),
-        };
+        let lead = format!(
+            "No agent was running in {}, so I started one with this message. It already has the message — don't send it again.",
+            project_name(project)
+        );
+        return start_and_follow(app, project, &message, wait, &lead, started).await;
     }
 
     let (n, tab) = match writable_tab(project, wanted) {
@@ -708,25 +1099,107 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
     // on the user's behalf. Refuse and hand the question back instead.
     if let Some(snap) = pty_session::session_snapshot(&tab.session_id) {
         let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
-        if let Some(question) = awaiting_choice(&screen) {
+        if let Some((question, options)) = agent_state::awaiting_choice_detail(&screen) {
+            let options = if options.is_empty() {
+                String::new()
+            } else {
+                format!(" Options: {}.", options.join(" / "))
+            };
             return error(format!(
-                "The agent in tab {n} is waiting for an answer right now: \"{question}\". Sending a message would answer it. Tell the user what it's asking (read_agent shows the options) and, once they decide, answer with press_key."
+                "Not sent: the agent in tab {n} is waiting for an answer right now: \"{question}\".{options} Sending a message would answer it. Ask the user which they want, answer with press_key, then send the message."
             ));
         }
     }
     let was_busy = super::now_ms().saturating_sub(tab.last_output_ms) < QUIET_MS;
+    begin_run(&tab.session_id, &message, tree_now(project).await);
     if let Err(e) = type_into(&tab, n, &message).await {
         return error(e);
     }
-    let kind = tab.agent_id.as_deref().unwrap_or("agent");
-    let busy_note = if was_busy {
-        " It was still working; the message is typed in and it will take it up when it gets to it — no need for another agent."
+    let lead = if was_busy {
+        "Sent. The agent was still busy with something; it will take this up next — no need for another agent."
     } else {
-        ""
+        "Sent, continuing the conversation already in this tab."
     };
-    text(format!(
-        "Sent to tab {n} ({kind}), continuing its conversation.{busy_note} Use read_agent with wait_seconds to see the reply."
-    ))
+    follow(
+        app,
+        project,
+        n,
+        &tab,
+        wait,
+        Duration::from_secs(2),
+        lead,
+        started,
+    )
+    .await
+}
+
+/// Watch `tab` and report on it.
+#[allow(clippy::too_many_arguments)]
+async fn follow(
+    app: &tauri::AppHandle,
+    project: &str,
+    n: usize,
+    tab: &SessionSummary,
+    wait: Duration,
+    settle: Duration,
+    lead: &str,
+    started: tokio::time::Instant,
+) -> Value {
+    match observe(&tab.session_id, wait, settle).await {
+        Ok(observed) => agent_outcome(app, project, n, tab, observed, lead, started).await,
+        Err(e) => error(format!("{lead} {e}")),
+    }
+}
+
+/// Start an agent with `prompt`, then follow it like a message.
+async fn start_and_follow(
+    app: &tauri::AppHandle,
+    project: &str,
+    prompt: &str,
+    wait: Duration,
+    lead: &str,
+    started: tokio::time::Instant,
+) -> Value {
+    let tree_before = tree_now(project).await;
+    let (n, session_id) = match start_agent_with(app, project, &not_a_flag(prompt)).await {
+        Ok(t) => t,
+        Err(e) => return error(e),
+    };
+    begin_run(&session_id, prompt, tree_before);
+    let Some(tab) = sessions_for(project)
+        .into_iter()
+        .find(|s| s.session_id == session_id)
+    else {
+        return error("The new agent tab closed straight away.");
+    };
+    let remaining = wait.saturating_sub(started.elapsed());
+    // A freshly started CLI draws its welcome screen before it reads the
+    // prompt; give it longer to settle than a message into a running one.
+    follow(
+        app,
+        project,
+        n,
+        &tab,
+        remaining,
+        Duration::from_secs(6),
+        lead,
+        started,
+    )
+    .await
+}
+
+async fn wait_for_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let started = tokio::time::Instant::now();
+    let sessions = sessions_for(project);
+    let (n, tab) = match pick_tab(&sessions, args.get("tab").and_then(Value::as_str)) {
+        Ok(t) => t,
+        Err(e) => return error(e),
+    };
+    if !is_agent_tab(&tab) {
+        return error(format!("Tab {n} is a plain terminal, not an agent."));
+    }
+    let wait = wait_arg(args, FOLLOW_WAIT_SECS);
+    follow(app, project, n, &tab, wait, Duration::ZERO, "", started).await
 }
 
 pub(crate) fn key_bytes(key: &str) -> Option<&'static [u8]> {
@@ -755,7 +1228,8 @@ pub(crate) fn key_bytes(key: &str) -> Option<&'static [u8]> {
     })
 }
 
-fn press_key(project: &str, args: &Value) -> Value {
+async fn press_key(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let started = tokio::time::Instant::now();
     let key = args.get("key").and_then(Value::as_str).unwrap_or("");
     let Some(bytes) = key_bytes(key) else {
         return error(format!("\"{key}\" isn't a key this tool can press."));
@@ -764,10 +1238,36 @@ fn press_key(project: &str, args: &Value) -> Value {
         Ok(t) => t,
         Err(e) => return error(e),
     };
-    match write(&tab.session_id, bytes) {
-        Ok(()) => text(format!("Pressed {key} in tab {n}.")),
-        Err(e) => error(format!("Couldn't press {key} in tab {n}: {e}")),
+    // A letter or digit answers a prompt — or, with none showing, gets typed
+    // into the agent's message box, where it then sits in front of whatever
+    // the user sends next.
+    if bytes.iter().all(u8::is_ascii_alphanumeric) {
+        let asking = pty_session::session_snapshot(&tab.session_id).is_some_and(|snap| {
+            let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
+            agent_state::awaiting_choice_detail(&screen).is_some()
+        });
+        if !asking {
+            return error(format!(
+                "Not pressed: the agent in tab {n} isn't asking anything right now, so \"{key}\" would just be typed into its message box. Use message_agent to tell it something."
+            ));
+        }
     }
+    if let Err(e) = write(&tab.session_id, bytes) {
+        return error(format!("Couldn't press {key} in tab {n}: {e}"));
+    }
+    let lead = format!("Pressed {key}.");
+    let wait = wait_arg(args, KEY_WAIT_SECS);
+    follow(
+        app,
+        project,
+        n,
+        &tab,
+        wait,
+        Duration::from_millis(1500),
+        &lead,
+        started,
+    )
+    .await
 }
 
 /// The window that owns `project`, or the main window if none does.
@@ -782,7 +1282,8 @@ fn window_for(project: &str) -> String {
 }
 
 /// Open a new agent tab whose CLI starts with `prompt`. Returns its tab
-/// number and agent once its terminal actually exists — not when we asked.
+/// number and session id once its terminal actually exists — not when we
+/// asked.
 async fn start_agent_with(
     app: &tauri::AppHandle,
     project: &str,
@@ -805,27 +1306,27 @@ async fn start_agent_with(
             .enumerate()
             .find(|(_, s)| s.session_id == session_id)
         {
-            return Ok((i + 1, s.agent_id.clone().unwrap_or_else(|| "agent".into())));
+            return Ok((i + 1, s.session_id.clone()));
         }
     }
     Err("Ship Studio didn't open a new agent tab within a minute. The project may have hit its tab limit, its agent may not be installed, or the window is stuck on a dialog. Check list_projects; the user may need to look when they're back.".into())
 }
 
 async fn start_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let started = tokio::time::Instant::now();
     let prompt = match clean_agent_text(
         args.get("prompt").and_then(Value::as_str).unwrap_or(""),
         "prompt",
     ) {
-        Ok(p) => not_a_flag(&p),
+        Ok(p) => p,
         Err(e) => return error(e),
     };
-    match start_agent_with(app, project, &prompt).await {
-        Ok((n, agent)) => text(format!(
-            "Started a separate agent in {} as tab {n} ({agent}). It already has the prompt — don't send it again. Use read_agent with tab \"{n}\" and wait_seconds to follow it.",
-            project_name(project)
-        )),
-        Err(e) => error(e),
-    }
+    let lead = format!(
+        "Started a separate agent in {}. It already has the prompt — don't send it again; name its tab when following it.",
+        project_name(project)
+    );
+    let wait = wait_arg(args, MESSAGE_WAIT_SECS);
+    start_and_follow(app, project, &prompt, wait, &lead, started).await
 }
 
 /// How long close_agent waits for the tab to actually go.
@@ -1100,25 +1601,56 @@ async fn navigate(app: &tauri::AppHandle, project: &str, page: &str) -> Result<(
 /// then return its state, what changed on disk, and a sharp screenshot — the
 /// pieces of a one-or-two-sentence update with a picture, which is what the
 /// person on the phone wants instead of terminal output.
+/// Errors the preview's browser console has captured, newest last. Empty when
+/// the preview isn't attached or has none.
+async fn page_errors(app: &tauri::AppHandle, project: &str) -> Vec<String> {
+    let canonical = canonical_path(project);
+    if !crate::agent_bridge::is_project_attached(&canonical) {
+        return Vec::new();
+    }
+    let result = crate::agent_bridge::call_preview_tool(
+        app.clone(),
+        &canonical,
+        "preview_console",
+        json!({ "level": "error", "limit": 5 }),
+    )
+    .await;
+    if result.get("isError").and_then(Value::as_bool) == Some(true) {
+        return Vec::new();
+    }
+    result
+        .pointer("/content/0/text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .lines()
+        .filter(|l| l.starts_with("[error]"))
+        .map(|l| l.chars().take(300).collect())
+        .collect()
+}
+
+/// The "here's where it's at" call: wait for the agent to finish its step,
+/// then return its state, what changed on disk, and a sharp screenshot — the
+/// pieces of a one-or-two-sentence update with a picture, which is what the
+/// person on the phone wants instead of terminal output.
 async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
-    let wait = args
-        .get("wait_seconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(30)
-        .min(MAX_WAIT_SECS);
-    let mut text_parts = Vec::new();
+    let wait = wait_arg(args, 30);
+    let mut parts = Vec::new();
 
     let sessions = sessions_for(project);
+    let mut state = None;
     match pick_tab(&sessions, args.get("tab").and_then(Value::as_str)) {
-        Ok((n, tab)) => match wait_and_read(&tab, wait, 25).await {
-            Ok((state, rendered)) => text_parts.push(format!(
-                "Agent (tab {n}, {}): {state}.\nLast lines of its screen, for you to summarise — don't paste them:\n{}",
-                tab.agent_id.as_deref().unwrap_or("agent"),
-                rendered.join("\n")
-            )),
-            Err(e) => text_parts.push(format!("Agent: {e}")),
-        },
-        Err(e) => text_parts.push(format!("Agent: {e}")),
+        Ok((n, tab)) if is_agent_tab(&tab) => {
+            match observe(&tab.session_id, wait, Duration::ZERO).await {
+                Ok(observed) => {
+                    let (head, reply, _) = heading(project, n, &tab, &observed.lines);
+                    parts.extend(describe(&observed.state, &observed.lines, &head, &reply));
+                    state = Some(observed.state);
+                }
+                Err(e) => parts.push(format!("Agent: {e}")),
+            }
+        }
+        Ok((n, _)) => parts.push(format!("Tab {n} is a plain terminal, not an agent.")),
+        Err(e) => parts.push(format!("Agent: {e}")),
     }
 
     let changed = git(project, &["diff", "--stat", "HEAD"])
@@ -1128,7 +1660,7 @@ async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> V
         .await
         .unwrap_or_default();
     let new_files = untracked.lines().filter(|l| !l.is_empty()).count();
-    text_parts.push(format!(
+    parts.push(format!(
         "Changed since the last commit:\n{}{}",
         if changed.trim().is_empty() {
             "(nothing tracked)".to_string()
@@ -1144,24 +1676,32 @@ async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> V
 
     if let Some(page) = args.get("page").and_then(Value::as_str) {
         if let Err(e) = navigate(app, project, page).await {
-            text_parts.push(format!("Couldn't open {page}: {e}"));
+            parts.push(format!("Couldn't open {page}: {e}"));
         }
     }
-    let mut content = Vec::new();
     let mut captured = Vec::new();
     for device in devices_from(args.get("device").and_then(Value::as_str)) {
         match capture(app, project, device, false).await {
             Ok(c) => captured.push(c),
-            Err(e) => text_parts.push(format!("No screenshot: {e}")),
+            Err(e) => parts.push(format!("No screenshot: {e}")),
         }
     }
-    let (blocks, lines) = shots_content(&captured);
-    content.extend(blocks);
-    text_parts.extend(lines);
-    text_parts.push(
-        "Now reply to the user in one or two plain sentences — what's done, what's next or what the agent is asking — with the screenshot. No code, diffs or terminal output unless they ask.".into(),
-    );
-    content.push(json!({ "type": "text", "text": text_parts.join("\n\n") }));
+    let errors = page_errors(app, project).await;
+    if !errors.is_empty() {
+        parts.push(format!(
+            "The preview's browser console has errors (some may be from before this change). If the page looks broken, mention it and offer to have the agent fix it:\n{}",
+            errors.join("\n")
+        ));
+    }
+    let (mut content, lines) = shots_content(&captured);
+    parts.extend(lines);
+    parts.push(match state {
+        Some(AgentState::NeedsDecision { .. }) => NEXT_DECISION.into(),
+        Some(AgentState::Exited) => NEXT_EXITED.into(),
+        Some(AgentState::Working { .. }) => "NEXT: Reply to the user now in one or two plain sentences — what's done so far and what the agent is doing — with the screenshot. If they asked for the finished result instead, call wait_for_agent and report when it's done.".to_string(),
+        _ => "NEXT: Reply to the user now in one or two plain sentences — what's done and what's next — with the screenshot. No code, diffs or terminal output unless they ask.".to_string(),
+    });
+    content.push(json!({ "type": "text", "text": parts.join("\n\n") }));
     json!({ "content": content })
 }
 
@@ -1653,12 +2193,14 @@ async fn confirm_push(project: &str, args: &Value) -> Value {
         );
     };
     match push_frozen(project, &pending.branch, &head, &tree).await {
-        Ok(sha) => text(format!(
-            "Pushed {} to origin/{} (commit {}). Exactly what was summarised — nothing changed after the PIN was checked.",
-            project_name(project),
-            pending.branch,
-            &sha[..sha.len().min(8)]
-        )),
+        Ok(sha) => {
+            text(format!(
+                "Pushed {} to origin/{} (commit {}). Exactly what was summarised — nothing changed after the PIN was checked.\n\nNEXT: Tell the user it's pushed, then call deploy_status to find out whether it went live and report that too.",
+                project_name(project),
+                pending.branch,
+                &sha[..sha.len().min(8)]
+            ))
+        }
         Err(e) => error(format!("The push failed: {e}")),
     }
 }
@@ -1701,7 +2243,59 @@ mod tests {
         for def in definitions() {
             assert_eq!(def["inputSchema"]["type"], "object", "{}", def["name"]);
             assert!(!def["description"].as_str().unwrap().is_empty());
+            assert!(!def["title"].as_str().unwrap().is_empty());
+            assert!(def["annotations"]["readOnlyHint"].is_boolean());
         }
+    }
+
+    #[test]
+    fn annotations_say_what_clients_should_confirm() {
+        let hint = |name: &str, key: &str| {
+            definitions()
+                .into_iter()
+                .find(|d| d["name"] == name)
+                .map(|d| d["annotations"][key].as_bool().unwrap())
+                .unwrap()
+        };
+        // Watching is free; typing and pushing are not.
+        assert!(hint("wait_for_agent", "readOnlyHint"));
+        assert!(hint("list_projects", "readOnlyHint"));
+        assert!(!hint("message_agent", "readOnlyHint"));
+        assert!(!hint("press_key", "readOnlyHint"));
+        assert!(hint("confirm_push", "destructiveHint"));
+        assert!(hint("close_agent", "destructiveHint"));
+        assert!(hint("confirm_push", "openWorldHint"));
+    }
+
+    #[test]
+    fn durations_read_like_a_person_wrote_them() {
+        assert_eq!(duration(45_000), "45s");
+        assert_eq!(duration(130_000), "2m 10s");
+        assert_eq!(duration(3_780_000), "1h 3m");
+    }
+
+    #[test]
+    fn a_finished_report_carries_the_reply_and_a_decision_its_options() {
+        let lines: Vec<String> = [
+            "⏺ Bash(npm run build)",
+            "Do you want to proceed?",
+            "❯ 1. Yes",
+            "  2. No",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let state = agent_state::classify(&lines, true, 10_000);
+        let parts = describe(&state, &lines, "site · tab 1 (claude-code)", &[]);
+        let all = parts.join("\n");
+        assert!(all.starts_with("STATUS: needs_decision"));
+        assert!(all.contains("What it wants to do: ⏺ Bash(npm run build)"));
+        assert!(all.contains("1. Yes"));
+
+        let reply = vec!["⏺ Done — added the contact page.".to_string()];
+        let parts = describe(&AgentState::Finished, &reply, "site · tab 1", &reply);
+        assert!(parts[0].starts_with("STATUS: finished"));
+        assert!(parts[1].contains("added the contact page"));
     }
 
     #[test]
@@ -1774,13 +2368,13 @@ mod tests {
             "  3. No, and tell Claude what to do differently (esc)",
         ]);
         assert_eq!(
-            awaiting_choice(&claude).as_deref(),
+            agent_state::awaiting_choice(&claude).as_deref(),
             Some("Do you want to proceed?")
         );
         let menu = lines(&["Select model", "  1. Opus", "❯ 2. Sonnet"]);
-        assert!(awaiting_choice(&menu).is_some());
+        assert!(agent_state::awaiting_choice(&menu).is_some());
         let yn = lines(&["Overwrite file? (y/n)"]);
-        assert!(awaiting_choice(&yn).is_some());
+        assert!(agent_state::awaiting_choice(&yn).is_some());
         // The normal idle input box is not a choice.
         let idle = lines(&[
             "⏺ Done — the header is fixed.",
@@ -1789,9 +2383,9 @@ mod tests {
             "─────",
             "  ⏵⏵ auto mode on",
         ]);
-        assert_eq!(awaiting_choice(&idle), None);
+        assert_eq!(agent_state::awaiting_choice(&idle), None);
         let typed = lines(&["❯ fix the footer next"]);
-        assert_eq!(awaiting_choice(&typed), None);
+        assert_eq!(agent_state::awaiting_choice(&typed), None);
     }
 
     #[test]
