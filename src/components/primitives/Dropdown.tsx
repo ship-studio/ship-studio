@@ -242,6 +242,7 @@ export function Dropdown({
     // only after the first visible position is committed so browsers don't drop
     // focus into a hidden portal on its first open.
     if (portal && portalPos === null) return;
+    if (wasOpenRef.current) return;
 
     wasOpenRef.current = true;
     restoreFocusOnCloseRef.current = true;

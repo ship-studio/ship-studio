@@ -5059,6 +5059,46 @@ mod tests {
             .collect()
     }
 
+    fn encode_url_path(path: &str) -> String {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        let mut encoded = String::with_capacity(path.len());
+        for byte in path.bytes() {
+            if byte.is_ascii_alphanumeric()
+                || matches!(byte, b'/' | b':' | b'-' | b'_' | b'.' | b'~')
+            {
+                encoded.push(char::from(byte));
+            } else {
+                encoded.push('%');
+                encoded.push(char::from(HEX[(byte >> 4) as usize]));
+                encoded.push(char::from(HEX[(byte & 0x0f) as usize]));
+            }
+        }
+        encoded
+    }
+
+    fn vite_fs_href(path: &Path, port: u16, query: &str) -> String {
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        let url_path = if is_windows_absolute_path(&normalized) {
+            format!("/{normalized}")
+        } else {
+            normalized
+        };
+        format!(
+            "http://localhost:{port}/@fs{}?{query}",
+            encode_url_path(&url_path)
+        )
+    }
+
+    fn file_href(path: &Path) -> String {
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        let url_path = if is_windows_absolute_path(&normalized) {
+            format!("/{normalized}")
+        } else {
+            normalized
+        };
+        format!("file://{}", encode_url_path(&url_path))
+    }
+
     #[test]
     fn selection_lookup_preserves_lines_and_bodies_in_large_stylesheets() {
         let mut css = String::from("/* heading\n   café */\n");
@@ -6368,10 +6408,10 @@ mod tests {
         );
         let dir = tempfile::TempDir::new().unwrap();
         let root = dir.path();
-        let source_path = root.join("packages/ui/src/styles.css");
+        let source_path = root.join("packages/ui/src/styles folder/styles.css");
         std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
         std::fs::write(&source_path, source).unwrap();
-        let href = format!("http://localhost:43127/@fs{}?direct", source_path.display());
+        let href = vite_fs_href(&source_path, 43127, "direct");
         let mut matched = query(".su-button", None, Some(&href));
         matched.selector_member_index = Some(0);
         matched.context_path = Some(Vec::new());
@@ -6386,7 +6426,7 @@ mod tests {
                 source_identity: Some(identity),
                 ..
             } => {
-                assert_eq!(file, "packages/ui/src/styles.css");
+                assert_eq!(file, "packages/ui/src/styles folder/styles.css");
                 assert_eq!(line, 3);
                 assert_eq!(inner_text, " font: inherit; ");
                 identity
@@ -6751,9 +6791,10 @@ mod tests {
             "a full identity for another local source must not fall back to the selector hit"
         );
 
-        let conflicting_style_indexes = format!(
-            "http://localhost:5173/@fs{}?astro&type=style&index=1&index=2&lang.css",
-            root.join("src/components/Page.astro").display()
+        let conflicting_style_indexes = vite_fs_href(
+            &root.join("src/components/Page.astro"),
+            5173,
+            "astro&type=style&index=1&index=2&lang.css",
         );
         assert_eq!(
             locate_rule_in_project(
@@ -6776,9 +6817,10 @@ mod tests {
             "a remote stylesheet path is not evidence for a local source file"
         );
 
-        let astro_href = format!(
-            "http://localhost:5173/@fs{}?astro&type=style&index=2&lang.css",
-            root.join("src/components/Page.astro").display()
+        let astro_href = vite_fs_href(
+            &root.join("src/components/Page.astro"),
+            5173,
+            "astro&type=style&index=2&lang.css",
         );
         match locate_rule_in_project(root, &sheets, &query(".astro", None, Some(&astro_href))) {
             RuleLocation::Resolved { file, .. } => {
@@ -6787,9 +6829,10 @@ mod tests {
             other => panic!("expected Astro style index 2 to resolve exactly, got {other:?}"),
         }
 
-        let unaddressable_preprocessor = format!(
-            "http://localhost:5173/@fs{}?astro&type=style&index=0&lang.scss",
-            root.join("src/components/Page.astro").display()
+        let unaddressable_preprocessor = vite_fs_href(
+            &root.join("src/components/Page.astro"),
+            5173,
+            "astro&type=style&index=0&lang.scss",
         );
         assert_eq!(
             locate_rule_in_project(
@@ -6827,6 +6870,46 @@ mod tests {
             }
             other => panic!("an exact file identity must not pick one of two rules, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn source_identity_decodes_encoded_vite_and_file_urls() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let source_path = root.join("src/CSS Sources/Theme #1.css");
+        std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        std::fs::write(&source_path, ".encoded { color: rebeccapurple; }\n").unwrap();
+        let sheets = idx(discover_stylesheets(root));
+
+        for href in [
+            vite_fs_href(&source_path, 5173, "direct"),
+            file_href(&source_path),
+        ] {
+            match locate_rule_in_project(root, &sheets, &query(".encoded", None, Some(&href))) {
+                RuleLocation::Resolved { file, .. } => {
+                    assert_eq!(file, "src/CSS Sources/Theme #1.css")
+                }
+                other => panic!("expected encoded source URL to resolve exactly, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn windows_source_path_syntax_normalizes_on_any_host() {
+        assert!(is_windows_absolute_path(
+            r"C:\Users\Build User\app\src\site.css"
+        ));
+        assert!(is_windows_absolute_path(
+            "/C:/Users/Build%20User/app/src/site.css"
+        ));
+        assert_eq!(
+            percent_decode_path("/C:/Users/Build%20User/app/src/Theme%23Dark.css").as_deref(),
+            Some("/C:/Users/Build User/app/src/Theme#Dark.css")
+        );
+        assert_eq!(
+            normalize_project_rel_path(r"src\components\Page.astro"),
+            Some("src/components/Page.astro".into())
+        );
     }
 
     #[test]
@@ -6963,10 +7046,7 @@ if (invokedPath === import.meta.url) buildStyles();
             RuleLocation::Resolved { file, .. } if file == "public/css/theme.css"
         ));
 
-        let astro_href = format!(
-            "http://localhost:4321/@fs{}?astro&type=style&index=0&lang.css",
-            astro_path.display()
-        );
+        let astro_href = vite_fs_href(&astro_path, 4321, "astro&type=style&index=0&lang.css");
         let universal = query("*", None, Some(&astro_href));
         match locate_rule_in_project(root, &sheets, &universal) {
             RuleLocation::Resolved { file, .. } => {
@@ -7116,10 +7196,7 @@ if (invokedPath === import.meta.url) buildStyles();
         assert!(css_rule_mutations::resolve_identity(file, &deleted_css, &media_identity).is_err());
 
         let mut stale_style_identity = base_query.clone();
-        let stale_href = format!(
-            "http://localhost:4321/@fs{}?astro&type=style&index=1&lang.css",
-            astro_path.display()
-        );
+        let stale_href = vite_fs_href(&astro_path, 4321, "astro&type=style&index=1&lang.css");
         stale_style_identity.href = Some(stale_href.clone());
         stale_style_identity.runtime_identity.as_mut().unwrap().href = Some(stale_href);
         assert_eq!(

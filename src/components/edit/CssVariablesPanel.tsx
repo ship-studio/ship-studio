@@ -25,6 +25,7 @@ import { colorSwatch } from '../../lib/cssProperties';
 import { resolveColorVariable } from '../../lib/colorContrast';
 import type { ValueFieldVariable } from '../primitives/ValueField';
 import { TextButton } from '../primitives/TextButton';
+import { colorPickerDraftOrFallback } from './colorPickerDraft';
 
 interface Props {
   variables: VariableRow[];
@@ -581,7 +582,17 @@ function EditableVarRow({
                         editorTrigger
                         onClick={(event) => {
                           const row = event.currentTarget.closest<HTMLElement>('.ss-var-row');
-                          if (row) toggleColorPicker(row, fullValue);
+                          if (row) {
+                            toggleColorPicker(
+                              row,
+                              colorPickerDraftOrFallback(
+                                fullValue,
+                                initialColorValue,
+                                colorVariables,
+                                variable.selector
+                              )
+                            );
+                          }
                         }}
                       />
                     );

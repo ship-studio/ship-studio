@@ -114,6 +114,29 @@ describe('CssVariablesPanel inline value editing', () => {
     expect(screen.getByLabelText('Hex')).toHaveValue('#0066cc');
   });
 
+  it.each(['', '#'])('opens the color picker for an incomplete variable draft (%j)', (draft) => {
+    const variable: VariableRow = {
+      name: '--accent',
+      value: '#009c52',
+      selector: ':root',
+      file: 'styles.css',
+      line: 1,
+      editable: true,
+    };
+    const onSetValue = renderPanel(variable);
+
+    fireEvent.click(editableValue());
+    fireEvent.change(screen.getByRole<HTMLTextAreaElement>('combobox'), {
+      target: { value: draft },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open color picker' }));
+
+    expect(screen.getByRole('dialog', { name: 'Color picker' })).toBeInTheDocument();
+    expect(onSetValue).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Hex' }));
+    expect(screen.getByLabelText('Hex')).toHaveValue('#009c52');
+  });
+
   it('keeps variable autocomplete and arrow-key selection in the shared editor', () => {
     const variable: VariableRow = {
       name: '--space',

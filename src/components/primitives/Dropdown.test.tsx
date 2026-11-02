@@ -208,6 +208,33 @@ describe('Dropdown', () => {
     }
   });
 
+  it('does not reset focus when an open portal is repositioned', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dropdown
+        presentation="popover"
+        ariaLabel="Review safe CSS consolidations"
+        portal
+        trigger={(props) => <TestTrigger {...props}>Open repositioned popover</TestTrigger>}
+      >
+        <details>
+          <summary>src/styles/site.css</summary>
+          <button type="button">Apply consolidation</button>
+        </details>
+      </Dropdown>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open repositioned popover' }));
+    const apply = screen.getByRole('button', { name: 'Apply consolidation' });
+    expect(screen.getByText('src/styles/site.css')).toHaveFocus();
+
+    apply.focus();
+    fireEvent.scroll(window);
+    fireEvent.resize(window);
+
+    expect(apply).toHaveFocus();
+  });
+
   it('rejects an unnamed dialog popover', () => {
     const unlabeledPopover = (
       // @ts-expect-error A dialog popover must provide its accessible name.

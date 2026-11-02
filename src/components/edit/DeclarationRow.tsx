@@ -18,6 +18,7 @@ import {
   type ColorContrastContexts,
   type ColorVariableDefinition,
 } from '../../lib/colorContrast';
+import { colorPickerDraftOrFallback } from './colorPickerDraft';
 
 interface EditableProps {
   decl: Decl;
@@ -247,7 +248,14 @@ export function DeclarationRow(props: Props) {
                       aria-expanded={false}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => {
-                        setColorPickerInitial(fullValue);
+                        setColorPickerInitial(
+                          colorPickerDraftOrFallback(
+                            fullValue,
+                            swatchColor,
+                            props.colorVariables,
+                            props.variableSelector
+                          )
+                        );
                         setValueAnchor(event.currentTarget.closest<HTMLElement>('.ss-decl'));
                         setEditing('color');
                       }}

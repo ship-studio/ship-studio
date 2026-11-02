@@ -60,6 +60,21 @@ describe('DeclarationRow', () => {
     expect(screen.getByLabelText('Hex')).toHaveValue('#00ff00');
   });
 
+  it.each(['', '#'])('opens the color picker for an incomplete draft (%j)', (draft) => {
+    const { onChange } = renderRow('#ff0000');
+    fireEvent.click(screen.getByRole('button', { name: /#ff0000/ }));
+
+    fireEvent.change(screen.getByRole<HTMLTextAreaElement>('combobox'), {
+      target: { value: draft },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open color picker for color' }));
+
+    expect(screen.getByRole('dialog', { name: 'Color picker' })).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Hex' }));
+    expect(screen.getByLabelText('Hex')).toHaveValue('#ff0000');
+  });
+
   it('keeps the text editor for a non-color value', () => {
     renderRow('12px');
     fireEvent.click(screen.getByRole('button', { name: /12px/ }));
