@@ -356,7 +356,11 @@ function ssWatchVariableCommit(identity,key,preview){
     return false;
   };
   if(typeof MutationObserver==='function'&&!preview.commitObserver){
-    preview.commitObserver=new MutationObserver(function(){tryFinish();});
+    /* Mutations are completion signals, not polling attempts. Keep the timer as
+       the sole owner of the bounded retry budget so busy pages cannot exhaust it. */
+    preview.commitObserver=new MutationObserver(function(){
+      if(ssFinishVariableCommit(identity,key,preview))ssStopVariableCommitWatch(preview);
+    });
     preview.commitObserver.observe(document.documentElement,{attributes:true,childList:true,characterData:true,subtree:true});
   }
   var check=function(){

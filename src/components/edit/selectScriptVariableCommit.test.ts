@@ -68,3 +68,83 @@ it('bounds mutation scans and keeps the inline fallback usable after timeout', a
     }
   }
 });
+
+it('keeps watching through more than 200 mutations until the authored root rule appears', () => {
+  vi.useFakeTimers();
+  const originalStyleSheets = Object.getOwnPropertyDescriptor(document, 'styleSheets');
+  const originalObserver = globalThis.MutationObserver;
+  let observerDisconnected = false;
+  let observerDisconnects = 0;
+  let deliverMutation: (() => void) | undefined;
+  let stylesheetAvailable = false;
+  let stylesheetScans = 0;
+  const authoredStyle = document.createElement('style');
+  authoredStyle.setAttribute('data-vite-dev-id', '/project/src/theme.css');
+  authoredStyle.textContent = ':root { --mutation-color: red; }';
+  globalThis.MutationObserver = class {
+    private readonly callback: MutationCallback;
+
+    constructor(callback: MutationCallback) {
+      this.callback = callback;
+      deliverMutation = () => {
+        if (!observerDisconnected) this.callback([], this as unknown as MutationObserver);
+      };
+    }
+
+    observe() {}
+
+    disconnect() {
+      observerDisconnected = true;
+      observerDisconnects += 1;
+    }
+
+    takeRecords() {
+      return [];
+    }
+  } as unknown as typeof MutationObserver;
+  Object.defineProperty(document, 'styleSheets', {
+    configurable: true,
+    get: () => {
+      stylesheetScans += 1;
+      return stylesheetAvailable && authoredStyle.sheet ? [authoredStyle.sheet] : [];
+    },
+  });
+
+  const identity = {
+    key: 'new-root-variable-mutation-regression',
+    file: 'src/theme.css',
+    selector: ':root',
+    name: '--mutation-color',
+    line: null,
+  };
+
+  try {
+    send({ type: 'ss:setVar', identity, value: 'red' });
+    send({ type: 'ss:clearVar', identity, commit: true });
+    stylesheetScans = 0;
+
+    // Fake timers stay at their initial time, so these notifications cannot
+    // consume the bounded retry budget owned by the timer.
+    for (let i = 0; i < 220; i += 1) deliverMutation?.();
+
+    expect(stylesheetScans).toBe(220);
+    expect(observerDisconnected).toBe(false);
+
+    document.head.appendChild(authoredStyle);
+    stylesheetAvailable = true;
+    deliverMutation?.();
+
+    expect(document.documentElement.style.getPropertyValue('--mutation-color')).toBe('');
+    expect(authoredStyle.sheet?.cssRules[0]?.cssText).toContain('--mutation-color: red');
+    expect(observerDisconnected).toBe(true);
+    expect(observerDisconnects).toBe(1);
+  } finally {
+    authoredStyle.remove();
+    globalThis.MutationObserver = originalObserver;
+    if (originalStyleSheets) {
+      Object.defineProperty(document, 'styleSheets', originalStyleSheets);
+    } else {
+      delete (document as { styleSheets?: StyleSheetList }).styleSheets;
+    }
+  }
+});
