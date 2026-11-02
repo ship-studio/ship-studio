@@ -7,7 +7,7 @@
  * @module hooks/useFileTree
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   listProjectFiles,
   readProjectFile,
@@ -50,6 +50,22 @@ function isExpectedFileAccessError(message: string): boolean {
   );
 }
 
+/** Return the expanded directory paths leading to a file, or null if absent. */
+function findFileAncestors(
+  nodes: readonly FileTreeNode[],
+  path: string,
+  ancestors: string[] = []
+): string[] | null {
+  for (const node of nodes) {
+    if (node.path === path) return node.isDirectory ? null : ancestors;
+    if (node.isDirectory) {
+      const match = findFileAncestors(node.children, path, [...ancestors, node.path]);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
 /**
  * A pending action that would discard the current edit buffer and so needs a
  * discard confirmation first: switching to `path`, or turning Edit mode off.
@@ -72,6 +88,8 @@ interface UseFileTreeResult {
   fileError: string | null;
   toggleDirectory: (path: string) => void;
   selectFile: (path: string) => void;
+  /** Expand the real file-tree ancestors and select a known file path. */
+  revealFile: (path: string) => boolean;
   refreshTree: () => void;
   // Inline editing of the selected file.
   isEditing: boolean;
@@ -121,7 +139,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     error: treeErrorObj,
     execute: executeLoadTree,
   } = useAsyncState<FileTreeNode[], [string]>(fetchTree, { initial: [] });
-  const tree = treeData ?? [];
+  const tree = useMemo(() => treeData ?? [], [treeData]);
   const treeError = treeErrorObj ? treeErrorObj.message : null;
 
   const fetchFile = useCallback(async (proj: string, path: string) => {
@@ -252,6 +270,22 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     [loadFileIntoViewer]
   );
 
+  const revealFile = useCallback(
+    (path: string) => {
+      const ancestors = findFileAncestors(tree, path);
+      if (!ancestors) return false;
+
+      setExpandedPaths((previous) => {
+        const next = new Set(previous);
+        ancestors.forEach((ancestor) => next.add(ancestor));
+        return next;
+      });
+      void selectFile(path);
+      return true;
+    },
+    [selectFile, tree]
+  );
+
   const refreshTree = useCallback(() => {
     void loadTree();
   }, [loadTree]);
@@ -376,6 +410,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     fileError,
     toggleDirectory,
     selectFile: (path: string) => void selectFile(path),
+    revealFile,
     refreshTree,
     isEditing,
     draft,

@@ -34,7 +34,7 @@ var pvDecls={},curMark=null,pendingMark=null,pvId=0,styleEl=null;
    CSSOM (delete+insert at its index), so adds/removals/nesting all reflect exactly — not
    an override layer. pvRuleLoc maps a preview key → {owner group, index, original text}
    so an edit can be reverted (restore) or committed (kept, HMR recompiles from source). */
-var pvRuleLoc={},cascadeMode=false;
+var pvRuleLoc={},ssVarPreviews={},cascadeMode=false;
 
 /* Inline text editing (double-click a single-text-node leaf to type, like Webflow).
    txtEl is the element being edited; txtOrig its text before editing (for revert).
@@ -107,17 +107,24 @@ function uLayered(el){var props={};function scan(rules){for(var i=0;i<rules.leng
 
 /* Split a grouped selector ("a, .b:is(c,d)") on TOP-LEVEL commas only (parens/brackets
    are depth-tracked so :is()/[attr] internals stay intact). */
-function ssSplitSel(sel){var out=[],depth=0,cur='';for(var i=0;i<sel.length;i++){var ch=sel[i];if(ch==='('||ch==='[')depth++;else if(ch===')'||ch===']')depth=Math.max(0,depth-1);if(ch===','&&depth===0){if(cur.trim())out.push(cur.trim());cur='';}else cur+=ch;}if(cur.trim())out.push(cur.trim());return out;}
+function ssSplitSel(sel){var out=[],depth=0,cur='',quote='',escaped=false;for(var i=0;i<sel.length;i++){var ch=sel[i],next=sel[i+1];if(escaped){cur+=ch;escaped=false;continue;}if(ch==='\\'){cur+=ch;escaped=true;continue;}if(quote){cur+=ch;if(ch===quote)quote='';continue;}if(ch==='\''||ch==='"'){quote=ch;cur+=ch;continue;}if(ch==='/'&&next==='*'){var end=sel.indexOf('*/',i+2);if(end<0){cur+=sel.slice(i);break;}cur+=sel.slice(i,end+2);i=end+1;continue;}if(ch==='('||ch==='[')depth++;else if(ch===')'||ch===']')depth=Math.max(0,depth-1);if(ch===','&&depth===0){if(cur.trim())out.push(cur.trim());cur='';}else cur+=ch;}if(cur.trim())out.push(cur.trim());return out;}
 
 /* Strip Astro's scoped-style artifacts so a compiled selector still maps to source
    (source `.foo` compiles to `.foo[data-astro-cid-x]` or `.foo:where([data-astro-cid-x])`). */
 function ssNormSel(sel){return sel.replace(/:where\(\[data-astro-cid-[\w-]+\]\)/g,'').replace(/\[data-astro-cid-[\w-]+\]/g,'').replace(/\s+/g,' ').trim();}
 
+/* Resolve the DOM node that owns a stylesheet. Browser CSSStyleSheet.ownerNode is
+   preferred; the document lookup also covers WebViews/test DOMs that omit it. */
+function ssStyleSheetNode(sheet){if(!sheet)return null;if(sheet.ownerNode)return sheet.ownerNode;var nodes=document.querySelectorAll('style,link');for(var i=0;i<nodes.length;i++)if(nodes[i].sheet===sheet)return nodes[i];return null;}
+
 /* A rule's source hint for mapping back to disk. Prefer the served stylesheet href;
    for Vite-injected <style> tags (Astro dev — href is null) fall back to the
    `data-vite-dev-id` on the owning <style>, which names the source file (and, for an
    Astro component, the embedded block: `…/Foo.astro?astro&type=style&index=0&lang.css`). */
-function ssHref(r){var sh=r.parentStyleSheet;if(!sh)return null;if(sh.href)return sh.href;var n=sh.ownerNode;if(n&&n.getAttribute){var id=n.getAttribute('data-vite-dev-id');if(id)return id;}return null;}
+function ssHref(r){var sh=r.parentStyleSheet;if(!sh)return null;if(sh.href)return sh.href;var n=ssStyleSheetNode(sh);if(n&&n.getAttribute){var id=n.getAttribute('data-vite-dev-id');if(id)return id;}return null;}
+/* Stable root stylesheet/style-block identity. A Vite-injected Astro style sheet has
+   no href, but its data-vite-dev-id identifies the exact source block. */
+function ssSheetIdentity(sh){if(!sh)return null;if(sh.href)return sh.href;var n=ssStyleSheetNode(sh);if(n&&n.getAttribute){return n.getAttribute('data-vite-dev-id')||n.getAttribute('data-astro-source-file')||n.id||null;}return null;}
 
 /* Approximate CSS specificity → [ids, classes, types]. :where()=0; :is()/:matches()/
    :not()/:has() take the specificity of their MOST-specific argument (recursively);
@@ -163,18 +170,21 @@ function ssMinPx(cond){var m=/min-width\s*:\s*([\d.]+)px/i.exec(cond||'');return
 /* Read a CSSStyleDeclaration into [{prop,value,important}] (longhands only — `length`
    enumerates the expanded properties, which is what we want for per-property cascade). */
 function ssDecls(st){var d=[];for(var j=0;j<st.length;j++){var pn=st[j];d.push({prop:pn,value:st.getPropertyValue(pn),important:st.getPropertyPriority(pn)==='important'});}return d;}
+/* Exact declaration evidence for authored-source matching. Keep the CSSOM's
+   serialized property/value pairs (including priorities and order); computed
+   winners alone cannot distinguish repeated authored occurrences. */
+function ssRuleDeclEvidence(st){return ssDecls(st).map(function(d){return{property:d.prop,value:d.value,important:d.important};});}
+function ssContextLabel(r){var cn=r.constructor&&r.constructor.name;if(r.type===4)return'@media '+(r.conditionText||(r.media&&r.media.mediaText)||'');if(cn==='CSSLayerBlockRule')return'@layer '+(r.name||'');if(cn==='CSSContainerRule')return'@container '+(r.conditionText||r.containerQuery||'');if(cn==='CSSSupportsRule')return'@supports '+(r.conditionText||'');if(cn==='CSSScopeRule')return'@scope '+(r.conditionText||'');return r.cssText&&r.cssText.indexOf('{')>=0?r.cssText.slice(0,r.cssText.indexOf('{')).trim():'@unknown';}
 
 /* Walk every author stylesheet and return the rules matching `el`, in cascade order with
    provenance, with each declaration flagged active (wins) or overridden. */
 function cascade(el){
 
-  /* `order.n` is the cascade position reported as each rule's sourceOrder. findRuleOwner()
-     re-derives the SAME numbering to pin a rule for preview/delete — if you change this
-     traversal, change that one too. The "previews the EXACT rule by source order" test
-     exercises both and fails on drift. */
+  /* `order.n` is cascade ordering metadata only. Preview and deletion use the
+     independent stylesheet/rule-path identity attached to each matched member. */
   var matched=[],order={n:0},layerCount={n:0};
 
-  function walk(rules,ctx){
+  function walk(rules,ctx,path){
     for(var i=0;i<rules.length;i++){var r=rules[i];order.n++;
       if(r.type===1){ /* style rule */
 
@@ -184,12 +194,13 @@ function cascade(el){
            the element's own properties. el.matches() throws on them anyway → skipped. */
         var parts=ssSplitSel(r.selectorText||'');
         for(var pi=0;pi<parts.length;pi++){var norm=ssNormSel(parts[pi]);if(!norm)continue;var ok=false;try{ok=el.matches(norm);}catch(e){try{ok=el.matches(parts[pi]);}catch(e2){}}if(!ok)continue;var decls=ssDecls(r.style);if(!decls.length)continue;
-          matched.push({selector:norm,declarations:decls,specificity:ssSpec(norm),sourceOrder:order.n,mediaText:ctx.media,mediaMinPx:ctx.minPx,inactiveMedia:ctx.inactive,layer:ctx.layer,layered:ctx.layered,layerIndex:ctx.layerIndex,container:ctx.container,supports:ctx.supports,href:ssHref(r),origin:'author'});}
+          var href=ssHref(r),evidence=ssRuleDeclEvidence(r.style),runtime={stylesheetIndex:ctx.sheetIndex,rootHref:ctx.rootHref,rulePath:path.concat([i]),href:href,selectorList:r.selectorText||'',selectorMemberIndex:pi,declarations:evidence};
+          matched.push({selector:norm,declarations:decls,specificity:ssSpec(norm),sourceOrder:order.n,selectorMemberIndex:pi,contextPath:ctx.path,identityDeclarations:evidence,runtimeIdentity:runtime,mediaText:ctx.media,mediaMinPx:ctx.minPx,inactiveMedia:ctx.inactive,layer:ctx.layer,layered:ctx.layered,layerIndex:ctx.layerIndex,container:ctx.container,supports:ctx.supports,href:href,origin:'author'});}
       }else if(r.type===4){ /* @media */
         var cond=r.conditionText||(r.media&&r.media.mediaText)||'';var bad=false;try{bad=!window.matchMedia(cond).matches;}catch(e){}
-        if(r.cssRules)walk(r.cssRules,{media:cond,minPx:ssMinPx(cond),inactive:ctx.inactive||bad,layer:ctx.layer,layered:ctx.layered,layerIndex:ctx.layerIndex,container:ctx.container,supports:ctx.supports});
+        if(r.cssRules)walk(r.cssRules,{media:cond,minPx:ssMinPx(cond),inactive:ctx.inactive||bad,layer:ctx.layer,layered:ctx.layered,layerIndex:ctx.layerIndex,container:ctx.container,supports:ctx.supports,sheetIndex:ctx.sheetIndex,rootHref:ctx.rootHref,path:ctx.path.concat([ssContextLabel(r)])},path.concat([i]));
       }else if(r.type===3&&r.styleSheet){ /* @import — descend the same-origin sheet (cross-origin throws) */
-        try{walk(r.styleSheet.cssRules,ctx);}catch(e){}
+        try{walk(r.styleSheet.cssRules,ctx,path.concat([i]));}catch(e){}
       }else if(r.cssRules){ /* @layer / @container / @supports / nesting — descend, tracking the condition so same-selector rules in different contexts stay distinguishable */
         var cn=r.constructor&&r.constructor.name;
         var lname=cn==='CSSLayerBlockRule'?(r.name||ctx.layer):ctx.layer;
@@ -210,11 +221,11 @@ function cascade(el){
         /* A rule inside an unsupported `@supports` doesn't apply — mark it inactive so it
            can't win a property (mirrors non-matching @media). */
         var unsupported=cn==='CSSSupportsRule'&&!ssSupports(r.conditionText||'');
-        try{walk(r.cssRules,{media:ctx.media,minPx:ctx.minPx,inactive:ctx.inactive||unsupported,layer:lname,layered:layered,layerIndex:layerIndex,container:cont,supports:sup});}catch(e){}
+        try{walk(r.cssRules,{media:ctx.media,minPx:ctx.minPx,inactive:ctx.inactive||unsupported,layer:lname,layered:layered,layerIndex:layerIndex,container:cont,supports:sup,sheetIndex:ctx.sheetIndex,rootHref:ctx.rootHref,path:ctx.path.concat([ssContextLabel(r)])},path.concat([i]));}catch(e){}
       }
     }
   }
-  var sheets=document.styleSheets;for(var si=0;si<sheets.length;si++){try{var rr=sheets[si].cssRules;if(rr)walk(rr,{media:null,minPx:null,inactive:false,layer:null,layered:false,layerIndex:null,container:null,supports:null});}catch(e){}}
+  var sheets=document.styleSheets;for(var si=0;si<sheets.length;si++){try{var rr=sheets[si].cssRules;if(rr)walk(rr,{media:null,minPx:null,inactive:false,layer:null,layered:false,layerIndex:null,container:null,supports:null,sheetIndex:si,rootHref:ssSheetIdentity(sheets[si]),path:[]},[]);}catch(e){}}
 
   /* Inline style="" — highest priority, read-only in v1. */
   if(el.getAttribute&&el.getAttribute('style')){var idecls=ssDecls(el.style);if(idecls.length)matched.push({selector:null,declarations:idecls,specificity:[1,0,0],sourceOrder:1e9,mediaText:null,mediaMinPx:null,inactiveMedia:false,layer:null,layered:false,layerIndex:null,href:null,origin:'inline'});}
@@ -244,47 +255,163 @@ function cascade(el){
 /* Normalize a media condition for matching ("(max-width: 768px)" ⇄ "(max-width:768px)"). */
 function ssNormMedia(m){return (m||'').replace(/\s+/g,'').toLowerCase();}
 
-/* Find the live CSSStyleRule matching selector+media and return its owning group
-   (the stylesheet or @media/@layer/@supports rule that owns insert/deleteRule) and
-   index, so a preview can replace it in place. Same traversal as cascade(). */
-function findRuleOwner(selector,mediaText,order){
-
-  /* When `order` (the cascade `sourceOrder`) is given, match the rule at that exact
-     traversal position — this walk increments `seq` identically to cascade()'s `order.n`,
-     so it pins THE rule the panel is showing even when a selector occurs in several rules
-     (e.g. a base `.btn` and a `@layer x { .btn }`). Falls back to selector+media match. */
-  var want=ssNormSel(selector),wantM=ssNormMedia(mediaText),seq={n:0};
-
-  function walk(owner,rules,media){
-    for(var i=0;i<rules.length;i++){var r=rules[i];seq.n++;
-      if(r.type===1){
-        if(order!=null){if(seq.n===order)return{owner:owner,index:i};}
-        else{var parts=ssSplitSel(r.selectorText||'');for(var pi=0;pi<parts.length;pi++){if(ssNormSel(parts[pi])===want&&ssNormMedia(media)===wantM)return{owner:owner,index:i};}}
-      }
-      else if(r.type===4){var cond=r.conditionText||(r.media&&r.media.mediaText)||'';if(r.cssRules){var h=walk(r,r.cssRules,cond);if(h)return h;}}
-      else if(r.type===3&&r.styleSheet){try{var hi=walk(r.styleSheet,r.styleSheet.cssRules,media);if(hi)return hi;}catch(e){}}
-      else if(r.cssRules){try{var hl=walk(r,r.cssRules,media);if(hl)return hl;}catch(e){}}
-    }
-    return null;
+/* Resolve only the exact CSSOM path captured for this match. Every hop and the
+   final selector-list/declaration fingerprint are checked; there is no selector,
+   media, or cascade-order fallback if a sheet changed since selection. */
+function findRuleByIdentity(identity){
+  if(!identity||!Array.isArray(identity.rulePath)||identity.rulePath.length===0)return null;
+  var sheet=document.styleSheets[identity.stylesheetIndex];if(!sheet)return null;
+  try{if(ssSheetIdentity(sheet)!==(identity.rootHref||null))return null;}catch(e){return null;}
+  var owner=sheet,rules;try{rules=owner.cssRules;}catch(e){return null;}
+  var rule=null;
+  for(var pi=0;pi<identity.rulePath.length;pi++){
+    var index=identity.rulePath[pi];if(!rules||index<0||index>=rules.length)return null;
+    rule=rules[index];if(pi===identity.rulePath.length-1)break;
+    try{if(rule.type===3&&rule.styleSheet){owner=rule.styleSheet;rules=owner.cssRules;}else{owner=rule;rules=rule.cssRules;}}catch(e){return null;}
   }
-  var s=document.styleSheets;for(var si=0;si<s.length;si++){try{var rr=s[si].cssRules;if(rr){var hit=walk(s[si],rr,null);if(hit)return hit;}}catch(e){}}
-  return null;
+  if(!rule||rule.type!==1||rule.selectorText!==identity.selectorList)return null;
+  var parts=ssSplitSel(rule.selectorText||'');if(identity.selectorMemberIndex<0||identity.selectorMemberIndex>=parts.length)return null;
+  var current=ssRuleDeclEvidence(rule.style),expected=identity.declarations||[];
+  if(JSON.stringify(current)!==JSON.stringify(expected))return null;
+  return{owner:owner,index:identity.rulePath[identity.rulePath.length-1],rule:rule};
+}
+
+function ssNormCssSourcePath(path){var value=String(path||'').split('?')[0].split('#')[0];try{value=decodeURIComponent(value);}catch(e){}return value.replace(/\\/g,'/').replace(/\/+/g,'/').replace(/^\.\//,'');}
+function ssSheetMatchesCssSource(sheet,file){var identity=ssNormCssSourcePath(ssSheetIdentity(sheet)),target=ssNormCssSourcePath(file).replace(/^\/+/, '');return !!identity&&!!target&&(identity===target||identity.slice(-target.length-1)==='/'+target);}
+function ssNormCssSelectorList(selector){return ssSplitSel(String(selector||'')).map(ssNormSel).join(',');}
+function ssStyleHasProperty(style,name){for(var i=0;i<style.length;i++)if(style[i]===name)return true;return false;}
+function ssCssRuleAttached(owner,rule){try{var rules=owner.cssRules;for(var i=0;i<rules.length;i++)if(rules[i]===rule)return true;}catch(e){}return false;}
+
+/* Find a live custom-property rule only when its stylesheet, selector list, and
+   declaration identify one CSSStyleRule. The source line remains part of the
+   message/preview key, but CSSOM does not expose authored line numbers; repeated
+   selector definitions therefore fail closed and let source save/HMR render them. */
+function findVariableRule(identity){
+  if(!identity||!identity.file||!identity.selector||!identity.name)return{status:'missing'};
+  var wanted=ssNormCssSelectorList(identity.selector),found=[];
+  function scanRules(owner,rules,sourceMatches){
+    for(var i=0;i<rules.length;i++){
+      var rule=rules[i];
+      if(rule.type===1&&sourceMatches){try{if(ssNormCssSelectorList(rule.selectorText)===wanted&&ssStyleHasProperty(rule.style,identity.name))found.push({owner:owner,rule:rule});}catch(e){}}
+      else if(rule.type===3&&rule.styleSheet){try{scanSheet(rule.styleSheet);}catch(e){}}
+      else if(rule.cssRules){try{scanRules(rule,rule.cssRules,sourceMatches);}catch(e){}}
+    }
+  }
+  function scanSheet(sheet){try{scanRules(sheet,sheet.cssRules,ssSheetMatchesCssSource(sheet,identity.file));}catch(e){}}
+  var sheets=document.styleSheets;for(var si=0;si<sheets.length;si++)scanSheet(sheets[si]);
+  if(found.length===1)return{status:'unique',owner:found[0].owner,rule:found[0].rule};
+  return{status:found.length?'ambiguous':'missing'};
+}
+
+function ssVariableIdentityKey(identity){return identity&&typeof identity.key==='string'?identity.key:null;}
+function ssSetVariablePreview(identity,value){
+  var key=ssVariableIdentityKey(identity);if(!key)return;
+  var preview=ssVarPreviews[key],vv=String(value!=null?value:'');
+  if(preview){
+    if(preview.target==='rule'&&ssCssRuleAttached(preview.owner,preview.rule)&&preview.rule.style.getPropertyValue(identity.name)===preview.previewValue){preview.rule.style.setProperty(identity.name,vv,preview.priority);preview.previewValue=preview.rule.style.getPropertyValue(identity.name);return;}
+    if(preview.target==='inline'&&document.documentElement.style.getPropertyValue(identity.name)===preview.previewValue){document.documentElement.style.setProperty(identity.name,vv,preview.priority);preview.previewValue=document.documentElement.style.getPropertyValue(identity.name);return;}
+    delete ssVarPreviews[key];
+  }
+  var loc=findVariableRule(identity);
+  if(loc.status==='unique'){
+    var style=loc.rule.style,prior=style.getPropertyPriority(identity.name),old=style.getPropertyValue(identity.name),had=ssStyleHasProperty(style,identity.name);
+    style.setProperty(identity.name,vv,prior);
+    ssVarPreviews[key]={target:'rule',owner:loc.owner,rule:loc.rule,oldValue:old,oldPriority:prior,hadProperty:had,previewValue:style.getPropertyValue(identity.name),priority:prior};
+  }else if(loc.status==='missing'&&identity.selector===':root'&&identity.line==null){
+    /* Only a newly-added root token lacks a source rule. Existing definitions and
+       ambiguous media/root duplicates never fall back to a page-wide inline value. */
+    var rootStyle=document.documentElement.style,had=ssStyleHasProperty(rootStyle,identity.name),oldRoot=rootStyle.getPropertyValue(identity.name),oldPriority=rootStyle.getPropertyPriority(identity.name);
+    rootStyle.setProperty(identity.name,vv,oldPriority);
+    ssVarPreviews[key]={target:'inline',style:rootStyle,oldValue:oldRoot,oldPriority:oldPriority,hadProperty:had,previewValue:rootStyle.getPropertyValue(identity.name),priority:oldPriority};
+  }
+}
+
+function ssClearVariablePreview(identity,commit){
+  var key=ssVariableIdentityKey(identity);if(!key)return;var preview=ssVarPreviews[key];if(!preview)return;
+  var style=preview.target==='rule'?preview.rule.style:preview.style;
+  var stillOwned=preview.target==='rule'?ssCssRuleAttached(preview.owner,preview.rule):true;
+  if(preview.target==='inline'&&commit){
+    /* The authored root rule now exists; remove only the temporary inline fallback,
+       restoring any inline custom property that was already there. */
+    if(style.getPropertyValue(identity.name)===preview.previewValue){if(preview.hadProperty)style.setProperty(identity.name,preview.oldValue,preview.oldPriority);else style.removeProperty(identity.name);}
+  }else if(!commit&&stillOwned&&style.getPropertyValue(identity.name)===preview.previewValue){
+    if(preview.hadProperty)style.setProperty(identity.name,preview.oldValue,preview.oldPriority);else style.removeProperty(identity.name);
+  }
+  delete ssVarPreviews[key];
 }
 
 /* Replace a rule's live text in place: insert the new rule at its index, then drop the
    old one (insert-before-delete so a parse error mid-typing leaves the sheet untouched).
    Remembers the original text once, for revert. */
-function setRulePreview(key,selector,mediaText,cssText,order){
+function setRulePreview(key,identity,cssText){
   var loc=pvRuleLoc[key];
-  if(!loc){loc=findRuleOwner(selector,mediaText,order);if(!loc)return;loc.orig=loc.owner.cssRules[loc.index].cssText;pvRuleLoc[key]=loc;}
-  try{loc.owner.insertRule(cssText,loc.index);loc.owner.deleteRule(loc.index+1);}catch(e){}
+  if(loc&&loc.owner.cssRules[loc.index]!==loc.currentRule){var rebound=findRuleByIdentity(loc.identity);if(!rebound){delete pvRuleLoc[key];return;}loc.owner=rebound.owner;loc.index=rebound.index;loc.currentRule=rebound.rule;loc.expected=rebound.rule.cssText;loc.orig=loc.expected;}
+  if(!loc){loc=findRuleByIdentity(identity);if(!loc)return;loc.identity=identity;loc.orig=loc.rule.cssText;loc.expected=loc.orig;loc.currentRule=loc.rule;pvRuleLoc[key]=loc;}
+  try{var current=loc.owner.cssRules[loc.index];if(!current||current!==loc.currentRule||current.cssText!==loc.expected)return;loc.owner.insertRule(cssText,loc.index);loc.owner.deleteRule(loc.index+1);loc.currentRule=loc.owner.cssRules[loc.index];loc.expected=loc.currentRule.cssText;loc.identity.declarations=ssRuleDeclEvidence(loc.currentRule.style);}catch(e){}
 }
 
 /* Restore one (or, with no key, all) previewed rules to their original source text. */
 function clearRulePreview(key){
 
-  function restore(k){var loc=pvRuleLoc[k];if(!loc)return;try{loc.owner.insertRule(loc.orig,loc.index);loc.owner.deleteRule(loc.index+1);}catch(e){}delete pvRuleLoc[k];}
+  function restore(k){var loc=pvRuleLoc[k];if(!loc)return;try{if(loc.owner.cssRules[loc.index]===loc.currentRule){loc.owner.insertRule(loc.orig,loc.index);loc.owner.deleteRule(loc.index+1);}}catch(e){}delete pvRuleLoc[k];}
   if(key!=null)restore(key);else{for(var k in pvRuleLoc)restore(k);}
+}
+
+/* Mirror a committed source split in the exact live CSSStyleRule. Unsupported
+   nested-rule CSSOM shapes are left for the stylesheet rebuild to render. */
+function splitSelectorMemberPreview(identity){
+  var loc=findRuleByIdentity(identity);if(!loc)return;
+  var rule=loc.rule,parts=ssSplitSel(rule.selectorText||''),member=identity.selectorMemberIndex;
+  if(parts.length<2||member<0||member>=parts.length)return;
+  try{if(rule.cssRules&&rule.cssRules.length)return;}catch(e){return;}
+  var cssText=rule.cssText,brace=cssText.indexOf('{');if(brace<0)return;
+  var clone=parts[member]+' '+cssText.slice(brace),remaining=parts.filter(function(_,i){return i!==member;}).join(', ');
+  try{
+    loc.owner.insertRule(clone,loc.index+1);
+    try{rule.selectorText=remaining;}catch(e){loc.owner.deleteRule(loc.index+1);}
+  }catch(e){}
+}
+
+/* Structural selector edits may follow a live declaration preview, whose CSSOM
+   declaration evidence has advanced beyond the identity captured at selection time.
+   Reuse that exact tracked rule only while its object, path, selector list, and sheet
+   still agree; otherwise require the original full CSSOM evidence. */
+function exactStructuralRule(identity,ruleKey){
+  if(identity&&ruleKey!=null){var cached=pvRuleLoc[ruleKey];if(cached&&cached.identity&&cached.owner&&cached.index>=0){try{var sheet=document.styleSheets[identity.stylesheetIndex],samePath=identity.stylesheetIndex===cached.identity.stylesheetIndex&&JSON.stringify(identity.rulePath)===JSON.stringify(cached.identity.rulePath)&&identity.selectorList===cached.identity.selectorList&&(identity.rootHref||null)===(cached.identity.rootHref||null)&&ssSheetIdentity(sheet)===(identity.rootHref||null);if(samePath&&cached.owner.cssRules[cached.index]===cached.currentRule&&cached.currentRule.selectorText===identity.selectorList&&cached.currentRule.cssText===cached.expected&&JSON.stringify(ssRuleDeclEvidence(cached.currentRule.style))===JSON.stringify(cached.identity.declarations||[]))return{owner:cached.owner,index:cached.index,rule:cached.currentRule};}catch(e){}}}
+  return findRuleByIdentity(identity);
+}
+
+function forgetPreviewEntriesForRule(rule){for(var key in pvRuleLoc)if(pvRuleLoc[key]&&pvRuleLoc[key].currentRule===rule)delete pvRuleLoc[key];}
+
+/* Keep unrelated live previews attached to their exact CSSOM objects when a split
+   inserts adjacent rules into the same CSSRuleList. The split source itself is now
+   committed, so its temporary preview records are discarded without restoring them. */
+function remapPreviewPathsAfterInsert(owner,index,count,splitRule){
+  for(var key in pvRuleLoc){var loc=pvRuleLoc[key];if(!loc)continue;if(loc.currentRule===splitRule){delete pvRuleLoc[key];continue;}if(loc.owner!==owner||loc.index<=index)continue;loc.index+=count;if(loc.identity&&Array.isArray(loc.identity.rulePath)&&loc.identity.rulePath.length){loc.identity.rulePath=loc.identity.rulePath.slice();loc.identity.rulePath[loc.identity.rulePath.length-1]+=count;}}
+}
+
+/* Apply a complete selector-list edit to the exact live CSSStyleRule. Astro wrappers
+   are already unwrapped in selectorMembers, so the runtime receives native CSSOM text. */
+function replaceSelectorListPreview(identity,selectorList,ruleKey){
+  if(typeof selectorList!=='string'||!selectorList.trim())return;var loc=exactStructuralRule(identity,ruleKey);if(!loc)return;var rule=loc.rule,oldText=rule.selectorText;
+  try{rule.selectorText=selectorList;var expected=ssSplitSel(selectorList),actual=ssSplitSel(rule.selectorText||'');if(JSON.stringify(actual)!==JSON.stringify(expected)){rule.selectorText=oldText;return;}forgetPreviewEntriesForRule(rule);}catch(e){try{rule.selectorText=oldText;}catch(_e){}}
+}
+
+/* Split every member of one exact CSSStyleRule into adjacent CSSOM rules. The first
+   remains at its original index and later members retain their authored order. */
+function splitSelectorListPreview(identity,ruleKey){
+  var loc=exactStructuralRule(identity,ruleKey);if(!loc)return;var rule=loc.rule,parts=ssSplitSel(rule.selectorText||'');if(parts.length<2)return;
+  try{if(rule.cssRules&&rule.cssRules.length)return;}catch(e){return;}
+  var cssText=rule.cssText,brace=cssText.indexOf('{');if(brace<0)return;var inserted=0,oldSelectorText=rule.selectorText;
+  try{
+    for(var i=1;i<parts.length;i++){loc.owner.insertRule(parts[i]+' '+cssText.slice(brace),loc.index+i);inserted++;}
+    rule.selectorText=parts[0];
+    if(rule.selectorText!==parts[0])throw new Error('selector assignment failed');
+    remapPreviewPathsAfterInsert(loc.owner,loc.index,inserted,rule);
+  }catch(e){
+    try{rule.selectorText=oldSelectorText;}catch(_e){}
+    for(var j=inserted;j>0;j--)try{loc.owner.deleteRule(loc.index+j);}catch(_e){}
+  }
 }
 
 /* A stable structural identity for the element: its element-index path up to the root.
@@ -1546,18 +1673,37 @@ else if(d.type==='ss:clearClassPreview'){if(typeof d.selector==='string'){delete
 /* Code-first CSS editor live preview: replace the REAL matched rule in place with the
    user's edited source (selector + media supplied so we can re-locate it), so adds,
    removals and nesting all reflect exactly. */
-else if(d.type==='ss:previewRuleText'){if(d.ruleKey!=null&&typeof d.cssText==='string'){setRulePreview(d.ruleKey,d.selector,d.mediaText,d.cssText,d.order);}placeSet();ssScheduleContrastRefresh();}
+else if(d.type==='ss:previewRuleText'){if(d.ruleKey!=null&&typeof d.cssText==='string'){setRulePreview(d.ruleKey,d.identity,d.cssText);}placeSet();ssScheduleContrastRefresh();}
 
 /* Discard an edit's preview (restore source text). Omit ruleKey to restore all. */
 else if(d.type==='ss:clearRulePreview'){clearRulePreview(d.ruleKey!=null?d.ruleKey:null);placeSet();ssScheduleContrastRefresh();}
 
 /* Edit was saved: keep the previewed rule (it now shows the saved text) and forget its
    original so deactivate won't restore the pre-edit version; HMR recompiles from source. */
-else if(d.type==='ss:commitRulePreview'){if(d.ruleKey!=null)delete pvRuleLoc[d.ruleKey];window.__ssSuppressUntil=Date.now()+2000;placeSet();}
+else if(d.type==='ss:commitRulePreview'){if(d.ruleKey!=null){var cl=pvRuleLoc[d.ruleKey];if(cl){try{if(cl.owner.cssRules[cl.index]===cl.currentRule){cl.orig=cl.currentRule.cssText;cl.expected=cl.orig;cl.identity.declarations=ssRuleDeclEvidence(cl.currentRule.style);}}catch(e){delete pvRuleLoc[d.ruleKey];}}}window.__ssSuppressUntil=Date.now()+2000;placeSet();}
 
 /* Rule was deleted from source — remove the live rule too (committed; HMR will
    reload to the same state). */
-else if(d.type==='ss:deleteRulePreview'){var dl=findRuleOwner(d.selector,d.mediaText,d.order);if(dl){try{dl.owner.deleteRule(dl.index);}catch(e){}}window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
+else if(d.type==='ss:deleteRulePreview'){var dl=findRuleByIdentity(d.identity);if(dl){try{dl.owner.deleteRule(dl.index);}catch(e){}}window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
+
+/* Remove a reviewed batch by exact paths. Resolve every member before mutating,
+   then delete siblings from each CSSRuleList in descending index order. */
+else if(d.type==='ss:deleteRulesPreview'){var bl=[];if(Array.isArray(d.identities)){for(var bi=0;bi<d.identities.length;bi++){var bitem=findRuleByIdentity(d.identities[bi]);if(bitem)bl.push(bitem);}}bl.sort(function(a,b){return a.owner===b.owner?b.index-a.index:0;});for(var bj=0;bj<bl.length;bj++){var current=bl[bj];try{if(current.owner.cssRules[current.index]===current.rule)current.owner.deleteRule(current.index);}catch(e){}}window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
+
+/* Remove only the selected selector-list member, leaving this exact CSSRule's
+   declarations and siblings intact in the live preview. */
+else if(d.type==='ss:removeSelectorMemberPreview'){var ml=findRuleByIdentity(d.identity);if(ml){try{var mp=ssSplitSel(ml.rule.selectorText||''),mi=d.identity.selectorMemberIndex;if(mp.length>1&&mi>=0&&mi<mp.length){ml.rule.selectorText=mp.filter(function(_,i){return i!==mi;}).join(', ');}}catch(e){}}window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
+
+/* Mirror a committed independent split on the exact matched CSSStyleRule. */
+else if(d.type==='ss:splitSelectorMemberPreview'){splitSelectorMemberPreview(d.identity);window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
+
+/* Update the exact preview rule with the full, native CSSOM selector list after a
+   source edit; the source identity and cascade are refreshed by HMR/reselect. */
+else if(d.type==='ss:replaceSelectorListPreview'){replaceSelectorListPreview(d.identity,d.selectorList,d.ruleKey);window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
+
+/* Mirror the committed all-member source split while preserving exact paths for other
+   live preview rules in the same CSSRuleList. */
+else if(d.type==='ss:splitSelectorListPreview'){splitSelectorListPreview(d.identity,d.ruleKey);window.__ssSuppressUntil=Date.now()+2000;placeSet();ssScheduleContrastRefresh();}
 
 /* Edit was saved to source: clear the pending flag so the preview rule + class are kept
    (no longer reverted on deselect/deactivate) and re-baseline the class. HMR re-renders
@@ -1569,12 +1715,11 @@ else if(d.type==='ss:deleteRulePreview'){var dl=findRuleOwner(d.selector,d.media
    candidate set can't keep showing the old image until then. */
 else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el||el.tagName!=='IMG')continue;el.setAttribute('src',d.value);if(el.hasAttribute('srcset'))el.setAttribute('srcset','');}}placeSet();ssScheduleContrastRefresh();}
 
-/* Variables editor live preview: set a custom property so every var() consumer updates
-   instantly. Prefer editing the live :root rule in the CSSOM (HMR replaces the sheet and
-   supersedes it cleanly); fall back to an inline style on the root element when there's no :root
-   rule yet (e.g. adding the first variable) — that fallback is cleared on commit. */
-else if(d.type==='ss:setVar'){if(typeof d.name==='string'){var vv=String(d.value!=null?d.value:''),setOk=false;try{var rl=findRuleOwner(':root',null);if(rl){rl.owner.cssRules[rl.index].style.setProperty(d.name,vv);setOk=true;}}catch(e){}if(!setOk){try{document.documentElement.style.setProperty(d.name,vv);}catch(e){}}ssScheduleContrastRefresh();}}
-else if(d.type==='ss:clearVar'){if(typeof d.name==='string'){try{document.documentElement.style.removeProperty(d.name);}catch(e){}}else{var ds=document.documentElement.style;for(var vi=ds.length-1;vi>=0;vi--){var pn=ds[vi];if(pn&&pn.indexOf('--')===0)ds.removeProperty(pn);}}ssScheduleContrastRefresh();}
+/* Variables editor live preview: target one source definition only when its stylesheet,
+   selector, and declaration identify a unique CSSOM rule. Scoped or ambiguous rules never
+   fall back to :root. A new root token may use a tracked inline fallback until HMR lands. */
+else if(d.type==='ss:setVar'&&d.identity){ssSetVariablePreview(d.identity,d.value);ssScheduleContrastRefresh();}
+else if(d.type==='ss:clearVar'&&d.identity){ssClearVariablePreview(d.identity,!!d.commit);ssScheduleContrastRefresh();}
 else if(d.type==='ss:suppressReload'){window.__ssSuppressUntil=Date.now()+3000;}
 else if(d.type==='ss:commit'){pendingMark=null;txtRevertEl=null;snapshotOrig();window.__ssSuppressUntil=Date.now()+2000;}
 else if(d.type==='ss:requestTree'){treeOn=true;treeEnsureObserver();treeSend();}

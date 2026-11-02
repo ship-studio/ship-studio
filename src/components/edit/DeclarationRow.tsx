@@ -228,6 +228,33 @@ export function DeclarationRow(props: Props) {
           anchor={valueAnchor}
           initial={initialValue}
           initialSwatch={Boolean(swatchColor)}
+          colorSwatchTrigger={
+            swatchColor
+              ? (value) => {
+                  const liveSwatchColor =
+                    resolveSwatchColor(value, props.colorVariables, props.variableSelector) ??
+                    swatchColor;
+                  return (
+                    <Button
+                      className="ss-decl__swatch-trigger"
+                      size="compact"
+                      variant="ghost"
+                      aria-label={colorPickerTitle(decl.prop)}
+                      title={colorPickerTitle(decl.prop)}
+                      aria-haspopup="dialog"
+                      aria-expanded={false}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        setValueAnchor(event.currentTarget.closest<HTMLElement>('.ss-decl'));
+                        setEditing('color');
+                      }}
+                    >
+                      <Swatch color={liveSwatchColor} />
+                    </Button>
+                  );
+                }
+              : undefined
+          }
           options={options}
           variables={props.colorVariables}
           variableSelector={props.variableSelector}
@@ -241,7 +268,9 @@ export function DeclarationRow(props: Props) {
       ) : (
         <div className="ss-decl__value">
           <Button
-            className="ss-decl__edit ss-decl__value-text"
+            className={`ss-decl__edit ss-decl__value-text${
+              swatchColor ? ' ss-decl__value-text--has-swatch' : ''
+            }`}
             size="compact"
             variant="ghost"
             onClick={(event) => {

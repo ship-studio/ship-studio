@@ -145,6 +145,35 @@ describe('Dropdown', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('supports an anchored dialog popover with normal tab controls and Escape focus return', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dropdown
+        presentation="popover"
+        ariaLabel="Review safe CSS consolidations"
+        portal
+        trigger={(props) => <TestTrigger {...props}>Review consolidations</TestTrigger>}
+      >
+        <details>
+          <summary>src/styles/site.css</summary>
+          <button type="button">Apply consolidation</button>
+        </details>
+      </Dropdown>
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Review consolidations' });
+    await user.click(trigger);
+
+    const popover = screen.getByRole('dialog', { name: 'Review safe CSS consolidations' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(screen.getByText('src/styles/site.css')).toHaveFocus();
+    expect(popover.parentElement).toBe(document.body);
+
+    fireEvent.keyDown(popover, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('leaves focus where a pointer put it on outside dismissal', async () => {
     const user = userEvent.setup();
     renderMenu();

@@ -31,8 +31,10 @@ export interface DropdownTriggerProps {
   ref: Ref<HTMLButtonElement>;
   onClick: (e: MouseEvent) => void;
   'aria-expanded': boolean;
-  'aria-haspopup': 'menu';
+  'aria-haspopup': 'menu' | 'dialog';
 }
+
+type DropdownPresentation = 'menu' | 'popover';
 
 interface DropdownProps {
   /**
@@ -47,6 +49,10 @@ interface DropdownProps {
   align?: 'left' | 'right';
   /** Which side of the trigger the menu opens on. Default 'bottom'. */
   side?: 'top' | 'bottom';
+  /** Use dialog semantics and ordinary tab navigation for rich anchored content. */
+  presentation?: DropdownPresentation;
+  /** Accessible name for rich popover content. */
+  ariaLabel?: string;
   /**
    * Render the menu in a body portal with fixed positioning. Use when an
    * ancestor has overflow:hidden that would clip an absolute menu (terminal
@@ -102,6 +108,8 @@ export function Dropdown({
   children,
   align = 'left',
   side = 'bottom',
+  presentation = 'menu',
+  ariaLabel,
   portal = false,
   menuClassName,
   onOpenChange,
@@ -238,8 +246,16 @@ export function Dropdown({
     }
     // With a filter field, focus belongs in the field — you opened the menu to
     // search it. ArrowDown from there hands focus to the list.
-    if (!hasSearch) focusEnabledMenuItemAt(0);
-  }, [focusEnabledMenuItemAt, hasSearch, isOpen]);
+    if (hasSearch) return;
+    if (presentation === 'menu') {
+      focusEnabledMenuItemAt(0);
+      return;
+    }
+    const focusable = menuRef.current?.querySelector<HTMLElement>(
+      'button:not(:disabled), summary, input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
+    );
+    (focusable ?? menuRef.current)?.focus({ preventScroll: true });
+  }, [focusEnabledMenuItemAt, hasSearch, isOpen, presentation]);
 
   useEffect(() => {
     return () => {
@@ -390,9 +406,10 @@ export function Dropdown({
         .filter(Boolean)
         .join(' ')}
       style={portal ? (portalPos ?? { position: 'fixed', visibility: 'hidden' }) : undefined}
-      role="menu"
+      role={presentation === 'menu' ? 'menu' : 'dialog'}
+      aria-label={presentation === 'popover' ? ariaLabel : undefined}
       tabIndex={-1}
-      onKeyDown={handleMenuKeyDown}
+      onKeyDown={presentation === 'menu' ? handleMenuKeyDown : undefined}
       onMouseEnter={openOnHover ? cancelHoverClose : undefined}
       onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
     >
@@ -437,7 +454,7 @@ export function Dropdown({
         ref: triggerRef,
         onClick: handleTriggerClick,
         'aria-expanded': isOpen,
-        'aria-haspopup': 'menu',
+        'aria-haspopup': presentation === 'menu' ? 'menu' : 'dialog',
       })}
       {portal ? menu && createPortal(menu, document.body) : menu}
     </div>

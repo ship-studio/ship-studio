@@ -1,12 +1,12 @@
 /**
  * Variables editor controller — the project's CSS custom properties as a design-tokens
- * panel. Custom properties are stylesheet-global (defined on `:root`, referenced via
- * `var(--…)`), so this is scoped to the PROJECT, not the selected element.
+ * panel. Custom properties are defined on stylesheet rules and referenced via `var(--…)`,
+ * so this is scoped to the PROJECT, not the selected element.
  *
- * Editing a `:root` token is **live + auto-saved**: the change previews instantly in the
- * iframe (`ss:setVar`, which sets the property on the live `:root` rule) and is written
- * to source via `set_css_variable` (debounced, surgical). Tokens scoped to other
- * selectors are surfaced read-only (we don't guess which scope you meant to edit).
+ * Editing a token is **live + auto-saved**: the change previews on its exact live
+ * selector when that source rule can be identified unambiguously, then is written to
+ * source via `set_css_variable` (debounced, surgical). The source identity travels with
+ * the preview so duplicate names in different scopes stay independent.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,18 +30,30 @@ function toastText(err: unknown): string {
 
 const SAVE_DEBOUNCE_MS = 500;
 
-function saveKey(variable: Pick<VariableRow, 'file' | 'line' | 'name'>): string {
-  return `${variable.file}\0${variable.line}\0${variable.name}`;
+function saveKey(variable: Pick<VariableRow, 'file' | 'selector' | 'line' | 'name'>): string {
+  return `${variable.file}\0${variable.selector}\0${variable.line}\0${variable.name}`;
 }
 
 export interface VariableRow extends CssVariableDef {
-  /** Editable when defined on `:root` (the common, unambiguous case). */
+  /** This file/selector/line/name identity uniquely identifies one source definition. */
   editable: boolean;
 }
 
 /** Stable identity for a definition; names alone are not unique across source rules. */
 export function cssVariableId(variable: Pick<VariableRow, 'file' | 'selector' | 'line' | 'name'>) {
   return `${variable.file}\0${variable.selector}\0${variable.line}\0${variable.name}`;
+}
+
+function cssVariableMessageIdentity(
+  variable: Pick<VariableRow, 'file' | 'selector' | 'line' | 'name'>
+) {
+  return {
+    key: cssVariableId(variable),
+    file: variable.file,
+    selector: variable.selector,
+    line: variable.line,
+    name: variable.name,
+  };
 }
 
 function cssVariableSource(variable: Pick<VariableRow, 'file' | 'selector' | 'line'>): string {
@@ -79,7 +91,19 @@ export function useCssVariables({
     setLoading(true);
     try {
       const defs = await getCssVariables(projectPath);
-      setVariables(defs.map((v) => ({ ...v, editable: v.selector === ':root' })));
+      const definitionCounts = new Map<string, number>();
+      for (const definition of defs) {
+        const id = cssVariableId(definition);
+        definitionCounts.set(id, (definitionCounts.get(id) ?? 0) + 1);
+      }
+      setVariables(
+        defs.map((definition) => ({
+          ...definition,
+          // A repeated file/selector/line/name identity cannot safely distinguish
+          // same-line duplicate declarations, so keep those values read-only.
+          editable: definitionCounts.get(cssVariableId(definition)) === 1,
+        }))
+      );
     } catch (err) {
       logger.error('[CssVariables] load failed', {
         error: formatCommandError(asCommandError(err)),
@@ -113,8 +137,13 @@ export function useCssVariables({
         variable.name,
         value
       );
-      // Drop any inline fallback so the source value takes over once HMR injects it.
-      post({ type: 'ss:clearVar', name: variable.name });
+      // Commit the preview by its definition identity. The iframe clears only an
+      // inline fallback; an exact stylesheet rule already contains the saved value.
+      post({
+        type: 'ss:clearVar',
+        identity: cssVariableMessageIdentity(variable),
+        commit: true,
+      });
       void trackEvent('visual_edit_saved', { kind: 'variable', mode: 'css-code' });
     },
     [post, projectPath]
@@ -192,22 +221,26 @@ export function useCssVariables({
   }, [ensureSaveWorker]);
 
   const discardPendingSaves = useCallback(() => {
-    const pendingNames = new Set(
-      Object.values(pendingValues.current).map(({ variable }) => variable.name)
-    );
-    for (const name of pendingNames) post({ type: 'ss:clearVar', name });
+    const pending = Object.values(pendingValues.current);
+    for (const { variable } of pending) {
+      post({ type: 'ss:clearVar', identity: cssVariableMessageIdentity(variable) });
+    }
     Object.values(saveTimers.current).forEach(clearTimeout);
     saveTimers.current = {};
     pendingValues.current = {};
   }, [post]);
 
-  /** Edit a `:root` token's value: optimistic state + instant preview + debounced save. */
+  /** Edit one scoped token: optimistic state + exact preview + debounced source save. */
   const setValue = useCallback(
     (variable: VariableRow, value: string) => {
       setVariables((prev) =>
         prev.map((v) => (saveKey(v) === saveKey(variable) ? { ...v, value } : v))
       );
-      post({ type: 'ss:setVar', name: variable.name, value });
+      post({
+        type: 'ss:setVar',
+        identity: cssVariableMessageIdentity(variable),
+        value,
+      });
       const key = saveKey(variable);
       pendingValues.current[key] = { variable, value };
       clearTimeout(saveTimers.current[key]);
@@ -288,7 +321,25 @@ export function useCssVariables({
       }
       try {
         await addCssVariable(projectPath, file, name, value);
-        post({ type: 'ss:setVar', name, value });
+        const identity = {
+          key: `pending\0${file}\0:root\0${name}`,
+          file,
+          selector: ':root',
+          line: null,
+          name,
+        };
+        post({
+          type: 'ss:setVar',
+          identity,
+          value,
+        });
+        // Keep a source-rule preview if HMR has loaded it; otherwise clear only
+        // the temporary :root inline fallback after the source write.
+        post({
+          type: 'ss:clearVar',
+          identity,
+          commit: true,
+        });
         void trackEvent('visual_edit_saved', { kind: 'variable', mode: 'css-code' });
         await reload();
       } catch (err) {
@@ -338,7 +389,11 @@ export function useCssVariables({
         }
         const result = await deleteCssVariable(projectPath, name, value, impact);
         onVariableDeleted?.(name, value);
-        post({ type: 'ss:clearVar', name });
+        for (const variable of variables) {
+          if (variable.name === name) {
+            post({ type: 'ss:clearVar', identity: cssVariableMessageIdentity(variable) });
+          }
+        }
         void trackEvent('visual_edit_saved', { kind: 'variable', mode: 'css-code' });
         await reload();
         onToast(
@@ -358,7 +413,16 @@ export function useCssVariables({
         throw err;
       }
     },
-    [discardPendingSaves, flushPendingSaves, projectPath, onToast, onVariableDeleted, post, reload]
+    [
+      discardPendingSaves,
+      flushPendingSaves,
+      projectPath,
+      onToast,
+      onVariableDeleted,
+      post,
+      reload,
+      variables,
+    ]
   );
 
   return {

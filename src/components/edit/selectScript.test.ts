@@ -518,6 +518,16 @@ interface CascadeRule {
   sourceOrder: number;
   origin: string;
   layered?: boolean;
+  selectorMemberIndex?: number;
+  runtimeIdentity?: {
+    stylesheetIndex: number;
+    rulePath: number[];
+    href: string | null;
+    rootHref: string | null;
+    selectorList: string;
+    selectorMemberIndex: number;
+    declarations: { property: string; value: string; important: boolean }[];
+  };
 }
 
 /** Resolve with the next `ss:cascade` the script posts to the parent. */
@@ -733,31 +743,42 @@ it('treats a rule inside an unsupported @supports as inactive', async () => {
   }
 });
 
-it('previews the EXACT rule by source order when a selector occurs in several rules', async () => {
-  // `.q` exists twice (base + inside @layer). Previewing by sourceOrder must hit the
-  // layered one, not the first `.q` a selector match would find.
+it('previews the exact CSSOM rule identity when a selector occurs in several rules', async () => {
+  // `.q` exists twice (base + inside @layer). The CSSOM path and declaration
+  // fingerprint must target the layered rule without a selector/order fallback.
   document.body.innerHTML =
-    '<style>.q{color:red}@layer x{.q{color:blue}}</style><div class="q">x</div>';
+    '<style data-vite-dev-id="/project/src/app.css">.q{color:red}@layer x{.q{color:blue}}</style><div class="q">x</div>';
   send({ type: 'ss:activate', cascade: true });
   await flushMessages();
   const got = nextCascade();
   document.querySelector('.q')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   const { rules } = await got;
   const layered = rules.find((r) => r.selector === '.q' && r.layered)!;
+  const identity = layered.runtimeIdentity!;
+  expect(identity.rulePath).toEqual([1, 0]);
+  expect(identity.rootHref).toBe('/project/src/app.css');
   send({
     type: 'ss:previewRuleText',
-    ruleKey: 'k',
-    selector: '.q',
-    mediaText: null,
-    order: layered.sourceOrder,
-    cssText: '.q { color: green; }',
+    ruleKey: 'stale',
+    identity: { ...identity, rulePath: [0, 0] },
+    cssText: '.q { color: purple; }',
   });
-  // Target the project's own <style> in <body>, not the script's #ss-preview in <head>.
   const sheet = document.body.querySelector('style')!.sheet!;
   const base = sheet.cssRules[0] as CSSStyleRule;
   const inLayer = (sheet.cssRules[1] as CSSGroupingRule).cssRules[0] as CSSStyleRule;
+  expect(base.style.color).toBe('red');
+  expect(inLayer.style.color).toBe('blue');
+  send({
+    type: 'ss:previewRuleText',
+    ruleKey: 'k',
+    identity,
+    cssText: '.q { color: green; }',
+  });
+  // Target the project's own <style> in <body>, not the script's #ss-preview in <head>.
   expect(base.style.color).toBe('red'); // untouched
-  expect(inLayer.style.color).toBe('green'); // the layered rule was the one edited
+  expect(((sheet.cssRules[1] as CSSGroupingRule).cssRules[0] as CSSStyleRule).style.color).toBe(
+    'green'
+  ); // the exact layered CSSOM rule was replaced in place
   send({ type: 'ss:deactivate' });
 });
 
@@ -898,20 +919,22 @@ it('resolves fresh drag source and target snapshots from current tree ids', asyn
   send({ type: 'ss:deactivate' });
 });
 
-it('previews by replacing the REAL rule in place, and restores it on clear', () => {
+it('previews by replacing the REAL rule in place, and restores it on clear', async () => {
   document.body.innerHTML = '<style>.q{color:red}</style><button class="q">x</button>';
   // Target the project's own <style> (not a leftover #ss-preview sheet in <head>).
   const sheet = document.body.querySelector('style')!.sheet!;
   const ruleOf = () => (sheet.cssRules[0] as CSSStyleRule).style.getPropertyValue('color');
   send({ type: 'ss:activate', cascade: true });
+  const got = nextCascade();
   document.querySelector('.q')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const { rules } = await got;
+  const identity = rules.find((rule) => rule.selector === '.q')!.runtimeIdentity!;
 
   // Edit the rule's real source — the live rule itself changes (not an override layer).
   send({
     type: 'ss:previewRuleText',
     ruleKey: 'styles.css|.q',
-    selector: '.q',
-    mediaText: null,
+    identity,
     cssText: '.q { color: green; }',
   });
   expect(ruleOf()).toBe('green');
@@ -920,8 +943,7 @@ it('previews by replacing the REAL rule in place, and restores it on clear', () 
   send({
     type: 'ss:previewRuleText',
     ruleKey: 'styles.css|.q',
-    selector: '.q',
-    mediaText: null,
+    identity,
     cssText: '.q {  }',
   });
   expect(ruleOf()).toBe('');
@@ -932,17 +954,58 @@ it('previews by replacing the REAL rule in place, and restores it on clear', () 
   send({ type: 'ss:deactivate' });
 });
 
-it('removes the live rule on ss:deleteRulePreview', () => {
+it('removes the exact live rule on ss:deleteRulePreview', async () => {
   document.body.innerHTML =
     '<style>.del{color:red}.keep{color:blue}</style><button class="del">x</button>';
   const sheet = document.body.querySelector('style')!.sheet!;
   expect(sheet.cssRules).toHaveLength(2);
   send({ type: 'ss:activate', cascade: true });
+  const got = nextCascade();
   document.querySelector('.del')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  send({ type: 'ss:deleteRulePreview', selector: '.del', mediaText: null });
+  const { rules } = await got;
+  const identity = rules.find((rule) => rule.selector === '.del')!.runtimeIdentity!;
+  send({ type: 'ss:deleteRulePreview', identity });
   // The .del rule is gone; .keep survives.
   expect(sheet.cssRules).toHaveLength(1);
   expect((sheet.cssRules[0] as CSSStyleRule).selectorText).toBe('.keep');
+  send({ type: 'ss:deactivate' });
+});
+
+it('removes only the selected selector-list member from the exact live rule', async () => {
+  document.body.innerHTML =
+    '<style>.member-a, .member-b { color: red; }</style><button class="member-b">x</button>';
+  const sheet = document.body.querySelector('style')!.sheet!;
+  send({ type: 'ss:activate', cascade: true });
+  const got = nextCascade();
+  document.querySelector('.member-b')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const { rules } = await got;
+  const matched = rules.find((rule) => rule.selector === '.member-b')!;
+  expect(matched.selectorMemberIndex).toBe(1);
+  send({ type: 'ss:removeSelectorMemberPreview', identity: matched.runtimeIdentity });
+  expect((sheet.cssRules[0] as CSSStyleRule).selectorText).toBe('.member-a');
+  expect((sheet.cssRules[0] as CSSStyleRule).style.color).toBe('red');
+  send({ type: 'ss:deactivate' });
+});
+
+it('splits only the selected member from the exact live rule', async () => {
+  document.body.innerHTML =
+    '<style>.split-a, .split-b { color: red; } .split-b { color: blue; }</style><button class="split-b">x</button>';
+  const sheet = document.body.querySelector('style')!.sheet!;
+  send({ type: 'ss:activate', cascade: true });
+  const got = nextCascade();
+  document.querySelector('.split-b')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const { rules } = await got;
+  const shared = rules.find(
+    (rule) =>
+      rule.selector === '.split-b' &&
+      rule.declarations.some((declaration) => declaration.value === 'red')
+  )!;
+  send({ type: 'ss:splitSelectorMemberPreview', identity: shared.runtimeIdentity });
+  expect(sheet.cssRules).toHaveLength(3);
+  expect((sheet.cssRules[0] as CSSStyleRule).selectorText).toBe('.split-a');
+  expect((sheet.cssRules[1] as CSSStyleRule).selectorText).toBe('.split-b');
+  expect((sheet.cssRules[1] as CSSStyleRule).style.color).toBe('red');
+  expect((sheet.cssRules[2] as CSSStyleRule).style.color).toBe('blue');
   send({ type: 'ss:deactivate' });
 });
 
@@ -1215,5 +1278,91 @@ it('drops a parked double-click when the selection moves on before the verdict',
     expect(document.querySelector('[contenteditable]')).toBeNull();
   } finally {
     send({ type: 'ss:deactivate' });
+  }
+});
+
+function variableIdentity(
+  overrides: Partial<{
+    key: string;
+    file: string;
+    selector: string;
+    line: number | null;
+    name: string;
+  }> = {}
+) {
+  return {
+    key: ['src/theme.css', '.theme-dark', '8', '--surface'].join('\0'),
+    file: 'src/theme.css',
+    selector: '.theme-dark',
+    line: 8,
+    name: '--surface',
+    ...overrides,
+  };
+}
+
+function stylesheet(sourceFile: string, cssText: string) {
+  const node = document.createElement('style');
+  node.setAttribute('data-vite-dev-id', `/project/${sourceFile}`);
+  node.textContent = cssText;
+  document.head.appendChild(node);
+  return node;
+}
+
+it('previews a scoped variable on its unique source rule and restores the authored value on clear', () => {
+  const node = stylesheet('src/theme.css', '.theme-dark { --surface: white; }');
+  const rule = node.sheet!.cssRules[0] as CSSStyleRule;
+  const identity = variableIdentity();
+  try {
+    send({ type: 'ss:setVar', identity, value: 'ivory' });
+    expect(rule.style.getPropertyValue('--surface')).toBe('ivory');
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('');
+
+    send({ type: 'ss:clearVar', identity });
+    expect(rule.style.getPropertyValue('--surface')).toBe('white');
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('');
+  } finally {
+    node.remove();
+  }
+});
+
+it('skips a scoped preview when the source selector appears in multiple media contexts', () => {
+  const node = stylesheet(
+    'src/theme.css',
+    '.theme-dark { --surface: white; } @media (prefers-color-scheme: dark) { .theme-dark { --surface: black; } }'
+  );
+  const firstRule = node.sheet!.cssRules[0] as CSSStyleRule;
+  const mediaRule = node.sheet!.cssRules[1] as CSSMediaRule;
+  const secondRule = mediaRule.cssRules[0] as CSSStyleRule;
+  const identity = variableIdentity();
+  try {
+    send({ type: 'ss:setVar', identity, value: 'ivory' });
+
+    expect(firstRule.style.getPropertyValue('--surface')).toBe('white');
+    expect(secondRule.style.getPropertyValue('--surface')).toBe('black');
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('');
+  } finally {
+    node.remove();
+  }
+});
+
+it('restores an existing inline property after clearing the new-root fallback', () => {
+  const node = stylesheet('src/new.css', 'body { color: red; }');
+  const identity = variableIdentity({
+    key: 'pending\0src/new.css\0:root\0--new-token',
+    file: 'src/new.css',
+    selector: ':root',
+    line: null,
+    name: '--new-token',
+  });
+  document.documentElement.style.setProperty('--new-token', 'var(--existing)');
+  try {
+    send({ type: 'ss:setVar', identity, value: 'purple' });
+    expect(document.documentElement.style.getPropertyValue('--new-token')).toBe('purple');
+
+    send({ type: 'ss:clearVar', identity, commit: true });
+    expect(document.documentElement.style.getPropertyValue('--new-token')).toBe('var(--existing)');
+  } finally {
+    document.documentElement.style.removeProperty('--new-token');
+    node.remove();
   }
 });

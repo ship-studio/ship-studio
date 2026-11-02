@@ -11,7 +11,14 @@ import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { TextButton } from '../primitives/TextButton';
 import { CascadeRuleCard } from './CascadeRuleCard';
-import { cascadeRuleCollapseKey, type CascadeDisplayOrder } from '../../lib/cascadePresentation';
+import { CascadeSourceGroupCard } from './CascadeSourceGroupCard';
+import {
+  cascadeFileCollapseKey,
+  cascadeSourceFileLabel,
+  cascadeSourceCollapseKey,
+  cascadeRuleCollapseKey,
+  type CascadeDisplayOrder,
+} from '../../lib/cascadePresentation';
 import { searchRuleBody } from '../../lib/cascadeSearch';
 import type { RuleBody } from '../../lib/cssBody';
 import type { AnimationRow } from '../../hooks/useCssAnimations';
@@ -33,6 +40,7 @@ interface Props {
     toggle: (key: string) => void;
     toggleSearch: (key: string, collapsed: boolean) => void;
   };
+  onOpenInCode?: (file: string, line: number | undefined, selector: string) => void;
   onClearSearch: () => void;
 }
 
@@ -48,6 +56,7 @@ export function CssAnimationsPanel({
   searchTerm,
   displayOrder,
   collapseControl,
+  onOpenInCode,
   onClearSearch,
 }: Props) {
   if (loading && animations.length === 0) {
@@ -62,13 +71,18 @@ export function CssAnimationsPanel({
   const normalizedQuery = query.toLocaleLowerCase();
   const searchActive = normalizedQuery.length > 0;
   const orderedAnimations = displayOrder === 'newest-top' ? [...animations].reverse() : animations;
+  const sourceFileMatches = (animation: AnimationRow) =>
+    searchActive &&
+    cascadeSourceFileLabel(animation.file).toLocaleLowerCase().includes(normalizedQuery);
   const visibleAnimations = orderedAnimations.filter(
     (animation) =>
       !searchActive ||
+      sourceFileMatches(animation) ||
       animation.name.toLocaleLowerCase().includes(normalizedQuery) ||
       animation.selector.toLocaleLowerCase().includes(normalizedQuery) ||
       searchRuleBody(animation.body, normalizedQuery).hasMatch
   );
+  const sourceGroups = groupAnimationsBySource(visibleAnimations);
   const addAnimation = (
     <AddAnimation
       existing={new Set(animations.map((animation) => animation.name))}
@@ -86,46 +100,83 @@ export function CssAnimationsPanel({
             <code>animation</code>.
           </p>
         )}
-        {visibleAnimations.map((animation) => {
-          const collapseKey = cascadeRuleCollapseKey(animation.selector);
-          const matchesSearch =
-            searchActive &&
-            (animation.name.toLocaleLowerCase().includes(normalizedQuery) ||
-              animation.selector.toLocaleLowerCase().includes(normalizedQuery) ||
-              searchRuleBody(animation.body, normalizedQuery).hasMatch);
-          const searchCollapseOverride = matchesSearch
-            ? collapseControl.searchCollapsedOverrides.get(collapseKey)
-            : undefined;
-          const collapsed = matchesSearch
-            ? (searchCollapseOverride ?? false)
-            : collapseControl.collapsedKeys.has(collapseKey);
+        {sourceGroups.map((group) => {
+          const source = { kind: 'resolved' as const, file: group.file };
+          const groupCollapseKey = cascadeSourceCollapseKey(source);
+          const groupMatchesSearch = searchActive;
+          const groupSearchCollapse =
+            collapseControl.searchCollapsedOverrides.get(groupCollapseKey);
+          const groupCollapsed = groupMatchesSearch
+            ? (groupSearchCollapse ?? false)
+            : collapseControl.collapsedKeys.has(groupCollapseKey);
 
           return (
-            <CascadeRuleCard
-              key={animation.selector}
-              editable
-              selector={animation.selector}
-              file={animation.file}
-              overridden={EMPTY}
-              body={animation.body}
-              variables={variables}
-              selectorSuggestions={selectorSuggestions}
-              searchTerm={query}
-              searchCollapseOverride={searchCollapseOverride}
-              collapseKey={collapseKey}
-              collapseControl={collapseControl}
-              collapsed={collapsed}
+            <CascadeSourceGroupCard
+              key={group.key}
+              runKey={group.key}
+              source={source}
+              sourceLine={group.animations[0].line}
+              count={group.animations.length}
+              itemLabel="animation"
+              groupLabel="Animations"
+              collapsed={groupCollapsed}
+              onOpenInCode={
+                onOpenInCode
+                  ? (file, line) => onOpenInCode(file, line, group.animations[0].selector)
+                  : undefined
+              }
               onToggleCollapse={() => {
-                if (matchesSearch) {
-                  collapseControl.toggleSearch(collapseKey, !collapsed);
+                if (groupMatchesSearch) {
+                  collapseControl.toggleSearch(groupCollapseKey, !groupCollapsed);
                 } else {
-                  collapseControl.toggle(collapseKey);
+                  collapseControl.toggle(groupCollapseKey);
                 }
               }}
-              onChange={(body) => onChangeBody(animation.selector, body)}
-              onDelete={() => onDelete(animation.selector)}
-              onRenameKeyframes={(newName) => onRename(animation.selector, newName)}
-            />
+            >
+              {group.animations.map((animation) => {
+                const collapseKey = cascadeRuleCollapseKey(animation.selector);
+                const selectorMatches =
+                  animation.name.toLocaleLowerCase().includes(normalizedQuery) ||
+                  animation.selector.toLocaleLowerCase().includes(normalizedQuery) ||
+                  searchRuleBody(animation.body, normalizedQuery).hasMatch;
+                const matchesSearch =
+                  searchActive && (sourceFileMatches(animation) || selectorMatches);
+                const searchCollapseOverride = matchesSearch
+                  ? collapseControl.searchCollapsedOverrides.get(collapseKey)
+                  : undefined;
+                const collapsed = matchesSearch
+                  ? (searchCollapseOverride ?? false)
+                  : collapseControl.collapsedKeys.has(collapseKey);
+
+                return (
+                  <CascadeRuleCard
+                    key={animation.selector}
+                    editable
+                    selector={animation.selector}
+                    overridden={EMPTY}
+                    body={animation.body}
+                    variables={variables}
+                    selectorSuggestions={selectorSuggestions}
+                    searchTerm={query}
+                    searchMatchesAll={sourceFileMatches(animation)}
+                    searchCollapseOverride={searchCollapseOverride}
+                    collapseKey={collapseKey}
+                    collapseControl={collapseControl}
+                    collapsed={collapsed}
+                    onToggleCollapse={() => {
+                      if (matchesSearch) {
+                        collapseControl.toggleSearch(collapseKey, !collapsed);
+                      } else {
+                        collapseControl.toggle(collapseKey);
+                      }
+                    }}
+                    onChange={(body) => onChangeBody(animation.selector, body)}
+                    onDelete={() => onDelete(animation.selector)}
+                    onRenameKeyframes={(newName) => onRename(animation.selector, newName)}
+                  />
+                );
+              })}
+            </CascadeSourceGroupCard>
           );
         })}
         {searchActive && visibleAnimations.length === 0 && (
@@ -141,6 +192,23 @@ export function CssAnimationsPanel({
 }
 
 const EMPTY = new Map<string, string>();
+
+function groupAnimationsBySource(animations: AnimationRow[]) {
+  const groups: { key: string; file: string; animations: AnimationRow[] }[] = [];
+  animations.forEach((animation) => {
+    const previous = groups[groups.length - 1];
+    if (previous?.file === animation.file) {
+      previous.animations.push(animation);
+    } else {
+      groups.push({
+        key: `${cascadeFileCollapseKey(animation.file)}:${animation.selector}`,
+        file: animation.file,
+        animations: [animation],
+      });
+    }
+  });
+  return groups;
+}
 
 /** "+ New animation": expands to a name input that creates `@keyframes <name>`. */
 function AddAnimation({

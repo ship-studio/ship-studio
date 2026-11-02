@@ -34,6 +34,20 @@ describe('DeclarationRow', () => {
     expect(screen.getByRole('combobox')).toBeInTheDocument();
   });
 
+  it('keeps the color swatch visible and usable while editing the value', () => {
+    renderRow('#ff0000');
+    fireEvent.click(screen.getByRole('button', { name: /#ff0000/ }));
+
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox').closest('.ss-value-pop--inline')).toHaveClass(
+      'ss-value-pop--inline-has-swatch'
+    );
+    const swatch = screen.getByRole('button', { name: 'Open color picker for color' });
+    expect(swatch).toBeInTheDocument();
+    fireEvent.click(swatch);
+    expect(screen.getByRole('dialog', { name: 'Color picker' })).toBeInTheDocument();
+  });
+
   it('keeps the text editor for a non-color value', () => {
     renderRow('12px');
     fireEvent.click(screen.getByRole('button', { name: /12px/ }));

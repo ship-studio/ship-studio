@@ -2,7 +2,8 @@
 /* Prop + value are plain WRAPPING text (clicking edits in place), so a long
    prop or value just wraps and is never cut off; a short one reads `prop: value`. */
 .ss-decl {
-  --ss-decl-line-height: calc(var(--size-icon-button) + 2 * var(--space-01));
+  --ss-decl-line-height: calc(var(--size-icon-button) + 2 * var(--spacing-3xs));
+  --ss-decl-swatch-inset: calc(var(--spacing-2xs) + var(--spacing-3xs));
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -96,6 +97,9 @@
 .ss-decl__value-text > .ss-css-value-text {
   display: inline;
 }
+.ss-decl__value-text--has-swatch {
+  padding-inline-start: var(--ss-decl-swatch-inset);
+}
 .ss-decl__swatch-space {
   display: inline-block;
   width: calc(var(--size-icon-button) + var(--spacing-xs));
@@ -106,8 +110,8 @@
   all: unset;
   box-sizing: border-box;
   position: absolute;
-  inset-block-start: var(--spacing-2xs);
-  inset-inline-start: var(--spacing-tight);
+  inset-block-start: var(--ss-decl-swatch-inset);
+  inset-inline-start: var(--ss-decl-swatch-inset);
   z-index: 1;
   display: grid;
   place-items: center;
@@ -140,9 +144,9 @@
   box-sizing: border-box;
   background-clip: padding-box;
   border-radius: var(--radius-sm);
-  border: var(--border-width-default) solid var(--border-default);
+  border: var(--stroke-1) solid var(--color-white-o15);
   outline: none;
-  box-shadow: none;
+  box-shadow: 0 0 0 var(--stroke-1) var(--color-black-o38);
 }
 .ss-decl__imp {
   color: var(--accent-warning);
@@ -160,7 +164,7 @@
   display: inline-flex;
   align-items: center;
   gap: 1px; /* css-ok: tight action cluster */
-  padding: var(--space-01);
+  padding: var(--spacing-3xs);
   border-radius: var(--radius-sm);
   background: var(--surface-panel);
   opacity: 0;
@@ -288,12 +292,23 @@
   left: 0;
   z-index: var(--z-dropdown);
 }
+.ss-value-pop__menu .ss-add-menu__list {
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: row;
+}
 .ss-value-pop__menu .ss-add-menu__item {
   /* The shared add menu also serves shrink-to-fit chip popovers, where an
      explicit width can collapse the grid. The value menu is row-width-bound,
      so make its hover target fill that width explicitly. */
   align-self: stretch;
   width: 100%;
+  min-width: 0;
+}
+.ss-value-pop__menu .ss-add-menu__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Inline `!important` ghost completion, painted over the input (typed text is
@@ -353,6 +368,15 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.ss-value-pop--inline-has-swatch .ss-value-pop__sizer {
+  padding-inline-start: var(--ss-decl-swatch-inset);
+}
+.ss-value-pop--inline-has-swatch .ss-value-pop__input,
+.ss-value-pop--inline-has-swatch .ss-value-pop__ghost {
+  padding-inline-start: calc(
+    var(--ss-decl-swatch-inset) + var(--size-icon-button) + var(--spacing-xs)
+  );
 }
 .ss-decl .ss-value-pop--inline .ss-value-pop__sizer,
 .ss-decl .ss-value-pop--inline .ss-value-pop__input,

@@ -72,6 +72,20 @@ describe('EditPopover', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('commits typed text on Enter when suggestions are visible but not selected', () => {
+    const typed = 'var(--site';
+    const { input, onCommit } = renderPopover(typed, [
+      'var(--site-color-primary)',
+      'var(--site-page-background)',
+    ]);
+
+    expect(input).toHaveAttribute('aria-expanded', 'true');
+    expect(input).not.toHaveAttribute('aria-activedescendant');
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onCommit).toHaveBeenCalledWith(typed);
+  });
+
   it('renders in the value column and commits when focus leaves', () => {
     const { container, input, onCommit, onClose } = renderInlineEditor('12px');
     expect(
@@ -133,11 +147,26 @@ describe('EditPopover', () => {
   it('keeps navigating the suggestion menu with arrows while it is open', () => {
     const { input, onCommit } = renderPopover('', ['auto', 'inherit']);
     expect(input).toHaveAttribute('aria-expanded', 'true');
+    expect(input).not.toHaveAttribute('aria-activedescendant');
     fireEvent.keyDown(input, { key: 'ArrowDown' });
-    // The arrow moved the active option — it did not step or apply a value.
+    expect(input).toHaveAttribute('aria-activedescendant', expect.stringMatching(/-opt-0$/));
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    // The second arrow moved to the next option without applying a value.
     expect(input).toHaveAttribute('aria-activedescendant', expect.stringMatching(/-opt-1$/));
     expect(input.value).toBe('');
     expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it('commits the arrow-selected suggestion on Enter', () => {
+    const { input, onCommit } = renderPopover('var(--site', [
+      'var(--site-color-primary)',
+      'var(--site-page-background)',
+    ]);
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onCommit).toHaveBeenCalledWith('var(--site-color-primary)');
   });
 
   it('leaves keyword values untouched on arrow keys', () => {

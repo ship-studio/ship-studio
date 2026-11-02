@@ -48,6 +48,8 @@ interface CodeViewerProps {
   onSendToAgent?: (text: string) => void;
   /** A 1-based line to highlight + scroll into view (jump-to-code). */
   revealLine?: number | null;
+  /** Identity of the current reveal request; changes even for the same file/line. */
+  revealRequestId?: number | null;
   // Inline editing (Code tab). When `isEditing`, the read-only view is replaced
   // by an editable CodeMirror surface.
   isEditing?: boolean;
@@ -86,6 +88,7 @@ export function CodeViewer({
   error,
   onSendToAgent,
   revealLine,
+  revealRequestId,
   isEditing = false,
   draft = '',
   isDirty = false,
@@ -427,6 +430,7 @@ export function CodeViewer({
           language={fileContent?.language ?? 'plaintext'}
           onSave={() => void handleSave()}
           revealLine={revealLine}
+          revealRequestId={revealRequestId}
           onSelectionChange={handleSelectionChange}
         />
         {isEditing && saveError && (
