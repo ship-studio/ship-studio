@@ -248,4 +248,30 @@ describe('useScreenshotManagement auto-capture consent gate', () => {
     });
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
+
+  it('expected failure after all retries warns instead of filing a bug (#969)', async () => {
+    vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
+    const error = {
+      type: 'Other',
+      expected: true,
+      message:
+        "The capture browser finished without writing a screenshot at <project>\\.shipstudio\\thumbnail_raw.png — the page probably didn't render in time (the dev server may still be compiling), or security software blocked the file write. The thumbnail will be retried automatically.",
+    };
+    invokeMock.mockRejectedValue(error);
+    const { result } = renderHook(() => useScreenshotManagement(makeParams()));
+
+    await triggerAutoCapture(result);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    const { logger } = await import('../lib/logger');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      'Failed to capture thumbnail after retries',
+      { error, attempts: 5 }
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(vi.mocked(logger.error)).not.toHaveBeenCalled();
+  });
 });

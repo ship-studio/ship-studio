@@ -1041,6 +1041,22 @@ describe('useVisualEditor class gestures (apply / unapply / extract / delete)', 
     expect(result.current.editTarget).toMatchObject({ kind: 'class', name: 'hero' });
   });
 
+  it('createClassFromStyles with no movable utilities is an info refusal, not a reported error', async () => {
+    // Issue #1071: every token is a plain custom class.
+    (classifyApplyTokens as Fn).mockResolvedValue(['animate-fade']);
+    const { result, onToast } = await withSelection([], 'animate-fade');
+
+    await act(async () => {
+      await result.current.createClassFromStyles('hero');
+    });
+
+    expect(onToast).toHaveBeenCalledWith(
+      'This element has no Tailwind utilities to extract into a class.',
+      'info'
+    );
+    expect(createCustomClass).not.toHaveBeenCalled();
+  });
+
   it('applyClass honors a single-occurrence multiTarget for a multi-location element', async () => {
     (resolveClassnameSource as Fn).mockResolvedValue({
       status: 'multi',

@@ -55,7 +55,7 @@ export interface AnimationRow {
 interface Params {
   projectPath: string;
   enabled: boolean;
-  onToast: (message: string, type?: 'success' | 'error') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
@@ -234,7 +234,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         }
       }
       if (!file) {
-        onToast('No stylesheet found to add the animation to.', 'error');
+        onToast('No stylesheet found to add the animation to.', 'info');
         return;
       }
       try {

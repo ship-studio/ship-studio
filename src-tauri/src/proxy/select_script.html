@@ -326,17 +326,53 @@ function ssSetVariablePreview(identity,value){
   }
 }
 
+function ssStopVariableCommitWatch(preview){
+  if(preview.commitObserver){preview.commitObserver.disconnect();preview.commitObserver=null;}
+  if(preview.commitTimer){clearTimeout(preview.commitTimer);preview.commitTimer=null;}
+}
+
+function ssFinishVariableCommit(identity,key,preview){
+  if(ssVarPreviews[key]!==preview)return true;
+  var loc=findVariableRule(identity);
+  if(loc.status!=='unique'||loc.rule.style.getPropertyValue(identity.name)!==preview.previewValue)return false;
+  var style=preview.style;
+  if(style.getPropertyValue(identity.name)===preview.previewValue){
+    if(preview.hadProperty)style.setProperty(identity.name,preview.oldValue,preview.oldPriority);
+    else style.removeProperty(identity.name);
+  }
+  ssStopVariableCommitWatch(preview);
+  delete ssVarPreviews[key];
+  return true;
+}
+
+function ssWatchVariableCommit(identity,key,preview){
+  var attempts=0;
+  if(typeof MutationObserver==='function'&&!preview.commitObserver){
+    preview.commitObserver=new MutationObserver(function(){ssFinishVariableCommit(identity,key,preview);});
+    preview.commitObserver.observe(document.documentElement,{attributes:true,childList:true,characterData:true,subtree:true});
+  }
+  var check=function(){
+    preview.commitTimer=null;
+    if(ssFinishVariableCommit(identity,key,preview))return;
+    attempts++;
+    if(attempts<200)preview.commitTimer=setTimeout(check,50);
+  };
+  preview.commitTimer=setTimeout(check,0);
+}
+
 function ssClearVariablePreview(identity,commit){
   var key=ssVariableIdentityKey(identity);if(!key)return;var preview=ssVarPreviews[key];if(!preview)return;
+  if(preview.target==='inline'&&commit){
+    /* Keep the inline fallback until HMR exposes the authored declaration. */
+    ssWatchVariableCommit(identity,key,preview);
+    return;
+  }
   var style=preview.target==='rule'?preview.rule.style:preview.style;
   var stillOwned=preview.target==='rule'?ssCssRuleAttached(preview.owner,preview.rule):true;
-  if(preview.target==='inline'&&commit){
-    /* The authored root rule now exists; remove only the temporary inline fallback,
-       restoring any inline custom property that was already there. */
-    if(style.getPropertyValue(identity.name)===preview.previewValue){if(preview.hadProperty)style.setProperty(identity.name,preview.oldValue,preview.oldPriority);else style.removeProperty(identity.name);}
-  }else if(!commit&&stillOwned&&style.getPropertyValue(identity.name)===preview.previewValue){
+  if(!commit&&stillOwned&&style.getPropertyValue(identity.name)===preview.previewValue){
     if(preview.hadProperty)style.setProperty(identity.name,preview.oldValue,preview.oldPriority);else style.removeProperty(identity.name);
   }
+  ssStopVariableCommitWatch(preview);
   delete ssVarPreviews[key];
 }
 

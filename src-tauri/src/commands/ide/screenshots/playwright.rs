@@ -42,12 +42,23 @@ async fn run_capture_script(
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if stderr.contains("Executable doesn't exist") || stderr.contains("playwright install") {
-        tracing::warn!("Playwright browser binary missing — reinstalling Chromium and retrying");
+    let corrupt = is_corrupt_browser_binary(&stderr);
+    if corrupt
+        || stderr.contains("Executable doesn't exist")
+        || stderr.contains("playwright install")
+    {
+        tracing::warn!(
+            corrupt,
+            "Playwright browser binary missing or unrunnable — reinstalling Chromium and retrying"
+        );
         let mut install = node_tool_command("npx");
-        install
-            .args(["playwright", "install", "chromium"])
-            .current_dir(playwright_env);
+        install.args(["playwright", "install"]);
+        // A present-but-broken binary still has its install marker, so a
+        // plain install would see it as done and skip it (issue #967).
+        if corrupt {
+            install.arg("--force");
+        }
+        install.arg("chromium").current_dir(playwright_env);
         let install_out = match run_with_timeout(
             tokio::process::Command::from(install),
             "playwright install chromium",
@@ -77,6 +88,25 @@ async fn run_capture_script(
 
     // Other failures pass through — callers report status + stderr in detail.
     Ok(output)
+}
+
+/// Render a value as a JavaScript string literal for the generated capture
+/// scripts. JSON string syntax is valid JS, and serde escapes quotes,
+/// backslashes and control characters — a hand-rolled `'...'` literal broke
+/// the whole script with a SyntaxError for any project whose path contained
+/// an apostrophe, e.g. a folder named `Oscar's POV` (issue #936).
+fn js_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+/// True when the browser binary is present but the OS won't execute it:
+/// macOS `posix_spawn` failing with errno 88 (EBADMACHO, "Malformed Mach-o
+/// file"), which libuv reports as "spawn Unknown system error -88". That is a
+/// truncated or corrupted download in Playwright's browser cache — it fails
+/// identically on every capture until the browser is reinstalled
+/// (issue #967).
+fn is_corrupt_browser_binary(stderr: &str) -> bool {
+    stderr.contains("spawn Unknown system error -88")
 }
 
 /// How a failed process exited, in words. A capture that wrote nothing at all
@@ -140,6 +170,19 @@ fn browser_install_error(output: &std::process::Output) -> CommandError {
         return CommandError::expected(
             "The screenshot browser couldn't be downloaded — this computer is out of disk \
              space. Free up some space, then try again.",
+        );
+    }
+    // playwright-core's own installer lock: another install is running, or an
+    // earlier one was killed mid-download and left the lock behind. Every
+    // later install refuses until it is gone — a fact about the browser
+    // cache, not an app bug (issue #1050).
+    if combined.contains("active lockfile is found") {
+        return CommandError::expected(
+            "The screenshot browser couldn't be reinstalled because Playwright found another \
+             install's lock in its browser cache — either an install is still running, or an \
+             earlier one was interrupted. Wait a minute and try again; if it keeps happening, \
+             run `npx playwright install chromium` in a terminal, which shows the lock's path \
+             so you can delete it.",
         );
     }
     if combined.contains("EACCES") || combined.contains("EPERM") {
@@ -212,6 +255,16 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              — then try again.",
         );
     }
+    // Chromium's low-level allocator aborting because the OS refused to
+    // commit more memory ("[low_level_alloc.cc : 554] RAW: Check new_pages !=
+    // nullptr failed: VirtualAlloc failed") — the machine is out of memory or
+    // its paging file is full, not an app malfunction (issue #1065).
+    if stderr.contains("VirtualAlloc failed") || stderr.contains("low_level_alloc") {
+        return CommandError::expected(
+            "The screenshot browser ran out of memory and stopped. Close some other apps (or \
+             increase the Windows paging file size), then try again.",
+        );
+    }
     // The headless browser process dying at startup ("Target crashed" before
     // any navigation) is an environment-level failure — GPU/driver quirks or
     // security software killing the fresh Chromium process — that a retry
@@ -222,6 +275,38 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
             "The screenshot browser crashed while starting up. This is usually a one-off \
              (graphics driver or security software interfering with the headless browser) — \
              try again, and if it keeps happening, restarting your machine often clears it.",
+        );
+    }
+    // Windows refusing to launch the headless browser executable. `EBUSY`
+    // means the file is locked — usually security software scanning it, or a
+    // previous capture's process not having released it yet — which clears
+    // on its own (issue #1093). `UNKNOWN` is libuv's catch-all for a
+    // CreateProcess failure it has no errno for; upstream, that is almost
+    // always security software or a policy blocking the unsigned binary
+    // (microsoft/playwright#35363, issue #1092). Neither is an app bug.
+    if stderr.contains("spawn EBUSY") {
+        return CommandError::expected(
+            "The screenshot browser couldn't start because its program file was briefly \
+             locked — usually security software scanning it. Try again in a moment.",
+        );
+    }
+    if stderr.contains("spawn UNKNOWN") {
+        return CommandError::expected(
+            "Windows wouldn't start the screenshot browser. This is usually security software \
+             or a Windows policy blocking it — allow %LOCALAPPDATA%\\ms-playwright in your \
+             security software, then try again.",
+        );
+    }
+    // The disk filling up as the screenshot file is written. The install path
+    // already classifies this (browser_install_error); the capture's own
+    // write needs the same treatment (issue #1116).
+    if stderr.contains("ENOSPC")
+        || stderr.contains("No space left on device")
+        || stderr.contains("not enough space on the disk")
+    {
+        return CommandError::expected(
+            "Couldn't save the screenshot — this computer is out of disk space. Free up some \
+             space, then try again.",
         );
     }
     // Chromium's CDP refusing the screenshot outright ("Page.captureScreenshot:
@@ -281,6 +366,17 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              fully, then try again."
         ));
     }
+    // The screenshot action itself outlasting its budget (120s on the first
+    // attempt, 30s on a retry) after navigation succeeded: Chromium stalled
+    // rendering or encoding the capture — GPU/CPU pressure or security
+    // software intercepting the write (issues #1079/#1020), not an app bug.
+    if stderr.contains("page.screenshot") && stderr.contains("Timeout") {
+        return CommandError::expected(
+            "The screenshot is taking unusually long — the headless browser stalled while \
+             rendering the page (usually heavy load on this machine, or security software \
+             slowing the capture). Try again in a moment.",
+        );
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let status = exit_status_detail(output);
     // A capture that produced neither stdout nor stderr told us nothing about
@@ -297,14 +393,29 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
             ))
             .into();
         }
-        return (format!(
-            "{what} failed with no output at all ({status}) — the capture process died before \
-             it could report anything, which usually means it was killed (security software, \
-             or the machine running out of memory). Try again in a moment."
-        ))
-        .into();
+        return silent_capture_death(what, &status, output.status.code());
     }
     (format!("{what} failed ({status}). stdout: {stdout} stderr: {stderr}")).into()
+}
+
+/// A capture process that died with no output at all. When its exit code is
+/// a nameable crash (a Windows NTSTATUS fatal exception such as
+/// STATUS_STACK_BUFFER_OVERRUN, or Crashpad's no-dump code), the browser was
+/// killed — the environment-level failure the message already describes, so
+/// Expected (issue #1055). A bare code stays reportable.
+fn silent_capture_death(what: &str, status: &str, code: Option<i32>) -> CommandError {
+    let message = format!(
+        "{what} failed with no output at all ({status}) — the capture process died before \
+         it could report anything, which usually means it was killed (security software, \
+         or the machine running out of memory). Try again in a moment."
+    );
+    if code
+        .and_then(super::thumbnail::browser_crash_exit_message)
+        .is_some()
+    {
+        return CommandError::expected(message);
+    }
+    message.into()
 }
 
 /// Parse the major version out of `node --version` output ("v16.17.0" -> 16).
@@ -563,7 +674,7 @@ const {{ chromium }} = require('playwright');
         // The retry gets double the budget: 60s twice was still not enough on
         // slow Windows dev servers (issue #606).
         try {{
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
             const msg = String((err && err.message) || err);
             // A refused connection here, right after the Rust-side TCP
@@ -581,7 +692,7 @@ const {{ chromium }} = require('playwright');
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
             }}
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 120000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 120000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
@@ -662,7 +773,7 @@ const {{ chromium }} = require('playwright');
         // that can exceed Playwright's default 30s action timeout, and the
         // overall script budget leaves room for it, so give it real headroom
         // (issue #461).
-        await screenshotWithRetry({{ path: '{}', fullPage: true, timeout: 120000 }});
+        await screenshotWithRetry({{ path: {}, fullPage: true, timeout: 120000 }});
         console.log('Screenshot saved successfully');
     }} finally {{
         if (browser) await browser.close();
@@ -674,9 +785,9 @@ const {{ chromium }} = require('playwright');
     process.exit(1);
 }});
 "#,
-        url,
-        url,
-        screenshot_path_str.replace('\\', "\\\\")
+        js_string(&url),
+        js_string(&url),
+        js_string(&screenshot_path_str)
     );
 
     // Write script to the playwright env directory (where node_modules is).
@@ -792,7 +903,7 @@ const {{ chromium }} = require('playwright');
         // the compile keeps progressing server-side while we wait
         // (issue #606).
         try {{
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
             const msg = String((err && err.message) || err);
             // A refused connection here, right after the Rust-side TCP
@@ -810,7 +921,7 @@ const {{ chromium }} = require('playwright');
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
             }}
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 120000 }});
+            await page.goto({}, {{ waitUntil: 'load', timeout: 120000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
@@ -863,7 +974,7 @@ const {{ chromium }} = require('playwright');
         // Playwright's 30s action default, which slow machines exceeded — the
         // full-page capture already has this, the viewport one was missed
         // (issue #568).
-        await screenshotWithRetry({{ path: '{}', timeout: 120000 }});
+        await screenshotWithRetry({{ path: {}, timeout: 120000 }});
     }} finally {{
         if (browser) await browser.close();
     }}
@@ -874,9 +985,9 @@ const {{ chromium }} = require('playwright');
     process.exit(1);
 }});
 "#,
-        url,
-        url,
-        screenshot_path_str.replace('\\', "\\\\")
+        js_string(&url),
+        js_string(&url),
+        js_string(&screenshot_path_str)
     );
 
     // Write script to the playwright env directory. Unique per invocation —
@@ -1125,6 +1236,83 @@ mod capture_error_tests {
     }
 
     #[test]
+    fn apostrophe_in_project_path_stays_inside_the_js_string() {
+        // Issue #936: "<project>/Oscar's POV/Spark Society/.shipstudio/..."
+        // ended the old single-quoted literal at the apostrophe.
+        let path = "/Users/x/Oscar's POV/Spark Society/.shipstudio/screenshots/fullpage-1.png";
+        assert_eq!(
+            js_string(path),
+            "\"/Users/x/Oscar's POV/Spark Society/.shipstudio/screenshots/fullpage-1.png\""
+        );
+        // Windows separators and a stray double quote are escaped, not cut short.
+        assert_eq!(js_string(r#"C:\a "b"\c.png"#), r#""C:\\a \"b\"\\c.png""#);
+    }
+
+    #[test]
+    fn corrupted_browser_binary_is_recognized_for_forced_reinstall() {
+        // Issue #967 (macOS EBADMACHO).
+        assert!(is_corrupt_browser_binary(
+            "browserType.launch: spawn Unknown system error -88\nCall log:\n  - <launching> \
+             /Users/x/Library/Caches/ms-playwright/chromium_headless_shell-1243/\
+             chrome-headless-shell-mac-arm64/chrome-headless-shell"
+        ));
+        assert!(!is_corrupt_browser_binary(
+            "browserType.launch: spawn UNKNOWN"
+        ));
+    }
+
+    #[test]
+    fn virtualalloc_failure_is_expected_out_of_memory() {
+        // Issue #1065.
+        let err = capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &failed_output(
+                "[low_level_alloc.cc : 554] RAW: Check new_pages != nullptr failed: VirtualAlloc failed",
+            ),
+        );
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("out of memory"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn silent_death_with_windows_crash_code_is_expected() {
+        // Issue #1055: exit -1073740791 is STATUS_STACK_BUFFER_OVERRUN.
+        let err = silent_capture_death(
+            "Playwright viewport screenshot",
+            "exit code -1073740791",
+            Some(-1073740791),
+        );
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("no output at all"), "got: {message}");
+                assert!(message.contains("-1073740791"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+        let plain = silent_capture_death("Playwright screenshot", "exit code 1", Some(1));
+        assert!(!matches!(plain, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn stale_install_lockfile_is_expected() {
+        // Issue #1050.
+        let err = browser_install_error(&failed_output(
+            "Failed to install browsers\nError:\n╔══════╗\n║ An active lockfile is found at: ║\n║   C:\\Users\\x\\AppData\\Local\\ms-playwright\\__dirlock ║",
+        ));
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("lock"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn silent_failure_still_names_the_exit_status() {
         // Issue #829: no stdout, no stderr — the exit status is the only
         // signal there is, so the message must carry it.
@@ -1202,17 +1390,67 @@ mod capture_error_tests {
         }
     }
 
+    fn assert_expected_capture(stderr: &str, needle: &str) {
+        let err = capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &failed_output(stderr),
+        );
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains(needle), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
     #[test]
-    fn non_goto_timeouts_are_not_swallowed_as_expected() {
-        // A timeout elsewhere (e.g. the screenshot action) isn't the
-        // slow-compile navigation shape — keep it a real, detailed error.
-        let output = failed_output("page.screenshot: Timeout 120000ms exceeded.");
+    fn disk_full_capture_write_is_expected() {
+        // Verbatim from issue #1116.
+        assert_expected_capture(
+            "ENOSPC: no space left on device, open '/Users/<redacted>/ShipStudio/sifou-travels/.shipstudio/screenshots/screenshot-1791900136345.png'",
+            "out of disk space",
+        );
+    }
+
+    #[test]
+    fn locked_browser_executable_is_expected() {
+        // Verbatim from issue #1093.
+        assert_expected_capture(
+            "browserType.launch: spawn EBUSY\nCall log:\n  - <launching> C:\\Users\\<redacted>\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe ... --no-startup-window",
+            "briefly locked",
+        );
+    }
+
+    #[test]
+    fn blocked_browser_executable_is_expected() {
+        // Verbatim from issue #1092.
+        assert_expected_capture(
+            "browserType.launch: spawn UNKNOWN\nCall log:\n  - <launching> C:\\Users\\<redacted>\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1243\\chrome-headless-shell-win64\\chrome-headless-shell.exe --disable-field-trial-config ... --no-startup-window",
+            "ms-playwright",
+        );
+    }
+
+    #[test]
+    fn unrecognized_timeouts_are_not_swallowed_as_expected() {
+        // A timeout in some other step isn't a known environmental shape —
+        // keep it a real, detailed error.
+        let output = failed_output("page.evaluate: Timeout 30000ms exceeded.");
         let err = capture_script_error(
             "Playwright viewport screenshot",
             "http://localhost:3000",
             &output,
         );
         assert!(!matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn screenshot_action_timeout_is_expected() {
+        // Verbatim from issue #1079 (first attempt, full 120s budget).
+        assert_expected_capture(
+            "page.screenshot: Timeout 120000ms exceeded.\nCall log:\n  - taking page screenshot",
+            "taking unusually long",
+        );
     }
 }
 

@@ -1697,6 +1697,15 @@
       "consumerCount": 7
     },
     {
+      "name": "--cascade-selector-chip-min-width",
+      "definitionFile": "src/styles/global/tokens-components.css",
+      "layer": "components",
+      "owner": "global/component",
+      "status": "canonical",
+      "pluginStable": false,
+      "consumerCount": 1
+    },
+    {
       "name": "--button-surface-default",
       "definitionFile": "src/styles/global/tokens-components.css",
       "layer": "components",
@@ -3116,7 +3125,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--z-editor-spacing-surface",
@@ -3125,7 +3134,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 4
     },
     {
       "name": "--z-editor-spacing-field",

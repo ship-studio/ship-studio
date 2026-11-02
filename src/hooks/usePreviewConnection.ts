@@ -17,7 +17,12 @@ import {
 } from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
 import { splitLocation } from '../lib/previewUrl';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
 
@@ -336,6 +341,11 @@ export function usePreviewConnection({
         logger.warn('Failed to load pages — project folder no longer exists', {
           error: message,
         });
+      } else if (isExpectedCommandError(error)) {
+        // Any other backend-classified environment state, e.g. a macOS Full
+        // Disk Access denial on src/pages — same 20s poll, same reason to
+        // stay out of telemetry (issue #944).
+        logger.warn('Failed to load pages', { error: message });
       } else {
         logger.error('Failed to load pages', { error: message });
       }

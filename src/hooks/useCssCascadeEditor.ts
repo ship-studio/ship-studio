@@ -25,6 +25,7 @@ import {
   listCssClasses,
   listCssSelectors,
   listCssVariables,
+  listStylesheets,
   replaceCssSelectorList,
   renameCssAtRule,
   splitCssSelectorList,
@@ -33,6 +34,7 @@ import {
   positionCascadeDrafts,
   rulesToLocate,
   rowKey,
+  isStaleCssRuleError,
   selectCssRuleTargetFile,
   cssRuleWriteTargetFile,
   type MatchedRule,
@@ -144,6 +146,7 @@ export function useCssCascadeEditor({
   const previewTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const savePromises = useRef<Record<string, Promise<CssRuleSourceIdentity | undefined>>>({});
+  const scheduleSaveRef = useRef<(key: string) => void>(() => {});
 
   const selTokenRef = useRef(0);
   const activityRef = useRef<MatchedRule[] | null>(null);
@@ -556,6 +559,10 @@ export function useCssCascadeEditor({
       if (d.type === 'ss:cascade' && Array.isArray(d.rules)) {
         const matched = d.rules;
         const token = selTokenRef.current;
+        // The initial cascade contains the same exact runtime identities as a
+        // later resize activity update. Keep it available immediately so a source
+        // write can refresh sibling rows without waiting for the viewport to move.
+        activityRef.current = matched;
         void (async () => {
           try {
             const toLocate = rulesToLocate(matched);
@@ -744,6 +751,7 @@ export function useCssCascadeEditor({
         return undefined;
       }
       const token = selTokenRef.current;
+      let writeTargetFile = targetFile;
       setSavingKeys((prev) => new Set(prev).add(key));
       post({ type: 'ss:suppressReload' });
       try {
@@ -765,20 +773,50 @@ export function useCssCascadeEditor({
           );
           return undefined;
         }
-        const nextIdentity = await applyCssRuleText(
-          projectPath,
-          targetFile,
-          row.selector,
-          row.mediaText,
-          sourceBaseline,
-          newInner,
-          sourceIdentity
-        );
+        let nextIdentity: CssRuleSourceIdentity;
+        try {
+          nextIdentity = await applyCssRuleText(
+            projectPath,
+            writeTargetFile,
+            row.selector,
+            row.mediaText,
+            sourceBaseline,
+            newInner,
+            sourceIdentity
+          );
+        } catch (err) {
+          if (!isStaleCssRuleError(err)) throw err;
+          let locations: RuleLocation[];
+          try {
+            locations = await locateCssRules(projectPath, [
+              { selector: row.selector, mediaText: row.mediaText, href: null },
+            ]);
+          } catch {
+            throw err;
+          }
+          const location = locations[0];
+          if (location?.status !== 'resolved' || !location.source_identity) throw err;
+          if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
+            return undefined;
+          writeTargetFile = location.file;
+          sourceBaseline = location.inner_text;
+          sourceIdentity = location.source_identity;
+          nextIdentity = await applyCssRuleText(
+            projectPath,
+            writeTargetFile,
+            row.selector,
+            row.mediaText,
+            sourceBaseline,
+            newInner,
+            sourceIdentity
+          );
+        }
         if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
           return undefined;
+        const latestBody = bodiesRef.current[key] ?? body;
         const savedRow: CascadeRow = {
           ...row,
-          file: targetFile,
+          file: writeTargetFile,
           draft: false,
           draftTargetFile: undefined,
           innerText: nextIdentity.innerText,
@@ -787,11 +825,17 @@ export function useCssCascadeEditor({
         };
         const savedKey = rowKey(savedRow);
         if (savedKey !== key) {
-          bodiesRef.current[savedKey] = body;
+          const pendingPreview = previewTimers.current[key];
+          if (pendingPreview !== undefined) clearTimeout(pendingPreview);
+          delete previewTimers.current[key];
+          const pendingSave = saveTimers.current[key];
+          if (pendingSave !== undefined) clearTimeout(pendingSave);
+          delete saveTimers.current[key];
+          bodiesRef.current[savedKey] = latestBody;
           delete bodiesRef.current[key];
           delete baselineInner.current[key];
           setBodies((previous) => {
-            const next = { ...previous, [savedKey]: body };
+            const next = { ...previous, [savedKey]: latestBody };
             delete next[key];
             return next;
           });
@@ -800,17 +844,31 @@ export function useCssCascadeEditor({
             delete next[key];
             return next;
           });
+          setPendingSaveKeys((previous) => {
+            if (!previous.has(key)) return previous;
+            const next = new Set(previous);
+            next.delete(key);
+            next.add(savedKey);
+            return next;
+          });
+          previewTimers.current[savedKey] = setTimeout(() => {
+            delete previewTimers.current[savedKey];
+            previewRule(savedKey);
+          }, PREVIEW_DEBOUNCE_MS);
         }
         baselineInner.current[savedKey] = nextIdentity.innerText;
         setRows((previous) => previous.map((item) => (rowKey(item) === key ? savedRow : item)));
         post({ type: 'ss:commitRulePreview', ruleKey: key });
         void refreshSourceIdentities(nextIdentity, savedKey, false, token);
+        if (serializeRuleBody(latestBody) !== nextIdentity.innerText) {
+          scheduleSaveRef.current(savedKey);
+        }
         void trackEvent('visual_edit_saved', { kind: 'style', mode: 'css-code' });
         return nextIdentity;
       } catch (err) {
         if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
           return undefined;
-        logger.error('[CssCascade] write-back failed', {
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] write-back failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(
@@ -826,7 +884,7 @@ export function useCssCascadeEditor({
         });
       }
     },
-    [projectPath, onToast, post, refreshSourceIdentities]
+    [projectPath, onToast, post, previewRule, refreshSourceIdentities]
   );
 
   /** Serialize saves for one row so an explicit Split flush cannot race its debounce. */
@@ -861,6 +919,7 @@ export function useCssCascadeEditor({
     },
     [cancelScheduledSave, saveRule]
   );
+  scheduleSaveRef.current = scheduleSave;
 
   /** Remove the selected selector-list member or whole rule, using its exact identity. */
   const deleteRule = useCallback(
@@ -901,7 +960,11 @@ export function useCssCascadeEditor({
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
-        logger.error('[CssCascade] delete failed', {
+        // Stale (the rule changed or went away since the card was seeded) is
+        // an expected editing race, not a bug. Unlike the body-preserving
+        // writes below this is NOT retried against the re-located rule: that
+        // would delete content the user hasn't seen (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] delete failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
@@ -1109,6 +1172,46 @@ export function useCssCascadeEditor({
     [cancelScheduledSave, onToast, post, projectPath, saveRule]
   );
 
+  /**
+   * Run a body-preserving source write (rename, re-condition, wrap) against a
+   * card's rule. When the backend rejects it as stale — the rule was renamed or
+   * reformatted since the card was seeded — re-locate the rule in the current
+   * source and retry ONCE with its real file and body, as `saveRule` does
+   * (issues #584/#1008). Retries with the exact source identity returned by
+   * a fresh lookup and returns that matched identity with the write result.
+   */
+  const writeWithStaleRetry = useCallback(
+    async <T>(
+      row: CascadeRow & {
+        file: string;
+        selector: string;
+        sourceIdentity: CssRuleSourceIdentity;
+      },
+      oldInner: string,
+      write: (file: string, oldInner: string, sourceIdentity: CssRuleSourceIdentity) => Promise<T>
+    ): Promise<{ value: T; matchedIdentity: CssRuleSourceIdentity }> => {
+      const initialIdentity = row.sourceIdentity;
+      try {
+        return {
+          value: await write(row.file, oldInner, initialIdentity),
+          matchedIdentity: initialIdentity,
+        };
+      } catch (err) {
+        if (!isStaleCssRuleError(err)) throw err;
+        const locs = await locateCssRules(projectPath, [
+          { selector: row.selector, mediaText: row.mediaText, href: null },
+        ]).catch(() => []);
+        const loc = locs[0];
+        if (loc?.status !== 'resolved' || !loc.source_identity) throw err;
+        return {
+          value: await write(loc.file, loc.inner_text, loc.source_identity),
+          matchedIdentity: loc.source_identity,
+        };
+      }
+    },
+    [projectPath]
+  );
+
   /** Wrap a top-level rule in an at-rule (the `@` above the selector). For `@media`
    *  we optimistically update the card's media context so editing continues; HMR
    *  recompiles the moved rule. */
@@ -1127,15 +1230,26 @@ export function useCssCascadeEditor({
       cancelScheduledSave(key);
       const token = selTokenRef.current;
       post({ type: 'ss:suppressReload' });
+      const target = {
+        ...row,
+        file: row.file,
+        selector: row.selector,
+        sourceIdentity: row.sourceIdentity,
+      };
       try {
-        const identity = await wrapCssRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
-          atPrelude,
+        const { value: identity } = await writeWithStaleRetry(
+          target,
           baselineInner.current[key] ?? '',
-          row.sourceIdentity
+          (file, oldInner, sourceIdentity) =>
+            wrapCssRule(
+              projectPath,
+              file,
+              target.selector,
+              target.mediaText,
+              atPrelude,
+              oldInner,
+              sourceIdentity
+            )
         );
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         const m = atPrelude.trim();
@@ -1165,13 +1279,22 @@ export function useCssCascadeEditor({
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
-        logger.error('[CssCascade] wrap failed', {
+        // A still-stale rejection means the rule disappeared during re-location.
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] wrap failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [cancelScheduledSave, projectPath, onToast, post, refreshSourceIdentities, scheduleSave]
+    [
+      cancelScheduledSave,
+      projectPath,
+      onToast,
+      post,
+      refreshSourceIdentities,
+      scheduleSave,
+      writeWithStaleRetry,
+    ]
   );
 
   /** Create a brand-new rule for `selector` and add it as an editable card you can
@@ -1247,9 +1370,16 @@ export function useCssCascadeEditor({
       );
       if (alreadyShown) return;
 
-      const targetFile = selectCssRuleTargetFile([...rowByKeyRef.current.values()]);
+      let targetFile = selectCssRuleTargetFile([...rowByKeyRef.current.values()]);
       if (!targetFile) {
-        onToast('No verified stylesheet destination is known for this selection yet.', 'info');
+        try {
+          targetFile = (await listStylesheets(projectPath))[0];
+        } catch {
+          targetFile = undefined;
+        }
+      }
+      if (!targetFile) {
+        onToast('No stylesheet found to add the rule to.', 'info');
         return;
       }
 
@@ -1356,15 +1486,26 @@ export function useCssCascadeEditor({
       // Restore any temporary body preview before the source and runtime identities move.
       post({ type: 'ss:clearRulePreview', ruleKey: key });
       post({ type: 'ss:suppressReload' });
+      const target = {
+        ...row,
+        file: row.file,
+        selector: row.selector,
+        sourceIdentity: row.sourceIdentity,
+      };
       try {
-        const identity = await replaceCssSelectorList(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
+        const { value: identity } = await writeWithStaleRetry(
+          target,
           baselineInner.current[key] ?? '',
-          ns,
-          row.sourceIdentity
+          (file, oldInner, sourceIdentity) =>
+            replaceCssSelectorList(
+              projectPath,
+              file,
+              target.selector,
+              target.mediaText,
+              oldInner,
+              ns,
+              sourceIdentity
+            )
         );
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         const newRow: CascadeRow = {
@@ -1382,7 +1523,6 @@ export function useCssCascadeEditor({
           delete bodiesRef.current[key];
         }
         if (baselineInner.current[key] !== undefined) {
-          baselineInner.current[newKey] = baselineInner.current[key];
           delete baselineInner.current[key];
         }
         baselineInner.current[newKey] = identity.innerText;
@@ -1427,13 +1567,22 @@ export function useCssCascadeEditor({
       } catch (err) {
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         scheduleSave(key);
-        logger.error('[CssCascade] rename failed', {
+        // Still stale after re-locating is an expected source race (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] rename failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [cancelScheduledSave, projectPath, onToast, post, scheduleSave, refreshSourceIdentities]
+    [
+      cancelScheduledSave,
+      projectPath,
+      onToast,
+      post,
+      scheduleSave,
+      refreshSourceIdentities,
+      writeWithStaleRetry,
+    ]
   );
 
   /** Change the `@media` condition wrapping a rule. Re-keys on the new media; HMR
@@ -1451,21 +1600,31 @@ export function useCssCascadeEditor({
         );
         return;
       }
-      const sourceIdentity = row.sourceIdentity;
       // Cancel any in-flight debounced preview/save on the OLD key (re-keyed below).
       clearTimeout(previewTimers.current[key]);
       cancelScheduledSave(key);
       const token = selTokenRef.current;
       post({ type: 'ss:suppressReload' });
+      const target = {
+        ...row,
+        file: row.file,
+        selector: row.selector,
+        sourceIdentity: row.sourceIdentity,
+      };
       try {
-        const renameResult = await renameCssAtRule(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
+        const { value: renameResult, matchedIdentity: sourceIdentity } = await writeWithStaleRetry(
+          target,
           baselineInner.current[key] ?? '',
-          nm,
-          row.sourceIdentity
+          (file, oldInner, currentIdentity) =>
+            renameCssAtRule(
+              projectPath,
+              file,
+              target.selector,
+              target.mediaText,
+              oldInner,
+              nm,
+              currentIdentity
+            )
         );
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         const renamedIdentity = renameResult.selected;
@@ -1609,13 +1768,22 @@ export function useCssCascadeEditor({
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
         if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
-        logger.error('[CssCascade] rename at-rule failed', {
+        // Still stale after re-locating is an expected source race (issue #1008).
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] rename at-rule failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [cancelScheduledSave, projectPath, onToast, post, scheduleSave, refreshSourceIdentities]
+    [
+      cancelScheduledSave,
+      projectPath,
+      onToast,
+      post,
+      scheduleSave,
+      refreshSourceIdentities,
+      writeWithStaleRetry,
+    ]
   );
 
   /** Update one card's body model → debounced live preview + auto-save. */

@@ -601,7 +601,7 @@
 }
 .ss-cascade-selector-display__connector {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-editor-spacing-surface);
   display: inline-block;
   width: var(--space-16);
   height: calc(var(--space-24) - var(--space-04));
@@ -617,7 +617,7 @@
 }
 .ss-cascade-selector-display .ss-cascade-chip {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-editor-spacing-band);
   max-width: none;
 }
 .ss-cascade-selector-display .ss-cascade-chip__content {
@@ -660,7 +660,7 @@
   /* The selector is the rule's identity — show it in full, literally, never truncated.
      The media/layer condition is its own context line above, so nothing competes. */
   flex: 0 1 auto;
-  min-width: 21px;
+  min-width: var(--cascade-selector-chip-min-width);
   white-space: normal;
   overflow-wrap: break-word;
   word-break: normal;

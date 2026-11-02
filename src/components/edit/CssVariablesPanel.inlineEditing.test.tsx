@@ -94,6 +94,26 @@ describe('CssVariablesPanel inline value editing', () => {
     expect(screen.getByRole('dialog', { name: 'Color picker' })).toBeInTheDocument();
   });
 
+  it('carries an uncommitted variable draft into the color picker', () => {
+    const variable: VariableRow = {
+      name: '--accent',
+      value: '#009c52',
+      selector: ':root',
+      file: 'styles.css',
+      line: 1,
+      editable: true,
+    };
+    renderPanel(variable);
+
+    fireEvent.click(editableValue());
+    const input = screen.getByRole<HTMLTextAreaElement>('combobox');
+    fireEvent.change(input, { target: { value: '#0066cc' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open color picker' }));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hex' }));
+    expect(screen.getByLabelText('Hex')).toHaveValue('#0066cc');
+  });
+
   it('keeps variable autocomplete and arrow-key selection in the shared editor', () => {
     const variable: VariableRow = {
       name: '--space',

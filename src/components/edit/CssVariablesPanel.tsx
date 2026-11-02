@@ -473,10 +473,10 @@ function EditableVarRow({
   sortIndex?: number;
 }) {
   const [editing, setEditing] = useState<
-    null | { kind: 'value' } | { kind: 'color'; anchor: HTMLElement }
+    null | { kind: 'value' } | { kind: 'color'; anchor: HTMLElement; value: string }
   >(null);
-  const toggleColorPicker = (anchor: HTMLElement) => {
-    setEditing((current) => (current?.kind === 'color' ? null : { kind: 'color', anchor }));
+  const toggleColorPicker = (anchor: HTMLElement, value = variable.value) => {
+    setEditing((current) => (current?.kind === 'color' ? null : { kind: 'color', anchor, value }));
   };
   // Offer the other tokens as `var(--…)` so a token can alias another.
   const options = useMemo(
@@ -572,7 +572,7 @@ function EditableVarRow({
             initialSwatch={Boolean(initialSwatchColor)}
             colorSwatchTrigger={
               initialSwatchColor
-                ? (value) => {
+                ? (value, fullValue) => {
                     const resolved = resolveColorVariable(value, colorVariables, variable.selector);
                     const liveSwatchColor = colorSwatch(resolved ?? value) ?? initialSwatchColor;
                     return (
@@ -581,7 +581,7 @@ function EditableVarRow({
                         editorTrigger
                         onClick={(event) => {
                           const row = event.currentTarget.closest<HTMLElement>('.ss-var-row');
-                          if (row) setEditing({ kind: 'color', anchor: row });
+                          if (row) toggleColorPicker(row, fullValue);
                         }}
                       />
                     );
@@ -602,7 +602,7 @@ function EditableVarRow({
       {editing?.kind === 'color' && (
         <EditPopover
           anchor={editing.anchor}
-          initial={variable.value}
+          initial={editing.value}
           variables={colorVariables}
           variableSelector={variable.selector}
           projectPath={projectPath}

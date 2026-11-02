@@ -276,9 +276,14 @@ export function SubmitReviewModal({
     try {
       const result = await switchBranch(projectPath, baseBranch, true);
       if (!result.success) {
-        const msg = result.error || 'Failed to switch branch';
+        // Humanized like the other switch call sites: the base branch being
+        // checked out in another worktree is git's by-design refusal, not a
+        // bug for the error-toast pipeline to report (issue #1047).
+        const ctx = { branch: baseBranch };
+        const msg = result.error ? humanizeGitError(result.error, ctx) : 'Failed to switch branch';
+        const recognized = !!result.error && isRecognizedGitFailure(result.error, ctx);
         setError(msg);
-        onToast?.(msg, 'error');
+        onToast?.(msg, recognized ? 'info' : 'error');
         return;
       }
       onBranchSwitch?.(baseBranch);

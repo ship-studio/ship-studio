@@ -574,44 +574,45 @@ export function CascadeRuleCard(props: Props) {
     >
       <header className="ss-cascade-card__head">{headerContent}</header>
 
+      {sharedSelectors.length > 0 && (
+        <ModalFrame
+          isOpen={confirmSharedDelete}
+          onClose={() => setConfirmSharedDelete(false)}
+          title="Delete entire shared rule?"
+          showCloseButton
+          className="ss-cascade-shared-delete-modal"
+        >
+          <div className="ss-cascade-shared-delete-modal__body">
+            <p>
+              This removes the rule and its properties for <code>{props.selector}</code> and every
+              selector listed here:
+            </p>
+            <p className="ss-cascade-shared-delete-modal__selectors">
+              {sharedSelectors.map((selector, index) => (
+                <code key={`${selector}-${index}`}>{selector}</code>
+              ))}
+            </p>
+            <div className="modal-actions">
+              <Button variant="secondary" onClick={() => setConfirmSharedDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setConfirmSharedDelete(false);
+                  focusAfterCardDelete();
+                  props.onDelete?.();
+                }}
+              >
+                Delete entire rule
+              </Button>
+            </div>
+          </div>
+        </ModalFrame>
+      )}
+
       {!collapsed && (
         <div className="ss-cascade-card__body">
-          {sharedSelectors.length > 0 && (
-            <ModalFrame
-              isOpen={confirmSharedDelete}
-              onClose={() => setConfirmSharedDelete(false)}
-              title="Delete entire shared rule?"
-              showCloseButton
-              className="ss-cascade-shared-delete-modal"
-            >
-              <div className="ss-cascade-shared-delete-modal__body">
-                <p>
-                  This removes the rule and its properties for <code>{props.selector}</code> and
-                  every selector listed here:
-                </p>
-                <p className="ss-cascade-shared-delete-modal__selectors">
-                  {sharedSelectors.map((selector, index) => (
-                    <code key={`${selector}-${index}`}>{selector}</code>
-                  ))}
-                </p>
-                <div className="modal-actions">
-                  <Button variant="secondary" onClick={() => setConfirmSharedDelete(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      setConfirmSharedDelete(false);
-                      focusAfterCardDelete();
-                      props.onDelete?.();
-                    }}
-                  >
-                    Delete entire rule
-                  </Button>
-                </div>
-              </div>
-            </ModalFrame>
-          )}
           {props.draft && props.pendingReason && (
             <div className="ss-cascade-card__draft-row">
               <span

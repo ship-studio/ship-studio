@@ -26,6 +26,26 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.5', // v1.6.5
+    items: [
+      'Remote access now reports back: when you message an agent from your phone, your assistant waits and tells you when it’s finished (with its reply, the files it changed and a screenshot), or asks you when the agent needs a decision — instead of stopping at “sent”',
+      'Remote access can tell you whether a push went live on Vercel, Cloudflare Pages or Netlify, with the address or the build error',
+      'Remote access marks which tools only read, so assistants can ask you to approve fewer steps',
+    ],
+  },
+  {
+    version: '1.6.4', // v1.6.4
+    items: [
+      'You can now change the colour of your Default workspace (Martin Crandon)',
+      'Fixed: Focus mode now actually hides the preview and every panel except the agent',
+      'Fixed: picking a branch from the Branches menu now checks it out',
+      'Fixed: monorepo projects opened at a workspace subpath now list their pages',
+      'Fixed: the finish sound plays again with Claude Code 2.1',
+      'Fixed: a restarted dev server could be left running after a timeout',
+      'Clearer messages for dozens of git, GitHub, install, clipboard, screenshot and agent failures — including locked worktrees, rate limits, missing simulators and folders that were moved or deleted',
+    ],
+  },
+  {
     version: '1.6.3', // v1.6.3
     items: [
       'Security updates: Ship Studio’s own dependencies are patched against the latest advisories, and every starter template now begins on patched versions — including the October Next.js and Astro fixes',

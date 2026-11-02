@@ -1156,7 +1156,7 @@ export function useVisualEditor({
         // Element keeps its existing classes + any non-utility tokens we couldn't move.
         const kept = elTokens.filter((t) => classNames.has(t) || unsafe.has(t));
         if (utilities.length === 0) {
-          onToast?.('This element has no Tailwind utilities to extract into a class.', 'error');
+          onToast?.('This element has no Tailwind utilities to extract into a class.', 'info');
           return;
         }
         const list = await createCustomClass(projectPath, name, utilities);

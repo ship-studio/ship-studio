@@ -150,12 +150,14 @@ fn list_files_recursive(
     dir: &PathBuf,
     root_dir: &PathBuf,
     assets: &mut Vec<Asset>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     if !dir.exists() {
         return Ok(());
     }
 
-    let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
+    // Same TCC/EPERM classification as `path_to_asset` (issue #946).
+    let entries = fs::read_dir(dir)
+        .map_err(|e| crate::utils::classify_fs_error("read this assets folder", dir, &e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -584,6 +586,29 @@ mod tests {
         );
         let message = err.to_string();
         assert!(message.contains("permission denied"), "got: {message}");
+        assert!(!message.contains("os error"), "got: {message}");
+    }
+
+    /// Issue #946: "Failed to read directory: Operation not permitted (os
+    /// error 1)" listing the assets folder. Same root caveat as above.
+    #[test]
+    #[cfg(unix)]
+    fn list_files_recursive_classifies_permission_denied_reads() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let mut assets = Vec::new();
+        let err = list_files_recursive(&root, &root, &mut assets);
+
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = err.expect_err("a permission-denied read_dir must fail");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let message = err.to_string();
+        assert!(message.contains("assets folder"), "got: {message}");
         assert!(!message.contains("os error"), "got: {message}");
     }
 

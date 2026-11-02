@@ -174,6 +174,56 @@ describe('Dropdown', () => {
     expect(trigger).toHaveFocus();
   });
 
+  it('focuses portaled content only after the popover is visible', () => {
+    const focusVisibility: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called below with the focused element as its receiver
+    const originalFocus = HTMLElement.prototype.focus;
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (
+      this: HTMLElement,
+      options?: FocusOptions
+    ) {
+      const menu = this.closest<HTMLElement>('.ss-dropdown__menu');
+      if (menu) focusVisibility.push(menu.style.visibility === 'hidden' ? 'hidden' : 'visible');
+      originalFocus.call(this, options);
+    });
+
+    try {
+      render(
+        <Dropdown
+          presentation="popover"
+          ariaLabel="Visible popover"
+          portal
+          trigger={(props) => <TestTrigger {...props}>Open visible popover</TestTrigger>}
+        >
+          <button type="button">First control</button>
+        </Dropdown>
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open visible popover' }));
+
+      expect(screen.getByRole('button', { name: 'First control' })).toHaveFocus();
+      expect(focusVisibility).toEqual(['visible']);
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
+  it('rejects an unnamed dialog popover', () => {
+    const unlabeledPopover = (
+      // @ts-expect-error A dialog popover must provide its accessible name.
+      <Dropdown
+        presentation="popover"
+        trigger={(props) => <TestTrigger {...props}>Open unnamed popover</TestTrigger>}
+      >
+        <button type="button">Control</button>
+      </Dropdown>
+    );
+
+    expect(() => render(unlabeledPopover)).toThrow(
+      'Dropdown presentation="popover" requires a non-empty ariaLabel.'
+    );
+  });
+
   it('leaves focus where a pointer put it on outside dismissal', async () => {
     const user = userEvent.setup();
     renderMenu();

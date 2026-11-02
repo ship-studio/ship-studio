@@ -535,8 +535,11 @@ where
 ///   git stderr text instead of an `io::Error` (issue #835).
 /// - Git-for-Windows' MSYS2 runtime aborting with `BUG (fork bomb)` — a
 ///   broken/duplicated git install, not something the app can fix (issue #813).
-/// - A corrupted local repository (truncated packfile / missing object) —
-///   the project's own `.git` needs repairing (issue #842).
+/// - A corrupted local repository (truncated packfile / missing object, or a
+///   `HEAD` that no longer resolves) — the project's own `.git` needs
+///   repairing (issues #842, #1108).
+/// - A corrupted `.git/index` (`bad signature` / `index file corrupt`) —
+///   rebuildable from HEAD without touching the working files (issue #1142).
 ///
 /// Matching is case-insensitive: git's wording varies in capitalization
 /// across versions and platforms (e.g. xcode-select actually prints "No
@@ -584,14 +587,27 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
     }
     // The project's own object store is damaged — an interrupted gc/fetch, a
     // crashed process, or a failing disk. Repairable by the user, and no
-    // amount of app-side retrying helps (issue #842).
+    // amount of app-side retrying helps (issue #842). A `HEAD` whose
+    // symbolic-ref chain is broken (dangling or cyclic) is the same class of
+    // damage — `git branch` dies on it before doing anything (issue #1108).
     if lower.contains("too short to be a packfile")
         || (lower.contains("missing object") && lower.contains("fatal:"))
+        || lower.contains("failed to resolve head as a valid ref")
     {
         return Some(crate::errors::CommandError::expected(
             "This project's local git history looks damaged (a file inside its `.git` folder is \
              corrupted), so git can't read it. Run `git fsck` in the project folder to inspect \
              the damage, or re-clone the repository into a fresh folder and reopen it here.",
+        ));
+    }
+    // The `.git/index` file itself is damaged (a crash or interrupted write
+    // mid-update). Unlike object damage it holds no history — git rebuilds it
+    // from HEAD — so the fix is simpler than fsck/re-clone (issue #1142).
+    if lower.contains("index file corrupt") {
+        return Some(crate::errors::CommandError::expected(
+            "This project's git index file (`.git/index`) is corrupted. Close any other git \
+             tools, then in the project folder delete `.git/index` and run `git reset` to \
+             rebuild it — your working files are not affected.",
         ));
     }
     // Git reading the working tree and getting incomplete answers: short or
@@ -639,10 +655,30 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
              try again.",
         ));
     }
+    // Git for Windows writing the index of a repository it reaches through
+    // WSL's `\\wsl.localhost\…` (or `\\wsl$\…`) share: the 9P filesystem
+    // doesn't give it the write-temp-then-rename semantics an index update
+    // relies on. The mount shows up in git's own "old-style path" warnings
+    // about the `safe.directory` entries such repos need (issue #955). Ahead
+    // of the generic index-write branch so the user hears about the mount
+    // rather than about disk space.
+    if lower.contains("unable to write new_index file")
+        && (lower.contains("wsl.localhost") || lower.contains("wsl$"))
+    {
+        return Some(crate::errors::CommandError::expected(
+            "Git for Windows couldn't write this project's index because the project lives \
+             inside WSL (a \\\\wsl.localhost path), which it can't reliably write to. Commit from \
+             a terminal inside WSL, or move the project to a folder on your Windows drive, then \
+             try again.",
+        ));
+    }
     // git couldn't write `.git/index` itself (not the `.lock` race, which
     // `output_retrying_index_lock` handles): a full disk or a `.git` folder
     // the user can't write to. Environment, not malfunction (issue #861).
-    if lower.contains("could not write index") || lower.contains("unable to write index") {
+    if lower.contains("could not write index")
+        || lower.contains("unable to write index")
+        || lower.contains("unable to write new_index file")
+    {
         return Some(crate::errors::CommandError::expected(
             "Git couldn't write this project's index file. Check that the disk isn't full \
              and that the project's .git folder is writable (in a terminal: \
@@ -660,13 +696,15 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
 /// a memory commit (`STATUS_COMMITMENT_LIMIT`, issue #888) — the same
 /// pagefile-exhaustion condition `git_environment_gap`'s "paging file is too
 /// small" branch handles, just arriving here because this occurrence had no
-/// stderr at all. All three are the Git installation, something interfering
+/// stderr at all — and git overflowing its stack (`STATUS_STACK_OVERFLOW`,
+/// issue #1034). All four are the Git installation, something interfering
 /// with it (antivirus, a broken update), or a Windows-level resource limit —
 /// not an app malfunction. Returns `None` for any other code.
 pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::CommandError> {
     const STATUS_DLL_INIT_FAILED: i32 = 0xC0000142_u32 as i32; // -1073741502
     const STATUS_ACCESS_VIOLATION: i32 = 0xC0000005_u32 as i32; // -1073741819
     const STATUS_COMMITMENT_LIMIT: i32 = 0xC000012D_u32 as i32; // -1073741523
+    const STATUS_STACK_OVERFLOW: i32 = 0xC00000FD_u32 as i32; // -1073741571
     match exit_code {
         Some(STATUS_DLL_INIT_FAILED) => Some(crate::errors::CommandError::expected(
             "Git failed to start correctly on Windows — a component of the Git installation \
@@ -682,6 +720,11 @@ pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::Comman
             "Windows ran out of virtual memory while git was working (the paging file is too \
              small). Close some other apps or increase the paging file size (Settings → System → \
              About → Advanced system settings → Performance → Virtual memory), then try again.",
+        )),
+        Some(STATUS_STACK_OVERFLOW) => Some(crate::errors::CommandError::expected(
+            "Git crashed on Windows (a stack overflow). This is usually antivirus \
+             interference or a corrupted Git install: add Git to your antivirus exclusions or \
+             reinstall Git for Windows, then try again.",
         )),
         _ => None,
     }
@@ -716,6 +759,10 @@ pub fn git_exit_code_gap(exit_code: Option<i32>) -> Option<crate::errors::Comman
 ///   memory-mapped view of the file, so Windows refuses the truncating write.
 ///   Typically a dev server/bundler, an editor, or antivirus holding the file
 ///   open for a moment (issue #722).
+/// - Unix `EMFILE`/`ENFILE` (os error 24/23, "Too many open files"): this
+///   process or the whole system briefly ran out of file descriptors —
+///   transient pressure, the same class `is_spawn_resource_pressure` already
+///   treats as Expected (issues #574, #1112).
 ///
 /// Anything else stays a labeled `Io` for diagnosability.
 pub fn classify_fs_error(
@@ -765,6 +812,17 @@ pub fn classify_fs_error(
              wait for sync to finish and try again, or keep the project on your local disk.",
             path.display()
         ))
+    } else if cfg!(target_os = "macos") && e.raw_os_error() == Some(89) {
+        // ECANCELED: macOS's file-coordination layer gave up on a cloud-backed
+        // file (iCloud Drive or another File Provider) before it materialized.
+        // Same environment class as the ETIMEDOUT branch above (issue #948).
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — macOS canceled the read. The folder looks \
+             like it's on a cloud drive (iCloud, Google Drive, OneDrive, Dropbox) that hasn't \
+             finished downloading the file — wait for sync to finish and try again, or keep the \
+             project on your local disk.",
+            path.display()
+        ))
     } else if (cfg!(unix) && e.raw_os_error() == Some(28))
         || (cfg!(windows) && e.raw_os_error() == Some(112))
     {
@@ -780,6 +838,12 @@ pub fn classify_fs_error(
             "Ship Studio couldn't {action} ({}) — another program currently has the file open \
              (often a dev server, code editor, or antivirus). Close it or wait a moment, then \
              try again.",
+            path.display()
+        ))
+    } else if cfg!(unix) && matches!(e.raw_os_error(), Some(23) | Some(24)) {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — too many files are open right now. Close \
+             some other apps or terminal tabs, then try again.",
             path.display()
         ))
     } else {
@@ -1441,7 +1505,13 @@ pub fn resolve_workspace_path(project_root: &std::path::Path) -> std::path::Path
 /// the visual-editor gate — must use this so a monorepo whose app lives in a
 /// subfolder is detected against that subfolder. Mirrors what
 /// `detect_project_type_command` already does for project-type detection.
-pub fn validate_workspace_path(project_path: &str) -> Result<std::path::PathBuf, String> {
+///
+/// Returns `CommandError` (not `String`) so an `Expected` refusal from
+/// [`validate_project_path`] — a vanished folder, say — keeps its tag instead
+/// of round-tripping through `String` into a reported `Other` (issue #1084).
+pub fn validate_workspace_path(
+    project_path: &str,
+) -> Result<std::path::PathBuf, crate::errors::CommandError> {
     let root = validate_project_path(project_path)?;
     Ok(resolve_workspace_path(&root))
 }
@@ -1765,6 +1835,34 @@ mod tests {
             assert!(matches!(err, CommandError::Expected { .. }));
             assert!(err.to_string().contains("paging file"), "got: {err}");
         }
+
+        #[test]
+        fn windows_stack_overflow_exit_code_is_an_environment_gap() {
+            // STATUS_STACK_OVERFLOW (issue #1034): "Failed to get git status
+            // (exit -1073741571)" — git.exe died with no stderr.
+            let err = git_exit_code_gap(Some(-1073741571)).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("stack overflow"), "got: {err}");
+        }
+
+        #[test]
+        fn wsl_new_index_write_failure_names_the_mount() {
+            // Issue #955: a commit in a repo opened through \\wsl.localhost.
+            let stderr =
+                "warning: encountered old-style '//wsl.localhost/Ubuntu/home/u/repos/git_test' \
+                          that should be '%(prefix)///wsl.localhost/Ubuntu/home/u/repos/git_test'\n\
+                          fatal: unable to write new_index file";
+            let err = git_environment_gap(stderr).expect("classified");
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("WSL"), "got: {err}");
+            // Off a WSL mount it's the ordinary disk/permissions case.
+            let plain =
+                git_environment_gap("fatal: unable to write new_index file").expect("classified");
+            assert!(
+                plain.to_string().contains("disk isn't full"),
+                "got: {plain}"
+            );
+        }
     }
 
     mod canonicalize_tagged_errors {
@@ -1815,6 +1913,17 @@ mod tests {
             let _ = canonicalize_tagged(&gone, "test_site").unwrap_err();
             assert!(started.elapsed() < std::time::Duration::from_millis(800));
         }
+    }
+
+    // #1084: the vanished-folder refusal must survive validate_workspace_path
+    // as Expected, not come out the other side as a reported Other.
+    #[test]
+    fn validate_workspace_path_keeps_expected_for_vanished_folder() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let gone = tmp.path().join("gion-poc");
+        let err = validate_workspace_path(gone.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+        assert!(err.to_string().contains("no longer exists"), "got: {err}");
     }
 
     mod classify_fs_errors {
@@ -1898,6 +2007,28 @@ mod tests {
             assert!(!msg.contains("os error"), "got: {msg}");
         }
 
+        // The #1112/#1111 shape: EMFILE listing src/pages for the page-route
+        // scan ("Too many open files (os error 24)"), and its ENFILE sibling.
+        #[test]
+        #[cfg(unix)]
+        fn fd_exhaustion_becomes_expected() {
+            for code in [24, 23] {
+                let e = std::io::Error::from_raw_os_error(code);
+                let err = classify_fs_error(
+                    "read this project's page routes",
+                    std::path::Path::new("/p/src/pages"),
+                    &e,
+                );
+                assert!(
+                    matches!(err, crate::errors::CommandError::Expected { .. }),
+                    "got: {err:?}"
+                );
+                let msg = err.to_string();
+                assert!(msg.contains("too many files are open"), "got: {msg}");
+                assert!(msg.contains("src/pages"), "got: {msg}");
+            }
+        }
+
         // The #758 shape: ETIMEDOUT reading a project.json that Google Drive's
         // file provider never materialized.
         #[test]
@@ -1915,6 +2046,27 @@ mod tests {
             let msg = err.to_string();
             assert!(msg.contains("cloud drive"), "got: {msg}");
             assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #948 shape: "Operation canceled (os error 89)" reading the
+        // plugin registry from a File Provider-backed folder.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_ecanceled_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(89);
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/.shipstudio/plugins/registry.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("cloud drive"), "got: {msg}");
+            assert!(msg.contains("registry.json"), "got: {msg}");
+            assert!(!msg.contains("os error"), "got: {msg}");
         }
 
         // The #625 shape: EROFS on a project.json write (read-only volume).
@@ -2282,6 +2434,25 @@ mod tests {
                 "fatal: missing object 1234abcd for refs/remotes/origin/main"
             )
             .is_some());
+        }
+
+        /// Issue #1108: `git branch` dying because HEAD's ref chain is broken.
+        #[test]
+        fn classifies_unresolvable_head_as_expected() {
+            let err = git_environment_gap("fatal: failed to resolve HEAD as a valid ref")
+                .expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("git fsck"), "got: {err}");
+        }
+
+        /// Issue #1142: `git status` on a project whose `.git/index` is damaged.
+        #[test]
+        fn classifies_corrupt_index_as_expected() {
+            let err =
+                git_environment_gap("error: bad signature 0x00000000\nfatal: index file corrupt")
+                    .expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains(".git/index"), "got: {err}");
         }
 
         /// Issue #907: git status hitting short and timed-out reads while

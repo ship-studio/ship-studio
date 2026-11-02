@@ -20,7 +20,7 @@ Ship Studio is a desktop app for web developers that provides:
 - **Command Palette** - Cmd+K palette; every user-facing feature registers its actions here (see "New feature → contribute commands")
 - **IDE Integration** - Open projects in VS Code or Cursor with one click
 - **Hosting Status** - After a push, see whether *that commit* deployed on Vercel, Cloudflare Pages or Netlify, with the build error when it didn't (see "Hosting Flow")
-- **Remote Access** - Drive Ship Studio from any MCP-capable AI assistant (Grok, Claude, ChatGPT, Cursor…) on your phone: continue agent conversations, start and close agents, switch projects and create new ones, get progress as HD screenshots, push behind a PIN. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
+- **Remote Access** - Drive Ship Studio from any MCP-capable AI assistant (Grok, Claude, ChatGPT, Cursor…) on your phone: continue agent conversations and get the result back (each tool waits and reports the agent as working, waiting on a decision, or finished, plus its reply and a screenshot), start and close agents, switch projects and create new ones, push behind a PIN and see whether it deployed. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
 - **Auto-Updates** - Automatic update detection and installation
 
 ## Core Principles
@@ -455,7 +455,7 @@ Full design, the trial results, and the bugs each rule came from:
 Answers: **can I keep my agents going from my phone, and pick up exactly where they left off?**
 
 1. An MCP server (`src-tauri/src/remote_access/`) binds loopback and is published by Tailscale Funnel on the user's *own* account at `/shipstudio` — nothing passes through infrastructure we run. It is a separate server from the agent bridge, which must never be internet-reachable
-2. Tools act on the *existing* agent tabs (backend PTY sessions, rendered through `vt100`) — not a parallel shell — so the conversation is waiting when the user is back. New work starts via `remote-start-agent` → `useRemoteAgentStart` (spawn-with-prompt, never paste)
+2. Tools act on the *existing* agent tabs (backend PTY sessions, rendered through `vt100`) — not a parallel shell — so the conversation is waiting when the user is back. New work starts via `remote-start-agent` → `useRemoteAgentStart` (spawn-with-prompt, never paste). Agent tools wait and answer `STATUS:` (read off the screen by `agent_state.rs`) … `NEXT:` (the step the assistant must take), so the assistant reports results instead of stopping at "sent"
 3. The computer must stay on, and the UI says so first: keep-awake (`caffeinate -w`), opt-in lid-closed mode (`pmset disablesleep`), reopen-at-login, quit warning, and a sidebar indicator that turns amber on battery
 4. Security rules — don't weaken without updating docs/remote-access.md: the token never enters the webview (masked; copied from Rust); text goes only to agent tabs, never shells, with `!`, non-allowlisted `/` commands and control characters refused; opening prompts can't start with `-` (`agentPromptArgs`); pushing needs a PIN the assistant never sees, with a lockout; every action is audited
 5. Setup is complete when an assistant has *actually connected* (`ever_connected`), not when a link exists

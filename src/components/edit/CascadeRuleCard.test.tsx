@@ -68,6 +68,28 @@ describe('CascadeRuleCard', () => {
     expect(document.querySelector('.ss-cascade-card__body')).not.toBeInTheDocument();
   });
 
+  it('opens the shared-rule delete confirmation from a collapsed card', () => {
+    render(
+      <CascadeRuleCard
+        editable
+        collapsed
+        onToggleCollapse={vi.fn()}
+        selector=".button"
+        sharedSelectors={['.button-primary']}
+        body={{ items: [] }}
+        overridden={new Map()}
+        onChange={vi.fn()}
+        onDelete={vi.fn()}
+        onRemoveSelector={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rule actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete entire shared rule…' }));
+
+    expect(screen.getByRole('dialog', { name: 'Delete entire shared rule?' })).toBeInTheDocument();
+  });
+
   it('does not apply the selected element contrast context to nested declarations', () => {
     vi.stubGlobal(
       'ResizeObserver',

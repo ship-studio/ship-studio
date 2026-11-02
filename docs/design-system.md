@@ -499,7 +499,7 @@ Exports `Dropdown`, `DropdownItem`, `DropdownDivider`.
 | `trigger` | `(props: DropdownTriggerProps) => ReactNode` | — | Spread the props onto your button — they wire toggle, anchor ref, and aria state. |
 | `align` | `'left' \| 'right'` | `'left'` | Which trigger edge the menu aligns to. |
 | `presentation` | `'menu' \| 'popover'` | `'menu'` | `popover` uses a named dialog surface and focuses its first interactive child; menu keeps roving menu-item keys. |
-| `ariaLabel` | `string?` | — | Accessible name for a `presentation="popover"` surface. |
+| `ariaLabel` | `string` for `presentation="popover"` | — | Required accessible name for a `presentation="popover"` surface. |
 | `portal` | `boolean` | `false` | Body portal + fixed positioning. **Use when an ancestor has `overflow: hidden`** (terminal panes, editor panels) that would clip the menu; re-anchors on scroll/resize. |
 | `menuClassName` | `string?` | — | Width/feature tweaks on the menu. |
 | `onOpenChange` | `(open: boolean) => void?` | — | E.g. lazy-load menu data. |

@@ -30,12 +30,7 @@ import {
   sanitizeBranchName,
 } from '../../lib/branches';
 import { gitPull } from '../../lib/git';
-import {
-  listWorktrees,
-  removeWorktree,
-  pruneWorktrees,
-  type WorktreeInfo,
-} from '../../lib/worktrees';
+import { removeWorktree, pruneWorktrees, type WorktreeInfo } from '../../lib/worktrees';
 import { openProjectInNewWindow } from '../../lib/project';
 import {
   BranchIcon,
@@ -47,42 +42,26 @@ import {
 } from '@/components/icons';
 import { Spinner } from '../primitives/Spinner';
 import { BranchGraph } from './BranchGraph';
-import { UnsavedChangesModal } from './UnsavedChangesModal';
-import { MergeConflictModal } from './MergeConflictModal';
-import { getConflictInfo } from '../../lib/conflicts';
+import {
+  BranchSwitchModals,
+  errText,
+  isBranchGoneError,
+  useBranchSwitchFlow,
+} from './BranchSwitchFlow';
 import { CreateBranchConflictModal } from './CreateBranchConflictModal';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import {
-  asCommandError,
-  formatCommandError,
-  humanizeGitError,
-  isMissingUpstreamError,
-  isRecognizedGitFailure,
-} from '../../lib/errors';
+import { humanizeGitError, isMissingUpstreamError, isRecognizedGitFailure } from '../../lib/errors';
 import { logger } from '../../lib/logger';
-
-/** A Tauri-rejected `CommandError` is an object — `String(err)` renders it as
- *  "[object Object]". Format it to the real human message (the git stderr). */
-function errText(e: unknown): string {
-  return formatCommandError(asCommandError(e));
-}
 
 /** True when a git operation failed because uncommitted changes would be
  *  clobbered by a checkout — git phrases this as "would be overwritten by
  *  checkout" / "commit your changes or stash them". */
 function isUncommittedChangesError(e: unknown): boolean {
   return /overwritten by checkout|commit your changes or stash/i.test(errText(e));
-}
-
-/** True when git couldn't find the ref — the branch was deleted/renamed and the
- *  UI is showing a stale entry. `e` may be a caught error or a raw message. */
-function isBranchGoneError(e: unknown): boolean {
-  const text = typeof e === 'string' ? e : errText(e);
-  return /did not match|pathspec|unknown revision or path/i.test(text);
 }
 
 /** Sanitize a branch name as the user types so it's always a valid git ref —
@@ -176,21 +155,11 @@ export function BranchesTab({
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
     showToast(message, type);
-  const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [deletingBranch, setDeletingBranch] = useState<string | null>(null);
   const [publishingBranch, setPublishingBranch] = useState<string | null>(null);
   // Branch awaiting the "Send to GitHub" confirm modal.
   const [sendToGitHubBranch, setSendToGitHubBranch] = useState<string | null>(null);
   const [branchToDelete, setBranchToDelete] = useState<string | null>(null);
-  const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
-  // Set when a switch is blocked by a paused merge: the branch the user tried to
-  // switch to, the conflicted files, and the branch being merged in (from the
-  // conflict markers) for the fix prompt.
-  const [mergeConflict, setMergeConflict] = useState<{
-    target: string;
-    files: string[];
-    source: string | null;
-  } | null>(null);
   const [isReverting, setIsReverting] = useState(false);
   const [showRevertConfirm, setShowRevertConfirm] = useState(false);
 
@@ -290,87 +259,16 @@ export function BranchesTab({
     [branches]
   );
 
-  const handleSwitch = async (branchName: string) => {
-    // Git refuses to check out a branch that's already checked out in another
-    // worktree — the faithful move is to go where the branch already lives.
-    const homeWorktree = worktrees.find((w) => !w.isCurrent && w.branch === branchName);
-    if (homeWorktree && onOpenWorktree) {
-      onToast?.(`${branchName} is checked out in a worktree — opening it`, 'success');
-      void trackEvent('worktree_switched', { via: 'branch_switch_redirect' });
-      onOpenWorktree(homeWorktree.path);
-      return;
-    }
-
-    // A paused merge with unresolved conflicts blocks switching. Catch that
-    // explicitly and voice it, rather than failing with a raw git error or the
-    // misleading "unsaved changes / publish & switch" flow (which would commit
-    // conflict markers).
-    const conflicts = await getConflictInfo(projectPath).catch(() => []);
-    if (conflicts.length > 0) {
-      const files = conflicts.map((c) => c.filePath);
-      // The incoming/merge-source branch is the label on the `>>>>>>> <branch>`
-      // marker (ours is usually just "HEAD", so we take theirs).
-      const source = conflicts.map((c) => c.theirsBranch).find((b) => b && b !== 'HEAD') ?? null;
-      setMergeConflict({ target: branchName, files, source });
-      return;
-    }
-
-    setSwitchingBranch(branchName);
-    try {
-      // Try to switch without auto-stash - backend will tell us if there are uncommitted changes
-      const result = await switchBranch(projectPath, branchName, false);
-      if (result.success) {
-        onBranchSwitch(branchName);
-        void trackEvent('branch_switched', { $screen_name: 'Workspace' });
-        onToast?.(
-          result.stashApplied
-            ? `Switched to ${branchName} and restored your stashed changes`
-            : `Switched to ${branchName}`,
-          'success'
-        );
-      } else if (result.error?.includes('Uncommitted changes')) {
-        // Show the unsaved changes modal
-        setPendingSwitch(branchName);
-      } else {
-        const raw = result.error ?? 'Failed to switch branch';
-        // The worktree redirect above works off a list that can go stale —
-        // another tool (an agent CLI managing .claude/worktrees, a manual
-        // `git worktree add`) may have claimed the branch since the list
-        // loaded. Git's refusal proves the worktree exists NOW: re-fetch and
-        // finish the redirect instead of toasting a raw fatal (issue #406).
-        if (/already used by worktree|already checked out/i.test(raw) && onOpenWorktree) {
-          const fresh = await listWorktrees(projectPath).catch(() => []);
-          const home = fresh.find((w) => !w.isCurrent && w.branch === branchName);
-          if (home) {
-            onWorktreesChanged?.();
-            onToast?.(`${branchName} is checked out in a worktree — opening it`, 'success');
-            void trackEvent('worktree_switched', { via: 'branch_switch_redirect' });
-            onOpenWorktree(home.path);
-            return;
-          }
-        }
-        // Recognized, by-design refusals ride the info channel — an 'error'
-        // toast would re-report a failure the backend already classified
-        // Expected (issue #690, same pattern as useBranchManagement).
-        onToast?.(
-          humanizeGitError(raw, { branch: branchName }),
-          isRecognizedGitFailure(raw, { branch: branchName }) ? 'info' : 'error'
-        );
-        // The branch is gone (deleted/renamed elsewhere) but still showing in a
-        // stale list — refresh to drop the phantom entry.
-        if (isBranchGoneError(raw)) onRefresh();
-      }
-    } catch (e) {
-      trackError('branch_switch', e, 'Workspace');
-      onToast?.(
-        humanizeGitError(e, { branch: branchName }),
-        isRecognizedGitFailure(e, { branch: branchName }) ? 'info' : 'error'
-      );
-      if (isBranchGoneError(errText(e))) onRefresh();
-    } finally {
-      setSwitchingBranch(null);
-    }
-  };
+  const switchFlow = useBranchSwitchFlow({
+    projectPath,
+    onBranchSwitch,
+    onRefresh,
+    worktrees,
+    onOpenWorktree,
+    onWorktreesChanged,
+  });
+  const { switchingBranch } = switchFlow;
+  const handleSwitch = switchFlow.switchTo;
 
   // ---- Worktrees (git worktree remove / prune) ----
   const [worktreeToRemove, setWorktreeToRemove] = useState<WorktreeInfo | null>(null);
@@ -383,6 +281,15 @@ export function BranchesTab({
   const isDirtyWorktreeError = (e: unknown): boolean => {
     const text = typeof e === 'string' ? e : errText(e);
     return /contains modified or untracked files|use --force/i.test(text);
+  };
+
+  /** …and a *locked* worktree (often by an agent session that created it)
+   *  without `--force --force`. Different wording, same escalation; without
+   *  it the modal offered only the plain Remove that fails every time
+   *  (issue #1040). */
+  const isLockedWorktreeError = (e: unknown): boolean => {
+    const text = typeof e === 'string' ? e : errText(e);
+    return /cannot remove a locked working tree|remove -f -f/i.test(text);
   };
 
   // Anchor mutation commands at the main worktree: removing the worktree the
@@ -1004,11 +911,19 @@ export function BranchesTab({
             {worktreeRemoveError && (
               <div className="worktree-remove-error">
                 <p>{worktreeRemoveError}</p>
-                {isDirtyWorktreeError(worktreeRemoveError) && (
+                {isLockedWorktreeError(worktreeRemoveError) ? (
                   <p>
-                    <strong>The worktree has uncommitted changes.</strong> Force-removing discards
-                    them permanently.
+                    <strong>The worktree is locked</strong>, usually by an agent session that may
+                    still be working in it. Force-removing deletes the folder anyway, including any
+                    uncommitted changes.
                   </p>
+                ) : (
+                  isDirtyWorktreeError(worktreeRemoveError) && (
+                    <p>
+                      <strong>The worktree has uncommitted changes.</strong> Force-removing discards
+                      them permanently.
+                    </p>
+                  )
                 )}
               </div>
             )}
@@ -1024,7 +939,9 @@ export function BranchesTab({
             >
               Cancel
             </Button>
-            {worktreeRemoveError && isDirtyWorktreeError(worktreeRemoveError) ? (
+            {worktreeRemoveError &&
+            (isDirtyWorktreeError(worktreeRemoveError) ||
+              isLockedWorktreeError(worktreeRemoveError)) ? (
               <Button
                 variant="danger"
                 onClick={() => void handleRemoveWorktree(true)}
@@ -1120,35 +1037,14 @@ export function BranchesTab({
         </ModalFrame>
       )}
 
-      {/* Unsaved changes modal */}
-      {pendingSwitch && (
-        <UnsavedChangesModal
-          currentBranch={currentBranch}
-          targetBranch={pendingSwitch}
-          projectPath={projectPath}
-          onSwitchComplete={(branchName) => {
-            onBranchSwitch(branchName);
-            setPendingSwitch(null);
-          }}
-          onClose={() => setPendingSwitch(null)}
-        />
-      )}
-
-      {mergeConflict && (
-        <MergeConflictModal
-          projectPath={projectPath}
-          currentBranch={currentBranch}
-          targetBranch={mergeConflict.target}
-          sourceBranch={mergeConflict.source}
-          files={mergeConflict.files}
-          onSendToAgent={onSendToAgent}
-          onAborted={() => {
-            setMergeConflict(null);
-            onRefresh();
-          }}
-          onClose={() => setMergeConflict(null)}
-        />
-      )}
+      <BranchSwitchModals
+        flow={switchFlow}
+        projectPath={projectPath}
+        currentBranch={currentBranch}
+        onBranchSwitch={onBranchSwitch}
+        onRefresh={onRefresh}
+        onSendToAgent={onSendToAgent}
+      />
 
       {createConflict && (
         <CreateBranchConflictModal

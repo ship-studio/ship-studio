@@ -10,6 +10,7 @@ import {
 } from '../../contexts/PanelDockContext';
 import { type PanelId } from '../../lib/workspaceLayout';
 import { readProjectLayout } from '../../lib/workspaceLayoutStore';
+import dockStyles from '../../styles/features/workspace/dock.css?raw';
 
 const PROJECT = '/Users/dev/ShipStudio/site';
 const resizeObserverInstances: ResizeObserverMock[] = [];
@@ -89,9 +90,8 @@ function v2Layout(columns: unknown[], floating: PanelId[] = []) {
   };
 }
 
-function renderRail(panels: PanelId[], layout: unknown, previewHidden = false) {
-  localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
-  return render(
+function railTree(panels: PanelId[], previewHidden: boolean) {
+  return (
     <PanelDockProvider projectPath={PROJECT}>
       <WorkspaceDock previewHidden={previewHidden} preview={<div data-testid="preview" />}>
         {panels.map((panel) => (
@@ -100,6 +100,11 @@ function renderRail(panels: PanelId[], layout: unknown, previewHidden = false) {
       </WorkspaceDock>
     </PanelDockProvider>
   );
+}
+
+function renderRail(panels: PanelId[], layout: unknown, previewHidden = false) {
+  localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
+  return render(railTree(panels, previewHidden));
 }
 
 function dragHeader(panel: PanelId, to: { x: number; y: number }) {
@@ -470,6 +475,54 @@ describe('focus and body portals', () => {
     dragHeader('agent', { x: 150, y: 700 });
     expect(readProjectLayout(PROJECT)).toEqual(saved);
     expect(readProjectLayout(PROJECT).floating).toContain('agent');
+  });
+
+  it('actually hides the preview column in focus, despite its display rule (#1147)', async () => {
+    const style = document.createElement('style');
+    style.textContent = dockStyles;
+    document.head.appendChild(style);
+    try {
+      renderRail(
+        ['agent'],
+        v2Layout([
+          { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+          { kind: 'preview' },
+        ]),
+        true
+      );
+      await act(async () => Promise.resolve());
+      const center = screen.getByTestId('preview').parentElement as HTMLElement;
+      expect(center).toHaveAttribute('hidden');
+      expect(getComputedStyle(center).display).toBe('none');
+    } finally {
+      style.remove();
+    }
+  });
+
+  it('hides other docked panels in focus and restores them on exit (#1147)', async () => {
+    const layout = v2Layout([
+      { kind: 'panels', panels: [{ panel: 'team', weight: 1 }] },
+      { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+      { kind: 'preview' },
+    ]);
+    const view = renderRail(['agent', 'team'], layout, false);
+    await act(async () => Promise.resolve());
+    const teamSurface = () => screen.getByLabelText('team panel');
+    const agentSurface = () => screen.getByLabelText('agent panel');
+    expect(teamSurface()).not.toHaveClass('is-hidden');
+
+    view.rerender(railTree(['agent', 'team'], true));
+    await act(async () => Promise.resolve());
+    expect(teamSurface()).toHaveClass('is-hidden');
+    expect(teamSurface()).toHaveAttribute('inert');
+    expect(agentSurface()).not.toHaveClass('is-hidden');
+    expect(document.querySelector('[data-rail-panel="team"]')).toBeNull();
+
+    view.rerender(railTree(['agent', 'team'], false));
+    await act(async () => Promise.resolve());
+    expect(teamSurface()).not.toHaveClass('is-hidden');
+    expect(teamSurface()).not.toHaveAttribute('inert');
+    expect(document.querySelector('[data-rail-panel="team"]')).not.toBeNull();
   });
 
   it('remeasures docked surfaces when the rail moves without changing slot size', async () => {

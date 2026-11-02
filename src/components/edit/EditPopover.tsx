@@ -55,7 +55,7 @@ interface Props {
   /** Reserve the displayed color swatch's space when sizing an inline value. */
   initialSwatch?: boolean;
   /** Render the declaration's color picker trigger using the current typed value. */
-  colorSwatchTrigger?: ReactNode | ((value: string) => ReactNode);
+  colorSwatchTrigger?: ReactNode | ((value: string, fullValue: string) => ReactNode);
   /** Autocomplete options (text mode) — filtered as you type. */
   options?: string[];
   /** Keep color values in the text editor instead of opening the picker. */
@@ -112,7 +112,9 @@ export function EditPopover({
   const resolvedText = resolveColorVariable(colorText, variables ?? [], variableSelector);
   const pickerValue = resolvedText && colorSwatch(resolvedText) ? resolvedText : colorText;
   const renderedColorSwatchTrigger =
-    typeof colorSwatchTrigger === 'function' ? colorSwatchTrigger(colorText) : colorSwatchTrigger;
+    typeof colorSwatchTrigger === 'function'
+      ? colorSwatchTrigger(colorText, text)
+      : colorSwatchTrigger;
   const isUnknownColorVariable = /^var\(/i.test(colorText.trim());
   const isColor =
     enableColorPicker &&

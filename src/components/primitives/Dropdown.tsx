@@ -34,9 +34,7 @@ export interface DropdownTriggerProps {
   'aria-haspopup': 'menu' | 'dialog';
 }
 
-type DropdownPresentation = 'menu' | 'popover';
-
-interface DropdownProps {
+interface DropdownBaseProps {
   /**
    * Render the trigger button. Spread the provided props onto it — they wire
    * up toggle-on-click, the anchor ref, and aria state. The trigger keeps its
@@ -49,10 +47,6 @@ interface DropdownProps {
   align?: 'left' | 'right';
   /** Which side of the trigger the menu opens on. Default 'bottom'. */
   side?: 'top' | 'bottom';
-  /** Use dialog semantics and ordinary tab navigation for rich anchored content. */
-  presentation?: DropdownPresentation;
-  /** Accessible name for rich popover content. */
-  ariaLabel?: string;
   /**
    * Render the menu in a body portal with fixed positioning. Use when an
    * ancestor has overflow:hidden that would clip an absolute menu (terminal
@@ -84,6 +78,9 @@ interface DropdownProps {
   /** Extra class on the trigger/menu wrapper. */
   className?: string;
 }
+
+type DropdownProps = DropdownBaseProps &
+  ({ presentation: 'popover'; ariaLabel: string } | { presentation?: 'menu'; ariaLabel?: string });
 
 const DropdownContext = createContext<{ close: () => void } | null>(null);
 
@@ -118,6 +115,9 @@ export function Dropdown({
   openOnHover = false,
   className,
 }: DropdownProps) {
+  if (presentation === 'popover' && (typeof ariaLabel !== 'string' || !ariaLabel.trim())) {
+    throw new Error('Dropdown presentation="popover" requires a non-empty ariaLabel.');
+  }
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
   const [portalPos, setPortalPos] = useState<CSSProperties | null>(null);
@@ -238,6 +238,11 @@ export function Dropdown({
       return;
     }
 
+    // A portaled menu starts hidden until its trigger has been measured. Focus
+    // only after the first visible position is committed so browsers don't drop
+    // focus into a hidden portal on its first open.
+    if (portal && portalPos === null) return;
+
     wasOpenRef.current = true;
     restoreFocusOnCloseRef.current = true;
     if (openedByHoverRef.current) {
@@ -255,7 +260,7 @@ export function Dropdown({
       'button:not(:disabled), summary, input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
     );
     (focusable ?? menuRef.current)?.focus({ preventScroll: true });
-  }, [focusEnabledMenuItemAt, hasSearch, isOpen, presentation]);
+  }, [focusEnabledMenuItemAt, hasSearch, isOpen, portal, portalPos, presentation]);
 
   useEffect(() => {
     return () => {

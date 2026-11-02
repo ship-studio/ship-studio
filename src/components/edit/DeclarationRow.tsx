@@ -163,6 +163,7 @@ export function DeclarationRow(props: Props) {
   );
   // The clicked value or swatch button anchors its editor or color picker.
   const [valueAnchor, setValueAnchor] = useState<HTMLElement | null>(null);
+  const [colorPickerInitial, setColorPickerInitial] = useState<string | null>(null);
 
   if (!props.editable) {
     return (
@@ -193,6 +194,7 @@ export function DeclarationRow(props: Props) {
   };
   const closeValueEditor = () => {
     setEditing(null);
+    setColorPickerInitial(null);
     props.onEditClose?.();
   };
 
@@ -230,7 +232,7 @@ export function DeclarationRow(props: Props) {
           initialSwatch={Boolean(swatchColor)}
           colorSwatchTrigger={
             swatchColor
-              ? (value) => {
+              ? (value, fullValue) => {
                   const liveSwatchColor =
                     resolveSwatchColor(value, props.colorVariables, props.variableSelector) ??
                     swatchColor;
@@ -245,6 +247,7 @@ export function DeclarationRow(props: Props) {
                       aria-expanded={false}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => {
+                        setColorPickerInitial(fullValue);
                         setValueAnchor(event.currentTarget.closest<HTMLElement>('.ss-decl'));
                         setEditing('color');
                       }}
@@ -274,6 +277,7 @@ export function DeclarationRow(props: Props) {
             size="compact"
             variant="ghost"
             onClick={(event) => {
+              setColorPickerInitial(null);
               setValueAnchor(event.currentTarget);
               setEditing('value');
             }}
@@ -292,6 +296,7 @@ export function DeclarationRow(props: Props) {
               aria-haspopup="dialog"
               aria-expanded={editing === 'color'}
               onClick={(event) => {
+                setColorPickerInitial(initialValue);
                 setValueAnchor(event.currentTarget);
                 setEditing((current) => (current === 'color' ? null : 'color'));
               }}
@@ -303,7 +308,7 @@ export function DeclarationRow(props: Props) {
             <EditPopover
               inline
               anchor={valueAnchor}
-              initial={initialValue}
+              initial={colorPickerInitial ?? initialValue}
               options={options}
               variables={props.colorVariables}
               variableSelector={props.variableSelector}

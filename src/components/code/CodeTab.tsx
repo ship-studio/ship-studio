@@ -81,9 +81,9 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     [editModeEnabled, setEditMode]
   );
 
-  // External source links target a real file-tree entry. Reveal it only after
-  // the tree loads, clear a filter that would hide it, and keep dirty-file
-  // confirmation inside useFileTree's existing selection guard.
+  // External source links target physical source paths. Wait until this project's
+  // tree has loaded so revealFile can expand known ancestors or select a readable
+  // source file omitted from the tree, then clear any filter hiding the target.
   useEffect(() => {
     if (!revealTarget || isLoadingTree || treeError || handledRevealRef.current === revealTarget)
       return;

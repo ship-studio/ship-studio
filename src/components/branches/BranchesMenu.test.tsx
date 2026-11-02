@@ -50,7 +50,7 @@ function makeProps(overrides: Partial<Parameters<typeof BranchesMenu>[0]> = {}) 
     isOpen: true,
     onOpenChange: vi.fn(),
     onPullLatest: vi.fn(),
-    onBranchSwitch: vi.fn(),
+    onSwitchBranch: vi.fn(),
     onViewBranches: vi.fn(),
     onCreateBranch: vi.fn(),
     onViewPRs: vi.fn(),
@@ -182,7 +182,7 @@ describe('BranchesMenu', () => {
     render(<BranchesMenu {...props} />);
 
     fireEvent.click(screen.getByText('newer'));
-    expect(props.onBranchSwitch).toHaveBeenCalledWith('newer');
+    expect(props.onSwitchBranch).toHaveBeenCalledWith('newer');
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 

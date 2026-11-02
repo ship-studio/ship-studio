@@ -1345,7 +1345,7 @@ it('skips a scoped preview when the source selector appears in multiple media co
   }
 });
 
-it('restores an existing inline property after clearing the new-root fallback', () => {
+it('keeps the new-root fallback until HMR exposes the authored declaration', async () => {
   const node = stylesheet('src/new.css', 'body { color: red; }');
   const identity = variableIdentity({
     key: 'pending\0src/new.css\0:root\0--new-token',
@@ -1360,6 +1360,10 @@ it('restores an existing inline property after clearing the new-root fallback', 
     expect(document.documentElement.style.getPropertyValue('--new-token')).toBe('purple');
 
     send({ type: 'ss:clearVar', identity, commit: true });
+    expect(document.documentElement.style.getPropertyValue('--new-token')).toBe('purple');
+
+    node.textContent = ':root { --new-token: purple; }';
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(document.documentElement.style.getPropertyValue('--new-token')).toBe('var(--existing)');
   } finally {
     document.documentElement.style.removeProperty('--new-token');
