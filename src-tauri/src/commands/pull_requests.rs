@@ -4,7 +4,10 @@
 
 use crate::commands::github::get_gh_command_for_project;
 use crate::errors::CommandError;
-use crate::external_command::{run_with_timeout, truncate_output};
+use crate::external_command::{
+    is_spawn_resource_pressure, run_with_timeout, spawn_resource_pressure_error, truncate_output,
+    DEFAULT_TIMEOUT_SECS,
+};
 use crate::types::PullRequestInfo;
 use crate::utils::validate_project_path;
 
@@ -338,6 +341,13 @@ pub async fn checkout_pull_request(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        // Before gh_git_repo_error: gh wraps its internal git spawn failures as
+        // "failed to run git: …", so fd exhaustion there would otherwise be
+        // misreported as "this project isn't set up with git".
+        if is_resource_pressure_stderr(&stderr) {
+            tracing::warn!(error = %stderr, "PR checkout hit fd/process pressure");
+            return Err(spawn_resource_pressure_error("gh pr checkout"));
+        }
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
@@ -362,16 +372,49 @@ pub async fn checkout_pull_request(
         return Err(format!("Failed to checkout PR: {}", truncate_output(&stderr)).into());
     }
 
-    // Return the branch name that was checked out
-    let branch_output = crate::utils::git_command_in(&validated_path)?
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Return the branch name that was checked out. Runs through
+    // run_with_timeout (async, so it doesn't block a runtime worker) for the
+    // same EAGAIN/EMFILE retry and classification every other spawn here gets
+    // — a bare `.output().map_err(to_string)` surfaced raw "Too many open
+    // files" (issue #574 class).
+    let mut cmd = crate::utils::git_command_in(&validated_path)?;
+    cmd.args(["rev-parse", "--abbrev-ref", "HEAD"]);
+    let branch_output = run_with_timeout(
+        tokio::process::Command::from(cmd),
+        "git rev-parse",
+        DEFAULT_TIMEOUT_SECS,
+    )
+    .await?;
+    branch_from_rev_parse(&branch_output)
+}
 
-    let branch = String::from_utf8_lossy(&branch_output.stdout)
-        .trim()
-        .to_string();
-    Ok(branch)
+/// True when a CLI's stderr reports EMFILE/ENFILE/EAGAIN. Case-insensitive on
+/// top of [`is_spawn_resource_pressure`] because gh is a Go binary and Go
+/// renders the errno lowercase ("fork/exec …: too many open files").
+fn is_resource_pressure_stderr(stderr: &str) -> bool {
+    if is_spawn_resource_pressure(stderr) {
+        return true;
+    }
+    let lower = stderr.to_lowercase();
+    lower.contains("too many open files") || lower.contains("resource temporarily unavailable")
+}
+
+/// Turn `git rev-parse --abbrev-ref HEAD` output into the checked-out branch
+/// name. The checkout itself already succeeded, so a failure here is reported
+/// rather than returned as an empty branch name.
+fn branch_from_rev_parse(output: &std::process::Output) -> Result<String, CommandError> {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if is_resource_pressure_stderr(&stderr) {
+            return Err(spawn_resource_pressure_error("git rev-parse"));
+        }
+        return Err(format!(
+            "Checked out the pull request, but couldn't read the branch name: {}",
+            truncate_output(&stderr)
+        )
+        .into());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Match gh's refusal to close an already-merged pull request. Kept narrow —
@@ -541,5 +584,62 @@ mod tests {
             "fatal: unable to access: could not resolve host"
         ));
         assert!(!is_push_rejection(""));
+    }
+
+    /// gh is Go, so its fd-exhaustion text is lowercase and arrives wrapped
+    /// in "failed to run git:" — it must classify as resource pressure, not
+    /// fall through to the "isn't set up with git" message.
+    #[test]
+    fn resource_pressure_stderr_matches_go_and_git_shapes() {
+        assert!(is_resource_pressure_stderr(
+            "failed to run git: fork/exec /usr/bin/git: too many open files"
+        ));
+        assert!(is_resource_pressure_stderr(
+            "fatal: Unable to create '.git/index.lock': Too many open files"
+        ));
+        assert!(is_resource_pressure_stderr(
+            "fork/exec /usr/bin/git: resource temporarily unavailable"
+        ));
+        assert!(!is_resource_pressure_stderr(
+            "failed to run git: fatal: not a git repository"
+        ));
+        assert!(!is_resource_pressure_stderr("could not find pull request"));
+    }
+
+    #[cfg(unix)]
+    fn output(code: i32, stdout: &str, stderr: &str) -> std::process::Output {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::Output {
+            status: std::process::ExitStatus::from_raw(code << 8),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn branch_from_rev_parse_trims_branch_name() {
+        let out = output(0, "pr-feature\n", "");
+        assert_eq!(branch_from_rev_parse(&out).unwrap(), "pr-feature");
+    }
+
+    /// The post-checkout rev-parse used to surface a bare "Too many open
+    /// files"; it must now be the friendly Expected error.
+    #[cfg(unix)]
+    #[test]
+    fn branch_from_rev_parse_classifies_fd_exhaustion_as_expected() {
+        let out = output(128, "", "fatal: Too many open files (os error 24)");
+        let err = branch_from_rev_parse(&out).unwrap_err();
+        assert!(matches!(err, CommandError::Expected { .. }), "{err:?}");
+        assert!(err.to_string().contains("open files"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn branch_from_rev_parse_reports_other_failures() {
+        let out = output(128, "", "fatal: ambiguous argument 'HEAD'");
+        let err = branch_from_rev_parse(&out).unwrap_err();
+        assert!(!matches!(err, CommandError::Expected { .. }), "{err:?}");
+        assert!(err.to_string().contains("ambiguous argument"), "{err}");
     }
 }
