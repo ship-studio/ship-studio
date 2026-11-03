@@ -572,6 +572,70 @@ describe('focus and body portals', () => {
     expect(screen.getByLabelText('agent panel')).toHaveStyle({ left: '174px' });
   });
 
+  it('remeasures surviving docked surfaces when a preceding panel closes', async () => {
+    let agentVisible = true;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element
+    ) {
+      const element = this as HTMLElement;
+      const item =
+        element.dataset.railPanel ??
+        element.dataset.preview ??
+        element.closest<HTMLElement>('[data-rail-panel]')?.dataset.railPanel;
+      const lefts: Record<string, number> = {
+        agent: 0,
+        navigator: agentVisible ? 180 : 0,
+        true: agentVisible ? 360 : 180,
+      };
+      const left = lefts[item ?? ''] ?? 0;
+      const width = item === 'true' ? 600 : 180;
+      const top = 100;
+      const bottom = 800;
+      return {
+        left,
+        right: left + width,
+        top,
+        bottom,
+        width,
+        height: bottom - top,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+
+    localStorage.setItem(
+      `shipstudio.layout.project:${PROJECT}`,
+      JSON.stringify(
+        v2Layout([
+          { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+          { kind: 'panels', panels: [{ panel: 'navigator', weight: 1 }] },
+          { kind: 'preview' },
+        ])
+      )
+    );
+
+    const workspace = (showAgent: boolean) => (
+      <PanelDockProvider projectPath={PROJECT}>
+        <WorkspaceDock preview={<div data-testid="preview" />}>
+          <TestPanel panel="agent" visible={showAgent} />
+          <TestPanel panel="navigator" />
+        </WorkspaceDock>
+      </PanelDockProvider>
+    );
+    const view = render(workspace(true));
+    await act(async () => Promise.resolve());
+
+    const navigatorSurface = screen.getByLabelText('navigator panel');
+    expect(navigatorSurface).toHaveStyle({ left: '180px' });
+
+    agentVisible = false;
+    view.rerender(workspace(false));
+    await act(async () => Promise.resolve());
+
+    expect(navigatorSurface).toHaveStyle({ left: '0px' });
+  });
+
   it('keeps the preview DOM node stable while column layout changes', async () => {
     const preview = <div data-testid="preview" />;
     const { rerender } = render(
