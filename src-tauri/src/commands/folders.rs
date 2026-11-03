@@ -17,6 +17,14 @@ fn get_folders_config_path() -> Result<PathBuf, String> {
         .join("folders.json"))
 }
 
+/// A folder id that isn't in folders.json — typically a stale UI list after
+/// the folder was deleted from another window. Names the operation and the id:
+/// a bare "Folder not found" from four call sites collapsed every report onto
+/// one undiagnosable message (issue #1126).
+fn folder_not_found(operation: &str, folder_id: &str) -> CommandError {
+    format!("Folder not found ({operation}): {folder_id}").into()
+}
+
 /// Load the folder config from disk
 fn load_folder_config() -> Result<FolderConfig, String> {
     let config_path = get_folders_config_path()?;
@@ -200,7 +208,7 @@ pub async fn rename_folder(folder_id: String, name: String) -> Result<(), Comman
         .folders
         .iter_mut()
         .find(|f| f.id == folder_id)
-        .ok_or("Folder not found")?;
+        .ok_or_else(|| folder_not_found("rename", &folder_id))?;
 
     folder.name = name.trim().to_string();
     folder.updated_at = now_ms();
@@ -220,7 +228,7 @@ pub async fn delete_folder(folder_id: String) -> Result<(), CommandError> {
     config.folders.retain(|f| f.id != folder_id);
 
     if config.folders.len() == initial_len {
-        return Err(("Folder not found".to_string()).into());
+        return Err(folder_not_found("delete", &folder_id));
     }
 
     save_folder_config(&config)?;
@@ -248,7 +256,7 @@ pub async fn move_project_to_folder(
             .folders
             .iter_mut()
             .find(|f| f.id == id)
-            .ok_or("Folder not found")?;
+            .ok_or_else(|| folder_not_found("move project", &id))?;
 
         folder.project_paths.push(project_path);
         folder.updated_at = now_ms();
@@ -283,7 +291,7 @@ pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, Comma
         .folders
         .iter()
         .find(|f| f.id == folder_id)
-        .ok_or("Folder not found")?;
+        .ok_or_else(|| folder_not_found("list projects", &folder_id))?;
 
     Ok(folder.project_paths.clone())
 }
@@ -295,4 +303,22 @@ pub async fn get_folder(folder_id: String) -> Result<Option<Folder>, CommandErro
     let config = load_folder_config()?;
 
     Ok(config.folders.into_iter().find(|f| f.id == folder_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::folder_not_found;
+
+    // Issue #1126: four call sites all said a bare "Folder not found".
+    #[test]
+    fn folder_not_found_names_the_operation_and_id() {
+        assert_eq!(
+            folder_not_found("rename", "f-123").to_string(),
+            "Folder not found (rename): f-123"
+        );
+        assert_ne!(
+            folder_not_found("delete", "f-123").to_string(),
+            folder_not_found("list projects", "f-123").to_string()
+        );
+    }
 }

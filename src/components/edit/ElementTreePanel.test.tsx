@@ -5,6 +5,12 @@ import { projectElementTree } from '../../lib/element-tree-drag';
 import { getSnapshot } from '../../commands/registry';
 import { matchesContext } from '../../commands/types';
 
+const showToast = vi.hoisted(() => vi.fn());
+vi.mock('../../contexts/ToastContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../contexts/ToastContext')>()),
+  useOptionalToast: () => ({ showToast }),
+}));
+
 function pointer(type: string, x: number, y: number) {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, {
@@ -757,6 +763,23 @@ describe('ElementTreePanel', () => {
 
       await waitFor(() =>
         expect(writeText).toHaveBeenCalledWith('div.process-engagements__visual-collection')
+      );
+    });
+
+    it('names the reason when copying the selector fails (#1049)', async () => {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: vi.fn().mockRejectedValue(new Error('Clipboard write failed')) },
+        configurable: true,
+      });
+      renderTreeWithMenu();
+
+      fireEvent.click(screen.getByText('Copy selector'));
+
+      await waitFor(() =>
+        expect(showToast).toHaveBeenCalledWith(
+          'Could not copy the selector (Clipboard write failed)',
+          'error'
+        )
       );
     });
 

@@ -20,6 +20,7 @@ import { setTerminalState } from '../../lib/project';
 import type { InspectTab } from '../preview/Preview';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
+import { BranchSwitchModals, useBranchSwitchFlow } from '../branches/BranchSwitchFlow';
 import { useIsCompact } from '../../hooks/useIsCompact';
 import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { WorkspaceModalHost } from './WorkspaceModalHost';
@@ -326,6 +327,23 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     handleAutoAcceptWarningAccept,
     handleSaveDevCommand,
   } = lifecycle;
+
+  // The header's quick Branches menu runs the same switch as the Branches tab:
+  // a real checkout first, and only then the UI sync (#1012).
+  const refreshBranches = useCallback(
+    () => void fetchBranchInfo(currentProject.path),
+    [fetchBranchInfo, currentProject.path]
+  );
+  const syncBranchSwitch = useCallback(
+    (branch: string) => void handleBranchSwitch(branch),
+    [handleBranchSwitch]
+  );
+  const menuBranchSwitch = useBranchSwitchFlow({
+    projectPath: currentProject.path,
+    onBranchSwitch: syncBranchSwitch,
+    onRefresh: refreshBranches,
+    ...worktree.tabProps,
+  });
 
   // Web frameworks always receive the iframe preview. Generic projects only
   // receive it when they have a dev command to run — a configured custom one
@@ -734,7 +752,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     isBranchSwitching,
     isRepositoryViewActive: workspaceTab === 'branches' || workspaceTab === 'prs',
     onPullLatest: () => void handlePullLatest(),
-    onBranchSwitch: (branch) => void handleBranchSwitch(branch),
+    onSwitchBranch: (branch) => void menuBranchSwitch.switchTo(branch),
     onViewBranches: () => {
       setIsPreviewHidden(false);
       setWorkspaceTab('branches');
@@ -1040,6 +1058,15 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
             {/* .workspace-main */}
           </div>
         )}
+
+        <BranchSwitchModals
+          flow={menuBranchSwitch}
+          projectPath={currentProject.path}
+          currentBranch={currentBranch ?? ''}
+          onBranchSwitch={syncBranchSwitch}
+          onRefresh={refreshBranches}
+          onSendToAgent={sendToClaude}
+        />
 
         <WorkspaceModalHost
           projectPath={currentProject.path}

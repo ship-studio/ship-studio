@@ -12,7 +12,12 @@ import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getThumbnailsEnabled, setThumbnailsEnabled } from '../lib/settings';
 import { decideAutoCapture, isPermissionDenialError } from '../lib/thumbnailGate';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { captureThumbnailFromPreview } from '../lib/previewSnapshot';
 
 /** Backend rejection meaning a capture for this project is already running
@@ -248,10 +253,13 @@ export function useScreenshotManagement({
             void captureScreenshot(projectPath, sessionId, attempt + 1);
           }, SCREENSHOT_RETRY_DELAY_MS);
         } else {
-          logger.error('Failed to capture thumbnail after retries', {
-            error,
-            attempts: attempt,
-          });
+          // A failure the backend classified Expected ("…will be retried
+          // automatically") is an environment state the 5-minute timer
+          // retries, not a bug to file (issue #969).
+          logger[isExpectedCommandError(error) ? 'warn' : 'error'](
+            'Failed to capture thumbnail after retries',
+            { error, attempts: attempt }
+          );
         }
       }
     },

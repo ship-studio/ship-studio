@@ -332,6 +332,17 @@ fn is_hook_failure_output(output: &str) -> bool {
         || output.contains("hook exited with code")
 }
 
+/// A commit-msg hook running commitlint rejecting the commit *message*. None
+/// of the pre-commit runner markers above appear in its output — it prints
+/// `⧗   input: <subject>`, `✖   <reason> [rule-name]` lines and a closing
+/// `✖   found N problems, M warnings` — so it fell through to the raw dump
+/// (issue #1031). Matched on commitlint's own summary/input literals, which no
+/// git message contains.
+fn is_commit_msg_hook_failure_output(output: &str) -> bool {
+    output.contains("commitlint")
+        || (output.contains("⧗   input:") && output.contains("✖   found "))
+}
+
 /// Last `max_bytes` of hook output, cut at a line boundary — the failure
 /// reason (a failing test, a type error) is almost always at the tail, and
 /// the full dump is unreadable in a toast (issue #604).
@@ -351,6 +362,21 @@ fn tail_of_output(output: &str, max_bytes: usize) -> &str {
             .map(|(i, _)| &trimmed[i..])
             .unwrap_or(""),
     }
+}
+
+/// `.git/index.lock` contention that outlasted `output_retrying_index_lock`'s
+/// retries: another git process (often the background snapshot watcher or an
+/// agent CLI) is still holding the lock, or a crash left it stale. A machine
+/// state, not a malfunction — forwarding git's raw fatal reported it as a bug
+/// (issue #1109).
+fn persistent_index_lock_error(stderr: &str) -> Option<CommandError> {
+    crate::utils::is_index_lock_contention(stderr).then(|| {
+        CommandError::expected(
+            "Another git process was still using this repository after a few retries. Wait a \
+             moment and try again — if it keeps happening, close other git tools, and if none \
+             are running, delete the stale `.git/index.lock` file in the project folder.",
+        )
+    })
 }
 
 /// Stages all changes and commits with the given message.
@@ -420,6 +446,12 @@ pub fn git_stage_and_commit_authored(
                     .to_string()
                     .into());
             }
+        } else if let Some(err) = persistent_index_lock_error(&add_stderr) {
+            return Err(err);
+        } else if let Some(gap) = crate::utils::git_environment_gap(&add_stderr) {
+            // Same shared classifier as the commit step below (issue #955).
+            tracing::warn!(error = %add_stderr.trim(), "git add blocked by an environment gap");
+            return Err(gap);
         } else {
             return Err(add_stderr.into());
         }
@@ -464,6 +496,17 @@ pub fn git_stage_and_commit_authored(
         // failure lives, and classify Expected so it stays out of telemetry.
         // Hook output lands on either stream depending on the runner.
         let combined = format!("{stdout}{stderr}");
+        // Checked first: a project can run husky *and* commitlint, and the
+        // message is what needs changing then, not the code (issue #1031).
+        if is_commit_msg_hook_failure_output(&combined) {
+            let tail = tail_of_output(&combined, 1000);
+            return Err(CommandError::expected(format!(
+                "This project's commit-message check (commitlint) rejected the commit message — \
+                 it requires a specific format, such as \"feat: …\". Commit with a message in \
+                 that format, or adjust the project's commitlint rules (its report is below).\
+                 \n\n{tail}"
+            )));
+        }
         if is_hook_failure_output(&combined) {
             let tail = tail_of_output(&combined, 1000);
             return Err(CommandError::expected(format!(
@@ -471,6 +514,15 @@ pub fn git_stage_and_commit_authored(
                  own lint/tests before every commit. Fix what they reported (the end of their \
                  output is below), then try again.\n\n{tail}"
             )));
+        }
+        if let Some(err) = persistent_index_lock_error(&stderr) {
+            return Err(err);
+        }
+        // The shared machine-state classifier — status/branches/stash already
+        // consult it, staging and committing didn't (issue #955).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            tracing::warn!(error = %stderr.trim(), "git commit blocked by an environment gap");
+            return Err(gap);
         }
         let detail = if stderr.trim().is_empty() {
             stdout.to_string()
@@ -973,6 +1025,24 @@ mod tests {
         assert!(!is_hook_failure_output(""));
     }
 
+    // The #1031 shape: a commit-msg hook running commitlint, whose output
+    // carries none of the pre-commit runner markers.
+    #[test]
+    fn commit_msg_hook_failure_matches_commitlint_output() {
+        let commitlint = "completeness: 23 blocks and 12 document types, all whole.\ncss coverage: 187 classes, all defined and used.\n⧗   input: Tag menu sign-ups by concert, fix the partner tag, extend the lineup\n\nMade-With: Claude Code in Ship Studio\n✖   body's lines must not be longer than 100 characters [body-max-line-length]\n✖   subject may not be empty [subject-empty]\n✖   type may not be empty [type-empty]\n\n✖   found 3 problems, 0 warnings\n";
+        assert!(!is_hook_failure_output(commitlint));
+        assert!(is_commit_msg_hook_failure_output(commitlint));
+        assert!(is_commit_msg_hook_failure_output(
+            "ⓘ   Get help: https://github.com/conventional-changelog/commitlint/#what-is-commitlint"
+        ));
+        assert!(!is_commit_msg_hook_failure_output(
+            "husky - pre-commit script failed (code 1)"
+        ));
+        assert!(!is_commit_msg_hook_failure_output(
+            "fatal: unable to auto-detect email address"
+        ));
+    }
+
     #[test]
     fn tail_of_output_keeps_the_end_at_a_line_boundary() {
         let long: String = (0..200).map(|i| format!("line {i}\n")).collect();
@@ -1011,6 +1081,27 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("pre-commit checks blocked"), "got: {msg}");
         assert!(msg.contains("[FAILED] tsc --noEmit"), "must keep the tail");
+    }
+
+    /// Issue #1109: index.lock contention that outlasts the retries must come
+    /// back Expected, not as git's raw fatal.
+    #[test]
+    fn persistent_index_lock_classifies_as_expected() {
+        let stderr = "fatal: Unable to create '/Users/x/Websites/dietair/.git/index.lock': \
+                      File exists.\n\nAnother git process seems to be running in this \
+                      repository, or the lock file may be stale";
+        let err = persistent_index_lock_error(stderr).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("index.lock"), "got: {err}");
+        assert!(persistent_index_lock_error("fatal: not a git repository").is_none());
+
+        // End to end: a stale lock file blocks `git add -A` on every retry.
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join(".git").join("index.lock"), "").unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        let err = git_stage_and_commit(tmp.path(), "locked").expect_err("lock must block");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
     }
 
     #[test]

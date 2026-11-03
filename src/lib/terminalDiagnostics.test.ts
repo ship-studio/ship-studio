@@ -119,6 +119,20 @@ describe('extractTerminalError', () => {
     );
   });
 
+  it("skips npm's EEXIST --force advice for the conflicting path (issue #943)", () => {
+    const tail = [
+      'npm error code EEXIST',
+      'npm error path /Users/x/proj/node_modules/.bin/next',
+      'npm error EEXIST: file already exists',
+      'npm error File exists: /Users/x/proj/node_modules/.bin/next',
+      'npm error Remove the existing file and try again, or run npm',
+      '⠸npm error with --force to overwrite files recklessly.',
+    ].join('\n');
+    expect(extractTerminalError(tail)).toBe(
+      'npm error File exists: /Users/x/proj/node_modules/.bin/next'
+    );
+  });
+
   it('explains an npm ERESOLVE peer conflict instead of echoing the tail (issue #781)', () => {
     const tail = [
       'npm error code ERESOLVE',

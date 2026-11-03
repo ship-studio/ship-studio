@@ -1849,6 +1849,19 @@ fn build_launch_command(
     }
 }
 
+/// [`build_launch_command`], refusing a project that isn't Flutter / React
+/// Native. That refusal is by design — the device mirror renders it as its
+/// "unsupported" state — so it is Expected, not a malfunction (issue #1052).
+fn launch_command_or_refusal(
+    project_path: &std::path::Path,
+    platform: crate::state::Platform,
+    device_id: &str,
+) -> Result<String, CommandError> {
+    build_launch_command(project_path, platform, device_id).ok_or_else(|| {
+        CommandError::expected("This project type can't be launched on this device yet.")
+    })
+}
+
 /// Locate a usable JDK for Gradle (the Android build needs `JAVA_HOME`). The build
 /// runs in a login shell, so it inherits the user's profile — but `JAVA_HOME` is
 /// often unset there even when a JDK exists. We probe the common install locations
@@ -1937,10 +1950,7 @@ pub async fn get_simulator_launch_command(
 ) -> Result<String, CommandError> {
     let project = crate::utils::validate_project_path(&project_path)?;
     let workspace = crate::utils::resolve_workspace_path(&project);
-    let cmd =
-        build_launch_command(&workspace, platform, &udid).ok_or_else(|| -> CommandError {
-            "This project type can't be launched on this device yet.".into()
-        })?;
+    let cmd = launch_command_or_refusal(&workspace, platform, &udid)?;
     Ok(with_android_build_env(platform, cmd))
 }
 
@@ -2144,9 +2154,17 @@ async fn ensure_simulator(preferred: Option<String>) -> Result<BootResult, Comma
         SIMCTL_TIMEOUT_SECS,
     )
     .await?;
-    let target = choose_default_simulator(&available)
-        .ok_or("No available iOS simulator to boot. Add one in Xcode › Settings › Components.")?;
+    let target = choose_default_simulator(&available).ok_or_else(no_available_simulator_error)?;
     boot_specific_simulator(&target.udid).await
+}
+
+/// No bootable simulator on this machine (e.g. Xcode installed without a
+/// simulator runtime). An environment state with a user-side fix, not a
+/// malfunction — Expected keeps it out of telemetry (issue #1131).
+fn no_available_simulator_error() -> CommandError {
+    CommandError::expected(
+        "No available iOS simulator to boot. Add one in Xcode › Settings › Components.",
+    )
 }
 
 /// Boot a specific simulator by udid and wait until it's fully ready. Returns it
@@ -2876,6 +2894,20 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_project_launch_refusal_is_expected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let err =
+            launch_command_or_refusal(dir.path(), crate::state::Platform::Ios, "UDID").unwrap_err();
+        match err {
+            CommandError::Expected { message } => assert_eq!(
+                message,
+                "This project type can't be launched on this device yet."
+            ),
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn build_launch_command_for_expo_flutter_and_unsupported() {
         use crate::state::Platform::{Android, Ios};
         use std::fs;
@@ -2948,6 +2980,17 @@ mod tests {
         }"#;
         assert!(choose_default_simulator(json).is_none());
         assert!(choose_default_simulator(r#"{"devices":{}}"#).is_none());
+    }
+
+    // Issue #1131: no bootable simulator is an environment state, not a bug.
+    #[test]
+    fn no_available_simulator_is_expected() {
+        let err = no_available_simulator_error();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            "No available iOS simulator to boot. Add one in Xcode › Settings › Components."
+        );
     }
 
     #[test]

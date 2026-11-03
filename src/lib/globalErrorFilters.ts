@@ -41,10 +41,35 @@ export type RejectionDisposition =
 export function describeRejectionReason(r: unknown): string {
   if (typeof r === 'string') return r;
   try {
-    return JSON.stringify(r) ?? String(r);
+    const json = JSON.stringify(r);
+    // JSON only sees own enumerable data properties. A DOMException, a Map, or
+    // any class exposing state through getters serializes to "{}" — as empty
+    // as "[object Object]" was, and it collapses distinct causes onto one
+    // dedupe key (issue #1114). Name the type and read the common accessors.
+    if (json === '{}' && typeof r === 'object' && r !== null) {
+      return describeOpaqueObject(r);
+    }
+    return json ?? String(r);
   } catch {
     return String(r); // circular structures, throwing getters, …
   }
+}
+
+function describeOpaqueObject(r: object): string {
+  const proto: unknown = Object.getPrototypeOf(r);
+  // A genuinely empty plain object really is "{}".
+  if (proto === Object.prototype || proto === null) return '{}';
+  const typeName = (r as { constructor?: { name?: unknown } }).constructor?.name;
+  const label = typeof typeName === 'string' && typeName ? typeName : 'Object';
+  const fields: Record<string, string | number> = {};
+  for (const key of ['name', 'message', 'code'] as const) {
+    const value = (r as Record<string, unknown>)[key];
+    if ((typeof value === 'string' && value) || typeof value === 'number') fields[key] = value;
+  }
+  if (Object.keys(fields).length > 0) return `${label} ${JSON.stringify(fields)}`;
+  // The built-in tag still tells a Map from a Set from a plain class instance.
+  const tag = Object.prototype.toString.call(r);
+  return tag === '[object Object]' ? `${label} {}` : tag;
 }
 
 /**

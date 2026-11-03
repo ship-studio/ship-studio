@@ -31,7 +31,7 @@ vi.mock('../lib/logger', () => ({
 vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undefined) }));
 
 import { useFileTree } from './useFileTree';
-import { readProjectFile, saveProjectFile } from '../lib/code';
+import { listProjectFiles, readProjectFile, saveProjectFile } from '../lib/code';
 import { logger } from '../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
@@ -296,6 +296,35 @@ describe('useFileTree — read-failure log level', () => {
     await openFailing("Can't read a.ts — permission denied. It may be locked by another program.");
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.warn as Fn).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
+  const FOLDER_GONE =
+    "The folder '<project>' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio";
+
+  it('warns when the whole project folder is gone (#1022)', async () => {
+    await openFailing(FOLDER_GONE);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith('Failed to read file', {
+      path: 'a.ts',
+      error: FOLDER_GONE,
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
+  it('warns when the file tree finds the project folder gone (#1021)', async () => {
+    (listProjectFiles as Fn).mockRejectedValueOnce({
+      type: 'Other',
+      message: FOLDER_GONE,
+      expected: true,
+    });
+    await setup();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith('Failed to load file tree', {
+      error: FOLDER_GONE,
+    });
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.error as Fn).not.toHaveBeenCalled();
   });

@@ -197,9 +197,72 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
 ## Tools
 
 `computer_status`, `list_projects`, `create_project`, `open_project`,
-`message_agent`, `read_agent`, `press_key`, `start_agent`, `close_agent`,
-`show_progress`, `preview_screenshot`, `git_status`, `prepare_push`,
-`confirm_push`.
+`message_agent`, `wait_for_agent`, `read_agent`, `press_key`, `start_agent`,
+`close_agent`, `show_progress`, `preview_screenshot`, `git_status`,
+`prepare_push`, `confirm_push`, `deploy_status`.
+
+### Every agent tool reports back
+
+The assistant used to say "I've asked it" and stop. `message_agent` returned
+at "sent", and following up was left to the assistant's memory, which in
+practice meant the user had to ask again to find out what happened. Now the
+tools that act on an agent (`message_agent`, `press_key`, `start_agent`) and
+`wait_for_agent` all wait for the agent and answer in one shape:
+
+- **`STATUS:`** one of `working`, `needs_decision`, `finished`, `exited`,
+  read off the rendered screen by `agent_state.rs`. Timing alone ("quiet for
+  5 s") can't tell a finished agent from one blocked on a permission prompt,
+  and that's the difference that decides what the assistant does next.
+  - *working*: output in the last 5 s, or "esc to interrupt" on screen. The
+    activity comes from the spinner line ("Stewing… (4s)").
+  - *needs_decision*: a numbered menu with a highlighted option, "Do you want
+    to proceed?", a y/n prompt, or an unnumbered menu with an "Enter to
+    confirm" footer. The question, what the agent wants to do (the command
+    shown above it), and the options, with wrapped lines joined back on.
+  - *finished*: quiet, and nothing being asked.
+- **The agent's reply**: what it printed below the message that was sent,
+  without the input box, footer or spinner lines. Long messages are found by
+  their opening words.
+- **What changed**: files whose content differs from the working tree as it
+  was when the message was sent (two `write-tree`s on a throwaway index, then
+  `diff --name-only`). Files the user already had uncommitted don't count.
+  Like `prepare_push`'s check, this writes loose objects for changed files
+  into the project's `.git`, which git garbage-collects later. Rendering is
+  skipped while output is still streaming, because a spinner redraws many
+  times a second for the whole turn.
+- **A screenshot, once it's done**: when the agent finished and files changed,
+  and the call has time left (it starts within 38 s and gets 14 s), the
+  desktop screenshot comes in the same answer.
+- **`NEXT:`** the step to take, chosen by the server rather than left to the
+  assistant. Working means "call `wait_for_agent` again, and don't reply to the
+  user in between", until five minutes have passed; after that it's "give them
+  a one-line update". A decision means "ask the user, then `press_key`".
+  Finished means "reply in a sentence or two with the screenshot".
+
+Budgets: `message_agent` and `start_agent` wait 35 s, `press_key` 20 s and
+`wait_for_agent` 45 s (each at most 50), so a call with its screenshot
+answers inside a minute. That's what chat clients allow a tool call. Longer
+work is a chain of `wait_for_agent` calls.
+
+`press_key` refuses a letter or digit when nothing is being asked: with no
+prompt showing, "1" is typed into the agent's message box and sits in front of
+the user's next message.
+
+`list_projects` gives each agent tab's state and puts anything waiting on the
+user at the top. `show_progress` also reports errors from the preview's
+browser console, labelled as possibly older than the change.
+
+**Tool annotations.** Every tool has a `title` and MCP `annotations`
+(`readOnlyHint`, `destructiveHint`, `openWorldHint`). Clients use them to
+decide what to confirm, so watching, reading and screenshots don't turn into a
+stream of approval taps on a phone. Pushing and closing a tab are marked
+destructive.
+
+**`deploy_status`** answers "is it live?" after a push. It uses the same
+native hosting code as the Push popover, so the provider's own status word,
+the provider-returned address, and "no deployment yet" are never reported as
+a failure. It waits up to 40 s for a build in progress, and a failure brings
+the build log's likeliest error line. `confirm_push` ends with NEXT: call it.
 
 - **Nobody is at the desk to switch projects.** A screenshot of a shared
   project that isn't showing used to fail with "switch Ship Studio over to the
@@ -261,13 +324,27 @@ assistant's guidance is `INSTRUCTIONS` in `server.rs`.
 Unit tests cover the rest. The harness has every modal state and the indicator
 (`remote-*`).
 
+**Screen reading, against real agents.** Claude Code 2.1 was recorded in a
+real PTY at 120×40, and every screen was run through `agent_state::classify`
+and `latest_reply`. The recorded screens were the folder-trust dialog, the
+idle welcome screen, a turn in progress, a Bash permission prompt, pressing
+"1" to approve it, and the finished reply. All of them classified correctly,
+and the shapes are kept as unit tests. Two things moved in recent Claude Code
+versions, and the tests pin both: "esc to interrupt" is in the footer under
+the input box (not on the spinner line), and the finished turn leaves a
+"✻ Cogitated for 4s · done" line, which is dropped from replies. Codex's update
+and sign-in menus classify as decisions. A Codex conversation and Opencode
+haven't been recorded.
+
 **Not verified yet:**
 
 - Tailscale Funnel live (not installed on the build machine).
 - Grok Bot accepting a custom MCP URL. xAI documents custom connectors for
   grok.com, and Grok Bot as supporting MCP tools, but adding your own server
   to Grok Bot is unconfirmed.
-- Typing into a live agent tab through the full app.
+- Typing into a live agent tab through the full app. The screen reading is
+  verified against recordings, but the whole wait-and-report loop hasn't been
+  driven through the running app and a real assistant.
 - The lid-closed admin prompt.
 - The LaunchAgent after a real restart.
 - Clipboard history exclusion in specific clipboard managers.
@@ -277,6 +354,8 @@ Unit tests cover the rest. The harness has every modal state and the indicator
 - `src-tauri/src/remote_access/`:
   - `mod.rs` — config, audit, PIN, lifecycle
   - `server.rs`, `tools.rs`, `screen.rs`, `power.rs`, `tailscale.rs`
+  - `agent_state.rs` — working / needs a decision / finished, and the reply
+  - `deploy.rs` — `deploy_status`
 - `src-tauri/src/commands/remote_access.rs`
 - `src/lib/remoteAccess.ts`
 - `src/components/remote/` — modal, setup, live, parts, indicator
