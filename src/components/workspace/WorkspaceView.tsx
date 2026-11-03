@@ -13,7 +13,15 @@ export type { WorkspaceViewProps } from './workspaceViewTypes';
  * @module components/WorkspaceView
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
@@ -237,10 +245,16 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
 
   // Jump-to-code: when set, the Code tab opens this file and highlights the line.
   // Driven by openInCode (e.g. the visual editor's source links / usage modal).
-  const [codeTarget, setCodeTarget] = useState<{ file: string; line: number } | null>(null);
+  const [codeTarget, setCodeTarget] = useState<{
+    file: string;
+    line: number;
+    requestId: number;
+  } | null>(null);
+  const codeRequestIdRef = useRef(0);
   const openInCode = useCallback(
     (file: string, line: number) => {
-      setCodeTarget({ file, line });
+      codeRequestIdRef.current += 1;
+      setCodeTarget({ file, line, requestId: codeRequestIdRef.current });
       setWorkspaceTab('code');
     },
     [setWorkspaceTab]

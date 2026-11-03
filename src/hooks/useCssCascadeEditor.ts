@@ -19,21 +19,28 @@ import {
   locateCssRules,
   applyCssRuleText,
   deleteCssRule,
+  deleteCssRules,
   wrapCssRule,
   createCssRule,
-  listStylesheets,
   listCssClasses,
   listCssSelectors,
   listCssVariables,
-  renameCssSelector,
+  listStylesheets,
+  replaceCssSelectorList,
   renameCssAtRule,
+  splitCssSelectorList,
   mergeCascade,
+  applyCascadeActivity,
+  positionCascadeDrafts,
   rulesToLocate,
   rowKey,
   isStaleCssRuleError,
+  selectCssRuleTargetFile,
+  cssRuleWriteTargetFile,
   type MatchedRule,
   type RuleLocation,
   type CascadeRow,
+  type CssRuleSourceIdentity,
 } from '../lib/cssCascade';
 import { parseRuleBody, serializeRuleBody, overriddenProps, type RuleBody } from '../lib/cssBody';
 import { keyframesName, parseRulePrelude } from '../lib/cssStructures';
@@ -58,27 +65,11 @@ function draftSpecificity(selector: string): [number, number, number] {
   return [0, 0, 1];
 }
 
-/** Compare specificity tuples (a−b, MSB first). */
-function specCmp(a: [number, number, number], b: [number, number, number]): number {
-  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
-}
-
-/** Insert a draft row into the cascade list (which is sorted highest-priority first),
- *  mutating in place: before the first ACTIVE row with lower specificity, but above the
- *  inactive-media block. */
-function insertDraftByCascade(rows: CascadeRow[], draft: CascadeRow): void {
-  const ds = draft.specificity;
-  let i = rows.findIndex((r) => !r.inactiveMedia && specCmp(r.specificity, ds) < 0);
-  if (i < 0) {
-    const inactive = rows.findIndex((r) => r.inactiveMedia);
-    i = inactive < 0 ? rows.length : inactive;
-  }
-  rows.splice(i, 0, draft);
-}
-
 export interface CascadeSelection {
   signature: ElementSignature;
   instanceCount: number;
+  /** Proxy-issued selection identity, used to expire selection-scoped review plans. */
+  selectionId?: string;
 }
 
 interface Params {
@@ -89,6 +80,38 @@ interface Params {
    *  get a CSS-Modules explanation instead of the generic read-only reason. */
   cssModulesHint?: boolean;
   onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+function findActivity(row: CascadeRow, rules: MatchedRule[]): MatchedRule | undefined {
+  const identity = row.runtimeIdentity;
+  return rules.find((rule) => {
+    const candidate = rule.runtimeIdentity;
+    if (identity && candidate) {
+      return (
+        identity.stylesheetIndex === candidate.stylesheetIndex &&
+        JSON.stringify(identity.rulePath) === JSON.stringify(candidate.rulePath) &&
+        identity.selectorMemberIndex === candidate.selectorMemberIndex
+      );
+    }
+    return rule.sourceOrder === row.sourceOrder && rule.selector === row.selector;
+  });
+}
+
+function identitySelectors(identity: CssRuleSourceIdentity): string[] {
+  return identity.selectorMembers.filter((_, index) => index !== identity.selectorMemberIndex);
+}
+
+function cascadeActivityOverrides(
+  rows: Map<string, CascadeRow>,
+  rules: MatchedRule[],
+  previous: Record<string, Map<string, string>>
+): Record<string, Map<string, string>> {
+  const next = { ...previous };
+  for (const [key, row] of rows) {
+    const match = findActivity(row, rules);
+    if (match) next[key] = overriddenProps(match);
+  }
+  return next;
 }
 
 export function useCssCascadeEditor({
@@ -107,6 +130,7 @@ export function useCssCascadeEditor({
   const [bodies, setBodies] = useState<Record<string, RuleBody>>({});
   const [overridden, setOverridden] = useState<Record<string, Map<string, string>>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
+  const [pendingSaveKeys, setPendingSaveKeys] = useState<Set<string>>(() => new Set());
   // Project class names for selector autocomplete (loaded when edit mode opens).
   const [classSuggestions, setClassSuggestions] = useState<string[]>([]);
   // Every existing rule selector (full text), so "Add selector" can suggest what's
@@ -121,8 +145,13 @@ export function useCssCascadeEditor({
   const bodiesRef = useRef<Record<string, RuleBody>>({});
   const previewTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const savePromises = useRef<Record<string, Promise<CssRuleSourceIdentity | undefined>>>({});
+  const scheduleSaveRef = useRef<(key: string) => void>(() => {});
 
   const selTokenRef = useRef(0);
+  const activityRef = useRef<MatchedRule[] | null>(null);
+  const refreshWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshRequestIdRef = useRef(0);
   // The last selected element's signature — replayed after an HMR reload so the
   // panel re-reads the element's current source (instant sync after edits).
   const lastSignatureRef = useRef<ElementSignature | null>(null);
@@ -132,7 +161,18 @@ export function useCssCascadeEditor({
     requestId: number;
   } | null>(null);
   const contrastRequestIdRef = useRef(0);
+  const projectPathRef = useRef(projectPath);
+  const previousProjectPathRef = useRef(projectPath);
+  projectPathRef.current = projectPath;
   const selectedInstanceCountRef = useRef(1);
+
+  const clearRefreshWatchdog = useCallback(() => {
+    if (refreshWatchdogRef.current !== null) {
+      clearTimeout(refreshWatchdogRef.current);
+      refreshWatchdogRef.current = null;
+    }
+    refreshRequestIdRef.current += 1;
+  }, []);
   // Synthetic indices for optimistically-added rules (kept clear of real cascade
   // indices, which start at 0).
   const synthIndex = useRef(1_000_000);
@@ -168,11 +208,84 @@ export function useCssCascadeEditor({
     [iframeRef]
   );
 
+  /** Refresh source snapshots for sibling rows after a known write to the same sheet.
+   *  If a row's current authored body no longer matches what it was loaded with, it
+   *  stays read-only until the next selection instead of inheriting a newer identity
+   *  and risking an overwrite of external edits. */
+  const refreshSourceIdentities = useCallback(
+    async (
+      changedIdentity: CssRuleSourceIdentity,
+      keepKey?: string,
+      force = false,
+      token = selTokenRef.current
+    ) => {
+      const currentProject = projectPath;
+      const matched = activityRef.current;
+      let locateByRuntime = new Map<MatchedRule, RuleLocation>();
+      if (matched) {
+        const toLocate = rulesToLocate(matched);
+        const queries = toLocate.map((entry) => entry.query);
+        try {
+          const locations = queries.length ? await locateCssRules(currentProject, queries) : [];
+          if (projectPathRef.current !== currentProject || selTokenRef.current !== token) {
+            return;
+          }
+          toLocate.forEach((entry, index) => {
+            locateByRuntime.set(matched[entry.index], locations[index]);
+          });
+        } catch {
+          locateByRuntime = new Map();
+        }
+      }
+      if (projectPathRef.current !== currentProject || selTokenRef.current !== token) return;
+      setRows((previous) =>
+        previous.map((row) => {
+          const key = rowKey(row);
+          if (key === keepKey || row.sourceIdentity?.sourcePath !== changedIdentity.sourcePath) {
+            return row;
+          }
+          if (!force && row.sourceIdentity.sourceVersion === changedIdentity.sourceVersion)
+            return row;
+          const active = matched ? findActivity(row, matched) : undefined;
+          const location = active ? locateByRuntime.get(active) : undefined;
+          if (
+            location?.status === 'resolved' &&
+            location.source_identity &&
+            row.innerText === location.inner_text
+          ) {
+            return {
+              ...row,
+              editable: true,
+              file: location.file,
+              line: location.line,
+              innerText: location.inner_text,
+              sourceIdentity: location.source_identity,
+              sharedSelectors: identitySelectors(location.source_identity),
+              runtimeIdentity: undefined,
+              readonlyReason: undefined,
+            };
+          }
+          return {
+            ...row,
+            editable: false,
+            sourceIdentity: undefined,
+            runtimeIdentity: undefined,
+            readonlyReason: 'The stylesheet changed. Reselect the element to refresh this rule.',
+          };
+        })
+      );
+    },
+    [projectPath]
+  );
+
   // Nothing is selected any more — either the cascade we are showing was read
   // out of a frame the editor has since left, or the user clicked the canvas
   // background and dropped the selection.
   const forgetSelection = useCallback(() => {
+    clearRefreshWatchdog();
     contrastSelectionRef.current = null;
+    activityRef.current = null;
+    ++selTokenRef.current;
     selectedInstanceCountRef.current = 1;
     setSelection(null);
     setRows([]);
@@ -181,16 +294,71 @@ export function useCssCascadeEditor({
     baselineInner.current = {};
     setOverridden({});
     lastSignatureRef.current = null;
-  }, []);
+  }, [clearRefreshWatchdog]);
   useFrameRebind(iframeRef, forgetSelection);
   useSelectionCleared(iframeRef, forgetSelection);
+
+  const cancelScheduledSave = useCallback((key: string) => {
+    clearTimeout(saveTimers.current[key]);
+    delete saveTimers.current[key];
+    setPendingSaveKeys((previous) => {
+      if (!previous.has(key)) return previous;
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
+  }, []);
 
   const clearTimers = useCallback(() => {
     Object.values(previewTimers.current).forEach(clearTimeout);
     Object.values(saveTimers.current).forEach(clearTimeout);
     previewTimers.current = {};
     saveTimers.current = {};
-  }, []);
+    setPendingSaveKeys(new Set());
+    clearRefreshWatchdog();
+  }, [clearRefreshWatchdog]);
+
+  /** Re-read the selected element's cascade after a verified source mutation. */
+  const refreshSelection = useCallback(() => {
+    const signature = lastSignatureRef.current;
+    if (!editMode || !signature) return;
+    clearRefreshWatchdog();
+    const requestId = ++refreshRequestIdRef.current;
+    setLoading(true);
+    refreshWatchdogRef.current = setTimeout(() => {
+      if (refreshRequestIdRef.current !== requestId) return;
+      refreshWatchdogRef.current = null;
+      setLoading(false);
+    }, 2000);
+    post({ type: 'ss:reselect', signature });
+  }, [clearRefreshWatchdog, editMode, post]);
+
+  // A project switch invalidates any cascade or source lookup still in flight and
+  // drops the previous project's selection, row bodies, and proposed destinations.
+  useEffect(() => {
+    if (previousProjectPathRef.current === projectPath) return;
+    previousProjectPathRef.current = projectPath;
+    ++selTokenRef.current;
+    clearTimers();
+    activityRef.current = null;
+    lastSignatureRef.current = null;
+    contrastSelectionRef.current = null;
+    selectedInstanceCountRef.current = 1;
+    createdRowsRef.current = new Map();
+    draftKeysRef.current = new Set();
+    draftIndexRef.current = new Map();
+    bodiesRef.current = {};
+    baselineInner.current = {};
+    setSelection(null);
+    setRows([]);
+    setBodies({});
+    setOverridden({});
+    setSavingKeys(new Set());
+    setLoading(false);
+    setClassSuggestions([]);
+    setExistingSelectors([]);
+    setVariableSuggestions([]);
+  }, [projectPath, clearTimers]);
 
   // Activate the in-iframe selection layer in CASCADE mode while editing; re-arm on HMR.
   useEffect(() => {
@@ -351,10 +519,17 @@ export function useCssCascadeEditor({
             ? prevPath === nextPath
             : prev.tagName === signature.tagName && prev.className === signature.className);
         lastSignatureRef.current = signature;
+        activityRef.current = null;
         ++selTokenRef.current;
         clearTimers();
         post({ type: 'ss:clearRulePreview' });
-        setSelection({ signature, instanceCount });
+        setSelection({
+          signature,
+          instanceCount,
+          ...(typeof d.selectionId === 'string' && d.selectionId.length > 0
+            ? { selectionId: d.selectionId }
+            : {}),
+        });
         if (!sameElement) {
           createdRowsRef.current = new Map();
           draftIndexRef.current = new Map();
@@ -369,9 +544,25 @@ export function useCssCascadeEditor({
         return;
       }
 
+      if (d.type === 'ss:cascadeActivity' && Array.isArray(d.rules)) {
+        if (
+          !contrastSelectionRef.current ||
+          d.selectionId !== contrastSelectionRef.current.selectionId
+        )
+          return;
+        activityRef.current = d.rules;
+        setRows((prev) => applyCascadeActivity(prev, d.rules!));
+        setOverridden((prev) => cascadeActivityOverrides(rowByKeyRef.current, d.rules!, prev));
+        return;
+      }
+
       if (d.type === 'ss:cascade' && Array.isArray(d.rules)) {
         const matched = d.rules;
         const token = selTokenRef.current;
+        // The initial cascade contains the same exact runtime identities as a
+        // later resize activity update. Keep it available immediately so a source
+        // write can refresh sibling rows without waiting for the viewport to move.
+        activityRef.current = matched;
         void (async () => {
           try {
             const toLocate = rulesToLocate(matched);
@@ -383,7 +574,7 @@ export function useCssCascadeEditor({
               : [];
             const locByIndex = new Map<number, RuleLocation>();
             toLocate.forEach((x, k) => locByIndex.set(x.index, locations[k]));
-            if (selTokenRef.current !== token) return;
+            if (selTokenRef.current !== token || projectPathRef.current !== projectPath) return;
             const merged = mergeCascade(matched, locByIndex, { cssModulesHint });
 
             const nextBodies: Record<string, RuleBody> = {};
@@ -405,10 +596,21 @@ export function useCssCascadeEditor({
             // HMR-resolved row carry different `index`es, so a key compare would never
             // dedupe them and the card would appear twice (esp. for conditional rules,
             // whose selector matches the element so the cascade always re-reports them).
-            const sameRule = (a: CascadeRow, b: CascadeRow) =>
-              a.selector === b.selector &&
-              (a.mediaText ?? null) === (b.mediaText ?? null) &&
-              (a.file ?? null) === (b.file ?? null);
+            const sameRule = (a: CascadeRow, b: CascadeRow) => {
+              const aSource = a.sourceIdentity;
+              const bSource = b.sourceIdentity;
+              if (aSource && bSource) {
+                return (
+                  aSource.sourcePath === bSource.sourcePath &&
+                  aSource.selectorOffset === bSource.selectorOffset
+                );
+              }
+              return (
+                a.selector === b.selector &&
+                (a.mediaText ?? null) === (b.mediaText ?? null) &&
+                (a.file ?? null) === (b.file ?? null)
+              );
+            };
             const extraRows: CascadeRow[] = [];
             for (const [key, createdRow] of createdRowsRef.current) {
               if (merged.some((m) => sameRule(m, createdRow))) {
@@ -427,6 +629,7 @@ export function useCssCascadeEditor({
               extraRows.push(unmatched ? { ...createdRow, unmatched: true } : createdRow);
             }
             const finalRows = [...extraRows, ...merged];
+            const draftRows: CascadeRow[] = [];
 
             // Draft cards: the element's own selectors (classes, then tag) with no base
             // rule yet — empty editable cards placed in cascade order. They aren't
@@ -434,15 +637,8 @@ export function useCssCascadeEditor({
             draftKeysRef.current = new Set();
             const sig = lastSignatureRef.current;
             if (sig) {
-              let targetFile = finalRows.find((r) => r.editable && r.file)?.file;
-              if (!targetFile) {
-                try {
-                  targetFile = (await listStylesheets(projectPath))[0];
-                } catch {
-                  targetFile = undefined;
-                }
-              }
-              if (targetFile && selTokenRef.current === token) {
+              const targetFile = selectCssRuleTargetFile(finalRows);
+              if (selTokenRef.current === token && projectPathRef.current === projectPath) {
                 const sigClasses = sig.className.split(/\s+/).filter(Boolean);
                 const candidates = [
                   ...new Set([...sigClasses.map((c) => `.${c}`), sig.tagName].filter(Boolean)),
@@ -470,36 +666,46 @@ export function useCssCascadeEditor({
                     layer: null,
                     origin: 'author',
                     editable: true,
-                    file: targetFile,
-                    line: 0,
-                    innerText: '\n',
                     draft: true,
+                    draftTargetFile: targetFile,
                   };
                   const key = rowKey(draft);
                   draftKeysRef.current.add(key);
                   nextBodies[key] = { items: [] };
                   nextBaseline[key] = '\n';
                   nextOverridden[key] = new Map();
-                  insertDraftByCascade(finalRows, draft);
+                  draftRows.push(draft);
                 }
               }
             }
 
-            setRows(finalRows);
+            const rowsWithDrafts = positionCascadeDrafts([...finalRows, ...draftRows]);
+            const activity = activityRef.current;
+            setRows(activity ? applyCascadeActivity(rowsWithDrafts, activity) : rowsWithDrafts);
             setBodies(nextBodies);
             bodiesRef.current = nextBodies;
             baselineInner.current = nextBaseline;
-            setOverridden(nextOverridden);
+            setOverridden(
+              activity
+                ? cascadeActivityOverrides(
+                    new Map(rowsWithDrafts.map((r) => [rowKey(r), r])),
+                    activity,
+                    nextOverridden
+                  )
+                : nextOverridden
+            );
           } catch (err) {
             logger.error('[CssCascade] locate failed', {
               error: formatCommandError(asCommandError(err)),
             });
-            if (selTokenRef.current === token) {
+            if (selTokenRef.current === token && projectPathRef.current === projectPath) {
               setRows(mergeCascade(matched, new Map(), { cssModulesHint }));
               onToast(toastText(err), 'error');
             }
           } finally {
-            if (selTokenRef.current === token) setLoading(false);
+            if (selTokenRef.current === token && projectPathRef.current === projectPath) {
+              setLoading(false);
+            }
           }
         })();
       }
@@ -513,99 +719,163 @@ export function useCssCascadeEditor({
     (key: string) => {
       const row = rowByKeyRef.current.get(key);
       const body = bodiesRef.current[key];
-      if (!row || !row.editable || row.selector == null || !body) return;
+      if (!row || !row.editable || row.selector == null || !body || !row.runtimeIdentity) return;
+      if (projectPathRef.current !== projectPath) return;
       post({
         type: 'ss:previewRuleText',
         ruleKey: key,
-        selector: row.selector,
-        mediaText: row.mediaText,
-        // Pin the exact rule by cascade position so a duplicate selector (base + @layer)
-        // previews the one the panel is showing, not the first textual match.
-        order: row.sourceOrder,
-        cssText: `${row.selector} {${serializeRuleBody(body)}}`,
+        identity: row.runtimeIdentity,
+        // Keep the browser's full selector list. Editing a matched member still edits
+        // the authored shared rule and must not drop its sibling selectors in preview.
+        cssText: `${row.runtimeIdentity.selectorList} {${serializeRuleBody(body)}}`,
       });
     },
-    [post]
+    [post, projectPath]
   );
 
   /** Persist a rule's current body to source (drift-guarded), then bake the preview. */
-  const saveRule = useCallback(
-    async (key: string) => {
+  const saveRuleNow = useCallback(
+    async (key: string): Promise<CssRuleSourceIdentity | undefined> => {
       const row = rowByKeyRef.current.get(key);
       const body = bodiesRef.current[key];
-      if (!row || !row.editable || row.file == null || row.selector == null || !body) return;
+      if (!row || !row.editable || row.selector == null || !body) return undefined;
+      if (projectPathRef.current !== projectPath) return undefined;
       const oldInner = baselineInner.current[key];
       const newInner = serializeRuleBody(body);
-      if (oldInner === undefined || newInner === oldInner) return;
+      if (oldInner === undefined || newInner === oldInner) return row.sourceIdentity;
+      const targetFile = cssRuleWriteTargetFile(row);
+      if (!targetFile) {
+        if (row.draft) {
+          onToast('No verified stylesheet destination is known for this selector yet.', 'info');
+        }
+        return undefined;
+      }
+      const token = selTokenRef.current;
+      let writeTargetFile = targetFile;
       setSavingKeys((prev) => new Set(prev).add(key));
       post({ type: 'ss:suppressReload' });
       try {
+        let sourceIdentity = row.sourceIdentity;
+        let sourceBaseline = oldInner;
         // A draft's rule doesn't exist in source yet — create the (empty) rule on its
         // first real property, then write the body into it. After this it's a normal card.
         if (draftKeysRef.current.has(key)) {
-          try {
-            await createCssRule(projectPath, row.file, row.selector);
-          } catch (err) {
-            if (!formatCommandError(asCommandError(err)).includes('already exists')) throw err;
-          }
+          sourceIdentity = await createCssRule(projectPath, targetFile, row.selector);
+          if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
+            return undefined;
+          sourceBaseline = sourceIdentity.innerText;
           draftKeysRef.current.delete(key);
         }
-        await applyCssRuleText(
-          projectPath,
-          row.file,
-          row.selector,
-          row.mediaText,
-          oldInner,
-          newInner
-        );
-        baselineInner.current[key] = newInner; // new drift baseline
-        post({ type: 'ss:commitRulePreview', ruleKey: key });
-        void trackEvent('visual_edit_saved', { kind: 'style', mode: 'css-code' });
-      } catch (err) {
-        // The source went stale under the card: body drift (a prior save's
-        // formatting, an HMR re-read, an external edit) OR the rule no longer
-        // matching at all (renamed/rewritten since the card was seeded —
-        // issue #584). Both are recoverable: re-locate the rule in the current
-        // source and retry ONCE so editing stays "instant" instead of hitting
-        // a drift wall and dropping the edit.
-        if (isStaleCssRuleError(err)) {
+        if (!sourceIdentity) {
+          onToast(
+            'This rule has no verified source occurrence. Reselect the element to refresh it.',
+            'info'
+          );
+          return undefined;
+        }
+        let nextIdentity: CssRuleSourceIdentity;
+        try {
+          nextIdentity = await applyCssRuleText(
+            projectPath,
+            writeTargetFile,
+            row.selector,
+            row.mediaText,
+            sourceBaseline,
+            newInner,
+            sourceIdentity
+          );
+        } catch (err) {
+          if (!isStaleCssRuleError(err)) throw err;
+          let locations: RuleLocation[];
           try {
-            const locs = await locateCssRules(projectPath, [
+            locations = await locateCssRules(projectPath, [
               { selector: row.selector, mediaText: row.mediaText, href: null },
             ]);
-            const loc = locs[0];
-            if (loc && loc.status === 'resolved') {
-              await applyCssRuleText(
-                projectPath,
-                // The re-located rule may live in a different file than the
-                // (stale) card — write where the rule actually is now.
-                loc.file,
-                row.selector,
-                row.mediaText,
-                loc.inner_text,
-                newInner
-              );
-              baselineInner.current[key] = newInner;
-              post({ type: 'ss:commitRulePreview', ruleKey: key });
-              return;
-            }
           } catch {
-            /* fall through to the toast below */
+            throw err;
           }
-          // Still stale after re-locating: the rule is genuinely gone from
-          // source. Expected environment state (an agent/external edit) — warn
-          // so it doesn't auto-file a bug report; the toast below still tells
-          // the user their edit didn't land.
-          logger.warn('[CssCascade] write-back rejected as stale after retry', {
-            error: formatCommandError(asCommandError(err)),
-          });
-          onToast(toastText(err), 'error');
-          return;
+          const location = locations[0];
+          if (location?.status !== 'resolved' || !location.source_identity) throw err;
+          if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
+            return undefined;
+          writeTargetFile = location.file;
+          sourceBaseline = location.inner_text;
+          sourceIdentity = location.source_identity;
+          nextIdentity = await applyCssRuleText(
+            projectPath,
+            writeTargetFile,
+            row.selector,
+            row.mediaText,
+            sourceBaseline,
+            newInner,
+            sourceIdentity
+          );
         }
-        logger.error('[CssCascade] write-back failed', {
+        if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
+          return undefined;
+        const latestBody = bodiesRef.current[key] ?? body;
+        const savedRow: CascadeRow = {
+          ...row,
+          file: writeTargetFile,
+          draft: false,
+          draftTargetFile: undefined,
+          innerText: nextIdentity.innerText,
+          sourceIdentity: nextIdentity,
+          sharedSelectors: identitySelectors(nextIdentity),
+        };
+        const savedKey = rowKey(savedRow);
+        if (savedKey !== key) {
+          const pendingPreview = previewTimers.current[key];
+          if (pendingPreview !== undefined) clearTimeout(pendingPreview);
+          delete previewTimers.current[key];
+          const pendingSave = saveTimers.current[key];
+          if (pendingSave !== undefined) clearTimeout(pendingSave);
+          delete saveTimers.current[key];
+          bodiesRef.current[savedKey] = latestBody;
+          delete bodiesRef.current[key];
+          delete baselineInner.current[key];
+          setBodies((previous) => {
+            const next = { ...previous, [savedKey]: latestBody };
+            delete next[key];
+            return next;
+          });
+          setOverridden((previous) => {
+            const next = { ...previous, [savedKey]: previous[key] ?? new Map() };
+            delete next[key];
+            return next;
+          });
+          setPendingSaveKeys((previous) => {
+            if (!previous.has(key)) return previous;
+            const next = new Set(previous);
+            next.delete(key);
+            next.add(savedKey);
+            return next;
+          });
+          previewTimers.current[savedKey] = setTimeout(() => {
+            delete previewTimers.current[savedKey];
+            previewRule(savedKey);
+          }, PREVIEW_DEBOUNCE_MS);
+        }
+        baselineInner.current[savedKey] = nextIdentity.innerText;
+        setRows((previous) => previous.map((item) => (rowKey(item) === key ? savedRow : item)));
+        post({ type: 'ss:commitRulePreview', ruleKey: key });
+        void refreshSourceIdentities(nextIdentity, savedKey, false, token);
+        if (serializeRuleBody(latestBody) !== nextIdentity.innerText) {
+          scheduleSaveRef.current(savedKey);
+        }
+        void trackEvent('visual_edit_saved', { kind: 'style', mode: 'css-code' });
+        return nextIdentity;
+      } catch (err) {
+        if (selTokenRef.current !== token || projectPathRef.current !== projectPath)
+          return undefined;
+        logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] write-back failed', {
           error: formatCommandError(asCommandError(err)),
         });
-        onToast(toastText(err), 'error');
+        onToast(
+          'The CSS source changed since this rule was loaded. Reselect the element before editing.',
+          'info'
+        );
+        return undefined;
       } finally {
         setSavingKeys((prev) => {
           const n = new Set(prev);
@@ -614,16 +884,52 @@ export function useCssCascadeEditor({
         });
       }
     },
-    [projectPath, onToast, post]
+    [projectPath, onToast, post, previewRule, refreshSourceIdentities]
   );
 
-  /** Delete a whole rule from source, drop its card, and remove it live. */
+  /** Serialize saves for one row so an explicit Split flush cannot race its debounce. */
+  const saveRule = useCallback(
+    (key: string): Promise<CssRuleSourceIdentity | undefined> => {
+      const previous = savePromises.current[key] ?? Promise.resolve(undefined);
+      const operation = previous.catch(() => undefined).then(() => saveRuleNow(key));
+      savePromises.current[key] = operation;
+      const clear = () => {
+        if (savePromises.current[key] === operation) delete savePromises.current[key];
+      };
+      void operation.then(clear, clear);
+      return operation;
+    },
+    [saveRuleNow]
+  );
+
+  const scheduleSave = useCallback(
+    (key: string) => {
+      cancelScheduledSave(key);
+      setPendingSaveKeys((previous) => new Set(previous).add(key));
+      saveTimers.current[key] = setTimeout(() => {
+        delete saveTimers.current[key];
+        setPendingSaveKeys((previous) => {
+          if (!previous.has(key)) return previous;
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        });
+        void saveRule(key);
+      }, SAVE_DEBOUNCE_MS);
+    },
+    [cancelScheduledSave, saveRule]
+  );
+  scheduleSaveRef.current = scheduleSave;
+
+  /** Remove the selected selector-list member or whole rule, using its exact identity. */
   const deleteRule = useCallback(
-    async (key: string) => {
+    async (key: string, removeMemberOnly = false) => {
       const row = rowByKeyRef.current.get(key);
-      if (!row || !row.editable || row.file == null || row.selector == null) return;
+      if (!row || !row.editable || row.file == null || row.selector == null || !row.sourceIdentity)
+        return;
       clearTimeout(previewTimers.current[key]);
-      clearTimeout(saveTimers.current[key]);
+      cancelScheduledSave(key);
+      const token = selTokenRef.current;
       post({ type: 'ss:suppressReload' });
       try {
         await deleteCssRule(
@@ -631,14 +937,16 @@ export function useCssCascadeEditor({
           row.file,
           row.selector,
           row.mediaText,
-          baselineInner.current[key] ?? ''
+          baselineInner.current[key] ?? '',
+          row.sourceIdentity,
+          removeMemberOnly
         );
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         post({ type: 'ss:clearRulePreview', ruleKey: key });
         post({
-          type: 'ss:deleteRulePreview',
-          selector: row.selector,
-          mediaText: row.mediaText,
-          order: row.sourceOrder,
+          type: removeMemberOnly ? 'ss:removeSelectorMemberPreview' : 'ss:deleteRulePreview',
+          ruleKey: key,
+          identity: row.runtimeIdentity,
         });
         setRows((prev) => prev.filter((r) => rowKey(r) !== key));
         setBodies((prev) => {
@@ -648,8 +956,10 @@ export function useCssCascadeEditor({
         });
         delete bodiesRef.current[key];
         delete baselineInner.current[key];
+        void refreshSourceIdentities(row.sourceIdentity, undefined, true, token);
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         // Stale (the rule changed or went away since the card was seeded) is
         // an expected editing race, not a bug. Unlike the body-preserving
         // writes below this is NOT retried against the re-located rule: that
@@ -660,7 +970,206 @@ export function useCssCascadeEditor({
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post]
+    [cancelScheduledSave, projectPath, onToast, post, refreshSourceIdentities]
+  );
+
+  const removeSelectorMember = useCallback((key: string) => deleteRule(key, true), [deleteRule]);
+
+  const deleteRules = useCallback(
+    async (keys: string[]) => {
+      const selected = keys
+        .map((key) => ({ key, row: rowByKeyRef.current.get(key) }))
+        .filter(
+          (item): item is { key: string; row: CascadeRow } =>
+            item.row?.editable === true && item.row.file != null && item.row.sourceIdentity != null
+        );
+      if (selected.length !== keys.length || selected.length === 0) {
+        onToast(
+          'Some rules no longer have a verified source occurrence. Reselect the element.',
+          'info'
+        );
+        return;
+      }
+      const file = selected[0].row.file!;
+      if (selected.some((item) => item.row.file !== file)) {
+        onToast('Rules from different stylesheets cannot be deleted as one media group.', 'info');
+        return;
+      }
+      const token = selTokenRef.current;
+      for (const { key } of selected) {
+        clearTimeout(previewTimers.current[key]);
+        cancelScheduledSave(key);
+        post({ type: 'ss:clearRulePreview', ruleKey: key });
+      }
+      post({ type: 'ss:suppressReload' });
+      try {
+        await deleteCssRules(
+          projectPath,
+          file,
+          selected.map(({ row }) => row.sourceIdentity!)
+        );
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        post({
+          type: 'ss:deleteRulesPreview',
+          identities: selected.map(({ row }) => row.runtimeIdentity).filter(Boolean),
+        });
+        const removedKeys = new Set(keys);
+        setRows((previous) => previous.filter((row) => !removedKeys.has(rowKey(row))));
+        setBodies((previous) => {
+          const next = { ...previous };
+          for (const key of keys) delete next[key];
+          return next;
+        });
+        for (const key of keys) {
+          delete bodiesRef.current[key];
+          delete baselineInner.current[key];
+        }
+        void refreshSourceIdentities(selected[0].row.sourceIdentity!, undefined, true, token);
+        void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
+      } catch (err) {
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        onToast(toastText(err), 'error');
+      }
+    },
+    [cancelScheduledSave, projectPath, onToast, post, refreshSourceIdentities]
+  );
+
+  const splitSelectorList = useCallback(
+    async (key: string) => {
+      const row = rowByKeyRef.current.get(key);
+      if (
+        !row?.editable ||
+        !row.file ||
+        !row.selector ||
+        !row.sourceIdentity ||
+        row.sourceIdentity.selectorMembers.length < 2 ||
+        row.sourceIdentity.selectorListSplitSafe !== true
+      ) {
+        return;
+      }
+      const token = selTokenRef.current;
+      clearTimeout(previewTimers.current[key]);
+      cancelScheduledSave(key);
+      try {
+        // Flush the row's debounced body write through the same per-row save queue before
+        // asking Rust to split the source rule. This keeps the declarations identical in
+        // every resulting rule and gives the split a current exact source snapshot.
+        let identity = await saveRule(key);
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        if (!identity) {
+          onToast(
+            'This rule could not be saved before splitting. Reselect it and try again.',
+            'info'
+          );
+          return;
+        }
+        const latestBody = bodiesRef.current[key];
+        if (latestBody && serializeRuleBody(latestBody) !== baselineInner.current[key]) {
+          identity = await saveRule(key);
+        }
+        if (!identity) {
+          onToast(
+            'This rule could not be saved before splitting. Reselect it and try again.',
+            'info'
+          );
+          return;
+        }
+        const runtimeIdentity =
+          rowByKeyRef.current.get(key)?.runtimeIdentity ?? row.runtimeIdentity;
+        post({ type: 'ss:suppressReload' });
+        post({ type: 'ss:commitRulePreview', ruleKey: key });
+        const result = await splitCssSelectorList(projectPath, row.file, identity);
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+
+        const remaps = new Map(
+          result.remappedRules.map((remap) => [
+            JSON.stringify([remap.oldSelectorOffset, remap.selectorMemberIndex]),
+            remap.identity,
+          ])
+        );
+        const remapRow = (candidate: CascadeRow): CascadeRow => {
+          const oldIdentity = candidate.sourceIdentity;
+          if (!oldIdentity || oldIdentity.sourcePath !== row.file) {
+            return { ...candidate, runtimeIdentity: undefined };
+          }
+          const nextIdentity = remaps.get(
+            JSON.stringify([oldIdentity.selectorOffset, oldIdentity.selectorMemberIndex])
+          );
+          const oldMember = oldIdentity.selectorMembers[oldIdentity.selectorMemberIndex];
+          const isSplitRule = oldIdentity.selectorOffset === identity.selectorOffset;
+          const matchesExactMember =
+            nextIdentity &&
+            oldMember === nextIdentity.matchedSelector &&
+            oldIdentity.contextPath.join('\u0000') === nextIdentity.contextPath.join('\u0000') &&
+            (isSplitRule || candidate.innerText === nextIdentity.innerText);
+          if (!nextIdentity || !matchesExactMember) {
+            return {
+              ...candidate,
+              editable: false,
+              sourceIdentity: undefined,
+              runtimeIdentity: undefined,
+              readonlyReason: 'The stylesheet changed. Reselect the element to refresh this rule.',
+            };
+          }
+          return {
+            ...candidate,
+            selector: nextIdentity.matchedSelector,
+            innerText: nextIdentity.innerText,
+            sourceIdentity: nextIdentity,
+            sharedSelectors: identitySelectors(nextIdentity),
+            runtimeIdentity: undefined,
+          };
+        };
+        const previousRows = [...rowByKeyRef.current.values()];
+        const nextRows = previousRows.map(remapRow);
+        const movedKeys = new Map(
+          previousRows.map((candidate, index) => [rowKey(candidate), rowKey(nextRows[index])])
+        );
+        const moveRecord = <T>(record: Record<string, T>): Record<string, T> => {
+          const next = { ...record };
+          for (const [oldKey, newKey] of movedKeys) {
+            if (oldKey === newKey || !(oldKey in record)) continue;
+            next[newKey] = record[oldKey];
+            delete next[oldKey];
+          }
+          return next;
+        };
+        bodiesRef.current = moveRecord(bodiesRef.current);
+        baselineInner.current = moveRecord(baselineInner.current);
+        for (const nextRow of nextRows) {
+          if (nextRow.sourceIdentity?.sourcePath === row.file) {
+            baselineInner.current[rowKey(nextRow)] = nextRow.sourceIdentity.innerText;
+          }
+        }
+        setRows(nextRows);
+        rowByKeyRef.current = new Map(nextRows.map((candidate) => [rowKey(candidate), candidate]));
+        setBodies((previous) => moveRecord(previous));
+        setOverridden((previous) => moveRecord(previous));
+        const nextCreatedRows = new Map<string, CascadeRow>();
+        for (const [createdKey, createdRow] of createdRowsRef.current) {
+          const nextCreatedRow = remapRow(createdRow);
+          nextCreatedRows.set(movedKeys.get(createdKey) ?? rowKey(nextCreatedRow), nextCreatedRow);
+        }
+        createdRowsRef.current = nextCreatedRows;
+        post({
+          type: 'ss:splitSelectorListPreview',
+          identity: runtimeIdentity,
+          ruleKey: key,
+        });
+        const signature = lastSignatureRef.current;
+        if (signature) {
+          setTimeout(() => {
+            if (projectPathRef.current === projectPath && selTokenRef.current === token) {
+              post({ type: 'ss:reselect', signature });
+            }
+          }, 0);
+        }
+      } catch (err) {
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        onToast(toastText(err), 'error');
+      }
+    },
+    [cancelScheduledSave, onToast, post, projectPath, saveRule]
   );
 
   /**
@@ -668,27 +1177,36 @@ export function useCssCascadeEditor({
    * card's rule. When the backend rejects it as stale — the rule was renamed or
    * reformatted since the card was seeded — re-locate the rule in the current
    * source and retry ONCE with its real file and body, as `saveRule` does
-   * (issues #584/#1008). Returns the body the write matched against, which
-   * becomes the card's new drift baseline.
+   * (issues #584/#1008). Retries with the exact source identity returned by
+   * a fresh lookup and returns that matched identity with the write result.
    */
   const writeWithStaleRetry = useCallback(
-    async (
-      row: CascadeRow & { file: string; selector: string },
+    async <T>(
+      row: CascadeRow & {
+        file: string;
+        selector: string;
+        sourceIdentity: CssRuleSourceIdentity;
+      },
       oldInner: string,
-      write: (file: string, oldInner: string) => Promise<void>
-    ): Promise<string> => {
+      write: (file: string, oldInner: string, sourceIdentity: CssRuleSourceIdentity) => Promise<T>
+    ): Promise<{ value: T; matchedIdentity: CssRuleSourceIdentity }> => {
+      const initialIdentity = row.sourceIdentity;
       try {
-        await write(row.file, oldInner);
-        return oldInner;
+        return {
+          value: await write(row.file, oldInner, initialIdentity),
+          matchedIdentity: initialIdentity,
+        };
       } catch (err) {
         if (!isStaleCssRuleError(err)) throw err;
         const locs = await locateCssRules(projectPath, [
           { selector: row.selector, mediaText: row.mediaText, href: null },
         ]).catch(() => []);
         const loc = locs[0];
-        if (!loc || loc.status !== 'resolved') throw err;
-        await write(loc.file, loc.inner_text);
-        return loc.inner_text;
+        if (loc?.status !== 'resolved' || !loc.source_identity) throw err;
+        return {
+          value: await write(loc.file, loc.inner_text, loc.source_identity),
+          matchedIdentity: loc.source_identity,
+        };
       }
     },
     [projectPath]
@@ -701,28 +1219,82 @@ export function useCssCascadeEditor({
     async (key: string, atPrelude: string) => {
       const row = rowByKeyRef.current.get(key);
       if (!row || !row.editable || row.file == null || row.selector == null) return;
-      post({ type: 'ss:suppressReload' });
-      const target = { ...row, file: row.file, selector: row.selector };
-      try {
-        await writeWithStaleRetry(target, baselineInner.current[key] ?? '', (file, oldInner) =>
-          wrapCssRule(projectPath, file, target.selector, target.mediaText, atPrelude, oldInner)
+      if (!row.sourceIdentity) {
+        onToast(
+          'This rule has no verified source occurrence. Reselect the element to refresh it.',
+          'info'
         );
+        return;
+      }
+      clearTimeout(previewTimers.current[key]);
+      cancelScheduledSave(key);
+      const token = selTokenRef.current;
+      post({ type: 'ss:suppressReload' });
+      const target = {
+        ...row,
+        file: row.file,
+        selector: row.selector,
+        sourceIdentity: row.sourceIdentity,
+      };
+      try {
+        const { value: identity } = await writeWithStaleRetry(
+          target,
+          baselineInner.current[key] ?? '',
+          (file, oldInner, sourceIdentity) =>
+            wrapCssRule(
+              projectPath,
+              file,
+              target.selector,
+              target.mediaText,
+              atPrelude,
+              oldInner,
+              sourceIdentity
+            )
+        );
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
         const m = atPrelude.trim();
-        const cond = m.toLowerCase().startsWith('@media') ? m.slice('@media'.length).trim() : null;
-        if (cond)
-          setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, mediaText: cond } : r)));
-        else onToast('Wrapped — reselect the element to keep editing.', 'success');
+        const lower = m.toLowerCase();
+        const media = lower.startsWith('@media') ? m.slice('@media'.length).trim() : row.mediaText;
+        const nextRow = {
+          ...row,
+          sourceIdentity: identity,
+          innerText: identity.innerText,
+          mediaText: media,
+          layer: lower.startsWith('@layer') ? m.slice('@layer'.length).trim() || null : row.layer,
+          container: lower.startsWith('@container')
+            ? m.slice('@container'.length).trim() || null
+            : row.container,
+          supports: lower.startsWith('@supports')
+            ? m.slice('@supports'.length).trim() || null
+            : row.supports,
+          runtimeIdentity: undefined,
+        };
+        setRows((previous) =>
+          previous.map((candidate) => (rowKey(candidate) === key ? nextRow : candidate))
+        );
+        baselineInner.current[key] = identity.innerText;
+        post({ type: 'ss:clearRulePreview', ruleKey: key });
+        void refreshSourceIdentities(identity, key, false, token);
+        scheduleSave(key);
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        // Still stale after re-locating: the rule is gone from source — an
-        // expected editing race, not a bug (issue #1008).
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        // A still-stale rejection means the rule disappeared during re-location.
         logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] wrap failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post, writeWithStaleRetry]
+    [
+      cancelScheduledSave,
+      projectPath,
+      onToast,
+      post,
+      refreshSourceIdentities,
+      scheduleSave,
+      writeWithStaleRetry,
+    ]
   );
 
   /** Create a brand-new rule for `selector` and add it as an editable card you can
@@ -798,7 +1370,7 @@ export function useCssCascadeEditor({
       );
       if (alreadyShown) return;
 
-      let targetFile = [...rowByKeyRef.current.values()].find((r) => r.editable && r.file)?.file;
+      let targetFile = selectCssRuleTargetFile([...rowByKeyRef.current.values()]);
       if (!targetFile) {
         try {
           targetFile = (await listStylesheets(projectPath))[0];
@@ -813,7 +1385,9 @@ export function useCssCascadeEditor({
 
       // Pin a rule into the panel as an editable card. Created rules persist across
       // cascade refreshes (see createdRowsRef) so they never silently vanish.
-      const pin = (file: string, innerText: string) => {
+      const pin = (identity: CssRuleSourceIdentity) => {
+        const file = identity.sourcePath;
+        const innerText = identity.innerText;
         const newRow: CascadeRow = {
           index: ++synthIndex.current,
           selector: sel,
@@ -828,6 +1402,8 @@ export function useCssCascadeEditor({
           file,
           line: 0,
           innerText,
+          sourceIdentity: identity,
+          sharedSelectors: identitySelectors(identity),
         };
         const key = rowKey(newRow);
         const body = parseRuleBody(innerText);
@@ -837,33 +1413,19 @@ export function useCssCascadeEditor({
         bodiesRef.current[key] = body;
         baselineInner.current[key] = innerText;
         setOverridden((prev) => ({ ...prev, [key]: new Map() }));
+        return key;
       };
 
       post({ type: 'ss:suppressReload' });
       const token = selTokenRef.current;
       try {
-        await createCssRule(projectPath, targetFile, sel, atPrelude);
-        // Re-locate the just-written rule and pin it with the EXACT source body, so the
-        // drift baseline matches and the first edit never trips the drift guard. This is
-        // critical for conditional (`@media`) rules: their wrapped indentation differs
-        // from a naive empty body, which previously forced a drift retry on first save.
-        let pinFile = targetFile;
-        let innerText = '\n';
-        try {
-          const [loc] = await locateCssRules(projectPath, [
-            { selector: sel, mediaText: condMediaText, href: null },
-          ]);
-          if (loc?.status === 'resolved') {
-            pinFile = loc.file;
-            innerText = loc.inner_text;
-          }
-        } catch {
-          /* keep the empty-body fallback — the drift retry covers the mismatch */
-        }
-        if (selTokenRef.current !== token) return; // element changed while writing
-        pin(pinFile, innerText);
+        const identity = await createCssRule(projectPath, targetFile, sel, atPrelude);
+        if (selTokenRef.current !== token || projectPathRef.current !== projectPath) return;
+        const pinnedKey = pin(identity);
+        void refreshSourceIdentities(identity, pinnedKey, false, token);
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
+        if (selTokenRef.current !== token || projectPathRef.current !== projectPath) return;
         // A Tauri-rejected CommandError is a plain object — String(err) renders
         // "[object Object]", which both broke the already-exists detection below
         // and made the logged error useless (issue #380).
@@ -876,8 +1438,10 @@ export function useCssCascadeEditor({
             const [loc] = await locateCssRules(projectPath, [
               { selector: sel, mediaText: null, href: null },
             ]);
-            if (loc?.status === 'resolved') {
-              pin(loc.file, loc.inner_text);
+            if (selTokenRef.current !== token || projectPathRef.current !== projectPath) return;
+            if (loc?.status === 'resolved' && loc.source_identity) {
+              const pinnedKey = pin(loc.source_identity);
+              void refreshSourceIdentities(loc.source_identity, pinnedKey, false, token);
               return;
             }
           } catch {
@@ -894,32 +1458,64 @@ export function useCssCascadeEditor({
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post]
+    [projectPath, onToast, post, refreshSourceIdentities]
   );
 
-  /** Change a rule's selector to anything (complex selectors included). Re-keys the
-   *  local state so editing continues; HMR/reselect refreshes whether it still
-   *  matches the element. */
+  /** Replace a rule's full selector list. Keep the resulting card pinned across
+   *  reselects if none of its new members match the current element. */
   const renameSelector = useCallback(
     async (key: string, newSelector: string) => {
       const row = rowByKeyRef.current.get(key);
       const ns = newSelector.trim();
       if (!row || !row.editable || row.file == null || row.selector == null) return;
-      if (!ns || ns === row.selector) return;
+      if (!ns || ns === (row.sourceIdentity?.selector ?? row.selector)) return;
+      if (!row.sourceIdentity) {
+        onToast(
+          'This rule has no verified source occurrence. Reselect the element to refresh it.',
+          'info'
+        );
+        return;
+      }
       // Cancel any in-flight debounced preview/save on the OLD key — once we re-key below
       // it would fire against a dead key and silently drop the edit.
       clearTimeout(previewTimers.current[key]);
-      clearTimeout(saveTimers.current[key]);
+      cancelScheduledSave(key);
+      const token = selTokenRef.current;
+      const previousRuntimeIdentity = row.runtimeIdentity;
+      // A source selector change invalidates the exact CSSOM selector-list evidence.
+      // Restore any temporary body preview before the source and runtime identities move.
+      post({ type: 'ss:clearRulePreview', ruleKey: key });
       post({ type: 'ss:suppressReload' });
-      const target = { ...row, file: row.file, selector: row.selector };
+      const target = {
+        ...row,
+        file: row.file,
+        selector: row.selector,
+        sourceIdentity: row.sourceIdentity,
+      };
       try {
-        const matchedInner = await writeWithStaleRetry(
+        const { value: identity } = await writeWithStaleRetry(
           target,
           baselineInner.current[key] ?? '',
-          (file, oldInner) =>
-            renameCssSelector(projectPath, file, target.selector, target.mediaText, oldInner, ns)
+          (file, oldInner, sourceIdentity) =>
+            replaceCssSelectorList(
+              projectPath,
+              file,
+              target.selector,
+              target.mediaText,
+              oldInner,
+              ns,
+              sourceIdentity
+            )
         );
-        const newRow: CascadeRow = { ...row, selector: ns };
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        const newRow: CascadeRow = {
+          ...row,
+          selector: identity.matchedSelector,
+          innerText: identity.innerText,
+          sourceIdentity: identity,
+          sharedSelectors: identitySelectors(identity),
+          runtimeIdentity: undefined,
+        };
         const newKey = rowKey(newRow);
         // Move the per-rule state to the new key.
         if (bodiesRef.current[key]) {
@@ -927,12 +1523,18 @@ export function useCssCascadeEditor({
           delete bodiesRef.current[key];
         }
         if (baselineInner.current[key] !== undefined) {
-          // The body the rename matched (re-located on a stale retry) is the
-          // new drift baseline.
-          baselineInner.current[newKey] = matchedInner;
           delete baselineInner.current[key];
         }
-        setRows((prev) => prev.map((r) => (rowKey(r) === key ? newRow : r)));
+        baselineInner.current[newKey] = identity.innerText;
+        setRows((prev) =>
+          prev.map((r) => (rowKey(r) === key ? newRow : { ...r, runtimeIdentity: undefined }))
+        );
+        rowByKeyRef.current = new Map(
+          [...rowByKeyRef.current.values()].map((candidate) => [
+            rowKey(candidate) === key ? newKey : rowKey(candidate),
+            rowKey(candidate) === key ? newRow : { ...candidate, runtimeIdentity: undefined },
+          ])
+        );
         setBodies((prev) => {
           if (!(key in prev)) return prev;
           const n = { ...prev };
@@ -947,21 +1549,40 @@ export function useCssCascadeEditor({
           delete n[key];
           return n;
         });
+        createdRowsRef.current.delete(key);
+        createdRowsRef.current.set(newKey, newRow);
+        if (previousRuntimeIdentity) {
+          post({
+            type: 'ss:replaceSelectorListPreview',
+            identity: previousRuntimeIdentity,
+            selectorList: identity.selectorMembers.join(', '),
+          });
+        }
         // Re-arm the save under the NEW key (deferred so the row refs settle first) so a
         // body edit that was mid-debounce when the rename landed still persists. saveRule
         // is a no-op when the body matches its baseline, so this is safe to always schedule.
-        clearTimeout(saveTimers.current[newKey]);
-        saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
+        scheduleSave(newKey);
+        void refreshSourceIdentities(identity, newKey, false, token);
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        // Still stale after re-locating — an expected race (issue #1008).
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        scheduleSave(key);
+        // Still stale after re-locating is an expected source race (issue #1008).
         logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] rename failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post, saveRule, writeWithStaleRetry]
+    [
+      cancelScheduledSave,
+      projectPath,
+      onToast,
+      post,
+      scheduleSave,
+      refreshSourceIdentities,
+      writeWithStaleRetry,
+    ]
   );
 
   /** Change the `@media` condition wrapping a rule. Re-keys on the new media; HMR
@@ -971,49 +1592,123 @@ export function useCssCascadeEditor({
       const row = rowByKeyRef.current.get(key);
       const nm = newMedia.trim();
       if (!row || !row.editable || row.file == null || row.selector == null || !nm) return;
-      const sourceFile = row.file;
       if (nm === row.mediaText) return;
+      if (!row.sourceIdentity) {
+        onToast(
+          'This rule has no verified source occurrence. Reselect the element to refresh it.',
+          'info'
+        );
+        return;
+      }
       // Cancel any in-flight debounced preview/save on the OLD key (re-keyed below).
       clearTimeout(previewTimers.current[key]);
-      clearTimeout(saveTimers.current[key]);
+      cancelScheduledSave(key);
+      const token = selTokenRef.current;
       post({ type: 'ss:suppressReload' });
-      const target = { ...row, file: sourceFile, selector: row.selector };
+      const target = {
+        ...row,
+        file: row.file,
+        selector: row.selector,
+        sourceIdentity: row.sourceIdentity,
+      };
       try {
-        const matchedInner = await writeWithStaleRetry(
+        const { value: renameResult, matchedIdentity: sourceIdentity } = await writeWithStaleRetry(
           target,
           baselineInner.current[key] ?? '',
-          (file, oldInner) =>
-            renameCssAtRule(projectPath, file, target.selector, target.mediaText, oldInner, nm)
+          (file, oldInner, currentIdentity) =>
+            renameCssAtRule(
+              projectPath,
+              file,
+              target.selector,
+              target.mediaText,
+              oldInner,
+              nm,
+              currentIdentity
+            )
         );
-        baselineInner.current[key] = matchedInner;
-        const minMatch = /min-width\s*:\s*([\d.]+)px/i.exec(nm);
-        const nextMediaMinPx = minMatch ? Math.round(parseFloat(minMatch[1])) : null;
-        const oldMedia = row.mediaText;
-        // `rename_css_at_rule` changes the shared wrapper, so every visible sibling in
-        // that wrapper must move together in local state. Otherwise the group briefly
-        // splits into an old and new media card until the next HMR/reselect refresh.
-        const affectedRows = [...rowByKeyRef.current.values()].filter(
-          (candidate) =>
-            candidate.mediaText === oldMedia &&
-            candidate.layer === row.layer &&
-            candidate.container === row.container &&
-            candidate.supports === row.supports &&
-            (candidate.file === sourceFile || candidate.sourceFiles?.includes(sourceFile) === true)
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        const renamedIdentity = renameResult.selected;
+        const remappedByOldMember = new Map(
+          renameResult.remappedRules.map(
+            (remap) =>
+              [
+                JSON.stringify([remap.oldSelectorOffset, remap.selectorMemberIndex]),
+                remap.identity,
+              ] as const
+          )
         );
-        if (!affectedRows.some((candidate) => rowKey(candidate) === key)) {
-          affectedRows.push(row);
+        const affectedRows = [...rowByKeyRef.current.values()].flatMap((candidate) => {
+          const previousIdentity = candidate.sourceIdentity;
+          if (
+            !previousIdentity ||
+            previousIdentity.sourcePath !== sourceIdentity.sourcePath ||
+            previousIdentity.sourceVersion !== sourceIdentity.sourceVersion
+          ) {
+            return [];
+          }
+          const identity = remappedByOldMember.get(
+            JSON.stringify([previousIdentity.selectorOffset, previousIdentity.selectorMemberIndex])
+          );
+          return identity ? [{ candidate, identity }] : [];
+        });
+        if (!affectedRows.some(({ candidate }) => rowKey(candidate) === key)) {
+          affectedRows.push({ candidate: row, identity: renamedIdentity });
         }
 
-        const moves = affectedRows.map((candidate) => {
+        const moves = affectedRows.map(({ candidate, identity }) => {
           const oldKey = rowKey(candidate);
+          const oldNearestMedia = [...(candidate.sourceIdentity?.contextPath ?? [])]
+            .reverse()
+            .find((context) => /^@media\b/i.test(context.trim()));
+          const newNearestMedia = [...identity.contextPath]
+            .reverse()
+            .find((context) => /^@media\b/i.test(context.trim()));
+          const mediaContextChanged = oldNearestMedia !== newNearestMedia;
+          const mediaText = mediaContextChanged
+            ? (newNearestMedia?.replace(/^\s*@media\b/i, '').trim() ?? null)
+            : candidate.mediaText;
+          const minMatch = mediaContextChanged
+            ? /min-width\s*:\s*([\d.]+)px/i.exec(mediaText ?? '')
+            : null;
+          const mediaMinPx = mediaContextChanged
+            ? minMatch
+              ? Math.round(parseFloat(minMatch[1]))
+              : null
+            : candidate.mediaMinPx;
           const nextRow: CascadeRow = {
             ...candidate,
-            mediaText: nm,
-            mediaMinPx: nextMediaMinPx,
+            mediaText,
+            mediaMinPx,
+            contextPath: identity.contextPath,
+            innerText: identity.innerText,
+            sourceIdentity: identity,
+            sharedSelectors: identitySelectors(identity),
+            // The wrapper changed, so none of the previous CSSOM paths are reusable.
+            runtimeIdentity: undefined,
           };
-          return { oldKey, newKey: rowKey(nextRow), nextRow };
+          return { oldKey, newKey: rowKey(nextRow), nextRow, candidate, identity };
         });
         const movedByOldKey = new Map(moves.map((move) => [move.oldKey, move]));
+        const matched = activityRef.current;
+        if (matched) {
+          const refreshedByRuntime = new Map<MatchedRule, MatchedRule>();
+          for (const { candidate, identity, nextRow } of moves) {
+            const active = findActivity(candidate, matched);
+            if (!active) continue;
+            refreshedByRuntime.set(active, {
+              ...active,
+              mediaText: nextRow.mediaText,
+              mediaMinPx: nextRow.mediaMinPx,
+              contextPath: identity.contextPath,
+              // The backend returned the exact new source identity; the old CSSOM path
+              // belongs to the previous media wrapper and cannot be reused.
+              runtimeIdentity: undefined,
+            });
+          }
+          if (refreshedByRuntime.size > 0) {
+            activityRef.current = matched.map((active) => refreshedByRuntime.get(active) ?? active);
+          }
+        }
         const moveRecord = <T>(record: Record<string, T>): Record<string, T> => {
           const next = { ...record };
           for (const { oldKey, newKey } of moves) {
@@ -1027,10 +1722,13 @@ export function useCssCascadeEditor({
         // Cancel callbacks that still point at the old identities before re-keying.
         for (const { oldKey } of moves) {
           clearTimeout(previewTimers.current[oldKey]);
-          clearTimeout(saveTimers.current[oldKey]);
+          cancelScheduledSave(oldKey);
         }
         bodiesRef.current = moveRecord(bodiesRef.current);
         baselineInner.current = moveRecord(baselineInner.current);
+        for (const { newKey, identity } of moves) {
+          baselineInner.current[newKey] = identity.innerText;
+        }
         setRows((prev) =>
           prev.map((candidate) => movedByOldKey.get(rowKey(candidate))?.nextRow ?? candidate)
         );
@@ -1059,18 +1757,33 @@ export function useCssCascadeEditor({
         // Re-arm pending body saves under the new identities (a no-op when the body
         // already matches its baseline).
         for (const { newKey } of moves) {
-          saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
+          scheduleSave(newKey);
         }
+        void refreshSourceIdentities(
+          renamedIdentity,
+          moves.find((move) => move.oldKey === key)?.newKey,
+          false,
+          token
+        );
         void trackEvent('visual_edit_saved', { kind: 'rule', mode: 'css-code' });
       } catch (err) {
-        // Still stale after re-locating — an expected race (issue #1008).
+        if (projectPathRef.current !== projectPath || selTokenRef.current !== token) return;
+        // Still stale after re-locating is an expected source race (issue #1008).
         logger[isStaleCssRuleError(err) ? 'warn' : 'error']('[CssCascade] rename at-rule failed', {
           error: formatCommandError(asCommandError(err)),
         });
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast, post, saveRule, writeWithStaleRetry]
+    [
+      cancelScheduledSave,
+      projectPath,
+      onToast,
+      post,
+      scheduleSave,
+      refreshSourceIdentities,
+      writeWithStaleRetry,
+    ]
   );
 
   /** Update one card's body model → debounced live preview + auto-save. */
@@ -1080,10 +1793,9 @@ export function useCssCascadeEditor({
       setBodies((prev) => ({ ...prev, [key]: body }));
       clearTimeout(previewTimers.current[key]);
       previewTimers.current[key] = setTimeout(() => previewRule(key), PREVIEW_DEBOUNCE_MS);
-      clearTimeout(saveTimers.current[key]);
-      saveTimers.current[key] = setTimeout(() => void saveRule(key), SAVE_DEBOUNCE_MS);
+      scheduleSave(key);
     },
-    [previewRule, saveRule]
+    [previewRule, scheduleSave]
   );
 
   const toggleEditMode = useCallback(() => {
@@ -1125,6 +1837,9 @@ export function useCssCascadeEditor({
     overridden,
     setBody,
     deleteRule,
+    deleteRules,
+    removeSelectorMember,
+    splitSelectorList,
     wrapRule,
     addSelector,
     renameSelector,
@@ -1135,5 +1850,7 @@ export function useCssCascadeEditor({
     animationSuggestions,
     loading,
     savingKeys,
+    hasPendingWrites: pendingSaveKeys.size > 0 || savingKeys.size > 0,
+    refreshSelection,
   };
 }

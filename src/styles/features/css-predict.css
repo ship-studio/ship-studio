@@ -6,9 +6,9 @@
  */
 
 .ss-decl--ghost {
-  display: block;
   /* Separate the suggestion from the last declaration. */
   margin-top: var(--spacing-sm);
+  padding-top: var(--control-height-compact);
   opacity: 0.5;
   font-style: italic;
 }
@@ -21,7 +21,8 @@
   cursor: pointer;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: baseline;
   column-gap: var(--spacing-xs);
   min-width: 0;
@@ -29,20 +30,14 @@
 }
 
 .ss-decl__ghost-property {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: var(--spacing-xs);
-  row-gap: var(--spacing-2xs);
   min-width: 0;
-}
-
-.ss-decl__ghost-property .ss-decl__prop {
-  flex: 1 1 auto;
+  padding: var(--spacing-2xs) var(--spacing-tight);
 }
 
 .ss-decl--ghost .ss-decl__value {
   width: 100%;
+  padding: var(--spacing-2xs) var(--spacing-tight);
+  box-sizing: border-box;
 }
 
 /* The "ghost" hint is a single-line suggestion under the value. */
@@ -54,8 +49,10 @@
 
 /* The inline Tab affordance */
 .ss-decl__ghost-kbd {
+  position: absolute;
+  left: var(--spacing-tight);
+  top: 0;
   display: inline-flex;
-  flex: 0 0 auto;
   padding: 0 var(--space-04);
   margin: 0;
   border: 1px solid var(--border-default);

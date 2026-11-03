@@ -129,6 +129,17 @@
   gap: var(--spacing-xs);
 }
 
+/* Size the editing chip to the actual class text, including proportional glyphs. */
+.ss-settings__class-chip.is-editing {
+  min-width: 0;
+}
+
+.ss-settings__class-chip.is-editing .ss-cascade-chip__input {
+  field-sizing: content;
+  width: fit-content;
+  max-width: 100%;
+}
+
 .ss-settings__class-name {
   all: unset;
   cursor: text;

@@ -8,7 +8,7 @@ vi.mock('../lib/cssCascade', async (importOriginal) => {
     locateCssRules: vi.fn(),
     createCssRule: vi.fn(),
     listStylesheets: vi.fn(),
-    renameCssSelector: vi.fn(),
+    replaceCssSelectorList: vi.fn(),
     deleteCssRule: vi.fn(),
   };
 });
@@ -21,7 +21,8 @@ import {
   deleteCssRule,
   listStylesheets,
   locateCssRules,
-  renameCssSelector,
+  replaceCssSelectorList,
+  type CssRuleSourceIdentity,
   type RuleLocation,
 } from '../lib/cssCascade';
 import { useCssCascadeEditor } from './useCssCascadeEditor';
@@ -33,8 +34,35 @@ const STALE = {
   reason: 'rule no longer matches — reselect the element',
 };
 
-function located(file: string, inner: string): RuleLocation[] {
-  return [{ status: 'resolved', file, inner_text: inner } as unknown as RuleLocation];
+function identity(
+  file: string,
+  selector: string,
+  innerText: string,
+  version: string
+): CssRuleSourceIdentity {
+  return {
+    sourcePath: file,
+    sourceVersion: version,
+    selectorOffset: 0,
+    selector,
+    selectorMemberIndex: 0,
+    matchedSelector: selector,
+    selectorMembers: [selector],
+    innerText,
+    contextPath: [],
+  };
+}
+
+function located(sourceIdentity: CssRuleSourceIdentity): RuleLocation[] {
+  return [
+    {
+      status: 'resolved',
+      file: sourceIdentity.sourcePath,
+      line: 1,
+      inner_text: sourceIdentity.innerText,
+      source_identity: sourceIdentity,
+    },
+  ];
 }
 
 async function setupWithRule() {
@@ -60,28 +88,31 @@ async function setupWithRule() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(listStylesheets).mockResolvedValue(['styles.css']);
-  vi.mocked(createCssRule).mockResolvedValue(undefined as never);
-  vi.mocked(locateCssRules).mockResolvedValue(located('styles.css', '\n'));
+  vi.mocked(createCssRule).mockResolvedValue(identity('styles.css', '.hero', '\n', 'v1'));
+  vi.mocked(locateCssRules).mockResolvedValue(located(identity('styles.css', '.hero', '\n', 'v1')));
 });
 
 describe('useCssCascadeEditor stale-rule handling (issue #1008)', () => {
   it('re-locates and retries a rename the backend rejected as stale', async () => {
     const { result, onToast, key } = await setupWithRule();
-    vi.mocked(renameCssSelector).mockRejectedValueOnce(STALE).mockResolvedValueOnce(undefined);
-    vi.mocked(locateCssRules).mockResolvedValue(located('other.css', '\n  color: red;\n'));
+    const relocated = identity('other.css', '.hero', '\n  color: red;\n', 'v2');
+    const renamed = identity('other.css', '.hero-2', '\n  color: red;\n', 'v3');
+    vi.mocked(replaceCssSelectorList).mockRejectedValueOnce(STALE).mockResolvedValueOnce(renamed);
+    vi.mocked(locateCssRules).mockResolvedValue(located(relocated));
 
     await act(async () => {
       await result.current.renameSelector(key, '.hero-2');
     });
 
-    expect(renameCssSelector).toHaveBeenCalledTimes(2);
-    expect(renameCssSelector).toHaveBeenLastCalledWith(
+    expect(replaceCssSelectorList).toHaveBeenCalledTimes(2);
+    expect(replaceCssSelectorList).toHaveBeenLastCalledWith(
       '/p',
       'other.css',
       '.hero',
       null,
       '\n  color: red;\n',
-      '.hero-2'
+      '.hero-2',
+      relocated
     );
     expect(onToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
     expect(log.error).not.toHaveBeenCalled();
@@ -90,7 +121,7 @@ describe('useCssCascadeEditor stale-rule handling (issue #1008)', () => {
 
   it('warns instead of filing a bug when the rule is still stale after re-locating', async () => {
     const { result, onToast, key } = await setupWithRule();
-    vi.mocked(renameCssSelector).mockRejectedValue(STALE);
+    vi.mocked(replaceCssSelectorList).mockRejectedValue(STALE);
 
     await act(async () => {
       await result.current.renameSelector(key, '.hero-2');

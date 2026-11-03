@@ -127,6 +127,22 @@ describe('useFileTree — auto-enter edit mode', () => {
   });
 });
 
+describe('useFileTree — source reveals', () => {
+  it('opens a readable source file that is absent from the project tree', async () => {
+    const { result } = await setup();
+    (readProjectFile as Fn).mockResolvedValue(file({ content: 'body { color: red; }' }));
+
+    await act(async () => {
+      expect(result.current.revealFile('src/ignored.css')).toBe(true);
+      await flush();
+    });
+
+    expect(result.current.selectedFilePath).toBe('src/ignored.css');
+    expect(readProjectFile).toHaveBeenCalledWith('/proj', 'src/ignored.css');
+    expect(result.current.fileContent?.content).toBe('body { color: red; }');
+  });
+});
+
 describe('useFileTree — saveFile', () => {
   it('writes the draft to disk when dirty', async () => {
     const { result } = await setup(true);
