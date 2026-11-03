@@ -19,6 +19,7 @@ import {
   deleteCssRule,
   renameCssSelector,
   listStylesheets,
+  type CssRuleSourceIdentity,
 } from '../lib/cssCascade';
 import { parseRuleBody, serializeRuleBody, type RuleBody } from '../lib/cssBody';
 import { isKeyframesSelector } from '../lib/cssStructures';
@@ -46,6 +47,8 @@ export interface AnimationRow {
   /** Just the animation name (`reveal`). */
   name: string;
   file: string;
+  /** Physical host-file line for the keyframes prelude. */
+  line?: number;
   body: RuleBody;
 }
 
@@ -59,16 +62,28 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
   const [animations, setAnimations] = useState<AnimationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const baselineRef = useRef<Record<string, string>>({});
+  const identityRef = useRef<Record<string, CssRuleSourceIdentity>>({});
   const fileRef = useRef<Record<string, string>>({});
   const bodiesRef = useRef<Record<string, RuleBody>>({});
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const projectPathRef = useRef(projectPath);
+  const requestIdRef = useRef(0);
+  const refreshIdRef = useRef(0);
+  projectPathRef.current = projectPath;
 
   const reload = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    const requestedProject = projectPath;
     setLoading(true);
     try {
       const sels = (await listCssSelectors(projectPath)).filter(isKeyframesSelector);
+      if (requestIdRef.current !== requestId || projectPathRef.current !== requestedProject) return;
       if (sels.length === 0) {
         setAnimations([]);
+        baselineRef.current = {};
+        identityRef.current = {};
+        fileRef.current = {};
+        bodiesRef.current = {};
         return;
       }
       const locs = await locateCssRules(
@@ -78,14 +93,22 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
       const rows: AnimationRow[] = [];
       sels.forEach((selector, i) => {
         const loc = locs[i];
-        if (loc && loc.status === 'resolved') {
+        if (loc && loc.status === 'resolved' && loc.source_identity) {
           const body = parseRuleBody(loc.inner_text);
-          rows.push({ selector, name: keyframesName(selector), file: loc.file, body });
+          rows.push({
+            selector,
+            name: keyframesName(selector),
+            file: loc.file,
+            line: loc.line,
+            body,
+          });
           baselineRef.current[selector] = loc.inner_text;
+          identityRef.current[selector] = loc.source_identity;
           fileRef.current[selector] = loc.file;
           bodiesRef.current[selector] = body;
         }
       });
+      if (requestIdRef.current !== requestId || projectPathRef.current !== requestedProject) return;
       setAnimations(rows);
     } catch (err) {
       logger.error('[CssAnimations] load failed', {
@@ -93,9 +116,48 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
       });
       onToast(toastText(err), 'error');
     } finally {
-      setLoading(false);
+      if (requestIdRef.current === requestId && projectPathRef.current === requestedProject) {
+        setLoading(false);
+      }
     }
   }, [projectPath, onToast]);
+
+  /** Re-pin unchanged keyframe siblings after a sheet write invalidates their
+   *  whole-file source snapshot. Dirty bodies only adopt a fresh identity when
+   *  their source body is still byte-for-byte the baseline they were loaded from. */
+  const refreshIdentities = useCallback(
+    async (file: string, keepSelector?: string) => {
+      const requestedProject = projectPath;
+      const requestId = ++refreshIdRef.current;
+      try {
+        const selectors = (await listCssSelectors(requestedProject)).filter(isKeyframesSelector);
+        const locations = await locateCssRules(
+          requestedProject,
+          selectors.map((selector) => ({ selector, mediaText: null, href: null }))
+        );
+        if (projectPathRef.current !== requestedProject || refreshIdRef.current !== requestId) {
+          return;
+        }
+        selectors.forEach((selector, index) => {
+          if (selector === keepSelector) return;
+          const location = locations[index];
+          const oldBaseline = baselineRef.current[selector];
+          if (
+            location?.status === 'resolved' &&
+            location.source_identity &&
+            location.file === file &&
+            oldBaseline === location.inner_text
+          ) {
+            identityRef.current[selector] = location.source_identity;
+            fileRef.current[selector] = location.file;
+          }
+        });
+      } catch {
+        // A later save with the old snapshot fails closed and asks for a reload.
+      }
+    },
+    [projectPath]
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -112,12 +174,25 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
       const body = bodiesRef.current[selector];
       const file = fileRef.current[selector];
       const oldInner = baselineRef.current[selector];
-      if (!body || !file || oldInner === undefined) return;
+      const sourceIdentity = identityRef.current[selector];
+      if (!body || !file || oldInner === undefined || !sourceIdentity) return;
+      const requestedProject = projectPath;
       const newInner = serializeRuleBody(body);
       if (newInner === oldInner) return;
       try {
-        await applyCssRuleText(projectPath, file, selector, null, oldInner, newInner);
-        baselineRef.current[selector] = newInner;
+        const identity = await applyCssRuleText(
+          projectPath,
+          file,
+          selector,
+          null,
+          oldInner,
+          newInner,
+          sourceIdentity
+        );
+        if (projectPathRef.current !== requestedProject) return;
+        baselineRef.current[selector] = identity.innerText;
+        identityRef.current[selector] = identity;
+        void refreshIdentities(file, selector);
         void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] save failed', {
@@ -126,7 +201,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast]
+    [projectPath, onToast, refreshIdentities]
   );
 
   /** Update one animation's body model → debounced auto-save. */
@@ -163,12 +238,15 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         return;
       }
       try {
-        await createCssRule(projectPath, file, selector);
+        const identity = await createCssRule(projectPath, file, selector);
+        if (projectPathRef.current !== projectPath) return;
         const body: RuleBody = { items: [] };
-        baselineRef.current[selector] = '\n';
+        baselineRef.current[selector] = identity.innerText;
+        identityRef.current[selector] = identity;
         fileRef.current[selector] = file;
         bodiesRef.current[selector] = body;
         setAnimations((prev) => [...prev, { selector, name, file, body }]);
+        void refreshIdentities(file, selector);
         void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] create failed', {
@@ -177,7 +255,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, animations, onToast]
+    [projectPath, animations, onToast, refreshIdentities]
   );
 
   /** Rename an animation (`@keyframes apply` → `@keyframes fade`). References on
@@ -186,7 +264,8 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
     async (oldSelector: string, newName: string) => {
       const file = fileRef.current[oldSelector];
       const oldInner = baselineRef.current[oldSelector];
-      if (!file || oldInner === undefined) return;
+      const sourceIdentity = identityRef.current[oldSelector];
+      if (!file || oldInner === undefined || !sourceIdentity) return;
       const name = newName.trim().replace(/^@(-[a-z]+-)?keyframes\s+/i, '');
       if (!name) return;
       const newSelector = `@keyframes ${name}`;
@@ -196,18 +275,30 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         return;
       }
       try {
-        await renameCssSelector(projectPath, file, oldSelector, null, oldInner, newSelector);
+        const nextIdentity = await renameCssSelector(
+          projectPath,
+          file,
+          oldSelector,
+          null,
+          oldInner,
+          newSelector,
+          sourceIdentity
+        );
+        if (projectPathRef.current !== projectPath) return;
         // Re-key the per-animation refs onto the new selector.
-        baselineRef.current[newSelector] = oldInner;
+        baselineRef.current[newSelector] = nextIdentity.innerText;
+        identityRef.current[newSelector] = nextIdentity;
         fileRef.current[newSelector] = file;
         const body = bodiesRef.current[oldSelector];
         if (body) bodiesRef.current[newSelector] = body;
         delete baselineRef.current[oldSelector];
+        delete identityRef.current[oldSelector];
         delete fileRef.current[oldSelector];
         delete bodiesRef.current[oldSelector];
         setAnimations((prev) =>
           prev.map((a) => (a.selector === oldSelector ? { ...a, selector: newSelector, name } : a))
         );
+        void refreshIdentities(file, newSelector);
         void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] rename failed', {
@@ -216,19 +307,30 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, animations, onToast]
+    [projectPath, animations, onToast, refreshIdentities]
   );
 
   const remove = useCallback(
     async (selector: string) => {
       const file = fileRef.current[selector];
-      if (!file) return;
+      const identity = identityRef.current[selector];
+      if (!file || !identity) return;
       clearTimeout(saveTimers.current[selector]);
       try {
-        await deleteCssRule(projectPath, file, selector, null, baselineRef.current[selector] ?? '');
+        await deleteCssRule(
+          projectPath,
+          file,
+          selector,
+          null,
+          baselineRef.current[selector] ?? '',
+          identity
+        );
+        if (projectPathRef.current !== projectPath) return;
         setAnimations((prev) => prev.filter((a) => a.selector !== selector));
         delete bodiesRef.current[selector];
         delete baselineRef.current[selector];
+        delete identityRef.current[selector];
+        void refreshIdentities(file);
         void trackEvent('visual_edit_saved', { kind: 'keyframes', mode: 'css-code' });
       } catch (err) {
         logger.error('[CssAnimations] delete failed', {
@@ -237,7 +339,7 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         onToast(toastText(err), 'error');
       }
     },
-    [projectPath, onToast]
+    [projectPath, onToast, refreshIdentities]
   );
 
   return { animations, loading, setBody, create, rename, remove, reload };

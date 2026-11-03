@@ -18,6 +18,7 @@ import {
   type ColorContrastContexts,
   type ColorVariableDefinition,
 } from '../../lib/colorContrast';
+import { colorPickerDraftOrFallback } from './colorPickerDraft';
 
 interface EditableProps {
   decl: Decl;
@@ -163,6 +164,7 @@ export function DeclarationRow(props: Props) {
   );
   // The clicked value or swatch button anchors its editor or color picker.
   const [valueAnchor, setValueAnchor] = useState<HTMLElement | null>(null);
+  const [colorPickerInitial, setColorPickerInitial] = useState<string | null>(null);
 
   if (!props.editable) {
     return (
@@ -193,6 +195,7 @@ export function DeclarationRow(props: Props) {
   };
   const closeValueEditor = () => {
     setEditing(null);
+    setColorPickerInitial(null);
     props.onEditClose?.();
   };
 
@@ -227,6 +230,42 @@ export function DeclarationRow(props: Props) {
           inline
           anchor={valueAnchor}
           initial={initialValue}
+          initialSwatch={Boolean(swatchColor)}
+          colorSwatchTrigger={
+            swatchColor
+              ? (value, fullValue) => {
+                  const liveSwatchColor =
+                    resolveSwatchColor(value, props.colorVariables, props.variableSelector) ??
+                    swatchColor;
+                  return (
+                    <Button
+                      className="ss-decl__swatch-trigger"
+                      size="compact"
+                      variant="ghost"
+                      aria-label={colorPickerTitle(decl.prop)}
+                      title={colorPickerTitle(decl.prop)}
+                      aria-haspopup="dialog"
+                      aria-expanded={false}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        setColorPickerInitial(
+                          colorPickerDraftOrFallback(
+                            fullValue,
+                            swatchColor,
+                            props.colorVariables,
+                            props.variableSelector
+                          )
+                        );
+                        setValueAnchor(event.currentTarget.closest<HTMLElement>('.ss-decl'));
+                        setEditing('color');
+                      }}
+                    >
+                      <Swatch color={liveSwatchColor} />
+                    </Button>
+                  );
+                }
+              : undefined
+          }
           options={options}
           variables={props.colorVariables}
           variableSelector={props.variableSelector}
@@ -240,10 +279,13 @@ export function DeclarationRow(props: Props) {
       ) : (
         <div className="ss-decl__value">
           <Button
-            className="ss-decl__edit ss-decl__value-text"
+            className={`ss-decl__edit ss-decl__value-text${
+              swatchColor ? ' ss-decl__value-text--has-swatch' : ''
+            }`}
             size="compact"
             variant="ghost"
             onClick={(event) => {
+              setColorPickerInitial(null);
               setValueAnchor(event.currentTarget);
               setEditing('value');
             }}
@@ -262,6 +304,7 @@ export function DeclarationRow(props: Props) {
               aria-haspopup="dialog"
               aria-expanded={editing === 'color'}
               onClick={(event) => {
+                setColorPickerInitial(initialValue);
                 setValueAnchor(event.currentTarget);
                 setEditing((current) => (current === 'color' ? null : 'color'));
               }}
@@ -273,7 +316,7 @@ export function DeclarationRow(props: Props) {
             <EditPopover
               inline
               anchor={valueAnchor}
-              initial={initialValue}
+              initial={colorPickerInitial ?? initialValue}
               options={options}
               variables={props.colorVariables}
               variableSelector={props.variableSelector}
@@ -286,21 +329,24 @@ export function DeclarationRow(props: Props) {
               onClose={closeValueEditor}
             />
           )}
+          {editing !== 'prop' && (
+            <span className="ss-decl__actions">
+              {props.showNest !== false && (
+                <NestControl nestTargets={nestTargets} onNest={onNest} />
+              )}
+              <button
+                type="button"
+                className="ss-decl__remove"
+                title="Remove property"
+                aria-label="Remove property"
+                onClick={(e) => onRemove(e.currentTarget.closest('.ss-decl'))}
+              >
+                <CloseIcon size={11} />
+              </button>
+            </span>
+          )}
         </div>
       )}
-
-      <span className="ss-decl__actions">
-        {props.showNest !== false && <NestControl nestTargets={nestTargets} onNest={onNest} />}
-        <button
-          type="button"
-          className="ss-decl__remove"
-          title="Remove property"
-          aria-label="Remove property"
-          onClick={(e) => onRemove(e.currentTarget.closest('.ss-decl'))}
-        >
-          <CloseIcon size={11} />
-        </button>
-      </span>
     </div>
   );
 }

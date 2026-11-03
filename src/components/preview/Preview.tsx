@@ -2147,6 +2147,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             overridden={cssEditor.overridden}
             onChangeBody={cssEditor.setBody}
             onDeleteRule={(key) => cssEditor.deleteRule(key)}
+            onDeleteRules={(keys) => cssEditor.deleteRules(keys)}
+            onRemoveSelectorMember={(key) => cssEditor.removeSelectorMember(key)}
+            onSplitSelectorList={(key) => cssEditor.splitSelectorList(key)}
             onWrapRule={(key, at) => void cssEditor.wrapRule(key, at)}
             onRenameRule={(key, sel) => void cssEditor.renameSelector(key, sel)}
             onRenameAtRule={(key, m) => void cssEditor.renameAtRule(key, m)}
@@ -2160,6 +2163,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             settings={elementSettings}
             animationsState={cssAnimations}
             onClose={cssEditor.toggleEditMode}
+            onOpenInCode={onOpenInCode}
+            onRefreshCascade={cssEditor.refreshSelection}
+            hasPendingWrites={cssEditor.hasPendingWrites}
             pinned={editorPinned}
             onTogglePin={toggleEditorPinned}
             scope={cssScope}
@@ -2189,6 +2195,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               pinned={variablesPanelDocked}
               onTogglePin={onToggleVariablesPanelPin}
               onClose={onCloseVariablesPanel}
+              onOpenInCode={onOpenInCode}
             />
           </DockablePanel>
         </>

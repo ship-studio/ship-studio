@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MediaQueryGroupCard } from './MediaQueryGroupCard';
 
@@ -27,6 +27,9 @@ describe('MediaQueryGroupCard', () => {
     const deleteButton = screen.getByRole('button', { name: 'Delete media query' });
     expect(deleteButton).toBeInTheDocument();
     fireEvent.click(deleteButton);
+    const confirmation = screen.getByRole('dialog', { name: 'Delete rules in this media group?' });
+    expect(onDelete).not.toHaveBeenCalled();
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Delete rules' }));
     expect(onDelete).toHaveBeenCalledOnce();
     expect(screen.getByTestId('selector-one')).toBeInTheDocument();
     expect(screen.getByTestId('selector-two')).toBeInTheDocument();
