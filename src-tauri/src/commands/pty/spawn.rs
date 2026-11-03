@@ -2,12 +2,21 @@
 
 use super::{PtyInfo, PTY_ID_COUNTER, PTY_REGISTRY};
 use crate::errors::CommandError;
+use crate::external_command::{spawn_helper_thread, thread_spawn_error};
 use crate::types::SpawnPtyOptions;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::time::Duration;
 use tauri::Emitter;
+
+/// After the child exits, how long its output readers get to flush trailing
+/// output before `pty-exit` is emitted without them. Readers normally hit EOF
+/// within milliseconds; one that doesn't is blocked on a pipe that a
+/// surviving descendant still holds open.
+const READER_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Spawns a command in a pseudo-terminal (PTY) and streams output to the frontend.
 ///
@@ -45,7 +54,10 @@ pub async fn spawn_pty(
     let label_for_thread = window_label.clone();
     let project_path_for_thread = project_path.clone();
 
-    std::thread::spawn(move || {
+    // A named, small-stack thread from a fallible spawn: when the OS can't
+    // create another thread (Windows os error 1450 after a long session),
+    // std::thread::spawn panics — this returns a classified error instead.
+    spawn_helper_thread(format!("pty-{id}"), move || {
         let label = label_for_thread;
         let project_path = project_path_for_thread;
         let result = (|| -> Result<i32, String> {
@@ -80,6 +92,24 @@ pub async fn spawn_pty(
                 .spawn()
                 .map_err(|e| e.to_string())?;
 
+            // Windows: tie the whole process tree to a kill-on-close job.
+            // `cmd /C npm run dev` is a chain of processes, and any descendant
+            // that outlives `cmd.exe` (orphaned, so `taskkill /T` can't find it
+            // by parent PID) inherits our stdout/stderr pipes. Those pipes then
+            // never reach EOF, and the reader threads below — previously joined
+            // before `wait()` — stayed blocked forever: three leaked threads per
+            // dev-server start/stop, which over a long session exhausts the
+            // system's thread resources (os error 1450). Closing the job after
+            // the child exits takes the stragglers down with it.
+            #[cfg(windows)]
+            let job = match super::job::KillOnCloseJob::assign(&child) {
+                Ok(job) => Some(job),
+                Err(e) => {
+                    tracing::warn!(pty_id = id, error = %e, "couldn't assign PTY child to a job object");
+                    None
+                }
+            };
+
             // Store the process info for potential cleanup
             let pid = child.id();
             if let Ok(mut registry) = PTY_REGISTRY.lock() {
@@ -96,11 +126,17 @@ pub async fn spawn_pty(
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
 
+            // Each reader holds a sender; the channel disconnecting is "every
+            // reader reached EOF".
+            let (readers_done_tx, readers_done_rx) = mpsc::channel::<()>();
+
             // Read stdout in a thread - emit to specific window only
             let app_for_stdout = app_handle.clone();
             let label_for_stdout = label.clone();
+            let stdout_done = readers_done_tx.clone();
             let stdout_handle = stdout.map(|stdout| {
-                std::thread::spawn(move || {
+                spawn_helper_thread(format!("pty-{id}-stdout"), move || {
+                    let _done = stdout_done;
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().map_while(Result::ok) {
                         let _ = app_for_stdout.emit_to(
@@ -118,8 +154,10 @@ pub async fn spawn_pty(
             // Read stderr in a thread - emit to specific window only
             let app_for_stderr = app_handle.clone();
             let label_for_stderr = label.clone();
+            let stderr_done = readers_done_tx.clone();
             let stderr_handle = stderr.map(|stderr| {
-                std::thread::spawn(move || {
+                spawn_helper_thread(format!("pty-{id}-stderr"), move || {
+                    let _done = stderr_done;
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().map_while(Result::ok) {
                         let _ = app_for_stderr.emit_to(
@@ -134,16 +172,27 @@ pub async fn spawn_pty(
                 })
             });
 
-            // Wait for output threads
-            if let Some(h) = stdout_handle {
-                let _ = h.join();
-            }
-            if let Some(h) = stderr_handle {
-                let _ = h.join();
+            drop(readers_done_tx);
+            for handle in [stdout_handle, stderr_handle].into_iter().flatten() {
+                if let Err(e) = handle {
+                    // Out of threads: don't leave a child nobody reads from.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("couldn't start an output reader thread: {e}"));
+                }
             }
 
-            // Wait for process to exit
-            let status = child.wait().map_err(|e| e.to_string())?;
+            #[cfg(windows)]
+            let after_exit = move || drop(job);
+            #[cfg(not(windows))]
+            let after_exit = || {};
+            let status = wait_and_drain(
+                &mut child,
+                &readers_done_rx,
+                READER_DRAIN_GRACE,
+                after_exit,
+            )
+            .map_err(|e| e.to_string())?;
             match status.code() {
                 Some(code) => Ok(code),
                 None => {
@@ -203,9 +252,36 @@ pub async fn spawn_pty(
                 "code": exit_code
             }),
         );
-    });
+    })
+    .map_err(|e| thread_spawn_error("spawn_pty", &e))?;
 
     Ok(id)
+}
+
+/// Wait for `child` to exit, run `after_exit`, then give its output readers
+/// up to `grace` to reach EOF (all senders of `readers_done` dropped).
+///
+/// Waiting on the child — not the readers — is what bounds this thread's
+/// life: a reader can stay blocked for as long as any descendant holds the
+/// pipe, which is unbounded. The readers keep their own (bounded-by-the-pipe)
+/// lifetime; this thread, its registry entry and the `pty-exit` event no
+/// longer depend on them.
+fn wait_and_drain(
+    child: &mut std::process::Child,
+    readers_done: &mpsc::Receiver<()>,
+    grace: Duration,
+    after_exit: impl FnOnce(),
+) -> std::io::Result<std::process::ExitStatus> {
+    let status = child.wait()?;
+    after_exit();
+    if let Err(mpsc::RecvTimeoutError::Timeout) = readers_done.recv_timeout(grace) {
+        tracing::warn!(
+            pid = child.id(),
+            "process exited but its output pipe is still held open (likely a surviving \
+             child process); not waiting for the readers"
+        );
+    }
+    Ok(status)
 }
 
 /// Human-readable description of a signal-terminated child. `signal` is
@@ -362,6 +438,79 @@ mod tests {
     }
 
     use super::describe_signal_termination;
+
+    /// The 1450 leak: a descendant that outlives the child keeps the output
+    /// pipe open, so a reader never sees EOF. The spawn thread used to join
+    /// the readers before waiting on the child and stayed blocked with them;
+    /// it must now return once the child exits plus the drain grace.
+    #[cfg(unix)]
+    #[test]
+    fn wait_and_drain_returns_when_a_descendant_holds_the_pipe() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 30 & echo $!"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sh");
+        let stdout = child.stdout.take().unwrap();
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let (pid_tx, pid_rx) = mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            let _done = done_tx;
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let _ = pid_tx.send(line);
+            }
+        });
+
+        let started = std::time::Instant::now();
+        let mut after_exit_ran = false;
+        let status = wait_and_drain(&mut child, &done_rx, Duration::from_millis(300), || {
+            after_exit_ran = true;
+        })
+        .expect("wait");
+
+        assert!(status.success());
+        assert!(after_exit_ran);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "waited {:?} on a pipe a surviving descendant holds open",
+            started.elapsed()
+        );
+
+        let sleeper = pid_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("background pid");
+        let _ = std::process::Command::new("kill").arg(&sleeper).status();
+    }
+
+    /// Normal case: readers that reach EOF promptly are fully drained before
+    /// wait_and_drain returns, so pty-exit still follows the last output.
+    #[cfg(unix)]
+    #[test]
+    fn wait_and_drain_waits_for_readers_that_finish() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "echo one; echo two"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sh");
+        let stdout = child.stdout.take().unwrap();
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let sink = lines.clone();
+        std::thread::spawn(move || {
+            let _done = done_tx;
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                std::thread::sleep(Duration::from_millis(50));
+                sink.lock().unwrap().push(line);
+            }
+        });
+
+        let status =
+            wait_and_drain(&mut child, &done_rx, Duration::from_secs(5), || {}).expect("wait");
+        assert!(status.success());
+        assert_eq!(*lines.lock().unwrap(), vec!["one", "two"]);
+    }
 
     // The #589 shape: pnpm install OOM-killed mid-import surfaced only as
     // "Process exited with code -1". SIGKILL must name the likely OOM cause.
