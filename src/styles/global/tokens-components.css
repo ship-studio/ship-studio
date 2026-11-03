@@ -23,8 +23,8 @@
   --size-sidebar-section-row: 22px;
   --size-sidebar-shortcut: 21px;
 
-  /* Workspace sidebar status indicators keep one dot size and one ready-glow
-     profile across rows, regardless of whether the server row is current. */
+  /* Workspace sidebar status dots share one size and glow profile across
+     states; current-project rows use the stronger static glow. */
   --size-sidebar-status-indicator: var(--space-06);
   --size-sidebar-server-glow-rest-inner-radius: var(--space-02);
   --size-sidebar-server-glow-rest-outer-radius: var(--space-06);
