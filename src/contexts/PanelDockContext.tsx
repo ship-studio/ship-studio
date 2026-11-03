@@ -229,7 +229,11 @@ class PresenceStore {
 // ============ The context ============
 
 interface PanelDockValue {
+  /** Project scope for per-project dock and Focus preferences. */
+  projectPath: string;
   layout: WorkspaceLayout;
+  /** Temporary topbar Focus projection; it never changes the saved layout. */
+  focusMode: boolean;
   /** Whether layout edits belong to this project or every project. */
   layoutScope: LayoutScope;
   /** True once this project has an arrangement of its own, rather than following the default. */
@@ -272,13 +276,8 @@ interface PanelDockValue {
   /** Resolve the drop and report whether the panel was left floating. */
   endDrag: (point: Point) => boolean;
   cancelDrag: () => void;
-  /**
-   * Focus mode ("agent only") is on. Layout drags are suppressed and every
-   * rail-bound panel but the agent is hidden, without touching the saved
-   * layout or any panel's own open state, so the arrangement returns on exit.
-   */
-  focusMode: boolean;
-  setFocusMode: (focus: boolean) => void;
+  /** Temporarily suppress layout drags while focus mode projects the agent. */
+  setDragDisabled: (disabled: boolean) => void;
 
   /** The preview is filling the window, so the rail goes with it. */
   previewFullscreen: boolean;
@@ -302,9 +301,11 @@ function columnHint(layout: WorkspaceLayout, columnIndex: number | null): string
 
 export function PanelDockProvider({
   projectPath,
+  focusMode = false,
   children,
 }: {
   projectPath: string;
+  focusMode?: boolean;
   children: ReactNode;
 }) {
   const [layoutScope, setLayoutScopeState] = useState<LayoutScope>(readLayoutScope);
@@ -316,7 +317,6 @@ export function PanelDockProvider({
     () => layoutScope === 'project' && hasProjectLayout(projectPath)
   );
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
-  const [focusMode, setFocusModeState] = useState(false);
 
   // Re-read when the project changes, with React's "adjust state during render"
   // pattern rather than an effect: an effect renders one frame of the previous
@@ -518,11 +518,10 @@ export function PanelDockProvider({
 
   // ---- Drag ----
 
-  const setFocusMode = useCallback(
-    (focus: boolean) => {
-      dragDisabledRef.current = focus;
-      if (focus) drag.set(null);
-      setFocusModeState(focus);
+  const setDragDisabled = useCallback(
+    (disabled: boolean) => {
+      dragDisabledRef.current = disabled;
+      if (disabled) drag.set(null);
     },
     [drag]
   );
@@ -587,7 +586,9 @@ export function PanelDockProvider({
 
   const value = useMemo<PanelDockValue>(
     () => ({
+      projectPath,
       layout,
+      focusMode,
       layoutScope,
       isCustomised,
       differsFromDefault: !layoutsEqual(layout, defaultLayout),
@@ -617,13 +618,14 @@ export function PanelDockProvider({
       updateDrag,
       endDrag,
       cancelDrag,
-      focusMode,
-      setFocusMode,
+      setDragDisabled,
       previewFullscreen,
       setPreviewFullscreen,
     }),
     [
+      projectPath,
       layout,
+      focusMode,
       layoutScope,
       isCustomised,
       defaultLayout,
@@ -652,8 +654,7 @@ export function PanelDockProvider({
       updateDrag,
       endDrag,
       cancelDrag,
-      focusMode,
-      setFocusMode,
+      setDragDisabled,
       previewFullscreen,
     ]
   );
@@ -731,13 +732,6 @@ export function usePanelDockBinding(
    */
   const dockedZIndex = context?.previewFullscreen ? 'var(--z-floating-panel)' : undefined;
 
-  /**
-   * Focus is "agent only". The rail stops giving other panels a slot, but a
-   * docked surface is body-portaled and keeps its last measured rectangle, so
-   * without this a docked Team panel went on drawing over the agent (#1147).
-   */
-  const hiddenByFocus = Boolean(context?.focusMode) && id !== 'agent';
-
   // Changes whenever the rail's arrangement does, so a panel re-measures after
   // a reorder — which moves its slot without changing its size, and so is
   // invisible to a ResizeObserver.
@@ -749,6 +743,8 @@ export function usePanelDockBinding(
     () =>
       context && id
         ? {
+            panel: id,
+            focusMode: context.focusMode,
             slotElement,
             layoutKey,
             onDragStart,
@@ -759,7 +755,6 @@ export function usePanelDockBinding(
             subscribeGeometry,
             setDefaultWidth,
             dockedZIndex,
-            hiddenByFocus,
           }
         : undefined,
     [
@@ -775,13 +770,16 @@ export function usePanelDockBinding(
       subscribeGeometry,
       setDefaultWidth,
       dockedZIndex,
-      hiddenByFocus,
     ]
   );
 }
 
 /** What `DockablePanel` accepts to take part in a rail. */
 export interface PanelDockBinding {
+  /** Which workspace panel this binding represents. */
+  panel: PanelId;
+  /** Whether temporary topbar Focus is projecting the workspace rail. */
+  focusMode: boolean;
   /** Where to portal the placeholder, or null to leave it inline. */
   slotElement: HTMLElement | null;
   /** Changes whenever the arrangement does, so a moved slot is re-measured. */
@@ -799,8 +797,6 @@ export interface PanelDockBinding {
   setDefaultWidth: (width: number | undefined) => void;
   /** The layer a docked surface belongs on, which fullscreen changes. */
   dockedZIndex?: string;
-  /** Focus mode is on and this panel is not the agent, so it must not show. */
-  hiddenByFocus?: boolean;
 }
 
 /** The rail if there is one. Panels that also render outside a workspace use this. */

@@ -9,7 +9,6 @@ function renderModes(overrides: Partial<Parameters<typeof WorkspaceModes>[0]> = 
     isPreviewHidden: false,
     workspaceTab: 'code',
     setIsPreviewHidden: vi.fn(),
-    setIsAgentPanelHidden: vi.fn(),
     setWorkspaceTab: vi.fn(),
     onSelectPreview: vi.fn(),
     ...overrides,

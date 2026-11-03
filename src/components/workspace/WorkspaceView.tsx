@@ -71,7 +71,10 @@ import '../../styles/features/notifications.css';
  */
 export const WorkspaceView = memo(function WorkspaceView(props: WorkspaceViewProps) {
   return (
-    <PanelDockProvider projectPath={props.currentProject.path}>
+    <PanelDockProvider
+      projectPath={props.currentProject.path}
+      focusMode={props.layout.isPreviewHidden}
+    >
       <WorkspaceViewInner {...props} />
     </PanelDockProvider>
   );
@@ -547,7 +550,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     hasPreview,
     projectTypeResolved,
     setIsPreviewHidden,
-    setIsAgentPanelHidden,
     setWorkspaceTab,
     togglePreviewLogs,
     onSelectPreview: handleSelectPreview,
@@ -716,7 +718,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
       isPreviewHidden={isPreviewHidden}
       workspaceTab={workspaceTab}
       setIsPreviewHidden={setIsPreviewHidden}
-      setIsAgentPanelHidden={setIsAgentPanelHidden}
       setWorkspaceTab={setWorkspaceTab}
       onSelectPreview={handleSelectPreview}
     />
@@ -734,6 +735,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     compactWorkspaceToolbarEnabled,
     onOpenAssetsPanel: assetsPanelModal.open,
     assetsPanelVisible: assetsPanelModal.isOpen,
+    isFocusMode: isPreviewHidden,
     elementTreeVisible: elementTreePanelVisible,
     elementTreeAvailable,
     onToggleElementTree: toggleElementTree,
@@ -927,7 +929,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                     appears: each one's placeholder is portaled into whichever
                     rail slot the layout gives it. This is just the tree. */}
                 <WorkspaceDock
-                  previewHidden={isPreviewHidden}
+                  focusMode={isPreviewHidden}
                   preview={
                     <WorkspacePreviewPane
                       activeCommentAgentId={activeTerminalTab}
