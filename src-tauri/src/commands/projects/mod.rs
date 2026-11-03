@@ -175,9 +175,19 @@ async fn scan_uncommitted_counts(
     let deadline = tokio::time::Instant::now() + budget;
     stream::iter(paths)
         .map(|path| async move {
-            match tokio::time::timeout_at(deadline, get_uncommitted_count(&path)).await {
+            // Don't start a probe once the budget is spent: `timeout_at` polls
+            // its inner future before checking an already-elapsed deadline, so
+            // a fast git call could still win the race against an expired budget.
+            let outcome = if tokio::time::Instant::now() >= deadline {
+                Err(())
+            } else {
+                tokio::time::timeout_at(deadline, get_uncommitted_count(&path))
+                    .await
+                    .map_err(|_| ())
+            };
+            match outcome {
                 Ok(count) => count,
-                Err(_) => {
+                Err(()) => {
                     tracing::debug!(
                         project = %path.display(),
                         "dashboard git scan budget exhausted; reporting no git status"
