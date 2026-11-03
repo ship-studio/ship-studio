@@ -12,7 +12,7 @@ facing language — what changed, in plain English — not commit subjects.
 - **CSS Editor: scoped variables** - Edit a CSS variable where it's scoped, not just at the root, with the colour picker for colours. Ship Studio refuses rather than guesses when a value could belong to more than one rule (Martin Crandon)
 - **CSS Editor: steadier controls** - Value fields, animation headers and Add step stay put when you start editing, across Style, Settings, Animate and Variables (Martin Crandon)
 - **Balanced Focus mode** - Focus now opens Agent and Preview (or Code) side by side at an even 50/50 split and remembers your split per project. Other panels no longer float over the Agent panel while you're focused (Martin Crandon)
-- **One status light per project** - The workspace sidebar shows a single indicator per project (error, then waiting, working, then dev server) instead of two side by side, and every status dot now has the same look (Martin Crandon)
+- **One status light per project** - The workspace sidebar shows a single status light per project (error, then waiting, working, then dev server) instead of two side by side, and every status dot now has the same look (Martin Crandon)
 - **Fixed** - On Windows, long sessions could crash with "os error 1450"
 - **Fixed** - Leaving a project while it was still opening could leave a full-window spinner stuck on screen
 - **Fixed** - Checking out a pull request could fail with a bare "too many open files"; it now retries, and explains the problem if it still can't

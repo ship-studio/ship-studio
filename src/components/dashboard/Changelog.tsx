@@ -33,7 +33,7 @@ const CHANGELOG: ChangelogEntry[] = [
       'CSS Editor: edit scoped CSS variables where they live, with the colour picker for colours — ambiguous values are refused rather than guessed (Martin Crandon)',
       'CSS Editor: value fields, animation headers and Add step stay put when you start editing (Martin Crandon)',
       'Focus mode opens Agent and Preview side by side at 50/50, remembers your split, and no longer leaves panels floating over the agent (Martin Crandon)',
-      'The workspace sidebar shows one status light per project instead of two (Martin Crandon)',
+      'The workspace sidebar shows a single status light per project (error, then waiting, working, then dev server) instead of two side by side, and every status dot now has the same look (Martin Crandon)',
       'Fixed: a Windows crash (os error 1450) in long sessions',
       'Fixed: a stuck full-window spinner after leaving a project mid-open',
       'Fixed: “too many open files” when checking out a pull request',
