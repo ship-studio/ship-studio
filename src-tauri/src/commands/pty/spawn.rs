@@ -218,22 +218,10 @@ fn describe_signal_termination(signal: Option<i32>) -> String {
     let Some(sig) = signal else {
         return "Process was terminated abnormally (no exit code reported)".to_string();
     };
-    let name = match sig {
-        1 => " (SIGHUP)",
-        2 => " (SIGINT)",
-        6 => " (SIGABRT)",
-        9 => " (SIGKILL)",
-        11 => " (SIGSEGV)",
-        13 => " (SIGPIPE)",
-        15 => " (SIGTERM)",
-        _ => "",
-    };
-    let hint = match sig {
-        9 => " — likely killed by the operating system, e.g. because it ran out of memory",
-        11 => " — the program crashed (segmentation fault)",
-        _ => "",
-    };
-    format!("Process was terminated by signal {sig}{name}{hint}")
+    format!(
+        "Process was terminated by {}",
+        crate::external_command::describe_signal(sig)
+    )
 }
 
 /// Register an externally-spawned PTY process (like dev servers from tauri-pty).

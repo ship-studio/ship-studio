@@ -10,12 +10,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as snapshots from '../lib/snapshots';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
 import { usePolling } from './usePolling';
 import { useWindowFocused } from './useWindowFocused';
-import type { ToastType } from './useToasts';
+import type { ToastAction, ToastOptions, ToastType } from './useToasts';
 
-type ShowToast = (message: string, type?: ToastType) => void;
+type ShowToast = (
+  message: string,
+  type?: ToastType,
+  action?: ToastAction,
+  options?: ToastOptions
+) => void;
 
 interface UseSnapshotsResult {
   canUndo: boolean;
@@ -103,7 +108,11 @@ export function useSnapshots(
       showToast(summary ?? 'Nothing to undo', summary ? 'success' : 'info');
     } catch (err) {
       const msg = formatCommandError(asCommandError(err));
-      showToast(`Undo failed: ${msg}`, 'error');
+      // A folder moved/deleted outside Ship Studio is a by-design state, not
+      // a bug — still show it, but don't file a report (issue #1083).
+      showToast(`Undo failed: ${msg}`, 'error', undefined, {
+        expected: isProjectFolderGoneError(err),
+      });
     }
   }, [projectPath, showToast]);
 
@@ -116,7 +125,11 @@ export function useSnapshots(
       showToast(summary ?? 'Nothing to redo', summary ? 'success' : 'info');
     } catch (err) {
       const msg = formatCommandError(asCommandError(err));
-      showToast(`Redo failed: ${msg}`, 'error');
+      // A folder moved/deleted outside Ship Studio is a by-design state, not
+      // a bug — still show it, but don't file a report (issue #1083).
+      showToast(`Redo failed: ${msg}`, 'error', undefined, {
+        expected: isProjectFolderGoneError(err),
+      });
     }
   }, [projectPath, showToast]);
 

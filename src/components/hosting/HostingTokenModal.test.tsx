@@ -139,6 +139,27 @@ describe('HostingTokenModal', () => {
     expect(saveButton()).toBeEnabled();
   });
 
+  it('shows a by-design refusal without filing it as a bug (#942)', async () => {
+    const message =
+      "Per-workspace credentials are only stored on macOS at the moment — Ship Studio has no credential vault on this platform yet. Use the default workspace, or sign in with the provider's own CLI (`vercel login`, `gh auth login`, `claude /login`), and this project will use those credentials.";
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- the IPC rejection shape
+      throw { type: 'Other', message, expected: true };
+    });
+    renderModal();
+
+    await userEvent.type(field(), 'vercel_TOKEN123');
+    await userEvent.click(saveButton());
+
+    await waitFor(() => expect(showToast).toHaveBeenCalled());
+    expect(showToast).toHaveBeenCalledWith(
+      `Couldn't save the Vercel token: ${message}`,
+      'error',
+      undefined,
+      { expected: true }
+    );
+  });
+
   it('says the old sign-in was refused when that is why we are here', () => {
     recordCalls();
     renderModal({ wasRejected: true });

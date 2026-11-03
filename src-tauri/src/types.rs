@@ -173,7 +173,10 @@ pub struct TerminalState {
 /// Project metadata stored in .shipstudio/project.json
 #[derive(Serialize, Deserialize)]
 pub struct ProjectMetadata {
-    #[serde(rename = "_description")]
+    /// Cosmetic note for anyone who opens the file; nothing reads it. Defaulted
+    /// so a file without it (hand-edited, or written by something other than
+    /// this app) still parses instead of failing every metadata read.
+    #[serde(rename = "_description", default = "default_description")]
     pub description: String,
     /// Schema version for migration support. Defaults to 1 if not present (legacy files).
     #[serde(default = "default_schema_version")]
@@ -267,10 +270,15 @@ fn default_schema_version() -> u32 {
     1
 }
 
+fn default_description() -> String {
+    "Ship Studio project metadata. Auto-generated - safe to delete if needed, will be recreated."
+        .to_string()
+}
+
 impl Default for ProjectMetadata {
     fn default() -> Self {
         ProjectMetadata {
-            description: "Ship Studio project metadata. Auto-generated - safe to delete if needed, will be recreated.".to_string(),
+            description: default_description(),
             schema_version: PROJECT_METADATA_SCHEMA_VERSION,
             hosting: None,
             last_opened: None,
@@ -1031,6 +1039,19 @@ mod metadata_tests {
         assert!(!legacy_json.contains("force_static_serve"));
         let parsed: ProjectMetadata = serde_json::from_str(&legacy_json).unwrap();
         assert_eq!(parsed.force_static_serve, None);
+    }
+
+    #[test]
+    fn a_file_without_the_description_key_still_parses() {
+        // Issue #1023: `_description` is cosmetic, yet its absence used to fail
+        // the whole parse, which took hosting state and every setting with it.
+        let json =
+            r#"{"schema_version": 4, "last_opened": 1700000000000, "dev_server_port": 4321}"#;
+        let parsed: ProjectMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.description, ProjectMetadata::default().description);
+        assert_eq!(parsed.last_opened, Some(1_700_000_000_000));
+        assert_eq!(parsed.dev_server_port, Some(4321));
+        assert!(parsed.extra.is_empty());
     }
 }
 

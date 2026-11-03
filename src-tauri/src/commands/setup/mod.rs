@@ -169,6 +169,9 @@ pub fn try_read_app_state() -> Result<AppState, std::io::Error> {
 pub fn update_app_state<T>(
     mutate: impl FnOnce(&mut AppState) -> T,
 ) -> Result<T, crate::errors::CommandError> {
+    // Held across the read AND the write: two concurrent updates interleaving
+    // would otherwise each persist their own change over the other's (#964).
+    let _guard = lock_app_state_writes();
     let mut state = try_read_app_state().map_err(|e| {
         crate::errors::CommandError::expected(format!(
             "Ship Studio couldn't read its saved settings ({e}), so nothing was changed — \
@@ -176,12 +179,35 @@ pub fn update_app_state<T>(
         ))
     })?;
     let out = mutate(&mut state);
-    write_app_state(&state)?;
+    write_app_state_locked(&state)?;
     Ok(out)
+}
+
+/// Serializes every write of the app state file within this process.
+///
+/// `write_app_state` is reached from many independent commands (settings,
+/// accounts, analytics' device id, window state, setup flags) that Tauri runs
+/// concurrently. The lock is not what keeps a rename from failing — the
+/// per-write temp name in [`write_state_file`] does that — but it does stop
+/// two whole read-modify-write cycles in [`update_app_state`] interleaving.
+static APP_STATE_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_app_state_writes() -> std::sync::MutexGuard<'static, ()> {
+    // A panic while holding the lock leaves nothing half-done on disk (the
+    // write is temp-then-rename), so a poisoned lock is safe to keep using.
+    APP_STATE_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Write the app state to disk
 pub fn write_app_state(state: &AppState) -> Result<(), crate::errors::CommandError> {
+    let _guard = lock_app_state_writes();
+    write_app_state_locked(state)
+}
+
+/// [`write_app_state`] for a caller that already holds [`APP_STATE_WRITE_LOCK`].
+fn write_app_state_locked(state: &AppState) -> Result<(), crate::errors::CommandError> {
     let path = state::get_app_state_path();
 
     // Ensure parent directory exists. Filesystem failures go through the
@@ -203,11 +229,37 @@ pub fn write_app_state(state: &AppState) -> Result<(), crate::errors::CommandErr
     // real `app_state.json` is left intact rather than truncated. A truncated
     // state file is unparseable and silently resets to defaults, which is how a
     // freshly-created Workspace could vanish on the next launch.
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)
+    write_state_file(&path, &json)
+}
+
+/// Atomically replace `path` with `contents`: write a temp file beside it, then
+/// rename it over the real one.
+///
+/// The temp name is unique to this write. It used to be a fixed
+/// `app_state.json.tmp` shared by every caller, so two overlapping writes
+/// raced: the first rename consumed the shared temp file and the second rename
+/// failed with "file not found" (os error 2) — issue #964. A unique name also
+/// covers a second process (a dev build next to the installed app) that this
+/// process's lock cannot see.
+fn write_state_file(
+    path: &std::path::Path,
+    contents: &str,
+) -> Result<(), crate::errors::CommandError> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "app_state.json".to_string());
+    let tmp_path = path.with_file_name(format!("{file_name}.{}.{seq}.tmp", std::process::id()));
+
+    std::fs::write(&tmp_path, contents)
         .map_err(|e| crate::utils::classify_fs_error("write the app state file", &tmp_path, &e))?;
-    std::fs::rename(&tmp_path, &path)
-        .map_err(|e| crate::utils::classify_fs_error("persist the app state file", &path, &e))
+    std::fs::rename(&tmp_path, path).map_err(|e| {
+        // Nobody else will ever look for this write's temp file by name.
+        let _ = std::fs::remove_file(&tmp_path);
+        crate::utils::classify_fs_error("persist the app state file", path, &e)
+    })
 }
 
 // ============ Mock Mode ============
@@ -421,6 +473,46 @@ pub(super) fn is_mock_installed(item_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ============ write_state_file ============
+
+    #[test]
+    fn concurrent_state_writes_never_lose_each_others_temp_file() {
+        // Issue #964: with one shared temp name, the first rename consumed the
+        // file and the second failed with "file not found". Overlapping writers
+        // must all succeed and leave one complete file behind.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app_state.json");
+        let handles: Vec<_> = (0..8)
+            .map(|t| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for i in 0..200 {
+                        let json = format!("{{\"writer\":{t},\"n\":{i}}}");
+                        write_state_file(&path, &json).map_err(|e| e.to_string())?;
+                    }
+                    Ok::<(), String>(())
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap().unwrap();
+        }
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(parsed.get("writer").is_some());
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "app_state.json")
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+    }
 
     // ============ get_scenario_items ============
 

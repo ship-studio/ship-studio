@@ -51,7 +51,7 @@ function headerProps(): WorkspaceHeaderProps {
     isBranchSwitching: false,
     isRepositoryViewActive: false,
     onPullLatest: vi.fn(),
-    onBranchSwitch: vi.fn(),
+    onSwitchBranch: vi.fn(),
     onViewBranches: vi.fn(),
     onCreateBranch: vi.fn(),
     onViewPRs: vi.fn(),

@@ -21,7 +21,12 @@ import {
   DEFAULT_ASSETS_ROOT,
   type Asset,
 } from '../lib/assets';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { describeClipboardError, useCopyToClipboard } from './useCopyToClipboard';
 import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
@@ -76,9 +81,16 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       const allAssets = await listAssets(projectPath);
       setAssets(allAssets);
     } catch (e) {
-      trackError('asset_load', e, 'Workspace');
       setError('Failed to load assets');
-      logger.error('Failed to load assets', { error: formatCommandError(asCommandError(e)) });
+      const error = formatCommandError(asCommandError(e));
+      // The project folder moved/deleted outside Ship Studio is a by-design
+      // Expected state, not a bug (issue #972).
+      if (isProjectFolderGoneError(e) || isExpectedCommandError(e)) {
+        logger.warn('Failed to load assets', { error });
+      } else {
+        trackError('asset_load', e, 'Workspace');
+        logger.error('Failed to load assets', { error });
+      }
     } finally {
       setIsLoading(false);
     }

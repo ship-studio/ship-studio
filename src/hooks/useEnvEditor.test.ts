@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { describeInvalidEnvKey, splitEnvEntry, useEnvEditor } from './useEnvEditor';
+import {
+  describeInvalidEnvFileName,
+  describeInvalidEnvKey,
+  splitEnvEntry,
+  useEnvEditor,
+} from './useEnvEditor';
 
 // Mock external dependencies
 vi.mock('@tauri-apps/api/core', () => ({
@@ -90,6 +95,20 @@ describe('useEnvEditor', () => {
       });
 
       expect(result.current.error).toBe('file already exists');
+    });
+
+    it('explains a non-env file name inline instead of calling the backend (#989)', async () => {
+      const { result } = renderEnvEditor();
+      act(() => result.current.setNewFileName('env.local'));
+
+      await act(async () => {
+        await result.current.handleCreateFile();
+      });
+
+      expect(core.invoke).not.toHaveBeenCalledWith('create_env_file', expect.anything());
+      expect(result.current.error).toContain('must start with "." and contain "env"');
+      expect(describeInvalidEnvFileName('.env.local')).toBeNull();
+      expect(describeInvalidEnvFileName('../.env')).toContain('slashes');
     });
   });
 
