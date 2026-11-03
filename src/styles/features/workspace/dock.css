@@ -88,12 +88,40 @@
   min-height: 0;
 }
 
-/* Focus mode hides the centre with the `hidden` attribute. An author
-   `display` beats the UA's `[hidden] { display: none }`, so without this the
-   preview (or the code browser) stayed on screen beside a stretched agent
-   that had no resize handle (issues 1147 and 1019). */
-.workspace-dock__center[hidden] {
-  display: none;
+/* A Preview frame leaves a two-stroke gutter in the viewport, including when
+   a selected breakpoint is scaled to fit. Where a docked panel meets it, carry
+   that panel surface into the gutter so the shared resize stroke reads as one
+   separator. The gradients are background paint only; they never sit over the
+   frame or its resize handles. */
+.workspace-dock__center[data-preview-adjacent~='left'] .preview-viewport:has(.preview-frame-grid) {
+  background-image: linear-gradient(
+    to right,
+    var(--surface-panel) 0 calc(var(--border-width-default) + var(--border-width-default)),
+    transparent calc(var(--border-width-default) + var(--border-width-default))
+  );
+}
+
+.workspace-dock__center[data-preview-adjacent~='right'] .preview-viewport:has(.preview-frame-grid) {
+  background-image: linear-gradient(
+    to left,
+    var(--surface-panel) 0 calc(var(--border-width-default) + var(--border-width-default)),
+    transparent calc(var(--border-width-default) + var(--border-width-default))
+  );
+}
+
+.workspace-dock__center[data-preview-adjacent~='left'][data-preview-adjacent~='right']
+  .preview-viewport:has(.preview-frame-grid) {
+  background-image:
+    linear-gradient(
+      to right,
+      var(--surface-panel) 0 calc(var(--border-width-default) + var(--border-width-default)),
+      transparent calc(var(--border-width-default) + var(--border-width-default))
+    ),
+    linear-gradient(
+      to left,
+      var(--surface-panel) 0 calc(var(--border-width-default) + var(--border-width-default)),
+      transparent calc(var(--border-width-default) + var(--border-width-default))
+    );
 }
 
 /* The seam between a panel and its neighbour. Absolutely positioned inside the

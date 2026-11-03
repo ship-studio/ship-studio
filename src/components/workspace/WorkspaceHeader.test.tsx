@@ -25,6 +25,7 @@ function headerProps(): WorkspaceHeaderProps {
     compactWorkspaceToolbarEnabled: true,
     onOpenAssetsPanel: vi.fn(),
     assetsPanelVisible: false,
+    isFocusMode: false,
     elementTreeVisible: false,
     elementTreeAvailable: true,
     onToggleElementTree: vi.fn(),
@@ -215,6 +216,17 @@ describe('WorkspaceHeader title bar', () => {
     expect(screen.getByRole('button', { name: 'Assets' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Branches' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Push' })).toBeDisabled();
+  });
+
+  it('explains that Elements is intentionally hidden while in Focus mode', () => {
+    const props = headerProps();
+    props.isFocusMode = true;
+    props.elementTreeAvailable = false;
+    render(<TitlebarHarness props={props} />);
+
+    const elements = screen.getByRole('button', { name: 'Elements' });
+    expect(elements).toBeDisabled();
+    expect(elements).toHaveAttribute('title', 'Elements are hidden in Focus mode');
   });
 
   it('places the mode switcher between workspace tools and source controls', () => {

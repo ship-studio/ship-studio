@@ -174,10 +174,10 @@ export function DockablePanel({
   dockedZIndex,
   dock,
 }: DockablePanelProps) {
-  // Focus mode hides every rail-bound panel but the agent. It does so here
-  // rather than through each feature's `visible`, so the panel's own open
-  // state is untouched and it comes back exactly as it was when Focus ends.
-  const panelVisible = visible && !dock?.hiddenByFocus;
+  // Focus is a temporary workspace projection. It forces Agent into the rail
+  // and suppresses every other rail-bound portal without changing feature
+  // visibility preferences, so the ordinary arrangement returns on exit.
+  const panelVisible = dock?.focusMode ? dock.panel === 'agent' : visible;
   const internalPlaceholderRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [initialSavedSize] = useState(() => readSize(sizeKey));
@@ -676,8 +676,8 @@ export function DockablePanel({
           }${surfaceClassName ? ` ${surfaceClassName}` : ''}`}
           style={surfaceStyle}
           aria-label={ariaLabel}
-          aria-hidden={!panelVisible}
-          inert={!panelVisible}
+          aria-hidden={!panelVisible || awaitingDock}
+          inert={!panelVisible || awaitingDock}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
