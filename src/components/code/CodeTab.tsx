@@ -23,7 +23,7 @@ interface CodeTabProps {
   projectPath: string;
   onSendToAgent?: (text: string) => void;
   /** Jump-to-code target: open this file and highlight/scroll to the line. */
-  revealTarget?: { file: string; line: number } | null;
+  revealTarget?: { file: string; line: number; requestId: number } | null;
 }
 
 export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabProps) {
@@ -38,6 +38,7 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     fileError,
     toggleDirectory,
     selectFile: selectFileRaw,
+    revealFile,
     refreshTree: refreshTreeRaw,
     isEditing,
     draft,
@@ -56,6 +57,11 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
 
   const selectFile = selectFileRaw;
   const refreshTree = refreshTreeRaw;
+  const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [searchQuery, setSearchQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handledRevealRef = useRef<CodeTabProps['revealTarget']>(null);
+  const pendingRevealPathRef = useRef<string | null>(null);
 
   // Expose the persisted edit-mode toggle in the command palette (the palette is
   // a contract — every user-facing feature registers its primary action).
@@ -75,16 +81,30 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     [editModeEnabled, setEditMode]
   );
 
-  // Jump-to-code: open the targeted file. The line is forwarded to CodeViewer
-  // (which scrolls + highlights it) independently, so re-targeting the same file
-  // still reveals the new line even though selectFile early-returns.
+  // External source links target physical source paths. Wait until this project's
+  // tree has loaded so revealFile can expand known ancestors or select a readable
+  // source file omitted from the tree, then clear any filter hiding the target.
   useEffect(() => {
-    if (revealTarget) selectFileRaw(revealTarget.file);
-  }, [revealTarget, selectFileRaw]);
+    if (!revealTarget || isLoadingTree || treeError || handledRevealRef.current === revealTarget)
+      return;
+    if (!revealFile(revealTarget.file)) return;
+    handledRevealRef.current = revealTarget;
+    pendingRevealPathRef.current = revealTarget.file;
+    const resetSearch = window.setTimeout(() => setSearchQuery(''), 0);
+    return () => window.clearTimeout(resetSearch);
+  }, [isLoadingTree, revealFile, revealTarget, treeError]);
 
-  const [sidebarWidth, setSidebarWidth] = useState(250);
-  const [searchQuery, setSearchQuery] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Keep the selected entry visible after expanding a source path's ancestors.
+  useEffect(() => {
+    if (!selectedFilePath || selectedFilePath !== pendingRevealPathRef.current) return;
+    const selectedRow = containerRef.current?.querySelector<HTMLElement>(
+      '.code-tab-sidebar-content [aria-selected="true"]'
+    );
+    if (selectedRow) {
+      selectedRow.scrollIntoView?.({ block: 'nearest' });
+      pendingRevealPathRef.current = null;
+    }
+  }, [expandedPaths, searchQuery, selectedFilePath]);
 
   const filteredTree = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -107,6 +127,8 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
 
     return filterNodes(tree);
   }, [tree, searchQuery]);
+
+  const handleSearchChange = useCallback((value: string) => setSearchQuery(value), []);
 
   const resizeSidebar = useCallback((clientX: number) => {
     if (!containerRef.current) return;
@@ -136,7 +158,7 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
         <SearchField
           className="code-tab-search"
           value={searchQuery}
-          onChange={setSearchQuery}
+          onChange={handleSearchChange}
           aria-label="Search project files"
           placeholder="Search files..."
           autoCorrect="off"
@@ -186,7 +208,14 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           error={fileError}
           onSendToAgent={onSendToAgent}
           revealLine={
-            revealTarget && revealTarget.file === selectedFilePath ? revealTarget.line : null
+            revealTarget && revealTarget.file === selectedFilePath && !isLoadingFile
+              ? revealTarget.line
+              : null
+          }
+          revealRequestId={
+            revealTarget && revealTarget.file === selectedFilePath && !isLoadingFile
+              ? revealTarget.requestId
+              : null
           }
           isEditing={isEditing}
           draft={draft}

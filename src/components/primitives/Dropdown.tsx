@@ -31,10 +31,10 @@ export interface DropdownTriggerProps {
   ref: Ref<HTMLButtonElement>;
   onClick: (e: MouseEvent) => void;
   'aria-expanded': boolean;
-  'aria-haspopup': 'menu';
+  'aria-haspopup': 'menu' | 'dialog';
 }
 
-interface DropdownProps {
+interface DropdownBaseProps {
   /**
    * Render the trigger button. Spread the provided props onto it — they wire
    * up toggle-on-click, the anchor ref, and aria state. The trigger keeps its
@@ -79,6 +79,9 @@ interface DropdownProps {
   className?: string;
 }
 
+type DropdownProps = DropdownBaseProps &
+  ({ presentation: 'popover'; ariaLabel: string } | { presentation?: 'menu'; ariaLabel?: string });
+
 const DropdownContext = createContext<{ close: () => void } | null>(null);
 
 /**
@@ -102,6 +105,8 @@ export function Dropdown({
   children,
   align = 'left',
   side = 'bottom',
+  presentation = 'menu',
+  ariaLabel,
   portal = false,
   menuClassName,
   onOpenChange,
@@ -110,6 +115,9 @@ export function Dropdown({
   openOnHover = false,
   className,
 }: DropdownProps) {
+  if (presentation === 'popover' && (typeof ariaLabel !== 'string' || !ariaLabel.trim())) {
+    throw new Error('Dropdown presentation="popover" requires a non-empty ariaLabel.');
+  }
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
   const [portalPos, setPortalPos] = useState<CSSProperties | null>(null);
@@ -230,6 +238,12 @@ export function Dropdown({
       return;
     }
 
+    // A portaled menu starts hidden until its trigger has been measured. Focus
+    // only after the first visible position is committed so browsers don't drop
+    // focus into a hidden portal on its first open.
+    if (portal && portalPos === null) return;
+    if (wasOpenRef.current) return;
+
     wasOpenRef.current = true;
     restoreFocusOnCloseRef.current = true;
     if (openedByHoverRef.current) {
@@ -238,8 +252,16 @@ export function Dropdown({
     }
     // With a filter field, focus belongs in the field — you opened the menu to
     // search it. ArrowDown from there hands focus to the list.
-    if (!hasSearch) focusEnabledMenuItemAt(0);
-  }, [focusEnabledMenuItemAt, hasSearch, isOpen]);
+    if (hasSearch) return;
+    if (presentation === 'menu') {
+      focusEnabledMenuItemAt(0);
+      return;
+    }
+    const focusable = menuRef.current?.querySelector<HTMLElement>(
+      'button:not(:disabled), summary, input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
+    );
+    (focusable ?? menuRef.current)?.focus({ preventScroll: true });
+  }, [focusEnabledMenuItemAt, hasSearch, isOpen, portal, portalPos, presentation]);
 
   useEffect(() => {
     return () => {
@@ -390,9 +412,10 @@ export function Dropdown({
         .filter(Boolean)
         .join(' ')}
       style={portal ? (portalPos ?? { position: 'fixed', visibility: 'hidden' }) : undefined}
-      role="menu"
+      role={presentation === 'menu' ? 'menu' : 'dialog'}
+      aria-label={presentation === 'popover' ? ariaLabel : undefined}
       tabIndex={-1}
-      onKeyDown={handleMenuKeyDown}
+      onKeyDown={presentation === 'menu' ? handleMenuKeyDown : undefined}
       onMouseEnter={openOnHover ? cancelHoverClose : undefined}
       onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
     >
@@ -437,7 +460,7 @@ export function Dropdown({
         ref: triggerRef,
         onClick: handleTriggerClick,
         'aria-expanded': isOpen,
-        'aria-haspopup': 'menu',
+        'aria-haspopup': presentation === 'menu' ? 'menu' : 'dialog',
       })}
       {portal ? menu && createPortal(menu, document.body) : menu}
     </div>

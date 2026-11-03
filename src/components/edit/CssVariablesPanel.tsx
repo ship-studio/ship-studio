@@ -1,8 +1,8 @@
 /**
- * Variables editor — the project's CSS custom properties as design tokens. `:root`
- * tokens are editable (click a value → text editor; click a color swatch → picker),
- * with live preview as you go; tokens scoped to other selectors are listed read-only,
- * grouped by their scope, so the panel stays truthful about where each is defined.
+ * Variables editor — the project's CSS custom properties as design tokens. Values in
+ * `:root` and scoped selectors share the same inline editor and live preview. Add and
+ * reorder stay in the root section; delete keeps its global, name-based behavior there.
+ * Scoped rows expose value editing only.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -22,7 +22,10 @@ import { EditPopover } from './EditPopover';
 import { CssValueText } from './CssValueText';
 import { hasColorTransparency } from '../../lib/color';
 import { colorSwatch } from '../../lib/cssProperties';
+import { resolveColorVariable } from '../../lib/colorContrast';
 import type { ValueFieldVariable } from '../primitives/ValueField';
+import { TextButton } from '../primitives/TextButton';
+import { colorPickerDraftOrFallback } from './colorPickerDraft';
 
 interface Props {
   variables: VariableRow[];
@@ -38,6 +41,8 @@ interface Props {
   /** Persist a projected order within one exact `:root` source rule. */
   onReorderVariables?: (ordered: VariableRow[]) => Promise<void>;
   projectPath?: string;
+  onOpenInCode?: (file: string, line: number) => void;
+  onOpenSource?: (source: Pick<VariableRow, 'file' | 'line' | 'selector'>) => void;
 }
 
 export function CssVariablesPanel({
@@ -50,6 +55,8 @@ export function CssVariablesPanel({
   onDeleteVariable,
   onReorderVariables,
   projectPath,
+  onOpenInCode,
+  onOpenSource,
 }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<VariableRow | null>(null);
   const deleteImpact = useAsyncState(onAnalyzeDelete);
@@ -62,12 +69,24 @@ export function CssVariablesPanel({
       if (deleteTarget) void deleteImpact.execute(deleteTarget);
     },
   });
-  const rootVars = variables.filter((v) => v.editable);
-  // Read-only tokens defined on other selectors, grouped by that selector.
+  const rootVars = variables.filter((v) => v.selector === ':root');
+  const variableIdCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const variable of variables) {
+      const id = cssVariableId(variable);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }, [variables]);
+  const rowKey = (variable: VariableRow, index: number) => {
+    const id = cssVariableId(variable);
+    return (variableIdCounts.get(id) ?? 0) > 1 ? `${id}\0${index}` : id;
+  };
+  // Keep each selector's definitions together, including duplicate names in separate rules.
   const scopedGroups = useMemo(() => {
     const map = new Map<string, VariableRow[]>();
     for (const v of variables) {
-      if (v.editable) continue;
+      if (v.selector === ':root') continue;
       const list = map.get(v.selector) ?? [];
       list.push(v);
       map.set(v.selector, list);
@@ -77,8 +96,12 @@ export function CssVariablesPanel({
 
   const rootGroupCounts = useMemo(() => {
     const counts = new Map<string, number>();
+    const blockedSources = new Set(
+      rootVars.filter((variable) => !variable.editable).map(variableSourceKey)
+    );
     for (const variable of rootVars) {
       const key = variableSourceKey(variable);
+      if (blockedSources.has(key)) continue;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
@@ -88,7 +111,10 @@ export function CssVariablesPanel({
   const rootIds = useMemo(
     () =>
       rootVars
-        .filter((variable) => (rootGroupCounts.get(variableSourceKey(variable)) ?? 0) > 1)
+        .filter(
+          (variable) =>
+            variable.editable && (rootGroupCounts.get(variableSourceKey(variable)) ?? 0) > 1
+        )
         .map(cssVariableId),
     [rootGroupCounts, rootVars]
   );
@@ -129,7 +155,12 @@ export function CssVariablesPanel({
   return (
     <div className="ss-vars">
       <div className="ss-vars__scope">
-        <code className="ss-vars__scope-sel">:root</code>
+        <VariableScopeLink
+          selector=":root"
+          variables={rootVars}
+          onOpenInCode={onOpenInCode}
+          onOpenSource={onOpenSource}
+        />
         <span className="ss-vars__scope-note">project tokens</span>
       </div>
 
@@ -143,43 +174,52 @@ export function CssVariablesPanel({
           onMove={handleRootMove}
         >
           <div className="ss-vars__list">
-            {rootVars.map((v, index) => (
-              <EditableVarRow
-                key={cssVariableId(v)}
-                variable={v}
-                variableNames={variableNames}
-                variables={variables}
-                projectPath={projectPath}
-                sortable={(rootGroupCounts.get(variableSourceKey(v)) ?? 0) > 1}
-                sortGroup={variableSourceKey(v)}
-                sortIndex={
-                  rootVars
-                    .slice(0, index)
-                    .filter(
-                      (candidate) =>
-                        variableSourceKey(candidate) === variableSourceKey(v) &&
-                        (rootGroupCounts.get(variableSourceKey(candidate)) ?? 0) > 1
-                    ).length
-                }
-                onSetValue={(val) => onSetValue(v, val)}
-                onRequestDelete={() => requestDelete(v)}
-              />
-            ))}
+            {rootVars.map((v, index) =>
+              v.editable ? (
+                <EditableVarRow
+                  key={rowKey(v, index)}
+                  variable={v}
+                  variableNames={variableNames}
+                  variables={variables}
+                  projectPath={projectPath}
+                  sortable={(rootGroupCounts.get(variableSourceKey(v)) ?? 0) > 1}
+                  sortGroup={variableSourceKey(v)}
+                  sortIndex={
+                    rootVars
+                      .slice(0, index)
+                      .filter(
+                        (candidate) =>
+                          candidate.editable &&
+                          variableSourceKey(candidate) === variableSourceKey(v) &&
+                          (rootGroupCounts.get(variableSourceKey(candidate)) ?? 0) > 1
+                      ).length
+                  }
+                  onSetValue={(val) => onSetValue(v, val)}
+                  onRequestDelete={() => requestDelete(v)}
+                />
+              ) : (
+                <ReadonlyVarRow key={rowKey(v, index)} variable={v} />
+              )
+            )}
           </div>
         </DragSortScope>
       ) : (
         <div className="ss-vars__list">
-          {rootVars.map((v) => (
-            <EditableVarRow
-              key={cssVariableId(v)}
-              variable={v}
-              variableNames={variableNames}
-              variables={variables}
-              projectPath={projectPath}
-              onSetValue={(val) => onSetValue(v, val)}
-              onRequestDelete={() => requestDelete(v)}
-            />
-          ))}
+          {rootVars.map((v, index) =>
+            v.editable ? (
+              <EditableVarRow
+                key={rowKey(v, index)}
+                variable={v}
+                variableNames={variableNames}
+                variables={variables}
+                projectPath={projectPath}
+                onSetValue={(val) => onSetValue(v, val)}
+                onRequestDelete={() => requestDelete(v)}
+              />
+            ) : (
+              <ReadonlyVarRow key={rowKey(v, index)} variable={v} />
+            )
+          )}
         </div>
       )}
 
@@ -188,25 +228,29 @@ export function CssVariablesPanel({
       {scopedGroups.map(([selector, vars]) => (
         <section key={selector} className="ss-vars__scoped">
           <div className="ss-vars__scope">
-            <code className="ss-vars__scope-sel">{selector}</code>
-            <span className="ss-vars__scope-note">read-only</span>
+            <VariableScopeLink
+              selector={selector}
+              variables={vars}
+              onOpenInCode={onOpenInCode}
+              onOpenSource={onOpenSource}
+            />
+            <span className="ss-vars__scope-note">scoped tokens</span>
           </div>
           <div className="ss-vars__list">
-            {vars.map((v) => (
-              <div key={`${selector}-${v.name}`} className="ss-var-row is-readonly">
-                <span className="ss-var-row__name">
-                  <VariableValueMarker value={v.value} />
-                  <code>{v.name}</code>
-                </span>
-                <span className="ss-var-row__colon">:</span>
-                <span className="ss-var-row__value-group">
-                  <ColorSwatch value={v.value} />
-                  <span className="ss-var-row__value ss-var-row__value--ro">
-                    <CssValueText value={v.value} />
-                  </span>
-                </span>
-              </div>
-            ))}
+            {vars.map((v, index) =>
+              v.editable ? (
+                <EditableVarRow
+                  key={rowKey(v, index)}
+                  variable={v}
+                  variableNames={variableNames}
+                  variables={variables}
+                  projectPath={projectPath}
+                  onSetValue={(value) => onSetValue(v, value)}
+                />
+              ) : (
+                <ReadonlyVarRow key={rowKey(v, index)} variable={v} />
+              )
+            )}
           </div>
         </section>
       ))}
@@ -225,6 +269,98 @@ export function CssVariablesPanel({
           }
         }}
       />
+    </div>
+  );
+}
+
+function uniqueRules(vars: VariableRow[]): VariableRow[] {
+  return [
+    ...new Map(
+      vars.map((variable) => [`${variable.file}\0${variable.selector}\0${variable.line}`, variable])
+    ).values(),
+  ];
+}
+
+function VariableScopeLink({
+  selector,
+  variables,
+  onOpenInCode,
+  onOpenSource,
+}: {
+  selector: string;
+  variables: VariableRow[];
+  onOpenInCode?: (file: string, line: number) => void;
+  onOpenSource?: (source: Pick<VariableRow, 'file' | 'line' | 'selector'>) => void;
+}) {
+  const sources = uniqueRules(variables);
+  const openSource = (source: VariableRow) => {
+    if (onOpenSource) onOpenSource(source);
+    else onOpenInCode?.(source.file, source.line);
+  };
+  if ((!onOpenInCode && !onOpenSource) || sources.length === 0) {
+    return <code className="ss-vars__scope-sel">{selector}</code>;
+  }
+
+  if (sources.length === 1) {
+    const [source] = sources;
+    return (
+      <TextButton
+        className="ss-vars__scope-sel"
+        title={`Open ${source.file}:${source.line} in Code tab`}
+        aria-label={`Open ${selector} in ${source.file} at line ${source.line} in Code tab`}
+        onClick={() => openSource(source)}
+      >
+        {selector}
+      </TextButton>
+    );
+  }
+
+  const sourceDetails = sources.map((source) => `${source.file}:${source.line}`).join('\n');
+  return (
+    <Dropdown
+      align="left"
+      portal
+      menuClassName="ss-vars__scope-menu"
+      trigger={(triggerProps) => (
+        <TextButton
+          {...triggerProps}
+          className="ss-vars__scope-sel"
+          title={sourceDetails}
+          aria-label={`Choose a source for ${selector}`}
+        >
+          {selector}
+        </TextButton>
+      )}
+    >
+      {sources.map((source) => {
+        const location = `${source.file}:${source.line}`;
+        return (
+          <DropdownItem
+            key={`${source.file}\0${source.selector}\0${source.line}`}
+            onSelect={() => openSource(source)}
+          >
+            <span title={`Open ${location} in Code tab`}>{location}</span>
+          </DropdownItem>
+        );
+      })}
+    </Dropdown>
+  );
+}
+
+function ReadonlyVarRow({ variable }: { variable: VariableRow }) {
+  return (
+    <div className="ss-var-row is-readonly">
+      <span className="ss-var-row__name">
+        <VariableValueMarker value={variable.value} />
+        <code>{variable.name}</code>
+      </span>
+      <span className="ss-var-row__colon">:</span>
+      <span className="ss-var-row__value-group">
+        <ColorSwatch value={variable.value} />
+        <span className="ss-var-row__value ss-var-row__value--ro">
+          <CssValueText value={variable.value} />
+        </span>
+      </span>
     </div>
   );
 }
@@ -270,15 +406,22 @@ function VariableValueMarker({ value }: { value: string }) {
 function ColorSwatch({
   value,
   onClick,
+  editorTrigger = false,
+  expanded = false,
 }: {
   value: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  /** Match the CSS declaration swatch when rendered inside the shared value editor. */
+  editorTrigger?: boolean;
+  expanded?: boolean;
 }) {
   const c = colorSwatch(value);
   if (!c) return null;
   const className = [
     'ss-var-row__swatch',
     onClick ? 'ss-var-row__swatch--button' : null,
+    editorTrigger ? 'ss-decl__swatch-trigger' : null,
+    editorTrigger ? 'ss-var-row__swatch--editor' : null,
     hasColorTransparency(c) ? 'ss-color-swatch__chip--checkerboard' : null,
   ]
     .filter(Boolean)
@@ -297,6 +440,11 @@ function ColorSwatch({
       className={className}
       aria-label="Open color picker"
       title="Open color picker"
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      onMouseDown={(event) => {
+        if (editorTrigger) event.preventDefault();
+      }}
       onClick={onClick}
     >
       {color}
@@ -320,18 +468,16 @@ function EditableVarRow({
   variables: readonly ValueFieldVariable[];
   projectPath?: string;
   onSetValue: (value: string) => void;
-  onRequestDelete: () => void;
+  onRequestDelete?: () => void;
   sortable?: boolean;
   sortGroup?: string;
   sortIndex?: number;
 }) {
   const [editing, setEditing] = useState<
-    null | { kind: 'value' } | { kind: 'color'; anchor: HTMLElement }
+    null | { kind: 'value' } | { kind: 'color'; anchor: HTMLElement; value: string }
   >(null);
-  const toggleColorPicker = (anchor: HTMLElement) => {
-    setEditing((current) =>
-      current?.kind === 'color' && current.anchor === anchor ? null : { kind: 'color', anchor }
-    );
+  const toggleColorPicker = (anchor: HTMLElement, value = variable.value) => {
+    setEditing((current) => (current?.kind === 'color' ? null : { kind: 'color', anchor, value }));
   };
   // Offer the other tokens as `var(--…)` so a token can alias another.
   const options = useMemo(
@@ -342,6 +488,17 @@ function EditableVarRow({
     () => variables.filter((candidate) => candidate.name !== variable.name),
     [variables, variable.name]
   );
+  const initialColorValue =
+    resolveColorVariable(variable.value, colorVariables, variable.selector) ?? variable.value;
+  const initialSwatchColor = colorSwatch(initialColorValue);
+  const editingValue = editing?.kind === 'value';
+  const valueGroupClassName = [
+    'ss-var-row__value-group',
+    'ss-var-row__value-group--editable',
+    initialSwatchColor ? 'ss-var-row__value-group--has-swatch' : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const row = (
     <div className="ss-var-row">
@@ -357,38 +514,91 @@ function EditableVarRow({
       <span className="ss-var-row__name">
         <VariableValueMarker value={variable.value} />
         <code>{variable.name}</code>
-        <Dropdown
-          align="right"
-          portal
-          menuClassName="ss-var-row__menu"
-          trigger={(triggerProps) => (
-            <IconButton
-              {...triggerProps}
-              variant="ghost"
-              size="compact"
-              className="ss-var-row__menu-trigger"
-              aria-label={`Actions for ${variable.name}`}
-              title={`Actions for ${variable.name}`}
-              icon={<MoreHorizontalIcon size={12} />}
-            />
-          )}
-        >
-          <DropdownItem variant="danger" icon={<TrashIcon size={14} />} onSelect={onRequestDelete}>
-            Delete
-          </DropdownItem>
-        </Dropdown>
+        {onRequestDelete && (
+          <Dropdown
+            align="right"
+            portal
+            menuClassName="ss-var-row__menu"
+            trigger={(triggerProps) => (
+              <IconButton
+                {...triggerProps}
+                variant="ghost"
+                size="compact"
+                className="ss-var-row__menu-trigger"
+                aria-label={`Actions for ${variable.name}`}
+                title={`Actions for ${variable.name}`}
+                icon={<MoreHorizontalIcon size={12} />}
+              />
+            )}
+          >
+            <DropdownItem
+              variant="danger"
+              icon={<TrashIcon size={14} />}
+              onSelect={onRequestDelete}
+            >
+              Delete
+            </DropdownItem>
+          </Dropdown>
+        )}
       </span>
       <span className="ss-var-row__colon">:</span>
-      <span className="ss-var-row__value-group">
-        <ColorSwatch
-          value={variable.value}
-          onClick={(event) => toggleColorPicker(event.currentTarget)}
-        />
-        {editing?.kind === 'value' ? (
+      <span className={valueGroupClassName}>
+        {!editingValue && initialSwatchColor && (
+          <ColorSwatch
+            value={initialColorValue}
+            expanded={editing?.kind === 'color'}
+            onClick={(event) => toggleColorPicker(event.currentTarget)}
+          />
+        )}
+        <PropertyField
+          variant="variable"
+          size="compact"
+          className="ss-var-row__value"
+          title="Click to edit"
+          aria-hidden={editingValue || undefined}
+          tabIndex={editingValue ? -1 : undefined}
+          onClick={() => setEditing({ kind: 'value' })}
+        >
+          {variable.value ? (
+            <CssValueText value={variable.value} />
+          ) : (
+            <span className="ss-var-row__empty">empty</span>
+          )}
+        </PropertyField>
+        {editingValue && (
           <EditPopover
             inline
             anchor={null}
             initial={variable.value}
+            initialSwatch={Boolean(initialSwatchColor)}
+            colorSwatchTrigger={
+              initialSwatchColor
+                ? (value, fullValue) => {
+                    const resolved = resolveColorVariable(value, colorVariables, variable.selector);
+                    const liveSwatchColor = colorSwatch(resolved ?? value) ?? initialSwatchColor;
+                    return (
+                      <ColorSwatch
+                        value={liveSwatchColor}
+                        editorTrigger
+                        onClick={(event) => {
+                          const row = event.currentTarget.closest<HTMLElement>('.ss-var-row');
+                          if (row) {
+                            toggleColorPicker(
+                              row,
+                              colorPickerDraftOrFallback(
+                                fullValue,
+                                initialColorValue,
+                                colorVariables,
+                                variable.selector
+                              )
+                            );
+                          }
+                        }}
+                      />
+                    );
+                  }
+                : undefined
+            }
             options={options}
             variables={colorVariables}
             variableSelector={variable.selector}
@@ -398,26 +608,12 @@ function EditableVarRow({
             onCommit={onSetValue}
             onClose={() => setEditing(null)}
           />
-        ) : (
-          <PropertyField
-            variant="variable"
-            size="compact"
-            className="ss-var-row__value"
-            title="Click to edit"
-            onClick={() => setEditing({ kind: 'value' })}
-          >
-            {variable.value ? (
-              <CssValueText value={variable.value} />
-            ) : (
-              <span className="ss-var-row__empty">empty</span>
-            )}
-          </PropertyField>
         )}
       </span>
       {editing?.kind === 'color' && (
         <EditPopover
           anchor={editing.anchor}
-          initial={variable.value}
+          initial={editing.value}
           variables={colorVariables}
           variableSelector={variable.selector}
           projectPath={projectPath}
