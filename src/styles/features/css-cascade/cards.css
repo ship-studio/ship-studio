@@ -388,12 +388,20 @@
   flex: 0 1 auto;
 }
 /* Keyframe names are a single chip, so size to the label while preserving the
-   selector field's panel-aware maximum. Keep the keyword and name visibly split. */
-.ss-cascade-card__selector-field .ss-keyframes-name-chip {
+   selector field's panel-aware maximum. Keep the keyword and name visibly split.
+   The extra `.ss-cascade-chip` outranks the media tone's `max-width: 45%` in
+   chips.css, which is imported after this file and otherwise wins. That 45%
+   resolves against the shrink-to-fit selector field, i.e. against the chip's
+   own label, so every short name was clipped to "@keyfra". */
+.ss-cascade-card__selector-field .ss-cascade-chip.ss-keyframes-name-chip:not(.is-editing) {
   flex: 0 1 auto;
   width: max-content;
   min-width: 0;
   max-width: min(var(--cascade-selector-chip-max-inline-size), 100%);
+}
+/* Only the name may ellipsize; the `@keyframes` keyword never shrinks. */
+.ss-keyframes-name-chip .ss-cascade-card__media-at {
+  flex-shrink: 0;
 }
 .ss-keyframes-name-chip__content {
   display: flex;
