@@ -167,6 +167,55 @@ fn binary_runs_within(
     }
 }
 
+/// `npm prefix -g`, asked at most once per run. Every agent lookup builds the
+/// full candidate list, so this used to start npm (and with it Node) once per
+/// agent on every call — four or five times inside the startup check that
+/// promises to spawn nothing — unbounded, and on machines with no npm at all
+/// (Bun- or pnpm-only). Now: skipped without npm, bounded by the validation
+/// timeout, and cached once answered.
+fn npm_global_prefix() -> Option<std::path::PathBuf> {
+    static PREFIX: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    // Checked outside the cache: "no npm" must not stick, or installing Node
+    // during onboarding would go unnoticed until the next launch.
+    let npm = crate::utils::find_executable("npm")?;
+    PREFIX
+        .get_or_init(|| {
+            use std::io::Read;
+            use std::process::Stdio;
+            use std::time::{Duration, Instant};
+
+            let mut child = create_command(&npm)
+                .args(["prefix", "-g"])
+                .env("PATH", get_extended_path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .ok()?;
+            let deadline = Instant::now() + Duration::from_secs(BINARY_VALIDATION_TIMEOUT_SECS);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) if status.success() => break,
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(20))
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                }
+            }
+            // A one-line path; it fits the pipe buffer, so reading after exit
+            // can't deadlock.
+            let mut out = String::new();
+            child.stdout.take()?.read_to_string(&mut out).ok()?;
+            let prefix = out.trim();
+            (!prefix.is_empty()).then(|| std::path::PathBuf::from(prefix))
+        })
+        .clone()
+}
+
 /// Returns the ordered list of locations to probe for a CLI binary.
 ///
 /// Order matters: earlier entries win when multiple working installs are
@@ -257,19 +306,8 @@ fn candidate_paths_for(binary_name: &str) -> Vec<std::path::PathBuf> {
             );
         }
 
-        if let Ok(output) = create_command("npm")
-            .args(["prefix", "-g"])
-            .env("PATH", get_extended_path())
-            .output()
-        {
-            if output.status.success() {
-                let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                push_candidate(
-                    &mut paths,
-                    &mut seen,
-                    std::path::PathBuf::from(&prefix).join(&cmd_name),
-                );
-            }
+        if let Some(prefix) = npm_global_prefix() {
+            push_candidate(&mut paths, &mut seen, prefix.join(&cmd_name));
         }
     }
 
@@ -370,19 +408,12 @@ fn candidate_paths_for(binary_name: &str) -> Vec<std::path::PathBuf> {
                 }
             }
 
-            if let Ok(output) = create_command("npm")
-                .args(["prefix", "-g"])
-                .env("PATH", get_extended_path())
-                .output()
-            {
-                if output.status.success() {
-                    let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    push_candidate(
-                        &mut paths,
-                        &mut seen,
-                        std::path::PathBuf::from(&prefix).join(format!("bin/{binary_name}")),
-                    );
-                }
+            if let Some(prefix) = npm_global_prefix() {
+                push_candidate(
+                    &mut paths,
+                    &mut seen,
+                    prefix.join(format!("bin/{binary_name}")),
+                );
             }
         }
     }

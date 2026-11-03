@@ -122,6 +122,31 @@ async fn run_vercel_whoami(vercel_path: &Path, token: Option<&str>) -> Option<St
     }
 }
 
+/// The JavaScript runtime that satisfies the "node" setup item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JsRuntime {
+    Node,
+    Bun,
+}
+
+/// Node when it's installed, else Bun. Filesystem lookups only — this runs in
+/// the quick startup check, which must not spawn anything.
+///
+/// pnpm on its own deliberately doesn't count: its standalone build bundles a
+/// Node for itself, but project scripts (`#!/usr/bin/env node`) still need one
+/// on PATH, so a pnpm-only machine can't actually run a dev server.
+fn find_js_runtime() -> Option<(JsRuntime, std::path::PathBuf)> {
+    find_executable("node")
+        .map(|p| (JsRuntime::Node, p))
+        .or_else(|| find_executable("bun").map(|p| (JsRuntime::Bun, p)))
+}
+
+/// Whether the package manager (Homebrew / winget) is required: only to
+/// install a missing runtime, Git or GitHub CLI. Nothing else uses it.
+fn pkg_mgr_needed(js_runtime: bool, git: bool, gh: bool) -> bool {
+    !(js_runtime && git && gh)
+}
+
 /// Get full setup status for all items
 #[tauri::command]
 #[tracing::instrument]
@@ -239,7 +264,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     let pkg_mgr_path = get_winget_command();
     #[cfg(not(windows))]
     let pkg_mgr_path = get_brew_command();
-    let node_path = find_executable("node");
+    let js_runtime = find_js_runtime();
     let git_path = find_executable("git");
     let gh_path = find_executable("gh");
     let vercel_path = find_executable("vercel");
@@ -258,8 +283,8 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         }
     };
     let node_fut = async {
-        match &node_path {
-            Some(p) => probe_stdout(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
+        match &js_runtime {
+            Some((_, p)) => probe_stdout(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
             None => None,
         }
     };
@@ -430,24 +455,41 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     #[cfg(not(windows))]
     let pkg_mgr_name = "Package Manager";
 
-    items.push(SetupItemInfo {
-        id: "homebrew".to_string(), // Keep ID for backward compatibility
-        friendly_name: pkg_mgr_name.to_string(),
-        status: if pkg_mgr_path.is_some() {
-            SetupItemStatus::Ready
-        } else {
-            SetupItemStatus::NotInstalled
-        },
-        version: pkg_mgr_version,
-        username: None,
-        error_message: None,
-    });
+    // Nothing in the app runs the package manager — it's only how onboarding
+    // installs Node, Git and the GitHub CLI. So it's an item only while one of
+    // those is missing (or when it's installed anyway, to show it's there).
+    // Like npm_fix, an absent item counts as ready everywhere, so a machine
+    // that got its tools some other way (nvm, the Bun installer, Xcode's git,
+    // MacPorts, nix…) is never sent back to onboarding to install Homebrew.
+    if pkg_mgr_path.is_some()
+        || pkg_mgr_needed(js_runtime.is_some(), git_path.is_some(), gh_path.is_some())
+    {
+        items.push(SetupItemInfo {
+            id: "homebrew".to_string(), // Keep ID for backward compatibility
+            friendly_name: pkg_mgr_name.to_string(),
+            status: if pkg_mgr_path.is_some() {
+                SetupItemStatus::Ready
+            } else {
+                SetupItemStatus::NotInstalled
+            },
+            version: pkg_mgr_version,
+            username: None,
+            error_message: None,
+        });
+    }
 
-    // 2. Node.js
-    let node_installed = node_path.is_some();
+    // 2. JavaScript runtime. The id stays "node" (the wizard, the agent-led
+    //    checklist and saved mock state all key on it), but Bun satisfies it
+    //    too: `bun run` stands in for `node` when scripts shell out to it, so
+    //    a Bun-only machine runs projects fine. The name says which one was
+    //    actually found — never "Node.js" for a machine that only has Bun.
+    let node_installed = js_runtime.is_some();
     items.push(SetupItemInfo {
         id: "node".to_string(),
-        friendly_name: "Node.js".to_string(),
+        friendly_name: match &js_runtime {
+            Some((JsRuntime::Bun, _)) => "Bun".to_string(),
+            _ => "Node.js".to_string(),
+        },
         status: if node_installed {
             SetupItemStatus::Ready
         } else {
@@ -458,8 +500,9 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         error_message: None,
     });
 
-    // 2b. npm cache permissions (only check if Node is installed)
-    if node_installed {
+    // 2b. npm cache permissions (only when npm is there to be broken by it —
+    //     a Bun- or pnpm-only machine never touches ~/.npm)
+    if find_executable("npm").is_some() {
         let npm_cache_ok = if let Some(home) = dirs::home_dir() {
             let npm_cache = home.join(".npm");
             if !npm_cache.exists() {
@@ -726,9 +769,10 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     #[cfg(not(windows))]
     let pkg_mgr_present = get_brew_command().is_some();
 
-    let node_present = find_executable("node").is_some();
+    let node_present = find_js_runtime().is_some();
     let git_present = find_executable("git").is_some();
     let gh_present = find_executable("gh").is_some();
+    let pkg_mgr_present = pkg_mgr_present || !pkg_mgr_needed(node_present, git_present, gh_present);
 
     // Check ALL agents — at least one pair must be present (or the user
     // opted to bring their own agent via "Other" in agent-led onboarding)
@@ -767,6 +811,14 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pkg_mgr_is_only_needed_to_install_a_missing_tool() {
+        assert!(!pkg_mgr_needed(true, true, true));
+        assert!(pkg_mgr_needed(false, true, true));
+        assert!(pkg_mgr_needed(true, false, true));
+        assert!(pkg_mgr_needed(true, true, false));
+    }
 
     #[cfg(unix)]
     #[tokio::test]
