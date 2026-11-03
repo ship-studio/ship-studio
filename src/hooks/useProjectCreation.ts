@@ -43,6 +43,8 @@ import { queueHandoff } from '../lib/workflowHandoff';
 import { friendlyProcessError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { checkNpmCachePermissions } from '../lib/setup';
+import { detectPackageManager } from '../lib/github';
+import { normalizePackageManager } from '../lib/package-manager';
 import { basename } from '../lib/paths';
 import { logger } from '../lib/logger';
 
@@ -347,20 +349,30 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
     });
   };
 
-  /** Run npm install via PTY, with a pre-check for permissions */
+  /**
+   * Install dependencies via PTY with the project's own package manager —
+   * or, when that isn't installed, whichever one is (Node isn't required, so
+   * a Bun- or pnpm-only machine has no npm to run). npm alone gets the cache
+   * permissions pre-check.
+   */
   const runNpmInstall = async (projectPath: string) => {
-    // Pre-check: verify npm cache is writable
-    const cacheStatus = await checkNpmCachePermissions();
-    if (cacheStatus === 'not_writable') {
-      throw new Error(
-        "npm can't write to its cache directory (~/.npm). This usually happens when npm was previously run with sudo.\n\nTo fix, open a terminal and run:\nsudo chown -R $(whoami) ~/.npm"
-      );
+    const packageManager = normalizePackageManager(
+      await detectPackageManager(projectPath).catch(() => 'npm')
+    );
+
+    if (packageManager === 'npm') {
+      const cacheStatus = await checkNpmCachePermissions();
+      if (cacheStatus === 'not_writable') {
+        throw new Error(
+          "npm can't write to its cache directory (~/.npm). This usually happens when npm was previously run with sudo.\n\nTo fix, open a terminal and run:\nsudo chown -R $(whoami) ~/.npm"
+        );
+      }
     }
 
     const installId = await invoke<number>('spawn_pty', {
       options: {
         cwd: projectPath,
-        command: 'npm',
+        command: packageManager,
         args: ['install'],
         rows: 10,
         cols: 80,

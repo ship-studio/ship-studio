@@ -66,12 +66,32 @@ describe('buildGuidedSetupPrompt', () => {
   it('tells the agent to check everything itself before installing', () => {
     const prompt = buildGuidedSetupPrompt([item('gh_auth', 'not_authenticated')]);
     expect(prompt).toContain('checking what is already installed yourself');
-    expect(prompt).toContain('`brew --version`');
+    expect(prompt).toContain('`node --version`');
     expect(prompt).toContain('`gh auth status`');
     // Full command list always ships, even for items we detected as ready —
     // the agent's own checks are the source of truth, not ours.
     expect(prompt).toContain('brew install');
     expect(prompt).toContain('Skip any step whose tool already works');
+  });
+
+  it('leaves Homebrew out when nothing it installs is missing', () => {
+    // Homebrew only installs Node/Git/gh; with those present, checking for it
+    // would have the agent install it for nothing.
+    const prompt = buildGuidedSetupPrompt([item('gh_auth', 'not_authenticated')]);
+    expect(prompt).not.toContain('`brew --version`');
+    expect(prompt).not.toContain('Homebrew:');
+  });
+
+  it('keeps Homebrew when a tool it installs is missing', () => {
+    const prompt = buildGuidedSetupPrompt([item('git', 'not_installed')]);
+    expect(prompt).toContain('`brew --version`');
+    expect(prompt).toContain('Homebrew:');
+  });
+
+  it('accepts Bun in place of Node', () => {
+    const prompt = buildGuidedSetupPrompt(FRESH_MISSING);
+    expect(prompt).toContain('`bun --version`');
+    expect(prompt).toContain('Node or Bun already works');
   });
 
   it('includes our detection only as an overridable hint', () => {

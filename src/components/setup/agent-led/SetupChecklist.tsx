@@ -51,7 +51,12 @@ export function SetupChecklist({
       .filter((item): item is SetupItem => item !== undefined)
       .map((item) => ({
         id: item.id,
-        label: SETUP_FRIENDLY_NAMES[item.id] ?? item.friendlyName,
+        // The runtime row is named for what was found ("Bun" satisfies it
+        // too), so it never reads "Node.js" on a machine without Node.
+        label:
+          item.id === 'node'
+            ? item.friendlyName
+            : (SETUP_FRIENDLY_NAMES[item.id] ?? item.friendlyName),
         ready: item.status === 'ready',
       })),
     // Vercel has real backend detection, so its row is verifiable. Cloudflare

@@ -142,8 +142,8 @@ function itemInstruction(itemId: string, win: boolean): string | null {
         : 'Homebrew: run `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` — warn the user first that macOS will ask for their computer password and that nothing appears on screen while they type it';
     case 'node':
       return win
-        ? 'Node.js: run `winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements`'
-        : 'Node.js: run `brew install node` (batch it with git/gh into one `brew install` when those are also missing; if Homebrew was installed moments ago, run `eval "$(/opt/homebrew/bin/brew shellenv)"` first on Apple Silicon, or use /usr/local/bin/brew on Intel)';
+        ? 'Node.js (skip this if Node or Bun already works — either one is enough): run `winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements`'
+        : 'Node.js (skip this if Node or Bun already works — either one is enough): run `brew install node` (batch it with git/gh into one `brew install` when those are also missing; if Homebrew was installed moments ago, run `eval "$(/opt/homebrew/bin/brew shellenv)"` first on Apple Silicon, or use /usr/local/bin/brew on Intel)';
     case 'npm_fix':
       return win
         ? 'fix npm cache permissions: run `icacls "$env:USERPROFILE\\.npm" /grant "$env:USERNAME:(OI)(CI)F" /T` in PowerShell'
@@ -162,6 +162,9 @@ function itemInstruction(itemId: string, win: boolean): string | null {
       return null;
   }
 }
+
+/** Items that only the package manager can install, so the only reason to need one. */
+const PKG_MGR_GATED_IDS = new Set(['homebrew', 'node', 'git', 'gh']);
 
 /** Friendly names for the prompt's "missing" summary. */
 const PROMPT_ITEM_NAMES: Record<string, string> = {
@@ -196,6 +199,13 @@ export function buildGuidedSetupPrompt(
   // the agent's terminal can see different PATHs, and the terminal is where
   // the work actually happens.
   const requiredIds: string[] = ['homebrew', 'node', 'git', 'gh', 'gh_auth'];
+  // The package manager only exists to install Node, Git and the GitHub CLI —
+  // nothing else in Ship Studio uses it. With all three already there, asking
+  // the agent to verify it would have it install Homebrew for no reason.
+  const needsPkgMgr = missing.some((i) => PKG_MGR_GATED_IDS.has(i.id));
+  if (!needsPkgMgr) {
+    requiredIds.splice(requiredIds.indexOf('homebrew'), 1);
+  }
   // npm_fix is conditional — it only exists while ~/.npm is broken, so it
   // joins the list only when our checks actually surfaced it.
   if (missing.some((i) => i.id === 'npm_fix')) {
@@ -207,8 +217,8 @@ export function buildGuidedSetupPrompt(
 
   const pkgCheck = win ? '`winget --version`' : '`brew --version`';
   const checkCommands = [
-    pkgCheck,
-    '`node --version`',
+    ...(needsPkgMgr ? [pkgCheck] : []),
+    '`node --version` (or `bun --version`)',
     '`git --version`',
     '`gh --version`',
     '`gh auth status`',

@@ -1357,27 +1357,40 @@ fn preferred_package_manager_in_or_above(path: &Path) -> Option<String> {
 pub async fn detect_package_manager(project_path: String) -> Result<String, CommandError> {
     let path = Path::new(&project_path);
 
-    // A lockfile names the repo's preferred manager, but the user may not have
-    // that tool: running it anyway dies with a raw "'bun' is not recognized"
-    // shell error (issues #454/#455). npm ships with Node (a hard app
-    // dependency), so fall back to it — npm can install from any repo even if
-    // it ignores the foreign lockfile.
-    fn or_npm(preferred: &str) -> String {
-        if crate::utils::find_executable(preferred).is_some() {
-            preferred.to_string()
-        } else {
+    let installed = |pm: &str| crate::utils::find_executable(pm).is_some();
+    let preferred =
+        preferred_package_manager_in_or_above(path).unwrap_or_else(|| "npm".to_string());
+    Ok(resolve_installed_package_manager(&preferred, installed))
+}
+
+/// Picks the manager to actually run: the project's own when it's installed,
+/// otherwise the first installed of npm → pnpm → bun → yarn.
+///
+/// A lockfile names the repo's preferred manager, but the user may not have
+/// that tool: running it anyway dies with a raw "'bun' is not recognized"
+/// shell error (issues #454/#455). Any of these can install a plain
+/// package.json even if it ignores a foreign lockfile. npm leads the fallback
+/// because it ships with Node, but Node isn't required — a Bun- or pnpm-only
+/// machine used to get `npm` here and fail the same way. With nothing
+/// installed at all the preferred name is returned, so the error names the
+/// tool the project asked for.
+fn resolve_installed_package_manager(preferred: &str, installed: impl Fn(&str) -> bool) -> String {
+    if installed(preferred) {
+        return preferred.to_string();
+    }
+    match ["npm", "pnpm", "bun", "yarn"]
+        .into_iter()
+        .find(|pm| installed(pm))
+    {
+        Some(fallback) => {
             tracing::warn!(
                 preferred,
-                "lockfile's package manager isn't installed; falling back to npm"
+                fallback,
+                "project's package manager isn't installed; falling back"
             );
-            "npm".to_string()
+            fallback.to_string()
         }
-    }
-
-    match preferred_package_manager_in_or_above(path) {
-        Some(preferred) if preferred != "npm" => Ok(or_npm(&preferred)),
-        // No signal (or the project asks for npm explicitly) → npm.
-        _ => Ok("npm".to_string()),
+        None => preferred.to_string(),
     }
 }
 
@@ -1385,6 +1398,37 @@ pub async fn detect_package_manager(project_path: String) -> Result<String, Comm
 mod tests {
     use super::*;
     use crate::types::GitHubRepo;
+
+    #[test]
+    fn resolve_installed_package_manager_keeps_the_projects_own_when_installed() {
+        let installed = |pm: &str| matches!(pm, "npm" | "bun");
+        assert_eq!(resolve_installed_package_manager("bun", installed), "bun");
+    }
+
+    #[test]
+    fn resolve_installed_package_manager_works_without_npm() {
+        // Bun-only machine, npm project (or no lockfile): bun, not a doomed npm.
+        assert_eq!(
+            resolve_installed_package_manager("npm", |pm| pm == "bun"),
+            "bun"
+        );
+        // pnpm-only machine, bun lockfile: pnpm.
+        assert_eq!(
+            resolve_installed_package_manager("bun", |pm| pm == "pnpm"),
+            "pnpm"
+        );
+    }
+
+    #[test]
+    fn resolve_installed_package_manager_prefers_npm_as_the_fallback() {
+        let installed = |pm: &str| matches!(pm, "npm" | "pnpm" | "yarn");
+        assert_eq!(resolve_installed_package_manager("bun", installed), "npm");
+    }
+
+    #[test]
+    fn resolve_installed_package_manager_names_the_preferred_when_nothing_is_installed() {
+        assert_eq!(resolve_installed_package_manager("pnpm", |_| false), "pnpm");
+    }
 
     /// Serializes the tests that touch the process-global GITHUB_USERNAME_CACHE.
     /// `invalidate_github_username_cache` clears the whole cache, so without this
