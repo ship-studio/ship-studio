@@ -26,6 +26,23 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.7.0', // v1.7.0
+    items: [
+      'CSS Editor: rules and variables show which stylesheet they come from, and one click opens that file at the right line in Code view — including styles inside Astro components (Martin Crandon)',
+      'CSS Editor: edit or split shared selectors, and review safe merges of duplicate rules before anything changes (Martin Crandon)',
+      'CSS Editor: edit scoped CSS variables where they live, with the colour picker for colours — ambiguous values are refused rather than guessed (Martin Crandon)',
+      'CSS Editor: value fields, animation headers and Add step stay put when you start editing (Martin Crandon)',
+      'Focus mode opens Agent and Preview side by side at 50/50, remembers your split, and no longer leaves panels floating over the agent (Martin Crandon)',
+      'The workspace sidebar shows one status light per project instead of two (Martin Crandon)',
+      'Fixed: a Windows crash (os error 1450) in long sessions',
+      'Fixed: a stuck full-window spinner after leaving a project mid-open',
+      'Fixed: “too many open files” when checking out a pull request',
+      'Fixed: the animation name chip in the Animate tab no longer cuts off at “@keyfra”',
+      'Fixed: deleting a shared rule or a rule inside a media query now asks first',
+      'Fixed: clearer details when the app fails to start',
+    ],
+  },
+  {
     version: '1.6.5', // v1.6.5
     items: [
       'Remote access now reports back: when you message an agent from your phone, your assistant waits and tells you when it’s finished (with its reply, the files it changed and a screenshot), or asks you when the agent needs a decision — instead of stopping at “sent”',
