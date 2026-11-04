@@ -191,10 +191,14 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
     return () => observer.disconnect();
   }, []);
 
-  const updatePosition = useCallback(() => {
+  const updatePosition = useCallback((): boolean => {
     const anchor = anchorRef.current;
     const popover = popoverRef.current;
-    if (!anchor || !popover) return;
+    if (!anchor || !popover) return false;
+    // An anchor that left the DOM (a click that swapped the view) measures as
+    // 0,0, which would park the tooltip in the window's top-left corner under
+    // the traffic lights. Report it so the caller hides instead.
+    if (!anchor.isConnected) return false;
 
     const anchorRect = anchor.getBoundingClientRect();
     const popoverRect = popover.getBoundingClientRect();
@@ -214,6 +218,7 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
     );
     const next = { top: Math.max(TOOLTIP_MARGIN, top), left };
     setPosition((current) => (samePosition(current, next) ? current : next));
+    return true;
   }, []);
 
   const clearShowTimer = useCallback(() => {
@@ -244,6 +249,7 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
           if (pendingAnchorRef.current !== anchor) return;
           pendingAnchorRef.current = null;
           showTimerRef.current = null;
+          if (!anchor.isConnected) return;
           const currentContent = readTooltipContent(anchor);
           if (!currentContent) return;
           anchorRef.current = anchor;
@@ -301,6 +307,10 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
 
       window.requestAnimationFrame(() => {
         if (anchorRef.current !== anchor) return;
+        if (!anchor.isConnected) {
+          hide();
+          return;
+        }
         const content = readTooltipContent(anchor);
         setState((current) => {
           if (!content) return null;
@@ -335,7 +345,10 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
     const popover = popoverRef.current;
     if (!popover) return;
     const frame = requestAnimationFrame(() => {
-      updatePosition();
+      if (!updatePosition()) {
+        hide();
+        return;
+      }
       // Snap to the hidden styles with transitions disabled so a swapped-in
       // tooltip (quick anchor switching) starts its enter animation from the
       // fully hidden state instead of resuming a fade that had just begun.
@@ -345,18 +358,20 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
       setShown(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [state, updatePosition]);
+  }, [state, updatePosition, hide]);
 
   useEffect(() => {
     if (!state) return;
-    const onViewportChange = () => updatePosition();
+    const onViewportChange = () => {
+      if (!updatePosition()) hide();
+    };
     window.addEventListener('resize', onViewportChange);
     window.addEventListener('scroll', onViewportChange, true);
     return () => {
       window.removeEventListener('resize', onViewportChange);
       window.removeEventListener('scroll', onViewportChange, true);
     };
-  }, [state, updatePosition]);
+  }, [state, updatePosition, hide]);
 
   return (
     <>
