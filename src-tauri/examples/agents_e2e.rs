@@ -13,7 +13,7 @@
 //! ```
 //!
 //! Scenarios: memory, restart, lost-session, delegation, stop, approvals,
-//! cli-failures, corrupt-store, burst. (A project-bound agent needs
+//! cli-failures, corrupt-store, burst, stop-tree, quit, slots. (A project-bound agent needs
 //! `Agent.project`, which this branch doesn't have.)
 
 // A test driver: a failed unwrap is a failed run, and `pgrep`/re-exec are the point.
@@ -370,6 +370,13 @@ async fn restart_phase_a(h: &H) {
             dir.join("ada.txt").exists() && h.drafting(&a.id, 40)
         })
         .await;
+    // Two more while it works: they queue, and must survive the crash.
+    h.send(&a.id, "Queued one. Reply with the token Q1-OSPREY.")
+        .await
+        .unwrap();
+    h.send(&a.id, "Queued two. Reply with the token Q2-HERON.")
+        .await
+        .unwrap();
     println!("WORKING {}", a.id);
     tokio::time::sleep(Duration::from_secs(600)).await;
 }
@@ -379,12 +386,23 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
     agents::store::expire_stale_approvals();
     agents::runner::recover_after_restart(&h.app).await;
     let agent = store::get(id).map_err(|e| format!("registry unreadable: {e}"))?;
-    ensure(runner::status_of(id).state == "idle", "status not idle")?;
-    ensure(!runner::in_turn(id), "a turn is running at launch")?;
+    // The queued two were handed back to the runner; nothing else runs.
+    ensure(runner::in_turn(id), "the queued messages weren't sent again")?;
     ensure(agent.pending_approvals == 0, "phantom pending approvals")?;
+    let inbox = store::agent_home(id).unwrap().join("inbox.json");
+    ensure(!inbox.exists(), "the queue was left on disk after recovery")?;
     // The cut-short turn ends like any failed turn: its change card, then a
-    // tagged error line (Retry re-sends it).
-    let tail: Vec<AgentMessage> = log(id).into_iter().rev().take(2).collect();
+    // tagged error line (Retry re-sends it); then a note naming the queued
+    // messages being sent again.
+    let mut tail: Vec<AgentMessage> = log(id).into_iter().rev().take(3).collect();
+    let note = tail.remove(0);
+    ensure(
+        note.kind == MessageKind::Note
+            && note.text.starts_with("Sent 2 messages")
+            && note.text.contains("Q1-OSPREY")
+            && note.text.contains("Q2-HERON"),
+        format!("no note naming the re-sent messages: {:?}", note.text),
+    )?;
     ensure(
         tail.len() == 2
             && tail[0].kind == MessageKind::Error
@@ -401,6 +419,24 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
         format!("no change card for ada.txt before it: {:?}", tail[1].text),
     )?;
     ensure(agent.failure.is_some(), "agent not marked as failed")?;
+    // The queued two run once each.
+    h.turn(id).await?;
+    let replies: String = of_kind(id, MessageKind::Agent)
+        .iter()
+        .map(|m| m.text.clone())
+        .collect();
+    for token in ["Q1-OSPREY", "Q2-HERON"] {
+        ensure(
+            replies.contains(token),
+            format!("the queued {token} was never answered"),
+        )?;
+        let sent = of_kind(id, MessageKind::User)
+            .iter()
+            .filter(|m| m.text.contains(token))
+            .count();
+        ensure(sent == 1, format!("{token} is in the chat {sent} times"))?;
+    }
+    let turns = store::get(id).unwrap().usage.all_time.turns;
     let errors_before = of_kind(id, MessageKind::Error).len();
     h.send(id, "Who was the story about? Reply with just the name.")
         .await?;
@@ -414,9 +450,255 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
         "failure not cleared by the next reply",
     )?;
     ensure(
+        store::get(id).unwrap().usage.all_time.turns == turns + 1,
+        "the queued messages ran again",
+    )?;
+    ensure(
         last_reply(id).contains("Ada"),
         format!("lost the thread: {:?}", last_reply(id)),
     )
+}
+
+/* ------------------------------------------------- process trees and slots */
+
+fn pids_matching(pattern: &str) -> Vec<String> {
+    std::process::Command::new("pgrep")
+        .args(["-f", pattern])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// An agent whose turn is running a long child of its own: a background
+/// `sleep <tag>` (standing in for a dev server) and a foreground one, so the
+/// turn is still going. Approvals for them are pre-granted, or answered.
+async fn turn_with_children(h: &H, name: &str, tag: u32) -> Result<store::Agent, String> {
+    let a = h.agent(
+        name,
+        "Runs commands",
+        "When asked to run commands, run them exactly as written with Bash.",
+    );
+    // Not `sleep`: Claude Code refuses a bare foreground sleep.
+    let background = format!("python3 -m http.server {tag}");
+    let foreground = format!("python3 -m http.server {}", tag + 1);
+    store::update(&a.id, |a| {
+        for (i, command) in [&background, &foreground].into_iter().enumerate() {
+            a.permissions.push(
+                serde_json::from_value(serde_json::json!({
+                    "id": format!("e2e-{i}"),
+                    "kind": "command",
+                    "value": command,
+                    "label": command,
+                    "createdAt": 0,
+                }))
+                .unwrap(),
+            );
+        }
+    })
+    .unwrap();
+    h.send(
+        &a.id,
+        &format!(
+            "First run `{background}` with Bash using run_in_background set to true. Then run `{foreground}` with Bash in the foreground. Then reply done."
+        ),
+    )
+    .await?;
+    let start = Instant::now();
+    while pids_matching(&foreground).is_empty() {
+        for card in approvals(&a.id)
+            .into_iter()
+            .filter(|c| c.status == store::ApprovalStatus::Pending)
+        {
+            let _ = cmd::agents_answer_approval(
+                h.app.clone(),
+                a.id.clone(),
+                card.request_id,
+                true,
+                None,
+                None,
+            )
+            .await;
+        }
+        if start.elapsed() > Duration::from_secs(150) {
+            return Err(format!(
+                "the turn never started its children: {:?}",
+                last_reply(&a.id)
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    ensure(
+        !pids_matching(&background).is_empty(),
+        "the background child isn't running",
+    )?;
+    ensure(runner::in_turn(&a.id), "the turn ended early")?;
+    Ok(a)
+}
+
+/// (11) Stop ends the whole tree: what the turn's Bash started dies with it.
+async fn stop_tree(h: &H) -> Check {
+    let a = turn_with_children(h, "Sleeper", 47471).await?;
+    ensure(
+        cmd::agents_stop(a.id.clone()).await.unwrap_or(false),
+        "stop found nothing to stop",
+    )?;
+    h.turn(&a.id).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    for pattern in ["http.server 47471", "http.server 47472"] {
+        ensure(
+            pids_matching(pattern).is_empty(),
+            format!("`{pattern}` outlived Stop"),
+        )?;
+    }
+    h.send(&a.id, "Reply with just: awake").await?;
+    h.turn(&a.id).await?;
+    ensure(last_reply(&a.id).contains("awake"), "no turn after Stop")?;
+
+    // A turn that finishes with something still running in the background
+    // ends anyway (`claude --print` would wait on it for ever), and takes
+    // the background child with it.
+    let server = "python3 -m http.server 47491";
+    store::update(&a.id, |a| {
+        a.permissions.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "e2e-bg", "kind": "command", "value": server, "label": server, "createdAt": 0,
+            }))
+            .unwrap(),
+        );
+    })
+    .unwrap();
+    h.send(
+        &a.id,
+        &format!("Run `{server}` with Bash using run_in_background set to true, then reply with just: started"),
+    )
+    .await?;
+    h.until("the background server", Duration::from_secs(120), || {
+        !pids_matching("http.server 47491").is_empty() || !runner::in_turn(&a.id)
+    })
+    .await?;
+    h.idle(&[&a.id], Duration::from_secs(1), Duration::from_secs(60))
+        .await
+        .map_err(|e| format!("a finished turn stayed busy on its background child: {e}"))?;
+    ensure(
+        pids_matching("http.server 47491").is_empty(),
+        "the background child outlived its finished turn",
+    )?;
+    no_errors(&a.id)
+}
+
+/// (12) Quitting (the app's Exit hook) stops every turn and its children at
+/// once; the next launch says the turn didn't finish.
+async fn quit(h: &H) -> Check {
+    let exe = std::env::current_exe().unwrap();
+    let mut child = std::process::Command::new(&exe)
+        .args(["--phase", "quit"])
+        .env("AGENTS_E2E_HOME", &h.home)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+    let mut report = Vec::new();
+    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+        report.push(line);
+    }
+    let _ = child.wait();
+    let (id, stopped) = report
+        .iter()
+        .find_map(|l| l.strip_prefix("QUIT ")?.split_once(' '))
+        .ok_or(format!("the quit phase never got going: {report:?}"))?;
+    let id = id.to_string();
+    ensure(
+        stopped == "1",
+        format!("the exit hook stopped {stopped} turns, not 1"),
+    )?;
+    for pattern in ["http.server 57571", "http.server 57572"] {
+        ensure(
+            pids_matching(pattern).is_empty(),
+            format!("`{pattern}` outlived the app"),
+        )?;
+    }
+    let session = store::get(&id).unwrap().session_id.unwrap_or_default();
+    ensure(
+        session.is_empty() || pids_matching(&session).is_empty(),
+        "claude outlived the app",
+    )?;
+    // The next launch.
+    runner::recover_after_restart(&h.app).await;
+    ensure(
+        log(&id)
+            .last()
+            .is_some_and(|m| m.kind == MessageKind::Error && m.text.contains("closed")),
+        "the next launch didn't say the turn was cut off",
+    )?;
+    ensure(!runner::in_turn(&id), "a turn is running after recovery")
+}
+
+async fn quit_phase(h: &H) {
+    let a = turn_with_children(h, "Quitter", 57571).await.unwrap();
+    // What RunEvent::Exit does, then the process exits as the app would.
+    let stopped = runner::shutdown_sync();
+    println!("QUIT {} {stopped}", a.id);
+    std::process::exit(0);
+}
+
+/// (13) More turns than slots: the extra one waits, says so, then runs.
+async fn slots(h: &H) -> Check {
+    let exe = std::env::current_exe().unwrap();
+    let out = std::process::Command::new(&exe)
+        .args(["--phase", "slots"])
+        .env("AGENTS_E2E_HOME", &h.home)
+        .env("SHIPSTUDIO_AGENTS_MAX_TURNS", "1")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let report = String::from_utf8_lossy(&out.stdout).to_string();
+    ensure(out.status.success(), format!("slots phase: {report}"))
+}
+
+async fn slots_phase(h: &H) -> Check {
+    let first = h.agent("First", "Counts", "Answer in as few words as possible.");
+    let second = h.agent("Second", "Counts", "Answer in as few words as possible.");
+    let waited: Arc<Mutex<bool>> = Default::default();
+    let w = waited.clone();
+    let id = second.id.clone();
+    h.app.listen_any(runner::EVENT_STATUS, move |e| {
+        if let Ok(v) = serde_json::from_str::<Value>(e.payload()) {
+            if v["agentId"] == id.as_str()
+                && v["status"]["activity"]
+                    .as_str()
+                    .is_some_and(|a| a.starts_with("Waiting for a free slot"))
+            {
+                *w.lock().unwrap() = true;
+            }
+        }
+    });
+    h.send(&first.id, "Write two sentences about the sea.")
+        .await?;
+    h.send(&second.id, "Reply with just: second").await?;
+    h.idle(
+        &[&first.id, &second.id],
+        Duration::from_secs(2),
+        Duration::from_secs(240),
+    )
+    .await?;
+    ensure(
+        *waited.lock().unwrap(),
+        "the second turn never waited for a slot",
+    )?;
+    ensure(
+        *h.peak_working.lock().unwrap() >= 2,
+        "the waiting agent didn't show as busy",
+    )?;
+    ensure(
+        last_reply(&second.id).contains("second"),
+        "the waiting turn never ran",
+    )?;
+    no_errors(&first.id)?;
+    no_errors(&second.id)
 }
 
 /// (3) Claude's session file vanishes: the turn is retried fresh with a recap.
@@ -1025,7 +1307,7 @@ async fn burst(h: &H) -> Check {
 
 /* --------------------------------------------------------------------- main */
 
-const ALL: [&str; 10] = [
+const ALL: [&str; 13] = [
     "memory",
     "restart",
     "lost-session",
@@ -1036,6 +1318,9 @@ const ALL: [&str; 10] = [
     "cli-failures",
     "corrupt-store",
     "burst",
+    "stop-tree",
+    "quit",
+    "slots",
 ];
 
 /// Claude Code reads its sign-in from the login keychain under HOME and the
@@ -1094,6 +1379,14 @@ fn main() {
         tauri::async_runtime::block_on(async {
             match args[1].as_str() {
                 "restart-a" => restart_phase_a(&h).await,
+                "quit" => quit_phase(&h).await,
+                "slots" => match slots_phase(&h).await {
+                    Ok(()) => println!("OK"),
+                    Err(e) => {
+                        println!("{e}");
+                        std::process::exit(1);
+                    }
+                },
                 "restart-b" => match restart_phase_b(&h, &args[2]).await {
                     Ok(()) => println!("OK"),
                     Err(e) => {
@@ -1129,6 +1422,9 @@ fn main() {
                 "cli-failures" => cli_failures(&h).await,
                 "corrupt-store" => corrupt_store(&h).await,
                 "burst" => burst(&h).await,
+                "stop-tree" => stop_tree(&h).await,
+                "quit" => quit(&h).await,
+                "slots" => slots(&h).await,
                 other => Err(format!("unknown scenario {other}")),
             };
             let took = t.elapsed().as_secs();

@@ -938,15 +938,25 @@ fn turn_args(
     args
 }
 
-/// Wait for `claude` to exit, at most [`EXIT_BOUND`]; then stop its tree.
+/// Wait for `claude` to exit, at most [`EXIT_BOUND`] (a moment, once its
+/// result is in and only background work could be keeping it); then stop
+/// its tree.
 async fn finish(
     child: &mut tokio::process::Child,
     pid: Option<u32>,
+    done: bool,
 ) -> std::io::Result<std::process::ExitStatus> {
-    if let Ok(status) = tokio::time::timeout(EXIT_BOUND, child.wait()).await {
+    let bound = if done {
+        Duration::from_secs(2)
+    } else {
+        EXIT_BOUND
+    };
+    if let Ok(status) = tokio::time::timeout(bound, child.wait()).await {
         return status;
     }
-    tracing::warn!("[Agents] Claude Code didn't exit after its output closed; stopping it");
+    tracing::info!(
+        "[Agents] Claude Code is still running after its turn; stopping it and what it started"
+    );
     if let Some(pid) = pid {
         let _ = tokio::task::spawn_blocking(move || procs::kill_tree_sync(pid)).await;
     }
@@ -1127,7 +1137,12 @@ async fn run_turn(
     draft_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // `claude` exited. Its output normally closes with it, but a child that
     // inherited the pipe can hold it open: read what's left for a moment,
-    // then stop waiting for an end that may never come.
+    // then stop waiting for an end that may never come. Likewise once the
+    // `result` event is in: `claude --print` stays alive for as long as a
+    // background task its Bash tool started keeps running (a dev server: for
+    // ever), which would hold the agent "working" and its slot for hours.
+    // Observed with Claude Code 2.1. The turn is over; what it left running
+    // is stopped with it (see `finish`).
     let mut exited: Option<std::io::Result<std::process::ExitStatus>> = None;
     let drain_rest = tokio::time::sleep(Duration::from_secs(TURN_TIMEOUT_SECS));
     tokio::pin!(drain_rest);
@@ -1178,6 +1193,7 @@ async fn run_turn(
                     }
                     Some("result") => {
                         saw_result = true;
+                        drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
                         if let Some(turn) = super::usage::from_result(&value) {
                             let today = super::usage::today();
                             let id = agent_id.to_string();
@@ -1200,7 +1216,7 @@ async fn run_turn(
                 exited = Some(status);
                 drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(2));
             }
-            _ = &mut drain_rest, if exited.is_some() => break,
+            _ = &mut drain_rest, if exited.is_some() || saw_result => break,
             _ = cancel.notified() => { stopped = Some(None); break; }
             _ = &mut deadline => { stopped = Some(Some("Stopped after 3 hours. Send a message to pick it back up.")); break; }
         }
@@ -1215,7 +1231,7 @@ async fn run_turn(
     }
     let status = match exited {
         Some(status) => status,
-        None => finish(&mut child, pid).await,
+        None => finish(&mut child, pid, saw_result).await,
     };
     procs::unregister(agent_id);
     let status = status.map_err(super::err_io)?;

@@ -72,13 +72,19 @@ fn signal_all(groups: &[u32], members: &[u32]) {
         .filter(|pid| !groups.contains(pid))
         .collect();
     let deadline = Instant::now() + GRACE;
-    while Instant::now() < deadline {
-        if watched.iter().all(|pid| !alive(*pid)) {
-            return;
-        }
+    while Instant::now() < deadline && watched.iter().any(|pid| alive(*pid)) {
         std::thread::sleep(Duration::from_millis(50));
     }
-    send(groups, members, Signal::Kill);
+    // Then SIGKILL for whatever is left, and always for the leaders: Claude
+    // Code doesn't reliably exit on SIGTERM (observed: still running, its
+    // children already gone), and a leader's liveness can't be read here.
+    // By pid too, for a leader that never got its own group (a turn left
+    // over from a build before groups).
+    let left: Vec<u32> = watched.into_iter().filter(|pid| alive(*pid)).collect();
+    send(groups, &left, Signal::Kill);
+    for leader in groups {
+        kill_one(*leader, Signal::Kill);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -111,6 +117,14 @@ fn send(_groups: &[u32], members: &[u32], _signal: Signal) {
         let _ = cmd.spawn().and_then(|mut c| c.wait());
     }
 }
+
+#[cfg(unix)]
+fn kill_one(pid: u32, signal: Signal) {
+    send(&[], &[pid], signal);
+}
+
+#[cfg(not(unix))]
+fn kill_one(_pid: u32, _signal: Signal) {}
 
 #[cfg(unix)]
 fn alive(pid: u32) -> bool {

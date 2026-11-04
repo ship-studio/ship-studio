@@ -89,7 +89,8 @@ tree first (a backgrounded child that called `setsid` has left the group but
 is still a descendant), then signal the group and every descendant: SIGTERM,
 then SIGKILL after 1.5s. A dev server or watcher its Bash tool started dies
 with it. Once `claude` closes its output, its exit and stderr are waited on
-for at most 10s.
+for at most 10s; once its result is in, for a few seconds, then whatever it
+left running in the background is stopped too.
 
 **Slots.** At most 3 turns run at once; an agent past that shows "Waiting for
 a free slot (3 agents already working)", can be stopped while it waits, and
@@ -459,10 +460,11 @@ prunes them the diff says it can't be shown.
 - At most 3 turns run at once (`runner::MAX_TURNS`); the rest wait, shown as
   "Waiting for a free slot". An agent waiting on an approval card holds its
   slot until it is answered or the wait runs out.
-- A turn's process tree is stopped on Stop, interrupt, the 3-hour timeout and
-  quit. A turn that finishes normally is trusted to have cleaned up after
-  itself: anything it deliberately left running in the background is not
-  stopped.
+- Nothing a turn starts outlives it. `claude --print` waits for any
+  background task its Bash tool started (observed with 2.1), so a dev server
+  left running would keep the agent "working" for hours; instead, a few
+  seconds after the turn's result the tree is stopped. An agent can't leave a
+  server running for you to look at.
 - Check-ins and routines only fire while Ship Studio is open.
 - Notification click-through is unverified in a signed build.
 - After a restart, the interrupted turn is not re-run (it may have done half
