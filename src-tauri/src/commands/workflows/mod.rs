@@ -29,7 +29,7 @@
 //! `attached-libraries.json`).
 
 mod files;
-mod progress;
+pub(crate) mod progress;
 mod runs;
 pub mod skill;
 mod state;

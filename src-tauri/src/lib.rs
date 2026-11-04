@@ -12,6 +12,7 @@
 
 pub mod agent;
 pub mod agent_bridge;
+pub mod agents;
 pub mod cache;
 pub mod commands;
 pub mod error_reporting;
@@ -155,6 +156,10 @@ pub fn run() {
                     workflow_scheduler::spawn(handle);
                 });
             }
+
+            // Agents: a card still "pending" from the last run has nobody
+            // waiting on it any more.
+            tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals);
 
             // Start the agent preview bridge (global loopback MCP server) at
             // launch so it's listening before any agent session spawns —
@@ -543,6 +548,18 @@ pub fn run() {
             // Projects
             commands::projects::list_projects,
             // Workflows & Inbox
+            commands::agents::agents_overview,
+            commands::agents::agents_messages,
+            commands::agents::agents_send,
+            commands::agents::agents_create,
+            commands::agents::agents_update,
+            commands::agents::agents_instructions,
+            commands::agents::agents_delete,
+            commands::agents::agents_stop,
+            commands::agents::agents_answer_approval,
+            commands::agents::agents_focus,
+            commands::agents::agents_mark_unread,
+            commands::agents::agents_import_prompt,
             commands::workflows::list_all_workflows,
             commands::workflows::save_workflow_file,
             commands::workflows::delete_workflow_file,

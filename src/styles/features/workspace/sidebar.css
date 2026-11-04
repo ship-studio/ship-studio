@@ -279,6 +279,28 @@
     color var(--transition-fast);
 }
 
+.workspace-sidebar-agents {
+  margin-top: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.workspace-sidebar-agents-badge {
+  margin-left: auto;
+  min-width: var(--spacing-lg);
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-on-accent);
+  background: var(--accent-active);
+  border-radius: var(--radius-pill);
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-agents-badge {
+  display: none;
+}
+
 .workspace-sidebar-filter:hover {
   background: var(--surface-control);
   color: var(--text-secondary);

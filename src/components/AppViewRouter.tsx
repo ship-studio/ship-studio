@@ -14,6 +14,7 @@ import { ToastList } from './primitives/ToastList';
 import { OnboardingRouter } from './setup';
 import { HomeSidebar } from './workspace/HomeSidebar';
 import { StandingWorkView } from './workspace/StandingWorkView';
+import { AgentsView } from './agents/AgentsView';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './workspace/WorkspaceHeader';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar';
 import { WorkspaceView } from './workspace/WorkspaceView';
@@ -136,6 +137,17 @@ export function AppViewRouter({
             onCancel={onCancelMonorepoPick}
           />
         )}
+        <ToastList toasts={toasts} onDismiss={onDismissToast} />
+        {quitConfirmModal}
+      </>
+    );
+  }
+
+  // Agents takes over the whole window: its own sidebar is the agent list.
+  if (view === 'agents') {
+    return (
+      <>
+        <AgentsView onGoProjects={homeSidebarProps.onGoHome} />
         <ToastList toasts={toasts} onDismiss={onDismissToast} />
         {quitConfirmModal}
       </>

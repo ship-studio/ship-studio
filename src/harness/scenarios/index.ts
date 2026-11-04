@@ -1,6 +1,7 @@
 /** The scenario registry. `?scenario=<id>`; unknown ids fall back to `dashboard`. */
 
 import type { Scenario } from '../types';
+import { agentsScenarios } from './agents';
 import { appScenarios } from './app';
 import { featureScenarios } from './features';
 import { hostingScenarios } from './hosting';
@@ -12,6 +13,7 @@ import { remoteScenarios } from './remote';
 import { teamScenarios } from './team';
 
 export const scenarios: Scenario[] = [
+  ...agentsScenarios,
   ...appScenarios,
   ...featureScenarios,
   ...hostingScenarios,

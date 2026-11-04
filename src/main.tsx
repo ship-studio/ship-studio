@@ -199,6 +199,16 @@ const OS_SKIP_SELECTOR = [
   // The comment list replaces its children often; preserve React's DOM
   // ownership. It lives in the Team panel now rather than a floating one.
   '.team-thread-list',
+  // Agents mode. The host styles force the agent list into a row flex layout
+  // (every agent became a full-height column side by side, in WKWebView only),
+  // and the conversation reads and writes its own scrollTop to stay pinned to
+  // the newest message — relocated children would leave it scrolling a node
+  // that no longer scrolls.
+  '.agents-sidebar__list',
+  '.agent-chat__scroll',
+  '.agent-approval__detail',
+  '.agent-peer__thread',
+  '.agent-markdown pre',
 ].join(', ');
 
 const scrollbarScanner = createScrollbarScanner({

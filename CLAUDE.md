@@ -21,6 +21,7 @@ Ship Studio is a desktop app for web developers that provides:
 - **IDE Integration** - Open projects in VS Code or Cursor with one click
 - **Hosting Status** - After a push, see whether *that commit* deployed on Vercel, Cloudflare Pages or Netlify, with the build error when it didn't (see "Hosting Flow")
 - **Remote Access** - Drive Ship Studio from any MCP-capable AI assistant (Grok, Claude, ChatGPT, Cursor…) on your phone: continue agent conversations and get the result back (each tool waits and reports the agent as working, waiting on a decision, or finished, plus its reply and a screenshot), start and close agents, switch projects and create new ones, push behind a PIN and see whether it deployed. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
+- **Agents** - A Grok Bot-style chat mode: named, persistent agents (each a Claude Code session on this Mac with its own memory), run by a Chief of Staff that creates, briefs, delegates to and deletes the others. Risky actions arrive as Allow / Deny cards in the chat. An existing setup can be imported from any assistant connected over Remote Access (see "Agents Flow")
 - **Auto-Updates** - Automatic update detection and installation
 
 ## Core Principles
@@ -70,6 +71,7 @@ Command modules in `src-tauri/src/commands/`. Domains with submodules are direct
 
 Single-file domains:
 - `agent_bridge.rs` - Commands for the agent preview bridge (the loopback MCP server in `src-tauri/src/agent_bridge.rs` that lets the workspace agent read the preview's console/network/DOM, navigate it, and take screenshots)
+- `agents.rs` - Agents mode commands (overview, messages, send, create/update/delete, approvals, focus). The engine is `src-tauri/src/agents/`
 - `ai.rs` - AI-powered PR title/description generation via the agent CLI
 - `analytics.rs` - PostHog event tracking (API key stays in Rust; see `docs/analytics.md`)
 - `assets.rs` - Assets panel file management (configurable root, default `/public`)
@@ -126,6 +128,7 @@ Single-file domains:
 - `plugins/` - Plugin manager/slots/dropdown, MCP and Skills modals
 - `workflows/` - Workflows list, row, editor, template picker, run history
 - `inbox/` - Findings list and the report reader
+- `agents/` - Agents mode: the full-window chat (sidebar, conversation, approval cards, avatar, create/edit and import dialogs)
 - `migration/` - Site migration: the URL tab in New Project, the phase rail, the four-part status, the fidelity matrix and the comparison viewer
 - `remote/` - Remote access: the modal (five-step setup, then the live view) and the sidebar indicator
 - `shopify/` - Shopify theme setup and store modal
@@ -146,6 +149,7 @@ export in the correct category, consume it through `@/components/icons`, and val
 #### Frontend Libraries
 Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `agents-management.ts` / `agent.ts` - Agent CLI detection, install state, default-agent selection
+- `agents.ts` / `agentsStore.ts` - Agents: types mirroring `src-tauri/src/agents/`, invoke wrappers, chat grouping, and the event-driven store
 - `agentBridge.ts` - Frontend half of the agent preview bridge: executes forwarded MCP tool calls against the inspect store / preview and registers the server with the agent CLI
 - `ai.ts` - AI generation wrapper for PR descriptions
 - `analytics.ts` - PostHog event wrapper (every event documented in `docs/analytics.md`)
@@ -461,6 +465,19 @@ Answers: **can I keep my agents going from my phone, and pick up exactly where t
 5. Setup is complete when an assistant has *actually connected* (`ever_connected`), not when a link exists
 
 Full design, the threat model, and what is and isn't verified: [docs/remote-access.md](docs/remote-access.md).
+
+### Agents Flow
+
+Answers: **can I run my work through a team of agents, the way I do in Grok Bot, but on the best model on my own machine?**
+
+1. Agents is a mode (`AppView` `'agents'`): the sidebar's Agents row or ⌘K → Agents. The Chief of Staff exists from first open (`ensure_main`)
+2. An agent is a registry entry plus a home folder: `CLAUDE.md` (instructions + a `## Memory` section it maintains) and `messages.jsonl` (what the user was shown). The chat log is ours, never reconstructed from Claude's transcript
+3. Each turn is one `claude --print --resume` process in the agent's home, with the agent tools on the agent bridge at `/mcp/<token>/agents/<id>`. Text blocks become bubbles; tool calls only update the "working" line. No process per idle agent
+4. `message_agent` is asynchronous and capped at 6 agent-to-agent hops per user message. Management tools are Chief-only; `delete_agent` asks the user first
+5. Approvals: `acceptEdits` plus `--permission-prompt-tool` → an Allow / Deny card. Claude Code's ~60s MCP timeout is raised with `MCP_TOOL_TIMEOUT`, or a waiting card times out as "the tool is hanging"; never remove it
+6. Import: Remote Access's `import_agents` tool lets the user's other assistant send its agents over; the main one merges into the Chief
+
+Full design and limits: [docs/agents.md](docs/agents.md).
 
 ### Breakpoint Canvas Flow
 

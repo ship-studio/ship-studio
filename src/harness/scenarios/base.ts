@@ -149,6 +149,36 @@ export const baseCommands: CommandMap = {
   list_all_workflows: [],
   list_inbox_items: [],
 
+  // ---- agents -------------------------------------------------------------
+  // Base layer: the nav badge subscribes to the agents store on every screen.
+  agents_overview: {
+    engineReady: true,
+    agents: [
+      {
+        id: 'chief',
+        name: 'Chief of Staff',
+        role: 'The user’s main agent: runs the other agents, delegates work, and keeps track of everything in flight.',
+        shape: 5,
+        color: 'white',
+        isMain: true,
+        pinned: false,
+        hidden: false,
+        sessionId: null,
+        createdAt: 1_790_000_000_000,
+        lastActivityAt: 1_790_000_000_000,
+        preview: null,
+        unread: 0,
+        model: null,
+        status: { state: 'idle', activity: null, since: null },
+      },
+    ],
+  },
+  agents_messages: [],
+  agents_focus: null,
+  agents_mark_unread: null,
+  agents_import_prompt:
+    'Import my setup into Ship Studio. Use Ship Studio’s import_agents tool: send every agent I have with you, each with its name, a one-line role, its full instructions, and everything you remember that it needs (one fact per line). Mark the agent that manages the others as the main one. Leave out passwords, API keys and card numbers.',
+
   // ---- surfaces reachable from anywhere -----------------------------------
   // These live in the base layer, not the workspace layer: Help, Skills, MCP
   // and friends open from the dashboard as well as from inside a project, and

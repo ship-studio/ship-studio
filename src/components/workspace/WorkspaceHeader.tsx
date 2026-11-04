@@ -67,6 +67,8 @@ export interface WorkspaceHeaderProps {
   onGoWorkflows?: () => void;
   onGoInbox?: () => void;
   inboxUnreadCount?: number;
+  onGoAgents?: () => void;
+  agentsUnreadCount?: number;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
   /** Consolidate navigation, tools, modes, and publishing into the titlebar. */
@@ -172,6 +174,8 @@ export interface WorkspaceNavigationProps {
   onGoWorkflows?: () => void;
   onGoInbox?: () => void;
   inboxUnreadCount?: number;
+  onGoAgents?: () => void;
+  agentsUnreadCount?: number;
   isHomeActive?: boolean;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
@@ -186,6 +190,8 @@ export function WorkspaceNavigation({
   // and subscribing to the workflows store from here would start its polling
   // inside every open project to render one badge.
   inboxUnreadCount = 0,
+  onGoAgents,
+  agentsUnreadCount = 0,
   isHomeActive = false,
   isSidebarHidden,
   onToggleSidebar,
@@ -224,6 +230,23 @@ export function WorkspaceNavigation({
           title="Workflows"
           aria-label="Workflows"
         />
+      )}
+      {onGoAgents && (
+        <span className="workspace-titlebar-inbox">
+          <IconButton
+            variant="ghost"
+            className="workspace-titlebar-home"
+            icon={<AgentsIcon size={12} />}
+            onClick={onGoAgents}
+            title="Agents"
+            aria-label={agentsUnreadCount > 0 ? `Agents — ${agentsUnreadCount} unread` : 'Agents'}
+          />
+          {agentsUnreadCount > 0 && (
+            <span className="workspace-titlebar-inbox-badge" aria-hidden>
+              {agentsUnreadCount > 9 ? '9+' : agentsUnreadCount}
+            </span>
+          )}
+        </span>
       )}
       {onGoInbox && (
         <span className="workspace-titlebar-inbox">
@@ -291,6 +314,8 @@ export function WorkspaceHeader({
   onGoWorkflows,
   onGoInbox,
   inboxUnreadCount,
+  onGoAgents,
+  agentsUnreadCount,
   isSidebarHidden,
   onToggleSidebar,
   compactWorkspaceToolbarEnabled,
@@ -582,6 +607,8 @@ export function WorkspaceHeader({
             onGoWorkflows={onGoWorkflows}
             onGoInbox={onGoInbox}
             inboxUnreadCount={inboxUnreadCount}
+            onGoAgents={onGoAgents}
+            agentsUnreadCount={agentsUnreadCount}
             isSidebarHidden={isSidebarHidden}
             onToggleSidebar={onToggleSidebar}
           />
@@ -608,6 +635,8 @@ export function WorkspaceHeader({
             onGoWorkflows={onGoWorkflows}
             onGoInbox={onGoInbox}
             inboxUnreadCount={inboxUnreadCount}
+            onGoAgents={onGoAgents}
+            agentsUnreadCount={agentsUnreadCount}
             isSidebarHidden={isSidebarHidden}
             onToggleSidebar={onToggleSidebar}
           />

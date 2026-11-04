@@ -4,6 +4,7 @@
 
 pub mod accounts;
 pub mod agent_bridge;
+pub mod agents;
 pub mod ai;
 pub mod analytics;
 pub mod assets;

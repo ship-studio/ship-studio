@@ -17,6 +17,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ActivityIcon,
   AddIcon,
+  AgentsIcon,
   BellIcon,
   ChevronIcon,
   CloseIcon,
@@ -161,6 +162,10 @@ interface Props {
   /** Home-level Team screen. Absent where there is no nav row. */
   /** Unread findings, rendered as a badge on the Inbox button. */
   inboxUnreadCount?: number;
+  /** Switch to Agents mode. Hides the nav button when omitted. */
+  onGoAgents?: () => void;
+  /** Unread agent replies, rendered as a badge on the Agents button. */
+  agentsUnreadCount?: number;
 
   // Projects
   /** Pinned projects (in pin order). Have live registry data. */
@@ -418,6 +423,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onGoWorkflows,
   onGoInbox,
   inboxUnreadCount = 0,
+  onGoAgents,
+  agentsUnreadCount = 0,
   onGoHome,
   onOpenProjectPicker,
   isSidebarHidden,
@@ -1745,6 +1752,26 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             <span className="workspace-sidebar-filter-placeholder">Search</span>
             <span className="workspace-sidebar-filter-shortcut">{kbd('mod', 'K')}</span>
           </button>
+          {/* Agents is a mode, not a page: it takes over the window. It gets a
+              row of its own because the nav row beside the traffic lights only
+              has room for four buttons. */}
+          {onGoAgents && (
+            <button
+              type="button"
+              className="workspace-sidebar-filter workspace-sidebar-agents"
+              onClick={onGoAgents}
+              title="Agents"
+              aria-label={agentsUnreadCount > 0 ? `Agents — ${agentsUnreadCount} unread` : 'Agents'}
+            >
+              <AgentsIcon size={12} />
+              <span className="workspace-sidebar-filter-placeholder">Agents</span>
+              {agentsUnreadCount > 0 && (
+                <span className="workspace-sidebar-agents-badge" aria-hidden>
+                  {agentsUnreadCount > 9 ? '9+' : agentsUnreadCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
         <SpotifyWidget isSidebarHidden={isSidebarHidden} />

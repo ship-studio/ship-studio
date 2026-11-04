@@ -313,6 +313,8 @@ export interface WorkspaceViewProps {
     onGoWorkflows: () => void;
     onGoInbox: () => void;
     inboxUnreadCount: number;
+    onGoAgents?: () => void;
+    agentsUnreadCount?: number;
   };
   /** Open the project picker modal. */
   onOpenProjectPicker: () => void;

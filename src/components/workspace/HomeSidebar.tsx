@@ -22,6 +22,8 @@ interface HomeSidebarProps {
   onGoWorkflows: () => void;
   onGoInbox: () => void;
   inboxUnreadCount: number;
+  onGoAgents: () => void;
+  agentsUnreadCount: number;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
   onOpenProjectPicker: () => void;
@@ -44,6 +46,8 @@ export function HomeSidebar({
   onGoWorkflows,
   onGoInbox,
   inboxUnreadCount,
+  onGoAgents,
+  agentsUnreadCount,
   isSidebarHidden,
   onToggleSidebar,
   onOpenProjectPicker,
@@ -68,6 +72,8 @@ export function HomeSidebar({
       onGoWorkflows={onGoWorkflows}
       onGoInbox={onGoInbox}
       inboxUnreadCount={inboxUnreadCount}
+      onGoAgents={onGoAgents}
+      agentsUnreadCount={agentsUnreadCount}
       onOpenProjectPicker={onOpenProjectPicker}
       isSidebarHidden={isSidebarHidden}
       onToggleSidebar={onToggleSidebar}

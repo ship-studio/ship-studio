@@ -129,6 +129,7 @@
 @import './features/workflows.css';
 @import './features/workflow-templates.css';
 @import './features/inbox.css';
+@import './features/agents.css';
 @import './features/team/base.css';
 @import './features/team/updates.css';
 @import './features/team/people.css';

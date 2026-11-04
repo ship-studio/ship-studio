@@ -63,6 +63,8 @@ import {
 } from './components/CommandPalette/paletteContext';
 import { useAppCommands } from './commands/useAppCommands';
 import { useWorkflowCommands } from './commands/useWorkflowCommands';
+import { useAgentsNavCommands } from './commands/useAgentsCommands';
+import { useAgentsUnread } from './lib/agentsStore';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { PinnedProjectCommandHost } from './commands/usePinnedProjectCommands';
 import { useWorkspaceNumberShortcuts } from './hooks/useWorkspaceNumberShortcuts';
@@ -149,7 +151,12 @@ function AppContents({ initialProjectPath }: AppProps) {
         currentProjectName: currentProject?.name ?? null,
         currentProjectPath: currentProject?.path ?? null,
       });
-    } else if (view === 'projects' || view === 'workflows' || view === 'inbox') {
+    } else if (
+      view === 'projects' ||
+      view === 'workflows' ||
+      view === 'inbox' ||
+      view === 'agents'
+    ) {
       // Workflows and the Inbox are home-level screens; left in 'other' their
       // ⌘K armed a palette that couldn't render (see CommandPaletteHost).
       setPaletteContext({ kind: 'home', currentProjectName: null, currentProjectPath: null });
@@ -616,6 +623,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   });
 
   useWorkflowCommands({ setView, showToast });
+  useAgentsNavCommands({ setView });
 
   // Close an active session from the sidebar (dashboard, collapsed rail, or
   // workspace). Ordering and the auto-open sentinel are load-bearing — see
@@ -1093,6 +1101,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   // sidebar, used by the Projects, Workflows, and Inbox screens.
   const workflowsSnapshot = useSyncExternalStore(subscribeWorkflows, getWorkflowsSnapshot);
   const inboxUnread = unreadCount(workflowsSnapshot);
+  const agentsUnread = useAgentsUnread();
 
   const homeSidebarProps = useMemo(
     () => ({
@@ -1100,6 +1109,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       onGoWorkflows: () => setView('workflows'),
       onGoInbox: () => setView('inbox'),
       inboxUnreadCount: inboxUnread,
+      onGoAgents: () => setView('agents'),
+      agentsUnreadCount: agentsUnread,
       onOpenProjectPicker: openProjectPicker,
       isSidebarHidden,
       onToggleSidebar: toggleSidebar,
@@ -1120,6 +1131,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     [
       openAccountSelect,
       inboxUnread,
+      agentsUnread,
       openProjectPicker,
       isSidebarHidden,
       toggleSidebar,

@@ -1,0 +1,202 @@
+/**
+ * Create a new agent, or edit one. Creating asks only what Grok Bot asks —
+ * a name and a face — with the role and briefing one disclosure away, because
+ * most agents are created by the Chief of Staff and briefed in conversation.
+ *
+ * @module components/agents/AgentEditorModal
+ */
+
+import { useEffect, useState } from 'react';
+import { ModalFrame } from '../primitives/ModalFrame';
+import { Button } from '../primitives/Button';
+import { TextArea, TextField } from '../primitives/TextField';
+import { TextButton } from '../primitives/TextButton';
+import { AgentAvatar, AVATAR_SHAPES } from './AgentAvatar';
+import {
+  AGENT_COLORS,
+  createAgent,
+  getAgentInstructions,
+  updateAgent,
+  type Agent,
+} from '../../lib/agents';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { useAsyncState } from '../../hooks/useAsyncState';
+
+interface AgentEditorModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Edit this agent; omit to create one. */
+  agent?: Agent | null;
+  onSaved: (agentId: string) => void;
+  onDelete?: (agent: Agent) => void;
+}
+
+export function AgentEditorModal({
+  isOpen,
+  onClose,
+  agent,
+  onSaved,
+  onDelete,
+}: AgentEditorModalProps) {
+  const editing = Boolean(agent);
+  // Keyed by the caller per open, so these start fresh each time.
+  const [name, setName] = useState(agent?.name ?? '');
+  const [shape, setShape] = useState(
+    () => agent?.shape ?? Math.floor(Math.random() * AVATAR_SHAPES.length)
+  );
+  const [color, setColor] = useState<string>(agent?.color ?? 'purple');
+  const [role, setRole] = useState(agent?.role ?? '');
+  const [instructions, setInstructions] = useState('');
+  const [showBriefing, setShowBriefing] = useState(Boolean(agent));
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!agent) return;
+    let live = true;
+    getAgentInstructions(agent.id)
+      .then((text) => {
+        if (live) setInstructions(text);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [agent]);
+
+  const save = useAsyncState(async () => {
+    setError(null);
+    try {
+      if (agent) {
+        await updateAgent(agent.id, { name, shape, color, role, instructions });
+        onSaved(agent.id);
+      } else {
+        const created = await createAgent({ name, shape, color, role, instructions });
+        onSaved(created.id);
+      }
+      onClose();
+    } catch (err) {
+      setError(formatCommandError(asCommandError(err)));
+    }
+  });
+
+  const canSave = name.trim().length > 0 && !save.isLoading;
+
+  return (
+    <ModalFrame
+      isOpen={isOpen}
+      onClose={onClose}
+      title={editing ? `Edit ${agent?.name}` : 'New agent'}
+      className="agent-editor"
+    >
+      <form
+        className="agent-editor__body"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSave) void save.execute();
+        }}
+      >
+        <div className="agent-editor__preview">
+          <AgentAvatar shape={shape} color={color} size={72} />
+        </div>
+        <TextField
+          className="agent-editor__name"
+          placeholder="Name your agent"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          aria-label="Agent name"
+          maxLength={40}
+          autoFocus
+        />
+
+        <div className="agent-editor__shapes" role="radiogroup" aria-label="Shape">
+          {AVATAR_SHAPES.map((_, index) => (
+            <button
+              key={index}
+              type="button"
+              role="radio"
+              aria-checked={shape === index}
+              aria-label={`Shape ${index + 1}`}
+              className="agent-editor__choice"
+              data-selected={shape === index || undefined}
+              onClick={() => setShape(index)}
+            >
+              <AgentAvatar shape={index} color={color} size={28} />
+            </button>
+          ))}
+        </div>
+
+        <div className="agent-editor__colors" role="radiogroup" aria-label="Colour">
+          {AGENT_COLORS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="radio"
+              aria-checked={color === key}
+              aria-label={key}
+              className="agent-editor__swatch"
+              data-color={key}
+              data-selected={color === key || undefined}
+              onClick={() => setColor(key)}
+            />
+          ))}
+        </div>
+
+        {showBriefing ? (
+          <div className="agent-editor__briefing">
+            <label className="agent-editor__label">
+              Role
+              <TextField
+                placeholder="What is this agent responsible for?"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                disabled={agent?.isMain}
+              />
+            </label>
+            <label className="agent-editor__label">
+              Instructions
+              <TextArea
+                rows={6}
+                placeholder="Brief it like a new hire: context, standing rules, who's who, where things live."
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+              />
+            </label>
+            {editing && (
+              <p className="agent-editor__hint">
+                What it remembers is kept separately and isn't changed here.
+              </p>
+            )}
+          </div>
+        ) : (
+          <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>
+            Add a role and instructions
+          </TextButton>
+        )}
+
+        {error && (
+          <p className="agent-editor__error" role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="agent-editor__actions">
+          {editing && agent && !agent.isMain && onDelete && (
+            <Button
+              variant="danger"
+              className="agent-editor__delete"
+              onClick={() => onDelete(agent)}
+            >
+              Delete
+            </Button>
+          )}
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={!canSave}>
+            {editing ? 'Save' : 'Create'}
+          </Button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
+}

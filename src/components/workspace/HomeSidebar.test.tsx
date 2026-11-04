@@ -24,6 +24,8 @@ const props = {
   onGoHome: vi.fn(),
   onGoWorkflows: vi.fn(),
   onGoInbox: vi.fn(),
+  onGoAgents: vi.fn(),
+  agentsUnreadCount: 0,
   inboxUnreadCount: 0,
   isSidebarHidden: false,
   onToggleSidebar: vi.fn(),

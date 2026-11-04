@@ -715,6 +715,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     onGoWorkflows: homeNav?.onGoWorkflows,
     onGoInbox: homeNav?.onGoInbox,
     inboxUnreadCount: homeNav?.inboxUnreadCount,
+    onGoAgents: homeNav?.onGoAgents,
+    agentsUnreadCount: homeNav?.agentsUnreadCount,
     isSidebarHidden,
     onToggleSidebar,
     compactWorkspaceToolbarEnabled,

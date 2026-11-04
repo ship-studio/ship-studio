@@ -97,6 +97,34 @@ const TOOLS: &[ToolDef] = &[
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {
+        name: "import_agents",
+        title: "Import agents into Ship Studio",
+        effect: Effect::Acts,
+        open_world: false,
+        description: "Bring the user's agent setup from you into Ship Studio Agents, where the same agents run on Claude Code on this computer. Call it only when the user asks to import or move their agents/setup to Ship Studio. Send every agent: its name, a one-line role, its full instructions (as you were briefed), and what it remembers that it still needs, one fact per line. Mark the agent that manages the others is_main (it merges into Ship Studio's Chief of Staff). Never include passwords, API keys, tokens or card numbers. Safe to call again: same-named agents are updated, not duplicated. Imported agents don't start working until the user messages them.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "source": { "type": "string", "description": "Your product name, e.g. \"Grok Bot\"." },
+                "agents": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" },
+                            "role": { "type": "string" },
+                            "instructions": { "type": "string" },
+                            "memory": { "type": "string" },
+                            "is_main": { "type": "boolean" }
+                        },
+                        "required": ["name"]
+                    }
+                }
+            },
+            "required": ["source", "agents"]
+        }),
+    },
+    ToolDef {
         name: "create_project",
         title: "Create a project",
         effect: Effect::Acts,
@@ -345,6 +373,9 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
     if name == "create_project" {
         return create_project(app, &args).await;
     }
+    if name == "import_agents" {
+        return import_agents(app, &args);
+    }
     let project = match resolve_project(config, args.get("project").and_then(Value::as_str)) {
         Ok(p) => p,
         Err(e) => return error(e),
@@ -364,6 +395,48 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
         "confirm_push" => confirm_push(&project, &args).await,
         "deploy_status" => super::deploy::deploy_status(&project, &args).await,
         _ => error(format!("Unknown tool: {name}")),
+    }
+}
+
+// ============================================================================
+// Agents
+// ============================================================================
+
+fn import_agents(app: &tauri::AppHandle, args: &Value) -> Value {
+    let source = args
+        .get("source")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let agents: Vec<crate::agents::import::ImportedAgent> =
+        match serde_json::from_value(args.get("agents").cloned().unwrap_or(Value::Null)) {
+            Ok(list) => list,
+            Err(e) => {
+                return error(format!(
+                "`agents` should be a list of {{name, role, instructions, memory, is_main}}: {e}"
+            ))
+            }
+        };
+    let count = agents.len();
+    match crate::agents::import::import_and_notify(app, agents, &source) {
+        Ok(summary) => {
+            super::audit(
+                "import_agents",
+                None,
+                format!("{count} agent(s) from {source}"),
+                true,
+            );
+            text(summary.describe(&source))
+        }
+        Err(e) => {
+            super::audit(
+                "import_agents",
+                None,
+                format!("{count} agent(s) from {source}: {e}"),
+                false,
+            );
+            error(format!("Import failed: {e}"))
+        }
     }
 }
 
