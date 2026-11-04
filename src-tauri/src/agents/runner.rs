@@ -14,12 +14,15 @@
 
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
 use super::notify;
+use super::procs;
 use super::prompts;
 use super::store::{self, AgentMessage, AgentRef, MessageKind};
 use super::stream::{self, Drafts};
@@ -43,13 +46,47 @@ pub const MAX_HOPS: u8 = 6;
 /// A turn that runs this long is stopped. Long enough to babysit a CI run.
 const TURN_TIMEOUT_SECS: u64 = 3 * 60 * 60;
 
-#[derive(Debug, Clone)]
+/// After `claude` closes its output, how long it gets to exit (and its
+/// stderr to close) before it is stopped: a CLI that hangs on the way out
+/// must not wedge the agent, with every later message queued behind it.
+const EXIT_BOUND: Duration = Duration::from_secs(10);
+
+/// Turns that may run at once. A Chief fanning work out to ten agents would
+/// otherwise start ten `claude` processes together, burn the usage limit and
+/// come back as ten failures; the rest wait their turn, and say so.
+const MAX_TURNS: usize = 3;
+
+fn max_turns() -> usize {
+    std::env::var("SHIPSTUDIO_AGENTS_MAX_TURNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(MAX_TURNS)
+}
+
+static SLOTS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(max_turns())));
+
+/// Set when the app is exiting: turns being torn down must not record their
+/// end, so the marks they leave say "Ship Studio closed" at the next launch.
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// The app is exiting (`RunEvent::Exit`): stop every running turn's whole
+/// process tree, so no `claude` keeps editing a project after Ship Studio is
+/// gone. Their `turn.json` marks stay, and the next launch records each one
+/// as interrupted (see [`recover_after_restart`]); queued messages are
+/// already on disk. Returns how many turns were stopped.
+pub fn shutdown_sync() -> usize {
+    QUITTING.store(true, Ordering::SeqCst);
+    procs::kill_all_sync()
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub enum From {
     User,
     Agent { sender: AgentRef, hop: u8 },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 struct Inbound {
     text: String,
     from: From,
@@ -121,6 +158,17 @@ pub fn in_turn(agent_id: &str) -> bool {
         .is_some_and(|r| r.running)
 }
 
+/// How many agents have a turn running or waiting for a slot. The updater
+/// asks before it restarts the app.
+pub fn busy_count() -> usize {
+    RUNTIMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .filter(|r| r.running)
+        .count()
+}
+
 /// A turn in flight, on disk (`<home>/turn.json`) from spawn until the turn
 /// ends. Still there at launch means Ship Studio quit or crashed mid-turn.
 #[derive(Serialize, serde::Deserialize, Default)]
@@ -160,6 +208,61 @@ fn clear_mark(agent_id: &str) {
     }
 }
 
+/// What is queued behind the turn in progress, on disk (`<home>/inbox.json`)
+/// so a quit, crash or update doesn't lose it. Written whenever the queue
+/// changes, under the runtimes lock, so writes land in order.
+fn save_inbox(agent_id: &str, queue: &VecDeque<Inbound>) {
+    let Ok(home) = store::agent_home(agent_id) else {
+        return;
+    };
+    let path = home.join("inbox.json");
+    if queue.is_empty() {
+        let _ = std::fs::remove_file(path);
+    } else if let Ok(json) = serde_json::to_vec(queue) {
+        if let Err(e) = std::fs::write(&path, json) {
+            tracing::warn!("[Agents] couldn't save {agent_id}'s queue: {e}");
+        }
+    }
+}
+
+fn take_inbox(agent_id: &str) -> Vec<Inbound> {
+    let Ok(path) = store::agent_home(agent_id).map(|h| h.join("inbox.json")) else {
+        return Vec::new();
+    };
+    let queued = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let _ = std::fs::remove_file(path);
+    queued
+}
+
+/// The note saying which waiting messages were sent again after a restart.
+fn resent_note(queued: &[Inbound]) -> String {
+    let quoted: Vec<String> = queued
+        .iter()
+        .map(|m| {
+            let first = m.text.lines().map(str::trim).find(|l| !l.is_empty());
+            let mut line: String = first.unwrap_or("").chars().take(60).collect();
+            if first.is_some_and(|l| l.chars().count() > 60) {
+                line.push('…');
+            }
+            match &m.from {
+                From::User => format!("“{line}”"),
+                From::Agent { sender, .. } => format!("{}'s “{line}”", sender.name),
+            }
+        })
+        .collect();
+    let what = match queued.len() {
+        1 => "the message".to_string(),
+        n => format!("{n} messages"),
+    };
+    format!(
+        "Sent {what} still waiting when Ship Studio closed: {}",
+        quoted.join(", ")
+    )
+}
+
 /// At launch: a turn the last run left mid-flight is over. Its Claude Code
 /// process can outlive the app (a quit doesn't run our cleanup), and would
 /// keep writing the same session as the next turn, so it is stopped; and the
@@ -167,28 +270,38 @@ fn clear_mark(agent_id: &str) {
 pub async fn recover_after_restart(app: &AppHandle) {
     let Ok(agents) = store::list() else { return };
     for agent in agents {
-        let Some(path) = mark_path(&agent.id) else {
-            continue;
-        };
-        if !path.exists() {
-            continue;
-        }
-        let mark = read_mark(&agent.id).unwrap_or_default();
-        if let Some(pid) = mark.pid {
-            if !mark.session.is_empty() {
-                stop_orphan(pid, &mark.session).await;
+        if let Some(path) = mark_path(&agent.id).filter(|p| p.exists()) {
+            let mark = read_mark(&agent.id).unwrap_or_default();
+            if let Some(pid) = mark.pid {
+                if !mark.session.is_empty() {
+                    stop_orphan(pid, &mark.session).await;
+                }
             }
+            let _ = std::fs::remove_file(&path);
+            // Same order as a turn that ends: its changes, then its error line,
+            // which tags the agent as needing you (Retry re-sends).
+            if let (Some(project), Some(tree)) = (mark.project, mark.tree) {
+                record_changes(app, &agent.id, project.into(), tree).await;
+            }
+            let text = "Ship Studio closed while this agent was working, so that turn didn't finish. Retry to send it again.";
+            let mut line = new_message(&agent.id, MessageKind::Error, text);
+            line.failure = Some(super::failure::Failure::OTHER);
+            let _ = record(app, line);
         }
-        let _ = std::fs::remove_file(&path);
-        // Same order as a turn that ends: its changes, then its error line,
-        // which tags the agent as needing you (Retry re-sends).
-        if let (Some(project), Some(tree)) = (mark.project, mark.tree) {
-            record_changes(app, &agent.id, project.into(), tree).await;
+        // What was queued behind it was never started: it runs now, once,
+        // and the chat says which messages were sent again. (The interrupted
+        // turn itself is not re-run: it may have done half its work.)
+        let queued = take_inbox(&agent.id);
+        if queued.is_empty() {
+            continue;
         }
-        let text = "Ship Studio closed while this agent was working, so that turn didn't finish. Retry to send it again.";
-        let mut line = new_message(&agent.id, MessageKind::Error, text);
-        line.failure = Some(super::failure::Failure::OTHER);
-        let _ = record(app, line);
+        let _ = record(
+            app,
+            new_message(&agent.id, MessageKind::Note, resent_note(&queued)),
+        );
+        for message in queued {
+            enqueue(app, &agent.id, message.text, message.from);
+        }
     }
 }
 
@@ -205,9 +318,7 @@ async fn stop_orphan(pid: u32, session: &str) {
         .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(session));
     if ours {
         tracing::warn!("[Agents] stopping turn {pid} left over from the last run");
-        let mut kill = tokio::process::Command::new("kill");
-        kill.arg(pid.to_string());
-        let _ = crate::external_command::run_with_timeout(kill, "kill", 5).await;
+        let _ = tokio::task::spawn_blocking(move || procs::kill_tree_sync(pid)).await;
     }
 }
 
@@ -381,6 +492,7 @@ pub fn enqueue(app: &AppHandle, agent_id: &str, text: String, from: From) {
         let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = runtimes.entry(agent_id.to_string()).or_default();
         runtime.queue.push_back(Inbound { text, from });
+        save_inbox(agent_id, &runtime.queue);
         if runtime.running {
             false
         } else {
@@ -402,6 +514,7 @@ pub fn stop(agent_id: &str) -> bool {
         return false;
     };
     runtime.queue.clear();
+    save_inbox(agent_id, &runtime.queue);
     runtime.interrupt = false;
     match &runtime.cancel {
         Some(cancel) => {
@@ -449,8 +562,57 @@ fn take_interrupt(agent_id: &str) -> bool {
     true
 }
 
+/// A free turn slot, waiting (and saying so) while every slot is taken.
+/// `None` when the wait ended because the queue was stopped and emptied.
+async fn wait_for_slot(app: &AppHandle, agent_id: &str) -> Option<OwnedSemaphorePermit> {
+    if let Ok(permit) = SLOTS.clone().try_acquire_owned() {
+        return Some(permit);
+    }
+    // Stop wakes this; a fresh one per wait, so nothing stale reaches the turn.
+    let wake = Arc::new(Notify::new());
+    {
+        let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+        runtimes.entry(agent_id.to_string()).or_default().cancel = Some(wake.clone());
+    }
+    let busy = max_turns();
+    set_status(
+        app,
+        agent_id,
+        Status {
+            state: "working",
+            activity: Some(format!(
+                "Waiting for a free slot ({busy} agents already working)"
+            )),
+            since: None,
+        },
+    );
+    loop {
+        tokio::select! {
+            permit = SLOTS.clone().acquire_owned() => return permit.ok(),
+            _ = wake.notified() => {
+                let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+                let runtime = runtimes.entry(agent_id.to_string()).or_default();
+                // Interrupting a turn that hasn't started means nothing.
+                runtime.interrupt = false;
+                if runtime.queue.is_empty() {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
 async fn drain(app: AppHandle, agent_id: String) {
     loop {
+        let has_work = {
+            let runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+            runtimes.get(&agent_id).is_some_and(|r| !r.queue.is_empty())
+        };
+        let _permit = if has_work {
+            wait_for_slot(&app, &agent_id).await
+        } else {
+            None
+        };
         let prompt: String = {
             let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
             let runtime = runtimes.entry(agent_id.clone()).or_default();
@@ -464,6 +626,7 @@ async fn drain(app: AppHandle, agent_id: String) {
                 return;
             }
             let batch: Vec<Inbound> = runtime.queue.drain(..).collect();
+            save_inbox(&agent_id, &runtime.queue);
             // The turn inherits the deepest hop it is answering; a user message
             // in the batch resets the chain.
             runtime.hop = if batch.iter().any(|m| matches!(m.from, From::User)) {
@@ -502,6 +665,10 @@ async fn drain(app: AppHandle, agent_id: String) {
             },
         );
         let result = run_turn(&app, &agent_id, &prompt, true).await;
+        if QUITTING.load(Ordering::SeqCst) {
+            // The app is going: the mark stays, for the next launch to report.
+            return;
+        }
         clear_mark(&agent_id);
         // What the turn changed goes before its failure, so a failed turn still
         // ends on its error line (Retry and the sidebar's failure read the newest line).
@@ -771,6 +938,50 @@ fn turn_args(
     args
 }
 
+/// Wait for `claude` to exit, at most [`EXIT_BOUND`]; then stop its tree.
+async fn finish(
+    child: &mut tokio::process::Child,
+    pid: Option<u32>,
+) -> std::io::Result<std::process::ExitStatus> {
+    if let Ok(status) = tokio::time::timeout(EXIT_BOUND, child.wait()).await {
+        return status;
+    }
+    tracing::warn!("[Agents] Claude Code didn't exit after its output closed; stopping it");
+    if let Some(pid) = pid {
+        let _ = tokio::task::spawn_blocking(move || procs::kill_tree_sync(pid)).await;
+    }
+    let _ = child.start_kill();
+    child.wait().await
+}
+
+/// [`record`] on a blocking thread: it writes the log and the registry.
+async fn record_off(app: &AppHandle, message: AgentMessage) {
+    let app = app.clone();
+    let _ = tokio::task::spawn_blocking(move || record(&app, message)).await;
+}
+
+/// The `claude` binary, validated (`claude --version`) at most once a
+/// minute per PATH rather than on every turn: the probe spawns a process.
+async fn claude_binary() -> Option<std::path::PathBuf> {
+    type Cached = (String, std::path::PathBuf, std::time::Instant);
+    static CACHE: LazyLock<Mutex<Option<Cached>>> = LazyLock::new(|| Mutex::new(None));
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    if let Some((for_path, binary, at)) = &*CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
+        if *for_path == path_var && at.elapsed() < Duration::from_secs(60) && binary.exists() {
+            return Some(binary.clone());
+        }
+    }
+    let binary = tokio::task::spawn_blocking(|| {
+        crate::commands::claude::find_validated_binary("claude", "--version")
+    })
+    .await
+    .ok()
+    .flatten()?;
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((path_var, binary.clone(), std::time::Instant::now()));
+    Some(binary)
+}
+
 /// Run one turn. `retry_fresh` lets a vanished session be replaced once.
 async fn run_turn(
     app: &AppHandle,
@@ -781,7 +992,7 @@ async fn run_turn(
     let agent = store::get(agent_id)?;
     let home = store::agent_home(agent_id)?;
     std::fs::create_dir_all(&home).map_err(super::err_io)?;
-    let binary = crate::commands::claude::find_validated_binary("claude", "--version").ok_or_else(|| {
+    let binary = claude_binary().await.ok_or_else(|| {
         CommandError::expected("Claude Code isn't installed, or Ship Studio can't find it. Install it from Settings → Agents, then send this again.")
     })?;
     let (port, token) = crate::agent_bridge::start_global_agent_bridge(app.clone())
@@ -847,12 +1058,18 @@ async fn run_turn(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    // Its own process group, so Stop takes down what it started too.
+    procs::own_group(&mut cmd);
     let mut child = cmd
         .spawn()
         .map_err(|e| CommandError::expected(format!("Couldn't start Claude Code: {e}")))?;
+    let pid = child.id();
+    if let Some(pid) = pid {
+        procs::register(agent_id, pid);
+    }
 
     let mut mark = read_mark(agent_id).unwrap_or_default();
-    mark.pid = child.id();
+    mark.pid = pid;
     mark.session = session_id.clone();
     write_mark(agent_id, mark);
 
@@ -908,6 +1125,12 @@ async fn run_turn(
     let mut drafts = Drafts::default();
     let mut draft_tick = tokio::time::interval(DRAFT_EVERY);
     draft_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // `claude` exited. Its output normally closes with it, but a child that
+    // inherited the pipe can hold it open: read what's left for a moment,
+    // then stop waiting for an end that may never come.
+    let mut exited: Option<std::io::Result<std::process::ExitStatus>> = None;
+    let drain_rest = tokio::time::sleep(Duration::from_secs(TURN_TIMEOUT_SECS));
+    tokio::pin!(drain_rest);
 
     loop {
         tokio::select! {
@@ -920,7 +1143,8 @@ async fn run_turn(
                             if let Some(sid) = value.get("session_id").and_then(|s| s.as_str()) {
                                 session_confirmed = true;
                                 let sid = sid.to_string();
-                                let _ = store::update(agent_id, |a| a.session_id = Some(sid));
+                                let id = agent_id.to_string();
+                                let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| a.session_id = Some(sid))).await;
                             }
                         }
                     }
@@ -940,7 +1164,7 @@ async fn run_turn(
                                         if let Some(id) = draft_id {
                                             message.id = id;
                                         }
-                                        let _ = record(app, message);
+                                        record_off(app, message).await;
                                     }
                                 }
                             }
@@ -956,7 +1180,8 @@ async fn run_turn(
                         saw_result = true;
                         if let Some(turn) = super::usage::from_result(&value) {
                             let today = super::usage::today();
-                            let _ = store::update(agent_id, |a| a.usage.record(&turn, today));
+                            let id = agent_id.to_string();
+                            let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| a.usage.record(&turn, today))).await;
                         }
                         let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
                         if is_error {
@@ -971,16 +1196,34 @@ async fn run_turn(
                     emit_draft(app, agent_id, id, text);
                 }
             }
+            status = child.wait(), if exited.is_none() => {
+                exited = Some(status);
+                drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(2));
+            }
+            _ = &mut drain_rest, if exited.is_some() => break,
             _ = cancel.notified() => { stopped = Some(None); break; }
             _ = &mut deadline => { stopped = Some(Some("Stopped after 3 hours. Send a message to pick it back up.")); break; }
         }
     }
 
+    // Stop, interrupt and the timeout end the whole tree, not just `claude`:
+    // a dev server or watcher its Bash tool started dies with it.
     if stopped.is_some() {
-        let _ = child.kill().await;
+        if let Some(pid) = pid {
+            let _ = tokio::task::spawn_blocking(move || procs::kill_tree_sync(pid)).await;
+        }
     }
-    let status = child.wait().await.map_err(super::err_io)?;
-    let stderr_text = stderr_task.await.unwrap_or_default();
+    let status = match exited {
+        Some(status) => status,
+        None => finish(&mut child, pid).await,
+    };
+    procs::unregister(agent_id);
+    let status = status.map_err(super::err_io)?;
+    let stderr_text = tokio::time::timeout(EXIT_BOUND, stderr_task)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
 
     // A reply cut off mid-sentence keeps what it had said, marked as stopped.
     let cut_off = drafts.take().map(|(id, text)| {
@@ -1192,6 +1435,43 @@ mod tests {
             unfinished_turn(false, "Error: bad flag".into()),
             "Error: bad flag"
         );
+    }
+
+    #[test]
+    fn a_queue_survives_on_disk_and_is_taken_once() {
+        let _serial = store::tests_lock();
+        let dir = tempfile::tempdir().unwrap();
+        store::set_root_for_tests(Some(dir.path().to_path_buf()));
+        let queue: VecDeque<Inbound> = [
+            Inbound {
+                text: "Also check the footer".into(),
+                from: From::User,
+            },
+            Inbound {
+                text: "Receipts filed.\nDetails follow".into(),
+                from: From::Agent {
+                    sender: AgentRef {
+                        id: "f".into(),
+                        name: "Finance".into(),
+                    },
+                    hop: 2,
+                },
+            },
+        ]
+        .into();
+        std::fs::create_dir_all(store::agent_home("a1").unwrap()).unwrap();
+        save_inbox("a1", &queue);
+        let taken = take_inbox("a1");
+        assert_eq!(taken.len(), 2);
+        assert!(matches!(&taken[1].from, From::Agent { hop: 2, .. }));
+        assert!(take_inbox("a1").is_empty(), "taken twice");
+        assert_eq!(
+            resent_note(&taken),
+            "Sent 2 messages still waiting when Ship Studio closed: “Also check the footer”, Finance's “Receipts filed.”"
+        );
+        save_inbox("a1", &VecDeque::new());
+        assert!(!store::agent_home("a1").unwrap().join("inbox.json").exists());
+        store::set_root_for_tests(None);
     }
 
     #[test]

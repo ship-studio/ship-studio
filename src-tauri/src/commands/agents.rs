@@ -391,6 +391,13 @@ pub async fn agents_delete(app: AppHandle, agent_id: String) -> Result<(), Comma
     Ok(())
 }
 
+/// How many agents are mid-turn: an update waits for them before restarting.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_busy() -> Result<usize, CommandError> {
+    Ok(runner::busy_count())
+}
+
 #[tauri::command]
 #[tracing::instrument]
 pub async fn agents_stop(agent_id: String) -> Result<bool, CommandError> {

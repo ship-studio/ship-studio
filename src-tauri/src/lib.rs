@@ -580,6 +580,7 @@ pub fn run() {
             commands::agents::agents_instructions,
             commands::agents::agents_delete,
             commands::agents::agents_stop,
+            commands::agents::agents_busy,
             commands::agents::agents_answer_approval,
             commands::agents::agents_interrupt,
             commands::agents::agents_revoke_permission,
@@ -1026,7 +1027,16 @@ pub fn run() {
                 // and keep their ports (issue #229: EADDRINUSE on relaunch).
                 let ptys = commands::pty::kill_all_pty_sync();
                 let sessions = commands::pty_session::kill_all_sessions_sync();
-                tracing::info!(ptys, sessions, "App exit: killed tracked PTY processes");
+                // Agents' turns too, with whatever they started: a `claude`
+                // must never keep editing a project after the app is gone.
+                // Each leaves its turn mark, so the next launch says so.
+                let agent_turns = agents::runner::shutdown_sync();
+                tracing::info!(
+                    ptys,
+                    sessions,
+                    agent_turns,
+                    "App exit: killed tracked PTY processes and agent turns"
+                );
             }
         });
 }
