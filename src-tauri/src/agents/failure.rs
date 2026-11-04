@@ -104,6 +104,45 @@ where
     (detail.to_string(), Failure::OTHER)
 }
 
+/// A failure that heals on its own, so a scheduled run is worth trying again:
+/// the usage limit, Anthropic overloaded or erroring, or the network. Not a
+/// sign-in (that needs the user), and not anything we can't name.
+pub fn is_temporary(detail: &str, failure: &Failure) -> bool {
+    match failure.kind {
+        FailureKind::UsageLimit => true,
+        FailureKind::SignedOut => false,
+        FailureKind::Other => {
+            let lower = detail.to_lowercase();
+            let server_error = ["api error: 5", "api error (5", "status 5", "status code 5"]
+                .iter()
+                .any(|w| lower.contains(w));
+            server_error
+                || [
+                    "overloaded",
+                    "internal server error",
+                    "service unavailable",
+                    "bad gateway",
+                    "gateway timeout",
+                    "connection error",
+                    "connection reset",
+                    "connection refused",
+                    "network",
+                    "econnreset",
+                    "econnrefused",
+                    "etimedout",
+                    "enotfound",
+                    "eai_again",
+                    "socket hang up",
+                    "fetch failed",
+                    "timed out",
+                    "temporarily unavailable",
+                ]
+                .iter()
+                .any(|w| lower.contains(w))
+        }
+    }
+}
+
 fn is_usage_limit(lower: &str) -> bool {
     // Not "usage credits": that one resets when the user tops up, not on a clock.
     [
@@ -206,7 +245,7 @@ fn next_clock_time<Tz: TimeZone>(tz: &Tz, words: &str, now: i64) -> Option<i64> 
 }
 
 /// "at 3:00 PM", "tomorrow at 3:00 PM", "on Nov 7 at 3:00 PM".
-fn clock_phrase<Tz: TimeZone>(tz: &Tz, at: i64, now: i64) -> String
+pub fn clock_phrase<Tz: TimeZone>(tz: &Tz, at: i64, now: i64) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -229,6 +268,27 @@ where
 mod tests {
     use super::*;
     use chrono::{FixedOffset, Utc};
+
+    #[test]
+    fn only_failures_that_heal_on_their_own_are_temporary() {
+        let temp = |d: &str| is_temporary(d, &describe(d, &Utc, None, NOW).1);
+        assert!(temp("Claude AI usage limit reached|1793620800"));
+        assert!(temp(
+            "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}"
+        ));
+        assert!(temp("API Error: 500 Internal server error"));
+        assert!(temp("API Error: Connection error."));
+        assert!(temp("API Error (Request timed out.)"));
+        assert!(temp(
+            "fetch failed: getaddrinfo ENOTFOUND api.anthropic.com"
+        ));
+        assert!(!temp("Claude Code is signed out. Please run /login"));
+        assert!(!temp(
+            "API Error: 400 invalid_request_error: prompt is too long"
+        ));
+        assert!(!temp("exit code Some(1), no output"));
+        assert!(!temp("Spent 500 tokens"));
+    }
 
     /// Mon 2 Nov 2026, 10:00 UTC.
     const NOW: i64 = 1_793_613_600_000;

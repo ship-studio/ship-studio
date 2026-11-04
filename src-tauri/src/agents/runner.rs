@@ -53,15 +53,11 @@ const EXIT_BOUND: Duration = Duration::from_secs(10);
 
 /// Turns that may run at once. A Chief fanning work out to ten agents would
 /// otherwise start ten `claude` processes together, burn the usage limit and
-/// come back as ten failures; the rest wait their turn, and say so.
-const MAX_TURNS: usize = 3;
-
+/// come back as ten failures; the rest wait their turn, and say so. Scaled to
+/// this machine's memory (`agents::capacity`), fixed for the app's life.
 fn max_turns() -> usize {
-    std::env::var("SHIPSTUDIO_AGENTS_MAX_TURNS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(MAX_TURNS)
+    static MAX: LazyLock<usize> = LazyLock::new(super::capacity::max_turns);
+    *MAX
 }
 
 static SLOTS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(max_turns())));
@@ -604,6 +600,9 @@ fn take_interrupt(agent_id: &str) -> bool {
 /// A free turn slot, waiting (and saying so) while every slot is taken.
 /// `None` when the wait ended because the queue was stopped and emptied.
 async fn wait_for_slot(app: &AppHandle, agent_id: &str) -> Option<OwnedSemaphorePermit> {
+    if !wait_for_memory(app, agent_id).await {
+        return None;
+    }
     if let Ok(permit) = SLOTS.clone().try_acquire_owned() {
         return Some(permit);
     }
@@ -637,6 +636,52 @@ async fn wait_for_slot(app: &AppHandle, agent_id: &str) -> Option<OwnedSemaphore
                     return None;
                 }
             }
+        }
+    }
+}
+
+/// On a small machine, wait while free memory is short and other turns are
+/// running (`capacity::room_now`), saying so. False if the wait ended
+/// because the queue was stopped and emptied.
+async fn wait_for_memory(app: &AppHandle, agent_id: &str) -> bool {
+    let running = || max_turns().saturating_sub(SLOTS.available_permits());
+    if super::capacity::room_now(running()) {
+        return true;
+    }
+    let wake = Arc::new(Notify::new());
+    RUNTIMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(agent_id.to_string())
+        .or_default()
+        .cancel = Some(wake.clone());
+    loop {
+        let working = running();
+        set_status(
+            app,
+            agent_id,
+            Status {
+                state: "working",
+                activity: Some(format!(
+                    "Waiting for free memory ({working} {} already working)",
+                    if working == 1 { "agent" } else { "agents" }
+                )),
+                since: None,
+            },
+        );
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            _ = wake.notified() => {
+                let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+                let runtime = runtimes.entry(agent_id.to_string()).or_default();
+                runtime.interrupt = false;
+                if runtime.queue.is_empty() {
+                    return false;
+                }
+            }
+        }
+        if super::capacity::room_now(running()) {
+            return true;
         }
     }
 }
@@ -729,6 +774,8 @@ async fn drain(app: AppHandle, agent_id: String) {
             line.failure = Some(failure);
             let _ = record(&app, line);
         }
+        // A scheduled run that failed is retried, or reported (`agents::runs`).
+        super::runs::turn_ended(&app, &agent_id, &prompt);
         notify::turn_ended(&app, &agent_id);
     }
 }
@@ -1065,7 +1112,13 @@ async fn run_turn(
     let (port, token) = crate::agent_bridge::start_global_agent_bridge(app.clone())
         .await
         .map_err(super::err_other)?;
-    let url = format!("http://127.0.0.1:{port}/mcp/{token}/agents/{agent_id}");
+    // The turn's id rides on its URL: the approval broker refuses requests
+    // from any turn but this one, once it's over (`agents::broker`).
+    let turn = super::broker::open_turn(agent_id);
+    let url = format!(
+        "http://127.0.0.1:{port}/mcp/{token}/agents/{agent_id}?turn={}",
+        turn.id()
+    );
 
     let (session_id, resuming) = match &agent.session_id {
         Some(id) => (id.clone(), true),
@@ -1215,6 +1268,10 @@ async fn run_turn(
                 }
                 match kind {
                     Some("system") => {
+                        if let Some(why) = super::broker::observe(app, agent_id, &value) {
+                            stopped = Some(Some(why));
+                            break;
+                        }
                         if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {
                             let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
                         }

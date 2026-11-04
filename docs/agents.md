@@ -42,7 +42,7 @@ claude --print --output-format stream-json --verbose --include-partial-messages
        --session-id <uuid> | --resume <uuid>
        --permission-mode acceptEdits
        --permission-prompt-tool mcp__shipstudio_agents__approve
-       --mcp-config '{"mcpServers":{"shipstudio_agents":{"type":"http","url":…}}}'
+       --mcp-config '{"mcpServers":{"shipstudio_agents":{"type":"http","url":…?turn=<id>}}}'
        --allowedTools mcp__shipstudio_agents
        --append-system-prompt <voice + role + team rules>
        --add-dir <projects root> --add-dir <each external project>
@@ -65,7 +65,9 @@ From the stream:
   line come back between text blocks, while tools run;
 - every **tool call** only updates the line under the agent's name ("Editing
   PricingTable.tsx", "Messaging Finance"); it never becomes a message;
-- `system/init` confirms the session id, which is stored for the next `--resume`;
+- `system/init` confirms the session id, which is stored for the next `--resume`,
+  and is checked against what we assume (`agents/broker.rs`, see Approvals):
+  the permission mode it really runs in and whether our own MCP server started;
 - an `is_error` result, or any exit without a `result` event (a crash, or
   output that wasn't stream-json, even with exit code 0), becomes an error
   line; a crash keeps what had streamed, marked `stopped`. `agents/failure.rs` words the two states people actually hit in
@@ -92,9 +94,14 @@ with it. Once `claude` closes its output, its exit and stderr are waited on
 for at most 10s; once its result is in, for a few seconds, then whatever it
 left running in the background is stopped too.
 
-**Slots.** At most 3 turns run at once; an agent past that shows "Waiting for
-a free slot (3 agents already working)", can be stopped while it waits, and
-picks up whatever else arrived meanwhile when its slot frees.
+**Slots.** One turn per 2 GB of RAM may run at once, never fewer than 3 or
+more than 16 (`agents/capacity.rs`; 16 on a 32 GB Mac, 4 on an 8 GB one). An
+agent past that shows "Waiting for a free slot (N agents already working)"
+with the real N, can be stopped while it waits, and picks up whatever else
+arrived meanwhile when its slot frees. On a machine with 12 GB or less, a
+turn also waits while the kernel's free-memory figure is under 1 GB and
+another turn is running ("Waiting for free memory (1 agent already
+working)"); a lone turn always runs.
 
 **Quitting mid-turn.** A turn writes `<home>/turn.json` (pid, session, and
 for a bound agent the project snapshot taken before it) while it runs. On
@@ -268,6 +275,25 @@ outside those folders) goes to `approve`, which puts a card in that agent's
 chat showing the exact command, file, URL or tool input, and waits for
 **Allow** or **Deny**. While it waits, the agent's row says "Needs your OK".
 
+**What the broker trusts** (`agents/broker.rs`). Each turn gets an id on its
+MCP URL (`?turn=`), open until `run_turn` returns. An `approve` call with no
+turn, from a turn that has ended or been replaced, or repeating a
+`tool_use_id` already asked, is denied at once with no card: those could
+only ever be zombie cards. A timeout is never recorded as the user's answer:
+a permission card stays live (below), a confirmation is marked expired, and
+the agent is told the request expired, not that the user said no. Every turn's
+`system/init` is read for its real `permissionMode` (verified on 2.1.318:
+`"acceptEdits"`): `bypassPermissions` would mean nothing ever asks, so the
+turn is stopped before it acts; a stricter mode (`default`, `plan`,
+`dontAsk`) or one we don't know is noted once in the chat and carried on. If
+our own server shows `failed` there, its approval tool doesn't exist and the
+turn is stopped too.
+
+**Misclicks.** Allow, Always allow and a session question's options are inert
+for 400 ms after a card appears, and a click the keyboard produced counts only
+if the key went down on that button, so typing in the composer can never
+answer a card (`useCardGuard`). Deny is never held back.
+
 Verified against Claude Code 2.1.318: the tool receives
 `{tool_name, input, tool_use_id}` and must answer
 `{"behavior":"allow","updatedInput":…}` or `{"behavior":"deny","message":…}`.
@@ -388,6 +414,24 @@ The backend decides, since it knows when a message is recorded and when a turn e
 - Clicking a notification focuses a window and emits `agents://open`; the app switches to Agents and opens that agent. Focusing a window clears the unread of the agent it shows.
 - Uses `tauri-plugin-notification` (2.8, click reporting on macOS). Not verified in a real build yet: the dev binary posts under another app's identity, so click-through should be checked in a signed build.
 
+## Memory you can see (`src-tauri/src/agents/memory.rs`)
+
+The agent editor has two tabs, Agent and Memory. Memory lists the `## Memory`
+section of the agent's CLAUDE.md as entries (each top-level list item or
+paragraph; a `### Imported from …` heading groups what came with an import),
+with add, edit and delete applied at once and Undo in a toast. Nothing is
+re-rendered: a change splices only that entry's lines, so the instructions,
+the agent's own formatting, code fences, CRLF and the rest stay byte for
+byte. An edit or delete names the entry by position and its text as shown;
+if the agent rewrote it meanwhile, the change is refused and the list reloads.
+Deleting returns the exact lines removed, which Undo puts back.
+
+**Remember this** (hover a message): Claude Code on Haiku turns the message
+into one line (`--tools "" --strict-mcp-config --no-session-persistence`,
+45 s at most; the message's opening if that can't run), shown in a small
+dialog to edit before it's added. Cmd+K → "Edit what <agent> remembers…" opens
+the tab.
+
 ## Import from Grok Bot (or any connected assistant)
 
 Only the other assistant knows its own agents, instructions and memory, so the
@@ -453,6 +497,24 @@ words back in the composer (`scheduleWhenPhrase`, which the grammar reads back
 as the same schedule; a Rust test holds `describe` to that) and Return saves
 it in place: same id, paused stays paused, `when` re-read from now. It can't be
 edited into a copy of another row. Esc leaves the edit, not the popover.
+
+**When a run fails** (`agents/runs.rs`). A firing leaves a ticket with the
+exact prompt it queued; the turn that carried that prompt settles it by how it
+ended (its newest line an error, or not). A temporary failure (the usage
+limit, Anthropic overloaded or a 5xx, the network: `failure::is_temporary`)
+is tried again after 2, 5, 10, 20, 40 and 60 minutes, the last pulled in to 3
+hours after the first failure; a usage limit with a known reset (up to 6 hours
+off) is tried a minute after the reset instead. A routine's retry never runs
+into its own next run. A sign-in, or anything we can't name, isn't retried.
+The user is notified on the first failure ("… didn't run: … Trying again at
+3:01 PM."), not for retries failing in between, and at the end only if it
+ended in failure; a retry that works notifies like any reply. Connectors
+Claude Code's init listed as `needs-auth` are named on the run and in the
+notice ("Gmail needs signing in again"). The row says "retrying today 3:01
+PM"; "Past runs (N)" lists its last 10 runs: when, and what came of each. A run
+cut off by quitting is recorded as such at launch, and a routine's retry that
+came due while the app was closed is dropped, not run late. Run now is
+recorded too, but never retried or announced.
 
 A one-minute tick fires them, with the workflow scheduler's rules: nothing
 fires while the app is closed, at most one firing per tick, and a routine never
@@ -738,9 +800,12 @@ prunes them the diff says it can't be shown.
   (`codex exec --json`) and Opencode would slot in there.
 - Search scans files on every query. Fine at one person's scale (tens of
   agents, thousands of lines); an index would be needed well past that.
-- At most 3 turns run at once (`runner::MAX_TURNS`); the rest wait, shown as
-  "Waiting for a free slot". An agent waiting on an approval card holds its
-  slot until it is answered or the wait runs out.
+- Turns at once are scaled to RAM (3–16, `agents::capacity`); the rest wait,
+  shown as "Waiting for a free slot". An agent waiting on an approval card
+  holds its slot until it is answered or the wait runs out.
+- A scheduled run's retry lives on the registry, but the ticket matching it to
+  its turn is in memory: a turn cut off by quitting is recorded as such, not
+  retried.
 - Nothing a turn starts outlives it. `claude --print` waits for any
   background task its Bash tool started (observed with 2.1), so a dev server
   left running would keep the agent "working" for hours; instead, a few
@@ -763,7 +828,7 @@ prunes them the diff says it can't be shown.
   fixtures in `agents/testdata/compat/`: every registry shape and message
   kind users have on disk must load, and a write must keep what a newer build
   added), process trees, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
-  tool visibility, approval descriptions, import merge rules.
+  tool visibility, approval descriptions, import merge rules, memory parse and write-back (odd markdown included), the retry schedule and run settling, broker admission and the init check, memory-scaled slots.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
 - `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e.rs` drives the real
   runner, store, bridge and MCP tools through the same Tauri commands the UI
@@ -779,7 +844,10 @@ prunes them the diff says it can't be shown.
   in the Chief's; trust recorded; the edit's permission card; the edit; a
   change card), Stop ending a turn's whole process tree (a background
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
-  turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
+  turns than slots, and the Memory tab (`memory-tab`: an entry added there is
+  read by the next turn, the instructions untouched, Remember this
+  summarises on Haiku, and approval requests from no live turn are refused
+  without a card). `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
-- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
+- `node scripts/harness-capture.mjs agents-`: memory (`agents-memory`, `agents-memory-edit`, `agents-remember`), a routine's past runs and a pending retry (`agents-schedule-history`), project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
   agent, import, Claude Code missing.

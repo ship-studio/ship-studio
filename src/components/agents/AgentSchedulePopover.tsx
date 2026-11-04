@@ -24,12 +24,14 @@ import {
 import { Dropdown } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
 import { Button } from '../primitives/Button';
+import { TextButton } from '../primitives/TextButton';
 import { TextField } from '../primitives/TextField';
 import {
   cancelCheckIn,
   createCheckIn,
   describeCheckInTime,
   describeRepeat,
+  describeRun,
   formatWhen,
   pauseCheckIn,
   previewSchedule,
@@ -40,6 +42,7 @@ import {
   updateCheckIn,
   type Agent,
   type CheckIn,
+  type CheckInRun,
   type SchedulePreview,
 } from '../../lib/agents';
 import { KeepAwakeLink } from './AgentsStayOn';
@@ -270,15 +273,30 @@ function ScheduleRow({
   onTogglePause: () => void;
   onCancel: () => void;
 }) {
+  const runs = item.runs ?? [];
+  const [showRuns, setShowRuns] = useState(false);
   return (
     <li
       className="agent-schedule__item"
       data-paused={item.paused || undefined}
       data-editing={editing || undefined}
+      data-history={showRuns || undefined}
     >
       <div className="agent-schedule__text">
         <span className="agent-schedule__note">{item.note}</span>
-        <span className="agent-schedule__when">{describeCheckInTime(item)}</span>
+        <span className="agent-schedule__when" data-retrying={item.retry ? '' : undefined}>
+          {describeCheckInTime(item)}
+        </span>
+        {runs.length > 0 && (
+          <TextButton
+            tabIndex={0}
+            className="agent-schedule__last"
+            aria-expanded={showRuns}
+            onClick={() => setShowRuns((v) => !v)}
+          >
+            {showRuns ? 'Hide past runs' : `Past runs (${runs.length})`}
+          </TextButton>
+        )}
       </div>
       <div className="agent-schedule__actions">
         <IconButton
@@ -324,6 +342,37 @@ function ScheduleRow({
           aria-label={`Cancel “${item.note}”`}
         />
       </div>
+      {showRuns && <RunHistory runs={runs} />}
     </li>
+  );
+}
+
+/** The last runs, newest first: when, and what came of it. */
+function RunHistory({ runs }: { runs: CheckInRun[] }) {
+  return (
+    <ul className="agent-schedule__history" aria-label="Past runs">
+      {[...runs].reverse().map((run) => {
+        const extra = [
+          run.manual ? 'run now' : null,
+          run.detail ?? null,
+          run.signIn?.length ? `${run.signIn.join(', ')} needs signing in again` : null,
+        ].filter(Boolean);
+        const outcome = [describeRun(run), ...extra].join(' · ');
+        return (
+          <li
+            key={`${run.at}-${run.attempt}`}
+            className="agent-schedule__run"
+            data-outcome={run.outcome}
+          >
+            <time className="agent-schedule__run-time" dateTime={new Date(run.at).toISOString()}>
+              {formatWhen(run.at)}
+            </time>
+            <span className="agent-schedule__run-outcome" title={outcome}>
+              {outcome}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

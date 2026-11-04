@@ -24,6 +24,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   HistoryIcon,
+  PinIcon,
   WarningIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
@@ -39,6 +40,7 @@ import { SecretCard } from './AgentSecretCard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
+import { useCardGuard } from './useCardGuard';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   describeScope,
@@ -194,7 +196,16 @@ function CodeBlock({ text }: { text: string }) {
  * Copy isn't a Tab stop (a long chat would put dozens between you and the
  * composer): a clicked message takes focus, and ⌘C copies it (`copyOnKey`).
  */
-function MessageActions({ text, ts }: { text: string; ts: number }) {
+function MessageActions({
+  text,
+  ts,
+  onRemember,
+}: {
+  text: string;
+  ts: number;
+  /** "Remember this": offered on messages with words in them. */
+  onRemember?: () => void;
+}) {
   const { copy, isCopied } = useCopyToClipboard();
   return (
     <div className="agent-message__actions">
@@ -207,6 +218,17 @@ function MessageActions({ text, ts }: { text: string; ts: number }) {
           onClick={() => void copy(text)}
           aria-label={isCopied ? 'Copied' : 'Copy message'}
           title={isCopied ? 'Copied' : 'Copy'}
+        />
+      )}
+      {text && onRemember && (
+        <IconButton
+          tabIndex={-1}
+          variant="ghost"
+          size="compact"
+          icon={<PinIcon size={12} />}
+          onClick={onRemember}
+          aria-label="Remember this"
+          title="Remember this"
         />
       )}
       <time
@@ -241,6 +263,8 @@ interface AgentBubbleProps extends Arrival {
   agent: Agent;
   /** Still being written: the text grows in place and a caret marks its end. */
   streaming?: boolean;
+  /** "Remember this", with this message. */
+  onRemember?: (message: AgentMessage) => void;
 }
 
 /** Markdown prose with code blocks, shared by replies and agent-to-agent threads. */
@@ -269,10 +293,17 @@ export const AgentBubble = memo(function AgentBubble({
   agent,
   arrived,
   streaming,
+  onRemember,
 }: AgentBubbleProps) {
   const onClick = useProseLinks(agent.id);
   const attachments = message.attachments ?? [];
-  const actions = !streaming && <MessageActions text={message.text} ts={message.ts} />;
+  const actions = !streaming && (
+    <MessageActions
+      text={message.text}
+      ts={message.ts}
+      onRemember={onRemember && (() => onRemember(message))}
+    />
+  );
   const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
@@ -325,6 +356,8 @@ interface UserBubbleProps extends Arrival {
   onInterrupt?: () => void;
   /** Still copying its files in: the files as staged, shown while it sends. */
   sending?: DraftAttachment[];
+  /** "Remember this", with this message. */
+  onRemember?: (message: AgentMessage) => void;
 }
 
 /** Attachments sit above the words, both against the right edge, as one message. */
@@ -338,9 +371,16 @@ export const UserBubble = memo(function UserBubble({
   queued,
   onInterrupt,
   sending,
+  onRemember,
 }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
-  const actions = !failed && !sending && <MessageActions text={message.text} ts={message.ts} />;
+  const actions = !failed && !sending && (
+    <MessageActions
+      text={message.text}
+      ts={message.ts}
+      onRemember={onRemember && (() => onRemember(message))}
+    />
+  );
   const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
@@ -792,6 +832,7 @@ export const ApprovalCard = memo(function ApprovalCard({
   // Answered while on screen, so the buttons resolve into the outcome;
   // a card that loads already answered just shows it.
   const [openedPending] = useState(approval?.status === 'pending');
+  const { guard, keyProps } = useCardGuard(approval?.status === 'pending');
   if (!approval) return null;
   if (approval.prompt) {
     return (
@@ -901,7 +942,8 @@ export const ApprovalCard = memo(function ApprovalCard({
                   tabIndex={0}
                   className="agent-approval__always"
                   disabled={busy}
-                  onClick={() => void answer(true, true)}
+                  {...keyProps}
+                  onClick={guard(() => void answer(true, true))}
                 >
                   Always allow{' '}
                   {approval.always.kind.startsWith('command') ? (
@@ -930,7 +972,8 @@ export const ApprovalCard = memo(function ApprovalCard({
               variant="primary"
               data-allow
               disabled={busy}
-              onClick={() => void answer(true)}
+              {...keyProps}
+              onClick={guard(() => void answer(true))}
             >
               Allow
             </Button>
@@ -974,6 +1017,7 @@ function SessionPromptCard({
   const [busy, setBusy] = useState(false);
   const [openedPending] = useState(approval.status === 'pending');
   const pending = approval.status === 'pending';
+  const { guard, keyProps } = useCardGuard(pending);
   const choose = async (allow: boolean, choice?: number) => {
     setBusy(true);
     try {
@@ -1018,7 +1062,8 @@ function SessionPromptCard({
                 size={compact ? 'compact' : undefined}
                 className="agent-approval__choice"
                 disabled={busy}
-                onClick={() => void choose(true, index)}
+                {...keyProps}
+                onClick={guard(() => void choose(true, index))}
               >
                 {option.label}
               </Button>
@@ -1043,7 +1088,8 @@ function SessionPromptCard({
                   variant="primary"
                   data-allow
                   disabled={busy}
-                  onClick={() => void choose(true, allow.index)}
+                  {...keyProps}
+                  onClick={guard(() => void choose(true, allow.index))}
                 >
                   Allow
                 </Button>

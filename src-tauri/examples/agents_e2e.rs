@@ -316,6 +316,77 @@ async fn memory(h: &H) -> Check {
     )
 }
 
+/// (1b) Memory edited from the Memory tab reaches the next turn, the
+/// instructions above it are untouched, "Remember this" summarises a
+/// message, and the approval broker refuses requests from no live turn.
+async fn memory_tab(h: &H) -> Check {
+    let a = h.agent(
+        "Vault",
+        "Keeps codes",
+        "Answer in as few words as possible.",
+    );
+    let view = cmd::agents_memory_change(
+        a.id.clone(),
+        serde_json::from_value(serde_json::json!({"op": "add", "text": "The vault code is 4471."}))
+            .unwrap(),
+    )
+    .await
+    .map_err(|e| format!("add failed: {e}"))?;
+    ensure(
+        view.entries
+            .iter()
+            .any(|e| e.text == "The vault code is 4471."),
+        "added memory not listed",
+    )?;
+    ensure(
+        store::read_instructions(&a.id).unwrap() == "Answer in as few words as possible.",
+        "the instructions changed",
+    )?;
+    h.send(&a.id, "What is the vault code? Reply with just the number.")
+        .await?;
+    h.turn(&a.id).await?;
+    no_errors(&a.id)?;
+    ensure(
+        last_reply(&a.id).contains("4471"),
+        format!("didn't read its memory: {:?}", last_reply(&a.id)),
+    )?;
+    // The CLI really ran in the mode we assume: nothing was noted about it.
+    ensure(
+        !log(&a.id)
+            .iter()
+            .any(|m| m.kind == MessageKind::Note && m.text.contains("permission mode")),
+        "Claude Code reported an unexpected permission mode",
+    )?;
+    let fact = cmd::agents_memory_suggest(
+        "Got it. From now on I'll send invoices from billing@acme.co on the 1st of each month, never on weekends.".into(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    ensure(
+        !fact.trim().is_empty() && fact.lines().count() == 1,
+        format!("summary: {fact:?}"),
+    )?;
+    // No turn running: an approval request is denied without a card.
+    let ask = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "approve", "arguments": {
+            "tool_name": "Bash", "input": {"command": "rm -rf /tmp/x"}, "tool_use_id": "toolu_zombie"
+        }}
+    });
+    for turn in [None, Some(1)] {
+        let reply = agents::mcp::handle_rpc(&h.app, &a.id, turn, &ask).await;
+        let text = reply.to_string();
+        ensure(
+            text.contains("deny") && text.contains("after its turn had ended"),
+            format!("a request from no live turn wasn't refused: {text}"),
+        )?;
+    }
+    ensure(
+        store::pending_approvals(&a.id).unwrap().is_empty(),
+        "a zombie card was put up",
+    )
+}
+
 /// (2) The app quits mid-turn (SIGKILL of a second process using the same
 /// data), then starts again: nothing is stuck and the next message works.
 async fn restart(h: &H) -> Check {
@@ -1538,8 +1609,9 @@ async fn burst(h: &H) -> Check {
 
 /* --------------------------------------------------------------------- main */
 
-const ALL: [&str; 14] = [
+const ALL: [&str; 15] = [
     "memory",
+    "memory-tab",
     "restart",
     "lost-session",
     "project",
@@ -1645,6 +1717,7 @@ fn main() {
             let (t, c) = (Instant::now(), cost());
             let result = match name {
                 "memory" => memory(&h).await,
+                "memory-tab" => memory_tab(&h).await,
                 "restart" => restart(&h).await,
                 "lost-session" => lost_session(&h).await,
                 "project" => project_agent(&h).await,

@@ -27,12 +27,15 @@
 
 pub mod apps;
 pub mod attachments;
+pub mod broker;
 pub mod capabilities;
+pub mod capacity;
 pub mod decisions;
 pub mod failure;
 pub mod files;
 pub mod import;
 pub mod mcp;
+pub mod memory;
 pub mod notify;
 pub mod paste;
 pub mod permissions;
@@ -40,6 +43,7 @@ pub mod procs;
 pub mod project;
 pub mod prompts;
 pub mod runner;
+pub mod runs;
 pub mod schedule;
 pub mod search;
 pub mod secrets;

@@ -45,6 +45,7 @@ import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsStayOnNote } from './AgentsStayOn';
 import { AgentSchedulePopover } from './AgentSchedulePopover';
 import { AgentFilesModal } from './AgentFilesModal';
+import { RememberModal } from './AgentRemember';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import { useDictation } from './useDictation';
 import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
@@ -253,6 +254,7 @@ export function AgentChat({
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [remembering, setRemembering] = useState<AgentMessage | null>(null);
 
   // Who you can @mention here: everyone else on the team, in sidebar order.
   const mentionable = useMemo(
@@ -753,6 +755,7 @@ export function AgentChat({
                   queued={m.id === queuedId}
                   onInterrupt={interruptNow}
                   colorOf={colorOf}
+                  onRemember={setRemembering}
                 />
               );
             case 'agent':
@@ -763,6 +766,7 @@ export function AgentChat({
                   arrived={arrived}
                   agent={rowAgent}
                   streaming={m === streaming}
+                  onRemember={setRemembering}
                 />
               );
             case 'approval':
@@ -921,6 +925,12 @@ export function AgentChat({
             />
           </Dropdown>
           <AgentFilesModal agent={agent} isOpen={filesOpen} onClose={() => setFilesOpen(false)} />
+          <RememberModal
+            key={remembering?.id ?? 'none'}
+            agent={agent}
+            message={remembering}
+            onClose={() => setRemembering(null)}
+          />
         </div>
       </header>
 

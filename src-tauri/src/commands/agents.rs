@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner, schedule,
-    search, secrets, store, usage,
+    self, apps, attachments, files, import, mcp, memory, notify, paste, project, prompts, runner,
+    schedule, search, secrets, store, usage,
 };
 use crate::errors::CommandError;
 
@@ -390,6 +390,30 @@ pub async fn agents_change_diff(
 #[tracing::instrument]
 pub async fn agents_instructions(agent_id: String) -> Result<String, CommandError> {
     store::read_instructions(&agent_id)
+}
+
+/// The agent's `## Memory`, as entries (`agents/memory.rs`).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_memory(agent_id: String) -> Result<memory::View, CommandError> {
+    blocking(move || memory::read(&agent_id)).await
+}
+
+/// Add, edit or delete one memory entry; the rest of CLAUDE.md is untouched.
+#[tauri::command]
+#[tracing::instrument(skip(change))]
+pub async fn agents_memory_change(
+    agent_id: String,
+    change: memory::Change,
+) -> Result<memory::View, CommandError> {
+    blocking(move || memory::change(&agent_id, &change)).await
+}
+
+/// "Remember this": a message as one line worth keeping, for the user to edit.
+#[tauri::command]
+#[tracing::instrument(skip(text))]
+pub async fn agents_memory_suggest(text: String) -> Result<String, CommandError> {
+    Ok(memory::suggest(&text).await)
 }
 
 #[tauri::command]

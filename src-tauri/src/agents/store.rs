@@ -569,8 +569,6 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
     Ok(agent)
 }
 
-const MEMORY_HEADING: &str = "## Memory";
-
 /// CLAUDE.md is the agent's own file: instructions on top, a memory section it
 /// maintains below. Rewriting instructions keeps whatever it has remembered.
 pub fn write_instructions(
@@ -581,10 +579,10 @@ pub fn write_instructions(
     let path = home.join("CLAUDE.md");
     let memory = std::fs::read_to_string(&path)
         .ok()
-        .and_then(|existing| existing.find(MEMORY_HEADING).map(|i| existing[i..].to_string()))
-        .unwrap_or_else(|| {
-            format!("{MEMORY_HEADING}\n\nThings worth remembering between conversations. Keep this short and current.\n")
-        });
+        .and_then(|existing| {
+            super::memory::section_start(&existing).map(|i| existing[i..].to_string())
+        })
+        .unwrap_or_else(|| format!("{}\n\n{}\n", super::memory::HEADING, super::memory::INTRO));
     let role = if agent.role.is_empty() {
         String::new()
     } else {
@@ -609,9 +607,8 @@ pub fn read_instructions(id: &str) -> Result<String, CommandError> {
     let Some(start) = start else {
         return Ok(String::new());
     };
-    let end = raw[start..]
-        .find(MEMORY_HEADING)
-        .map(|i| start + i)
+    let end = super::memory::section_start(&raw)
+        .filter(|&i| i >= start)
         .unwrap_or(raw.len());
     Ok(raw[start..end].trim().to_string())
 }

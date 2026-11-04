@@ -92,6 +92,33 @@ export interface CheckIn {
   nextAt: number;
   createdAt: number;
   paused: boolean;
+  /** Its last runs, oldest first; omitted before the first. */
+  runs?: CheckInRun[];
+  /** A failed run waiting to be tried again. */
+  retry?: CheckInRetry;
+}
+
+/** One scheduled run and what came of it; mirrors `runs::Run`. */
+export interface CheckInRun {
+  at: number;
+  outcome: 'running' | 'ran' | 'retrying' | 'failed' | 'unknown';
+  /** 1 for the run itself, 2 for its first retry. */
+  attempt: number;
+  /** Why it failed, as the chat said it. */
+  detail?: string;
+  retryAt?: number;
+  /** Connectors Claude Code said need signing in again. */
+  signIn?: string[];
+  /** Run now, from the popover. */
+  manual?: boolean;
+}
+
+/** Mirrors `runs::Retry`. */
+export interface CheckInRetry {
+  at: number;
+  attempts: number;
+  firstFailedAt: number;
+  dueAt: number;
 }
 
 /** On a `check_in` chat line: when it was due and whether it ran late. */
@@ -634,6 +661,98 @@ export const updateCheckIn = (agentId: string, id: string, when: string, note: s
 export const runCheckInNow = (agentId: string, id: string) =>
   invoke<void>('agents_schedule_run_now', { agentId, id });
 
+/* ------------------------------------------------------------- memory */
+
+/** One entry of an agent's `## Memory`; mirrors `memory::Entry`. */
+export interface MemoryEntry {
+  text: string;
+  /** The `###` heading it sits under ("Imported from Grok Bot"). */
+  group?: string;
+}
+
+export interface MemoryView {
+  entries: MemoryEntry[];
+  /** The exact lines a delete removed, for Undo. */
+  removed?: string;
+}
+
+/** Mirrors `memory::Change`. An edit or delete names the entry by position and words. */
+export type MemoryChange =
+  | {
+      op: 'add';
+      text: string;
+      group?: string;
+      after?: string;
+      before?: string;
+      raw?: string;
+    }
+  | { op: 'edit'; index: number; original: string; text: string }
+  | { op: 'delete'; index: number; original: string };
+
+export const getAgentMemory = (agentId: string) => invoke<MemoryView>('agents_memory', { agentId });
+export const changeAgentMemory = (agentId: string, change: MemoryChange) =>
+  invoke<MemoryView>('agents_memory_change', { agentId, change });
+/** "Remember this": the message as one line worth keeping (Haiku, or its opening). */
+export const suggestMemory = (text: string) => invoke<string>('agents_memory_suggest', { text });
+
+export interface MemoryGroup {
+  /** null: the agent's own memory, above any heading. */
+  title: string | null;
+  items: { entry: MemoryEntry; index: number }[];
+}
+
+/** Entries by group: the agent's own first, then each heading in file order. */
+export function groupMemory(entries: MemoryEntry[]): MemoryGroup[] {
+  const groups: MemoryGroup[] = [{ title: null, items: [] }];
+  entries.forEach((entry, index) => {
+    const title = entry.group ?? null;
+    let group = groups.find((g) => g.title === title);
+    if (!group) {
+      group = { title, items: [] };
+      groups.push(group);
+    }
+    group.items.push({ entry, index });
+  });
+  return groups.filter((g) => g.title === null || g.items.length > 0);
+}
+
+/** The change that puts back entry `index` of `before`, removed as `removed`. */
+export function undoDelete(
+  before: MemoryEntry[],
+  index: number,
+  removed: string | undefined
+): MemoryChange {
+  const entry = before[index];
+  const sameGroup = (e: MemoryEntry | undefined) =>
+    e && (e.group ?? null) === (entry.group ?? null) ? e.text : undefined;
+  return {
+    op: 'add',
+    text: entry.text,
+    group: entry.group,
+    after: sameGroup(before[index - 1]),
+    before: sameGroup(before[index + 1]),
+    raw: removed,
+  };
+}
+
+/** What a scheduled run came to, in a few words. */
+export function describeRun(run: CheckInRun, now = Date.now()): string {
+  switch (run.outcome) {
+    case 'running':
+      return 'Running';
+    case 'ran':
+      return run.attempt > 1 ? `Ran on try ${run.attempt}` : 'Ran';
+    case 'retrying':
+      return run.retryAt
+        ? `Didn’t run · retrying ${formatWhen(run.retryAt, now).replace(/^(Today|Tomorrow)/, (w) => w.toLowerCase())}`
+        : 'Didn’t run · retrying';
+    case 'failed':
+      return run.attempt > 1 ? `Didn’t run after ${run.attempt} tries` : 'Didn’t run';
+    default:
+      return 'Unknown';
+  }
+}
+
 /**
  * Formatters are built once: `toLocaleTimeString` with options builds a new
  * one per call, which over a few hundred rows was the costliest part of a
@@ -734,6 +853,12 @@ export function scheduleWhenPhrase(c: Pick<CheckIn, 'repeat' | 'nextAt'>): strin
 
 /** A row's secondary line: when it next runs, and how it repeats. */
 export function describeCheckInTime(c: CheckIn, now = Date.now()): string {
+  const lower = (w: string) => w.toLowerCase();
+  if (c.retry && !c.paused) {
+    const retry = `retrying ${formatWhen(c.retry.at, now).replace(/^(Today|Tomorrow)/, lower)}`;
+    if (!c.repeat) return `Didn’t run · ${retry}`;
+    return `${describeRepeat(c.repeat)} · ${retry}`;
+  }
   if (!c.repeat) return formatWhen(c.nextAt, now);
   const repeat = describeRepeat(c.repeat);
   if (c.paused) return `Paused · ${repeat}`;

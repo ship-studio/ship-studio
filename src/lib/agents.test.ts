@@ -18,6 +18,9 @@ import {
   PROSE_PATH,
   describeCheckInTime,
   describeRepeat,
+  describeRun,
+  groupMemory,
+  undoDelete,
   formatWhen,
   splitScheduleInput,
   scheduleWhenPhrase,
@@ -193,6 +196,33 @@ describe('schedule helpers', () => {
     expect(describeCheckInTime({ ...base, repeat, paused: true }, now)).toBe(
       `Paused · Every weekday at ${at(9, 0)}`
     );
+  });
+
+  it('says when a failed run is tried again', () => {
+    const now = new Date(2026, 10, 4, 9, 3).getTime();
+    const nextAt = new Date(2026, 10, 5, 9, 0).getTime();
+    const repeat = { kind: 'days' as const, days: [1, 2, 3, 4, 5], hour: 9, minute: 0 };
+    const retry = {
+      at: new Date(2026, 10, 4, 9, 7).getTime(),
+      attempts: 1,
+      firstFailedAt: now,
+      dueAt: now,
+    };
+    const base = { id: 'x', note: 'n', nextAt, createdAt: 0, paused: false, retry };
+    expect(describeCheckInTime({ ...base, repeat }, now)).toBe(
+      `Every weekday at ${at(9, 0)} · retrying today ${at(9, 7)}`
+    );
+    expect(describeCheckInTime(base, now)).toBe(`Didn’t run · retrying today ${at(9, 7)}`);
+    // Paused wins: nothing will run.
+    expect(describeCheckInTime({ ...base, repeat, paused: true }, now)).toMatch(/^Paused/);
+    const run = { at: now, attempt: 1 };
+    expect(describeRun({ ...run, outcome: 'ran' })).toBe('Ran');
+    expect(describeRun({ ...run, outcome: 'ran', attempt: 3 })).toBe('Ran on try 3');
+    expect(describeRun({ ...run, outcome: 'retrying', retryAt: retry.at }, now)).toBe(
+      `Didn’t run · retrying today ${at(9, 7)}`
+    );
+    expect(describeRun({ ...run, outcome: 'failed', attempt: 8 })).toBe('Didn’t run after 8 tries');
+    expect(describeRun({ ...run, outcome: 'unknown' })).toBe('Unknown');
   });
 
   it('names today and tomorrow, and dates further out', () => {
@@ -586,6 +616,39 @@ describe('promptAnswer', () => {
     expect(promptAnswer({ ...prompt, options: [] }, false)).toEqual({
       status: 'denied',
       choice: 'Cancelled',
+    });
+  });
+});
+
+describe('memory', () => {
+  const entries = [
+    { text: 'Accountant is Sam' },
+    { text: 'Prefers EUR' },
+    { text: 'Lives in Lisbon', group: 'Imported from Grok Bot' },
+    { text: 'Mornings for focus', group: 'Imported from Grok Bot' },
+  ];
+
+  it('groups the agent’s own memory first, then each heading', () => {
+    const groups = groupMemory(entries);
+    expect(groups.map((g) => g.title)).toEqual([null, 'Imported from Grok Bot']);
+    expect(groups[1].items.map((i) => i.index)).toEqual([2, 3]);
+    // Nothing of its own yet: the group is still there to add to.
+    expect(groupMemory(entries.slice(2))[0]).toEqual({ title: null, items: [] });
+  });
+
+  it('undoes a delete next to its neighbours in the same group', () => {
+    expect(undoDelete(entries, 1, '- Prefers EUR\n')).toEqual({
+      op: 'add',
+      text: 'Prefers EUR',
+      group: undefined,
+      after: 'Accountant is Sam',
+      before: undefined,
+      raw: '- Prefers EUR\n',
+    });
+    expect(undoDelete(entries, 2, undefined)).toMatchObject({
+      group: 'Imported from Grok Bot',
+      after: undefined,
+      before: 'Mornings for focus',
     });
   });
 });

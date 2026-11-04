@@ -106,6 +106,14 @@ impl Coalescer {
         self.held.remove(agent_id)
     }
 
+    /// Replace what the turn will say when it ends, or say nothing.
+    pub fn set(&mut self, agent_id: &str, alert: Option<Alert>) {
+        match alert {
+            Some(alert) => self.held.insert(agent_id.to_string(), alert),
+            None => self.held.remove(agent_id),
+        };
+    }
+
     /// The user looked: nothing held for this agent is news any more.
     pub fn seen(&mut self, agent_id: &str) {
         self.held.remove(agent_id);
@@ -185,6 +193,20 @@ pub fn message_recorded(app: &AppHandle, agent: &Agent, message: &AgentMessage, 
     if let Some(alert) = now {
         post(app, &alert);
     }
+}
+
+/// What a turn's notification says, decided by someone who knows more than
+/// its last line: a scheduled run that failed and will be tried again
+/// (`agents::runs`). `None` posts nothing for the turn. Still subject to
+/// mute and to the user looking at that chat.
+pub fn replace_held(agent_id: &str, body: Option<String>) {
+    let alert = body.map(|body| Alert {
+        agent_id: agent_id.to_string(),
+        title: store::get(agent_id).map(|a| a.name).unwrap_or_default(),
+        body,
+        sound: false,
+    });
+    pending().set(agent_id, alert);
 }
 
 /// Called when a turn finishes: post what it held, unless the user is now

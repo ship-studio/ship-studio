@@ -117,8 +117,8 @@ fn add_memory(id: &str, memory: &str, source: &str) -> Result<(), CommandError> 
     }
     let path = store::agent_home(id)?.join("CLAUDE.md");
     let mut content = std::fs::read_to_string(&path).unwrap_or_default();
-    if !content.contains("## Memory") {
-        content.push_str("\n## Memory\n");
+    if super::memory::section_start(&content).is_none() {
+        content.push_str(&format!("\n{}\n", super::memory::HEADING));
     }
     if !content.ends_with('\n') {
         content.push('\n');

@@ -231,3 +231,179 @@
 .agent-secrets__vars {
   font-family: var(--font-mono);
 }
+
+/* --------------------------------------------------------------- memory */
+
+/* Agent and Memory, under the editor's title. */
+.agent-editor__tabs {
+  display: flex;
+  width: 100%;
+  padding: 0 var(--spacing-xl);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agent-memory {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+}
+
+.agent-memory--loading {
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.agent-memory__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+
+.agent-memory__heading {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.agent-memory__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-memory__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-primary);
+}
+
+.agent-memory__item + .agent-memory__item {
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agent-memory__item[data-editing] {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.agent-memory__text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Quiet until their row is pointed at or focused; they keep their space. */
+.agent-memory__actions {
+  display: flex;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-interaction);
+}
+
+.agent-memory__item:hover .agent-memory__actions,
+.agent-memory__item:focus-within .agent-memory__actions {
+  opacity: 1;
+}
+
+.agent-memory__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+}
+
+.agent-memory__empty {
+  margin: 0;
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+.agent-memory__add {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+
+.agent-memory__add .ss-text-field,
+.agent-memory__add textarea {
+  flex: 1;
+}
+
+/* "Remember this": the fact, editable, before it's kept. */
+.modal-frame-content.agent-remember {
+  width: min(440px, 90vw);
+}
+
+.agent-remember__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+}
+
+/* ----------------------------------------------------- schedule history */
+
+.agent-schedule__item[data-history] {
+  flex-wrap: wrap;
+}
+
+.agent-schedule__history {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+  margin: 0;
+  padding: var(--spacing-2xs) 0 var(--spacing-xs);
+  list-style: none;
+}
+
+.agent-schedule__run {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+.agent-schedule__run-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-schedule__run-outcome {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-schedule__run[data-outcome='ran'] .agent-schedule__run-outcome {
+  color: var(--text-secondary);
+}
+
+.agent-schedule__run[data-outcome='failed'] .agent-schedule__run-outcome {
+  color: var(--accent-error-light);
+}
+
+.agent-schedule__run[data-outcome='retrying'] .agent-schedule__run-outcome,
+.agent-schedule__when[data-retrying] {
+  color: var(--accent-warning);
+}
+
+.text-button.button.agent-schedule__last {
+  align-self: flex-start;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}

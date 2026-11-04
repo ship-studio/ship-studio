@@ -293,7 +293,14 @@ fn tools_list(caller: &store::Agent) -> Value {
     json!({ "tools": tools })
 }
 
-pub async fn handle_rpc(app: &AppHandle, agent_id: &str, message: &Value) -> Value {
+/// `turn` is the id on the caller's URL (`broker::open_turn`); only the
+/// approval broker needs it.
+pub async fn handle_rpc(
+    app: &AppHandle,
+    agent_id: &str,
+    turn: Option<u64>,
+    message: &Value,
+) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     let params = message.get("params");
@@ -328,6 +335,9 @@ pub async fn handle_rpc(app: &AppHandle, agent_id: &str, message: &Value) -> Val
                     "Only the Chief of Staff can do that. Ask it with message_agent.",
                 ));
             }
+            if name == "approve" {
+                return ok(approve(app, &caller, turn, &args).await);
+            }
             ok(call(app, &caller, name, &args).await)
         }
         _ => fail(-32601, &format!("Method not found: {method}")),
@@ -352,7 +362,6 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
         "schedule_check_in" | "list_check_ins" | "cancel_check_in" => {
             check_ins(app, caller, name, args)
         }
-        "approve" => approve(app, caller, args).await,
         "request_secret" => request_secret(app, caller, args),
         _ => error("Unknown tool"),
     }
@@ -749,8 +758,8 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         None,
     )
     .await;
-    if answer != Answer::Allowed {
-        return error("The user said no. Don't delete it.");
+    if let Some(refused) = refused_reply(&answer, "delete it") {
+        return error(refused);
     }
     runner::stop(&agent.id);
     match store::delete(&agent.id) {
@@ -852,17 +861,17 @@ pub(super) async fn ask_user(
         },
     );
 
-    let answer = match tokio::time::timeout(approval_wait(), rx).await {
-        Ok(Ok(true)) => Answer::Allowed,
-        // The command wrote the decision (and any note) before waking us.
-        Ok(Ok(false)) => Answer::Denied(
-            store::find_approval(&caller.id, &request_id)
-                .ok()
-                .flatten()
-                .and_then(|a| a.note),
-        ),
-        _ => Answer::NotYet,
-    };
+    let waited = tokio::time::timeout(approval_wait(), rx)
+        .await
+        .ok()
+        .map(Result::ok);
+    // The command wrote the decision (and any note) before waking us.
+    let answer = read_wait(waited, || {
+        store::find_approval(&caller.id, &request_id)
+            .ok()
+            .flatten()
+            .and_then(|a| a.note)
+    });
     PENDING_APPROVALS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -893,6 +902,34 @@ pub(super) async fn ask_user(
         );
     }
     answer
+}
+
+/// What a wait on a card came to: `None` when the wait ran out, `Some(None)`
+/// when nobody will answer it any more. Neither is the user's answer.
+pub(super) fn read_wait(
+    waited: Option<Option<bool>>,
+    note: impl FnOnce() -> Option<String>,
+) -> Answer {
+    match waited {
+        Some(Some(true)) => Answer::Allowed,
+        Some(Some(false)) => Answer::Denied(note()),
+        Some(None) | None => Answer::NotYet,
+    }
+}
+
+/// The tool's reply when a confirmation didn't come back as Allow: the
+/// user's No, or (never dressed up as a No) a card that expired unanswered.
+pub(super) fn refused_reply(answer: &Answer, what: &str) -> Option<String> {
+    match answer {
+        Answer::Allowed => None,
+        Answer::Denied(None) => Some(format!("The user said no. Don't {what}.")),
+        Answer::Denied(Some(note)) => Some(format!(
+            "The user said no, and told you: \"{note}\". Don't {what}."
+        )),
+        Answer::NotYet => Some(format!(
+            "The user didn't answer in time, so the request expired; nothing was done. Don't {what} now. Tell them in one line, and ask again when they're back."
+        )),
+    }
 }
 
 /// The card for a request. Only a Claude Code tool call can be always
@@ -1104,12 +1141,21 @@ fn capitalize(word: &str) -> String {
         .unwrap_or_default()
 }
 
-async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
+async fn approve(app: &AppHandle, caller: &store::Agent, turn: Option<u64>, args: &Value) -> Value {
     let tool = args
         .get("tool_name")
         .and_then(Value::as_str)
         .unwrap_or("a tool");
     let input = args.get("input").cloned().unwrap_or_else(|| json!({}));
+    let request_id = args.get("tool_use_id").and_then(Value::as_str);
+    // Fail closed before anything else: no card for a turn that isn't running.
+    let admission = super::broker::admit(&caller.id, turn, request_id);
+    if admission != super::broker::Admission::Live {
+        tracing::warn!(agent = %caller.id, ?turn, ?request_id, ?admission, "[Agents] approval request refused without asking");
+        return text(
+            json!({ "behavior": "deny", "message": super::broker::refusal(admission) }).to_string(),
+        );
+    }
     let allow = json!({ "behavior": "allow", "updatedInput": input });
     if take_grant(&caller.id, tool, &input) {
         return text(allow.to_string());

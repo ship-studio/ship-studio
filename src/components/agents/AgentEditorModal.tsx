@@ -13,7 +13,9 @@ import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
 import { TextButton } from '../primitives/TextButton';
 import { SegmentedControl } from '../primitives/SegmentedControl';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
 import { AgentProjectField } from './AgentProject';
+import { AgentMemory } from './AgentMemory';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentSecrets } from './AgentSecrets';
 import {
@@ -138,7 +140,11 @@ interface AgentEditorModalProps {
   takenColors?: string[];
   /** Open "Apps your agents can use" over the editor. */
   onOpenApps?: () => void;
+  /** Editing: open on its memory rather than its settings. */
+  initialTab?: EditorTab;
 }
+
+export type EditorTab = 'agent' | 'memory';
 
 /** The first colour nobody has yet; white and gray are left for the user to pick. */
 function freeColor(taken: string[] = []): string {
@@ -153,8 +159,10 @@ export function AgentEditorModal({
   onDelete,
   takenColors,
   onOpenApps,
+  initialTab = 'agent',
 }: AgentEditorModalProps) {
   const editing = Boolean(agent);
+  const [tab, setTab] = useState<EditorTab>(initialTab);
   // Keyed by the caller per open, so these start fresh each time.
   const [name, setName] = useState(agent?.name ?? '');
   const [color, setColor] = useState<string>(() => agent?.color ?? freeColor(takenColors));
@@ -202,6 +210,152 @@ export function AgentEditorModal({
 
   const canSave = name.trim().length > 0 && !save.isLoading;
 
+  const form = (
+    <form
+      className="agent-editor__body"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canSave) void save.execute();
+      }}
+      // ⌘Enter saves from anywhere in it, the instructions included (as comments do).
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+        e.preventDefault();
+        e.currentTarget.requestSubmit();
+      }}
+    >
+      <div className="agent-editor__identity">
+        <AgentAvatar name={name} color={color} size="field" selected />
+        <TextField
+          placeholder="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          aria-label="Agent name"
+          maxLength={40}
+          autoFocus
+        />
+      </div>
+
+      {/* One Tab stop; the arrows move focus and the choice together, as radios do. */}
+      <div
+        className="agent-editor__colors"
+        role="radiogroup"
+        aria-label="Colour"
+        onKeyDown={(e) => {
+          const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+          if (!step) return;
+          e.preventDefault();
+          const at = AGENT_COLORS.indexOf(color as AgentColor);
+          const next = AGENT_COLORS[(at + step + AGENT_COLORS.length) % AGENT_COLORS.length];
+          setColor(next);
+          e.currentTarget.querySelector<HTMLElement>(`[data-color="${next}"]`)?.focus();
+        }}
+      >
+        {AGENT_COLORS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            tabIndex={
+              color === key ||
+              (key === AGENT_COLORS[0] && !AGENT_COLORS.includes(color as AgentColor))
+                ? 0
+                : -1
+            }
+            aria-checked={color === key}
+            aria-label={key}
+            className="agent-editor__swatch"
+            data-color={key}
+            data-selected={color === key || undefined}
+            onClick={() => setColor(key)}
+          />
+        ))}
+      </div>
+
+      <div className="agent-editor__label" role="group" aria-label="Model">
+        Model
+        <SegmentedControl
+          value={model}
+          options={AGENT_MODELS}
+          onValueChange={setModel}
+          aria-label="Model"
+        />
+      </div>
+
+      <AgentProjectField value={project} onChange={setProject} />
+
+      {onOpenApps && (
+        <div className="agent-editor__label" role="group" aria-label="Apps">
+          Apps
+          <div className="agent-editor__apps">
+            <p className="agent-editor__hint">
+              Every agent can use the apps your Claude Code is connected to.
+            </p>
+            <Button variant="secondary" size="compact" onClick={onOpenApps}>
+              Manage apps…
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showBriefing ? (
+        <div className="agent-editor__briefing">
+          <label className="agent-editor__label">
+            Role
+            <TextField
+              placeholder="What is this agent responsible for?"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              disabled={agent?.isMain}
+            />
+          </label>
+          <label className="agent-editor__label">
+            Instructions
+            <TextArea
+              rows={6}
+              placeholder="Brief it like a new hire: context, standing rules, who's who, where things live."
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+            />
+          </label>
+          {editing && (
+            <p className="agent-editor__hint">
+              What it remembers is kept separately, under Memory, and isn't changed here.
+            </p>
+          )}
+          <UsageLines usage={usage} />
+          {agent && <CanDo agent={agent} />}
+          {agent && <Permissions agent={agent} />}
+          {agent && <AgentSecrets agent={agent} />}
+        </div>
+      ) : (
+        <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>
+          Add a role and instructions
+        </TextButton>
+      )}
+
+      {error && (
+        <p className="agent-editor__error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="agent-editor__actions">
+        {editing && agent && !agent.isMain && onDelete && (
+          <Button variant="danger" className="agent-editor__delete" onClick={() => onDelete(agent)}>
+            Delete
+          </Button>
+        )}
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" type="submit" disabled={!canSave}>
+          {editing ? 'Save' : 'Create'}
+        </Button>
+      </div>
+    </form>
+  );
+
   return (
     <ModalFrame
       isOpen={isOpen}
@@ -209,153 +363,18 @@ export function AgentEditorModal({
       title={editing ? `Edit ${agent?.name}` : 'New agent'}
       className="agent-editor"
     >
-      <form
-        className="agent-editor__body"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (canSave) void save.execute();
-        }}
-        // ⌘Enter saves from anywhere in it, the instructions included (as comments do).
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
-          e.preventDefault();
-          e.currentTarget.requestSubmit();
-        }}
-      >
-        <div className="agent-editor__identity">
-          <AgentAvatar name={name} color={color} size="field" selected />
-          <TextField
-            placeholder="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-label="Agent name"
-            maxLength={40}
-            autoFocus
-          />
-        </div>
-
-        {/* One Tab stop; the arrows move focus and the choice together, as radios do. */}
-        <div
-          className="agent-editor__colors"
-          role="radiogroup"
-          aria-label="Colour"
-          onKeyDown={(e) => {
-            const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
-            if (!step) return;
-            e.preventDefault();
-            const at = AGENT_COLORS.indexOf(color as AgentColor);
-            const next = AGENT_COLORS[(at + step + AGENT_COLORS.length) % AGENT_COLORS.length];
-            setColor(next);
-            e.currentTarget.querySelector<HTMLElement>(`[data-color="${next}"]`)?.focus();
-          }}
-        >
-          {AGENT_COLORS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              tabIndex={
-                color === key ||
-                (key === AGENT_COLORS[0] && !AGENT_COLORS.includes(color as AgentColor))
-                  ? 0
-                  : -1
-              }
-              aria-checked={color === key}
-              aria-label={key}
-              className="agent-editor__swatch"
-              data-color={key}
-              data-selected={color === key || undefined}
-              onClick={() => setColor(key)}
-            />
-          ))}
-        </div>
-
-        <div className="agent-editor__label" role="group" aria-label="Model">
-          Model
-          <SegmentedControl
-            value={model}
-            options={AGENT_MODELS}
-            onValueChange={setModel}
-            aria-label="Model"
-          />
-        </div>
-
-        <AgentProjectField value={project} onChange={setProject} />
-
-        {onOpenApps && (
-          <div className="agent-editor__label" role="group" aria-label="Apps">
-            Apps
-            <div className="agent-editor__apps">
-              <p className="agent-editor__hint">
-                Every agent can use the apps your Claude Code is connected to.
-              </p>
-              <Button variant="secondary" size="compact" onClick={onOpenApps}>
-                Manage apps…
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {showBriefing ? (
-          <div className="agent-editor__briefing">
-            <label className="agent-editor__label">
-              Role
-              <TextField
-                placeholder="What is this agent responsible for?"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                disabled={agent?.isMain}
-              />
-            </label>
-            <label className="agent-editor__label">
-              Instructions
-              <TextArea
-                rows={6}
-                placeholder="Brief it like a new hire: context, standing rules, who's who, where things live."
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-              />
-            </label>
-            {editing && (
-              <p className="agent-editor__hint">
-                What it remembers is kept separately and isn't changed here.
-              </p>
-            )}
-            <UsageLines usage={usage} />
-            {agent && <CanDo agent={agent} />}
-            {agent && <Permissions agent={agent} />}
-            {agent && <AgentSecrets agent={agent} />}
-          </div>
-        ) : (
-          <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>
-            Add a role and instructions
-          </TextButton>
-        )}
-
-        {error && (
-          <p className="agent-editor__error" role="alert">
-            {error}
-          </p>
-        )}
-
-        <div className="agent-editor__actions">
-          {editing && agent && !agent.isMain && onDelete && (
-            <Button
-              variant="danger"
-              className="agent-editor__delete"
-              onClick={() => onDelete(agent)}
-            >
-              Delete
-            </Button>
-          )}
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" disabled={!canSave}>
-            {editing ? 'Save' : 'Create'}
-          </Button>
-        </div>
-      </form>
+      {agent ? (
+        <Tabs value={tab} onValueChange={(v) => setTab(v as EditorTab)}>
+          <TabsList className="agent-editor__tabs" appearance="underline" aria-label="Edit">
+            <TabsTab value="agent">Agent</TabsTab>
+            <TabsTab value="memory">Memory</TabsTab>
+          </TabsList>
+          <TabsPanel value="agent">{form}</TabsPanel>
+          <TabsPanel value="memory">{tab === 'memory' && <AgentMemory agent={agent} />}</TabsPanel>
+        </Tabs>
+      ) : (
+        form
+      )}
     </ModalFrame>
   );
 }

@@ -455,6 +455,69 @@ const FINANCE_CHAT = [
   ),
 ];
 
+/** Finance's `## Memory`, as `agents_memory` reads it. */
+const MEMORY = [
+  { text: 'Julian’s accountant is Sam Ortiz (sam@ortiz.co).' },
+  { text: 'Invoices go out on the 1st,\nnever on weekends.' },
+  { text: 'Reports in EUR unless a client is billed in USD.' },
+  { text: 'Lives in Lisbon', group: 'Imported from Grok Bot' },
+  { text: 'Prefers mornings for anything that needs focus', group: 'Imported from Grok Bot' },
+];
+
+/** The weekday brief with a week of runs behind it and a retry pending. */
+const WITH_HISTORY = (() => {
+  const nine = new Date(now);
+  nine.setHours(9, 0, 0, 0);
+  const day = 24 * 60 * MIN;
+  const at = nine.getTime() > now ? nine.getTime() - day : nine.getTime();
+  const retryAt = now + 4 * MIN;
+  /** `k` days before `at`, same wall-clock time across DST. */
+  const daysBack = (k: number) => {
+    const d = new Date(at);
+    d.setDate(d.getDate() - k);
+    return d.getTime();
+  };
+  const runs = [
+    { at: daysBack(6), outcome: 'ran', attempt: 1 },
+    { at: daysBack(5), outcome: 'ran', attempt: 2 },
+    {
+      at: daysBack(2),
+      outcome: 'failed',
+      attempt: 1,
+      detail: 'Claude Code is signed out.',
+      signIn: ['Gmail'],
+    },
+    { at: daysBack(1), outcome: 'ran', attempt: 1 },
+    {
+      at,
+      outcome: 'retrying',
+      attempt: 1,
+      detail: 'API Error: 529 overloaded',
+      retryAt,
+    },
+  ];
+  return [
+    {
+      id: 'ci2',
+      note: 'Brief me on what came in and went out yesterday, and anything overdue.',
+      repeat: { kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 },
+      nextAt: at + day,
+      createdAt: now - 7 * day,
+      paused: false,
+      runs,
+      retry: { at: retryAt, attempts: 1, firstFailedAt: at, dueAt: at },
+    },
+    {
+      id: 'ci3',
+      note: 'Reconcile the month against the bank export.',
+      repeat: { kind: 'days', days: [1], hour: 8, minute: 30 },
+      nextAt: now + 5 * day,
+      createdAt: now - 30 * day,
+      paused: true,
+    },
+  ];
+})();
+
 const shot = (name: string, size: number) => ({
   name,
   path: `attachments/m-att1/${name}`,
@@ -1347,6 +1410,88 @@ export const agentsScenarios: Scenario[] = [
         week: totals(14, 412_000, 3.81, 22),
         allTime: totals(161, 5_930_000, 47.2, 274),
       },
+    },
+  },
+  {
+    id: 'agents-memory',
+    title: 'Agents — what an agent remembers, in the editor',
+    looksRightWhen:
+      'Editing Finance, an underline tab bar reads Agent | Memory with Memory chosen. Under a muted one-line explanation, Finance’s own memory as hairline-separated rows (the accountant, the invoice rule over two lines, EUR), then a quiet “Imported from Grok Bot” heading with two rows under it. Pointing at a row shows a pencil and a bin at its right. At the bottom, one field “Something Finance should remember” with an Add button.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-memory__item',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+      { click: '.agent-editor__tabs [data-tab-value="memory"]' },
+      { hover: '.agent-memory__item:nth-child(2)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the books tidy and tell me before anything goes out.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_memory: { entries: MEMORY },
+    },
+  },
+  {
+    id: 'agents-memory-edit',
+    title: 'Agents — editing one memory in place',
+    looksRightWhen:
+      'In Finance’s Memory tab, the second row has become a two-line text area holding “Invoices go out on the 1st, never on weekends.” on two lines, with Cancel and Save under it on the right. The other rows are unchanged.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-memory__item[data-editing] textarea',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+      { click: '.agent-editor__tabs [data-tab-value="memory"]' },
+      { click: '.agent-memory__item:nth-child(2) [aria-label^="Edit"]' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the books tidy and tell me before anything goes out.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_memory: { entries: MEMORY },
+    },
+  },
+  {
+    id: 'agents-remember',
+    title: 'Agents — “Remember this” on a reply',
+    looksRightWhen:
+      'Over Finance’s chat, a small “Remember this” dialog: a three-line field holding the one-line summary of the reply (“Northwind pays in the next payment run; chase them on the 1st.”), a muted line saying it goes into Finance’s memory and where to edit it, then Cancel and a primary Remember.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-remember textarea',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { hover: '.agent-chat__row--agent:last-of-type' },
+      { click: '.agent-chat__row--agent:last-of-type [aria-label="Remember this"]' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_memory_suggest: 'Northwind pays in the next payment run; chase them on the 1st.',
+    },
+  },
+  {
+    id: 'agents-schedule-history',
+    title: 'Agents — a routine’s past runs, and one being retried',
+    looksRightWhen:
+      'Finance’s schedule popover. The weekday brief reads “Every weekday at 9:00 AM · retrying today …” in amber, and under it a quiet “Hide past runs” toggle, opened: a list of its runs newest first, each a time and an outcome — the retry in amber with the overloaded error, a red one that needed Gmail signed in again, and “Ran” for the rest.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-schedule__history .agent-schedule__run',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__scheduled' },
+      { click: '.agent-schedule__last' },
+    ],
+    commands: {
+      agents_overview: overview(
+        TEAM.map((a) => (a.id === 'finance' ? { ...a, checkIns: WITH_HISTORY } : a))
+      ),
+      agents_messages: messagesFor,
+      agents_schedule_preview: schedulePreview,
     },
   },
   {

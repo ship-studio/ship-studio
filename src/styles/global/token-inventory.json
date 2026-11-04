@@ -4529,7 +4529,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 505
+      "consumerCount": 506
     },
     {
       "name": "--text-secondary",
@@ -4538,7 +4538,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 449
+      "consumerCount": 451
     },
     {
       "name": "--text-muted",
@@ -4547,7 +4547,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 767
+      "consumerCount": 772
     },
     {
       "name": "--text-faint",
@@ -4601,7 +4601,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 130
+      "consumerCount": 132
     },
     {
       "name": "--border-strong",
@@ -4628,7 +4628,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 221
+      "consumerCount": 223
     },
     {
       "name": "--border-width-emphasis",
@@ -4709,7 +4709,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 104
+      "consumerCount": 105
     },
     {
       "name": "--accent-error",
@@ -4727,7 +4727,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 37
+      "consumerCount": 38
     },
     {
       "name": "--accent-error-deep",
@@ -4898,7 +4898,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 296
+      "consumerCount": 298
     },
     {
       "name": "--font-size-body-sm",
@@ -4907,7 +4907,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 364
+      "consumerCount": 366
     },
     {
       "name": "--font-size-control",
@@ -4925,7 +4925,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 52
+      "consumerCount": 53
     },
     {
       "name": "--font-size-button",
@@ -5006,7 +5006,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 78
+      "consumerCount": 79
     },
     {
       "name": "--font-weight-heading",
@@ -5069,7 +5069,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 70
+      "consumerCount": 71
     },
     {
       "name": "--line-height-reading",
@@ -5096,7 +5096,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 78
+      "consumerCount": 79
     },
     {
       "name": "--transition-interaction-slow",
@@ -5222,7 +5222,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 218
+      "consumerCount": 221
     },
     {
       "name": "--spacing-xs",
@@ -5231,7 +5231,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 529
+      "consumerCount": 532
     },
     {
       "name": "--spacing-sm",
@@ -5240,7 +5240,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 625
+      "consumerCount": 628
     },
     {
       "name": "--spacing-md",
@@ -5249,7 +5249,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 462
+      "consumerCount": 464
     },
     {
       "name": "--spacing-lg",
@@ -5258,7 +5258,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 184
+      "consumerCount": 186
     },
     {
       "name": "--spacing-xl",
@@ -5267,7 +5267,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 111
+      "consumerCount": 116
     },
     {
       "name": "--spacing-2xl",

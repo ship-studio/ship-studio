@@ -427,7 +427,8 @@ async fn handle_http(
     // Agents get their own tool set at /mcp/<token>/agents/<agent-id>.
     if let Some(agent_id) = segment.strip_prefix("agents/") {
         let agent_id = agent_id.trim_end_matches('/').to_string();
-        return handle_agents_http(app, agent_id, req).await;
+        let turn = crate::agents::broker::turn_from_query(req.uri().query());
+        return handle_agents_http(app, agent_id, turn, req).await;
     }
     let project_path = if segment.trim_end_matches('/') == ACTIVE_PROJECT_SEGMENT {
         ACTIVE_PROJECT_SEGMENT.to_string()
@@ -492,6 +493,7 @@ async fn handle_http(
 async fn handle_agents_http(
     app: tauri::AppHandle,
     agent_id: String,
+    turn: Option<u64>,
     req: Request<Incoming>,
 ) -> Result<Response<ServerBody>, hyper::Error> {
     match *req.method() {
@@ -520,7 +522,7 @@ async fn handle_agents_http(
                     .unwrap());
             }
             Ok(json_response(
-                crate::agents::mcp::handle_rpc(&app, &agent_id, &message).await,
+                crate::agents::mcp::handle_rpc(&app, &agent_id, turn, &message).await,
             ))
         }
         Method::DELETE => Ok(plain_response(StatusCode::OK, "")),

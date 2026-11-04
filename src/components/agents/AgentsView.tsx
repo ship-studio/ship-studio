@@ -25,7 +25,7 @@ import { AgentsSearchPopover, AgentsTopSearch } from './AgentsSearchBox';
 import { ClaudeSignInModal } from './ClaudeSignInModal';
 import { AgentChat } from './AgentChat';
 import { AgentsTeamView } from './AgentsTeamView';
-import { AgentEditorModal } from './AgentEditorModal';
+import { AgentEditorModal, type EditorTab } from './AgentEditorModal';
 import { AgentProjectsProvider } from './AgentProject';
 import { ImportAgentsModal } from './ImportAgentsModal';
 import { AgentAppsModal } from './AgentAppsModal';
@@ -56,7 +56,7 @@ import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useAgentsIntents } from '../../commands/useAgentsCommands';
 import { useCommands } from '../../commands/useCommands';
-import { AgentsModeIcon, CheckIcon, CloseIcon } from '@/components/icons';
+import { AgentsModeIcon, CheckIcon, CloseIcon, EditFieldIcon } from '@/components/icons';
 import { kbd } from '../../lib/shortcuts';
 
 const SELECTED_KEY = 'shipstudio.agents.selected';
@@ -105,7 +105,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const error = useAgentsSelector((s) => s.error);
   const { showToast } = useOptionalToast();
   const [selectedId, setSelectedId] = useState<string | null>(readSelected);
-  const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null }>({
+  const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null; tab?: EditorTab }>({
     open: false,
     agent: null,
   });
@@ -368,6 +368,18 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
             },
           ]
         : []),
+      ...(selected
+        ? [
+            {
+              id: 'agents.memory',
+              title: `Edit what ${selected.name} remembers…`,
+              icon: <EditFieldIcon size={14} />,
+              category: 'action' as const,
+              keywords: ['agents', 'memory', 'remember', 'forget', 'claude.md', 'facts'],
+              run: () => setEditor({ open: true, agent: selected, tab: 'memory' }),
+            },
+          ]
+        : []),
       ...agents
         .filter((a) => a.status.state !== 'idle')
         .map((a) => ({
@@ -379,7 +391,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
           run: () => setStopping(a),
         })),
     ],
-    [agents, waitingOn, topCard, answerTop, nextNeedingYou, openAgent]
+    [agents, waitingOn, topCard, answerTop, nextNeedingYou, openAgent, selected]
   );
 
   const confirmStop = async () => {
@@ -518,9 +530,10 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       </div>
 
       <AgentEditorModal
-        key={editor.open ? (editor.agent?.id ?? 'new') : 'closed'}
+        key={editor.open ? `${editor.agent?.id ?? 'new'}-${editor.tab ?? ''}` : 'closed'}
         isOpen={editor.open}
         agent={editor.agent}
+        initialTab={editor.tab}
         takenColors={agents.map((a) => a.color)}
         onClose={() => setEditor({ open: false, agent: null })}
         onSaved={(id) => {
