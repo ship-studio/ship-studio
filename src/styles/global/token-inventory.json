@@ -4898,7 +4898,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 352
+      "consumerCount": 353
     },
     {
       "name": "--font-size-control",
@@ -5222,7 +5222,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 513
+      "consumerCount": 514
     },
     {
       "name": "--spacing-sm",
@@ -5231,7 +5231,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 605
+      "consumerCount": 606
     },
     {
       "name": "--spacing-md",
