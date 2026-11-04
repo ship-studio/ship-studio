@@ -2,10 +2,12 @@
  * Agents — the frontend store.
  *
  * A `useSyncExternalStore` source over the agents commands. The backend is the
- * authority and pushes three events: `registry` (the list changed: reload it),
- * `status` (an agent started, is doing something, or went idle), and
- * `message` (a new or updated chat line). Messages are kept only for chats
- * that have been opened in this session.
+ * authority and pushes four events: `registry` (the list changed: reload it),
+ * `status` (an agent started, is doing something, or went idle), `message`
+ * (a new or updated chat line), and `draft` (a reply still being written).
+ * Messages are kept only for chats that have been opened in this session; a
+ * draft is kept for any agent until the message that completes it (same id)
+ * arrives or the turn ends.
  *
  * @module lib/agentsStore
  */
@@ -30,6 +32,8 @@ export interface AgentsState {
   error: string | null;
   /** Chat lines per agent, oldest first; absent until that chat is opened. */
   messages: Record<string, AgentMessage[]>;
+  /** The reply each agent is writing right now, if any. */
+  drafts: Record<string, AgentMessage>;
 }
 
 let state: AgentsState = {
@@ -38,6 +42,7 @@ let state: AgentsState = {
   loaded: false,
   error: null,
   messages: {},
+  drafts: {},
 };
 const listeners = new Set<() => void>();
 let unlistens: UnlistenFn[] = [];
@@ -93,14 +98,39 @@ export async function loadMessages(agentId: string, limit?: number): Promise<voi
   }
 }
 
-/** Insert or replace a chat line (approvals are updated in place). */
+function withoutDraft(agentId: string, id?: string): AgentsState['drafts'] {
+  const draft = state.drafts[agentId];
+  if (!draft || (id !== undefined && draft.id !== id)) return state.drafts;
+  const { [agentId]: _gone, ...rest } = state.drafts;
+  return rest;
+}
+
+/**
+ * Insert or replace a chat line (approvals are updated in place). The line
+ * that completes a draft replaces it in the same render, so nothing flickers.
+ */
 export function upsertMessage(message: AgentMessage) {
+  const drafts = withoutDraft(message.agentId, message.id);
   const existing = state.messages[message.agentId];
-  if (!existing) return;
+  if (!existing) {
+    if (drafts !== state.drafts) emit({ ...state, drafts });
+    return;
+  }
   const index = existing.findIndex((m) => m.id === message.id);
   const next =
     index === -1 ? [...existing, message] : existing.map((m, i) => (i === index ? message : m));
-  emit({ ...state, messages: { ...state.messages, [message.agentId]: next } });
+  emit({ ...state, drafts, messages: { ...state.messages, [message.agentId]: next } });
+}
+
+/** A reply grew. Keeps the time it started, so it doesn't jump past a divider. */
+export function updateDraft(agentId: string, id: string, text: string) {
+  const previous = state.drafts[agentId];
+  if (state.messages[agentId]?.some((m) => m.id === id)) return;
+  const ts = previous?.id === id ? previous.ts : Date.now();
+  emit({
+    ...state,
+    drafts: { ...state.drafts, [agentId]: { id, agentId, ts, kind: 'agent', text } },
+  });
 }
 
 /**
@@ -126,6 +156,8 @@ function patchStatus(agentId: string, status: AgentStatus) {
   emit({
     ...state,
     agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
+    // A turn that ended without completing its draft took it with it.
+    drafts: status.state === 'idle' ? withoutDraft(agentId) : state.drafts,
   });
 }
 
@@ -138,6 +170,9 @@ function start() {
       patchStatus(e.payload.agentId, e.payload.status)
     ),
     listen(AGENT_EVENTS.registry, () => scheduleRefresh()),
+    listen<{ agentId: string; id: string; text: string }>(AGENT_EVENTS.draft, (e) =>
+      updateDraft(e.payload.agentId, e.payload.id, e.payload.text)
+    ),
   ]).then((handles) => {
     if (mine !== generation) {
       handles.forEach((h) => h());
@@ -175,5 +210,5 @@ export function useAgentsUnread(): number {
 /** Test hook. */
 export function __resetAgentsStore() {
   stop();
-  state = { agents: [], engineReady: true, loaded: false, error: null, messages: {} };
+  state = { agents: [], engineReady: true, loaded: false, error: null, messages: {}, drafts: {} };
 }

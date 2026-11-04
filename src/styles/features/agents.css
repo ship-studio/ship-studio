@@ -602,6 +602,19 @@
   opacity: 0.6;
 }
 
+/* A reply cut off by Stop keeps what it said, with a quiet note under it. */
+.agent-chat__row--agent[data-stopped] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-2xs);
+}
+
+.agent-bubble__stopped {
+  padding-left: var(--spacing-md);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
 .agent-chat__failed {
   display: inline-flex;
   align-items: center;

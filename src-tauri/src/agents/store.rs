@@ -164,6 +164,10 @@ pub struct AgentMessage {
     pub attachments: Vec<super::attachments::Attachment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check_in: Option<super::schedule::CheckInMark>,
+    /// A reply cut off by Stop (or a turn that died mid-sentence): what had
+    /// streamed by then, kept rather than thrown away.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -699,6 +703,7 @@ mod tests {
                 }),
                 attachments: Vec::new(),
                 check_in: None,
+                stopped: false,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

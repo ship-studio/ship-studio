@@ -29,7 +29,7 @@ the agent is idle a worker drains the inbox, so everything that arrived while it
 was busy becomes **one** next turn. A turn is one process:
 
 ```
-claude --print --output-format stream-json --verbose
+claude --print --output-format stream-json --verbose --include-partial-messages
        --session-id <uuid> | --resume <uuid>
        --permission-mode acceptEdits
        --permission-prompt-tool mcp__shipstudio_agents__approve
@@ -46,8 +46,14 @@ agent reaches Gmail, Calendar, Slack or anything else you've connected.
 
 From the stream:
 
-- every **top-level text block** becomes a chat bubble the moment it arrives
-  (sub-agent text is internal and is dropped);
+- every **top-level text block** streams: its text deltas (`stream_event`)
+  build a draft sent as `agents://draft {agentId, id, text-so-far}` at most
+  every 40ms, and the complete block is recorded under the draft's id, so the
+  finished message takes over the same bubble (`agents/stream.rs`, tested on a
+  captured real stream). Sub-agent text, streamed or not, is internal and is
+  dropped. Stop mid-reply keeps what streamed, as a message marked `stopped`;
+- while words are arriving the typing dots are hidden; they and the activity
+  line come back between text blocks, while tools run;
 - every **tool call** only updates the line under the agent's name ("Editing
   PricingTable.tsx", "Messaging Finance"); it never becomes a message;
 - `system/init` confirms the session id, which is stored for the next `--resume`;
