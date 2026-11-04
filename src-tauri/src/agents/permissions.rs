@@ -43,6 +43,11 @@ pub struct Rule {
     #[serde(flatten)]
     pub scope: Scope,
     pub created_at: i64,
+    /// Fields a newer Ship Studio wrote that this build doesn't know: kept
+    /// and written back as they were, so running an older build never
+    /// strips what a newer one saved.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Anything that lets one command line run more than one command, or run
@@ -375,6 +380,7 @@ mod tests {
             id: command.into(),
             scope: suggest("Bash", &bash(command)).unwrap(),
             created_at: 0,
+            extra: Default::default(),
         };
         let rules = vec![rule("npm test"), rule("git status")];
         assert_eq!(

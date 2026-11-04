@@ -863,6 +863,7 @@ pub fn always_allow(
                 id: store::new_id(),
                 scope: scope.clone(),
                 created_at: store::now_ms(),
+                extra: Default::default(),
             });
         }
     })?;
@@ -1258,6 +1259,7 @@ mod tests {
             permissions: Vec::new(),
             failure: None,
             project: None,
+            extra: Default::default(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()
