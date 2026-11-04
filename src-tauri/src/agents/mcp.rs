@@ -132,6 +132,7 @@ const TOOLS: &[Tool] = &[
                 "role": { "type": "string", "description": "One line: what this agent is responsible for." },
                 "instructions": { "type": "string", "description": "A briefing, as if for a new hire: context, standing rules, who's who, where things live." },
                 "color": { "type": "string", "enum": store::COLORS },
+                "project": { "type": "string", "description": "Optional: the Ship Studio project it owns (name or path from list_projects). Its turns then run inside that project, with the project's own CLAUDE.md and settings." },
                 "first_task": { "type": "string", "description": "Optional message to start it on right away." }
             },
             "required": ["name", "role", "instructions"]
@@ -139,7 +140,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "update_agent",
-        description: "Change an agent's name, role or instructions. Instructions replace the old ones; its memory is kept.",
+        description: "Change an agent's name, role, instructions or project. Instructions replace the old ones; its memory is kept. `project` takes a name or path from list_projects, or \"none\" to unbind it.",
         main_only: true,
         schema: || json!({
             "type": "object",
@@ -147,7 +148,8 @@ const TOOLS: &[Tool] = &[
                 "agent": { "type": "string" },
                 "name": { "type": "string" },
                 "role": { "type": "string" },
-                "instructions": { "type": "string" }
+                "instructions": { "type": "string" },
+                "project": { "type": "string" }
             },
             "required": ["agent"]
         }),
@@ -302,8 +304,8 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
         "message_agent" => message_agent(app, caller, args),
         "list_projects" => list_projects().await,
         "share_file" => share_file(app, caller, args).await,
-        "create_agent" => create_agent(app, caller, args),
-        "update_agent" => update_agent(app, args),
+        "create_agent" => create_agent(app, caller, args).await,
+        "update_agent" => update_agent(app, caller, args).await,
         "delete_agent" => delete_agent(app, caller, args).await,
         "schedule_check_in" | "list_check_ins" | "cancel_check_in" => {
             check_ins(app, caller, name, args)
@@ -363,13 +365,18 @@ fn list_agents(caller: &store::Agent) -> Value {
             let me = if a.id == caller.id { " (you)" } else { "" };
             let chief = if a.is_main { " [Chief of Staff]" } else { "" };
             let status = runner::status_of(&a.id);
+            let project = a
+                .project
+                .as_deref()
+                .map(|p| format!(" (works in {p})"))
+                .unwrap_or_default();
             let busy = match status.state {
                 "working" => " — busy",
                 "waiting" => " — waiting on the user",
                 _ => "",
             };
             format!(
-                "- {}{me}{chief}{busy}: {}",
+                "- {}{me}{chief}{project}{busy}: {}",
                 a.name,
                 if a.role.is_empty() {
                     "(no role set)"
@@ -484,9 +491,102 @@ async fn share_file(app: &AppHandle, caller: &store::Agent, args: &Value) -> Val
     }
 }
 
-fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
+/// A quiet line in a chat about something the Chief did, naming `peer` so the
+/// UI can turn its name into a link. Nothing it does to the team is invisible.
+fn audit_note(agent_id: &str, text: String, peer: Option<AgentRef>) -> store::AgentMessage {
+    let mut note = runner::new_message(agent_id, MessageKind::Note, text);
+    note.peer = peer;
+    note
+}
+
+/// The lines a create leaves: in the Chief's chat, and the new agent's first.
+fn create_notes(caller: &store::Agent, agent: &store::Agent) -> Vec<store::AgentMessage> {
+    vec![
+        audit_note(
+            &caller.id,
+            created_line(&agent.name, &agent.role, agent.project.as_deref()),
+            Some(peer(agent)),
+        ),
+        audit_note(
+            &agent.id,
+            format!("Created by {}", caller.name),
+            Some(peer(caller)),
+        ),
+    ]
+}
+
+/// The lines an update leaves, in the Chief's chat and the target's. None
+/// when nothing actually changed.
+fn update_notes(
+    caller: &store::Agent,
+    before: &store::Agent,
+    after: &store::Agent,
+    fields: &[&str],
+) -> Vec<store::AgentMessage> {
+    if before.name == after.name && fields.is_empty() {
+        return Vec::new();
+    }
+    let (chief, target) = updated_lines(&before.name, &after.name, fields, &caller.name);
+    let mut notes = vec![audit_note(&caller.id, chief, Some(peer(after)))];
+    if after.id != caller.id {
+        notes.push(audit_note(&after.id, target, Some(peer(caller))));
+    }
+    notes
+}
+
+/// "Created Finance · Invoices and the books · works in acme".
+pub(crate) fn created_line(name: &str, role: &str, project: Option<&str>) -> String {
+    let mut line = format!("Created {name}");
+    if !role.is_empty() {
+        line.push_str(&format!(" · {role}"));
+    }
+    if let Some(p) = project {
+        line.push_str(&format!(" · works in {}", super::project::folder_name(p)));
+    }
+    line
+}
+
+/// What an update changed, for the Chief's chat ("Updated Acme Site's role and
+/// instructions") and the target's ("Role and instructions updated by Chief
+/// of Staff"). A rename leads, since the old name is the one to recognise.
+pub(crate) fn updated_lines(
+    old_name: &str,
+    new_name: &str,
+    fields: &[&str],
+    by: &str,
+) -> (String, String) {
+    let list = match fields {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    let renamed = old_name != new_name;
+    let chief = match (renamed, list.is_empty()) {
+        (true, true) => format!("Renamed {old_name} to {new_name}"),
+        (true, false) => format!("Renamed {old_name} to {new_name} and updated its {list}"),
+        (false, _) => format!("Updated {new_name}'s {list}"),
+    };
+    let mut target = match (renamed, list.is_empty()) {
+        (true, true) => format!("Renamed from {old_name} by {by}"),
+        (true, false) => format!("Renamed from {old_name}, and {list} updated, by {by}"),
+        (false, _) => format!("{list} updated by {by}"),
+    };
+    if let Some(first) = target.get(..1) {
+        target = first.to_uppercase() + &target[1..];
+    }
+    (chief, target)
+}
+
+async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
     let Some(name) = arg(args, "name") else {
         return error("`name` is required.");
+    };
+    let project = match arg(args, "project") {
+        Some(q) => match super::project::resolve(q).await {
+            Ok(p) => p,
+            Err(e) => return error(e.to_string()),
+        },
+        None => None,
     };
     let created = store::create(store::NewAgent {
         name: name.to_string(),
@@ -496,9 +596,16 @@ fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
         color: arg(args, "color").map(str::to_string),
         is_main: false,
     });
+    let created = created.and_then(|agent| match &project {
+        Some(p) => store::update(&agent.id, |a| a.project = Some(p.path.clone())),
+        None => Ok(agent),
+    });
     match created {
         Ok(agent) => {
             let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+            for note in create_notes(caller, &agent) {
+                let _ = runner::record(app, note);
+            }
             let mut started = String::new();
             if let Some(task) = arg(args, "first_task") {
                 let mut sent = runner::new_message(&caller.id, MessageKind::SentToAgent, task);
@@ -527,7 +634,7 @@ fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
     }
 }
 
-fn update_agent(app: &AppHandle, args: &Value) -> Value {
+async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
     let Some(target) = arg(args, "agent") else {
         return error("`agent` is required.");
     };
@@ -540,13 +647,38 @@ fn update_agent(app: &AppHandle, args: &Value) -> Value {
         Some(Err(e)) => return error(e.to_string()),
         None => None,
     };
+    if let Some(n) = &new_name {
+        if matches!(store::find(n), Ok(Some(other)) if other.id != agent.id) {
+            return error(format!("There's already an agent called {n}."));
+        }
+    }
+    let project = match arg(args, "project") {
+        Some(q) => match super::project::resolve(q).await {
+            Ok(p) => Some(p.map(|p| p.path)),
+            Err(e) => return error(e.to_string()),
+        },
+        None => None,
+    };
     let role = arg(args, "role").map(str::to_string);
+    let mut fields = Vec::new();
+    if role.as_deref().is_some_and(|r| r != agent.role) {
+        fields.push("role");
+    }
+    if arg(args, "instructions").is_some() {
+        fields.push("instructions");
+    }
+    if project.as_ref().is_some_and(|p| *p != agent.project) {
+        fields.push("project");
+    }
     let updated = store::update(&agent.id, |a| {
         if let Some(n) = new_name {
             a.name = n;
         }
         if let Some(r) = role {
             a.role = r;
+        }
+        if let Some(p) = project {
+            a.project = p;
         }
     });
     let updated = match updated {
@@ -563,6 +695,9 @@ fn update_agent(app: &AppHandle, args: &Value) -> Value {
         }
     }
     let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+    for note in update_notes(caller, &agent, &updated, &fields) {
+        let _ = runner::record(app, note);
+    }
     text(format!("Updated {}.", updated.name))
 }
 
@@ -592,6 +727,9 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
     match store::delete(&agent.id) {
         Ok(_) => {
             let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+            // No link: there's nothing left to open.
+            let line = audit_note(&caller.id, format!("Deleted {}", agent.name), None);
+            let _ = runner::record(app, line);
             text(format!("Deleted {}.", agent.name))
         }
         Err(e) => error(e.to_string()),
@@ -912,6 +1050,79 @@ async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
 mod tests {
     use super::*;
 
+    fn named(id: &str, name: &str) -> store::Agent {
+        serde_json::from_value(json!({
+            "id": id, "name": name, "role": "Invoices and the books",
+            "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn chief_actions_leave_linked_notes_in_both_chats() {
+        let chief = named("chief", "Chief of Staff");
+        let finance = named("fin", "Finance");
+        let notes = create_notes(&chief, &finance);
+        assert_eq!(notes.len(), 2);
+        assert!(notes.iter().all(|n| n.kind == MessageKind::Note));
+        assert_eq!(notes[0].agent_id, "chief");
+        assert_eq!(notes[0].text, "Created Finance · Invoices and the books");
+        assert_eq!(notes[0].peer.as_ref().unwrap().id, "fin");
+        assert_eq!(notes[1].agent_id, "fin");
+        assert_eq!(notes[1].text, "Created by Chief of Staff");
+        assert_eq!(notes[1].peer.as_ref().unwrap().id, "chief");
+
+        let notes = update_notes(&chief, &finance, &finance, &["instructions"]);
+        assert_eq!(
+            notes
+                .iter()
+                .map(|n| (n.agent_id.as_str(), n.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("chief", "Updated Finance's instructions"),
+                ("fin", "Instructions updated by Chief of Staff")
+            ]
+        );
+        // Nothing changed: nothing said. The Chief updating itself: one line.
+        assert!(update_notes(&chief, &finance, &finance, &[]).is_empty());
+        assert_eq!(update_notes(&chief, &chief, &chief, &["role"]).len(), 1);
+    }
+
+    #[test]
+    fn audit_lines_say_what_the_chief_did() {
+        assert_eq!(
+            created_line("Finance", "Invoices and the books", None),
+            "Created Finance · Invoices and the books"
+        );
+        assert_eq!(
+            created_line("Acme Site", "", Some("/u/ShipStudio/acme/")),
+            "Created Acme Site · works in acme"
+        );
+        let by = "Chief of Staff";
+        assert_eq!(
+            updated_lines("Acme Site", "Acme Site", &["instructions"], by),
+            (
+                "Updated Acme Site's instructions".into(),
+                "Instructions updated by Chief of Staff".into()
+            )
+        );
+        assert_eq!(
+            updated_lines("Acme", "Acme", &["role", "instructions", "project"], by).0,
+            "Updated Acme's role, instructions and project"
+        );
+        assert_eq!(
+            updated_lines("Finance", "Books", &[], by),
+            (
+                "Renamed Finance to Books".into(),
+                "Renamed from Finance by Chief of Staff".into()
+            )
+        );
+        assert_eq!(
+            updated_lines("Finance", "Books", &["role"], by).0,
+            "Renamed Finance to Books and updated its role"
+        );
+    }
+
     #[test]
     fn a_late_allow_grants_exactly_one_identical_call() {
         let input = json!({ "command": "git commit -m x" });
@@ -1023,6 +1234,7 @@ mod tests {
             check_ins: Vec::new(),
             usage: Default::default(),
             permissions: Vec::new(),
+            project: None,
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

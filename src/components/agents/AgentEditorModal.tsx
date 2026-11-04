@@ -13,6 +13,7 @@ import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
 import { TextButton } from '../primitives/TextButton';
 import { SegmentedControl } from '../primitives/SegmentedControl';
+import { AgentProjectField } from './AgentProject';
 import { AgentAvatar } from './AgentAvatar';
 import {
   AGENT_COLORS,
@@ -128,6 +129,7 @@ export function AgentEditorModal({
   const [role, setRole] = useState(agent?.role ?? '');
   const [instructions, setInstructions] = useState('');
   const [model, setModel] = useState(agent?.model ?? '');
+  const [project, setProject] = useState(agent?.project ?? '');
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [showBriefing, setShowBriefing] = useState(Boolean(agent));
   const [error, setError] = useState<string | null>(null);
@@ -154,10 +156,10 @@ export function AgentEditorModal({
     setError(null);
     try {
       if (agent) {
-        await updateAgent(agent.id, { name, color, role, instructions, model });
+        await updateAgent(agent.id, { name, color, role, instructions, model, project });
         onSaved(agent.id);
       } else {
-        const created = await createAgent({ name, color, role, instructions, model });
+        const created = await createAgent({ name, color, role, instructions, model, project });
         onSaved(created.id);
       }
       onClose();
@@ -219,6 +221,8 @@ export function AgentEditorModal({
             aria-label="Model"
           />
         </div>
+
+        <AgentProjectField value={project} onChange={setProject} />
 
         {showBriefing ? (
           <div className="agent-editor__briefing">

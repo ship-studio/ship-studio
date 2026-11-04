@@ -1,0 +1,206 @@
+/* Agents bound to a project: the header chip, the "Works in" picker, the
+   card a turn leaves when it changed files, and live state on delegation
+   lines. See components/agents/AgentProject.tsx and AgentPeerStatus.tsx. */
+
+:root {
+  --agents-project-chip-max: 180px;
+  --agents-project-menu-max: 320px;
+  /* An activity line ("Reading …/src/App.tsx") beside a peer's name. */
+  --agents-peer-state-max: 220px;
+}
+
+/* ------------------------------------------------------------- header chip */
+
+.agent-chat__project {
+  min-width: 0;
+  max-width: var(--agents-project-chip-max);
+  color: var(--text-muted);
+}
+
+.agent-chat__project:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------- editor */
+
+.agent-editor__project {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.agent-editor__project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-project-menu {
+  max-height: var(--agents-project-menu-max);
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------ change card */
+
+/* The bubble's surface and radius, like an approval card, but quieter: it's
+   a record, not a question. */
+.agent-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  align-self: flex-start;
+  width: min(var(--agents-bubble-max), 100%);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border-radius: var(--radius-lg);
+}
+
+.agent-changes__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.agent-changes__summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.agent-changes__counts {
+  display: inline-flex;
+  gap: var(--spacing-xs);
+  font-family: var(--font-code);
+  font-weight: var(--font-weight-body);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.agent-changes__added {
+  color: var(--accent-success);
+}
+
+.agent-changes__removed {
+  color: var(--accent-error-light);
+}
+
+.agent-changes__branch {
+  display: inline-flex;
+  flex-shrink: 1;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-changes__files {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-changes__file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-2xs) var(--spacing-xs);
+  margin: 0 calc(var(--spacing-xs) * -1);
+  font: inherit;
+  color: var(--text-secondary);
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.agent-changes__file:hover {
+  color: var(--text-primary);
+  background: var(--surface-control-hover);
+}
+
+.agent-changes__file:focus-visible {
+  outline: var(--border-width-emphasis) solid var(--accent-focus);
+  outline-offset: calc(var(--spacing-2xs) * -1);
+}
+
+.agent-changes__file[data-status='deleted'] .agent-changes__path {
+  text-decoration: line-through;
+}
+
+.agent-changes__path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+}
+
+.agent-changes__more {
+  padding: var(--spacing-2xs) 0;
+  color: var(--text-muted);
+}
+
+.agent-changes__actions {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+/* ------------------------------------------------- notes and peer lines */
+
+.agent-note__link {
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.agent-peer__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-left: var(--spacing-2xs);
+  font-weight: var(--font-weight-body);
+  color: var(--text-muted);
+}
+
+.agent-peer__state::before {
+  content: '·';
+  margin-right: var(--spacing-2xs);
+}
+
+.agent-peer__state-label {
+  max-width: var(--agents-peer-state-max);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-peer__state[data-state='waiting'] {
+  color: var(--accent-warning);
+}
+
+.agent-peer__state[data-state='failed'] {
+  color: var(--accent-error-light);
+}
+
+.agent-peer__state .sidebar-row-pixel-loader,
+.agent-peer__state .pixel-loader {
+  color: var(--accent-success);
+}

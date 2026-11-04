@@ -293,6 +293,7 @@ mod tests {
             check_ins: Vec::new(),
             usage: Default::default(),
             permissions: Vec::new(),
+            project: None,
         }
     }
 

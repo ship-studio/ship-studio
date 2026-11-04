@@ -6,9 +6,9 @@
 import { emit } from '@tauri-apps/api/event';
 import type { Scenario } from '../types';
 
-const MIN = 60_000;
+export const MIN = 60_000;
 const DEMO_HOME = '/harness/agents-demo';
-const now = Date.now();
+export const now = Date.now();
 
 /** Tomorrow at a local wall-clock time, so fixtures agree with their own "at 09:00". */
 const tomorrowAt = (hour: number, minute = 0) => {
@@ -18,13 +18,13 @@ const tomorrowAt = (hour: number, minute = 0) => {
   return d.getTime();
 };
 
-const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
+export const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
   state,
   activity,
   since: state === 'idle' ? null : now - 2 * MIN,
 });
 
-const agent = (
+export const agent = (
   id: string,
   name: string,
   over: Record<string, unknown> & { minutesAgo?: number } = {}
@@ -54,7 +54,7 @@ const agent = (
   };
 };
 
-const TEAM = [
+export const TEAM = [
   agent('chief', 'Chief of Staff', {
     isMain: true,
     shape: 5,
@@ -146,7 +146,7 @@ const TEAM = [
 ];
 
 let n = 0;
-const msg = (
+export const msg = (
   kind: string,
   text: string,
   minutesAgo: number,
@@ -416,7 +416,7 @@ const schedulePreview = (args: Record<string, unknown>) => {
   throw new Error('Give it a day and a time.');
 };
 
-const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
+export const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
 
 /**
  * Sending, so the motion of a send can be watched (and recorded) in the
@@ -458,7 +458,7 @@ const liveOverview = () => {
   );
 };
 
-const messagesFor = (args: Record<string, unknown>) => {
+export const messagesFor = (args: Record<string, unknown>) => {
   const sent = SENT[String(args.agentId)] ?? [];
   if (args.agentId === 'chief') return [...CHIEF_CHAT, ...sent];
   if (args.agentId === 'leadgen') return [...LEADGEN_CHAT, ...sent];

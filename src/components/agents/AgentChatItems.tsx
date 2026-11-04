@@ -21,6 +21,7 @@ import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
 import { MessageAttachments } from './AgentAttachments';
 import { MentionText } from './AgentMentions';
+import { AgentPeerStatus } from './AgentPeerStatus';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
@@ -423,10 +424,31 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
  * Something Ship Studio did for the agent, said quietly so it never happens
  * invisibly: "Allowed automatically: npm test · Always allowed".
  */
-export function NoteLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+export function NoteLine({
+  message,
+  arrived,
+  onOpenPeer,
+}: { message: AgentMessage; onOpenPeer?: (agentId: string) => void } & Arrival) {
+  // "Created Finance": the agent it names is a link, while that agent exists.
+  const name = message.peer?.name;
+  const at = name && onOpenPeer ? message.text.indexOf(name) : -1;
   return (
     <div className="agent-note" data-arrived={arrived || undefined} data-message-ids={message.id}>
-      {message.text}
+      {at < 0 || !message.peer ? (
+        message.text
+      ) : (
+        <>
+          {message.text.slice(0, at)}
+          <TextButton
+            tabIndex={0}
+            className="agent-note__link"
+            onClick={() => onOpenPeer?.(message.peer!.id)}
+          >
+            {name}
+          </TextButton>
+          {message.text.slice(at + name!.length)}
+        </>
+      )}
     </div>
   );
 }
@@ -447,6 +469,10 @@ interface PeerGroupProps extends Arrival {
   onOpenPeer: (agentId: string) => void;
   /** A search jumped to a line inside: open the thread to show it. */
   reveal?: boolean;
+  /** The newest line with this peer: show the peer's live state beside its name. */
+  live?: boolean;
+  /** The brief this agent is working on right now: open until the turn ends. */
+  driving?: boolean;
 }
 
 /**
@@ -461,15 +487,20 @@ export function PeerGroup({
   onOpenPeer,
   arrived,
   reveal,
+  live,
+  driving,
 }: PeerGroupProps) {
   // Links in the thread open like a reply's, never inside the app webview.
   const onProseClick = useProseLinks(peer.id);
-  const [open, setOpen] = useState(Boolean(reveal));
+  // Until the user toggles it, it follows whether it's the brief in progress.
+  const [chosen, setChosen] = useState<boolean | null>(reveal ? true : null);
   const [revealed, setRevealed] = useState(reveal);
   if (reveal !== revealed) {
     setRevealed(reveal);
-    if (reveal) setOpen(true);
+    if (reveal) setChosen(true);
   }
+  const open = chosen ?? Boolean(driving);
+  const setOpen = (toggle: (v: boolean) => boolean) => setChosen(toggle(open));
   const threadRef = useRef<HTMLDivElement>(null);
   const threadShown = useHeightReveal(threadRef, open);
   return (
@@ -499,6 +530,7 @@ export function PeerGroup({
         >
           {peerAgent && <span className="agent-peer__dot" data-color={peerAgent.color} />}
           {peer.name}
+          {live && peerAgent && <AgentPeerStatus agent={peerAgent} />}
         </button>
       </div>
       {threadShown && (

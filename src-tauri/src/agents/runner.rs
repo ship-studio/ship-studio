@@ -204,7 +204,7 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
         MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
-        MessageKind::Note => None,
+        MessageKind::Note | MessageKind::Changes => None,
     }
 }
 
@@ -232,6 +232,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         check_in: None,
         stopped: false,
         mentions: Vec::new(),
+        changes: None,
     }
 }
 
@@ -347,14 +348,51 @@ async fn drain(app: AppHandle, agent_id: String) {
                 None => prompt,
             }
         };
+        // A bound agent's project, as it stood before the turn touched it.
+        let start = turn_start(&agent_id).await;
         if let Err(err) = run_turn(&app, &agent_id, &prompt, true).await {
             let _ = record(
                 &app,
                 new_message(&agent_id, MessageKind::Error, err.to_string()),
             );
         }
+        if let Some((project, from)) = start {
+            record_changes(&app, &agent_id, project, from).await;
+        }
         notify::turn_ended(&app, &agent_id);
     }
+}
+
+/// For a bound agent whose project is a git repository: the project and a
+/// snapshot of its working tree, taken before the turn starts.
+async fn turn_start(agent_id: &str) -> Option<(std::path::PathBuf, String)> {
+    let project = std::path::PathBuf::from(store::get(agent_id).ok()?.project?);
+    let tree = super::project::snapshot(&project).await?;
+    Some((project, tree))
+}
+
+/// After the turn: if it changed files in the project, one card saying which.
+/// Runs however the turn ended; edits made before a Stop are still made.
+async fn record_changes(
+    app: &AppHandle,
+    agent_id: &str,
+    project: std::path::PathBuf,
+    from: String,
+) {
+    let Some(summary) = super::project::summary(&project, &from).await else {
+        return;
+    };
+    let files = match summary.file_count {
+        1 => "1 file".to_string(),
+        n => format!("{n} files"),
+    };
+    let text = format!(
+        "Changed {files} in {}",
+        super::project::folder_name(&summary.project)
+    );
+    let mut message = new_message(agent_id, MessageKind::Changes, text);
+    message.changes = Some(summary);
+    let _ = record(app, message);
 }
 
 fn compose(batch: &[Inbound]) -> String {
@@ -496,6 +534,72 @@ pub fn describe_activity(line: &str) -> Option<String> {
     })
 }
 
+/// The system prompt for a turn. A bound agent's own CLAUDE.md is carried
+/// in it, because its working directory is the project, not its home.
+fn system_prompt_for(
+    agent: &store::Agent,
+    home: &std::path::Path,
+    layout: &super::project::Layout,
+) -> String {
+    let Some(project) = &layout.project else {
+        return prompts::system_prompt(agent, None);
+    };
+    let identity: String = std::fs::read_to_string(home.join("CLAUDE.md"))
+        .unwrap_or_default()
+        .chars()
+        .take(40_000)
+        .collect();
+    prompts::system_prompt(
+        agent,
+        Some(&prompts::Bound {
+            home: &home.to_string_lossy(),
+            project: &project.to_string_lossy(),
+            identity: &identity,
+        }),
+    )
+}
+
+/// Every argument a turn's `claude` process gets. The prompt goes on stdin.
+fn turn_args(
+    agent: &store::Agent,
+    session_id: &str,
+    resuming: bool,
+    url: &str,
+    system_prompt: &str,
+    add_dirs: &[String],
+) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+    ]
+    .map(String::from)
+    .to_vec();
+    let session_flag = if resuming { "--resume" } else { "--session-id" };
+    args.extend([session_flag.to_string(), session_id.to_string()]);
+    args.extend([
+        "--permission-mode".into(),
+        "acceptEdits".into(),
+        "--permission-prompt-tool".into(),
+        prompts::approval_tool_id(),
+        "--mcp-config".into(),
+        mcp_config(url),
+        "--allowedTools".into(),
+        format!("mcp__{}", prompts::SERVER_KEY),
+        "--append-system-prompt".into(),
+        system_prompt.to_string(),
+    ]);
+    for dir in add_dirs {
+        args.extend(["--add-dir".to_string(), dir.clone()]);
+    }
+    if let Some(model) = &agent.model {
+        args.extend(["--model".to_string(), model.clone()]);
+    }
+    args
+}
+
 /// Run one turn. `retry_fresh` lets a vanished session be replaced once.
 async fn run_turn(
     app: &AppHandle,
@@ -519,25 +623,26 @@ async fn run_turn(
         None => (uuid::Uuid::new_v4().to_string(), false),
     };
 
+    let layout = super::project::layout(&agent, &home, work_dirs());
+    if let Some(project) = &layout.project {
+        if !project.is_dir() {
+            return Err(CommandError::expected(format!(
+                "{} works in {}, which isn't there any more. Pick another project in Edit agent, or clear it.",
+                agent.name,
+                project.display()
+            )));
+        }
+    }
+    let system_prompt = system_prompt_for(&agent, &home, &layout);
     let mut cmd = crate::utils::create_command(&binary);
-    cmd.args(["--print", "--output-format", "stream-json", "--verbose"])
-        .arg("--include-partial-messages");
-    if resuming {
-        cmd.args(["--resume", &session_id]);
-    } else {
-        cmd.args(["--session-id", &session_id]);
-    }
-    cmd.args(["--permission-mode", "acceptEdits"])
-        .args(["--permission-prompt-tool", &prompts::approval_tool_id()])
-        .args(["--mcp-config", &mcp_config(&url)])
-        .args(["--allowedTools", &format!("mcp__{}", prompts::SERVER_KEY)])
-        .args(["--append-system-prompt", &prompts::system_prompt(&agent)]);
-    for dir in work_dirs() {
-        cmd.args(["--add-dir", &dir]);
-    }
-    if let Some(model) = &agent.model {
-        cmd.args(["--model", model]);
-    }
+    cmd.args(turn_args(
+        &agent,
+        &session_id,
+        resuming,
+        &url,
+        &system_prompt,
+        &layout.add_dirs,
+    ));
     // A Ship Studio launched from inside a Claude Code session (a terminal
     // running `claude`, or a dev build started by one) inherits that
     // session's variables. With them, each agent runs as a nested child
@@ -564,7 +669,7 @@ async fn run_turn(
             "MCP_TOOL_TIMEOUT",
             ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
         )
-        .current_dir(&home);
+        .current_dir(&layout.cwd);
 
     let mut cmd = tokio::process::Command::from(cmd);
     cmd.stdin(std::process::Stdio::piped())
@@ -812,6 +917,87 @@ mod tests {
         let bare =
             serde_json::json!({"type":"result","is_error":true,"subtype":"error_during_execution"});
         assert!(!result_error_text(&bare).contains("error_during_execution"));
+    }
+
+    fn test_agent(model: Option<&str>) -> store::Agent {
+        let mut agent: store::Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Finance", "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap();
+        agent.model = model.map(str::to_string);
+        agent
+    }
+
+    #[test]
+    fn an_unbound_agents_command_line_is_unchanged() {
+        let agent = test_agent(Some("opus"));
+        let dirs = vec!["/u/ShipStudio".to_string(), "/ext/site".to_string()];
+        let layout =
+            super::super::project::layout(&agent, std::path::Path::new("/h"), dirs.clone());
+        assert_eq!(layout.cwd, std::path::PathBuf::from("/h"));
+        let prompt = system_prompt_for(&agent, std::path::Path::new("/h"), &layout);
+        assert_eq!(prompt, prompts::system_prompt(&agent, None));
+        let args = turn_args(&agent, "sid", true, "http://x", &prompt, &layout.add_dirs);
+        let expected: Vec<String> = [
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--resume",
+            "sid",
+            "--permission-mode",
+            "acceptEdits",
+            "--permission-prompt-tool",
+            "mcp__shipstudio_agents__approve",
+            "--mcp-config",
+            r#"{"mcpServers":{"shipstudio_agents":{"type":"http","url":"http://x"}}}"#,
+            "--allowedTools",
+            "mcp__shipstudio_agents",
+            "--append-system-prompt",
+            &prompt,
+            "--add-dir",
+            "/u/ShipStudio",
+            "--add-dir",
+            "/ext/site",
+            "--model",
+            "opus",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn a_bound_agent_runs_in_its_project_and_carries_its_identity() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            home.path().join("CLAUDE.md"),
+            "# Finance\n\n## Memory\n\n- Sam pays.",
+        )
+        .unwrap();
+        let mut agent = test_agent(None);
+        agent.project = Some("/ext/site".into());
+        let layout = super::super::project::layout(
+            &agent,
+            home.path(),
+            vec!["/u/ShipStudio".into(), "/ext/site".into()],
+        );
+        assert_eq!(layout.cwd, std::path::PathBuf::from("/ext/site"));
+        let prompt = system_prompt_for(&agent, home.path(), &layout);
+        assert!(prompt.contains("- Sam pays."));
+        assert!(prompt.contains("You work in `/ext/site`"));
+        let args = turn_args(&agent, "sid", false, "http://x", &prompt, &layout.add_dirs);
+        let dirs: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "--add-dir")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(dirs, vec![home.path().to_str().unwrap(), "/u/ShipStudio"]);
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--session-id" && w[1] == "sid"));
+        assert!(!args.contains(&"--model".to_string()));
     }
 
     #[test]
