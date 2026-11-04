@@ -1289,7 +1289,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and two one-click starters under it (Set up my team, What can you do?). Import is the sidebar note’s alone. Set apart below, one muted line (“Agents run on this Mac. Closing Ship Studio stops them, and sleep pauses them.”), three small ghost actions (Keep this Mac awake, Keep running when closed, Open at login), and the “Always on?” line. The composer is ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and two one-click starters under it (Set up my team, What can you do?). Import is the sidebar note’s alone. Set apart below, one muted line (“Agents run on this Mac. Closing Ship Studio stops them, and sleep pauses them.”), three small ghost actions (Keep this Mac awake, Keep running when closed, Open at login), and the quieter “Around the clock?” line. The composer is ready.',
     command: 'agents.open',
     requires: '.agents-stay-on .button',
     commands: {},
