@@ -12,6 +12,8 @@ const bundleId = process.env.SHIPSTUDIO_BUNDLE_ID ?? 'com.shipstudio.companion';
 const updatesUrl = process.env.UPDATES_URL ?? (projectId ? `https://u.expo.dev/${projectId}` : '');
 
 const SURFACE_APP = '#141414'; // --surface-app
+const CAMERA =
+  'Ship Studio uses the camera to scan the pairing code on your Mac, and to take photos you send to your agents.';
 
 export default (): ExpoConfig => ({
   name: 'Ship Studio',
@@ -51,12 +53,23 @@ export default (): ExpoConfig => ({
     [
       'expo-camera',
       {
-        cameraPermission: 'Ship Studio uses the camera to scan the pairing code on your Mac.',
+        cameraPermission: CAMERA,
         microphonePermission: false,
         recordAudioAndroid: false,
       },
     ],
     ['expo-notifications', { color: '#46e76f' }],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Ship Studio sends the photos you pick to your agent on your Mac.',
+        cameraPermission: CAMERA,
+        microphonePermission: false,
+      },
+    ],
+    'expo-document-picker',
+    'expo-image',
+    'expo-sharing',
   ],
   experiments: { typedRoutes: true },
   extra: {

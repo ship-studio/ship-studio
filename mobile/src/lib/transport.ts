@@ -10,6 +10,7 @@ import {
   DEAD_AFTER_MS,
   HEARTBEAT_MS,
   HTTP,
+  MAX_ATTACHMENT_BYTES,
   SUPPORTED,
   type BlobRef,
   type ClientFrame,
@@ -42,6 +43,23 @@ const notConnected = () =>
     message: 'Not connected to your Mac right now.',
   });
 
+const MB = 1024 * 1024;
+
+/** An HTTP status from a file route, as the sentence the user sees. */
+function httpFailure(status: number, name?: string): WireFailure {
+  const protocol = (code: 'too_large' | 'refused' | 'bad_params', message: string) =>
+    new WireFailure({ type: 'Protocol', code, message });
+  if (status === 413) {
+    return protocol(
+      'too_large',
+      `${name ?? 'That file'} is too big. Files can be up to ${MAX_ATTACHMENT_BYTES / MB} MB.`
+    );
+  }
+  if (status === 401) return protocol('refused', 'Your Mac didn’t accept this phone. Pair again.');
+  if (status === 404) return protocol('bad_params', 'That file isn’t on your Mac any more.');
+  return new WireFailure({ type: 'Other', message: `Your Mac answered ${status}.` });
+}
+
 export interface DirectTransportOptions {
   /** Tried in order, starting from the one that last worked. */
   routes: Route[];
@@ -52,6 +70,29 @@ export interface DirectTransportOptions {
   foreground: boolean;
   WebSocketImpl?: typeof WebSocket;
   requestTimeoutMs?: number;
+  /** File bytes over HTTP (`files.ts` on the phone; `fetch` and `fs` in tests). */
+  http?: HttpAdapter;
+}
+
+/**
+ * Moves file bytes, which never go over the socket. Both resolve for any HTTP
+ * status (the transport turns a status into an error); they reject only when
+ * the request itself fails.
+ */
+export interface HttpAdapter {
+  /** PUT a local file as the raw body. */
+  upload(
+    url: string,
+    uri: string,
+    headers: Record<string, string>,
+    onProgress?: (fraction: number) => void
+  ): Promise<{ status: number; body: string }>;
+  /** GET into a local file kept under `key` (cached: attachments never change). */
+  download(
+    url: string,
+    headers: Record<string, string>,
+    key: string
+  ): Promise<{ status: number; uri: string }>;
 }
 
 type SocketLike = Pick<WebSocket, 'send' | 'close' | 'readyState'> & {
@@ -144,16 +185,62 @@ export class DirectTransport implements Transport {
     return () => void this.refusedListeners.delete(listener);
   }
 
-  // Attachments are P2 (docs/mobile.md, "Build plan"); the HTTP routes exist
-  // in the protocol, but nothing in the P1 app sends or shows files yet.
-  upload(): Promise<BlobRef> {
-    return Promise.reject(
-      new WireFailure({ type: 'Protocol', code: 'unknown_method', message: 'Not in this version' })
-    );
+  /** The route in use, without a trailing slash: the base for the HTTP routes. */
+  get baseUrl(): string {
+    return this.route.url.replace(/\/$/, '');
   }
 
-  download(): Promise<string> {
-    return this.upload() as unknown as Promise<string>;
+  /** What every HTTP route needs. Images pass it as their source's headers. */
+  get authHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${this.opts.token}` };
+  }
+
+  /** A chat attachment's URL; `width` asks the Mac for a JPEG thumbnail. */
+  attachmentUrl(agentId: string, path: string, width?: number): string {
+    return this.baseUrl + HTTP.attachment(agentId, path) + (width ? `?w=${Math.round(width)}` : '');
+  }
+
+  async upload(
+    file: { uri: string; name: string; mime: string },
+    onProgress?: (fraction: number) => void
+  ): Promise<BlobRef> {
+    const http = this.http();
+    const res = await http
+      .upload(
+        this.baseUrl + HTTP.uploadBlob,
+        file.uri,
+        {
+          ...this.authHeaders,
+          'Content-Type': file.mime || 'application/octet-stream',
+          'X-Name': encodeURIComponent(file.name),
+        },
+        onProgress
+      )
+      .catch(() => Promise.reject(notConnected()));
+    if (res.status === 200) return JSON.parse(res.body) as BlobRef;
+    throw httpFailure(res.status, file.name);
+  }
+
+  async download(source: { blobId: string } | { agentId: string; path: string }): Promise<string> {
+    const http = this.http();
+    const [url, key] =
+      'blobId' in source
+        ? [this.baseUrl + HTTP.blob(source.blobId), `blob/${source.blobId}`]
+        : [
+            this.attachmentUrl(source.agentId, source.path),
+            `attachment/${source.agentId}/${source.path}`,
+          ];
+    const res = await http
+      .download(url, this.authHeaders, key)
+      .catch(() => Promise.reject(notConnected()));
+    if (res.status === 200) return res.uri;
+    throw httpFailure(res.status);
+  }
+
+  private http(): HttpAdapter {
+    if (!this.opts.http) throw new Error('No HTTP adapter');
+    if (!this.ready) throw notConnected();
+    return this.opts.http;
   }
 
   setForeground(foreground: boolean) {

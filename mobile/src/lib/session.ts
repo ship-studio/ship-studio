@@ -27,11 +27,13 @@ import { getApp, setApp, update } from './store';
 import {
   addPending,
   applyEvent,
+  type PendingAttachment,
   confirmSend,
   emptySync,
   mergePage,
   setPendingFailed,
 } from './sync';
+import { clearCache, http, type PickedFile } from './files';
 import { DirectTransport, WireFailure } from './transport';
 
 const PAGE = 50;
@@ -66,6 +68,7 @@ function connect(c: Credentials) {
     // snapshot; within a run, every reconnect resumes where it left off.
     getResume: () => getApp().cursor ?? undefined,
     foreground: AppState.currentState === 'active',
+    http,
   });
   t.onState((link) => setApp({ link }));
   t.onRefused((refusal) => setApp({ refusal }));
@@ -99,7 +102,11 @@ function learnRoutes(routes: Credentials['routes']) {
   void saveCredentials(next);
 }
 
-function call<M extends MethodName>(method: M, params: Params<M>): Promise<Result<M>> {
+/** Whether this Mac serves `method` (older Macs list fewer; the phone hides the rest). */
+export const canCall = (method: MethodName, welcome = getApp().welcome) =>
+  !!welcome?.methods.includes(method);
+
+export function call<M extends MethodName>(method: M, params: Params<M>): Promise<Result<M>> {
   if (!transport) return Promise.reject(new Error('Not paired'));
   return transport.request(method, params);
 }
@@ -172,13 +179,36 @@ export function setOpenChat(agentId: string | null) {
  * connection safe: the Mac returns the original message instead of sending
  * it twice. `now`: interrupt the turn in progress once the Mac has it.
  */
-export async function send(agentId: string, text: string, now = false, clientId?: string) {
+export async function send(
+  agentId: string,
+  text: string,
+  now = false,
+  clientId?: string,
+  attachments: PendingAttachment[] = []
+) {
   const id = clientId ?? Crypto.randomUUID();
   if (clientId) update((s) => setPendingFailed(s, agentId, id, false));
-  else update((s) => addPending(s, { clientId: id, agentId, text, ts: Date.now(), failed: false }));
+  else
+    update((s) =>
+      addPending(s, {
+        clientId: id,
+        agentId,
+        text,
+        ts: Date.now(),
+        failed: false,
+        ...(attachments.length ? { attachments } : {}),
+      })
+    );
   let message: AgentMessage;
   try {
-    message = await call('agents.send', { agentId, text, clientId: id });
+    message = await call('agents.send', {
+      agentId,
+      text,
+      clientId: id,
+      ...(attachments.length
+        ? { attachments: attachments.map((a) => ({ blobId: a.blobId })) }
+        : {}),
+    });
   } catch (error) {
     update((s) => setPendingFailed(s, agentId, id, true));
     throw error;
@@ -215,6 +245,73 @@ export const answerApproval = (
 
 export const deviceSelf = () => call('devices.self', {});
 
+// ---- Files ------------------------------------------------------------------------
+
+/** Upload a picked file to the Mac's staging area (kept there an hour). */
+export function upload(file: PickedFile, onProgress?: (fraction: number) => void) {
+  if (!transport) return Promise.reject(new Error('Not paired'));
+  return transport.upload(file, onProgress);
+}
+
+/** A local copy of an attachment (cached) or of a blob the Mac produced. */
+export function download(source: { blobId: string } | { agentId: string; path: string }) {
+  if (!transport) return Promise.reject(new Error('Not paired'));
+  return transport.download(source);
+}
+
+/** An image source for an attachment: the Mac's thumbnail at `width` points (2x for the screen). */
+export function attachmentSource(agentId: string, path: string, width?: number) {
+  if (!transport) return null;
+  return {
+    uri: transport.attachmentUrl(agentId, path, width ? width * 2 : undefined),
+    headers: transport.authHeaders,
+    cacheKey: `${agentId}/${path}@${width ?? 'full'}`,
+  };
+}
+
+export const listFiles = (agentId: string) => call('agents.files', { agentId });
+
+// ---- Search -------------------------------------------------------------------------
+
+export const search = (query: string) => call('agents.search', { query });
+
+/**
+ * Page a chat back until `messageId` is loaded, for a search hit. Gives up
+ * after `maxPages` pages; resolves whether it was found.
+ */
+export async function loadUntil(agentId: string, messageId: string, maxPages = 40) {
+  const has = () => getApp().chats[agentId]?.messages.some((m) => m.id === messageId) ?? false;
+  if (!getApp().chats[agentId]?.loaded) await loadLatest(agentId);
+  for (let i = 0; i < maxPages && !has(); i++) {
+    if (!getApp().chats[agentId]?.more) break;
+    await loadOlder(agentId);
+  }
+  return has();
+}
+
+// ---- Check-ins and routines ---------------------------------------------------------
+
+export const schedule = {
+  preview: (when: string) => call('agents.schedule.preview', { when }),
+  create: (agentId: string, when: string, note: string) =>
+    call('agents.schedule.create', { agentId, when, note }),
+  update: (agentId: string, id: string, when: string, note: string) =>
+    call('agents.schedule.update', { agentId, id, when, note }),
+  pause: (agentId: string, id: string, paused: boolean) =>
+    call('agents.schedule.pause', { agentId, id, paused }),
+  cancel: (agentId: string, id: string) => call('agents.schedule.cancel', { agentId, id }),
+  runNow: (agentId: string, id: string) => call('agents.schedule.runNow', { agentId, id }),
+};
+
+// ---- Projects and sessions -----------------------------------------------------------
+
+export async function refreshProjects() {
+  const projects = await call('projects.list', {});
+  setApp({ projects });
+}
+
+export const readSession = (sessionId: string) => call('sessions.read', { sessionId });
+
 /** Forget this Mac: revoke our token on it when we can, then wipe everything here. */
 export async function unpair() {
   if (transport?.state.kind === 'connected') {
@@ -223,6 +320,7 @@ export async function unpair() {
   transport?.close();
   transport = null;
   await forgetCredentials();
+  await clearCache().catch(() => {});
   setApp({
     ...emptySync(),
     credentials: null,

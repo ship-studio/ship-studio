@@ -16,6 +16,7 @@ import type {
   CompanionEvent,
   Cursor,
   MacStatus,
+  ProjectSummary,
   Result,
 } from '@shipstudio/companion-protocol';
 
@@ -35,6 +36,16 @@ export interface PendingSend {
   text: string;
   ts: number;
   failed: boolean;
+  /** Already uploaded; shown from the phone's own copies until the Mac's arrive. */
+  attachments?: PendingAttachment[];
+}
+
+export interface PendingAttachment {
+  blobId: string;
+  uri: string;
+  name: string;
+  mime: string;
+  size: number;
 }
 
 export interface Draft {
@@ -54,6 +65,8 @@ export interface SyncState {
   pending: Record<string, PendingSend[]>;
   /** When the phone last caught up with the Mac. */
   syncedAt: number | null;
+  /** Open projects and their sessions; null until the Mac has said. */
+  projects: ProjectSummary[] | null;
 }
 
 export const emptySync = (): SyncState => ({
@@ -65,6 +78,7 @@ export const emptySync = (): SyncState => ({
   drafts: {},
   pending: {},
   syncedAt: null,
+  projects: null,
 });
 
 const emptyChat = (): Chat => ({ messages: [], more: true, loaded: false });
@@ -125,6 +139,7 @@ function reduce(s: SyncState, event: CompanionEvent, cursor?: Cursor): SyncState
         ...s,
         overview: event.overview,
         mac: event.status,
+        projects: event.projects,
         cursor: event.cursor,
         seqs: {},
         drafts: {},
@@ -134,21 +149,39 @@ function reduce(s: SyncState, event: CompanionEvent, cursor?: Cursor): SyncState
       };
     case 'sync.caughtUp':
       return { ...s, cursor: event.cursor, syncedAt: Date.now() };
+    case 'projects.changed':
+      return { ...s, projects: upsertProject(s.projects ?? [], event.project) };
+    case 'projects.removed':
+      return { ...s, projects: (s.projects ?? []).filter((p) => p.path !== event.path) };
     default:
-      // projects.* are P2; alerts are handled by the session, not stored.
+      // Alerts are handled by the session, not stored.
       return s;
   }
 }
 
+function upsertProject(list: ProjectSummary[], project: ProjectSummary): ProjectSummary[] {
+  const at = list.findIndex((p) => p.path === project.path);
+  if (at === -1) return [...list, project];
+  const next = list.slice();
+  next[at] = project;
+  return next;
+}
+
 /**
  * The confirmed copy of a pending send arrived (as an event, which the Mac
- * sends before the response). `AgentMessage` carries no `clientId`, so it is
- * matched on the text; the response settles it by id regardless.
+ * sends before the response): matched by the `clientId` it echoes. A Mac
+ * from before `clientId` echoes nothing, so there the text is all there is
+ * to go on; the response settles it by id regardless.
  */
-function settlePending(pending: SyncState['pending'], m: AgentMessage): SyncState['pending'] {
+export function settlePending(
+  pending: SyncState['pending'],
+  m: AgentMessage
+): SyncState['pending'] {
   const list = pending[m.agentId];
   if (m.kind !== 'user' || !list?.length) return pending;
-  const at = list.findIndex((p) => p.text === m.text);
+  const at = m.clientId
+    ? list.findIndex((p) => p.clientId === m.clientId)
+    : list.findIndex((p) => p.text === m.text);
   if (at === -1) return pending;
   return { ...pending, [m.agentId]: list.filter((_, i) => i !== at) };
 }

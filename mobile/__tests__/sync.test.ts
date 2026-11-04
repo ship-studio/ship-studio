@@ -99,6 +99,44 @@ describe('sends', () => {
     expect(t.pending.a).toHaveLength(0);
     expect(t.chats.a.messages).toHaveLength(1);
   });
+
+  it('matches the echoed clientId, not the text, when the Mac sends one', () => {
+    const twin = { clientId: 'c2', agentId: 'a', text: 'ok', ts: 1, failed: false };
+    const first = { ...twin, clientId: 'c1' };
+    let s = addPending(addPending(emptySync(), first), twin);
+    // Two bubbles with the same text: the second one's echo settles the second.
+    s = at(s, 1, msg('u2', 2, { kind: 'user', text: 'ok', clientId: 'c2' }));
+    expect(s.pending.a.map((p) => p.clientId)).toEqual(['c1']);
+    // An echo for a send this phone didn't make settles nothing, even with the same text.
+    s = at(s, 2, msg('u3', 3, { kind: 'user', text: 'ok', clientId: 'elsewhere' }));
+    expect(s.pending.a.map((p) => p.clientId)).toEqual(['c1']);
+  });
+});
+
+describe('projects', () => {
+  const project = (path: string, dirtyFiles = 0) => ({
+    path,
+    name: path,
+    dirtyFiles,
+    sessions: [],
+  });
+
+  it('take the snapshot’s list, then changes and removals by path', () => {
+    let s = applyEvent(emptySync(), {
+      type: 'sync.snapshot',
+      cursor: { epoch, seq: 1 },
+      overview: { agents: [], engineReady: true } as AgentsOverview,
+      status: {} as MacStatus,
+      projects: [project('/a'), project('/b')],
+    });
+    s = applyEvent(s, { type: 'projects.changed', project: project('/a', 3) }, { epoch, seq: 2 });
+    s = applyEvent(s, { type: 'projects.changed', project: project('/c') }, { epoch, seq: 3 });
+    s = applyEvent(s, { type: 'projects.removed', path: '/b' }, { epoch, seq: 4 });
+    expect(s.projects?.map((p) => [p.path, p.dirtyFiles])).toEqual([
+      ['/a', 3],
+      ['/c', 0],
+    ]);
+  });
 });
 
 describe('snapshot', () => {
