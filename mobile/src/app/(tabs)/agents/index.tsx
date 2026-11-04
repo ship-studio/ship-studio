@@ -9,14 +9,14 @@ import { Stack, useRouter } from 'expo-router';
 import { memo, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
-import { AgentAvatar, Spinner, StatusMark } from '../components/agent';
-import { ConnectionPill } from '../components/ConnectionPill';
-import { Button, Icon, IconButton, T, tap } from '../components/ui';
-import { formatAgo, lineState, needsAttention, sortAgents, subtitle } from '../lib/agents';
-import { pill } from '../lib/connection';
-import { unpair } from '../lib/session';
-import { useApp } from '../lib/store';
-import { colors, space } from '../lib/theme';
+import { AgentAvatar, Spinner, StatusMark } from '../../../components/agent';
+import { ConnectionPill } from '../../../components/ConnectionPill';
+import { Button, Icon, IconButton, T, tap } from '../../../components/ui';
+import { formatAgo, lineState, needsAttention, sortAgents, subtitle } from '../../../lib/agents';
+import { pill } from '../../../lib/connection';
+import { unpair } from '../../../lib/session';
+import { useApp } from '../../../lib/store';
+import { colors, space } from '../../../lib/theme';
 
 type Row =
   | { kind: 'header'; key: string; title: string }

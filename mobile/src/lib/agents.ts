@@ -139,14 +139,8 @@ export function sessionLabel(mark: SessionMark): string {
   return mark.tab ? `${cli} ${mark.tab}` : cli;
 }
 
-/** A session line as the desktop words it. */
-export function sessionLine(mark: SessionMark, text: string): string {
-  const project = mark.project.replace(/\/+$/, '').split('/').pop() ?? mark.project;
-  if (mark.event === 'started') return `Started a session in ${project}`;
-  if (mark.event === 'sent') return `Sent to ${project} · ${sessionLabel(mark)}`;
-  if (mark.event === 'reply') return `${project} · ${sessionLabel(mark)}${text ? `: ${text}` : ''}`;
-  return `${project} · ${text || 'Screenshot'}`;
-}
+/** A project path's last folder: what the desktop calls a project with no name. */
+export const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? path;
 
 /** "just now", "4 min ago", "2 h ago", or a date. */
 export function formatAgo(ts: number, now = Date.now()): string {

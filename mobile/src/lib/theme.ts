@@ -27,6 +27,7 @@ export const colors = {
   accentErrorLight: '#ef4444', // --accent-error-light
   accentFocus: '#2792ff', // --accent-focus (blue-500)
   scrim: 'rgba(0, 0, 0, 0.75)', // --color-black-o75
+  black: '#000000', // --color-black: behind a photo, as the system viewer has it
 } as const;
 
 /** `--agents-tint-*` in src/styles/features/agents.css, keyed like `Agent.color`. */

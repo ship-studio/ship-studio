@@ -9,20 +9,30 @@ import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View, type ScrollViewProps } from 'react-native';
 import { KeyboardChatScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, ZoomOut } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  ZoomIn,
+  ZoomOut,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { AgentAvatar, Spinner } from '../../components/agent';
 import { DraftRow, MessageRow, PendingRow, WorkingRow } from '../../components/chat';
 import { Composer } from '../../components/Composer';
 import { useNow } from '../../components/ConnectionPill';
-import { Icon, T, tap } from '../../components/ui';
+import { Icon, IconButton, T, tap } from '../../components/ui';
 import { isQueued, needsYou } from '../../lib/agents';
 import { pill } from '../../lib/connection';
-import { describeError, loadLatest, loadOlder, setOpenChat } from '../../lib/session';
+import { describeError, loadLatest, loadOlder, loadUntil, setOpenChat } from '../../lib/session';
 import { useApp } from '../../lib/store';
 import type { PendingSend } from '../../lib/sync';
-import { colors, radius, space } from '../../lib/theme';
+import { alpha, colors, radius, space } from '../../lib/theme';
 import { useShallow } from 'zustand/react/shallow';
 
 type Item =
@@ -34,7 +44,8 @@ type Item =
 const NONE: never[] = [];
 
 export default function Chat() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, at } = useLocalSearchParams<{ id: string; at?: string }>();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const agent = useApp((s) => s.overview?.agents.find((a) => a.id === id));
   const chat = useApp((s) => s.chats[id]);
@@ -45,6 +56,8 @@ export default function Chat() {
   const [away, setAway] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // A search hit to land on: paged in, scrolled to, and lit up once.
+  const [target, setTarget] = useState<string | null>(null);
 
   // On screen: the Mac clears its unread and holds this agent's alerts.
   useFocusEffect(
@@ -85,6 +98,32 @@ export default function Chat() {
     return out;
   }, [agent, chat?.messages, draft, pending]);
 
+  useEffect(() => {
+    if (!at || !connected) return;
+    let live = true;
+    loadUntil(id, at).then(
+      (found) => {
+        if (!live) return;
+        if (found) setTarget(at);
+        else showError('That message is too far back to open here.');
+      },
+      (e: unknown) => live && showError(describeError(e))
+    );
+    return () => {
+      live = false;
+    };
+  }, [at, id, connected, showError]);
+
+  const targetIndex = target ? items.findIndex((i) => i.key === target) : -1;
+  useEffect(() => {
+    if (targetIndex < 0) return;
+    const timer = setTimeout(
+      () => list.current?.scrollToIndex({ index: targetIndex, viewPosition: 0.5, animated: true }),
+      60
+    );
+    return () => clearTimeout(timer);
+  }, [targetIndex]);
+
   const older = useCallback(() => {
     if (!chat?.loaded || !chat.more || loadingOlder || !connected) return;
     setLoadingOlder(true);
@@ -111,14 +150,52 @@ export default function Chat() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Stack.Screen options={{ headerTitle: () => <Header agent={agent} /> }} />
+      <Stack.Screen
+        options={{
+          headerTitle: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="Files, check-ins and routines"
+              onPress={() => router.push({ pathname: '/agent/[id]', params: { id } })}
+            >
+              <Header agent={agent} />
+            </Pressable>
+          ),
+          headerRight: () => (
+            <IconButton
+              name="info.circle"
+              label={`About ${agent.name}`}
+              fallback="ⓘ"
+              onPress={() => router.push({ pathname: '/agent/[id]', params: { id } })}
+            />
+          ),
+        }}
+      />
       <LinkBanner />
       <FlatList
         ref={list}
         inverted
         data={items}
         keyExtractor={(i) => i.key}
-        renderItem={({ item }) => <ItemView item={item} agent={agent} onError={showError} />}
+        renderItem={({ item }) => (
+          <ItemView item={item} agent={agent} onError={showError} lit={item.key === target} />
+        )}
+        onScrollToIndexFailed={(info) => {
+          // Not measured yet: get near it, then try again once it's laid out.
+          list.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: false,
+          });
+          setTimeout(
+            () =>
+              list.current?.scrollToIndex({
+                index: info.index,
+                viewPosition: 0.5,
+                animated: true,
+              }),
+            120
+          );
+        }}
         renderScrollComponent={renderScroll}
         contentContainerStyle={styles.content}
         keyboardDismissMode="interactive"
@@ -193,10 +270,12 @@ function ItemView({
   item,
   agent,
   onError,
+  lit,
 }: {
   item: Item;
   agent: Agent;
   onError: (t: string) => void;
+  lit?: boolean;
 }) {
   const body =
     item.kind === 'message' ? (
@@ -213,7 +292,22 @@ function ItemView({
     ) : (
       <WorkingRow label={item.label} />
     );
-  return <View style={styles.item}>{body}</View>;
+  return (
+    <View style={styles.item}>
+      {lit && <Glow />}
+      {body}
+    </View>
+  );
+}
+
+/** The row a search hit opened on: lit, then fading back. */
+function Glow() {
+  const opacity = useSharedValue(1);
+  useEffect(() => {
+    opacity.set(withDelay(900, withTiming(0, { duration: 900 })));
+  }, [opacity]);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View pointerEvents="none" style={[styles.glow, style]} />;
 }
 
 function Header({ agent }: { agent: Agent }) {
@@ -274,6 +368,14 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { paddingHorizontal: space.lg, paddingVertical: space.md },
   item: { paddingVertical: space.sm },
+  glow: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: -space.lg,
+    right: -space.lg,
+    backgroundColor: alpha(colors.accentFocus, 0.14),
+  },
   start: { alignItems: 'center', paddingVertical: space.xl, textAlign: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', gap: space.sm, maxWidth: 260 },
   jumpWrap: { position: 'absolute', right: space.lg, bottom: 110 },

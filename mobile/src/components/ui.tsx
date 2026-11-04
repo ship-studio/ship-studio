@@ -8,7 +8,9 @@ import * as Haptics from 'expo-haptics';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { ReactNode } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   StyleSheet,
@@ -295,7 +297,91 @@ export function Row({
   );
 }
 
+export interface Choice {
+  label: string;
+  destructive?: boolean;
+  run: () => void;
+}
+
+/** The system's action sheet (an alert with buttons on Android). Cancel is added. */
+export function choose(title: string | undefined, choices: Choice[], message?: string) {
+  if (Platform.OS === 'ios') {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title,
+        message,
+        options: [...choices.map((c) => c.label), 'Cancel'],
+        cancelButtonIndex: choices.length,
+        destructiveButtonIndex: choices.flatMap((c, i) => (c.destructive ? [i] : [])),
+        userInterfaceStyle: 'dark',
+      },
+      (i) => choices[i]?.run()
+    );
+    return;
+  }
+  Alert.alert(title ?? '', message, [
+    ...choices.map((c) => ({
+      text: c.label,
+      style: c.destructive ? ('destructive' as const) : ('default' as const),
+      onPress: c.run,
+    })),
+    { text: 'Cancel', style: 'cancel' as const },
+  ]);
+}
+
+/** Mutually exclusive filters, as the desktop's SegmentedControl. */
+export function Segmented<V extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: V;
+  options: { value: V; label: string }[];
+  onChange: (v: V) => void;
+}) {
+  return (
+    <View style={styles.segmented} accessibilityRole="tablist">
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            onPress={() => {
+              if (!on) tap();
+              onChange(o.value);
+            }}
+            style={[styles.segment, on && styles.segmentOn]}
+          >
+            <T variant="small" color={on ? colors.textWhite : colors.textSecondary}>
+              {o.label}
+            </T>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  segmented: {
+    flexDirection: 'row',
+    padding: space['2xs'],
+    gap: space['2xs'],
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfacePanel,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
+  },
+  segment: {
+    flex: 1,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.lg - 2,
+  },
+  segmentOn: { backgroundColor: colors.surfaceSelected },
   button: {
     flexDirection: 'row',
     alignItems: 'center',

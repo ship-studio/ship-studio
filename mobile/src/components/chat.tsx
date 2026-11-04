@@ -9,13 +9,16 @@ import * as Haptics from 'expo-haptics';
 import { memo, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import { describeScope, failureLine, formatClock, sessionLine } from '../lib/agents';
+import { useRouter } from 'expo-router';
+import { describeScope, failureLine, folderName, formatClock, sessionLabel } from '../lib/agents';
 import { describeError, answerApproval, discardPending, send } from '../lib/session';
 import type { PendingSend } from '../lib/sync';
 import { alpha, colors, fonts, radius, space, type } from '../lib/theme';
+import { Attachments } from './attachments';
 import { Markdown } from './Markdown';
 import { Button, Icon, T, tap } from './ui';
 import { Spinner } from './agent';
+import { useApp } from '../lib/store';
 
 const enter = FadeInDown.duration(220).springify().damping(18);
 
@@ -34,9 +37,19 @@ export const MessageRow = memo(function MessageRow({
     case 'user':
       return (
         <View style={styles.userRow}>
-          <View style={styles.userBubble}>
-            <T selectable>{message.text}</T>
-          </View>
+          {!!message.attachments?.length && (
+            <Attachments
+              agentId={message.agentId}
+              attachments={message.attachments}
+              align="right"
+              onError={onError}
+            />
+          )}
+          {!!message.text && (
+            <View style={styles.userBubble}>
+              <T selectable>{message.text}</T>
+            </View>
+          )}
           {queued && (
             <T variant="caption" color={colors.textMuted} style={styles.meta}>
               Queued · {agent.name} reads it when this turn ends
@@ -48,6 +61,13 @@ export const MessageRow = memo(function MessageRow({
       return (
         <View style={styles.agentRow}>
           <Markdown text={message.text} />
+          {!!message.attachments?.length && (
+            <Attachments
+              agentId={message.agentId}
+              attachments={message.attachments}
+              onError={onError}
+            />
+          )}
           {message.stopped && (
             <T variant="caption" color={colors.textMuted}>
               Stopped
@@ -73,10 +93,107 @@ export const MessageRow = memo(function MessageRow({
           </T>
         </View>
       );
+    case 'session':
+      return message.session ? <SessionCard message={message} onError={onError} /> : null;
     default:
       return <SystemLine message={message} />;
   }
 });
+
+/**
+ * What an agent did in a project's session, as the desktop shows it: a line
+ * for "started" and "sent", a card with the session's reply, and preview
+ * screenshots inline. A session that still exists opens read-only.
+ */
+function SessionCard({
+  message,
+  onError,
+}: {
+  message: AgentMessage;
+  onError: (text: string) => void;
+}) {
+  const router = useRouter();
+  const mark = message.session!;
+  const project = useApp(
+    (s) => s.projects?.find((p) => p.path === mark.project)?.name ?? folderName(mark.project)
+  );
+  const tab = sessionLabel(mark);
+  const open = mark.sessionId
+    ? () => {
+        tap();
+        router.push({
+          pathname: '/session/[id]',
+          params: {
+            id: mark.sessionId!,
+            project,
+            tab,
+            ...(mark.event === 'reply' ? { reply: message.text } : {}),
+          },
+        });
+      }
+    : undefined;
+
+  if (mark.event === 'started' || mark.event === 'sent') {
+    return (
+      <Pressable
+        disabled={!open}
+        onPress={open}
+        accessibilityRole={open ? 'button' : undefined}
+        style={({ pressed }) => [styles.sessionLine, pressed && { opacity: 0.6 }]}
+      >
+        <Icon name="terminal" size={12} color={colors.textMuted} />
+        <T variant="small" color={colors.textSecondary} numberOfLines={1} style={{ flexShrink: 1 }}>
+          {mark.event === 'started'
+            ? `Started a session in ${project}`
+            : `Sent to ${project} · ${tab}`}
+        </T>
+        {open && <Icon name="chevron.right" size={10} color={colors.textFaint} />}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.sessionCard}>
+      <View style={styles.sessionHead}>
+        <Icon
+          name={mark.event === 'reply' ? 'terminal' : 'iphone'}
+          size={12}
+          color={colors.textMuted}
+        />
+        <T variant="caption" color={colors.textSecondary} numberOfLines={1} style={{ flex: 1 }}>
+          {mark.event === 'reply'
+            ? `${project} · ${tab}`
+            : `${project} · ${message.text || 'Preview'}`}
+        </T>
+        <T variant="caption" color={colors.textFaint}>
+          {formatClock(message.ts)}
+        </T>
+      </View>
+      {mark.event === 'reply' ? (
+        <T color={colors.textPrimary} numberOfLines={8} selectable>
+          {message.text}
+        </T>
+      ) : (
+        message.attachments && (
+          <Attachments
+            agentId={message.agentId}
+            attachments={message.attachments}
+            width={176}
+            onError={onError}
+          />
+        )
+      )}
+      {open && (
+        <Pressable onPress={open} hitSlop={8} style={styles.sessionOpen} accessibilityRole="button">
+          <T variant="small" color={colors.textPrimary}>
+            Open session
+          </T>
+          <Icon name="chevron.right" size={10} color={colors.textMuted} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
 
 /** Notes, check-ins, delegation and session lines: one muted line each. */
 function SystemLine({ message }: { message: AgentMessage }) {
@@ -90,10 +207,8 @@ function SystemLine({ message }: { message: AgentMessage }) {
         : message.kind === 'from_agent' && message.peer
           ? `From ${message.peer.name}: ${message.text}`
           : message.kind === 'check_in'
-            ? `Check-in · ${message.text}`
-            : message.kind === 'session' && message.session
-              ? sessionLine(message.session, message.text)
-              : message.text;
+            ? `${message.checkIn?.manual ? 'Ran now' : 'Check-in'} · ${message.text}`
+            : message.text;
   return (
     <View style={styles.systemRow}>
       <T variant="small" color={colors.textMuted} numberOfLines={4}>
@@ -266,9 +381,20 @@ function ApprovalCard({
 export function PendingRow({ pending }: { pending: PendingSend }) {
   return (
     <Animated.View entering={enter} style={styles.userRow}>
-      <View style={[styles.userBubble, pending.failed && { opacity: 0.6 }]}>
-        <T>{pending.text}</T>
-      </View>
+      {!!pending.attachments?.length && (
+        <View style={pending.failed && { opacity: 0.6 }}>
+          <Attachments
+            agentId={pending.agentId}
+            align="right"
+            attachments={pending.attachments.map((a) => ({ ...a, path: '', localUri: a.uri }))}
+          />
+        </View>
+      )}
+      {!!pending.text && (
+        <View style={[styles.userBubble, pending.failed && { opacity: 0.6 }]}>
+          <T>{pending.text}</T>
+        </View>
+      )}
       {pending.failed ? (
         <View style={styles.failedLine}>
           <T variant="caption" color={colors.accentErrorLight}>
@@ -278,7 +404,13 @@ export function PendingRow({ pending }: { pending: PendingSend }) {
             hitSlop={8}
             onPress={() => {
               tap();
-              void send(pending.agentId, pending.text, false, pending.clientId).catch(() => {});
+              void send(
+                pending.agentId,
+                pending.text,
+                false,
+                pending.clientId,
+                pending.attachments
+              ).catch(() => {});
             }}
           >
             <T variant="caption" color={colors.textPrimary}>
@@ -402,6 +534,28 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
   },
   denyNote: { alignSelf: 'flex-start' },
+  sessionLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.tight,
+    alignSelf: 'flex-start',
+    paddingVertical: space['2xs'],
+  },
+  sessionCard: {
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfacePanel,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
+  },
+  sessionHead: { flexDirection: 'row', alignItems: 'center', gap: space.tight },
+  sessionOpen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    alignSelf: 'flex-start',
+  },
   noteInput: {
     fontFamily: fonts.regular,
     fontSize: type.body,

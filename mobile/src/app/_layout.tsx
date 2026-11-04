@@ -10,7 +10,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { boot, watchLifecycle } from '../lib/session';
 import { useApp } from '../lib/store';
-import { colors, fonts } from '../lib/theme';
+import { sheet, stackOptions } from '../lib/navigation';
+import { colors } from '../lib/theme';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -64,37 +65,31 @@ export default function RootLayout() {
       <KeyboardProvider>
         <ThemeProvider value={theme}>
           <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerStyle: { backgroundColor: colors.surfaceApp },
-              headerTransparent: false,
-              headerShadowVisible: false,
-              headerTintColor: colors.textPrimary,
-              headerTitleStyle: { fontFamily: fonts.semibold, color: colors.textWhite },
-              headerBackButtonDisplayMode: 'minimal',
-              contentStyle: { backgroundColor: colors.surfaceApp },
-            }}
-          >
+          <Stack screenOptions={stackOptions}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="pair" options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen
               name="scan"
               options={{ presentation: 'fullScreenModal', headerShown: false }}
             />
-            <Stack.Screen
-              name="agents"
-              options={{ title: 'Agents', headerBackVisible: false, gestureEnabled: false }}
-            />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen name="chat/[id]" options={{ title: '' }} />
+            <Stack.Screen name="agent/[id]" options={sheet([0.62, 1])} />
+            <Stack.Screen name="schedule" options={sheet([0.5, 0.9])} />
+            <Stack.Screen name="files/[id]" options={{ title: 'Files' }} />
+            <Stack.Screen name="session/[id]" options={{ title: '' }} />
+            <Stack.Screen
+              name="viewer"
+              options={{
+                presentation: 'fullScreenModal',
+                headerShown: false,
+                animation: 'fade',
+                contentStyle: { backgroundColor: colors.black },
+              }}
+            />
             <Stack.Screen
               name="connection"
-              options={{
-                title: 'Connection',
-                presentation: 'formSheet',
-                sheetAllowedDetents: [0.75, 1],
-                sheetGrabberVisible: true,
-                headerShown: false,
-              }}
+              options={{ ...sheet([0.75, 1]), contentStyle: undefined }}
             />
             <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           </Stack>
