@@ -138,6 +138,11 @@ export function sortAgents(agents: Agent[]): Agent[] {
   });
 }
 
+/** Waiting on you: mid-turn on a card, or paused with one still open. */
+export function needsYou(agent: Agent): boolean {
+  return agent.status.state === 'waiting' || (agent.pendingApprovals ?? 0) > 0;
+}
+
 /** A run of consecutive agent-to-agent lines with the same peer collapses into one row. */
 export type ChatItem =
   | { type: 'message'; message: AgentMessage }
@@ -146,14 +151,23 @@ export type ChatItem =
 
 const isPeerLine = (m: AgentMessage) => m.kind === 'sent_to_agent' || m.kind === 'from_agent';
 
-/** Gap after which the chat prints a time divider, as Grok Bot does. */
-const DIVIDER_GAP_MS = 45 * 60 * 1000;
+/**
+ * A time divider marks a new sitting, not a pause: a new day, or three hours
+ * of quiet. Any more often and they become noise between every few lines.
+ */
+const DIVIDER_GAP_MS = 3 * 60 * 60 * 1000;
+
+const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
 
 export function buildChatItems(messages: AgentMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
   let lastTs = 0;
   for (const message of messages) {
-    if (items.length === 0 || message.ts - lastTs > DIVIDER_GAP_MS) {
+    if (
+      items.length === 0 ||
+      message.ts - lastTs > DIVIDER_GAP_MS ||
+      !sameDay(message.ts, lastTs)
+    ) {
       items.push({ type: 'day', ts: message.ts });
     }
     lastTs = message.ts;

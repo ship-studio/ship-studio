@@ -41,15 +41,18 @@ describe('buildChatItems', () => {
     expect(items.filter((i) => i.type === 'peer-group')).toHaveLength(2);
   });
 
-  it('prints a time divider after a long gap', () => {
+  it('prints a time divider for a new sitting, not a pause', () => {
     const hour = 60 * 60 * 1000;
-    const items = buildChatItems([
-      msg('a', 'user', hour),
-      msg('b', 'agent', hour + 1000),
-      msg('c', 'user', 3 * hour),
-    ]);
-    // One for the start of the conversation, one after the gap.
-    expect(items.filter((i) => i.type === 'day')).toHaveLength(2);
+    const morning = new Date(2026, 10, 3, 8).getTime();
+    const days = (messages: AgentMessage[]) =>
+      buildChatItems(messages).filter((i) => i.type === 'day').length;
+    // An hour's pause: still one sitting.
+    expect(days([msg('a', 'user', morning), msg('b', 'agent', morning + hour)])).toBe(1);
+    // Four hours of quiet: a new one.
+    expect(days([msg('a', 'user', morning), msg('b', 'agent', morning + 4 * hour)])).toBe(2);
+    // Across midnight, however short the gap.
+    const lateNight = new Date(2026, 10, 3, 23, 50).getTime();
+    expect(days([msg('a', 'user', lateNight), msg('b', 'agent', lateNight + hour / 3)])).toBe(2);
   });
 });
 
