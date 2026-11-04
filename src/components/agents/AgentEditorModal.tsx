@@ -16,6 +16,7 @@ import { SegmentedControl } from '../primitives/SegmentedControl';
 import { AgentAvatar } from './AgentAvatar';
 import {
   AGENT_COLORS,
+  type AgentColor,
   AGENT_MODELS,
   createAgent,
   formatUsage,
@@ -194,12 +195,32 @@ export function AgentEditorModal({
           />
         </div>
 
-        <div className="agent-editor__colors" role="radiogroup" aria-label="Colour">
+        {/* One Tab stop; the arrows move focus and the choice together, as radios do. */}
+        <div
+          className="agent-editor__colors"
+          role="radiogroup"
+          aria-label="Colour"
+          onKeyDown={(e) => {
+            const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+            if (!step) return;
+            e.preventDefault();
+            const at = AGENT_COLORS.indexOf(color as AgentColor);
+            const next = AGENT_COLORS[(at + step + AGENT_COLORS.length) % AGENT_COLORS.length];
+            setColor(next);
+            e.currentTarget.querySelector<HTMLElement>(`[data-color="${next}"]`)?.focus();
+          }}
+        >
           {AGENT_COLORS.map((key) => (
             <button
               key={key}
               type="button"
               role="radio"
+              tabIndex={
+                color === key ||
+                (key === AGENT_COLORS[0] && !AGENT_COLORS.includes(color as AgentColor))
+                  ? 0
+                  : -1
+              }
               aria-checked={color === key}
               aria-label={key}
               className="agent-editor__swatch"

@@ -26,9 +26,6 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  CheckIcon,
-  ChevronIcon,
-  CollaboratorsIcon,
   HistoryIcon,
   HomeIcon,
   MicrophoneIcon,
@@ -37,9 +34,8 @@ import {
   WarningIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
-import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
+import { Dropdown } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
-import { MenuButton } from '../primitives/MenuButton';
 import { TextButton } from '../primitives/TextButton';
 import { AgentModelMenu } from './AgentModelMenu';
 import { TextArea } from '../primitives/TextField';
@@ -52,7 +48,13 @@ import { useDictation } from './useDictation';
 import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
 import { listProjects } from '../../lib/project';
 import { ComposerAttachments, ComposerQuotes } from './AgentAttachments';
-import { toOutgoing, useComposerAttachments, useFileDrop } from './useComposerAttachments';
+import {
+  toOutgoing,
+  useComposerAttachments,
+  useFileDrop,
+  type DraftAttachment,
+} from './useComposerAttachments';
+import { AgentSwitcher } from './AgentSwitcher';
 import { useQuoteSelection } from './useQuoteSelection';
 import { useMentionPicker } from './AgentMentions';
 import { useCommands } from '../../commands/useCommands';
@@ -70,25 +72,30 @@ import {
 import {
   answerApproval,
   buildChatItems,
+  createCheckIn,
   interruptAgent,
   isQueued,
-  lastUserText,
+  lastUserMessage,
+  resendable,
+  retryNote,
+  whenAt,
   mentionedAgents,
   needsYou,
   withQuotes,
   sendAgentMessage,
   sortAgents,
   stopAgent,
-  TEAM_ID,
   type Agent,
   type AgentMessage,
   type AgentRef,
+  type OutgoingAttachment,
 } from '../../lib/agents';
 import {
   loadMessages,
   markSent,
   MESSAGE_MAX,
   MESSAGE_PAGE,
+  refreshAgents,
   upsertMessage,
   useAgents,
 } from '../../lib/agentsStore';
@@ -100,6 +107,11 @@ import { useOptionalToast } from '../../contexts/ToastContext';
  * assistant does it), so that one opens the import steps instead.
  */
 const STARTERS = ['Set up my team', 'What can you do?'];
+/** Any other agent's first open: what to ask a new teammate. */
+const AGENT_STARTERS = ['What’s on your plate?', 'Check in with me tomorrow at 9'];
+
+/** A second Esc within this long stops a working agent; the first only says so. */
+const ESC_CONFIRM_MS = 1500;
 
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_THRESHOLD = 80;
@@ -112,10 +124,21 @@ interface Pending {
   failed: boolean;
   id?: string;
   mentions: AgentRef[];
+  /** Files still being copied in, shown as staged until the message lands. */
+  files?: DraftAttachment[];
+  /** A retry's files, already in the agent's home: sent again by path. */
+  resend?: OutgoingAttachment[];
 }
 
-function newPending(text: string, mentions: AgentRef[]): Pending {
-  return { key: `local-${crypto.randomUUID()}`, text, ts: Date.now(), failed: false, mentions };
+function newPending(text: string, mentions: AgentRef[], extra: Partial<Pending> = {}): Pending {
+  return {
+    key: `local-${crypto.randomUUID()}`,
+    text,
+    ts: Date.now(),
+    failed: false,
+    mentions,
+    ...extra,
+  };
 }
 
 interface AgentChatProps extends AgentActions {
@@ -280,11 +303,12 @@ export function AgentChat({
   // A pending bubble gives way as soon as its message is in the store, which
   // can be before the send call returns (the backend's event can win). The
   // persisted message then renders under the pending bubble's key.
-  const { shown, aliases, failed } = useMemo(() => {
+  const { shown, aliases, failed, sending } = useMemo(() => {
     const list = messages ?? [];
     const aliases = new Map<string, string>();
     const local: AgentMessage[] = [];
     const failed = new Set<string>();
+    const sending = new Map<string, DraftAttachment[]>();
     for (const p of pending) {
       const match =
         list.find((m) => m.id === p.id) ??
@@ -304,23 +328,25 @@ export function AgentChat({
         mentions: p.mentions,
       });
       if (p.failed) failed.add(p.key);
+      else if (p.files) sending.set(p.key, p.files);
     }
     // The reply being written sits after what's settled and before anything
     // you've just sent, which it will read next.
     const draft = streaming && !list.some((m) => m.id === streaming.id) ? [streaming] : [];
-    return { shown: [...list, ...draft, ...local], aliases, failed };
+    return { shown: [...list, ...draft, ...local], aliases, failed, sending };
   }, [messages, pending, agent.id, streaming]);
 
   const keyOf = (id: string) => aliases.get(id) ?? id;
   const colorOf = (id: string) => agentsById.get(id)?.color;
 
   const items = useMemo(() => buildChatItems(shown), [shown]);
-  // Retry belongs to the newest failure only, and only if nothing was said since.
-  const retryText = useMemo(() => {
+  // Retry belongs to the newest failure only, and only if nothing was said
+  // since. It sends that message again whole: its words and its files.
+  const retrySource = useMemo(() => {
     const last = shown[shown.length - 1];
-    return last?.kind === 'error' ? lastUserText(shown, shown.length - 1) : null;
+    return last?.kind === 'error' ? lastUserMessage(shown, shown.length - 1) : null;
   }, [shown]);
-  const retryId = retryText ? shown[shown.length - 1].id : null;
+  const retryId = retrySource ? shown[shown.length - 1].id : null;
   // Mid-turn, what you send waits for the next turn. The newest waiting
   // message says so and offers to interrupt instead.
   const busy = agent.status.state !== 'idle';
@@ -442,7 +468,7 @@ export function AgentChat({
   const deliver = async (entry: Pending, now = false) => {
     try {
       const ids = entry.mentions.map((m) => m.id);
-      const message = await sendAgentMessage(agent.id, entry.text, [], ids);
+      const message = await sendAgentMessage(agent.id, entry.text, entry.resend, ids);
       setPending((list) => list.map((p) => (p.key === entry.key ? { ...p, id: message.id } : p)));
       upsertMessage(message);
       if (now) await interrupt();
@@ -453,20 +479,29 @@ export function AgentChat({
   };
 
   // Words alone appear at once and retry in place. Files have to be copied
-  // into the agent's home first, so that send waits, and a failure puts
-  // everything back in the composer.
+  // into the agent's home first, so that send shows them as they were staged,
+  // marked "Sending…", and a failure puts everything back in the composer.
   const sendWithFiles = async (
     typed: string,
     quoted: string[],
     files: typeof staged,
     now: boolean
   ) => {
+    atBottomRef.current = true;
+    const text = withQuotes(quoted, typed);
+    const entry = newPending(text, mentionsIn(typed), { files });
+    setPending((list) => [...list, entry]);
     try {
       const outgoing = await toOutgoing(files);
-      const ids = mentionsIn(typed).map((m) => m.id);
-      upsertMessage(await sendAgentMessage(agent.id, withQuotes(quoted, typed), outgoing, ids));
+      const ids = entry.mentions.map((m) => m.id);
+      const message = await sendAgentMessage(agent.id, text, outgoing, ids);
+      setPending((list) =>
+        list.map((p) => (p.key === entry.key ? { ...p, id: message.id, files: undefined } : p))
+      );
+      upsertMessage(message);
       if (now) await interrupt();
     } catch (error) {
+      setPending((list) => list.filter((p) => p.key !== entry.key));
       setDraft(typed);
       setQuotes(quoted);
       attachments.setItems(files);
@@ -474,14 +509,50 @@ export function AgentChat({
     }
   };
 
-  /** Words alone: on screen at once, and in the sidebar's row. */
-  const sendText = (text: string, now = false) => {
+  /** Words alone (or a retry's files, already here): on screen at once, and in the row. */
+  const sendText = (text: string, now = false, extra: Partial<Pending> = {}) => {
     atBottomRef.current = true;
-    const entry = newPending(text, mentionsIn(text));
+    const entry = newPending(text, extra.mentions ?? mentionsIn(text), extra);
     setPending((list) => [...list, entry]);
     markSent(agent.id, text);
     void deliver(entry, now);
   };
+
+  /** A starter: sent, and the composer ready for the answer to whatever it asks back. */
+  const sendStarter = (text: string) => {
+    sendText(text);
+    inputRef.current?.focus();
+  };
+
+  const retryFailed = () => {
+    if (!retrySource) return;
+    sendText(retrySource.text, false, {
+      mentions: retrySource.mentions ?? [],
+      resend: resendable(agent, retrySource),
+    });
+  };
+
+  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked. */
+  const retryAt = async (at: number) => {
+    try {
+      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? ''));
+      await refreshAgents();
+    } catch (error) {
+      showToast(formatCommandError(asCommandError(error)), 'error');
+    }
+  };
+  const retryScheduledAt = (at: number) =>
+    (agent.checkIns ?? []).some((c) => !c.repeat && !c.paused && Math.abs(c.nextAt - at) < 120_000);
+
+  // Esc stops a working agent only when pressed twice: the first says so,
+  // quietly, where the hint goes. A reflex dismissal never drops a turn.
+  const [escArmed, setEscArmed] = useState(false);
+  useEffect(() => {
+    if (!escArmed) return;
+    const timer = window.setTimeout(() => setEscArmed(false), ESC_CONFIRM_MS);
+    return () => window.clearTimeout(timer);
+  }, [escArmed]);
+
 
   /** `now`: rather than queue behind the turn in progress, interrupt it. */
   const send = (now = false) => {
@@ -505,9 +576,9 @@ export function AgentChat({
     void deliver(entry);
   };
 
-  const onAnswer = async (requestId: string, allow: boolean, always?: boolean) => {
+  const onAnswer = async (requestId: string, allow: boolean, always?: boolean, note?: string) => {
     try {
-      await answerApproval(agent.id, requestId, allow, always);
+      await answerApproval(agent.id, requestId, allow, always, note);
     } catch (error) {
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
@@ -572,55 +643,14 @@ export function AgentChat({
           />
         )}
         {compact ? (
-          <Dropdown
-            portal
-            className="agent-chat__switcher"
-            menuClassName="agent-model-menu"
-            trigger={(p) => (
-              <MenuButton
-                {...p}
-                tabIndex={0}
-                expanded={p['aria-expanded']}
-                variant="ghost"
-                className="agent-chat__title"
-                aria-label={`${agent.name}. Switch agent`}
-              >
-                {title}
-                <ChevronIcon
-                  size={10}
-                  className={p['aria-expanded'] ? 'chevron-flipped' : undefined}
-                />
-              </MenuButton>
-            )}
-          >
-            {sortAgents(compact.agents)
-              .filter((a) => !a.hidden || a.id === agent.id)
-              .map((a) => (
-                <DropdownItem
-                  key={a.id}
-                  icon={<AgentAvatar name={a.name} color={a.color} size="mini" />}
-                  onSelect={() => onOpenAgent(a.id)}
-                >
-                  <span className="agent-model-menu__label">
-                    {a.name}
-                    {needsYou(a) ? ' · needs your OK' : a.unread > 0 ? ' · new' : ''}
-                  </span>
-                  <span className="agent-model-menu__check" aria-hidden="true">
-                    {a.id === agent.id && <CheckIcon size={12} />}
-                  </span>
-                </DropdownItem>
-              ))}
-            <DropdownDivider />
-            <DropdownItem
-              icon={<CollaboratorsIcon size={14} />}
-              onSelect={() => onOpenAgent(TEAM_ID)}
-            >
-              Team
-            </DropdownItem>
-            <DropdownItem icon={<HomeIcon size={14} />} onSelect={compact.onGoHome}>
-              Home
-            </DropdownItem>
-          </Dropdown>
+          <AgentSwitcher
+            agents={compact.agents}
+            currentId={agent.id}
+            title={title}
+            label={`${agent.name}. Switch agent`}
+            onOpenAgent={onOpenAgent}
+            onGoHome={compact.onGoHome}
+          />
         ) : (
           <div className="agent-chat__title">{title}</div>
         )}
@@ -682,19 +712,38 @@ export function AgentChat({
                           key={text}
                           tabIndex={0}
                           variant="secondary"
-                          onClick={() => sendText(text)}
+                          onClick={() => sendStarter(text)}
                         >
                           {text}
                         </Button>
                       ))}
                       <Button tabIndex={0} variant="secondary" onClick={onImport}>
-                        Import my agents from another assistant
+                        Import agents…
                       </Button>
                     </div>
                   )}
                 </>
               ) : (
-                agent.role && <p className="agent-chat__empty-role">{agent.role}</p>
+                <>
+                  {agent.role && <p className="agent-chat__empty-role">{agent.role}</p>}
+                  <TextButton tabIndex={0} onClick={() => actions.onEdit(agent)}>
+                    View instructions
+                  </TextButton>
+                  {engineReady && (
+                    <div className="agent-chat__starters">
+                      {AGENT_STARTERS.map((text) => (
+                        <Button
+                          key={text}
+                          tabIndex={0}
+                          variant="secondary"
+                          onClick={() => sendStarter(text)}
+                        >
+                          {text}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
@@ -733,6 +782,7 @@ export function AgentChat({
                         agent={agent}
                         arrived={arrived}
                         failed={failed.has(m.id)}
+                        sending={sending.get(m.id)}
                         onRetry={() => retry(m.id)}
                         queued={
                           m.id === queuedId ? { onInterrupt: () => void interrupt() } : undefined
@@ -768,9 +818,11 @@ export function AgentChat({
                         message={m}
                         arrived={arrived}
                         onSignIn={onSignIn}
-                        onRetry={
-                          m.id === retryId && retryText ? () => sendText(retryText) : undefined
-                        }
+                        onRetry={m.id === retryId ? retryFailed : undefined}
+                        onRetryAt={(at) => void retryAt(at)}
+                        retryScheduled={Boolean(
+                          m.failure?.resetsAt && retryScheduledAt(m.failure.resetsAt)
+                        )}
                       />
                     );
                   case 'check_in':
@@ -854,7 +906,7 @@ export function AgentChat({
               className="agent-composer__input"
               rows={1}
               value={draft}
-              placeholder={dictating ? 'Listening…' : `Message ${agent.name}`}
+              placeholder={dictating ? '' : `Message ${agent.name}`}
               readOnly={dictating}
               onChange={(e) => {
                 setDraft(e.target.value);
@@ -872,7 +924,12 @@ export function AgentChat({
                   e.preventDefault();
                 } else if (e.key === 'Escape' && working && !canSend) {
                   e.preventDefault();
-                  void onStop();
+                  if (escArmed) {
+                    setEscArmed(false);
+                    void onStop();
+                  } else {
+                    setEscArmed(true);
+                  }
                 }
               }}
               aria-label={`Message ${agent.name}`}
@@ -899,10 +956,18 @@ export function AgentChat({
                 />
               )}
               <div className="agent-composer__actions">
-                {busy && canSend && !dictating && (
-                  <span className="agent-composer__hint" aria-hidden>
-                    ↵ queues · ⌘↵ interrupts and sends now
+                {escArmed && working && !canSend && !dictating ? (
+                  <span className="agent-composer__hint" role="status">
+                    Esc again to stop {agent.name}
                   </span>
+                ) : (
+                  busy &&
+                  canSend &&
+                  !dictating && (
+                    <span className="agent-composer__hint" aria-hidden>
+                      ↵ queues · ⌘↵ interrupts and sends now
+                    </span>
+                  )
                 )}
                 <IconButton
                   ref={micRef}
@@ -926,7 +991,7 @@ export function AgentChat({
                     icon={<span className="agent-composer__stop-square" aria-hidden />}
                     onClick={() => void onStop()}
                     aria-label={`Stop ${agent.name}`}
-                    title="Stop (Esc)"
+                    title="Stop (Esc twice)"
                   />
                 ) : (
                   <IconButton

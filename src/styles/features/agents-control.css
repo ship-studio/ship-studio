@@ -93,3 +93,65 @@
 .agent-permissions__revoke {
   flex: 0 0 auto;
 }
+
+/* ------------------------------------------------------------- failures */
+
+/* A usage limit is expected and resets on its own: a notice, not an alarm. */
+.agent-bubble--error[data-failure='usage_limit'] {
+  color: var(--text-secondary);
+  background: rgba(var(--accent-warning-rgb), 0.06);
+  box-shadow: inset 0 0 0 var(--border-width-default) rgba(var(--accent-warning-rgb), 0.22);
+}
+
+/* "Retries at 3:00 PM": the retry already waiting for the reset. */
+.agent-bubble__scheduled {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------------------- deny with note */
+
+.text-button.button.agent-approval__deny-with-note {
+  color: var(--text-muted);
+}
+
+.agent-approval__deny-note {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.agent-approval__deny-note > :first-child {
+  flex: 1;
+  min-width: 0;
+  height: var(--button-height);
+}
+
+/* Team's compact card: long values clamp to two lines until "Show all". */
+.agent-approval[data-clamped] .agent-approval__field dd {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.agent-approval__show-all {
+  align-self: flex-start;
+}
+
+/* ------------------------------------------------------ sending, focus */
+
+/* A message still copying its files in: there, but not yet sent. */
+.agent-chat__row[data-sending] .agent-bubble--user,
+.agent-chat__row[data-sending] .agent-composer__attachments {
+  opacity: 0.6;
+}
+
+/* A clicked message takes focus (so ⌘C copies it); no ring for a click. */
+.agent-chat__row[tabindex='-1']:focus {
+  outline: none;
+}

@@ -240,6 +240,12 @@
   color: var(--accent-warning);
 }
 
+/* A turn that didn't finish shows where it happened. A usage limit heals on
+   its own, so it stays quiet: only its dot says anything. */
+.agents-list__preview[data-state='failed'] {
+  color: var(--accent-error-light);
+}
+
 /* Fixed status slot, like the project row's, so states never shift the text. */
 .agents-list__status {
   display: inline-flex;
@@ -1677,6 +1683,11 @@
   background: var(--surface-control);
 }
 
+/* The hit last opened, marked like the open row, so ↓ and Enter walk on. */
+.agents-search__hit.is-current {
+  background: var(--surface-selected);
+}
+
 .agents-search__hit:focus-visible {
   outline: none;
   background: var(--surface-control);
@@ -1761,11 +1772,21 @@
   flex: 1;
 }
 
-.agent-model-menu .agent-model-menu__check {
+.agent-model-menu .agent-model-menu__check,
+.agent-model-menu .agent-switcher__mark {
   display: inline-flex;
+  align-items: center;
   justify-content: flex-end;
   width: var(--spacing-lg);
   color: var(--text-secondary);
+}
+
+/* The sidebar's status slot, so its loader keeps its size in a menu. */
+.agent-model-menu .agent-switcher__mark {
+  flex: 0 0 auto;
+  justify-content: center;
+  width: var(--pixel-loader-size-sm);
+  height: var(--pixel-loader-size-sm);
 }
 
 /* ------------------------------------------------------------ mentions */
@@ -1908,8 +1929,35 @@
   white-space: nowrap;
 }
 
-/* An approval answered here sits under its agent, indented to the text. */
-.agents-team__group > .agent-chat__row {
+/* A card answered here sits under its agent, spanning the row's text column:
+   from the name to the meta edge, so Allow lines up with every row's meta. */
+.agents-team__group .agent-chat__row {
   margin: var(--spacing-2xs) 0 var(--spacing-sm);
-  padding-left: calc(var(--size-sidebar-project-shortcut) + var(--spacing-sm) * 2);
+  padding: 0 var(--spacing-sm) 0 calc(var(--size-sidebar-project-shortcut) + var(--spacing-sm) * 2);
+}
+
+.agents-team__group .agent-approval,
+.agents-team__group .agent-bubble--error {
+  flex: 1;
+  width: auto;
+  max-width: none;
+}
+
+/* Copy and the time belong to the chat; here the card is all there is. */
+.agents-team__group .agent-message__actions {
+  display: none;
+}
+
+/* Cards fold away after they've shown what they resolved to. */
+.agents-team__fold {
+  overflow: hidden;
+  transition:
+    height var(--agents-motion-settle),
+    padding var(--agents-motion-settle),
+    margin var(--agents-motion-settle),
+    opacity var(--transition-interaction);
+}
+
+.agents-team__line[data-state='failed'] {
+  color: var(--accent-error-light);
 }
