@@ -49,7 +49,7 @@ export function SessionState({ session }: { session: SessionSummary }) {
           <Dot color={colors.accentWarning} glow size={7} />
         ) : (
           <Dot
-            color={session.state === 'finished' ? colors.accentSuccess : colors.textFaint}
+            color={session.state === 'finished' ? colors.accentSuccess : colors.textMuted}
             size={7}
           />
         )}

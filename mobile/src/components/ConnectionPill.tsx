@@ -1,6 +1,7 @@
 /**
- * The header's connection pill: always there, quiet when all is well, and a
- * tap away from the full picture on the Connection screen.
+ * The connection pill: shown only when something isn't right (the screens
+ * say nothing while all is well), and a tap away from the full picture on
+ * the Connection screen.
  */
 
 import { useRouter } from 'expo-router';
@@ -9,8 +10,8 @@ import { Pressable, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { pill } from '../lib/connection';
 import { useApp } from '../lib/store';
-import { colors, radius, space } from '../lib/theme';
-import { Dot, T, tap, toneColor } from './ui';
+import { chromeScale, colors, radius, space } from '../lib/theme';
+import { Dot, T, toneColor } from './ui';
 import { useShallow } from 'zustand/react/shallow';
 
 /** Re-render every `ms` while mounted, for "last seen 2 min ago". */
@@ -42,11 +43,8 @@ export function ConnectionPill() {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${p.label}. Connection details`}
-      hitSlop={6}
-      onPress={() => {
-        tap();
-        router.push('/connection');
-      }}
+      hitSlop={8}
+      onPress={() => router.push('/connection')}
     >
       <Animated.View layout={LinearTransition.duration(200)} style={styles.pill}>
         <Dot color={toneColor[p.tone]} size={7} glow={p.tone === 'ok'} />
@@ -55,7 +53,12 @@ export function ConnectionPill() {
           entering={FadeIn.duration(180)}
           exiting={FadeOut.duration(120)}
         >
-          <T variant="caption" color={colors.textSecondary} numberOfLines={1}>
+          <T
+            variant="small"
+            color={colors.textPrimary}
+            numberOfLines={1}
+            maxFontSizeMultiplier={chromeScale}
+          >
             {p.label}
           </T>
         </Animated.View>
@@ -64,17 +67,46 @@ export function ConnectionPill() {
   );
 }
 
+/** Only when something is wrong: the state, and a tap to the reasons. */
+export function ConnectionNotice() {
+  const state = useApp(
+    useShallow((s) => ({
+      link: s.link,
+      refusal: s.refusal,
+      mac: s.mac,
+      overview: s.overview,
+      phoneOnline: s.phoneOnline,
+      syncedAt: s.syncedAt,
+      credentials: s.credentials,
+    }))
+  );
+  const now = useNow();
+  const p = pill(state, now);
+  if (p.tone === 'ok' || state.link.kind === 'refused') return null;
+  return (
+    <Animated.View
+      entering={FadeIn.duration(200)}
+      exiting={FadeOut.duration(150)}
+      style={styles.notice}
+    >
+      <ConnectionPill />
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
+  notice: { paddingHorizontal: space.lg, paddingBottom: space.sm, alignItems: 'flex-start' },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.tight,
     paddingHorizontal: space.md,
-    height: 28,
+    paddingVertical: space.tight,
+    minHeight: 32,
     borderRadius: radius.pill,
     backgroundColor: colors.surfacePanel,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderSubtle,
-    maxWidth: 260,
+    maxWidth: 320,
   },
 });

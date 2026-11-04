@@ -14,7 +14,11 @@ export const colors = {
   textWhite: '#ffffff',
   textPrimary: '#bcbcbc', // --text-primary (gray-200)
   textSecondary: '#979797', // --text-secondary (gray-400)
-  textMuted: '#767676', // --text-muted (gray-600)
+  // --text-muted is gray-600 on the desk, 4.06:1 on these surfaces: too faint
+  // for words read outdoors at 12-14pt. The phone takes the next step up the
+  // desktop's own scale, which passes 4.5:1 on app and panel.
+  textMuted: '#868686', // --color-gray-500
+  // Decoration only (rules, chevrons, a disabled glyph), never words: 2.2:1.
   textFaint: '#4e4e4e', // --text-faint (gray-700)
   textOnAccent: '#141414', // --text-on-accent
   borderDefault: '#282828', // --border-default
@@ -63,17 +67,24 @@ export const radius = { sm: 4, control: 6, card: 8, lg: 12, pill: 999 } as const
 
 /**
  * The desktop's type scale (`--font-size-*`), one step up where the desk
- * reads at arm's length and a phone at hand's: body is the chat bubble's
- * 15px (`--font-size-subhead-lg`), the rest are its neighbours on the scale.
+ * reads at arm's length and a phone at hand's: body 16 (T3 and most chat
+ * apps sit at 16-17), subtitles 14, captions 12 for metadata only.
  */
 export const type = {
   caption: 12,
-  small: 13,
-  body: 15,
+  small: 14,
+  body: 16,
   subhead: 16,
   title: 18,
-  display: 24,
+  display: 28,
 } as const;
+
+/**
+ * How far chrome may grow with Dynamic Type before it would crowd out what
+ * it frames: titles, pills, avatar initials and buttons. Message bodies have
+ * no cap; they reflow.
+ */
+export const chromeScale = 1.3;
 
 export const lineHeight = (size: number, ratio = 1.4) => Math.round(size * ratio);
 

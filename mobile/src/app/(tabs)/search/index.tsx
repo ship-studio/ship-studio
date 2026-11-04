@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { AgentAvatar, Spinner } from '../../../components/agent';
-import { T, tap } from '../../../components/ui';
+import { T } from '../../../components/ui';
 import { formatAgo } from '../../../lib/agents';
 import { canCall, describeError, search } from '../../../lib/session';
 import { useApp } from '../../../lib/store';
@@ -122,7 +122,6 @@ export default function Search() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              tap();
               router.push({
                 pathname: '/chat/[id]',
                 params: { id: item.agentId, at: item.messageId },
@@ -137,7 +136,7 @@ export default function Search() {
               <T variant="caption" color={colors.textMuted}>
                 {item.peerName ?? WHO[item.kind] ?? item.agentName}
               </T>
-              <T variant="caption" color={colors.textFaint}>
+              <T variant="caption" color={colors.textMuted}>
                 {formatAgo(item.ts)}
               </T>
             </View>

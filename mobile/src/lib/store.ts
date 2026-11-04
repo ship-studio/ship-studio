@@ -6,6 +6,7 @@
 
 import type { LinkState, RefusedFrame, WelcomeFrame } from '@shipstudio/companion-protocol';
 import { create } from 'zustand';
+import type { ComposerDraft } from './drafts';
 import type { Credentials } from './pairing';
 import { emptySync, type SyncState } from './sync';
 
@@ -19,7 +20,18 @@ export interface AppState extends SyncState {
   phoneOnline: boolean | null;
   /** The chat on screen (with the app in the foreground), for focus and alerts. */
   openChat: string | null;
+  /** What's typed in each chat's composer and not sent: kept across screens and launches. */
+  composer: Record<string, ComposerDraft>;
+  prefs: Prefs;
+  /** iOS Increase Contrast / Android high-contrast text. */
+  highContrast: boolean;
 }
+
+export interface Prefs {
+  haptics: boolean;
+}
+
+export const defaultPrefs: Prefs = { haptics: true };
 
 export const useApp = create<AppState>(() => ({
   ...emptySync(),
@@ -29,6 +41,9 @@ export const useApp = create<AppState>(() => ({
   refusal: null,
   phoneOnline: null,
   openChat: null,
+  composer: {},
+  prefs: defaultPrefs,
+  highContrast: false,
 }));
 
 export const setApp = useApp.setState;

@@ -1,12 +1,13 @@
-/** The paired Mac, alerts (with the honest limit), updates, and about. */
+/** The paired Mac, alerts (with the honest limit), haptics, updates, and about. */
 
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import * as Updates from 'expo-updates';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, Linking, ScrollView, StyleSheet } from 'react-native';
+import { Alert, AppState, Linking, ScrollView, StyleSheet, Switch } from 'react-native';
 import { Row, Section, T } from '../components/ui';
 import { appInfo } from '../lib/pairing';
+import { setPref } from '../lib/prefs';
 import { unpair } from '../lib/session';
 import { useApp } from '../lib/store';
 import { colors, space } from '../lib/theme';
@@ -21,6 +22,7 @@ type UpdateState =
 export default function Settings() {
   const router = useRouter();
   const credentials = useApp((s) => s.credentials);
+  const haptics = useApp((s) => s.prefs.haptics);
   const [alerts, setAlerts] = useState<Notifications.PermissionStatus | null>(null);
   const [update, setUpdate] = useState<UpdateState>({ kind: 'idle' });
 
@@ -117,6 +119,24 @@ export default function Settings() {
       </Section>
 
       <Section
+        title="Feel"
+        footer="A tap when you send, stop, answer an approval, or something fails. Never for just moving around."
+      >
+        <Row
+          label="Haptics"
+          trailing={
+            <Switch
+              value={haptics}
+              onValueChange={(on) => setPref('haptics', on)}
+              trackColor={{ true: colors.accentActive, false: colors.surfaceSelected }}
+              accessibilityLabel="Haptics"
+            />
+          }
+          last
+        />
+      </Section>
+
+      <Section
         title="Updates"
         footer={
           Updates.isEnabled
@@ -125,8 +145,12 @@ export default function Settings() {
         }
       >
         <Row label="Version" value={`${version} (${build})`} />
-        <Row label="Channel" value={Updates.channel || 'None'} />
-        <Row label="Runtime" value={Updates.runtimeVersion ?? 'Development'} />
+        {!!Updates.channel && <Row label="Channel" value={Updates.channel} />}
+        <Row
+          label="Runtime"
+          value={Updates.runtimeVersion ?? 'Development'}
+          last={!Updates.updateId && !Updates.isEnabled}
+        />
         {Updates.updateId && <Row label="Update" value={Updates.updateId.slice(0, 8)} />}
         {Updates.isEnabled && (
           <Row

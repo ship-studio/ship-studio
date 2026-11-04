@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Spinner } from '../../components/agent';
 import { openFile } from '../../components/attachments';
-import { choose, Segmented, T, tap } from '../../components/ui';
+import { choose, Segmented, T } from '../../components/ui';
 import { formatAgo } from '../../lib/agents';
 import { extensionOf, formatSize, isPreviewableImage, share } from '../../lib/files';
 import { attachmentSource, describeError, download, listFiles } from '../../lib/session';
@@ -51,7 +51,6 @@ export default function Files() {
   );
 
   const open = async (f: SharedFile) => {
-    tap();
     if (isPreviewableImage(f.mime)) {
       router.push({
         pathname: '/viewer',

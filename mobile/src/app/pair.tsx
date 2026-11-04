@@ -6,7 +6,6 @@
 
 import { parsePairingLink, type PairingLink } from '@shipstudio/companion-protocol';
 import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,6 +17,7 @@ import { Button, T } from '../components/ui';
 import { openTailscale, pair, PairError, type PairFailure } from '../lib/pairing';
 import { adopt } from '../lib/session';
 import { PAIRING_SCHEME } from '@shipstudio/companion-protocol';
+import { haptic } from '../lib/haptics';
 import { colors, radius, space } from '../lib/theme';
 import icon from '../../assets/icon.png';
 
@@ -46,14 +46,14 @@ export default function Pair() {
       try {
         const credentials = await pair(link, controller.signal);
         await adopt(credentials);
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        haptic.success();
         // Say how alerts work once, when there's a decision to make; not on a re-pair.
         const { status } = await Notifications.getPermissionsAsync();
         if (status === Notifications.PermissionStatus.UNDETERMINED) setPhase({ kind: 'alerts' });
         else router.replace('/agents');
       } catch (error) {
         if (controller.signal.aborted) return;
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        haptic.error();
         setPhase({
           kind: 'failed',
           link,

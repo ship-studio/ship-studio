@@ -2,12 +2,12 @@
 
 import { parsePairingLink } from '@shipstudio/companion-protocol';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, IconButton, T } from '../components/ui';
+import { haptic } from '../lib/haptics';
 import { colors, radius, space } from '../lib/theme';
 
 export default function Scan() {
@@ -24,7 +24,7 @@ export default function Scan() {
       return;
     }
     done.current = true;
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    haptic.success();
     router.dismissTo({ pathname: '/pair', params: { link: data } });
   };
 

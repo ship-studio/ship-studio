@@ -14,7 +14,7 @@ import { extensionOf, formatSize, isPreviewableImage, preview, share } from '../
 import { attachmentSource, describeError, download } from '../lib/session';
 import { colors, radius, space } from '../lib/theme';
 import { Spinner } from './agent';
-import { choose, T, tap } from './ui';
+import { choose, T } from './ui';
 
 /** Either a file on the Mac, or (before the Mac has it) the phone's own copy. */
 export type Shown = Attachment & { localUri?: string };
@@ -80,7 +80,6 @@ function Thumb({
       accessibilityLabel={`${file.name}, image`}
       disabled={!!file.localUri}
       onPress={() => {
-        tap();
         router.push({
           pathname: '/viewer',
           params: { agentId, path: file.path, name: file.name, mime: file.mime },
@@ -140,10 +139,7 @@ export function FileChip({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${file.name}, ${formatSize(file.size)}. Opens in Quick Look`}
-      onPress={() => {
-        tap();
-        void run('open');
-      }}
+      onPress={() => void run('open')}
       onLongPress={() =>
         choose(file.name, [
           { label: 'Open', run: () => void run('open') },

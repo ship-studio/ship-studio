@@ -51,7 +51,16 @@ export function AgentAvatar({
       accessible={false}
     >
       <T
-        style={{ fontFamily: fonts.semibold, fontSize: Math.round(size * 0.36), lineHeight: size }}
+        // Sized to the tile, not to Dynamic Type: the tile doesn't grow, so the
+        // letters can't either (they were clipped out of it at AX sizes).
+        allowFontScaling={false}
+        style={{
+          fontFamily: fonts.semibold,
+          fontSize: Math.round(size * 0.36),
+          lineHeight: Math.round(size * 0.48),
+          textAlign: 'center',
+          includeFontPadding: false,
+        }}
         color={mix(tint, colors.textPrimary, 0.7)}
       >
         {distinctInitials(name, names ? names.split('\n') : [])}
@@ -60,8 +69,18 @@ export function AgentAvatar({
   );
 }
 
-export function StatusMark({ agent }: { agent: Agent }) {
+/**
+ * `live` false: the Mac isn't answering, so this is only the last thing it
+ * said. Marks go grey and nothing turns: a spinner would claim work we can't
+ * see.
+ */
+export function StatusMark({ agent, live = true }: { agent: Agent; live?: boolean }) {
   const failure = failedTurn(agent);
+  if (!live) {
+    if (agent.status.state === 'working') return <View style={styles.wasWorking} />;
+    if (needsYou(agent) || failure || agent.unread > 0) return <Dot color={colors.textMuted} />;
+    return null;
+  }
   if (needsYou(agent)) return <Dot color={colors.accentWarning} glow />;
   if (agent.status.state === 'working') return <Spinner />;
   if (failure) {
@@ -107,4 +126,12 @@ export function Spinner({
 
 const styles = StyleSheet.create({
   avatar: { alignItems: 'center', justifyContent: 'center' },
+  // A still ring: "it was working when we last heard".
+  wasWorking: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.textMuted,
+  },
 });

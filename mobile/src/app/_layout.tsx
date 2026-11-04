@@ -8,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { MenuHost } from '../components/menu';
 import { boot, watchLifecycle } from '../lib/session';
 import { useApp } from '../lib/store';
 import { sheet, stackOptions } from '../lib/navigation';
@@ -93,6 +94,7 @@ export default function RootLayout() {
             />
             <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           </Stack>
+          <MenuHost />
         </ThemeProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>

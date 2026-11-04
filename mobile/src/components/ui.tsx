@@ -1,10 +1,10 @@
 /**
  * The few primitives every screen shares: text in the type scale, the
  * semantic button family (primary / secondary / ghost / danger, as on the
- * desktop), an SF Symbol, and the status dot.
+ * desktop), an icon (SF Symbol on iOS, Material Symbol on Android), and the
+ * status dot. Every control is at least 44pt to touch, whatever it draws.
  */
 
-import * as Haptics from 'expo-haptics';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { ReactNode } from 'react';
 import {
@@ -21,8 +21,20 @@ import {
   type TextProps,
   type ViewStyle,
 } from 'react-native';
-import { alpha, colors, fonts, lineHeight, radius, space, type } from '../lib/theme';
+import { alpha, chromeScale, colors, fonts, lineHeight, radius, space, type } from '../lib/theme';
 import type { Tone } from '../lib/connection';
+import { haptic } from '../lib/haptics';
+import { useApp } from '../lib/store';
+
+/** Ripple for Android presses; iOS uses its pressed tints. */
+export const ripple = { color: alpha(colors.textWhite, 0.08) };
+
+/** Increase Contrast: each step of grey reads one step brighter. */
+const brighter: Record<string, string> = {
+  [colors.textMuted]: colors.textSecondary,
+  [colors.textSecondary]: colors.textPrimary,
+  [colors.textPrimary]: colors.textWhite,
+};
 
 type Variant = 'body' | 'small' | 'caption' | 'subhead' | 'title' | 'display' | 'mono';
 
@@ -59,10 +71,17 @@ export function T({
   style,
   ...rest
 }: TextProps & { variant?: Variant; color?: string }) {
-  return <Text {...rest} style={[variants[variant], { color }, style]} />;
+  const high = useApp((s) => s.highContrast);
+  return (
+    <Text
+      {...rest}
+      style={[variants[variant], { color: (high && brighter[color]) || color }, style]}
+    />
+  );
 }
 
-export const tap = () => void Haptics.selectionAsync();
+/** A toggle flipped: the one tap that earns a haptic by itself. */
+export const tap = haptic.select;
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
@@ -100,24 +119,24 @@ export function Button({
   variant?: ButtonVariant;
   size?: 'default' | 'large' | 'compact';
   busy?: boolean;
-  icon?: SymbolViewProps['name'];
+  icon?: SFName;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = buttonColors[variant];
-  const height = size === 'large' ? 50 : size === 'compact' ? 32 : 40;
+  const height = size === 'large' ? 50 : size === 'compact' ? 32 : 44;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
+      accessibilityState={{ disabled: !!(disabled || busy), busy }}
       disabled={disabled || busy}
-      onPress={(e) => {
-        tap();
-        onPress?.(e);
-      }}
+      onPress={onPress}
+      android_ripple={ripple}
+      hitSlop={size === 'compact' ? 6 : undefined}
       style={({ pressed }) => [
         styles.button,
         {
-          height,
+          minHeight: height,
           paddingHorizontal: size === 'compact' ? space.md : space.lg,
           backgroundColor: pressed ? c.pressed : c.bg,
           borderColor: c.border ?? 'transparent',
@@ -133,7 +152,12 @@ export function Button({
       ) : (
         <>
           {icon && <Icon name={icon} size={16} color={c.fg} />}
-          <T variant={size === 'compact' ? 'small' : 'subhead'} color={c.fg} numberOfLines={1}>
+          <T
+            variant={size === 'compact' ? 'small' : 'subhead'}
+            color={c.fg}
+            numberOfLines={1}
+            maxFontSizeMultiplier={chromeScale}
+          >
             {title}
           </T>
         </>
@@ -142,20 +166,76 @@ export function Button({
   );
 }
 
-/** An SF Symbol on iOS; on Android, the fallback (or nothing). */
+type SFName = Extract<SymbolViewProps['name'], string>;
+
+/**
+ * Each SF Symbol the app draws, as the Material Symbol Android draws in its
+ * place. One map, so no icon quietly vanishes on Android.
+ */
+const MATERIAL: Partial<Record<SFName, string>> = {
+  'arrow.up': 'arrow_upward',
+  'arrow.down': 'arrow_downward',
+  'arrow.clockwise': 'refresh',
+  'arrow.trianglehead.2.clockwise': 'sync',
+  'arrow.uturn.left': 'undo',
+  bell: 'notifications',
+  'bell.slash': 'notifications_off',
+  'bell.slash.fill': 'notifications_off',
+  'chevron.right': 'chevron_right',
+  'chevron.down': 'expand_more',
+  clock: 'schedule',
+  'doc.on.doc': 'content_copy',
+  'doc.on.clipboard': 'content_paste',
+  'doc.text': 'description',
+  ellipsis: 'more_horiz',
+  'exclamationmark.circle': 'error',
+  'exclamationmark.triangle.fill': 'warning',
+  eye: 'visibility',
+  'eye.slash': 'visibility_off',
+  'folder.fill': 'folder',
+  gearshape: 'settings',
+  'info.circle': 'info',
+  iphone: 'smartphone',
+  'message.badge': 'mark_chat_unread',
+  pin: 'keep',
+  'pin.fill': 'keep',
+  'pin.slash': 'keep_off',
+  plus: 'add',
+  'qrcode.viewfinder': 'qr_code_scanner',
+  'selection.pin.in.out': 'select_all',
+  'stop.fill': 'stop',
+  terminal: 'terminal',
+  'text.badge.checkmark': 'markdown',
+  'text.quote': 'format_quote',
+  'tray.and.arrow.up': 'outbox',
+  xmark: 'close',
+};
+
+/** An SF Symbol on iOS, its Material Symbol on Android; `fallback` if neither exists. */
 export function Icon({
   name,
   size = 18,
   color = colors.textSecondary,
   fallback,
 }: {
-  name: SymbolViewProps['name'];
+  name: SFName;
   size?: number;
   color?: string;
   fallback?: ReactNode;
 }) {
-  if (Platform.OS !== 'ios') return <>{fallback ?? null}</>;
-  return <SymbolView name={name} size={size} tintColor={color} weight="medium" />;
+  if (Platform.OS === 'ios') {
+    return <SymbolView name={name} size={size} tintColor={color} weight="medium" />;
+  }
+  const material = MATERIAL[name];
+  if (!material) return <>{fallback ?? null}</>;
+  return (
+    <SymbolView
+      name={{ android: material as never }}
+      size={size}
+      tintColor={color}
+      fallback={fallback}
+    />
+  );
 }
 
 export function IconButton({
@@ -166,7 +246,7 @@ export function IconButton({
   size = 18,
   fallback,
 }: {
-  name: SymbolViewProps['name'];
+  name: SFName;
   label: string;
   onPress: () => void;
   color?: string;
@@ -177,11 +257,9 @@ export function IconButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      hitSlop={8}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
+      hitSlop={4}
+      onPress={onPress}
+      android_ripple={{ ...ripple, borderless: true, radius: 22 }}
       style={({ pressed }) => [
         styles.iconButton,
         pressed && { backgroundColor: colors.surfaceControl },
@@ -241,7 +319,13 @@ export function Section({
   return (
     <View style={styles.section}>
       {title && (
-        <T variant="caption" color={colors.textMuted} style={styles.sectionTitle}>
+        <T
+          variant="caption"
+          color={colors.textMuted}
+          style={styles.sectionTitle}
+          maxFontSizeMultiplier={chromeScale}
+          accessibilityRole="header"
+        >
           {title.toUpperCase()}
         </T>
       )}
@@ -262,6 +346,7 @@ export function Row({
   onPress,
   last,
   destructive,
+  trailing,
 }: {
   label: string;
   value?: string;
@@ -269,14 +354,15 @@ export function Row({
   onPress?: () => void;
   last?: boolean;
   destructive?: boolean;
+  /** A control in place of the chevron, such as a Switch. */
+  trailing?: ReactNode;
 }) {
   return (
     <Pressable
       disabled={!onPress}
-      onPress={() => {
-        tap();
-        onPress?.();
-      }}
+      onPress={onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      android_ripple={onPress ? ripple : undefined}
       style={({ pressed }) => [
         styles.row,
         !last && styles.rowDivider,
@@ -288,11 +374,14 @@ export function Row({
         {label}
       </T>
       {value != null && (
-        <T color={colors.textMuted} numberOfLines={1} style={styles.rowValue}>
+        <T color={colors.textSecondary} numberOfLines={1} style={styles.rowValue}>
           {value}
         </T>
       )}
-      {onPress && !destructive && <Icon name="chevron.right" size={12} color={colors.textFaint} />}
+      {trailing}
+      {onPress && !destructive && !trailing && (
+        <Icon name="chevron.right" size={12} color={colors.textMuted} />
+      )}
     </Pressable>
   );
 }
@@ -376,7 +465,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flex: 1,
-    height: 30,
+    minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.lg - 2,
@@ -389,10 +478,12 @@ const styles = StyleSheet.create({
     gap: space.sm,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth * 2,
+    paddingVertical: space.xs,
+    overflow: 'hidden',
   },
   iconButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',

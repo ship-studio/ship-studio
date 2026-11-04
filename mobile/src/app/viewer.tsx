@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner } from '../components/agent';
-import { T, tap } from '../components/ui';
+import { T } from '../components/ui';
 import { share } from '../lib/files';
 import { attachmentSource, describeError, download } from '../lib/session';
 import { colors, radius, space } from '../lib/theme';
@@ -29,7 +29,6 @@ export default function Viewer() {
   const [error, setError] = useState<string | null>(null);
 
   const doShare = async () => {
-    tap();
     setSharing(true);
     try {
       await share(await download({ agentId, path }), mime);

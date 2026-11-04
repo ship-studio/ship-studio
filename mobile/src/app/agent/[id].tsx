@@ -17,7 +17,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { AgentAvatar } from '../../components/agent';
 import { useNow } from '../../components/ConnectionPill';
-import { Button, choose, Icon, Row, T, tap } from '../../components/ui';
+import { Button, choose, Icon, Row, T } from '../../components/ui';
 import { folderName } from '../../lib/agents';
 import { canCall, describeError, schedule } from '../../lib/session';
 import { useApp } from '../../lib/store';
@@ -170,10 +170,7 @@ function CheckInRow({
   return (
     <Pressable
       disabled={!enabled || busy}
-      onPress={() => {
-        tap();
-        menu();
-      }}
+      onPress={menu}
       accessibilityRole="button"
       accessibilityHint="Run now, pause, edit or cancel"
       style={({ pressed }) => [
@@ -185,13 +182,13 @@ function CheckInRow({
       <Icon
         name={c.repeat ? 'arrow.trianglehead.2.clockwise' : 'clock'}
         size={14}
-        color={c.paused ? colors.textFaint : colors.textSecondary}
+        color={c.paused ? colors.textMuted : colors.textSecondary}
       />
       <View style={{ flex: 1, gap: space['2xs'] }}>
         <T color={c.paused ? colors.textMuted : colors.textWhite} numberOfLines={2}>
           {c.note}
         </T>
-        <T variant="caption" color={c.paused ? colors.textFaint : colors.textMuted}>
+        <T variant="caption" color={colors.textSecondary}>
           {describeCheckInTime(c, now)}
         </T>
       </View>

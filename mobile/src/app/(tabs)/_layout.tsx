@@ -32,12 +32,13 @@ export default function TabsLayout() {
           md="forum"
         />
         <NativeTabs.Trigger.Label>Agents</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Badge hidden={!waiting}>{String(waiting)}</NativeTabs.Trigger.Badge>
+        {waiting > 0 && <NativeTabs.Trigger.Badge>{String(waiting)}</NativeTabs.Trigger.Badge>}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="projects">
         <NativeTabs.Trigger.Icon sf={{ default: 'folder', selected: 'folder.fill' }} md="folder" />
         <NativeTabs.Trigger.Label>Projects</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Badge hidden={!asking}>{String(asking)}</NativeTabs.Trigger.Badge>
+        {/* Rendered only when there's a count: a hidden badge could linger as "0". */}
+        {asking > 0 && <NativeTabs.Trigger.Badge>{String(asking)}</NativeTabs.Trigger.Badge>}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="search" role="search">
         <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />

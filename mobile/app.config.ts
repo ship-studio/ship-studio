@@ -20,7 +20,8 @@ export default (): ExpoConfig => ({
   slug: 'shipstudio-companion',
   scheme: 'shipstudio-companion',
   version: '0.1.0',
-  orientation: 'portrait',
+  // Landscape and iPad: the Agents list and a chat sit side by side when there's room.
+  orientation: 'default',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
   backgroundColor: SURFACE_APP,
@@ -30,7 +31,7 @@ export default (): ExpoConfig => ({
     : { enabled: false },
   ios: {
     bundleIdentifier: bundleId,
-    supportsTablet: false,
+    supportsTablet: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       // So the app can tell whether the Tailscale app is installed before opening it.
@@ -40,7 +41,7 @@ export default (): ExpoConfig => ({
   android: {
     package: bundleId,
     adaptiveIcon: { foregroundImage: './assets/icon.png', backgroundColor: SURFACE_APP },
-    predictiveBackGestureEnabled: false,
+    predictiveBackGestureEnabled: true,
   },
   plugins: [
     'expo-router',
