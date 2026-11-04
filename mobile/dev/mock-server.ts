@@ -160,6 +160,7 @@ export function createMockServer(opts: MockOptions = {}) {
   }
 
   const projects: ProjectSummary[] = seedProjects(now);
+  const instructions = new Map<string, string>();
   const screens = new Map<string, string>(seedScreens());
   const sessionClientIds = new Map<string, string>();
   const findSession = (id: string) =>
@@ -238,6 +239,26 @@ export function createMockServer(opts: MockOptions = {}) {
         text: 'Phone',
         attachments: [shot],
         session: { project, event: 'screenshot' },
+      },
+      {
+        id: id(7),
+        agentId: 'site',
+        ts: at - 3 * 60_000 - 1000,
+        kind: 'changes',
+        text: '',
+        changes: {
+          project,
+          branch: 'feature/hero',
+          from: 'a1b2c3d',
+          to: 'e4f5a6b',
+          files: [
+            { path: 'src/components/Hero.tsx', status: 'modified', added: 3, removed: 2 },
+            { path: 'src/styles/hero.css', status: 'added', added: 12, removed: 0 },
+          ],
+          fileCount: 2,
+          added: 15,
+          removed: 2,
+        },
       },
       {
         id: id(6),
@@ -712,14 +733,15 @@ export function createMockServer(opts: MockOptions = {}) {
       const a = agent(String(p.agentId));
       if (!a) return fail({ type: 'Validation', field: 'agentId', reason: 'No such agent' });
       const input = (p.input ?? {}) as Record<string, unknown>;
-      const allowed = ['pinned', 'muted', 'hidden'];
+      const allowed = ['pinned', 'muted', 'hidden', 'instructions'];
       if (!Object.keys(input).length || Object.keys(input).some((k) => !allowed.includes(k))) {
         return fail({
           type: 'Protocol',
           code: 'bad_params',
-          message: 'Only pin, mute and hide can be changed from the phone.',
+          message: 'Only pin, mute, hide and the instructions can be changed from the phone.',
         });
       }
+      if (typeof input.instructions === 'string') instructions.set(a.id, input.instructions);
       if (typeof input.pinned === 'boolean') a.pinned = input.pinned;
       if (typeof input.muted === 'boolean') a.muted = input.muted;
       if (typeof input.hidden === 'boolean') a.hidden = input.hidden;
@@ -780,6 +802,106 @@ export function createMockServer(opts: MockOptions = {}) {
         3000
       ).unref();
       return null;
+    },
+    'agents.instructions': (p) => {
+      const a = agent(String(p.agentId));
+      if (!a) return fail({ type: 'Validation', field: 'agentId', reason: 'No such agent' });
+      return (
+        instructions.get(a.id) ??
+        `# ${a.name}\n\n${a.role}. Keep replies short and say what changed.`
+      );
+    },
+    'agents.usage': (p) => {
+      const a = agent(String(p.agentId));
+      if (!a) return fail({ type: 'Validation', field: 'agentId', reason: 'No such agent' });
+      const totals = (turns: number) => ({
+        turns,
+        inputTokens: turns * 4_200,
+        outputTokens: turns * 900,
+        cacheReadTokens: turns * 38_000,
+        cacheWriteTokens: turns * 2_100,
+        costUsd: Math.round(turns * 0.137 * 100) / 100,
+        pricedTurns: turns,
+        durationMs: turns * 41_000,
+      });
+      return { week: totals(a.isMain ? 23 : 6), allTime: totals(a.isMain ? 412 : 57) };
+    },
+    'agents.revokePermission': (p) => {
+      const a = agent(String(p.agentId));
+      if (!a) return fail({ type: 'Validation', field: 'agentId', reason: 'No such agent' });
+      a.permissions = (a.permissions ?? []).filter((r) => r.id !== p.ruleId);
+      emit({ type: 'agents.registry', overview: overview() });
+      return null;
+    },
+    'agents.changeDiff': (p) => {
+      const card = (messages.get(String(p.agentId)) ?? []).find((m) => m.id === p.messageId);
+      const file = card?.changes?.files.find((f) => f.path === p.path);
+      if (!file) return fail({ type: 'Other', message: 'That change card no longer exists.' });
+      const content =
+        file.status === 'added'
+          ? `@@ -0,0 +1,4 @@\n+.hero {\n+  padding-block: 1.5rem 2.5rem;\n+}\n+@media (min-width: 640px) { .hero { padding-block: 6rem 5rem; } }\n`
+          : `@@ -18,7 +18,8 @@ export function Hero() {\n   return (\n-      <section className="pt-24 pb-20">\n-        <h1 className="text-6xl">Ship faster</h1>\n+      <section className="hero">\n+        <h1 className="text-4xl sm:text-6xl">Ship faster</h1>\n+        <CTA className="mt-6" />\n       </section>\n   );\n }\n`;
+      return {
+        filePath: file.path,
+        isNewFile: file.status === 'added',
+        isDeleted: file.status === 'deleted',
+        isBinary: false,
+        content,
+        additions: file.added ?? 0,
+        deletions: file.removed ?? 0,
+      };
+    },
+    'sessions.start': (p) => {
+      const project = projects.find((x) => x.path === p.project);
+      if (!project) return fail({ type: 'Other', message: 'No such project.' });
+      const prompt = typeof p.prompt === 'string' ? p.prompt.trim() : '';
+      if (!prompt)
+        return fail({ type: 'Validation', field: 'prompt', reason: 'The prompt is empty.' });
+      const known = sessionClientIds.get(`start:${String(p.clientId)}`);
+      if (known) return { sessionId: known };
+      const sessionId = `pty-${randomUUID().slice(0, 6)}`;
+      sessionClientIds.set(`start:${String(p.clientId)}`, sessionId);
+      const tab = Math.max(0, ...project.sessions.map((x) => x.tab)) + 1;
+      project.sessions = [
+        {
+          sessionId,
+          tab,
+          cli: 'claude',
+          state: 'working',
+          activity: 'Thinking…',
+          lastOutputAt: Date.now(),
+        },
+        ...project.sessions,
+      ];
+      screens.set(sessionId, `> ${prompt}\n\n✻ Thinking…`);
+      emit({ type: 'projects.changed', project: structuredClone(project) });
+      setTimeout(() => {
+        screens.set(
+          sessionId,
+          `> ${prompt}\n\n⏺ Done. I read the project and I’m ready for the next step.`
+        );
+        setSession(sessionId, { state: 'finished', activity: undefined });
+      }, 3000).unref();
+      return { sessionId };
+    },
+    'preview.screenshot': (p, c) => {
+      const project = projects.find((x) => x.path === p.project);
+      if (!project) return fail({ type: 'Other', message: 'No such project.' });
+      const bytes = siteScreenshot();
+      const blobId = `blob_${randomUUID().replace(/-/g, '')}`;
+      const ref: BlobRef = {
+        blobId,
+        name: `${project.name}-${String(p.device)}.png`,
+        mime: 'image/png',
+        size: bytes.length,
+      };
+      blobs.set(blobId, {
+        ...ref,
+        bytes,
+        deviceId: c.deviceId,
+        expiresAt: Date.now() + BLOB_TTL_MS,
+      });
+      return ref;
     },
     'agents.markUnread': (p) => {
       const a = agent(String(p.agentId));
@@ -1154,6 +1276,22 @@ function seedAgents(now: number): Agent[] {
     }),
     base('site', 'Acme Site', 'Marketing site', 'blue', {
       lastActivityAt: now - 2 * 60_000,
+      permissions: [
+        {
+          id: 'rule_build',
+          kind: 'command_prefix',
+          value: 'pnpm build',
+          label: 'pnpm build',
+          createdAt: now - 6 * 86_400_000,
+        },
+        {
+          id: 'rule_docs',
+          kind: 'domain',
+          value: 'nextjs.org',
+          label: 'nextjs.org',
+          createdAt: now - 2 * 86_400_000,
+        },
+      ],
       unread: 2,
       preview: 'Hero copy is updated on staging.',
     }),
@@ -1252,6 +1390,14 @@ function seedMessages(a: Agent, now: number): AgentMessage[] {
 }
 
 function replyFor(prompt: string): string {
+  if (/\blong\b/i.test(prompt)) {
+    const para = (n: number) =>
+      `**Part ${n}.** The hero, the pricing table and the footer each set their own spacing, so a change in one never reaches the others. I moved all three onto the same scale, checked them at 390, 768 and 1280 px, and kept every breakpoint’s line length under 72 characters so nothing reflows awkwardly on a phone.`;
+    return (
+      [1, 2, 3, 4, 5, 6, 7, 8].map(para).join('\n\n') +
+      '\n\nThat’s everything; review it when you’re ready.'
+    );
+  }
   if (/deploy/i.test(prompt)) {
     return 'Deployed. **Production** is on `a41f9c2`:\n\n- Build: 38 s\n- Checks: all green\n- URL: https://acme.example\n\nI’ll watch the error rate for the next hour.';
   }
@@ -1346,6 +1492,16 @@ function seedScreens(): [string, string][] {
         '> Make the header sticky on scroll.',
         '',
         '⏺ Update(src/components/Header.tsx)',
+        '',
+        '╭───────────────────────────────────────────────────────────────╮',
+        '│ src/components/Header.tsx                                     │',
+        '│                                                               │',
+        '│ 12   export function Header() {                               │',
+        '│ 13 -   return <header className="py-4">                       │',
+        '│ 13 +   return (                                               │',
+        '│ 14 +     <header className="sticky top-0 z-10 py-4 backdrop-blur">│',
+        '│ 15       <Logo />                                             │',
+        '╰───────────────────────────────────────────────────────────────╯',
         '',
         '  Do you want to make this edit to Header.tsx?',
         '  ❯ 1. Yes',

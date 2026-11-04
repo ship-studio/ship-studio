@@ -1,8 +1,10 @@
 /**
- * The agent sheet: who it is, its Files, and its check-ins and routines,
- * each one a tap from Run now, Pause, Edit or Cancel, the same four the
- * desktop offers. The list is the Mac's, live: whatever changes it, here or
- * at the desk, arrives with the next registry event.
+ * The agent sheet: who it is; its instructions, Files and usage; Pin, Mute
+ * and Hide without a gesture; what it may do without asking (each "Always
+ * allow" revocable); and its check-ins and routines, each one a tap from
+ * Run now, Pause, Edit or Cancel, the same four the desktop offers. The
+ * lists are the Mac's, live: whatever changes them, here or at the desk,
+ * arrives with the next registry event.
  */
 
 import {
@@ -10,16 +12,26 @@ import {
   sortCheckIns,
   type Agent,
   type CheckIn,
+  type PermissionRule,
+  type UsageSummary,
 } from '@shipstudio/companion-protocol';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { AgentAvatar } from '../../components/agent';
 import { useNow } from '../../components/ConnectionPill';
 import { Button, choose, Icon, Row, T } from '../../components/ui';
-import { folderName } from '../../lib/agents';
-import { canCall, describeError, schedule } from '../../lib/session';
+import { describeScope, folderName, usageLine } from '../../lib/agents';
+import { haptic } from '../../lib/haptics';
+import {
+  canCall,
+  describeError,
+  readUsage,
+  revokePermission,
+  schedule,
+  setAgentToggles,
+} from '../../lib/session';
 import { useApp } from '../../lib/store';
 import { colors, radius, space } from '../../lib/theme';
 
@@ -28,7 +40,21 @@ export default function AgentSheet() {
   const router = useRouter();
   const agent = useApp((s) => s.overview?.agents.find((a) => a.id === id));
   const welcome = useApp((s) => s.welcome);
+  const live = useApp((s) => s.link.kind === 'connected');
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const servesUsage = canCall('agents.usage', welcome);
+  useEffect(() => {
+    if (!servesUsage || !live) return;
+    let on = true;
+    readUsage(id).then(
+      (u) => on && setUsage(u),
+      () => {}
+    );
+    return () => {
+      on = false;
+    };
+  }, [id, servesUsage, live]);
   if (!agent) return null;
   const canSchedule = canCall('agents.schedule.create', welcome);
   const checkIns = sortCheckIns(agent.checkIns ?? []);
@@ -57,15 +83,67 @@ export default function AgentSheet() {
         </View>
       </View>
 
-      {canCall('agents.files', welcome) && (
-        <View style={styles.list}>
+      <View style={styles.list}>
+        {canCall('agents.instructions', welcome) && (
+          <Row
+            label="Instructions"
+            leading={<Icon name="text.alignleft" size={15} color={colors.textSecondary} />}
+            onPress={() => router.push({ pathname: '/instructions', params: { id } })}
+          />
+        )}
+        {canCall('agents.files', welcome) && (
           <Row
             label="Files"
             leading={<Icon name="doc.on.doc" size={15} color={colors.textSecondary} />}
             onPress={() => router.push({ pathname: '/files/[id]', params: { id } })}
+          />
+        )}
+        <Toggle agent={agent} field="pinned" label="Pinned" enabled={live} onError={setError} />
+        <Toggle
+          agent={agent}
+          field="muted"
+          label="Muted"
+          enabled={live}
+          onError={setError}
+          last={agent.isMain}
+        />
+        {!agent.isMain && (
+          <Toggle
+            agent={agent}
+            field="hidden"
+            label="Hidden"
+            enabled={live}
+            onError={setError}
             last
           />
-        </View>
+        )}
+      </View>
+
+      {usage && <Usage usage={usage} />}
+
+      {!!agent.permissions?.length && (
+        <>
+          <T variant="caption" color={colors.textMuted} style={styles.sectionTitle}>
+            ALLOWED WITHOUT ASKING
+          </T>
+          <View style={styles.list}>
+            {agent.permissions.map((rule, i) => (
+              <Animated.View
+                key={rule.id}
+                exiting={FadeOut.duration(150)}
+                layout={LinearTransition.springify().damping(20)}
+              >
+                <PermissionRow
+                  agent={agent}
+                  rule={rule}
+                  first={i === 0}
+                  enabled={live && canCall('agents.revokePermission', welcome)}
+                  onError={setError}
+                />
+              </Animated.View>
+            ))}
+          </View>
+        </>
       )}
 
       <View style={styles.sectionHead}>
@@ -194,6 +272,127 @@ function CheckInRow({
       </View>
       {busy ? null : <Icon name="ellipsis" size={14} color={colors.textMuted} />}
     </Pressable>
+  );
+}
+
+/** Pin, Mute or Hide as a switch: the path that needs no gesture. */
+function Toggle({
+  agent,
+  field,
+  label,
+  enabled,
+  onError,
+  last,
+}: {
+  agent: Agent;
+  field: 'pinned' | 'muted' | 'hidden';
+  label: string;
+  enabled: boolean;
+  onError: (text: string | null) => void;
+  last?: boolean;
+}) {
+  return (
+    <Row
+      label={label}
+      last={last}
+      trailing={
+        <Switch
+          value={agent[field]}
+          disabled={!enabled}
+          accessibilityLabel={label}
+          onValueChange={(on) => {
+            haptic.select();
+            onError(null);
+            setAgentToggles(agent.id, { [field]: on }).catch((e: unknown) =>
+              onError(describeError(e))
+            );
+          }}
+        />
+      }
+    />
+  );
+}
+
+/** What a rule lets it do without asking, and Revoke. */
+function PermissionRow({
+  agent,
+  rule,
+  first,
+  enabled,
+  onError,
+}: {
+  agent: Agent;
+  rule: PermissionRule;
+  first: boolean;
+  enabled: boolean;
+  onError: (text: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const revoke = () =>
+    Alert.alert(`Revoke “${rule.label}”?`, `${agent.name} asks again before it does this.`, [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Revoke',
+        style: 'destructive',
+        onPress: () => {
+          setBusy(true);
+          onError(null);
+          revokePermission(agent.id, rule.id)
+            .then(() => haptic.warning())
+            .catch((e: unknown) => {
+              haptic.error();
+              onError(describeError(e));
+            })
+            .finally(() => setBusy(false));
+        },
+      },
+    ]);
+  return (
+    <View style={[styles.row, !first && styles.divider]}>
+      <View style={{ flex: 1, gap: space['2xs'] }}>
+        <T variant="mono" color={colors.textWhite} numberOfLines={2}>
+          {rule.label}
+        </T>
+        <T variant="caption" color={colors.textSecondary}>
+          {describeScope(rule, agent.name, false)}
+        </T>
+      </View>
+      <Button
+        title="Revoke"
+        size="compact"
+        variant="ghost"
+        busy={busy}
+        disabled={!enabled}
+        onPress={revoke}
+      />
+    </View>
+  );
+}
+
+function Usage({ usage }: { usage: UsageSummary }) {
+  return (
+    <>
+      <T variant="caption" color={colors.textMuted} style={styles.sectionTitle}>
+        USAGE
+      </T>
+      <View style={styles.list}>
+        {(
+          [
+            ['This week', usage.week],
+            ['All time', usage.allTime],
+          ] as const
+        ).map(([label, totals], i) => (
+          <View key={label} style={[styles.row, i > 0 && styles.divider]}>
+            <View style={{ flex: 1, gap: space['2xs'] }}>
+              <T color={colors.textPrimary}>{label}</T>
+              <T variant="small" color={colors.textSecondary}>
+                {usageLine(totals)}
+              </T>
+            </View>
+          </View>
+        ))}
+      </View>
+    </>
   );
 }
 

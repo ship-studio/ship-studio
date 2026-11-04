@@ -2,7 +2,8 @@
  * Projects on the Mac and their session tabs, each with its state as
  * Remote Access reads it: anything waiting on a decision first. The Mac
  * sends each change as it happens (`projects.changed`); pull to re-read.
- * Tap a tab to watch it, answer it, or type to it.
+ * Tap a tab to watch it, answer it, or type to it; start a new one; or
+ * photograph the project's live preview.
  */
 
 import type { ProjectSummary, SessionSummary } from '@shipstudio/companion-protocol';
@@ -13,9 +14,10 @@ import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { Spinner } from '../../../components/agent';
 import { ConnectionNotice, useNow } from '../../../components/ConnectionPill';
 import { SessionState, tabName } from '../../../components/session';
-import { Icon, ripple, T } from '../../../components/ui';
+import { Button, choose, Icon, ripple, T } from '../../../components/ui';
 import { formatAgo } from '../../../lib/agents';
-import { canCall, describeError, refreshProjects } from '../../../lib/session';
+import { haptic } from '../../../lib/haptics';
+import { canCall, describeError, previewScreenshot, refreshProjects } from '../../../lib/session';
 import { useApp } from '../../../lib/store';
 import { colors, radius, space } from '../../../lib/theme';
 
@@ -85,7 +87,7 @@ export default function Projects() {
             No projects on {macName} yet.
           </T>
         ) : (
-          sorted.map((p) => <ProjectCard key={p.path} project={p} />)
+          sorted.map((p) => <ProjectCard key={p.path} project={p} onError={setError} />)
         )}
         {error && (
           <T variant="small" color={colors.accentErrorLight} style={styles.note}>
@@ -97,7 +99,42 @@ export default function Projects() {
   );
 }
 
-function ProjectCard({ project }: { project: ProjectSummary }) {
+function ProjectCard({
+  project,
+  onError,
+}: {
+  project: ProjectSummary;
+  onError: (text: string | null) => void;
+}) {
+  const router = useRouter();
+  const live = useApp((s) => s.link.kind === 'connected');
+  const canStart = useApp((s) => canCall('sessions.start', s.welcome));
+  const canShoot = useApp((s) => canCall('preview.screenshot', s.welcome));
+  const [shooting, setShooting] = useState(false);
+
+  const shoot = () =>
+    choose('Screenshot the preview', [
+      { label: 'Desktop', run: () => void take('desktop') },
+      { label: 'Phone', run: () => void take('phone') },
+    ]);
+  const take = async (device: 'desktop' | 'phone') => {
+    setShooting(true);
+    onError(null);
+    try {
+      const shot = await previewScreenshot(project.path, device);
+      haptic.success();
+      router.push({
+        pathname: '/viewer',
+        params: { uri: shot.uri, name: `${project.name} · ${device}`, mime: shot.mime },
+      });
+    } catch (e) {
+      haptic.error();
+      onError(describeError(e));
+    } finally {
+      setShooting(false);
+    }
+  };
+
   const meta = [
     project.branch,
     project.dirtyFiles ? `${project.dirtyFiles} uncommitted` : project.branch ? 'clean' : null,
@@ -126,6 +163,36 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
         project.sessions.map((s, i) => (
           <SessionRow key={s.sessionId} session={s} project={project} first={i === 0} />
         ))
+      )}
+      {(canStart || canShoot) && (
+        <View style={styles.tools}>
+          {canStart && (
+            <Button
+              title="New session"
+              icon="plus"
+              size="compact"
+              variant="ghost"
+              disabled={!live}
+              onPress={() =>
+                router.push({
+                  pathname: '/start',
+                  params: { project: project.path, name: project.name },
+                })
+              }
+            />
+          )}
+          {canShoot && (
+            <Button
+              title={shooting ? 'Taking screenshot…' : 'Screenshot'}
+              icon="camera"
+              size="compact"
+              variant="ghost"
+              busy={shooting}
+              disabled={!live}
+              onPress={shoot}
+            />
+          )}
+        </View>
       )}
     </Animated.View>
   );
@@ -212,4 +279,13 @@ const styles = StyleSheet.create({
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
   sessionText: { flex: 1, gap: space['2xs'] },
   sessionTop: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  tools: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSubtle,
+  },
 });

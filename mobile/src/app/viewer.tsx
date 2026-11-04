@@ -1,7 +1,8 @@
 /**
  * One image, full screen, on black: pinch to zoom, swipe down or Done to
- * close, Share to send it on. It shows the Mac's thumbnail at once and swaps
- * in the full file when that has loaded.
+ * close, Share to send it on. An attachment shows the Mac's thumbnail at
+ * once and swaps in the full file when that has loaded; a file already on
+ * the phone (`uri`, such as a preview screenshot) shows as it is.
  */
 
 import { Image } from 'expo-image';
@@ -19,19 +20,21 @@ export default function Viewer() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { agentId, path, name, mime } = useLocalSearchParams<{
-    agentId: string;
-    path: string;
+  const { agentId, path, name, mime, uri } = useLocalSearchParams<{
+    agentId?: string;
+    path?: string;
     name: string;
     mime: string;
+    uri?: string;
   }>();
+  const remote = agentId && path ? { agentId, path } : null;
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const doShare = async () => {
     setSharing(true);
     try {
-      await share(await download({ agentId, path }), mime);
+      await share(uri ?? (await download(remote!)), mime);
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -57,8 +60,8 @@ export default function Viewer() {
         }}
       >
         <Image
-          source={attachmentSource(agentId, path)}
-          placeholder={attachmentSource(agentId, path, 232)}
+          source={uri ? { uri } : remote && attachmentSource(remote.agentId, remote.path)}
+          placeholder={remote ? attachmentSource(remote.agentId, remote.path, 232) : undefined}
           placeholderContentFit="contain"
           style={{ width, height }}
           contentFit="contain"

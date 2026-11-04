@@ -807,7 +807,7 @@ first.
   Messages: hold for Copy, Copy as Markdown, Quote, Select Text. Message
   bodies are no longer selectable in place, so a hold is always the menu;
   Select Text opens a sheet where part of a message can be quoted or copied.
-- **`agents.update`** is served for `pinned`, `muted` and `hidden` only.
+- **`agents.update`** is served for `pinned`, `muted` and `hidden` (and, since round 2, `instructions`).
 - **Composer**: Send / Queue (with Send now and Stop beside it) / Stop, and
   no Stop while an approval waits. 44 pt targets. @mentions suggest the
   team as you type `@`; quotes sit above the field and are sent as `> `
@@ -836,6 +836,60 @@ first.
   predictive back on.
 - **Not done**: a streaming haptic (T3's throttled tick), Live Activities,
   dictation, and verification on Android or a real device.
+
+### Polish round 2: as built (critique 2)
+
+- **Motion.** The chat is an `Animated.FlatList` with `itemLayoutAnimation`
+  (220 ms): an approval card collapsing, a clock appearing or the working line
+  going glides the rows above instead of jumping them. The card animates its
+  own height; its buttons fade out and the outcome fades in.
+- **Streaming.** `lib/reveal.ts` reveals a reply one display frame at a time
+  (`requestAnimationFrame`, whatever is queued shown over ~260 ms, never under
+  45 chars/s). How far each reply got is kept by message id, so the finished
+  message carries on from its draft instead of snapping to the end. The header
+  says "Writing…" while text streams. Measured in Expo Go on the simulator:
+  16–17 ms between screen updates through the reveal (was 50–110 ms).
+- **Anchoring.** `maintainVisibleContentPosition` (`minIndexForVisible: 1`)
+  while scrolled up, or once a streaming reply is taller than 70% of the list:
+  what you're reading holds still, and a long reply keeps its first line put
+  and grows down. The jump button says "New reply" when one finished below.
+- **Approvals.** Answers are inert for 400 ms after a card appears (the desk's
+  anti-misclick), fading in as they arm; Return in "Deny with note" needs a
+  note. Commands scroll sideways instead of wrapping at hyphens. At AX sizes
+  the always-allow explanation folds behind "What does this cover?" and the
+  card's text stops at 2x, so the answers stay on screen.
+- **Notifications** (`lib/notify.ts`): grouped per agent (`threadIdentifier`,
+  as the relay's `thread-id`), one identifier per alert so repeats replace,
+  taken back when an approval is answered anywhere or a chat is read anywhere
+  (local and pushed), app icon badge = the desk's `badge_count`, all cleared on
+  Forget this Mac. Android gets "Needs you" (high) and "Replies" channels. A
+  tap waits for fonts and credentials, opens `at` the message, is handled once,
+  and replaces a chat already on top instead of stacking.
+- **VoiceOver/TalkBack**: `lib/a11y.ts` announces replies, approvals, failed
+  turns and toasts (not during replay).
+- **Stale state**: tab badges show only while connected. Uploaded attachments
+  are part of the draft (`drafts.ts`, kept 55 min, then dropped with a
+  sentence saying so).
+- **Forget this Mac offline** says the Mac keeps the phone until it can be
+  told; the revoke is queued in the keychain and finished on the next launch
+  or network change (`finishForgets`).
+- **Served now**: `agents.usage`, `agents.instructions`, `agents.revokePermission`,
+  `agents.changeDiff`, `sessions.start`, `preview.screenshot` (a private blob,
+  never a public link), and `agents.update` also takes `instructions`.
+  The agent sheet has Instructions (view and edit), Pin/Mute/Hide switches,
+  Usage and "Allowed without asking" with Revoke; change lines open a diff
+  sheet; Projects have New session and Screenshot; a session's question shows
+  the edit it's asking about, read off its screen, and its options wrap.
+- **Home**: a "1 needs you · 2 working" summary with Next, and a waiting row
+  says what it's asking when the saved chat knows. Quick actions
+  (`expo-quick-actions`, a no-op in Expo Go): "Needs you" and "New message to
+  Chief of Staff".
+- **Next (needs native targets, so a dev build and an Apple team):** a Home
+  and Lock Screen widget for the needs-you count (~3 days, WidgetKit + an App
+  Group the app writes on each sync); a Live Activity per working turn (~3–4
+  days, ActivityKit, and push-to-update through the relay for the background);
+  a share extension "Send to agent…" (~2–3 days, staged as an upload the next
+  time the app opens).
 
 ### P2: everything else in the chat, and projects
 

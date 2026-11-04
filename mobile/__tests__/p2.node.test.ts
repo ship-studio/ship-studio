@@ -262,14 +262,64 @@ describe('P2 against the mock Mac', () => {
     expect(events.some((e) => e.type === 'projects.changed')).toBe(true);
   });
 
-  it('pins, mutes and hides, and nothing else', async () => {
+  it('pins, mutes, hides and edits instructions, and nothing else', async () => {
     const qa = () => state.overview?.agents.find((a) => a.id === 'qa');
     await t.request('agents.update', { agentId: 'qa', input: { muted: true } });
     await until(() => qa()?.muted === true);
     await expect(
       t.request('agents.update', { agentId: 'qa', input: { name: 'Renamed' } })
-    ).rejects.toThrow(/pin, mute and hide/);
+    ).rejects.toThrow(/pin, mute, hide and the instructions/);
     await t.request('agents.update', { agentId: 'qa', input: { muted: false } });
     await until(() => qa()?.muted === false);
+  });
+
+  it('serves the agent sheet: instructions, usage and revoking a permission', async () => {
+    const site = () => state.overview?.agents.find((a) => a.id === 'site');
+    expect(await t.request('agents.instructions', { agentId: 'site' })).toMatch(/Acme Site/);
+    await t.request('agents.update', {
+      agentId: 'site',
+      input: { instructions: 'Ship it small.' },
+    });
+    expect(await t.request('agents.instructions', { agentId: 'site' })).toBe('Ship it small.');
+    const usage = await t.request('agents.usage', { agentId: 'site' });
+    expect(usage.week.turns).toBeGreaterThan(0);
+    await until(() => (site()?.permissions?.length ?? 0) === 2);
+    await t.request('agents.revokePermission', { agentId: 'site', ruleId: 'rule_build' });
+    await until(
+      () =>
+        site()
+          ?.permissions?.map((r) => r.id)
+          .join() === 'rule_docs'
+    );
+  });
+
+  it('opens a change card’s diff, starts a session and photographs a preview', async () => {
+    const diff = await t.request('agents.changeDiff', {
+      agentId: 'site',
+      messageId: 'site_p2_7',
+      path: 'src/components/Hero.tsx',
+    });
+    expect(diff.content).toMatch(/^@@/);
+    const project = '/Users/you/ShipStudio/acme-site';
+    const started = await t.request('sessions.start', {
+      project,
+      prompt: 'Add a footer',
+      clientId: 'st1',
+    });
+    const again = await t.request('sessions.start', {
+      project,
+      prompt: 'Add a footer',
+      clientId: 'st1',
+    });
+    expect(again.sessionId).toBe(started.sessionId);
+    await until(
+      () =>
+        state.projects?.some((p) => p.sessions.some((x) => x.sessionId === started.sessionId)) ??
+        false
+    );
+    const shot = await t.request('preview.screenshot', { project, device: 'phone' });
+    expect(shot.mime).toBe('image/png');
+    const local = await t.download({ blobId: shot.blobId });
+    expect(readFileSync(local).subarray(1, 4).toString()).toBe('PNG');
   });
 });

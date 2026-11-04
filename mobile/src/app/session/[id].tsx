@@ -21,10 +21,12 @@ import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner } from '../../components/agent';
+import { DiffLines } from '../../components/diff';
 import { useNow } from '../../components/ConnectionPill';
 import { SessionState, tabName } from '../../components/session';
 import { Button, Icon, ripple, T } from '../../components/ui';
 import { formatAgo } from '../../lib/agents';
+import { questionContext } from '../../lib/diff';
 import { haptic } from '../../lib/haptics';
 import {
   canCall,
@@ -118,6 +120,8 @@ export default function Session() {
 
   const title = [project, data ? tabName(data.session) : tab].filter(Boolean).join(' · ');
   const question = data?.session.question;
+  // What it's asking about (an edit's diff, a command), read off its screen.
+  const context = question && data ? questionContext(data.screen, question) : [];
 
   return (
     <View style={{ flex: 1 }}>
@@ -186,6 +190,9 @@ export default function Session() {
                       {question.action}
                     </T>
                   )}
+                  {context.length > 0 && (
+                    <DiffLines lines={context} label="What it’s asking to do" />
+                  )}
                   {canAnswer ? (
                     <View style={{ gap: space.sm }}>
                       {question.options.map((o) => (
@@ -193,6 +200,7 @@ export default function Session() {
                           key={o.key}
                           title={o.key === 'enter' ? o.label : `${o.key}. ${o.label}`}
                           variant={o.highlighted ? 'primary' : 'secondary'}
+                          lines={4}
                           busy={busy === o.key}
                           disabled={!connected || !!busy}
                           onPress={() => answer(o.key)}
