@@ -3,7 +3,11 @@ import { agentInitials } from '../components/agents/AgentAvatar';
 import {
   buildChatItems,
   errorRemedy,
+  filterFiles,
+  isCodePath,
   lastUserText,
+  localPathFromHref,
+  PROSE_PATH,
   describeCheckInTime,
   describeRepeat,
   formatWhen,
@@ -21,6 +25,7 @@ import {
   type Agent,
   type AgentMessage,
   type SearchHit,
+  type SharedFile,
   type UsageTotals,
 } from './agents';
 
@@ -282,5 +287,46 @@ describe('lastUserText', () => {
     const list = [m('user', 'first'), m('agent', 'ok'), m('user', 'second'), m('error', 'x')];
     expect(lastUserText(list as never, 3)).toBe('second');
     expect(lastUserText(list as never, 0)).toBeNull();
+  });
+});
+
+describe('local paths in agent prose', () => {
+  it('reads local hrefs and leaves web links alone', () => {
+    expect(localPathFromHref('~/ShipStudio/acme/report.md')).toBe('~/ShipStudio/acme/report.md');
+    expect(localPathFromHref('/Users/me/Q3%20report.pdf')).toBe('/Users/me/Q3 report.pdf');
+    expect(localPathFromHref('file:///Users/me/a.csv')).toBe('/Users/me/a.csv');
+    expect(localPathFromHref('report.md')).toBe('report.md');
+    expect(localPathFromHref('https://example.com/a')).toBeNull();
+    expect(localPathFromHref('mailto:a@b.c')).toBeNull();
+    expect(localPathFromHref('javascript:alert(1)')).toBeNull();
+    expect(localPathFromHref('#top')).toBeNull();
+    expect(localPathFromHref('//evil.example/x')).toBeNull();
+  });
+
+  it('finds written-out paths but not routes or "and/or"', () => {
+    const found = (text: string) => PROSE_PATH.exec(text)?.[0] ?? null;
+    expect(found('Saved to ~/ShipStudio/acme/report.md.')).toBe('~/ShipStudio/acme/report.md');
+    expect(found('see /Users/me/Desktop/notes.txt, then')).toBe('/Users/me/Desktop/notes.txt');
+    expect(found('the /careers page')).toBeNull();
+    expect(found('this and/or that')).toBeNull();
+    expect(isCodePath('~/ShipStudio/acme/Q3 report.md')).toBe(true);
+    expect(isCodePath('/careers')).toBe(false);
+    expect(isCodePath('npm run build')).toBe(false);
+  });
+
+  it('filters the Files list by who shared it', () => {
+    const file = (from: SharedFile['from']): SharedFile => ({
+      messageId: from,
+      ts: 1,
+      from,
+      name: 'a.pdf',
+      path: 'attachments/x/a.pdf',
+      mime: 'application/pdf',
+      size: 1,
+    });
+    const files = [file('user'), file('agent')];
+    expect(filterFiles(files, 'all')).toHaveLength(2);
+    expect(filterFiles(files, 'agent').map((f) => f.from)).toEqual(['agent']);
+    expect(filterFiles(files, 'user').map((f) => f.from)).toEqual(['user']);
   });
 });

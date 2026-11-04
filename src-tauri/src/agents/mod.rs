@@ -9,6 +9,7 @@
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`notify`]: macOS notifications and the Dock badge
 //! - [`attachments`]: files sent with a message, copied into the agent's home
+//! - [`files`]: files an agent shares back, the Files list, paths in prose
 //! - [`import`]: bring an existing setup over from another assistant
 //! - [`schedule`]: check-ins and routines that wake an agent on time
 //! - [`prompts`]: voice and role
@@ -19,6 +20,7 @@
 //! Full design: docs/agents.md.
 
 pub mod attachments;
+pub mod files;
 pub mod import;
 pub mod mcp;
 pub mod notify;

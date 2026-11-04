@@ -329,6 +329,59 @@ const ACME_CHAT = [
   ),
 ];
 
+/**
+ * What Acme Site handed back with `share_file`: a caption and a PDF, a CSV on
+ * its own, a screenshot (shown inline), then prose naming paths on disk,
+ * which render as links that open the file.
+ */
+const shared = (id: string, name: string, mime: string, size: number, path?: string) => ({
+  name,
+  path: path ?? `attachments/${id}/${name}`,
+  mime,
+  size,
+});
+const ACME_SHARED = [
+  msg('user', 'Can you send me the QA report and the fixed hero?', 12, { agentId: 'acme' }),
+  msg('agent', 'QA report for the pricing branch: 31 links checked, 2 fixed.', 11, {
+    agentId: 'acme',
+    attachments: [shared('m-s1', 'Acme QA report.pdf', 'application/pdf', 1_284_400)],
+  }),
+  msg('agent', '', 11, {
+    agentId: 'acme',
+    attachments: [shared('m-s2', 'footer-links-checked.csv', 'text/csv', 2_480)],
+  }),
+  msg('agent', 'The hero at 375px, after the fix.', 10, {
+    agentId: 'acme',
+    attachments: [
+      shared('m-s3', 'Hero at 375px.jpg', 'image/jpeg', 27_238, 'attachments/m-att1/Hero crop.jpg'),
+    ],
+  }),
+  msg(
+    'agent',
+    'Both are also in the project: the report is at ~/ShipStudio/acme-marketing/qa/report.md and the raw crawl is `~/ShipStudio/acme-marketing/qa/crawl 2026-11-04.json`. The `/careers` route now redirects.',
+    9,
+    { agentId: 'acme' }
+  ),
+];
+
+/** The Files list for Acme Site: both directions, newest first. */
+type Shared = ReturnType<typeof shared>;
+const filesOf = (messages: Record<string, unknown>[], from: 'user' | 'agent') =>
+  messages.flatMap((m) =>
+    ((m.attachments as Shared[] | undefined) ?? []).map((a) => ({
+      ...a,
+      messageId: m.id,
+      ts: m.ts as number,
+      from,
+    }))
+  );
+const ACME_FILES = [...filesOf(ACME_SHARED, 'agent'), ...filesOf(ACME_CHAT, 'user')].sort(
+  (a, b) => b.ts - a.ts
+);
+
+const withShared = (args: Record<string, unknown>) =>
+  args.agentId === 'acme' ? [...ACME_CHAT, ...ACME_SHARED] : messagesFor(args);
+
 /** What the paperclip "picks" in the harness, and what the backend says about it. */
 const PICKED = [
   `${DEMO_HOME}/attachments/m-att1/Pricing on mobile.jpg`,
@@ -654,6 +707,56 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-shared-file',
+    title: 'Agents — files an agent shared back',
+    looksRightWhen:
+      'Acme Site’s chat ends with what it handed over, against the left edge under its words: a caption with a PDF chip, a CSV chip on its own, a caption with the screenshot as an inline thumbnail, then prose whose two paths on disk read as links (the code-formatted one keeps its code look; `/careers` is not a link). Chips and thumbnail are the same family as the user’s attachments on the right.',
+    requires: '.agent-attachments[data-side="agent"]',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: withShared,
+    },
+  },
+  {
+    id: 'agents-files',
+    title: 'Agents — the Files list for a conversation',
+    looksRightWhen:
+      'Opened from the header’s … menu: a “Files” dialog with All / From you / From Acme Site, All chosen. Rows newest first: the screenshot as a small thumbnail, the others as type glyphs, each with name, then kind · size · date · who sent it, and Show in Finder and Open at the end.',
+    requires: '.agent-files__row',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [
+      { click: '[data-agent-id="acme"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(4)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: withShared,
+      agents_files: ACME_FILES,
+    },
+  },
+  {
+    id: 'agents-files-filtered',
+    title: 'Agents — the Files list, only what you sent',
+    looksRightWhen:
+      '“From you” is chosen; only the four files you attached are listed, without a sender in their meta line.',
+    requires: '.agent-files__row',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [
+      { click: '[data-agent-id="acme"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(4)' },
+      { click: '.agent-files__filter button:nth-child(2)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: withShared,
+      agents_files: ACME_FILES,
+    },
+  },
+  {
     id: 'agents-scheduled',
     title: 'Agents — the schedule popover',
     looksRightWhen:
@@ -727,7 +830,7 @@ export const agentsScenarios: Scenario[] = [
     requires: '.agent-editor__usage',
     steps: [
       { click: '.agent-chat__menu [aria-label^="Actions for"]' },
-      { click: '[role="menuitem"]:nth-child(5)' },
+      { click: '[role="menuitem"]:nth-child(6)' },
     ],
     commands: {
       agents_overview: overview(

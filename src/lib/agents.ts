@@ -277,8 +277,63 @@ export const sendAgentMessage = (
   });
 export const inspectFiles = (paths: string[]) =>
   invoke<FileInfo[]>('agents_inspect_files', { paths });
-export const openAttachment = (agentId: string, path: string) =>
-  invoke<void>('agents_open_attachment', { agentId, path });
+/** Open an attachment in its default app, or with `reveal`, show it in Finder. */
+export const openAttachment = (agentId: string, path: string, reveal = false) =>
+  invoke<void>('agents_open_attachment', { agentId, path, reveal });
+
+/** One row of a conversation's Files list; mirrors `files::SharedFile`. */
+export interface SharedFile extends Attachment {
+  messageId: string;
+  ts: number;
+  from: 'user' | 'agent';
+}
+
+/** Everything shared in a conversation, both ways, newest first. */
+export const getAgentFiles = (agentId: string) => invoke<SharedFile[]>('agents_files', { agentId });
+
+/**
+ * A path from an agent's reply. Documents open in their default app; folders,
+ * apps and scripts are only shown in Finder. Resolves to what was done.
+ */
+export const openLocalPath = (agentId: string, path: string, reveal = false) =>
+  invoke<'open' | 'reveal'>('agents_open_path', { agentId, path, reveal });
+
+/**
+ * The local path a link in agent prose points at, or null for a web link.
+ * `~/x`, `/x`, `file:///x` and a bare relative `report.md` (relative to the
+ * agent's folder) all count; anything with a scheme other than file: doesn't.
+ */
+export function localPathFromHref(href: string): string | null {
+  if (!href || href.startsWith('#') || href.startsWith('//')) return null;
+  if (/^file:/i.test(href)) href = href.replace(/^file:(\/\/)?/i, '');
+  else if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
+}
+
+/**
+ * Where a path written out in prose starts: `~/` or one of the roots people
+ * actually keep files under. Kept narrow on purpose: `/careers` in a reply is
+ * a URL route, not a file, and "and/or" is not a path.
+ */
+const PATH_ROOT = /(?:~|\/(?:Users|Volumes|private|tmp|var|opt|Applications|Library))\//.source;
+const PATH_BODY = /[^\s<>()[\]`'"]*[^\s<>()[\]`'".,;:!?]/.source;
+
+/** A path anywhere in running text. */
+export const PROSE_PATH = new RegExp(PATH_ROOT + PATH_BODY);
+
+/** Inline code that is nothing but a path. */
+const CODE_PATH = new RegExp(`^${PATH_ROOT}[^\\n<>\`"]+$`);
+export const isCodePath = (text: string) => CODE_PATH.test(text.trim());
+
+export type FilesFilter = 'all' | 'user' | 'agent';
+
+export const filterFiles = (files: SharedFile[], filter: FilesFilter) =>
+  filter === 'all' ? files : files.filter((f) => f.from === filter);
+
 export const createAgent = (input: NewAgentInput) =>
   invoke<Omit<Agent, 'status' | 'home'>>('agents_create', { input });
 export const updateAgent = (agentId: string, input: UpdateAgentInput) =>

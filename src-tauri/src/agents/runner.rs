@@ -172,11 +172,18 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .map(|l| l.chars().take(140).collect())
     };
     match message.kind {
-        MessageKind::User if message.text.trim().is_empty() => match message.attachments.len() {
-            0 => None,
-            1 => Some(format!("Sent {}", message.attachments[0].name)),
-            n => Some(format!("Sent {n} files")),
-        },
+        MessageKind::User | MessageKind::Agent if message.text.trim().is_empty() => {
+            let verb = if message.kind == MessageKind::User {
+                "Sent"
+            } else {
+                "Shared"
+            };
+            match message.attachments.len() {
+                0 => None,
+                1 => Some(format!("{verb} {}", message.attachments[0].name)),
+                n => Some(format!("{verb} {n} files")),
+            }
+        }
         MessageKind::User | MessageKind::Agent | MessageKind::Error => line(&message.text),
         MessageKind::SentToAgent => message
             .peer

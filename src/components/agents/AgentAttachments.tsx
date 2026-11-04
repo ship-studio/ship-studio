@@ -5,8 +5,14 @@
  * @module components/agents/AgentAttachments
  */
 
-import { useState } from 'react';
-import { CloseIcon, FileIcon, FileTextIcon, ExternalLinkIcon } from '@/components/icons';
+import { useCallback, useState } from 'react';
+import {
+  CloseIcon,
+  FileIcon,
+  FileTextIcon,
+  FolderOpenIcon,
+  ExternalLinkIcon,
+} from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { ModalFrame } from '../primitives/ModalFrame';
@@ -25,12 +31,12 @@ import type { DraftAttachment } from './useComposerAttachments';
 const isTextual = (mime: string) => mime.startsWith('text/') || mime === 'application/json';
 
 /** "PDF", "CSV", "PNG": what a file is, at a glance. */
-function kindLabel(name: string): string {
+export function kindLabel(name: string): string {
   const ext = name.includes('.') ? name.split('.').pop() : '';
   return ext ? ext.slice(0, 4).toUpperCase() : 'File';
 }
 
-function FileGlyph({ mime }: { mime: string }) {
+export function FileGlyph({ mime }: { mime: string }) {
   return isTextual(mime) || mime === 'application/pdf' ? (
     <FileTextIcon size={16} />
   ) : (
@@ -112,64 +118,91 @@ export function ComposerQuotes({ quotes, onRemove }: ComposerQuotesProps) {
   );
 }
 
+/** Open or reveal an attachment, with failures as a toast. */
+export function useAttachmentOpener(agentId: string) {
+  const { showToast } = useOptionalToast();
+  return useCallback(
+    async (attachment: Attachment, reveal = false) => {
+      try {
+        await openAttachment(agentId, attachment.path, reveal);
+      } catch (error) {
+        showToast(formatCommandError(asCommandError(error)), 'error');
+      }
+    },
+    [agentId, showToast]
+  );
+}
+
+function RevealButton({ name, onReveal }: { name: string; onReveal: () => void }) {
+  return (
+    <IconButton
+      variant="secondary"
+      size="compact"
+      className="agent-attachments__reveal"
+      icon={<FolderOpenIcon size={12} />}
+      onClick={onReveal}
+      aria-label={`Show ${name} in Finder`}
+      title="Show in Finder"
+    />
+  );
+}
+
 interface MessageAttachmentsProps {
   agent: Agent;
   attachments: Attachment[];
+  /** Whose message: yours sit against the right edge, the agent's against the left. */
+  side?: 'user' | 'agent';
 }
 
-/** What a sent message carried: images as thumbnails, everything else as chips. */
-export function MessageAttachments({ agent, attachments }: MessageAttachmentsProps) {
-  const { showToast } = useOptionalToast();
+/** What a message carried: images as thumbnails, everything else as chips. */
+export function MessageAttachments({ agent, attachments, side = 'user' }: MessageAttachmentsProps) {
+  const open = useAttachmentOpener(agent.id);
   const [viewing, setViewing] = useState<Attachment | null>(null);
   const images = attachments.filter((a) => isImageMime(a.mime));
   const files = attachments.filter((a) => !isImageMime(a.mime));
 
-  const openFile = async (attachment: Attachment) => {
-    try {
-      await openAttachment(agent.id, attachment.path);
-    } catch (error) {
-      showToast(formatCommandError(asCommandError(error)), 'error');
-    }
-  };
-
   return (
-    <div className="agent-attachments">
+    <div className="agent-attachments" data-side={side}>
       {images.length > 0 && (
         <div className="agent-attachments__images" data-count={Math.min(images.length, 3)}>
           {images.map((image) => (
-            <button
-              key={image.path}
-              type="button"
-              className="agent-attachments__image"
-              onClick={() => setViewing(image)}
-              aria-label={`View ${image.name}`}
-              title={image.name}
-            >
-              <img src={attachmentUrl(agent.home, image)} alt={image.name} loading="lazy" />
-            </button>
+            <span key={image.path} className="agent-attachments__item">
+              <button
+                type="button"
+                className="agent-attachments__image"
+                onClick={() => setViewing(image)}
+                aria-label={`View ${image.name}`}
+                title={image.name}
+              >
+                <img src={attachmentUrl(agent.home, image)} alt={image.name} loading="lazy" />
+              </button>
+              <RevealButton name={image.name} onReveal={() => void open(image, true)} />
+            </span>
           ))}
         </div>
       )}
       {files.length > 0 && (
         <div className="agent-attachments__files">
           {files.map((file) => (
-            <button
-              key={file.path}
-              type="button"
-              className="agent-attachment-chip agent-attachment-chip--sent"
-              onClick={() => void openFile(file)}
-              title={`Open ${file.name}`}
-            >
-              <span className="agent-attachment-chip__glyph" aria-hidden>
-                <FileGlyph mime={file.mime} />
-              </span>
-              <span className="agent-attachment-chip__text">
-                <span className="agent-attachment-chip__name">{file.name}</span>
-                <span className="agent-attachment-chip__meta">
-                  {kindLabel(file.name)} · {formatBytes(file.size)}
+            <span key={file.path} className="agent-attachments__item">
+              <button
+                type="button"
+                className="agent-attachment-chip agent-attachment-chip--sent"
+                onClick={() => void open(file)}
+                title={`Open ${file.name}`}
+              >
+                <span className="agent-attachment-chip__glyph" aria-hidden>
+                  <FileGlyph mime={file.mime} />
                 </span>
-              </span>
-            </button>
+                <span className="agent-attachment-chip__text">
+                  <span className="agent-attachment-chip__name">{file.name}</span>
+                  <span className="agent-attachment-chip__meta">
+                    {kindLabel(file.name)} · {formatBytes(file.size)}
+                  </span>
+                </span>
+              </button>
+              <RevealButton name={file.name} onReveal={() => void open(file, true)} />
+            </span>
           ))}
         </div>
       )}
@@ -180,14 +213,24 @@ export function MessageAttachments({ agent, attachments }: MessageAttachmentsPro
         className="agent-lightbox"
         headerActions={
           viewing && (
-            <Button
-              variant="ghost"
-              size="compact"
-              leftIcon={<ExternalLinkIcon size={14} />}
-              onClick={() => void openFile(viewing)}
-            >
-              Open
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="compact"
+                leftIcon={<ExternalLinkIcon size={14} />}
+                onClick={() => void open(viewing)}
+              >
+                Open
+              </Button>
+              <Button
+                variant="ghost"
+                size="compact"
+                leftIcon={<FolderOpenIcon size={14} />}
+                onClick={() => void open(viewing, true)}
+              >
+                Show in Finder
+              </Button>
+            </>
           )
         }
       >

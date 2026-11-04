@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
+use super::files;
 use super::runner::{self, From, Status};
 use super::schedule;
 use super::store::{self, AgentRef, Approval, ApprovalStatus, MessageKind};
@@ -161,6 +162,19 @@ const TOOLS: &[Tool] = &[
         }),
     },
     Tool {
+        name: "share_file",
+        description: "Hand the user a file you made (a report, CSV, image, PDF, zip): it appears in this chat as a file card they can open, and images show inline. Use it instead of pasting a file's contents. The file must be in your own folder or one of the user's projects; folders aren't accepted, so zip one first. Up to 25 MB.",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Absolute, ~/…, or relative to your folder." },
+                "caption": { "type": "string", "description": "Optional: one short line about what it is, shown with the file." }
+            },
+            "required": ["path"]
+        }),
+    },
+    Tool {
         name: "schedule_check_in",
         description: "Have Ship Studio wake you later with a note to yourself: use it whenever you tell the user you'll check back, follow up or remind them, so that actually happens. Once (\"tomorrow at 9:00\", \"in 2 hours\", \"friday 14:30\") or as a routine (\"every weekday at 9:00\", \"every monday at 8am\", \"every 2 hours\"), in the user's local time. It only fires while Ship Studio is open; the answer says exactly when and what happens if it's closed. Tell the user that time.",
         main_only: false,
@@ -286,6 +300,7 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
         "list_agents" => list_agents(caller),
         "message_agent" => message_agent(app, caller, args),
         "list_projects" => list_projects().await,
+        "share_file" => share_file(app, caller, args).await,
         "create_agent" => create_agent(app, caller, args),
         "update_agent" => update_agent(app, args),
         "delete_agent" => delete_agent(app, caller, args).await,
@@ -424,6 +439,47 @@ async fn list_projects() -> Value {
                 .join("\n"),
         ),
         Err(e) => error(format!("Couldn't list projects: {e}")),
+    }
+}
+
+/// Copy a file the agent made into its chat as a message from it. Only files
+/// in its own home or one of the user's projects (see `files::shareable`).
+async fn share_file(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
+    let Ok(home) = store::agent_home(&caller.id) else {
+        return error("Couldn't find your folder.");
+    };
+    let mut roots = vec![home.clone()];
+    if let Ok(projects) = crate::commands::projects::list_projects().await {
+        roots.extend(
+            projects
+                .into_iter()
+                .map(|p| std::path::PathBuf::from(p.path)),
+        );
+    }
+    let source = match files::shareable(arg(args, "path").unwrap_or(""), &home, &roots) {
+        Ok(source) => source,
+        Err(e) => return error(e),
+    };
+    let mut message = runner::new_message(
+        &caller.id,
+        MessageKind::Agent,
+        arg(args, "caption").unwrap_or(""),
+    );
+    let id = message.id.clone();
+    let saved = tokio::task::spawn_blocking(move || files::share(&home, &id, &source)).await;
+    match saved {
+        Ok(Ok(attachment)) => {
+            let name = attachment.name.clone();
+            message.attachments = vec![attachment];
+            if let Err(e) = runner::record(app, message) {
+                return error(e.to_string());
+            }
+            text(format!(
+                "Shared {name}. The user sees it in the chat as a file they can open; don't paste its contents as well."
+            ))
+        }
+        Ok(Err(e)) => error(e.to_string()),
+        Err(e) => error(e.to_string()),
     }
 }
 
@@ -848,6 +904,7 @@ mod tests {
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
         assert!(names.contains(&"message_agent".to_string()));
+        assert!(names.contains(&"share_file".to_string()));
         assert!(!names.contains(&"create_agent".to_string()));
         assert!(!names.contains(&"delete_agent".to_string()));
     }
