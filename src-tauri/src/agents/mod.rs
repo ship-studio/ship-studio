@@ -10,6 +10,8 @@
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`permissions`]: "Always allow" rules and how narrowly they match
 //! - [`notify`]: macOS notifications and the Dock badge
+//! - [`tray`]: the menu-bar icon, and what a quit would interrupt
+//! - [`quick_entry`]: the system-wide shortcut and its floating composer
 //! - [`attachments`]: files sent with a message, copied into the agent's home
 //! - [`failure`]: a failed turn in Agents' own words (usage limit, signed out)
 //! - [`files`]: files an agent shares back, the Files list, paths in prose
@@ -39,6 +41,7 @@ pub mod permissions;
 pub mod procs;
 pub mod project;
 pub mod prompts;
+pub mod quick_entry;
 pub mod runner;
 pub mod schedule;
 pub mod search;
@@ -46,6 +49,7 @@ pub mod secrets;
 pub mod sessions;
 pub mod store;
 pub mod stream;
+pub mod tray;
 pub mod usage;
 
 use crate::errors::CommandError;

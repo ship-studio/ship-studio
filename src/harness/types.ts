@@ -123,5 +123,10 @@ export interface Scenario {
    * `emit` from `@tauri-apps/api/event`.
    */
   mockEvents?: boolean;
+  /**
+   * Render this window's root instead of the app: `quick-entry` is Agents'
+   * floating composer (its own Tauri window, `?window=quick-entry`).
+   */
+  root?: 'quick-entry';
   commands: CommandMap;
 }

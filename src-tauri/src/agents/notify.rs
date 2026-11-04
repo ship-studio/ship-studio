@@ -239,16 +239,28 @@ pub fn init(app: &AppHandle) {
         else {
             return;
         };
-        let windows = handle.webview_windows();
-        let Some(window) = windows.get("main").or_else(|| windows.values().next()) else {
-            return;
-        };
-        let _ = window.unminimize();
-        let _ = window.show();
-        crate::commands::window::forget_hidden_window(window.label());
-        let _ = window.set_focus();
-        let _ = handle.emit_to(window.label(), EVENT_OPEN, agent_id);
+        open_agent(&handle, &agent_id);
     });
+}
+
+/// Bring a window forward and open that agent's chat in it: a notification
+/// click, a menu-bar row, quick entry's "Open chat".
+pub fn open_agent(app: &AppHandle, agent_id: &str) {
+    let windows = app.webview_windows();
+    let Some(window) = windows.get("main").or_else(|| {
+        windows
+            .values()
+            .find(|w| w.label() != super::quick_entry::LABEL)
+    }) else {
+        return;
+    };
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
+    let _ = window.unminimize();
+    let _ = window.show();
+    crate::commands::window::forget_hidden_window(window.label());
+    let _ = window.set_focus();
+    let _ = app.emit_to(window.label(), EVENT_OPEN, agent_id);
 }
 
 /// A window came forward: the agent it shows has now been read.

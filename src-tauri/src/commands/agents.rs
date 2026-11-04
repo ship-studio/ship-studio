@@ -832,3 +832,116 @@ pub async fn agents_apps_add(server_name: String) -> Result<(), CommandError> {
 pub async fn agents_apps_remove(name: String) -> Result<(), CommandError> {
     apps::remove(&name).await
 }
+
+// ---------------------------------------------------------------------------
+// Menu bar, quit guard and quick entry (agents::tray, agents::quick_entry)
+// ---------------------------------------------------------------------------
+
+/// What quitting now would interrupt: the quit dialog's question.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_quit_check() -> Result<agents::tray::QuitCheck, CommandError> {
+    blocking(|| Ok(agents::tray::quit_check(&agents::tray::snapshot()))).await
+}
+
+/// The quit dialog's "Keep running in background".
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_keep_running_in_background(app: AppHandle) -> Result<(), CommandError> {
+    crate::commands::window::hide_all_to_background(&app).await
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_desktop_settings() -> Result<agents::quick_entry::Settings, CommandError> {
+    blocking(|| Ok(agents::quick_entry::settings())).await
+}
+
+/// Change the menu-bar icon, quick entry, or its shortcut; `None` leaves one
+/// as it is. A shortcut that conflicts, or that macOS refuses, is not saved.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_set_desktop_settings(
+    app: AppHandle,
+    menu_bar_icon: Option<bool>,
+    quick_entry: Option<bool>,
+    shortcut: Option<String>,
+) -> Result<agents::quick_entry::Settings, CommandError> {
+    use crate::commands::setup::update_app_state;
+    let shortcut = match shortcut {
+        Some(text) => {
+            let parsed = agents::quick_entry::Accelerator::parse(&text)
+                .ok_or_else(|| agents::err_invalid("shortcut", "not a shortcut"))?;
+            if let Some(why) = parsed.conflict() {
+                return Err(CommandError::expected(why));
+            }
+            Some(parsed.canonical())
+        }
+        None => None,
+    };
+    let before = update_app_state(|s| {
+        let before = (s.quick_entry, s.quick_entry_shortcut.clone());
+        if menu_bar_icon.is_some() {
+            s.menu_bar_icon = menu_bar_icon;
+        }
+        if quick_entry.is_some() {
+            s.quick_entry = quick_entry;
+        }
+        if shortcut.is_some() {
+            s.quick_entry_shortcut = shortcut;
+        }
+        before
+    })?;
+    agents::tray::sync(&app);
+    if let Err(e) = agents::quick_entry::apply(&app) {
+        // Put back what worked, so a refused shortcut never leaves none at all.
+        update_app_state(|s| (s.quick_entry, s.quick_entry_shortcut) = before)?;
+        let _ = agents::quick_entry::apply(&app);
+        return Err(e);
+    }
+    Ok(agents::quick_entry::settings())
+}
+
+/// Esc, or after a send: close the composer and hand focus back.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_hide(app: AppHandle) -> Result<(), CommandError> {
+    agents::quick_entry::hide(&app);
+    Ok(())
+}
+
+/// A message was sent: focus goes back to the app it came from while the
+/// confirmation stays up for a moment.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_sent(app: AppHandle) -> Result<(), CommandError> {
+    agents::quick_entry::sent(&app);
+    Ok(())
+}
+
+/// The confirmation's "Open chat": close the composer and open the agent in Ship Studio.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_open_chat(app: AppHandle, agent_id: String) -> Result<(), CommandError> {
+    store::get(&agent_id)?;
+    if let Some(w) = tauri::Manager::get_webview_window(&app, agents::quick_entry::LABEL) {
+        let _ = w.hide();
+    }
+    notify::open_agent(&app, &agent_id);
+    Ok(())
+}
+
+/// "Attach screenshot": the PNG's path, or `None` when the user pressed Esc.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_capture(app: AppHandle) -> Result<Option<String>, CommandError> {
+    agents::quick_entry::capture(&app).await
+}
+
+/// The composer grows with its text; the window follows.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_resize(app: AppHandle, height: f64) -> Result<(), CommandError> {
+    agents::quick_entry::resize(&app, height);
+    Ok(())
+}

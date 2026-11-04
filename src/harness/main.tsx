@@ -17,6 +17,7 @@ import './freeze.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from '../App';
+import { QuickEntry } from '../components/agents/QuickEntry';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { exposeReactGlobals } from '../lib/plugin-loader';
 import { exposePluginContextRef } from '../contexts/PluginContext';
@@ -90,10 +91,16 @@ window.__harness = {
 
 document.title = `Ship Studio harness — ${scenario.id}`;
 
+if (scenario.root === 'quick-entry') document.documentElement.dataset.window = 'quick-entry';
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App initialProjectPath={params.get('project') ?? scenario.project ?? null} />
+      {scenario.root === 'quick-entry' ? (
+        <QuickEntry />
+      ) : (
+        <App initialProjectPath={params.get('project') ?? scenario.project ?? null} />
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 );

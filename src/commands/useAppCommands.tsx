@@ -7,6 +7,7 @@ import { useOpenModal } from '../contexts/ModalContext';
 import { getDashboardProjects, type DashboardProject, type Project } from '../lib/project';
 import { sessionRegistry } from '../lib/sessionRegistry';
 import { checkForUpdate } from '../lib/updater';
+import { requestQuit } from '../lib/agentsDesktop';
 import { checkIdeAvailability, openInIde, openInFinder } from '../lib/ide';
 import { logger } from '../lib/logger';
 import { kbd } from '../lib/shortcuts';
@@ -302,6 +303,31 @@ export function useAppCommands({
         category: 'settings',
         keywords: ['version', 'upgrade'],
         run: () => void runCheckUpdates(),
+      },
+      {
+        id: 'agents.desktopSettings',
+        title: 'Menu bar icon and quick message shortcut…',
+        icon: <SettingsIcon size={14} />,
+        category: 'settings',
+        keywords: [
+          'agents',
+          'tray',
+          'menu bar',
+          'hotkey',
+          'shortcut',
+          'quick entry',
+          'option space',
+        ],
+        run: () => openModal('settings'),
+      },
+      {
+        id: 'app.quit',
+        title: 'Quit Ship Studio…',
+        icon: <SettingsIcon size={14} />,
+        category: 'settings',
+        keywords: ['exit', 'close', 'shut down'],
+        // The same confirmation as ⌘Q, guarded while agents work.
+        run: requestQuit,
       },
       {
         id: 'modal.attachedLibraries',

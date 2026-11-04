@@ -16,6 +16,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { reactErrorHandler } from '@sentry/react';
 import App from './App';
+import { QuickEntry } from './components/agents/QuickEntry';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { exposeReactGlobals, lookupBlobOwner, markPluginCrashed } from './lib/plugin-loader';
 import { uninstallPlugin } from './lib/plugins';
@@ -280,6 +281,9 @@ requestAnimationFrame(() => {
 // Parse project path from URL if present (for project windows)
 const urlParams = new URLSearchParams(window.location.search);
 const initialProjectPath = urlParams.get('project');
+// Agents' quick-entry window (agents/quick_entry.rs) renders only its composer.
+const isQuickEntry = urlParams.get('window') === 'quick-entry';
+if (isQuickEntry) document.documentElement.dataset.window = 'quick-entry';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
   // Only report errors that escape ErrorBoundary. Caught errors already flow
@@ -290,7 +294,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
 }).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App initialProjectPath={initialProjectPath} />
+      {isQuickEntry ? <QuickEntry /> : <App initialProjectPath={initialProjectPath} />}
     </ErrorBoundary>
   </React.StrictMode>
 );

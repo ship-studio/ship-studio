@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-entry",
+  "description": "Agents' quick-entry composer (agents/quick_entry.rs): a small floating window that sends a message to an agent. It needs events (shown, dictation) and the app's own commands, nothing else: no shell, no filesystem, no process control.",
+  "windows": ["quick-entry"],
+  "permissions": ["core:default", "core:event:default"]
+}

@@ -38,6 +38,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "icons:status": "node scripts/icons.mjs status",
     "icons:check": "node scripts/icons.mjs check",
+    "icons:tray": "node scripts/tray-icons.mjs",
     "docs:generate": "node scripts/design-system-registry.mjs generate",
     "docs:check": "node scripts/design-system-registry.mjs check",
     "check:tokens": "node --test scripts/check-css-tokens.test.mjs scripts/token-inventory.test.mjs",

@@ -16,6 +16,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { trackEvent } from './analytics';
 import { endProjectSession } from './session';
 import { logger } from './logger';
+import { getQuitCheck, requestQuit } from './agentsDesktop';
 
 /**
  * Window we hold the close open for so the analytics IPC + Rust HTTP
@@ -58,6 +59,12 @@ export function installAppLifecycleTracking(): () => void {
           quitInProgress = false;
           return;
         }
+        // Closing quits, and agents are mid-turn: ask first, as ⌘Q does.
+        if (await agentsWouldBeInterrupted()) {
+          quitInProgress = false;
+          requestQuit();
+          return;
+        }
         flushProjectSession();
         await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));
         try {
@@ -84,6 +91,16 @@ export function installAppLifecycleTracking(): () => void {
     if (unlistenClose) unlistenClose();
     installed = false;
   };
+}
+
+/** Agents working or waiting on an approval; false when it can't be asked. */
+async function agentsWouldBeInterrupted(): Promise<boolean> {
+  try {
+    const check = await getQuitCheck();
+    return check.working.length > 0 || check.waiting.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** True when the backend hid the window rather than letting it quit. */

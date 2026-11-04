@@ -555,6 +555,61 @@ line suggesting an always-on Mac, such as a Mac mini or a cloud Mac, for
 round-the-clock agents; and as a "Keep this Mac awake" link at the end of the
 schedule popover's footnote. Elsewhere than macOS none of it shows.
 
+## Menu bar, quit guard and quick entry (`agents/tray.rs`, `agents/quick_entry.rs`)
+
+Agents run inside Ship Studio, so staying alive, and being reachable while
+the window is closed, is part of the product.
+
+**Menu-bar icon.** A monochrome template image (`src-tauri/icons/tray/*.svg`,
+rasterised by `pnpm icons:tray`): Ship Studio's three discs, with a dot while
+anything needs you. The menu is a pure function of the agents and their live
+status (`tray::menu_model`), rebuilt at most every 300ms on `agents://status`
+and `agents://registry`:
+
+- **Needs you** (up to 5): `Name · Needs your OK` (`· 3 need your OK`).
+- **Working** (up to 5): `Name · <activity line>`, cut to one short line.
+- Overflow is counted (`2 more`), not listed. Hidden agents aren't listed; idle ones aren't either.
+- Then Open Ship Studio, New message to Chief… (quick entry), Keep this Mac awake / Keep running when closed (checkmarks, the same `set_stay_on`), Quit Ship Studio.
+- Clicking an agent opens its chat (`notify::open_agent`, the notification click's path), showing a window that a close hid.
+
+Shown by default **only while Keep running when closed is on**
+(`AppState.menu_bar_icon`, `None` = follow it). That's the calmer default:
+someone who never asked for background running gets no new icon in a crowded
+menu bar, and someone who did gets the handle they now need. Settings →
+General overrides it either way. Turning Keep running off *from the icon*
+pins the icon on, so it doesn't vanish under the pointer.
+
+**Quit guard.** ⌘Q, the icon's Quit, ⌘K "Quit Ship Studio…", and closing a
+window while it would quit all go through `useQuitGuard`, which asks
+`agents_quit_check` (`tray::quit_check`: agents mid-turn or queued for a slot,
+and agents with an open card, hidden ones included). Nothing interrupted:
+the old "Are you sure?" (and the icon's Quit just quits). Otherwise "2 agents
+are still working. Quit anyway?", naming them, with **Keep running in
+background** (macOS; hides every window, `hide_all_to_background`) as the
+default, then Quit, then Cancel. The backend brings the main window forward
+first, since it may be hidden. The updater's restart is untouched: it still
+waits for `agents_busy` to reach 0.
+
+**Quick entry.** A system-wide shortcut (`tauri-plugin-global-shortcut`,
+default ⌥Space, Settings → General) opens a small floating composer over any
+app: its own window (`quick-entry`), created hidden at launch so the shortcut
+only shows it, on the display under the pointer, a third of the way down.
+
+- To the Chief of Staff; a leading `@Name` sends it to that agent instead (`quickEntryRecipient`, longest name wins). Other @mentions work as in a chat.
+- Dictation is the chat composer's (`useDictation`). The camera runs `screencapture -i -o -x` (drag a region, or Space and click a window) with the composer hidden; the PNG goes to `<agents>/.quick-entry/` (cleared after a day) and is attached like a file. **macOS asks for Screen Recording permission the first time**; the composer says so until a screenshot has worked.
+- Return sends (queued like any message), focus goes back to the app you were in (`[NSApp deactivate]`), and "Sent to Chief of Staff · Open chat" stays up 2.4s, unfocused, then hides. Esc or clicking elsewhere closes; closing hands focus back (`NSApp hide`) if Ship Studio wasn't in front.
+- The shortcut is released while one of Ship Studio's own windows has focus, and taken again when they lose it: in-app, ⌥Space stays the composer's hold-to-dictate key.
+- Conflicts we can know are refused with a reason (`Accelerator::conflict`): no ⌃/⌥/⌘, macOS's own (⌘Space, ⌃Space, ⌃⌥Space, ⌃⌘Space, ⌘⇧3/4/5, ⌘Tab…), and a bare ⌘-letter every app uses. Another app's global shortcut can only be found by trying; when macOS refuses, the old shortcut is put back and the reason shown.
+- Off by default unless Keep running when closed is on, like the icon (`AppState.quick_entry`): a global ⌥Space takes a non-breaking space from every other app.
+
+Not verified in a real app yet (built and unit-tested only): the icon's look
+in a light and a dark menu bar and its dot, the menu rebuilding while open,
+the shortcut firing over other apps and full-screen Spaces, the composer
+appearing without bringing the main window forward (it's a normal window,
+not a non-activating panel), focus returning after send and Esc,
+`screencapture` and its permission prompt, and the quit guard from the icon
+with the window hidden.
+
 ## Search, model and usage
 
 - **Search.** In Agents mode the sidebar's top field searches conversations
@@ -781,5 +836,8 @@ prunes them the diff says it can't be shown.
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
+- `cargo test --lib agents::tray agents::quick_entry`: the menu model (sections, order, labels, caps, hidden agents), the quit check, both icons decode, shortcut parsing, labels and conflicts.
+- `pnpm vitest run src/lib/agentsDesktop.test.ts src/components/QuitConfirmModal.test.tsx`: the quit dialog's wording and defaults, shortcut recording, quick entry's recipient.
+- `node scripts/harness-capture.mjs agents-quit` / `agents-quick-entry` / `agents-desktop`: the quit guard, quick entry's composer (`root: 'quick-entry'`), and its settings.
 - `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
   agent, import, Claude Code missing.
