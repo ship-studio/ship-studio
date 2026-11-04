@@ -26,6 +26,7 @@ import {
   type Agent,
   type AgentMessage,
   type AgentStatus,
+  type EngineInfo,
 } from './agents';
 import { asCommandError, formatCommandError } from './errors';
 import { logger } from './logger';
@@ -33,6 +34,7 @@ import { logger } from './logger';
 export interface AgentsState {
   agents: Agent[];
   engineReady: boolean;
+  engines: EngineInfo[];
   loaded: boolean;
   error: string | null;
   /** Chat lines per agent, oldest first; absent until that chat is opened. */
@@ -46,6 +48,7 @@ export interface AgentsState {
 let state: AgentsState = {
   agents: [],
   engineReady: true,
+  engines: [],
   loaded: false,
   error: null,
   messages: {},
@@ -73,6 +76,7 @@ export async function refreshAgents(): Promise<void> {
       ...state,
       agents: keepUnchanged(state.agents, overview.agents),
       engineReady: overview.engineReady,
+      engines: overview.engines ?? [],
       loaded: true,
       error: null,
     });
@@ -321,6 +325,7 @@ export function __resetAgentsStore() {
   state = {
     agents: [],
     engineReady: true,
+    engines: [],
     loaded: false,
     error: null,
     messages: {},

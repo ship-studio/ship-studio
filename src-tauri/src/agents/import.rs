@@ -259,6 +259,7 @@ pub fn import_and_notify(
 ) -> Result<ImportSummary, CommandError> {
     let summary = import(agents, source)?;
     let _ = app.emit(runner::EVENT_REGISTRY, ());
+    super::tray::mark_used(app);
     Ok(summary)
 }
 

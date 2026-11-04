@@ -66,9 +66,17 @@ pub struct Agent {
     /// say "Needs your OK" without reading every chat log.
     #[serde(default)]
     pub pending_approvals: u32,
-    /// Explicit model override (`--model`); `None` uses Claude Code's default.
+    /// What its turns run on: Claude Code (the default) or Codex.
+    #[serde(default)]
+    pub engine: super::engine::Engine,
+    /// Explicit model override (`--model` / `-m`), one its engine offers;
+    /// `None` uses the engine's own default.
     #[serde(default)]
     pub model: Option<String>,
+    /// It moved to another engine and hasn't had a turn there yet: the next
+    /// turn starts a new session and is handed the recent conversation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_engine: bool,
     /// No OS notifications for this agent. Unread and the Dock badge still count it.
     #[serde(default)]
     pub muted: bool,
@@ -94,6 +102,11 @@ pub struct Agent {
     /// What its last turn could use, as Claude Code itself listed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<super::capabilities::Capabilities>,
+    /// What its routines run on: `None` is automatic (on Claude Code, Haiku
+    /// while the agent itself is on the default model; otherwise its own
+    /// model), `"same"` is always its own model, or one of its engine's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routine_model: Option<String>,
     /// Secrets it asked for and the user saved: names and references only.
     /// The values are in the Keychain (see `secrets`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -103,6 +116,22 @@ pub struct Agent {
     /// strips what a newer one saved.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Agent {
+    /// Move it to another engine from its next turn. A session can't cross
+    /// engines, and neither can a model.
+    pub fn switch_engine(&mut self, engine: super::engine::Engine) {
+        if engine == self.engine {
+            return;
+        }
+        self.engine = engine;
+        self.model = None;
+        self.routine_model = None;
+        self.session_id = None;
+        self.new_engine = true;
+        self.capabilities = None;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -494,6 +523,40 @@ pub fn validate_name(name: &str) -> Result<String, CommandError> {
 /// resolve to the current model of that family. `None` is Claude Code's default.
 pub const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
+/// The cheap model a Claude Code agent's routines fall back to (see
+/// [`Agent::routine_model`]). Codex has no such fallback: which of its models
+/// is cheaper isn't something Codex says, so a Codex agent's routines run on
+/// its own model unless the user picks one.
+pub const ROUTINE_MODEL: &str = "haiku";
+
+impl Agent {
+    /// The model for a turn woken by one of its routines. A routine fires
+    /// again and again, usually hours after the last turn (so nothing is
+    /// cached either way), and is mostly checking: a Claude Code agent on the
+    /// default model runs them on Haiku unless the user chose otherwise.
+    pub fn routine_model(&self) -> Option<&str> {
+        match self.routine_model.as_deref() {
+            None if self.engine == super::engine::Engine::Claude => {
+                Some(self.model.as_deref().unwrap_or(ROUTINE_MODEL))
+            }
+            None | Some("same") => self.model.as_deref(),
+            Some(m) => Some(m),
+        }
+    }
+}
+
+/// A routine model setting from the UI: `""` automatic, `"same"`, or one of
+/// the engine's own models.
+pub fn normalize_routine_model(
+    engine: super::engine::Engine,
+    model: &str,
+) -> Result<Option<String>, CommandError> {
+    match model.trim() {
+        "same" => Ok(Some("same".to_string())),
+        other => super::engine::normalize_model(engine, other),
+    }
+}
+
 /// A `--model` value: empty means Claude Code's default; anything else must
 /// be one of [`MODELS`]. It becomes a CLI argument, so nothing else gets through.
 pub fn normalize_model(model: &str) -> Result<Option<String>, CommandError> {
@@ -550,7 +613,10 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         preview: None,
         unread: 0,
         pending_approvals: 0,
+        engine: Default::default(),
         model: None,
+        new_engine: false,
+        routine_model: None,
         muted: false,
         check_ins: Vec::new(),
         usage: Default::default(),
@@ -1062,6 +1128,54 @@ pub fn expire_stale_approvals() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routines_run_on_haiku_only_while_the_agent_is_on_the_default_model() {
+        let agent = |model: Option<&str>, routine: Option<&str>| -> Agent {
+            let mut a: Agent = serde_json::from_value(serde_json::json!({
+                "id": "a", "name": "A", "shape": 0, "color": "red", "createdAt": 0
+            }))
+            .unwrap();
+            a.model = model.map(str::to_string);
+            a.routine_model = routine.map(str::to_string);
+            a
+        };
+        assert_eq!(agent(None, None).routine_model(), Some("haiku"));
+        assert_eq!(agent(Some("opus"), None).routine_model(), Some("opus"));
+        assert_eq!(agent(None, Some("same")).routine_model(), None);
+        assert_eq!(
+            agent(Some("opus"), Some("same")).routine_model(),
+            Some("opus")
+        );
+        assert_eq!(
+            agent(Some("opus"), Some("sonnet")).routine_model(),
+            Some("sonnet")
+        );
+        let claude = super::super::engine::Engine::Claude;
+        assert_eq!(normalize_routine_model(claude, "").unwrap(), None);
+        assert_eq!(
+            normalize_routine_model(claude, "same").unwrap().as_deref(),
+            Some("same")
+        );
+        assert!(normalize_routine_model(claude, "--danger").is_err());
+        assert!(normalize_routine_model(super::super::engine::Engine::Codex, "haiku").is_err());
+    }
+
+    #[test]
+    fn a_codex_agents_routines_never_run_on_haiku() {
+        let mut a: Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "shape": 0, "color": "red", "createdAt": 0, "engine": "codex"
+        }))
+        .unwrap();
+        assert_eq!(a.routine_model(), None);
+        a.model = Some("gpt-5.5".into());
+        assert_eq!(a.routine_model(), Some("gpt-5.5"));
+        a.routine_model = Some("gpt-5.6-luna".into());
+        assert_eq!(a.routine_model(), Some("gpt-5.6-luna"));
+        a.switch_engine(super::super::engine::Engine::Claude);
+        assert_eq!(a.routine_model, None);
+        assert_eq!(a.routine_model(), Some("haiku"));
+    }
 
     fn with_root<F: FnOnce()>(f: F) {
         let _serial = tests_lock();

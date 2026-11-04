@@ -135,7 +135,7 @@ export const agentsDesktopScenarios: Scenario[] = [
     id: 'agents-desktop-settings',
     title: 'Settings — Agents in the menu bar, Quick message',
     looksRightWhen:
-      'At the end of Settings → General, two rows in the same style as the others: “Agents in the menu bar” (off; on by default while Keep running when closed is on) and “Quick message” (on), whose description names ⌥Space, @name, dictation and the Screen Recording prompt, with a small field showing ⌥Space under it.',
+      'At the end of Settings → General, two rows in the same style as the others: “Agents in the menu bar” (off; on by default once Agents has been used, or while Keep running when closed is on) and “Quick message” (on), whose description names ⌥Space, @name, dictation and the Screen Recording prompt, with a small field showing ⌥Space under it.',
     command: 'agents.desktopSettings',
     requires: '.agents-desktop-settings .agents-shortcut-field',
     clipSelector: '.agents-desktop-settings',

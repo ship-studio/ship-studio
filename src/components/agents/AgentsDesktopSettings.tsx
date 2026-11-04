@@ -1,9 +1,11 @@
 /**
  * Settings → General: the Agents menu-bar icon and the quick-message shortcut.
  *
- * Both default to following "Keep running when closed": a new icon in the
- * menu bar, or ⌥Space taken from every other app, only for someone who asked
- * Ship Studio to keep running in the background. Either can be set on its own.
+ * The icon is on by default once Agents has been used (a message sent to any
+ * agent, or agents imported) or while "Keep running when closed" is on, so
+ * someone who never touches Agents never gets a new icon. Quick message stays
+ * opt-in, following "Keep running when closed": ⌥Space is taken from every
+ * other app. Either can be set on its own.
  *
  * The shortcut field records the next combination pressed. The backend
  * refuses one macOS keeps for itself, a plain ⌘-letter every app uses, or one
@@ -85,7 +87,8 @@ export function AgentsDesktopSettings() {
           <span className="settings-row-label">Agents in the menu bar</span>
           <span className="settings-row-description">
             Shows the agents that need you and the ones working, and keeps Ship Studio a click away
-            with its window closed. On by default while Keep running when closed is on.
+            with its window closed. On by default once you've used Agents, or while Keep running
+            when closed is on.
           </span>
         </div>
         <Toggle

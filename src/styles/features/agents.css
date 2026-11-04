@@ -1935,6 +1935,13 @@
   flex: 1;
 }
 
+.agent-model-menu .agent-model-menu__heading {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
 .agent-model-menu .agent-model-menu__check,
 .agent-model-menu .agent-switcher__mark {
   display: inline-flex;

@@ -1,6 +1,7 @@
 /**
  * Create a new agent, or edit one. Creating asks only what Grok Bot asks —
- * a name and a face — plus the model it runs on, with the role and briefing
+ * a name and a face — plus what it runs on (Claude Code or Codex, when both
+ * are here and signed in) and its model, with the role and briefing
  * one disclosure away, because
  * most agents are created by the Chief of Staff and briefed in conversation.
  *
@@ -19,11 +20,14 @@ import { AgentSecrets } from './AgentSecrets';
 import {
   AGENT_COLORS,
   type AgentColor,
-  AGENT_MODELS,
+  type AgentEngine,
   createAgent,
+  ENGINE_LABEL,
+  engineOptions,
   formatUsage,
   getAgentInstructions,
   getAgentUsage,
+  modelChoices,
   revokePermission,
   SCOPE_KIND_LABEL,
   updateAgent,
@@ -32,6 +36,7 @@ import {
   type UsageSummary,
 } from '../../lib/agents';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { useAgentsSelector } from '../../lib/agentsStore';
 import { useAsyncState } from '../../hooks/useAsyncState';
 
 /** This week and all time, as Claude Code reported them; nothing before any turn. */
@@ -50,7 +55,7 @@ function UsageLines({ usage }: { usage: UsageSummary | null }) {
 }
 
 /**
- * What it can use, as Claude Code listed it when its last turn started
+ * What it can use, as its engine listed it for its last turn
  * (`agents/capabilities.rs`). Nothing is claimed before a turn has said.
  */
 function CanDo({ agent }: { agent: Agent }) {
@@ -60,7 +65,7 @@ function CanDo({ agent }: { agent: Agent }) {
       What {agent.name} can do
       {lines.length === 0 ? (
         <p className="agent-editor__hint">
-          Shown after its first turn, from what Claude Code says it can use.
+          Shown after its first turn, from what {ENGINE_LABEL[agent.engine]} says it can use.
         </p>
       ) : (
         <dl className="agent-editor__usage agent-editor__can-do">
@@ -160,7 +165,11 @@ export function AgentEditorModal({
   const [color, setColor] = useState<string>(() => agent?.color ?? freeColor(takenColors));
   const [role, setRole] = useState(agent?.role ?? '');
   const [instructions, setInstructions] = useState('');
+  const engines = useAgentsSelector((s) => s.engines);
+  const [engine, setEngine] = useState<AgentEngine>(agent?.engine ?? 'claude');
   const [model, setModel] = useState(agent?.model ?? '');
+  const runsOn = engineOptions(engines, engine);
+  const switching = Boolean(agent && agent.engine !== engine);
   const [project, setProject] = useState(agent?.project ?? '');
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [showBriefing, setShowBriefing] = useState(Boolean(agent));
@@ -188,10 +197,18 @@ export function AgentEditorModal({
     setError(null);
     try {
       if (agent) {
-        await updateAgent(agent.id, { name, color, role, instructions, model, project });
+        await updateAgent(agent.id, { name, color, role, instructions, engine, model, project });
         onSaved(agent.id);
       } else {
-        const created = await createAgent({ name, color, role, instructions, model, project });
+        const created = await createAgent({
+          name,
+          color,
+          role,
+          instructions,
+          engine,
+          model,
+          project,
+        });
         onSaved(created.id);
       }
       onClose();
@@ -270,11 +287,33 @@ export function AgentEditorModal({
           ))}
         </div>
 
+        {runsOn.length > 1 && (
+          <div className="agent-editor__label" role="group" aria-label="Runs on">
+            Runs on
+            <SegmentedControl
+              value={engine}
+              options={runsOn.map((e) => ({ value: e.id, label: e.label }))}
+              onValueChange={(next) => {
+                setEngine(next);
+                // Models don't cross engines.
+                setModel(next === agent?.engine ? (agent.model ?? '') : '');
+              }}
+              aria-label="Runs on"
+            />
+            {switching && (
+              <p className="agent-editor__hint">
+                Its next message starts a new {ENGINE_LABEL[engine]} session, handed the recent
+                conversation. Instructions and memory carry over.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="agent-editor__label" role="group" aria-label="Model">
           Model
           <SegmentedControl
             value={model}
-            options={AGENT_MODELS}
+            options={modelChoices(engine, engines)}
             onValueChange={setModel}
             aria-label="Model"
           />
@@ -287,11 +326,15 @@ export function AgentEditorModal({
             Apps
             <div className="agent-editor__apps">
               <p className="agent-editor__hint">
-                Every agent can use the apps your Claude Code is connected to.
+                {engine === 'codex'
+                  ? 'A Codex agent can use the MCP servers set up in Codex.'
+                  : 'Every agent can use the apps your Claude Code is connected to.'}
               </p>
-              <Button variant="secondary" size="compact" onClick={onOpenApps}>
-                Manage apps…
-              </Button>
+              {engine === 'claude' && (
+                <Button variant="secondary" size="compact" onClick={onOpenApps}>
+                  Manage apps…
+                </Button>
+              )}
             </div>
           </div>
         )}

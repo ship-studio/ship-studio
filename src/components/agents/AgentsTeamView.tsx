@@ -40,6 +40,7 @@ import {
   TEAM_ID,
   whenAt,
   type Agent,
+  type AgentEngine,
   type AgentMessage,
 } from '../../lib/agents';
 import { refreshAgents, upsertMessage, useAgentsSelector } from '../../lib/agentsStore';
@@ -160,7 +161,8 @@ interface AgentsTeamViewProps {
   /** Open a chat at one of its lines. */
   onOpenMessage: (agentId: string, messageId: string) => void;
   /** The expired-login remedy on a failed turn. */
-  onSignIn: () => void;
+  /** Sign the agent's engine back in. */
+  onSignIn: (engine: AgentEngine) => void;
   /** Below the compact breakpoint there's no sidebar; the header switches agents. */
   compact?: { agents: Agent[]; onGoHome: () => void; onGoProjects: () => void };
 }
@@ -375,7 +377,8 @@ export function AgentsTeamView({
                     {failure && kind && !pending && (
                       <ErrorLine
                         message={failure}
-                        onSignIn={onSignIn}
+                        engine={agent.engine}
+                        onSignIn={() => onSignIn(agent.engine)}
                         onRetry={() => void retry(agent, failure)}
                         onRetryAt={(at) => void retryAt(agent, failure, at)}
                         retryScheduled={(agent.checkIns ?? []).some(

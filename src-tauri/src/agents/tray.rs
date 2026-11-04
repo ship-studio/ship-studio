@@ -11,8 +11,9 @@
 //! or registry change; [`quit_check`] reads the same snapshot to say what a
 //! quit would cut off.
 //!
-//! Shown by default only while "Keep running when closed" is on: someone who
-//! never asked for background running gets no new icon in a crowded menu bar.
+//! Shown by default once the user has actually used Agents (sent any agent a
+//! message, or imported agents), or while "Keep running when closed" is on:
+//! someone who never touches Agents gets no new icon in a crowded menu bar.
 //! `AppState.menu_bar_icon` overrides that either way.
 //!
 //! Full design: docs/agents.md, "Menu bar, quit guard and quick entry".
@@ -227,9 +228,37 @@ pub fn wanted() -> bool {
         return false;
     }
     let state = crate::commands::setup::read_app_state();
-    state
-        .menu_bar_icon
-        .unwrap_or(state.keep_running_when_closed == Some(true))
+    state.menu_bar_icon.unwrap_or_else(|| {
+        default_wanted(
+            state.agents_used == Some(true) || used_before(),
+            state.keep_running_when_closed == Some(true),
+        )
+    })
+}
+
+/// Without an explicit setting: shown once Agents has been used, or while
+/// the app keeps running in the background.
+fn default_wanted(used: bool, keep_running: bool) -> bool {
+    used || keep_running
+}
+
+/// Agents used before `agents_used` existed: some agent has had a turn.
+fn used_before() -> bool {
+    store::list().is_ok_and(|agents| agents.iter().any(|a| a.session_id.is_some()))
+}
+
+/// Record that the user has used Agents (sent a message, imported agents),
+/// and show the icon if that is what it was waiting for. Cheap after the first time.
+pub fn mark_used(app: &AppHandle) {
+    let state = crate::commands::setup::read_app_state();
+    if state.agents_used == Some(true) {
+        return;
+    }
+    if let Err(e) = crate::commands::setup::update_app_state(|s| s.agents_used = Some(true)) {
+        tracing::warn!("[Agents] recording first use: {e}");
+        return;
+    }
+    sync(app);
 }
 
 /// Start following agents' status, and show the icon if it is wanted.
@@ -465,6 +494,41 @@ mod tests {
             },
             running: state != "idle",
         }
+    }
+
+    #[test]
+    fn the_icon_waits_for_agents_to_be_used_or_background_running() {
+        assert!(!default_wanted(false, false));
+        assert!(default_wanted(true, false));
+        assert!(default_wanted(false, true));
+    }
+
+    #[test]
+    fn a_codex_agent_is_seen_like_any_other() {
+        let _lock = store::tests_lock();
+        let dir = tempfile::tempdir().unwrap();
+        store::set_root_for_tests(Some(dir.path().to_path_buf()));
+        let created = store::create(store::NewAgent {
+            name: "Coder".into(),
+            role: String::new(),
+            instructions: String::new(),
+            shape: None,
+            color: None,
+            is_main: false,
+        })
+        .unwrap();
+        store::update(&created.id, |a| {
+            a.switch_engine(crate::agents::engine::Engine::Codex);
+            a.session_id = Some("thread-1".into());
+            a.pending_approvals = 1;
+        })
+        .unwrap();
+        let seen = snapshot();
+        store::set_root_for_tests(None);
+        let model = menu_model(&seen);
+        assert_eq!(ids(&model.needs_you), vec![created.id.as_str()]);
+        assert_eq!(model.needs_you[0].label, "Coder · Needs your OK");
+        assert!(seen.iter().any(|s| s.id == created.id));
     }
 
     fn ids(rows: &[Row]) -> Vec<&str> {

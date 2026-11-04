@@ -900,10 +900,15 @@ pub struct AppState {
     /// where closing a window quits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_running_when_closed: Option<bool>,
-    /// Agents' menu-bar icon. `None` follows `keep_running_when_closed`:
-    /// only someone who asked for background running gets a new icon.
+    /// Agents' menu-bar icon. `None` shows it once Agents has been used
+    /// (`agents_used`) or while `keep_running_when_closed` is on: someone who
+    /// never touches Agents never gets a new icon.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menu_bar_icon: Option<bool>,
+    /// The user has sent an agent a message or imported agents. Set once,
+    /// never cleared; see `agents::tray::mark_used`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents_used: Option<bool>,
     /// Agents' quick-entry shortcut. `None` follows `keep_running_when_closed`,
     /// like the icon: a global shortcut takes its keys from every other app.
     #[serde(skip_serializing_if = "Option::is_none")]

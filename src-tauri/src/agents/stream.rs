@@ -14,6 +14,67 @@
 
 use serde_json::Value;
 
+use super::capabilities::Capabilities;
+use super::usage::UsageTotals;
+
+/// One thing a turn's output said, whichever engine wrote it. Claude Code's
+/// stream-json and Codex's JSONL (`super::codex::steps`) both map onto these,
+/// so the runner treats every engine's turn the same way.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// The session this turn runs in, to resume next time.
+    Session(String),
+    Capabilities(Capabilities),
+    /// A complete top-level text block: a message to the user.
+    Reply(String),
+    /// What it's doing right now, for the line under its name.
+    Activity(String),
+    Usage(UsageTotals),
+    /// The turn ended in an error, in the engine's words.
+    Failed(String),
+    /// The turn's result is in.
+    Done,
+    /// Something the engine said along the way that explains a turn which
+    /// then ends without a result.
+    Detail(String),
+}
+
+/// One line of Claude Code's stream-json (other than `stream_event`, which
+/// feeds [`Drafts`]), as turn steps.
+pub fn claude_steps(value: &Value, line: &str, now: i64) -> Vec<Step> {
+    let mut out = Vec::new();
+    match value.get("type").and_then(Value::as_str) {
+        Some("system") => {
+            out.extend(super::capabilities::from_init(value, now).map(Step::Capabilities));
+            if let Some(sid) = value.get("session_id").and_then(Value::as_str) {
+                out.push(Step::Session(sid.to_string()));
+            }
+        }
+        Some("assistant") => {
+            // Sub-agent (Task) chatter is internal; only top-level text is a reply.
+            if top_level(value) {
+                let blocks = value.pointer("/message/content").and_then(Value::as_array);
+                for block in blocks.into_iter().flatten() {
+                    if block.get("type").and_then(Value::as_str) == Some("text") {
+                        let text = block.get("text").and_then(Value::as_str).unwrap_or("");
+                        out.push(Step::Reply(text.trim().to_string()));
+                    }
+                }
+            }
+            out.extend(super::runner::describe_activity(line).map(Step::Activity));
+        }
+        Some("result") => {
+            out.extend(super::usage::from_result(value).map(Step::Usage));
+            if value.get("is_error").and_then(Value::as_bool) == Some(true) {
+                out.push(Step::Failed(super::runner::result_error_text(value)));
+            }
+            out.push(Step::Done);
+        }
+        _ => {}
+    }
+    out
+}
+
 /// Whether an event belongs to the agent's own conversation rather than a sub-agent's.
 pub fn top_level(value: &Value) -> bool {
     value.get("parent_tool_use_id").is_none_or(|p| p.is_null())
@@ -72,6 +133,23 @@ impl Drafts {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// A new reply started streaming (Codex's `item/started agentMessage`).
+    pub fn open(&mut self, id: String) {
+        self.current = Some(Draft {
+            id,
+            index: 0,
+            text: String::new(),
+        });
+    }
+
+    /// More of the reply that's streaming (Codex's `item/agentMessage/delta`).
+    pub fn grow(&mut self, text: &str) {
+        if let Some(draft) = self.current.as_mut().filter(|_| !text.is_empty()) {
+            draft.text.push_str(text);
+            self.dirty = true;
         }
     }
 
@@ -174,6 +252,20 @@ mod tests {
             .iter()
             .any(|(id, t)| id == &recorded[1].0 && t == "done"));
         assert_ne!(recorded[0].0, recorded[1].0);
+    }
+
+    #[test]
+    fn a_claude_turn_maps_onto_steps() {
+        let steps: Vec<Step> = SAMPLE
+            .lines()
+            .filter_map(|l| Some((serde_json::from_str::<Value>(l).ok()?, l)))
+            .flat_map(|(v, l)| claude_steps(&v, l, 0))
+            .collect();
+        let replies = steps.iter().filter(|s| matches!(s, Step::Reply(_))).count();
+        assert_eq!(replies, 2);
+        assert!(steps.iter().any(|s| matches!(s, Step::Activity(_))));
+        assert!(steps.iter().any(|s| matches!(s, Step::Session(_))));
+        assert_eq!(steps.last(), Some(&Step::Done));
     }
 
     #[test]

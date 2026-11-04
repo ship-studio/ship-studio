@@ -21,11 +21,13 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
+use super::codex_app::Out;
+use super::engine::Engine;
 use super::notify;
 use super::procs;
 use super::prompts;
 use super::store::{self, AgentMessage, AgentRef, MessageKind};
-use super::stream::{self, Drafts};
+use super::stream::{self, Drafts, Step};
 use crate::errors::CommandError;
 
 pub const EVENT_MESSAGE: &str = "agents://message";
@@ -90,6 +92,13 @@ pub enum From {
 struct Inbound {
     text: String,
     from: From,
+    /// An agent's answer to a request this agent sent it: answered by
+    /// telling the user, never by replying (see [`settle`]).
+    #[serde(default)]
+    reply: bool,
+    /// One of the agent's routines firing (see [`store::Agent::routine_model`]).
+    #[serde(default)]
+    routine: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -129,6 +138,10 @@ struct Runtime {
     interrupt: bool,
     /// Set when a turn was interrupted: what the next turn is told first.
     interrupted: Option<String>,
+    /// Agents whose requests the turn in progress is answering. Whatever the
+    /// turn ends up saying goes back to each of them (see [`return_results`]),
+    /// unless it already answered one with `message_agent`.
+    owed: Vec<AgentRef>,
 }
 
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
@@ -316,7 +329,7 @@ pub async fn recover_after_restart(app: &AppHandle) {
             new_message(&agent.id, MessageKind::Note, resent_note(&queued)),
         );
         for message in queued {
-            enqueue(app, &agent.id, message.text, message.from);
+            push(app, &agent.id, message);
         }
     }
 }
@@ -526,11 +539,66 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
 }
 
 /// Queue a message for an agent and make sure a worker is draining its inbox.
+/// From another agent, it is a request: the turn that handles it answers it.
 pub fn enqueue(app: &AppHandle, agent_id: &str, text: String, from: From) {
+    push(
+        app,
+        agent_id,
+        Inbound {
+            text,
+            from,
+            reply: false,
+            routine: false,
+        },
+    );
+}
+
+/// Queue the turn one of the agent's routines wakes it for.
+pub fn enqueue_routine(app: &AppHandle, agent_id: &str, text: String) {
+    push(
+        app,
+        agent_id,
+        Inbound {
+            text,
+            from: From::User,
+            reply: false,
+            routine: true,
+        },
+    );
+}
+
+/// Queue an agent's answer to a request `agent_id` sent it.
+pub fn enqueue_reply(app: &AppHandle, agent_id: &str, text: String, sender: AgentRef, hop: u8) {
+    push(
+        app,
+        agent_id,
+        Inbound {
+            text,
+            from: From::Agent { sender, hop },
+            reply: true,
+            routine: false,
+        },
+    );
+}
+
+/// `from` is messaging `to`. If `from`'s turn is answering a request `to`
+/// sent, this message is that answer: it settles the debt, so the turn's
+/// final words aren't sent back as well. Returns whether it was an answer.
+pub fn settle(from: &str, to: &str) -> bool {
+    let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(owed) = runtimes.get_mut(from).map(|r| &mut r.owed) else {
+        return false;
+    };
+    let before = owed.len();
+    owed.retain(|a| a.id != to);
+    owed.len() < before
+}
+
+fn push(app: &AppHandle, agent_id: &str, inbound: Inbound) {
     let start = {
         let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = runtimes.entry(agent_id.to_string()).or_default();
-        runtime.queue.push_back(Inbound { text, from });
+        runtime.queue.push_back(inbound);
         save_inbox(agent_id, &runtime.queue);
         if runtime.running {
             false
@@ -652,6 +720,7 @@ async fn drain(app: AppHandle, agent_id: String) {
         } else {
             None
         };
+        let routine: bool;
         let prompt: String = {
             let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
             let runtime = runtimes.entry(agent_id.clone()).or_default();
@@ -667,6 +736,7 @@ async fn drain(app: AppHandle, agent_id: String) {
             }
             let batch: Vec<Inbound> = runtime.queue.drain(..).collect();
             save_inbox(&agent_id, &runtime.queue);
+            routine = batch.iter().all(|m| m.routine);
             // The turn inherits the deepest hop it is answering; a user message
             // in the batch resets the chain.
             runtime.origin = if batch.iter().any(|m| matches!(m.from, From::User)) {
@@ -689,6 +759,14 @@ async fn drain(app: AppHandle, agent_id: String) {
                     .max()
                     .unwrap_or(0)
             };
+            // An interrupted turn's debts carry over to the turn that replaces it.
+            for m in &batch {
+                if let (From::Agent { sender, .. }, false) = (&m.from, m.reply) {
+                    if !runtime.owed.iter().any(|a| a.id == sender.id) {
+                        runtime.owed.push(sender.clone());
+                    }
+                }
+            }
             runtime.cancel = Some(Arc::new(Notify::new()));
             runtime.interrupt = false;
             let prompt = compose(&batch);
@@ -712,7 +790,8 @@ async fn drain(app: AppHandle, agent_id: String) {
                 tree: start.as_ref().map(|(_, t)| t.clone()),
             },
         );
-        let result = run_turn(&app, &agent_id, &prompt, true).await;
+        let since = store::now_ms();
+        let result = run_turn(&app, &agent_id, &prompt, routine, true).await;
         if QUITTING.load(Ordering::SeqCst) {
             // The app is going: the mark stays, for the next launch to report.
             return;
@@ -723,13 +802,77 @@ async fn drain(app: AppHandle, agent_id: String) {
         if let Some((project, from)) = start {
             record_changes(&app, &agent_id, project, from).await;
         }
-        if let Err(err) = result {
-            let (text, failure) = super::failure::describe_now(&err.to_string());
-            let mut line = new_message(&agent_id, MessageKind::Error, text);
-            line.failure = Some(failure);
-            let _ = record(&app, line);
+        let failed = match result {
+            Ok(Ended::Interrupted) => {
+                notify::turn_ended(&app, &agent_id);
+                continue;
+            }
+            Ok(Ended::Stopped) => {
+                take_owed(&agent_id);
+                None
+            }
+            Ok(Ended::Finished) => Some(None),
+            Err(err) => {
+                let engine = store::get(&agent_id).map(|a| a.engine).unwrap_or_default();
+                let (text, failure) = super::failure::describe_now(engine, &err.to_string());
+                let mut line = new_message(&agent_id, MessageKind::Error, text.clone());
+                line.failure = Some(failure);
+                let _ = record(&app, line);
+                Some(Some(text))
+            }
+        };
+        if let Some(error) = failed {
+            return_results(&app, &agent_id, since, error);
         }
         notify::turn_ended(&app, &agent_id);
+    }
+}
+
+fn take_owed(agent_id: &str) -> Vec<AgentRef> {
+    let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+    runtimes
+        .get_mut(agent_id)
+        .map(|r| std::mem::take(&mut r.owed))
+        .unwrap_or_default()
+}
+
+/// A turn that answered other agents' requests is over: what it said (or why
+/// it couldn't finish) goes back to each of them, so delegated work always
+/// reports back and the agent never has to spend a tool call on it.
+fn return_results(app: &AppHandle, agent_id: &str, since: i64, error: Option<String>) {
+    let owed = take_owed(agent_id);
+    if owed.is_empty() {
+        return;
+    }
+    let hop = current_hop(agent_id).saturating_add(1);
+    let Ok(me) = store::get(agent_id) else { return };
+    let said: Vec<String> = store::messages(agent_id, 40)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| m.kind == MessageKind::Agent && m.ts >= since && !m.text.trim().is_empty())
+        .map(|m| m.text)
+        .collect();
+    let text = match (error, said.is_empty()) {
+        (Some(e), _) => format!("{} couldn't finish: {e}", me.name),
+        (None, true) => format!("{} finished without saying anything.", me.name),
+        (None, false) => said.join(
+            "
+
+",
+        ),
+    };
+    let sender = AgentRef {
+        id: me.id.clone(),
+        name: me.name.clone(),
+    };
+    for to in owed {
+        if hop > MAX_HOPS || store::get(&to.id).is_err() {
+            continue;
+        }
+        let mut line = new_message(&to.id, MessageKind::FromAgent, text.clone());
+        line.peer = Some(sender.clone());
+        let _ = record(app, line);
+        enqueue_reply(app, &to.id, text.clone(), sender.clone(), hop);
     }
 }
 
@@ -770,7 +913,7 @@ fn compose(batch: &[Inbound]) -> String {
         .iter()
         .map(|m| match &m.from {
             From::User => m.text.clone(),
-            From::Agent { sender, .. } => prompts::from_agent(&sender.name, &m.text),
+            From::Agent { sender, .. } => prompts::from_agent(&sender.name, &m.text, m.reply),
         })
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -779,7 +922,7 @@ fn compose(batch: &[Inbound]) -> String {
 /// What a failed `result` event means, in words. The CLI puts the reason in
 /// `errors` (e.g. "No conversation found with session ID: …") and only a code
 /// in `subtype` ("error_during_execution"), which must never reach the chat.
-fn result_error_text(value: &serde_json::Value) -> String {
+pub(crate) fn result_error_text(value: &serde_json::Value) -> String {
     if let Some(text) = value
         .get("result")
         .and_then(|r| r.as_str())
@@ -809,21 +952,24 @@ fn result_error_text(value: &serde_json::Value) -> String {
 /// ends with one; without it the process died or wrote something unreadable,
 /// whatever its exit code says, so this is never a silent "done". The CLI's
 /// own words win when it left any.
-fn unfinished_turn(exited_cleanly: bool, stderr: String) -> String {
+fn unfinished_turn(engine: Engine, exited_cleanly: bool, stderr: String) -> String {
     if !stderr.trim().is_empty() {
         return stderr;
     }
+    let who = engine.label();
     let what = if exited_cleanly {
-        "Claude Code stopped before finishing its reply."
+        "stopped before finishing its reply"
     } else {
-        "Claude Code quit unexpectedly before finishing its reply."
+        "quit unexpectedly before finishing its reply"
     };
-    format!("{what} Send your message again; if it keeps happening, check that Claude Code works in a terminal.")
+    format!("{who} {what}. Send your message again; if it keeps happening, check that {who} works in a terminal.")
 }
 
 /// A prompt for a fresh session, prefixed with the visible conversation.
 fn with_recap(agent_id: &str, prompt: &str) -> String {
-    let Ok(log) = store::messages(agent_id, 40) else {
+    // Enough to pick the thread back up, not the whole history: this is
+    // paid for in full (nothing cached) on the turn that needs it.
+    let Ok(log) = store::messages(agent_id, 24) else {
         return prompt.to_string();
     };
     let lines: Vec<String> = log
@@ -837,7 +983,7 @@ fn with_recap(agent_id: &str, prompt: &str) -> String {
                 MessageKind::CheckIn => "Your scheduled check-in".to_string(),
                 _ => return None,
             };
-            let text: String = m.text.chars().take(600).collect();
+            let text: String = m.text.chars().take(400).collect();
             Some(format!("{who}: {text}"))
         })
         .collect();
@@ -850,11 +996,14 @@ fn with_recap(agent_id: &str, prompt: &str) -> String {
     )
 }
 
-/// Claude Code's `--resume` refuses a session id it has no file for (the
-/// user cleared ~/.claude, or the first turn died before writing one).
+/// `--resume` / `exec resume` refusing a session it has no file for (the
+/// user cleared ~/.claude or ~/.codex, or the first turn died before writing
+/// one). Codex 0.166 says "no rollout found for thread id …" (observed).
 fn is_missing_session(detail: &str) -> bool {
     let lower = detail.to_lowercase();
-    lower.contains("no conversation found") || lower.contains("session not found")
+    lower.contains("no conversation found")
+        || lower.contains("session not found")
+        || lower.contains("no rollout found")
 }
 
 fn mcp_config(url: &str) -> String {
@@ -932,6 +1081,24 @@ fn system_prompt_for(
     home: &std::path::Path,
     layout: &super::project::Layout,
 ) -> String {
+    let mut prompt = system_prompt_base(agent, home, layout);
+    if agent.is_main {
+        if let Some(team) = store::list()
+            .ok()
+            .and_then(|all| prompts::team(&all, &agent.id))
+        {
+            prompt.push_str("\n\n");
+            prompt.push_str(&team);
+        }
+    }
+    prompt
+}
+
+fn system_prompt_base(
+    agent: &store::Agent,
+    home: &std::path::Path,
+    layout: &super::project::Layout,
+) -> String {
     let Some(project) = &layout.project else {
         return prompts::system_prompt(agent, None);
     };
@@ -952,7 +1119,7 @@ fn system_prompt_for(
 
 /// Every argument a turn's `claude` process gets. The prompt goes on stdin.
 fn turn_args(
-    agent: &store::Agent,
+    model: Option<&str>,
     session_id: &str,
     resuming: bool,
     url: &str,
@@ -989,8 +1156,8 @@ fn turn_args(
     for dir in add_dirs {
         args.extend(["--add-dir".to_string(), dir.clone()]);
     }
-    if let Some(model) = &agent.model {
-        args.extend(["--model".to_string(), model.clone()]);
+    if let Some(model) = model {
+        args.extend(["--model".to_string(), model.to_string()]);
     }
     args
 }
@@ -1021,32 +1188,83 @@ async fn finish(
     child.wait().await
 }
 
+/// Write to an app-server turn's stdin; `None` closes it.
+fn send(
+    writer: &Option<tokio::sync::mpsc::UnboundedSender<Option<String>>>,
+    msg: Option<serde_json::Value>,
+) {
+    if let Some(tx) = writer {
+        let _ = tx.send(msg.map(|m| m.to_string()));
+    }
+}
+
 /// [`record`] on a blocking thread: it writes the log and the registry.
 async fn record_off(app: &AppHandle, message: AgentMessage) {
     let app = app.clone();
     let _ = tokio::task::spawn_blocking(move || record(&app, message)).await;
 }
 
-/// The `claude` binary, validated (`claude --version`) at most once a
-/// minute per PATH rather than on every turn: the probe spawns a process.
-async fn claude_binary() -> Option<std::path::PathBuf> {
-    type Cached = (String, std::path::PathBuf, std::time::Instant);
-    static CACHE: LazyLock<Mutex<Option<Cached>>> = LazyLock::new(|| Mutex::new(None));
-    let path_var = std::env::var("PATH").unwrap_or_default();
-    if let Some((for_path, binary, at)) = &*CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
-        if *for_path == path_var && at.elapsed() < Duration::from_secs(60) && binary.exists() {
-            return Some(binary.clone());
+/// Where a turn's time went, logged once per turn (target `agents::timing`):
+/// our preparation before the spawn, the engine's start-up until it names
+/// its session, the first streamed word, its result, and the wait for it to
+/// exit. `cli_ms` is the CLI's own `duration_ms` (Claude Code only), so
+/// overhead can be told apart.
+struct Timing {
+    began: std::time::Instant,
+    spawned: std::time::Instant,
+    boot: Option<std::time::Instant>,
+    first_word: Option<std::time::Instant>,
+    result: Option<std::time::Instant>,
+    cli_ms: u64,
+}
+
+impl Timing {
+    fn spawned(began: std::time::Instant) -> Self {
+        Timing {
+            began,
+            spawned: std::time::Instant::now(),
+            boot: None,
+            first_word: None,
+            result: None,
+            cli_ms: 0,
         }
     }
-    let binary = tokio::task::spawn_blocking(|| {
-        crate::commands::claude::find_validated_binary("claude", "--version")
-    })
-    .await
-    .ok()
-    .flatten()?;
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((path_var, binary.clone(), std::time::Instant::now()));
-    Some(binary)
+    fn mark_boot(&mut self) {
+        self.boot.get_or_insert_with(std::time::Instant::now);
+    }
+    fn mark_first_word(&mut self) {
+        self.first_word.get_or_insert_with(std::time::Instant::now);
+    }
+    fn mark_result(&mut self) {
+        self.result = Some(std::time::Instant::now());
+    }
+    fn log(&self, agent_id: &str) {
+        let since = |t: Option<std::time::Instant>| {
+            t.map(|t| t.duration_since(self.spawned).as_millis() as u64)
+        };
+        let tail = self.result.map(|r| r.elapsed().as_millis() as u64);
+        tracing::info!(
+            target: "agents::timing",
+            agent = agent_id,
+            prep_ms = self.spawned.duration_since(self.began).as_millis() as u64,
+            boot_ms = since(self.boot).unwrap_or(0),
+            first_word_ms = since(self.first_word).unwrap_or(0),
+            result_ms = since(self.result).unwrap_or(0),
+            tail_ms = tail.unwrap_or(0),
+            cli_ms = self.cli_ms,
+            "turn timing"
+        );
+    }
+}
+
+/// How a turn that didn't fail ended.
+#[derive(Debug, PartialEq)]
+enum Ended {
+    Finished,
+    /// Stopped for a newer message, which the next turn reads.
+    Interrupted,
+    /// Stopped by the user (or the time limit).
+    Stopped,
 }
 
 /// Run one turn. `retry_fresh` lets a vanished session be replaced once.
@@ -1054,23 +1272,40 @@ async fn run_turn(
     app: &AppHandle,
     agent_id: &str,
     prompt: &str,
+    routine: bool,
     retry_fresh: bool,
-) -> Result<(), CommandError> {
-    let agent = store::get(agent_id)?;
+) -> Result<Ended, CommandError> {
+    let began = std::time::Instant::now();
+    let mut agent = store::get(agent_id)?;
+    let engine = agent.engine;
     let home = store::agent_home(agent_id)?;
     std::fs::create_dir_all(&home).map_err(super::err_io)?;
-    let binary = claude_binary().await.ok_or_else(|| {
-        CommandError::expected("Claude Code isn't installed, or Ship Studio can't find it. Install it from Settings → Agents, then send this again.")
+    let binary = super::engine::binary(engine).await.ok_or_else(|| {
+        CommandError::expected(format!("{} isn't installed, or Ship Studio can't find it. Install it, or move this agent to another engine in Edit agent, then send this again.", engine.label()))
     })?;
+    // Signed out, Codex retries for twenty seconds before saying so.
+    if engine == Engine::Codex && !super::engine::signed_in(engine).await {
+        return Err(CommandError::expected("Codex says: Not logged in."));
+    }
     let (port, token) = crate::agent_bridge::start_global_agent_bridge(app.clone())
         .await
         .map_err(super::err_other)?;
     let url = format!("http://127.0.0.1:{port}/mcp/{token}/agents/{agent_id}");
 
-    let (session_id, resuming) = match &agent.session_id {
-        Some(id) => (id.clone(), true),
-        None => (uuid::Uuid::new_v4().to_string(), false),
+    // Codex names its own session (`thread.started`); Claude Code takes ours.
+    let (session_id, resuming) = match (&agent.session_id, engine) {
+        (Some(id), _) => (id.clone(), true),
+        (None, Engine::Claude) => (uuid::Uuid::new_v4().to_string(), false),
+        (None, Engine::Codex) => (String::new(), false),
     };
+    // First turn on a new engine: it starts blank, so it gets the conversation.
+    let prompt = if agent.new_engine && !resuming {
+        with_recap(agent_id, prompt)
+    } else {
+        prompt.to_string()
+    };
+    // A value pasted into a message reaches the agent as its reference.
+    let prompt = super::secrets::redact(&prompt).into_owned();
 
     let layout = super::project::layout(&agent, &home, work_dirs());
     if let Some(project) = &layout.project {
@@ -1082,6 +1317,14 @@ async fn run_turn(
             )));
         }
     }
+    // Codex announces no tools, so its list is read before the turn instead.
+    // Codex speaks app-server when it can: streaming, cards, interrupt.
+    let app_server = engine == Engine::Codex && super::codex_app::available(&binary).await;
+    if engine == Engine::Codex {
+        let caps = super::codex::capabilities(&agent, &binary, store::now_ms(), app_server).await;
+        agent.capabilities = Some(caps.clone());
+        let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
+    }
     // This agent's secrets, as variables of this process only (see `secrets`).
     let secret_env = super::secrets::env_for(&agent);
     let mut system_prompt = system_prompt_for(&agent, &home, &layout);
@@ -1090,15 +1333,30 @@ async fn run_turn(
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&have);
     }
+    let model = if routine {
+        agent.routine_model()
+    } else {
+        agent.model.as_deref()
+    };
     let mut cmd = crate::utils::create_command(&binary);
-    cmd.args(turn_args(
-        &agent,
-        &session_id,
-        resuming,
-        &url,
-        &system_prompt,
-        &layout.add_dirs,
-    ));
+    match engine {
+        Engine::Claude => cmd.args(turn_args(
+            model,
+            &session_id,
+            resuming,
+            &url,
+            &system_prompt,
+            &layout.add_dirs,
+        )),
+        Engine::Codex if app_server => cmd.args(super::codex_app::args(&url, &layout.add_dirs)),
+        Engine::Codex => cmd.args(super::codex::args(
+            model,
+            resuming.then_some(session_id.as_str()),
+            &url,
+            &prompts::for_codex_exec(&system_prompt),
+            &layout.add_dirs,
+        )),
+    };
     strip_session_env(&mut cmd);
     cmd.env("PATH", crate::utils::get_extended_path())
         // Claude Code gives an MCP tool call ~60s by default, and the approval
@@ -1106,7 +1364,7 @@ async fn run_turn(
         // two minutes came back as a timeout the agent read as "Bash is
         // hanging". Raised past our own approval wait so we always answer
         // first. (Claude Code still caps a permission prompt at 300s; see
-        // mcp::APPROVAL_WAIT_SECS.)
+        // mcp::APPROVAL_WAIT_SECS.) Codex gets the same as `tool_timeout_sec`.
         .env(
             "MCP_TOOL_TIMEOUT",
             ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
@@ -1121,29 +1379,65 @@ async fn run_turn(
         .kill_on_drop(true);
     // Its own process group, so Stop takes down what it started too.
     procs::own_group(&mut cmd);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| CommandError::expected(format!("Couldn't start Claude Code: {e}")))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        super::engine::forget_binary(engine);
+        CommandError::expected(format!("Couldn't start {}: {e}", engine.label()))
+    })?;
     let pid = child.id();
     if let Some(pid) = pid {
         procs::register(agent_id, pid);
     }
+    let mut timing = Timing::spawned(began);
 
+    // What identifies this turn's process on its command line, for the next
+    // launch to recognise a leftover: the session, or for a new Codex session
+    // (no id until it starts) the agent's home, which is a writable root.
     let mut mark = read_mark(agent_id).unwrap_or_default();
     mark.pid = pid;
-    mark.session = session_id.clone();
+    mark.session = match engine {
+        Engine::Claude => session_id.clone(),
+        Engine::Codex => home.to_string_lossy().into_owned(),
+    };
     write_mark(agent_id, mark);
 
-    // A CLI that dies on startup closes stdin before reading it. Its exit
-    // status and stderr say why; a "Broken pipe" here would only hide that.
-    if let Some(mut stdin) = child.stdin.take() {
-        // A value pasted into a message reaches the agent as its reference.
-        let prompt = super::secrets::redact(prompt);
-        if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
-            tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
+    // An app-server conversation: stdin stays open for the turn, written by
+    // one task (approval answers come from tasks of their own); `None` closes it.
+    let (writer, mut conversation) = if app_server {
+        let (conversation, first) = super::codex_app::Conversation::new(
+            resuming.then_some(session_id.as_str()),
+            &layout.cwd,
+            model,
+            &system_prompt,
+            &prompt,
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
+        let mut stdin = child.stdin.take();
+        tokio::spawn(async move {
+            while let Some(Some(line)) = rx.recv().await {
+                let Some(pipe) = stdin.as_mut() else { break };
+                if pipe
+                    .write_all(format!("{line}\n").as_bytes())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            drop(stdin);
+        });
+        let _ = tx.send(Some(first.to_string()));
+        (Some(tx), Some(conversation))
+    } else {
+        // A CLI that dies on startup closes stdin before reading it. Its exit
+        // status and stderr say why; a "Broken pipe" here would only hide that.
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
+                tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
+            }
+            drop(stdin);
         }
-        drop(stdin);
-    }
+        (None, None)
+    };
     let stdout = child
         .stdout
         .take()
@@ -1180,6 +1474,8 @@ async fn run_turn(
     let mut saw_result = false;
     let mut said_anything = false;
     let mut result_error: Option<String> = None;
+    // What the engine said along the way, for a turn that ends without a result.
+    let mut last_detail: Option<String> = None;
     let mut session_confirmed = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_secs(TURN_TIMEOUT_SECS));
     tokio::pin!(deadline);
@@ -1209,70 +1505,102 @@ async fn run_turn(
                 // A `result` can answer something queued ahead of the user's
                 // message (resumed after a Stop, Claude Code first answers the
                 // killed background task's notification, then the message):
-                // the model still talking means the turn isn't over.
-                if saw_result && matches!(kind, Some("stream_event" | "assistant")) {
+                // the model still talking means the turn isn't over, and the
+                // row that went idle at that `result` is working again.
+                if engine == Engine::Claude && saw_result && matches!(kind, Some("stream_event" | "assistant")) {
                     drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
-                }
-                match kind {
-                    Some("system") => {
-                        if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {
-                            let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
-                        }
-                        if !session_confirmed {
-                            if let Some(sid) = value.get("session_id").and_then(|s| s.as_str()) {
-                                session_confirmed = true;
-                                let sid = sid.to_string();
-                                let id = agent_id.to_string();
-                                let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| a.session_id = Some(sid))).await;
-                            }
-                        }
+                    if status_of(agent_id).state == "idle" {
+                        set_status(app, agent_id, Status { state: "working", activity: None, since: Some(started) });
                     }
-                    Some("stream_event") => drafts.on_stream_event(&value, store::new_id),
-                    Some("assistant") => {
-                        // Sub-agent (Task) chatter is internal; only top-level text is a reply.
-                        let top_level = stream::top_level(&value);
-                        if let Some(blocks) = value.pointer("/message/content").and_then(|c| c.as_array()) {
-                            for block in blocks {
-                                if top_level && block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                    let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("").trim();
-                                    // Recorded under the draft's id, so it takes the draft's place.
-                                    let draft_id = drafts.finish(text);
-                                    if !text.is_empty() {
-                                        said_anything = true;
-                                        let mut message = new_message(agent_id, MessageKind::Agent, text);
-                                        if let Some(id) = draft_id {
-                                            message.id = id;
-                                        }
-                                        record_off(app, message).await;
+                }
+                let steps = match engine {
+                    Engine::Claude if kind == Some("stream_event") => {
+                        drafts.on_stream_event(&value, store::new_id);
+                        continue;
+                    }
+                    Engine::Claude => stream::claude_steps(&value, &line, store::now_ms()),
+                    Engine::Codex => match conversation.as_mut() {
+                        Some(conversation) => {
+                            let mut steps = Vec::new();
+                            for out in conversation.on_message(&value) {
+                                match out {
+                                    Out::Step(step) => steps.push(step),
+                                    Out::Send(msg) => send(&writer, Some(msg)),
+                                    Out::Close => send(&writer, None),
+                                    Out::DraftOpen => drafts.open(store::new_id()),
+                                    Out::DraftDelta(text) => drafts.grow(&text),
+                                    Out::Ask(ask) => {
+                                        let (app, id, tx) = (app.clone(), agent_id.to_string(), writer.clone());
+                                        tokio::spawn(async move {
+                                            for msg in super::codex_app::answer(&app, &id, *ask).await {
+                                                send(&tx, Some(msg));
+                                            }
+                                        });
                                     }
                                 }
                             }
+                            steps
                         }
-                        if let Some(activity) = describe_activity(&line) {
-                            let current = status_of(agent_id);
-                            if current.state != "waiting" {
+                        None => super::codex::steps(&value),
+                    },
+                };
+                for step in steps {
+                    match step {
+                        Step::Session(sid) if !session_confirmed => {
+                            timing.mark_boot();
+                            session_confirmed = true;
+                            let id = agent_id.to_string();
+                            let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| {
+                                a.session_id = Some(sid);
+                                a.new_engine = false;
+                            })).await;
+                        }
+                        Step::Session(_) => {}
+                        Step::Capabilities(caps) => {
+                            let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
+                        }
+                        Step::Reply(text) => {
+                            // Recorded under the draft's id, so it takes the draft's place.
+                            let draft_id = drafts.finish(&text);
+                            if !text.is_empty() {
+                                said_anything = true;
+                                let mut message = new_message(agent_id, MessageKind::Agent, text);
+                                if let Some(id) = draft_id {
+                                    message.id = id;
+                                }
+                                record_off(app, message).await;
+                            }
+                        }
+                        Step::Activity(activity) => {
+                            if status_of(agent_id).state != "waiting" {
                                 set_status(app, agent_id, Status { state: "working", activity: Some(activity), since: Some(started) });
                             }
                         }
-                    }
-                    Some("result") => {
-                        saw_result = true;
-                        drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
-                        if let Some(turn) = super::usage::from_result(&value) {
+                        Step::Usage(mut turn) => {
+                            timing.cli_ms = turn.duration_ms;
+                            // Codex doesn't time its turns; this one was timed here.
+                            if turn.duration_ms == 0 {
+                                turn.duration_ms = u64::try_from(store::now_ms() - started).unwrap_or(0);
+                            }
                             let today = super::usage::today();
                             let id = agent_id.to_string();
                             let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| a.usage.record(&turn, today))).await;
                         }
-                        let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-                        if is_error {
-                            result_error = Some(result_error_text(&value));
+                        Step::Failed(text) => result_error = Some(text),
+                        Step::Detail(text) => last_detail = Some(text),
+                        Step::Done => {
+                            saw_result = true;
+                            timing.mark_result();
+                            // Its reply is complete: no "working" while the CLI exits.
+                            set_status(app, agent_id, Status::idle());
+                            drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
                         }
                     }
-                    _ => {}
                 }
             }
             _ = draft_tick.tick(), if drafts.dirty() => {
                 if let Some((id, text)) = drafts.flush() {
+                    timing.mark_first_word();
                     emit_draft(app, agent_id, id, text);
                 }
             }
@@ -1284,6 +1612,39 @@ async fn run_turn(
             _ = cancel.notified() => { stopped = Some(None); break; }
             _ = &mut deadline => { stopped = Some(Some("Stopped after 3 hours. Send a message to pick it back up.")); break; }
         }
+    }
+
+    // An app-server turn is interrupted first, so Codex ends it cleanly and
+    // the thread records it; what streams meanwhile still counts as written.
+    if let (Some(_), Some(conversation)) = (&stopped, conversation.as_mut()) {
+        if let Some(interrupt) = conversation.interrupt() {
+            send(&writer, Some(interrupt));
+            let _ = tokio::time::timeout(Duration::from_secs(3), async {
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                        continue;
+                    };
+                    for out in conversation.on_message(&value) {
+                        match out {
+                            Out::DraftDelta(text) => drafts.grow(&text),
+                            // Completed under the interrupt: kept whole, not cut off.
+                            Out::Step(Step::Reply(text)) if !text.is_empty() => {
+                                let id = drafts.finish(&text).unwrap_or_else(store::new_id);
+                                let mut message = new_message(agent_id, MessageKind::Agent, text);
+                                message.id = id;
+                                record_off(app, message).await;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if conversation.over() {
+                        break;
+                    }
+                }
+            })
+            .await;
+        }
+        send(&writer, None);
     }
 
     // Stop, interrupt and the timeout end the whole tree, not just `claude`:
@@ -1298,6 +1659,7 @@ async fn run_turn(
         None => finish(&mut child, pid, saw_result).await,
     };
     procs::unregister(agent_id);
+    timing.log(agent_id);
     let status = status.map_err(super::err_io)?;
     let stderr_text = tokio::time::timeout(EXIT_BOUND, stderr_task)
         .await
@@ -1318,7 +1680,7 @@ async fn run_turn(
         if note.is_none() && take_interrupt(agent_id) {
             let line = "Interrupted to read your new message";
             let _ = record(app, new_message(agent_id, MessageKind::Note, line));
-            return Ok(());
+            return Ok(Ended::Interrupted);
         }
         // Stopped by the user is their doing, not a failure: a quiet line,
         // unless the cut-off reply already says so. Our own stop is an error.
@@ -1331,7 +1693,7 @@ async fn run_turn(
             }
             None => {}
         }
-        return Ok(());
+        return Ok(Ended::Stopped);
     }
 
     let missing_session =
@@ -1341,16 +1703,21 @@ async fn run_turn(
         let _ = store::update(agent_id, |a| a.session_id = None);
         // The new session starts blank. Hand it the conversation the user
         // can see, so the agent doesn't greet them like a stranger.
-        let prompt = with_recap(agent_id, prompt);
-        return Box::pin(run_turn(app, agent_id, &prompt, false)).await;
+        let prompt = with_recap(agent_id, &prompt);
+        return Box::pin(run_turn(app, agent_id, &prompt, routine, false)).await;
     }
 
     if let Some(err) = result_error {
         return Err(CommandError::expected(err));
     }
     if !saw_result {
-        let detail = unfinished_turn(status.success(), stderr_text);
-        if let Some(err) = crate::commands::ai::classify_agent_cli_failure("Claude Code", &detail) {
+        let stderr_text = match last_detail {
+            Some(detail) if stderr_text.trim().is_empty() => detail,
+            _ => stderr_text,
+        };
+        let detail = unfinished_turn(engine, status.success(), stderr_text);
+        if let Some(err) = crate::commands::ai::classify_agent_cli_failure(engine.label(), &detail)
+        {
             return Err(err);
         }
         return Err(CommandError::expected(
@@ -1360,7 +1727,7 @@ async fn run_turn(
     if !said_anything {
         tracing::debug!("[Agents] {agent_id} finished a turn without a reply");
     }
-    Ok(())
+    Ok(Ended::Finished)
 }
 
 /// A Ship Studio launched from inside a Claude Code session (a terminal
@@ -1385,6 +1752,27 @@ pub fn strip_session_env(cmd: &mut std::process::Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn messaging_back_the_agent_that_asked_settles_its_request_once() {
+        let asker = AgentRef {
+            id: "settle-chief".into(),
+            name: "Chief of Staff".into(),
+        };
+        RUNTIMES
+            .lock()
+            .unwrap()
+            .entry("settle-billing".into())
+            .or_default()
+            .owed = vec![asker.clone()];
+        // A message to someone else is a request, not the answer.
+        assert!(!settle("settle-billing", "settle-other"));
+        assert!(settle("settle-billing", &asker.id));
+        // Answered: the turn's last words aren't sent back again.
+        assert!(!settle("settle-billing", &asker.id));
+        assert!(take_owed("settle-billing").is_empty());
+        assert!(!settle("nobody", &asker.id));
+    }
 
     #[test]
     fn labels_our_own_tools_in_plain_words() {
@@ -1413,6 +1801,8 @@ mod tests {
             Inbound {
                 text: "Do X".into(),
                 from: From::User,
+                reply: false,
+                routine: false,
             },
             Inbound {
                 text: "Done Y".into(),
@@ -1423,6 +1813,8 @@ mod tests {
                     },
                     hop: 1,
                 },
+                reply: false,
+                routine: false,
             },
         ];
         let prompt = compose(&batch);
@@ -1458,7 +1850,14 @@ mod tests {
         assert_eq!(layout.cwd, std::path::PathBuf::from("/h"));
         let prompt = system_prompt_for(&agent, std::path::Path::new("/h"), &layout);
         assert_eq!(prompt, prompts::system_prompt(&agent, None));
-        let args = turn_args(&agent, "sid", true, "http://x", &prompt, &layout.add_dirs);
+        let args = turn_args(
+            agent.model.as_deref(),
+            "sid",
+            true,
+            "http://x",
+            &prompt,
+            &layout.add_dirs,
+        );
         let expected: Vec<String> = [
             "--print",
             "--output-format",
@@ -1509,7 +1908,14 @@ mod tests {
         let prompt = system_prompt_for(&agent, home.path(), &layout);
         assert!(prompt.contains("- Sam pays."));
         assert!(prompt.contains("You work in `/ext/site`"));
-        let args = turn_args(&agent, "sid", false, "http://x", &prompt, &layout.add_dirs);
+        let args = turn_args(
+            agent.model.as_deref(),
+            "sid",
+            false,
+            "http://x",
+            &prompt,
+            &layout.add_dirs,
+        );
         let dirs: Vec<&str> = args
             .windows(2)
             .filter(|w| w[0] == "--add-dir")
@@ -1524,15 +1930,15 @@ mod tests {
 
     #[test]
     fn a_turn_without_a_result_is_always_a_failure_in_words() {
-        let clean = unfinished_turn(true, String::new());
-        let crashed = unfinished_turn(false, " \n".into());
+        let clean = unfinished_turn(Engine::Claude, true, String::new());
+        let crashed = unfinished_turn(Engine::Claude, false, " \n".into());
         for text in [&clean, &crashed] {
             assert!(text.starts_with("Claude Code"), "{text}");
             assert!(!text.contains("exit status") && !text.contains("signal"));
         }
         assert_ne!(clean, crashed);
         assert_eq!(
-            unfinished_turn(false, "Error: bad flag".into()),
+            unfinished_turn(Engine::Claude, false, "Error: bad flag".into()),
             "Error: bad flag"
         );
     }
@@ -1546,6 +1952,8 @@ mod tests {
             Inbound {
                 text: "Also check the footer".into(),
                 from: From::User,
+                reply: false,
+                routine: false,
             },
             Inbound {
                 text: "Receipts filed.\nDetails follow".into(),
@@ -1556,6 +1964,8 @@ mod tests {
                     },
                     hop: 2,
                 },
+                reply: true,
+                routine: false,
             },
         ]
         .into();
