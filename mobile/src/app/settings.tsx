@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppState, Linking, ScrollView, StyleSheet } from 'react-native';
 import { Row, Section, T } from '../components/ui';
 import { appInfo } from '../lib/pairing';
-import { unpair } from '../lib/session';
+import { isOfficialBuild, pushLine } from '../lib/push';
+import { enableAlerts, unpair } from '../lib/session';
 import { useApp } from '../lib/store';
 import { colors, space } from '../lib/theme';
 
@@ -21,6 +22,8 @@ type UpdateState =
 export default function Settings() {
   const router = useRouter();
   const credentials = useApp((s) => s.credentials);
+  const push = useApp((s) => s.push);
+  const pushInfo = pushLine(push, isOfficialBuild());
   const [alerts, setAlerts] = useState<Notifications.PermissionStatus | null>(null);
   const [update, setUpdate] = useState<UpdateState>({ kind: 'idle' });
 
@@ -96,7 +99,11 @@ export default function Settings() {
 
       <Section
         title="Alerts"
-        footer="Alerts arrive while Ship Studio is open on your phone. Your Mac still notifies you at the desk."
+        footer={
+          pushInfo && alerts === Notifications.PermissionStatus.GRANTED
+            ? pushInfo.footer
+            : 'Alerts arrive while Ship Studio is open on your phone. Your Mac still notifies you at the desk.'
+        }
       >
         <Row
           label="Alerts"
@@ -109,11 +116,14 @@ export default function Settings() {
           }
           onPress={() => {
             if (alerts === Notifications.PermissionStatus.UNDETERMINED) {
-              void Notifications.requestPermissionsAsync().then(readAlerts);
+              void enableAlerts().then(readAlerts);
             } else void Linking.openSettings();
           }}
-          last
+          last={!pushInfo || alerts !== Notifications.PermissionStatus.GRANTED}
         />
+        {pushInfo && alerts === Notifications.PermissionStatus.GRANTED && (
+          <Row label="When the app is closed" value={pushInfo.value} last />
+        )}
       </Section>
 
       <Section

@@ -27,6 +27,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 use super::store::{self, Agent, AgentMessage, MessageKind};
+use crate::companion::push::PushKind;
 
 /// Payload: the agent id. The frontend opens that agent's chat.
 pub const EVENT_OPEN: &str = "agents://open";
@@ -170,7 +171,13 @@ pub fn message_recorded(app: &AppHandle, agent: &Agent, message: &AgentMessage, 
     };
     let now = pending().record(alert, message.kind, in_turn);
     if let Some(alert) = now {
-        post(app, &alert);
+        // Out at once: an approval, or something outside a turn.
+        let kind = if message.kind == MessageKind::Approval {
+            PushKind::NeedsYou
+        } else {
+            PushKind::Message
+        };
+        post(app, &alert, kind);
     }
 }
 
@@ -184,10 +191,12 @@ pub fn turn_ended(app: &AppHandle, agent_id: &str) {
     if muted || on_screen(app, agent_id) {
         return;
     }
-    post(app, &alert);
+    post(app, &alert, PushKind::Finished);
 }
 
-fn post(app: &AppHandle, alert: &Alert) {
+fn post(app: &AppHandle, alert: &Alert, kind: PushKind) {
+    // A paired phone that can't see it gets a content-free push (companion/push.rs).
+    crate::companion::push::raise(&alert.agent_id, kind);
     if !LIMITER
         .lock()
         .unwrap_or_else(|e| e.into_inner())

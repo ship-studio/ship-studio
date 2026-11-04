@@ -4,7 +4,12 @@
  * draft re-renders the bubble that shows it and nothing else.
  */
 
-import type { LinkState, RefusedFrame, WelcomeFrame } from '@shipstudio/companion-protocol';
+import type {
+  LinkState,
+  PushStatus,
+  RefusedFrame,
+  WelcomeFrame,
+} from '@shipstudio/companion-protocol';
 import { create } from 'zustand';
 import type { Credentials } from './pairing';
 import { emptySync, type SyncState } from './sync';
@@ -19,6 +24,8 @@ export interface AppState extends SyncState {
   phoneOnline: boolean | null;
   /** The chat on screen (with the app in the foreground), for focus and alerts. */
   openChat: string | null;
+  /** Push, as the Mac last answered `devices.setPush`; null until it has. */
+  push: PushStatus | null;
 }
 
 export const useApp = create<AppState>(() => ({
@@ -29,6 +36,7 @@ export const useApp = create<AppState>(() => ({
   refusal: null,
   phoneOnline: null,
   openChat: null,
+  push: null,
 }));
 
 export const setApp = useApp.setState;

@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spinner } from '../components/agent';
 import { Button, T } from '../components/ui';
 import { openTailscale, pair, PairError, type PairFailure } from '../lib/pairing';
-import { adopt } from '../lib/session';
+import { adopt, enableAlerts } from '../lib/session';
 import { PAIRING_SCHEME } from '@shipstudio/companion-protocol';
 import { colors, radius, space } from '../lib/theme';
 import icon from '../../assets/icon.png';
@@ -196,14 +196,14 @@ export default function Pair() {
           </T>
           <T color={colors.textSecondary}>{ALERTS_COPY}</T>
           <T variant="small" color={colors.textMuted}>
-            Phones can’t be woken by a Mac directly. Real push comes later, and never through a
-            server that can read your messages.
+            With the official app, your Mac can also wake this phone through Ship Studio’s push
+            service. It sends only that an agent needs you or finished, never what it said.
           </T>
           <Button
             title="Turn on alerts"
             variant="primary"
             onPress={async () => {
-              await Notifications.requestPermissionsAsync().catch(() => null);
+              await enableAlerts();
               finish();
             }}
           />

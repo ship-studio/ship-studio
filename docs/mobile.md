@@ -41,7 +41,8 @@ commit.
 
 - **App Store or Play Store listing.** TestFlight and a sideloaded APK at
   launch.
-- **Real push notifications.** These need a relay. See [Notifications](#notifications).
+- **Push through a hosted relay that sees content.** Push goes through a
+  content-free relay instead ([push-relay.md](push-relay.md)), built but not deployed.
 - **Pushing to git from the phone.** Remote Access gates pushing behind a PIN
   and Agents behind a chat card. The phone gets neither until the owner
   decides (see the open questions).
@@ -82,7 +83,8 @@ commit.
 | `pairing.rs` | Codes, the desk confirmation, token issue |
 | `hub.rs` | Event journal, fan-out, drafts |
 | `router.rs` | `method` → command function |
-| `notifier.rs` | The `Notifier` trait and the live-socket implementation |
+| `notifier.rs` | The live-socket notifier (not built yet) |
+| `push.rs` | The `Notifier` trait, `ApnsPush` through the content-free relay, `devices.setPush` |
 | `tls.rs` | The LAN certificate |
 | `blobs.rs` | Staging uploads and serving files |
 
@@ -390,10 +392,16 @@ arrive while the app is open or was just backgrounded**, and that is all.
   at its own discretion, perhaps every 15 minutes or perhaps hours apart. It
   reconnects, reads the needs-you state and posts one summary notification.
   It is labelled "may be late". It is never called push.
-- **Real push comes with the relay.** It is a second notifier,
-  `RelayPush` (APNs and FCM). The device registers a push token through a
-  future `devices.setPush` method, and the alert content is end-to-end
-  encrypted to the device key from pairing. Nothing else changes.
+- **Real push doesn't wait for the relay.** It is a second notifier,
+  `ApnsPush` in `companion/push.rs`, sending through a tiny content-free
+  Worker (`services/push-relay`) that holds the APNs key.
+  - The phone registers its token with `devices.setPush`.
+  - The push is a generic alert ("An agent needs you"), with only the
+    agent's random id for the tap.
+  - It's for official builds only, and switched on by the owner in the Phone
+    panel.
+  - Full design, the threat model and the deploy steps are in
+    [push-relay.md](push-relay.md).
 
 ## The future relay
 

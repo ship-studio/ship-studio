@@ -904,6 +904,7 @@ pub fn run() {
             // Remote access
             commands::companion::companion_status,
             commands::companion::companion_set_enabled,
+            commands::companion::companion_set_push,
             commands::companion::companion_retry_tailscale,
             commands::companion::companion_pair_start,
             commands::companion::companion_pair_cancel,

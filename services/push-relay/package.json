@@ -1,0 +1,19 @@
+{
+  "name": "@shipstudio/push-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ship Studio's content-free push relay: a Cloudflare Worker that holds the APNs key so the Mac never ships it.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.5",
+    "@cloudflare/workers-types": "5.20261019.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12",
+    "wrangler": "4.151.2"
+  }
+}
