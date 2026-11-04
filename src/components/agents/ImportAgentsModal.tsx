@@ -28,7 +28,8 @@ type ImportPath = 'paste' | 'connected';
 
 interface ImportAgentsModalProps {
   isOpen: boolean;
-  onClose: () => void;
+  /** `imported`: closed from the done state, so what opened it may be gone. */
+  onClose: (imported: boolean) => void;
   /** Closes the modal and opens this agent's conversation. */
   onOpenAgent: (agentId: string) => void;
 }
@@ -115,7 +116,7 @@ export function ImportAgentsModal({ isOpen, onClose, onOpenAgent }: ImportAgents
   // The done state belongs to this opening only.
   const close = () => {
     setResult(null);
-    onClose();
+    onClose(done);
   };
 
   // Each time it opens: paste works anywhere, so it leads unless remote access is on.
