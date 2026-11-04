@@ -201,6 +201,10 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
 `close_agent`, `show_progress`, `preview_screenshot`, `git_status`,
 `prepare_push`, `confirm_push`, `deploy_status`.
 
+Ship Studio's own agents get the same project tools from the same handlers
+(`agents/sessions.rs`, see docs/agents.md), with a chat card instead of the
+PIN for pushing.
+
 ### Every agent tool reports back
 
 The assistant used to say "I've asked it" and stop. `message_agent` returned

@@ -42,6 +42,7 @@ import {
   type CheckIn,
   type SchedulePreview,
 } from '../../lib/agents';
+import { KeepAwakeLink } from './AgentsStayOn';
 import { refreshAgents } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useAsyncState } from '../../hooks/useAsyncState';
@@ -238,9 +239,15 @@ function ScheduleBody({ agent, onRan }: { agent: Agent; onRan: () => void }) {
       </div>
 
       <p className="agent-schedule__foot">
-        {editing
-          ? 'Return saves the change; Esc leaves it as it was.'
-          : 'Runs only while Ship Studio is open; a missed check-in runs once when it reopens.'}
+        {editing ? (
+          'Return saves the change; Esc leaves it as it was.'
+        ) : (
+          <>
+            Runs only while Ship Studio is running and this Mac is awake; a missed check-in runs
+            once when it’s back.
+            <KeepAwakeLink />
+          </>
+        )}
       </p>
     </div>
   );

@@ -90,7 +90,7 @@ pub async fn resolve(query: &str) -> Result<Option<ProjectRef>, CommandError> {
     pick(&projects, query).map(Some).ok_or_else(|| {
         super::err_invalid(
             "project",
-            format!("There's no Ship Studio project called {query}. list_projects shows them."),
+            format!("There's no Ship Studio project called {query}. project_list shows them."),
         )
     })
 }

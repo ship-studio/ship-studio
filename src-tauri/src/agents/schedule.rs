@@ -633,49 +633,128 @@ pub struct Created {
     pub summary: String,
 }
 
+/// Why a check-in wasn't added.
+#[derive(Debug)]
+pub enum Refused {
+    /// The phrase or the note can't be used. `why` is written for the agent
+    /// (it ends with example phrases); [`Refused::plain`] drops those.
+    Invalid {
+        field: &'static str,
+        why: String,
+    },
+    Full,
+    /// The same note on the same schedule is already there.
+    Duplicate,
+    Store(CommandError),
+}
+
+impl Refused {
+    pub fn into_error(self) -> CommandError {
+        match self {
+            Refused::Invalid { field, why } => super::err_invalid(field, why),
+            Refused::Full => CommandError::expected(format!(
+                "You already have {MAX_PER_AGENT} check-ins. Cancel one you don't need first (list_check_ins)."
+            )),
+            Refused::Duplicate => CommandError::expected(
+                "That check-in is already scheduled. list_check_ins shows it.",
+            ),
+            Refused::Store(e) => e,
+        }
+    }
+
+    /// The reason in a sentence for the user, without the agent-facing examples.
+    pub fn plain(&self) -> String {
+        match self {
+            Refused::Invalid { why, .. } => plain_reason(why),
+            Refused::Full => {
+                format!("the agent already has {MAX_PER_AGENT} check-ins and routines.")
+            }
+            Refused::Duplicate => "it's already set.".into(),
+            Refused::Store(e) => e.to_string(),
+        }
+    }
+}
+
+/// A parse error without the trailing list of example phrases.
+pub fn plain_reason(why: &str) -> String {
+    why.strip_suffix(EXAMPLES).unwrap_or(why).trim().to_string()
+}
+
+/// Check a phrase and a note without storing anything: the repeat (if any)
+/// and the first time it fires, or why it can't be used.
+pub fn check<Tz: TimeZone>(
+    tz: &Tz,
+    when: &str,
+    note: &str,
+    now: i64,
+) -> Result<(Option<Repeat>, i64), Refused> {
+    let note = note.trim();
+    let invalid = |field, why: &str| Refused::Invalid {
+        field,
+        why: why.to_string(),
+    };
+    if note.is_empty() {
+        return Err(invalid(
+            "note",
+            "Write a note to yourself saying what to do when it fires.",
+        ));
+    }
+    if note.chars().count() > MAX_NOTE_CHARS {
+        return Err(invalid("note", "Keep the note under 600 characters."));
+    }
+    parse(when, tz, now).map_err(|why| Refused::Invalid { field: "when", why })
+}
+
+/// What a check-in is, for the user: "every weekday at 09:00", or "once, Fri 6 Nov 2026, 09:00 (UTC-05:00)".
+pub fn describe_schedule<Tz: TimeZone>(tz: &Tz, repeat: Option<&Repeat>, next_at: i64) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    match repeat {
+        Some(r) => describe(r),
+        None => format!("once, {}", format_time(tz, next_at)),
+    }
+}
+
 /// Add a check-in to an agent. The returned summary is what the tool says
 /// back: the exact resolved time, so the agent tells the user something true.
 pub fn create(agent_id: &str, when: &str, note: &str) -> Result<Created, CommandError> {
-    create_in(&chrono::Local, agent_id, when, note, store::now_ms())
+    create_in(&chrono::Local, agent_id, when, note, store::now_ms()).map_err(Refused::into_error)
 }
 
-fn create_in<Tz: TimeZone>(
+pub(crate) fn create_in<Tz: TimeZone>(
     tz: &Tz,
     agent_id: &str,
     when: &str,
     note: &str,
     now: i64,
-) -> Result<Created, CommandError>
+) -> Result<Created, Refused>
 where
     Tz::Offset: std::fmt::Display,
 {
-    let note = valid_note(note)?;
-    let (repeat, next_at) = parse(when, tz, now).map_err(|e| super::err_invalid("when", e))?;
+    let (repeat, next_at) = check(tz, when, note, now)?;
     let check_in = CheckIn {
         id: store::new_id()[..8].to_string(),
-        note: note.to_string(),
+        note: note.trim().to_string(),
         repeat,
         next_at,
         created_at: now,
         paused: false,
     };
-    let mut refused: Option<CommandError> = None;
+    let mut refused: Option<Refused> = None;
     let candidate = check_in.clone();
     store::update(agent_id, |agent| {
-        if agent.check_ins.len() >= MAX_PER_AGENT {
-            refused = Some(CommandError::expected(format!(
-                "You already have {MAX_PER_AGENT} check-ins. Cancel one you don't need first (list_check_ins)."
-            )));
+        if agent.check_ins.iter().any(|c| same_schedule(c, &candidate)) {
+            refused = Some(Refused::Duplicate);
             return;
         }
-        if agent.check_ins.iter().any(|c| same_schedule(c, &candidate)) {
-            refused = Some(CommandError::expected(
-                "That check-in is already scheduled. list_check_ins shows it.",
-            ));
+        if agent.check_ins.len() >= MAX_PER_AGENT {
+            refused = Some(Refused::Full);
             return;
         }
         agent.check_ins.push(candidate);
-    })?;
+    })
+    .map_err(Refused::Store)?;
     if let Some(err) = refused {
         return Err(err);
     }
@@ -692,23 +771,6 @@ where
         ),
     };
     Ok(Created { check_in, summary })
-}
-
-fn valid_note(note: &str) -> Result<&str, CommandError> {
-    let note = note.trim();
-    if note.is_empty() {
-        return Err(super::err_invalid(
-            "note",
-            "Write a note to yourself saying what to do when it fires.",
-        ));
-    }
-    if note.chars().count() > MAX_NOTE_CHARS {
-        return Err(super::err_invalid(
-            "note",
-            "Keep the note under 600 characters.",
-        ));
-    }
-    Ok(note)
 }
 
 /// Two entries that would do the same thing at the same times.
@@ -730,8 +792,8 @@ fn edit_in<Tz: TimeZone>(
     note: &str,
     now: i64,
 ) -> Result<CheckIn, CommandError> {
-    let note = valid_note(note)?;
-    let (repeat, next_at) = parse(when, tz, now).map_err(|e| super::err_invalid("when", e))?;
+    let (repeat, next_at) = check(tz, when, note, now).map_err(Refused::into_error)?;
+    let note = note.trim();
     let mut outcome: Result<CheckIn, CommandError> =
         Err(CommandError::expected("That check-in no longer exists."));
     store::update(agent_id, |agent| {
@@ -1322,6 +1384,7 @@ mod tests {
             permissions: Vec::new(),
             failure: None,
             project: None,
+            capabilities: None,
         }
     }
 

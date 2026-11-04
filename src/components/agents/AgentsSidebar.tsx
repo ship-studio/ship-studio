@@ -17,18 +17,13 @@
  */
 
 import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
-import {
-  AddIcon,
-  BellOffIcon,
-  ChevronRightIcon,
-  CollaboratorsIcon,
-  PinIcon,
-} from '@/components/icons';
+import { AddIcon, BellOffIcon, ChevronRightIcon, DownloadIcon, PinIcon } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Button } from '../primitives/Button';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
+import { ImportNudge } from './ImportNudge';
 import { AgentMark } from './AgentSwitcher';
 import { useFlipReorder } from './useAgentMotion';
 import {
@@ -36,8 +31,6 @@ import {
   failureLine,
   needsYou,
   sortAgents,
-  teamSubtitle,
-  TEAM_ID,
   type Agent,
   type SearchHit,
 } from '../../lib/agents';
@@ -50,6 +43,8 @@ interface AgentsSidebarProps extends AgentActions {
   onToggleShowHidden: () => void;
   onSelect: (agentId: string) => void;
   onNew: () => void;
+  /** Opens Import agents (paste from Grok Bot or any assistant). */
+  onImport: () => void;
   /** The top field's query; while there is one, its results replace the list. */
   query: string;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -130,6 +125,7 @@ export function AgentsSidebar({
   onToggleShowHidden,
   onSelect,
   onNew,
+  onImport,
   query,
   searchRef,
   onOpenHit,
@@ -146,9 +142,7 @@ export function AgentsSidebar({
   useFlipReorder(listRef, '[data-agent-id]', shown.map((a) => a.id).join(' '));
 
   // The one row in the Tab order: the open one, else the first.
-  const tabStop = [TEAM_ID, ...shown.map((a) => a.id)].includes(selectedId ?? '')
-    ? selectedId
-    : TEAM_ID;
+  const tabStop = shown.some((a) => a.id === selectedId) ? selectedId : shown[0]?.id;
 
   const row = (agent: Agent) => {
     const current = agent.id === selectedId;
@@ -211,12 +205,6 @@ export function AgentsSidebar({
         />
       ) : (
         <>
-          <TeamRow
-            agents={agents}
-            current={selectedId === TEAM_ID}
-            tabStop={tabStop === TEAM_ID}
-            onSelect={() => onSelect(TEAM_ID)}
-          />
           {visible.map(row)}
           {hidden.length > 0 && (
             <button
@@ -231,6 +219,7 @@ export function AgentsSidebar({
             </button>
           )}
           {showHidden && hidden.map(row)}
+          <ImportNudge agentCount={agents.length} onImport={onImport} />
           <div className="workspace-sidebar-active-actions">
             <Button
               variant="ghost"
@@ -242,51 +231,20 @@ export function AgentsSidebar({
               <AddIcon size={16} />
               <span>New agent</span>
             </Button>
+            {/* Always here, not only on first run: people decide to bring their
+                agents over after they've tried it. */}
+            <Button
+              variant="ghost"
+              width="fill"
+              className="workspace-sidebar-add-project"
+              onClick={onImport}
+            >
+              <DownloadIcon size={16} />
+              <span>Import agents</span>
+            </Button>
           </div>
         </>
       )}
     </div>
-  );
-}
-
-/**
- * The first row: the Team overview, what's in flight across every agent.
- * Built like an agent row, with the team's badge in place of initials.
- */
-function TeamRow({
-  agents,
-  current,
-  tabStop,
-  onSelect,
-}: {
-  agents: Agent[];
-  current: boolean;
-  tabStop: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      tabIndex={tabStop ? 0 : -1}
-      className={`agents-list__row${current ? ' is-current' : ''}`}
-      data-agent-id={TEAM_ID}
-      aria-current={current ? 'true' : undefined}
-      title="Team: what's in flight"
-      onClick={onSelect}
-    >
-      <span
-        className={`agent-avatar agent-avatar--row agents-team__badge${current ? ' agent-avatar--selected' : ''}`}
-        aria-hidden
-      >
-        <CollaboratorsIcon size={14} />
-      </span>
-      <span className="agents-list__text">
-        <span className="agents-list__name">
-          <span className="agents-list__name-text">Team</span>
-        </span>
-        <span className="agents-list__preview">{teamSubtitle(agents)}</span>
-      </span>
-      <span className="agents-list__status" />
-    </button>
   );
 }

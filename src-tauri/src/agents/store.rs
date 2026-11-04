@@ -88,6 +88,9 @@ pub struct Agent {
     /// CLAUDE.md and settings load; `None` runs in its home, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// What its last turn could use, as Claude Code itself listed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<super::capabilities::Capabilities>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +123,9 @@ pub enum MessageKind {
     Note,
     /// Files a project-bound agent's turn changed in its project (`changes`).
     Changes,
+    /// The agent worked in a project's session (`session`): started one,
+    /// sent it a message, its reply, or a preview screenshot.
+    Session,
 }
 
 impl MessageKind {
@@ -206,6 +212,8 @@ pub struct AgentMessage {
     pub failure: Option<super::failure::Failure>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<super::project::ChangeSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<super::sessions::SessionMark>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -490,6 +498,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         permissions: Vec::new(),
         failure: None,
         project: None,
+        capabilities: None,
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -876,6 +885,7 @@ mod tests {
                 mentions: Vec::new(),
                 failure: None,
                 changes: None,
+                session: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();
@@ -914,6 +924,7 @@ mod tests {
             mentions: Vec::new(),
             changes: None,
             failure: None,
+            session: None,
         }
     }
 

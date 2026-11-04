@@ -10,7 +10,8 @@
  * Keys: ⌘N new agent; ⌥⌘↑ / ⌥⌘↓ or ⌘[ / ⌘] previous / next agent; ⌘J the
  * next agent that needs you (a card, or a turn that didn't finish); ⌘F
  * search, Esc to put it away; Esc twice in an empty composer stops a working
- * agent (AgentChat); ⌘K "Open <agent>", "Stop <agent>", and Allow / Deny for
+ * agent (AgentChat); ⌘K "Open <agent>", "Stop <agent>", "What's in flight"
+ * (the cross-agent overview, reachable only from there), and Allow / Deny for
  * the oldest card waiting on you.
  *
  * @module components/agents/AgentsView
@@ -56,7 +57,9 @@ const SELECTED_KEY = 'shipstudio.agents.selected';
 
 function readSelected(): string | null {
   try {
-    return localStorage.getItem(SELECTED_KEY);
+    // "What's in flight" is a ⌘K detour, never where Agents reopens.
+    const id = localStorage.getItem(SELECTED_KEY);
+    return id === TEAM_ID ? null : id;
   } catch {
     return null;
   }
@@ -102,7 +105,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [jumpTo, setJumpTo] = useState<string | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-  // The Team overview, else the last agent you had open, else the Chief of Staff.
+  // "What's in flight" (⌘K only), else the last agent you had open, else the Chief of Staff.
   const teamOpen = selectedId === TEAM_ID;
   const selected = teamOpen
     ? null
@@ -120,11 +123,8 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   useEffect(() => {
     if (!selected) {
-      // On the Team view no conversation is on screen, so replies still count as unread.
-      if (teamOpen) {
-        writeSelected(TEAM_ID);
-        void focusAgent(null);
-      }
+      // On "What's in flight" no conversation is on screen, so replies still count as unread.
+      if (teamOpen) void focusAgent(null);
       return;
     }
     writeSelected(selected.id);
@@ -400,11 +400,12 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
             listContent={
               <AgentsSidebar
                 agents={agents}
-                selectedId={teamOpen ? TEAM_ID : (selected?.id ?? null)}
+                selectedId={selected?.id ?? null}
                 showHidden={showHidden}
                 onToggleShowHidden={() => setShowHidden((v) => !v)}
                 onSelect={setSelectedId}
                 onNew={openNew}
+                onImport={openImport}
                 {...actions}
                 query={popoverSearch ? '' : query}
                 searchRef={searchRef}

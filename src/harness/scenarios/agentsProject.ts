@@ -174,6 +174,87 @@ const auditTeam = () =>
     }).filter((a) => a.id !== 'social')
   );
 
+/** The Chief working on acme-marketing through its session, then asking to push. */
+const session = (event: string, extra: Record<string, unknown> = {}) => ({
+  agentId: 'chief',
+  session: {
+    project: ACME_PATH,
+    event,
+    ...(event === 'screenshot' ? {} : { sessionId: 'pty-acme-1', tab: 1, cli: 'claude' }),
+    ...extra,
+  },
+});
+const CHIEF_SESSION_CHAT = [
+  msg('user', 'On the Acme site, make the hero headline bigger and show me.', 14),
+  msg('agent', 'On it.', 14),
+  msg('session', 'Make the hero headline bigger on the home page.', 14, session('started')),
+  msg(
+    'session',
+    'Bumped the hero headline from 48px to 64px (40px on phones) and tightened its line height so it still fits on two lines at 1280px. Only src/components/Hero.tsx changed.',
+    12,
+    session('reply')
+  ),
+  msg('session', 'desktop', 12, {
+    ...session('screenshot'),
+    attachments: [
+      {
+        name: 'acme-marketing-desktop.jpg',
+        path: 'attachments/m-att1/Hero crop.jpg',
+        mime: 'image/jpeg',
+        size: 27_238,
+      },
+    ],
+  }),
+  msg(
+    'agent',
+    'Done: the headline is 64px now (40px on phones) and still two lines. Screenshot above. Want it pushed?',
+    12
+  ),
+  msg('user', 'Also make the subheading grey. Then push.', 4),
+  msg('session', 'Make the hero subheading text grey (the muted text colour).', 4, session('sent')),
+  msg(
+    'session',
+    'The subheading now uses the muted text colour. Committed nothing yet; Hero.tsx has the change.',
+    3,
+    session('reply')
+  ),
+  msg('approval', '', 2, {
+    approval: {
+      requestId: 'req-push',
+      title: 'Push acme-marketing',
+      detail:
+        'Branch feat/pricing-page → origin (https://github.com/acme/marketing.git)\n\nCommits:\n9f3c2e1 Bigger hero headline\n\nCommitted first:\n M src/components/Hero.tsx',
+      status: 'pending',
+    },
+  }),
+];
+
+const CAPABILITIES = {
+  seenAt: now - 5 * MIN,
+  lines: [
+    {
+      what: 'Ship Studio projects',
+      detail:
+        'Create projects, start and continue sessions in them, screenshot their previews, check git, push with your OK, and check deploys.',
+    },
+    { what: 'The team', detail: 'Create, brief, message and manage the other agents.' },
+    {
+      what: 'Chrome',
+      detail: 'Browse in your Chrome: open pages, click, fill in forms and read what’s showing.',
+    },
+    {
+      what: 'On this Mac',
+      detail:
+        'Run commands, read and edit files, use the web, send you files and schedule check-ins.',
+    },
+    { what: 'Connectors', detail: 'Gmail, Google Calendar, Sanity and Figma' },
+    {
+      what: 'Needs sign-in',
+      detail: 'Webflow and Google Drive. Connect them in Claude Code to use them here.',
+    },
+  ],
+};
+
 const openAcme = {
   openSelector: AGENTS_TAB,
   steps: [{ click: '[data-agent-id="acme"]' }],
@@ -289,6 +370,52 @@ export const agentsProjectScenarios: Scenario[] = [
       ),
       agents_messages: (args: Record<string, unknown>) =>
         args.agentId === 'finance' ? FINANCE_DRIVEN_CHAT : messagesFor(args),
+    },
+  },
+  {
+    id: 'agents-project-sessions',
+    title: 'Agents — the Chief working on a project through its session',
+    looksRightWhen:
+      'The Chief’s chat: a quiet left-aligned line with a terminal icon “Started a session in acme-marketing” and “Open session”; a card “acme-marketing · Claude Code 1” with the session’s reply as plain text and “Open session”; a card “acme-marketing · desktop” with the screenshot inline and “Open preview”; the Chief’s own short reply; later “Sent to acme-marketing · Claude Code 1”, its reply card, and a pending push card “Push acme-marketing” listing the branch, origin URL, commit and the file committed first, with Deny / Allow and no “Always allow”.',
+    command: 'agents.open',
+    requires: '.agent-session-card img',
+    commands: {
+      agents_overview: overview(),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'chief' ? CHIEF_SESSION_CHAT : messagesFor(args),
+    },
+  },
+  {
+    id: 'agents-project-session-shot',
+    title: 'Agents — a session’s reply and its screenshot',
+    looksRightWhen:
+      'The first half of the Chief’s session work: “Started a session in acme-marketing” with Open session, the reply card, then a card “acme-marketing · desktop” with the screenshot as an inline thumbnail and “Open preview”, then the Chief’s two-sentence reply.',
+    command: 'agents.open',
+    requires: '.agent-session-card img',
+    commands: {
+      agents_overview: overview(),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'chief' ? CHIEF_SESSION_CHAT.slice(0, 6) : messagesFor(args),
+    },
+  },
+  {
+    id: 'agents-capabilities',
+    title: 'Agents — what an agent can do, in its editor',
+    looksRightWhen:
+      'Editing the Chief of Staff: a quiet “What Chief of Staff can do” group, label column on the left (Ship Studio projects, The team, Chrome, On this Mac, Connectors, Needs sign-in) and plain sentences on the right, above Permissions. No computer use is claimed.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-editor__can-do',
+    steps: [
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+    ],
+    commands: {
+      agents_overview: overview(
+        TEAM.map((a) => (a.id === 'chief' ? { ...a, capabilities: CAPABILITIES } : a))
+      ),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the team moving.',
+      agents_usage: null,
     },
   },
 ];

@@ -6,6 +6,7 @@
 import { emit } from '@tauri-apps/api/event';
 import type { Scenario } from '../types';
 import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
+import { remoteStatus } from './remote';
 
 export const MIN = 60_000;
 const DEMO_HOME = '/harness/agents-demo';
@@ -17,6 +18,84 @@ const tomorrowAt = (hour: number, minute = 0) => {
   d.setDate(d.getDate() + 1);
   d.setHours(hour, minute, 0, 0);
   return d.getTime();
+};
+
+const IMPORT_STARTER = '.agent-chat__starters > button:last-child';
+
+/** A reply Grok Bot might paste back: prose around two numbered blocks. */
+const PASTED_REPLY = [
+  'Here is everything, in two parts.',
+  '',
+  'Part 1 of 2',
+  '```json',
+  '{"source": "Grok Bot", "agents": [{"name": "Chief", "is_main": true, "role": "Runs my week"}]}',
+  '```',
+  '',
+  'Part 2 of 2',
+  '```json',
+  '{"source": "Grok Bot", "agents": [{"name": "Finance"}, {"name": "Travel"}, {"name": "Inbox"}]}',
+  '```',
+].join('\n');
+
+const PASTE_PREVIEW = {
+  source: 'Grok Bot',
+  blocks: 2,
+  agents: [
+    {
+      name: 'Chief',
+      role: 'Runs my week and keeps the others on track',
+      isMain: true,
+      existing: false,
+      instructionsChars: 2140,
+      memoryLines: 18,
+      routines: [
+        {
+          when: 'every weekday at 8am',
+          what: 'Brief me on the day.',
+          schedule: 'every weekday at 08:00',
+        },
+        {
+          when: 'every sunday at 6pm',
+          what: 'Plan the week with me.',
+          schedule: 'every Sunday at 18:00',
+        },
+      ],
+    },
+    {
+      name: 'Finance',
+      role: 'Tracks spending, invoices and rent',
+      isMain: false,
+      existing: true,
+      instructionsChars: 1312,
+      memoryLines: 9,
+      routines: [
+        {
+          when: 'whenever rent is due',
+          what: 'Remind me to pay rent.',
+          refused: 'Give it a day and a time.',
+        },
+      ],
+    },
+    {
+      name: 'Travel',
+      role: 'Books flights and hotels within my rules',
+      isMain: false,
+      existing: false,
+      instructionsChars: 864,
+      memoryLines: 6,
+      routines: [] as { when: string; what: string; schedule?: string; refused?: string }[],
+    },
+    {
+      name: 'Inbox',
+      role: 'Triages email and drafts replies for me to send',
+      isMain: false,
+      existing: false,
+      instructionsChars: 1027,
+      memoryLines: 0,
+      routines: [{ when: 'every 2 hours', what: 'Triage new email.', schedule: 'every 2 hours' }],
+    },
+  ],
+  problems: [] as string[],
 };
 
 export const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
@@ -860,12 +939,11 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-team-failures',
-    title: 'Agents — Team lists turns that didn’t finish',
+    title: 'Agents — What’s in flight lists turns that didn’t finish',
     looksRightWhen:
-      'The Team row says “1 working · 1 failed” (a usage limit heals on its own, so it isn’t counted). Needs you lists Lead Gen (“Didn’t finish: …”, red dot) with its error and Retry, and Finance (“Usage limit · resets <time>”, amber dot) with the quiet notice, “Retry at <time>” and “Retry now”. Each card spans from the name to the meta edge.',
-    openSelector: AGENTS_TAB,
+      'Opened from ⌘K. Needs you lists Lead Gen (“Didn’t finish: …”, red dot) with its error and Retry, and Finance (“Usage limit · resets <time>”, amber dot) with the quiet notice, “Retry at <time>” and “Retry now”. Each card spans from the name to the meta edge.',
+    command: 'agents.team',
     requires: '.agents-team .agent-bubble--error',
-    steps: [{ click: '[data-agent-id="__team"]' }],
     commands: {
       agents_overview: failingOverview,
       agents_messages: (args: Record<string, unknown>) =>
@@ -972,8 +1050,8 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-scheduled',
     title: 'Agents — the schedule popover',
     looksRightWhen:
-      'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote.',
-    requires: '.agent-schedule__item',
+      'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote (Ship Studio open and this Mac awake) ending in an inline “Keep this Mac awake” link.',
+    requires: '.agent-schedule__foot .text-button',
     openSelector: AGENTS_TAB,
     steps: [
       { click: '[data-agent-id="finance"]' },
@@ -1116,10 +1194,27 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). The composer is ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). Set apart below, one muted line (“Agents run on this Mac. They pause when it sleeps or Ship Studio quits.”), a small ghost “Keep this Mac awake”, and the “Always on?” line. The composer is ready.',
     command: 'agents.open',
-    requires: '.agent-chat__empty',
+    requires: '.agents-stay-on .button',
     commands: {},
+  },
+  {
+    id: 'agents-first-run-awake',
+    title: 'Agents — first open, kept awake and running when closed',
+    looksRightWhen:
+      'As agents-first-run, but the note reads “Closing the window keeps them going; quitting stops them, and sleep pauses them.”, “Keep this Mac awake” and “Keep running when closed” show ticked and pressed, and “Open at login” is not.',
+    command: 'agents.open',
+    requires: '.agents-stay-on',
+    commands: {
+      get_stay_on: {
+        supported: true,
+        keepAwake: true,
+        keepRunning: true,
+        openAtLogin: false,
+        openAtLoginAvailable: true,
+      },
+    },
   },
   {
     id: 'agents-new',
@@ -1132,12 +1227,59 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-import',
-    title: 'Agents — import from Grok Bot',
+    title: 'Agents — import, remote access off (paste)',
     looksRightWhen:
-      'Explains the two steps (connect via Remote access, send the message), shows the exact message to send, and a Copy button.',
+      'Opens on the Paste tab because remote access is off. Two numbered steps: copy the message (its full text scrolls in a quiet box, Copy message beside the step) and paste the reply into an empty monospace field. Import is disabled until something valid is pasted.',
+    command: 'agents.import',
+    requires: '.agents-import__paste',
+    commands: {},
+  },
+  {
+    id: 'agents-import-paste-preview',
+    title: 'Agents — import, a pasted reply previewed',
+    looksRightWhen:
+      'Under the pasted reply: "4 agents from Grok Bot, in 2 parts", then one row per agent with its name, role and how much instruction and memory came across. The main one says it merges into Chief of Staff, Finance says it updates the existing agent, the rest are New. Routines sit under their agent; Finance\'s "whenever rent is due" is in amber saying it won\'t be set and why, and the count line says 1 routine can\'t be set as written. The primary button reads "Import 4 agents".',
+    // Steps run before a palette command, so these walk in: Agents mode, then
+    // the first-run Import agents… starter.
+    requires: '.agents-import__paste',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: IMPORT_STARTER }, { fill: '.agents-import__paste', value: PASTED_REPLY }],
+    commands: { agents_import_paste_preview: PASTE_PREVIEW },
+  },
+  {
+    id: 'agents-import-paste-problems',
+    title: 'Agents — import, a pasted reply with mistakes',
+    looksRightWhen:
+      'A calm error list under the paste, each line naming the block, the agent and the field (a trailing comma with its line, a missing name, is_main that is not true/false). The agents that did read fine are still listed below. Import stays disabled.',
+    // Steps run before a palette command, so these walk in: Agents mode, then
+    // the first-run Import agents… starter.
+    requires: '.agents-import__paste',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
+
+      { fill: '.agents-import__paste', value: '```json\n{"agents":[{"name":"Finance",},]}\n```' },
+    ],
+    commands: {
+      agents_import_paste_preview: {
+        ...PASTE_PREVIEW,
+        agents: PASTE_PREVIEW.agents.slice(0, 2),
+        problems: [
+          'Block 2 has a trailing comma at line 14 (a comma right before a } or ]). Delete that comma, or ask the assistant to send it again as valid JSON.',
+          'Agent 3 in block 1 has no "name".',
+          '\u201CTravel\u201D: "is_main" should be true or false, not text.',
+        ],
+      },
+    },
+  },
+  {
+    id: 'agents-import-connected',
+    title: 'Agents — import, remote access on (connected assistant)',
+    looksRightWhen:
+      'Opens on the Connected assistant tab because remote access is on: connect via Remote access, the one message to send, and Copy message. Paste is one click away on the left.',
     command: 'agents.import',
     requires: '.agents-import__prompt',
-    commands: {},
+    commands: { get_remote_access_status: remoteStatus({ enabled: true, serverRunning: true }) },
   },
   {
     id: 'agents-streaming',
@@ -1157,12 +1299,11 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-team-overview',
-    title: 'Agents — Team: what’s in flight',
+    title: 'Agents — What’s in flight (⌘K)',
     looksRightWhen:
-      'The Team row heads the agent list, selected, saying “1 working · 1 needs you”. The main column shows four sections in a fixed order: Needs you (Lead Gen, with its Gmail card answerable in place), Working now (Acme Site, “Editing PricingTable.tsx”, with the loader), Scheduled next (Finance’s two active check-ins, soonest first, the paused one absent), Recent replies (newest first, one plain line each, with times). Rows share the sidebar’s badge and type.',
-    openSelector: AGENTS_TAB,
+      'Opened from ⌘K; the agent list has no Team row and no row is selected. The header reads “What’s in flight”. The main column shows four sections in a fixed order: Needs you (Lead Gen, with its Gmail card answerable in place), Working now (Acme Site, “Editing PricingTable.tsx”, with the loader), Scheduled next (Finance’s two active check-ins, soonest first, the paused one absent), Recent replies (newest first, one plain line each, with times). Rows share the sidebar’s badge and type.',
+    command: 'agents.team',
     requires: '.agents-team .agent-approval',
-    steps: [{ click: '[data-agent-id="__team"]' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,

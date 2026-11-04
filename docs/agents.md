@@ -11,7 +11,7 @@ the sidebar (⌘⇧A, or ⌘K → Switch to Agents) turns the whole window into 
 chat app: agent list on the left, one conversation on the right. Switching
 back returns to wherever you were on the Projects side (the dashboard,
 Workflows, the Inbox, or the open project); switching in returns to the last
-conversation, or Team. While Projects is showing, an amber badge on the
+conversation. While Projects is showing, an amber badge on the
 Agents segment says an agent needs your OK or has news, and its tooltip says
 which. New agent is ⌘N, the row at the foot of the agent list, or ⌘K. In the
 collapsed rail the toggle is two stacked icons; below the compact breakpoint
@@ -75,7 +75,7 @@ From the stream:
   carries the tag while the error is the newest line (`Agent.failure`, cleared
   by anything said after it), so the sidebar shows "Didn't finish: …" with a
   red dot, or "Usage limit · resets 3:00 PM" quietly with an amber one, and
-  Team lists it under Needs you with its remedy.
+  What's in flight lists it under Needs you with its remedy.
 
 A vanished session (`--resume` → "No conversation found") is replaced once with
 a fresh one. **Stop** kills the process and drops the queue; it leaves a quiet
@@ -110,7 +110,7 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | --- | --- | --- |
 | `list_agents` | all | names, roles, busy / waiting |
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
-| `list_projects` | all | Ship Studio projects and paths |
+| `project_*`, `session_*`, `preview_screenshot`, `git_status`, `push`, `deploy_status` | all | working on projects, below |
 | `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
 | `create_agent` | Chief | name, role, instructions, optional `project` and `first_task` |
 | `update_agent` | Chief | name / role / instructions / project (memory kept) |
@@ -121,6 +121,74 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 at hop 0; each `message_agent` from a turn at hop *n* delivers at *n+1*, and
 `message_agent` refuses past hop 6. The prompts also tell agents not to send
 acknowledgements to each other.
+
+## Working on projects (`src-tauri/src/agents/sessions.rs`)
+
+Agents work on Ship Studio projects the way Remote Access does: in the
+project's real agent tabs (backend PTY sessions), so the user can open the
+project and carry on the same conversation. It is Remote Access's toolset,
+run by the same handlers in `remote_access/tools.rs`, under names that can't
+be confused with agent-to-agent `message_agent`:
+
+| Agents | Remote handler |
+| --- | --- |
+| `project_list` / `project_create` / `project_open` | `list_projects` / `create_project` / `open_project` |
+| `session_message` (the default) / `session_start` | `message_agent` / `start_agent` |
+| `session_wait` / `session_read` / `session_key` / `session_close` / `session_progress` | `wait_for_agent` / `read_agent` / `press_key` / `close_agent` / `show_progress` |
+| `preview_screenshot`, `git_status`, `deploy_status` | same |
+| `push` | own: a card instead of the PIN |
+
+- **Scope:** every Ship Studio project (agents already run as the user with
+  every project as an `--add-dir`), not the remote's opt-in list.
+  `project_create` doesn't share the project for remote access and doesn't
+  switch the window; starting a session opens it.
+- **Answers:** the shared STATUS / reply / NEXT shape, with remote tool names
+  rewritten to the agent's (`sessions::rename`, whole identifiers only).
+- **Chat:** each call runs inside `AGENTS_CALL` (a task-local in
+  `tools.rs`), which collects what it started, the replies it saw and its
+  screenshots. They become `session` lines: "Started a session in
+  acme-marketing", "Sent to acme-marketing · Claude Code 1", the reply (once
+  per distinct reply), and screenshots inline. "Open session" opens the
+  project with that tab selected (`openAgentSession` →
+  `useRemoteAgentControl`). Screenshots are written to the agent's
+  attachments and never stored behind the remote's public image links.
+- **Window:** a tab only starts, and a preview only renders, while its project
+  is showing, so the window switches to the project as it does for remote
+  access. Calls that may switch are bracketed by `agents-session-begin/-end`;
+  if Agents was showing, the window goes back to it afterwards
+  (`useAgentsReturn`), unless you went elsewhere. The composer keeps unsent
+  text across the switch.
+- **Safety:** unchanged shared rules. Text only to agent tabs, never shells;
+  a leading `!`, a `/` command outside the allowlist and control characters
+  are refused; an opening prompt can't start with `-`.
+- **Push:** no PIN. `push` puts a card in the agent's chat ("Push
+  acme-marketing") with the branch, origin (credentials stripped), the
+  commits and what gets committed first. It has no tool call behind it, so
+  no "Always allow" is offered and no rule can skip it. Allow pushes exactly
+  the tree the card described (`frozen_tree` / `push_frozen`); a change in
+  between pushes nothing. An unanswered card expires after 240s.
+- **Audit:** the remote's `remote_audit.jsonl`, same rules (reads skipped,
+  previews only), with `actor` set to the agent's name. The Remote access
+  modal's activity list leaves those out.
+- **Bound agents** are still an option; sessions are the default.
+
+## What an agent can do (`src-tauri/src/agents/capabilities.rs`)
+
+Turns run with `--chrome`. Each turn's `system/init` lists the session's
+tools and MCP servers with their status; the runner keeps the last one on
+the agent and builds one line per kind of capability (projects, the team,
+Chrome, computer use, on this Mac, connectors, needs sign-in). The lines go
+into the next turn's prompt ("What you can do here") and into the editor
+("What <agent> can do"). Nothing is listed before the first turn.
+
+Verified on Claude Code 2.1.318 in `--print`: Claude in Chrome loads with
+`--chrome` and a tool call answered (extension connected); the user's MCP
+servers load with their status; there is no computer-use server in a
+headless turn, so it isn't claimed. Not verified: Chrome with the extension
+disconnected (the line then says "Not connected" if Claude Code reports it
+so), and a Chrome call going through an approval card in the running app.
+`cargo test --lib agents::capabilities -- --ignored` repeats the headless
+check.
 
 ## Approvals
 
@@ -214,15 +282,39 @@ The backend decides, since it knows when a message is recorded and when a turn e
 
 Only the other assistant knows its own agents, instructions and memory, so the
 import runs from its side. Remote access gains an `import_agents` tool:
-`{source, agents: [{name, role, instructions, memory, is_main}]}`. Ship Studio
+`{source, agents: [{name, role, instructions, memory, is_main, routines}]}`. Ship Studio
 creates each agent, writes its instructions, and appends its memory under
 `### Imported from <source>`. The `is_main` agent merges into the Chief of
 Staff. Re-importing updates same-named agents instead of duplicating them.
-Imported agents don't run until you message them. Every import is audited like
-any other remote-access action.
+Imported agents don't run until you message them, apart from their routines.
+Every import is audited like any other remote-access action.
 
-The **Import agents** button in Agents mode shows the one message to send your
-assistant and links to Remote access setup.
+Each agent can also bring `routines: [{when, what}]`, with `when` in plain
+words ("every weekday at 9am", "every 2 hours", "friday at 2pm"). Each goes
+through the same parser and limits as `schedule_check_in` (`schedule::check`)
+and becomes a routine, or a one-time check-in, with `what` as its note. A
+phrase that can't be read, or is too frequent, or a full agent, isn't
+guessed at: the paste preview shows it under its agent with the reason, and the
+result (`routinesRefused`, and the tool's reply, which tells the assistant to
+list each one to the user) names it by agent. A refused routine doesn't block
+the rest of the import. Re-importing doesn't duplicate routines: the same note
+on the same schedule, or the same one-off note, counts as already set.
+
+The **Import agents** button in Agents mode offers two paths, as tabs:
+
+- **Paste** (the default while remote access is off; needs nothing set up).
+  Copy a message into the other assistant (`PASTE_PROMPT` in
+  `src-tauri/src/agents/paste.rs`) asking for every agent as a ```json block
+  in the same `{source, agents}` shape, in full and with no credentials, split
+  into numbered whole-agent blocks if it's long. Paste the whole reply back:
+  every ```json block (or bare JSON) is found and merged, and the preview lists
+  each agent and whether it is new, updates an existing one, or merges into the
+  Chief. Anything wrong (a trailing comma and its line, a cut-off block, a
+  missing name, a non-text field, a duplicate, two mains) is listed by block,
+  agent and field and blocks the import; nothing is repaired except curly
+  quotes used as JSON quotes. Import runs the same `import::import()`.
+- **Connected assistant** (the default once remote access is on): the one
+  message that makes it call `import_agents`, and a link to Remote access setup.
 
 What doesn't come across: the other platform's own connectors (its Gmail,
 Calendar…). Here, agents use what this Mac and Claude Code are connected to.
@@ -293,6 +385,66 @@ with `runner::strip_session_env`, from the agents folder, so what's listed is
 what a turn sees. The project MCP modal edits the same Claude Code settings for
 the active agent CLI, plus project scope; it's left as it is.
 
+## When the Mac sleeps, a window closes, or Ship Studio quits
+
+Agents are not a service. Each turn is one `claude --print --resume <session>`
+process that Ship Studio starts on this Mac and reads to the end, and the
+check-in tick is a loop inside the app. So:
+
+- **A window closes.** By default closing a window quits Ship Studio (the
+  frontend's close handler calls `exit`), so it is the same as quitting. With
+  **Keep running when closed** on (opt-in, macOS), the window is hidden
+  instead (`close_to_background`) and nothing stops: agents, check-ins,
+  terminals and dev servers in that window carry on. Hiding rather than
+  destroying matters, because a destroyed main window runs the global cleanup
+  that kills agent processes. Clicking the Dock icon brings hidden windows
+  back (`RunEvent::Reopen`); so do a notification and opening that project.
+- **Ship Studio quits** (⌘Q, or a close with the option off). The turn in progress ends with it: its Claude Code
+  process is stopped on the way out (`cleanup_agent_processes`), and any that
+  outlived a crash are cleaned up at the next launch. What the agent already
+  did (files written, commands run) stands. Messages queued behind that turn
+  live in memory (`runner::Runtime`), so they are not sent; say it again.
+  Nothing fires while the app is closed.
+- **It reopens.** Every conversation is on disk and the next message resumes
+  the same Claude Code session, so the agent still has its context. There is
+  no automatic restart of an interrupted turn on this branch: you pick it up
+  by sending the next message. Ship Studio's own confirmation cards left
+  pending are marked expired (`store::expire_stale_approvals`); permission
+  cards stay answerable, and a late Allow wakes the agent again. Missed
+  check-ins follow the rules above: a one-time one fires once, late; a routine
+  doesn't backfill.
+- **The Mac sleeps.** Everything, the agent's process included, is frozen
+  with it, and carries on when it wakes. If its connection dropped meanwhile
+  the turn can end in an error, shown with Retry like any other. A check-in due during sleep is
+  late, under the same rules.
+
+Three things help, offered together (`get_stay_on` / `set_stay_on`), each read
+back from the thing itself:
+
+- **Keep this Mac awake** holds the same idle-sleep assertion remote access
+  uses (`remote_access::power::start_keep_awake`, `caffeinate -i -s -m -w
+  <pid>`), as a standing preference of its own (`AppState.keep_awake`, held
+  again at launch). It dies with the app, `-s` only holds on mains power, and
+  it can't stop a laptop sleeping when the lid closes (see remote access's
+  lid-closed mode). Turning remote access off leaves it held if the user asked
+  for it here.
+- **Keep running when closed** (`AppState.keep_running_when_closed`) is
+  opt-in because it changes what closing a window does for every project, not
+  only Agents. Nobody who hasn't turned it on here sees any difference.
+- **Open at login** is remote access's own login item
+  (`remote_access::power::set_open_at_login`, the
+  `studio.ship.reopen-at-login` LaunchAgent): one file, so turning it on or off
+  here shows in remote access's checklist too. Hidden in a dev build, which has
+  no installed app to reopen.
+
+They are offered in two quiet places only: under the Chief of Staff's
+first-run starters, with a line that says what happens ("Closing Ship Studio
+stops them, and sleep pauses them.", or with Keep running on, "Closing the
+window keeps them going; quitting stops them, and sleep pauses them.") and one
+line suggesting an always-on Mac, such as a Mac mini or a cloud Mac, for
+round-the-clock agents; and as a "Keep this Mac awake" link at the end of the
+schedule popover's footnote. Elsewhere than macOS none of it shows.
+
 ## Search, model and usage
 
 - **Search.** In Agents mode the sidebar's top field searches conversations
@@ -362,7 +514,7 @@ cards.
   ahead of what you typed. User bubbles show those blockquotes as quote bars
   (`splitQuotes`); nothing else in a user's text is read as Markdown.
 
-## @mentions and Team
+## @mentions and What's in flight
 
 - **@mentions.** Typing `@` in the composer opens a small menu of your other
   agents (the app's menu surface; the field keeps focus: ↑ ↓, Return or Tab,
@@ -374,7 +526,9 @@ cards.
   recipient does it with `message_agent`. The bubble tints each recorded
   `@Name` in that agent's colour. A name typed without the menu still counts
   if it matches an agent exactly.
-- **Team** (first row of the list, or ⌘K → "Team: what's in flight") shows,
+- **What's in flight** (⌘K only, id `agents.team`; it used to be the list's
+  first row and the compact switcher's, and was demoted so the list is just
+  agents, with ⌘J and the toggle's badge carrying "who needs you") shows,
   in a fixed order and present even when empty: who needs you (with their
   pending approval cards, answerable in place, and turns that didn't finish,
   with Retry, Retry at the reset, or Sign in), who is working (their
@@ -384,7 +538,8 @@ cards.
   replies from each chat's recent lines (live for chats open this session,
   otherwise the last 20 lines, re-read when that agent's row changes; a
   chat with an open card reads a page). Hidden agents are left out. While
-  Team is open no chat is on screen, so replies keep counting as unread.
+  it is open no chat is on screen, so replies keep counting as unread. It is
+  never restored on reopen: Agents comes back to the last conversation.
   An answered card shows what it resolved to ("Allowed · Lead Gen is
   carrying on") for 1.2s, then folds away, and focus moves to the next
   card's Allow (or the next row). Long field values clamp to two lines with
@@ -499,5 +654,5 @@ prunes them the diff says it can't be shown.
   error, garbage output, crash, bare error code), damaged store files, and 20
   rapid messages. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
-- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, Team overview, @mention menu, approval, first run, new
+- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
   agent, import, Claude Code missing.

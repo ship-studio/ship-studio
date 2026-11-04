@@ -185,6 +185,13 @@ pub fn run() {
                 });
             }
 
+            // "Keep this Mac awake" (Agents) is a standing preference: hold it again.
+            if commands::setup::read_app_state().keep_awake == Some(true) {
+                if let Err(e) = remote_access::power::set_keep_awake_asked(true, false) {
+                    tracing::error!("[Power] Could not keep the Mac awake at launch: {}", e);
+                }
+            }
+
             // Remote access: if the user left it on, bring it back — a Mac that
             // restarted overnight should be reachable again once it's logged in.
             {
@@ -586,6 +593,9 @@ pub fn run() {
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,
+            commands::agents::agents_import_paste_prompt,
+            commands::agents::agents_import_paste_preview,
+            commands::agents::agents_import_paste,
             commands::agents::agents_schedule_preview,
             commands::agents::agents_schedule_create,
             commands::agents::agents_schedule_cancel,
@@ -887,6 +897,8 @@ pub fn run() {
             // Remote access
             commands::remote_access::get_remote_access_status,
             commands::remote_access::get_remote_access_brief,
+            commands::remote_access::get_stay_on,
+            commands::remote_access::set_stay_on,
             commands::remote_access::copy_remote_link,
             commands::remote_access::set_remote_push_pin,
             commands::remote_access::clear_remote_push_pin,
@@ -1016,6 +1028,7 @@ pub fn run() {
             // Window / Compact Mode
             commands::window::set_always_on_top,
             commands::window::set_window_title,
+            commands::window::close_to_background,
             // Clipboard (Windows terminal paste)
             commands::clipboard::read_clipboard_text,
             commands::clipboard::stage_clipboard_image,
@@ -1023,6 +1036,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
+            // Dock icon clicked while every window is hidden (closed with
+            // "Keep running when windows close" on): bring them back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                commands::window::reopen_hidden_windows(_app);
+            }
             if let tauri::RunEvent::Exit = event {
                 // The quit path calls exit(0) after preventDefault() on the
                 // close request, so WindowEvent::Destroyed cleanup never runs.

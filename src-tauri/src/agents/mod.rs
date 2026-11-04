@@ -25,17 +25,20 @@
 
 pub mod apps;
 pub mod attachments;
+pub mod capabilities;
 pub mod failure;
 pub mod files;
 pub mod import;
 pub mod mcp;
 pub mod notify;
+pub mod paste;
 pub mod permissions;
 pub mod project;
 pub mod prompts;
 pub mod runner;
 pub mod schedule;
 pub mod search;
+pub mod sessions;
 pub mod store;
 pub mod stream;
 pub mod usage;

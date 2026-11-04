@@ -15,6 +15,7 @@ use super::agent_state::{self, AgentState, QUIET_MS};
 use super::{power, screen, shots, RemoteConfig};
 use crate::commands::pty_session::{self, SessionSummary};
 use serde_json::{json, Value};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
@@ -101,7 +102,7 @@ const TOOLS: &[ToolDef] = &[
         title: "Import agents into Ship Studio",
         effect: Effect::Acts,
         open_world: false,
-        description: "Bring the user's agent setup from you into Ship Studio Agents, where the same agents run on Claude Code on this computer. Call it only when the user asks to import or move their agents/setup to Ship Studio. Send every agent: its name, a one-line role, its full instructions (as you were briefed), and what it remembers that it still needs, one fact per line. Mark the agent that manages the others is_main (it merges into Ship Studio's Chief of Staff). Never include passwords, API keys, tokens or card numbers. Safe to call again: same-named agents are updated, not duplicated. Imported agents don't start working until the user messages them.",
+        description: "Bring the user's agent setup from you into Ship Studio Agents, where the same agents run on Claude Code on this computer. Call it only when the user asks to import or move their agents/setup to Ship Studio. Send every agent: its name, a one-line role, its full instructions (as you were briefed), and what it remembers that it still needs, one fact per line. Mark the agent that manages the others is_main (it merges into Ship Studio's Chief of Staff). Include each agent's routines (anything it does on a schedule: automations, reminders, recurring check-ins) as {when, what}, with `when` in plain words such as \"every weekday at 9am\", \"every monday at 8:30am\", \"every 2 hours\" or \"friday at 2pm\". The reply lists any routine whose time Ship Studio couldn't read; tell the user about each one. Never include passwords, API keys, tokens or card numbers. Safe to call again: same-named agents are updated, not duplicated. Imported agents don't start working until the user messages them.",
         schema: || json!({
             "type": "object",
             "properties": {
@@ -115,7 +116,19 @@ const TOOLS: &[ToolDef] = &[
                             "role": { "type": "string" },
                             "instructions": { "type": "string" },
                             "memory": { "type": "string" },
-                            "is_main": { "type": "boolean" }
+                            "is_main": { "type": "boolean" },
+                            "routines": {
+                                "type": "array",
+                                "description": "What this agent does on its own on a schedule.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "when": { "type": "string", "description": "Plain words: \"every weekday at 9am\", \"every 2 hours\", \"friday at 2pm\"." },
+                                        "what": { "type": "string", "description": "What the agent does when it fires." }
+                                    },
+                                    "required": ["when", "what"]
+                                }
+                            }
                         },
                         "required": ["name"]
                     }
@@ -355,6 +368,55 @@ pub fn exists(name: &str) -> bool {
     TOOLS.iter().any(|t| t.name == name)
 }
 
+/// A tool's input schema, for a surface that serves it under its own name
+/// and description (Ship Studio's own agents, `agents/sessions.rs`).
+pub(crate) fn schema_of(name: &str) -> Option<Value> {
+    TOOLS.iter().find(|t| t.name == name).map(|t| (t.schema)())
+}
+
+// ============================================================================
+// Serving Ship Studio's own agents
+// ============================================================================
+//
+// The same tools also serve the agents in Agents mode (`agents/sessions.rs`),
+// so an agent works on a project exactly the way a phone assistant does: in
+// the project's real agent tabs. What differs is only what happens to the
+// pictures and the conversation around them, so a call made for an agent runs
+// inside [`AGENTS_CALL`], which collects what the chat should show.
+// Everything else — which tab, what may be typed, how a reply is read — is
+// this file's, unchanged.
+
+/// One finished look at a session, for the chat's session cards.
+#[derive(Debug, Clone)]
+pub(crate) struct Outcome {
+    pub session_id: String,
+    pub tab: usize,
+    /// The tab's agent CLI id (`claude`, `codex`, …).
+    pub cli: String,
+    /// `working`, `needs_decision`, `finished` or `exited`.
+    pub state: &'static str,
+    pub reply: Vec<String>,
+}
+
+/// What a call made for an agent saw, beyond the answer it returns.
+#[derive(Default)]
+pub(crate) struct AgentsCall {
+    /// (device label, full-resolution JPEG).
+    pub shots: RefCell<Vec<(&'static str, Vec<u8>)>>,
+    pub outcomes: RefCell<Vec<Outcome>>,
+    /// Sessions this call started (rather than continued).
+    pub started: RefCell<Vec<String>>,
+}
+
+tokio::task_local! {
+    pub(crate) static AGENTS_CALL: AgentsCall;
+}
+
+/// Serving one of Ship Studio's own agents rather than the remote assistant.
+fn for_agents() -> bool {
+    AGENTS_CALL.try_with(|_| ()).is_ok()
+}
+
 fn text(s: impl Into<String>) -> Value {
     json!({ "content": [{ "type": "text", "text": s.into() }] })
 }
@@ -367,16 +429,27 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
     if name == "computer_status" {
         return computer_status(config).await;
     }
+    if name == "import_agents" {
+        return import_agents(app, &args);
+    }
+    call_in(app, &config.projects, name, args).await
+}
+
+/// The project tools, over `projects`: the ones shared for remote access, or
+/// every Ship Studio project for an agent.
+pub(crate) async fn call_in(
+    app: &tauri::AppHandle,
+    projects: &[String],
+    name: &str,
+    args: Value,
+) -> Value {
     if name == "list_projects" {
-        return list_projects(config).await;
+        return list_projects(projects).await;
     }
     if name == "create_project" {
         return create_project(app, &args).await;
     }
-    if name == "import_agents" {
-        return import_agents(app, &args);
-    }
-    let project = match resolve_project(config, args.get("project").and_then(Value::as_str)) {
+    let project = match resolve_project(projects, args.get("project").and_then(Value::as_str)) {
         Ok(p) => p,
         Err(e) => return error(e),
     };
@@ -413,7 +486,7 @@ fn import_agents(app: &tauri::AppHandle, args: &Value) -> Value {
             Ok(list) => list,
             Err(e) => {
                 return error(format!(
-                "`agents` should be a list of {{name, role, instructions, memory, is_main}}: {e}"
+                "`agents` should be a list of {{name, role, instructions, memory, is_main, routines: [{{when, what}}]}}: {e}"
             ))
             }
         };
@@ -444,7 +517,7 @@ fn import_agents(app: &tauri::AppHandle, args: &Value) -> Value {
 // Projects and tabs
 // ============================================================================
 
-fn project_name(path: &str) -> &str {
+pub(crate) fn project_name(path: &str) -> &str {
     path.trim_end_matches('/')
         .rsplit('/')
         .next()
@@ -463,16 +536,12 @@ fn same_path(a: &str, b: &str) -> bool {
 }
 
 /// Resolve the `project` argument against the opted-in list only.
-pub(crate) fn resolve_project(
-    config: &RemoteConfig,
-    wanted: Option<&str>,
-) -> Result<String, String> {
-    let shared = &config.projects;
+pub(crate) fn resolve_project(shared: &[String], wanted: Option<&str>) -> Result<String, String> {
     if shared.is_empty() {
-        return Err("No projects are shared for remote access. The user turns this on per project in Ship Studio → Remote access.".into());
+        return Err(no_projects().into());
     }
     let Some(wanted) = wanted.map(str::trim).filter(|w| !w.is_empty()) else {
-        return match shared.as_slice() {
+        return match shared {
             [only] => Ok(only.clone()),
             _ => Err(format!(
                 "Several projects are shared; say which one: {}",
@@ -825,6 +894,15 @@ async fn agent_outcome(
     call_started: tokio::time::Instant,
 ) -> Value {
     let (head, reply, run) = heading(project, n, tab, &observed.lines);
+    let _ = AGENTS_CALL.try_with(|call| {
+        call.outcomes.borrow_mut().push(Outcome {
+            session_id: tab.session_id.clone(),
+            tab: n,
+            cli: tab.agent_id.clone().unwrap_or_default(),
+            state: observed.state.keyword(),
+            reply: reply.clone(),
+        })
+    });
     let mut parts = Vec::new();
     if !lead.is_empty() {
         parts.push(lead.to_string());
@@ -949,13 +1027,21 @@ async fn git_line(project: &str) -> String {
     }
 }
 
-async fn list_projects(config: &RemoteConfig) -> Value {
-    if config.projects.is_empty() {
-        return error("No projects are shared for remote access. The user turns this on per project in Ship Studio → Remote access.");
+fn no_projects() -> &'static str {
+    if for_agents() {
+        "The user has no Ship Studio projects yet. create_project makes one."
+    } else {
+        "No projects are shared for remote access. The user turns this on per project in Ship Studio → Remote access."
+    }
+}
+
+async fn list_projects(projects: &[String]) -> Value {
+    if projects.is_empty() {
+        return error(no_projects());
     }
     let mut out = Vec::new();
     let mut waiting = Vec::new();
-    for project in &config.projects {
+    for project in projects {
         let sessions = sessions_for(project);
         out.push(format!(
             "{} — {}\n  path: {}",
@@ -1239,6 +1325,7 @@ async fn start_and_follow(
         Err(e) => return error(e),
     };
     begin_run(&session_id, prompt, tree_before);
+    let _ = AGENTS_CALL.try_with(|call| call.started.borrow_mut().push(session_id.clone()));
     let Some(tab) = sessions_for(project)
         .into_iter()
         .find(|s| s.session_id == session_id)
@@ -1344,7 +1431,7 @@ async fn press_key(app: &tauri::AppHandle, project: &str, args: &Value) -> Value
 }
 
 /// The window that owns `project`, or the main window if none does.
-fn window_for(project: &str) -> String {
+pub(crate) fn window_for(project: &str) -> String {
     crate::state::get_window_for_project(project)
         .or_else(|| {
             dunce::canonicalize(project)
@@ -1584,13 +1671,25 @@ async fn capture(
     let encoded = tokio::task::spawn_blocking(move || shots::encode(&path))
         .await
         .map_err(|e| e.to_string())??;
-    let id = shots::store(encoded.full);
     let jpeg = encoded.preview;
-    let link = match super::tailscale::status().await {
-        super::tailscale::TailscaleState::Connected { dns_name } => {
-            Some(shots::public_url(&dns_name, &id))
+    // An agent's pictures go into its chat, never behind a public link.
+    let mut full = Some(encoded.full);
+    let _ = AGENTS_CALL.try_with(|call| {
+        if let Some(full) = full.take() {
+            call.shots.borrow_mut().push((device.label(), full));
         }
-        _ => None,
+    });
+    let link = match full {
+        None => None,
+        Some(full) => {
+            let id = shots::store(full);
+            match super::tailscale::status().await {
+                super::tailscale::TailscaleState::Connected { dns_name } => {
+                    Some(shots::public_url(&dns_name, &id))
+                }
+                _ => None,
+            }
+        }
     };
     Ok(Captured { device, jpeg, link })
 }
@@ -1878,6 +1977,19 @@ async fn create_project(app: &tauri::AppHandle, args: &Value) -> Value {
         Err(e) => return error(e),
     };
     let path_str = path.to_string_lossy().replace('\\', "/");
+    if for_agents() {
+        // An agent's project isn't shared for remote access, and isn't opened
+        // over what the user is looking at: starting a session opens it.
+        let install = if template.install {
+            npm_install(&path_str).await.err()
+        } else {
+            None
+        };
+        return text(match install {
+            None => format!("Created {name} from the {} starter at {path_str}. It's in the user's projects now. Start a session in it (start_agent, project \"{name}\") to build what they asked for.", template.id),
+            Some(e) => format!("Created {name} at {path_str}, but installing its packages failed: {e}\nStart a session in it and ask that agent to run the install and fix what it reports."),
+        });
+    }
 
     // The user asked for it from here, so it's shared from the start.
     if let Err(e) = super::update_config(|c| {
@@ -2006,7 +2118,7 @@ async fn npm_install(project: &str) -> Result<(), String> {
 // Git and pushing
 // ============================================================================
 
-async fn git(project: &str, args: &[&str]) -> Result<String, String> {
+pub(crate) async fn git(project: &str, args: &[&str]) -> Result<String, String> {
     let path = crate::utils::validate_project_path(project).map_err(|e| e.to_string())?;
     let mut cmd = crate::utils::git_command_in(&path).map_err(|e| e.to_string())?;
     cmd.args(args);
@@ -2020,7 +2132,7 @@ async fn git(project: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn cap_lines(s: &str, max: usize) -> String {
+pub(crate) fn cap_lines(s: &str, max: usize) -> String {
     let lines: Vec<&str> = s.lines().filter(|l| !l.is_empty()).collect();
     if lines.len() <= max {
         return lines.join("\n");
@@ -2080,7 +2192,7 @@ async fn git_env(project: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<
 /// into a throwaway index so the user's real index is untouched. The tree id
 /// is a hash of every byte that would be pushed (respecting .gitignore), so
 /// comparing it is comparing the content itself.
-async fn frozen_tree(project: &str) -> Result<(String, String), String> {
+pub(crate) async fn frozen_tree(project: &str) -> Result<(String, String), String> {
     let head = git(project, &["rev-parse", "HEAD"])
         .await?
         .trim()
@@ -2112,11 +2224,12 @@ async fn frozen_tree(project: &str) -> Result<(String, String), String> {
 /// then) and pushed by explicit refspec to the branch the summary named
 /// (never to whatever is checked out). The local branch is then moved to the
 /// new commit only if it still points where it did.
-async fn push_frozen(
+pub(crate) async fn push_frozen(
     project: &str,
     branch: &str,
     head: &str,
     tree: &str,
+    message: &str,
 ) -> Result<String, String> {
     let head_tree = git(project, &["rev-parse", &format!("{head}^{{tree}}")])
         .await?
@@ -2127,20 +2240,10 @@ async fn push_frozen(
     } else {
         let path = crate::utils::validate_project_path(project).map_err(|e| e.to_string())?;
         let _ = crate::commands::github::ensure_git_identity(&path);
-        git(
-            project,
-            &[
-                "commit-tree",
-                tree,
-                "-p",
-                head,
-                "-m",
-                "Update from Ship Studio remote access",
-            ],
-        )
-        .await?
-        .trim()
-        .to_string()
+        git(project, &["commit-tree", tree, "-p", head, "-m", message])
+            .await?
+            .trim()
+            .to_string()
     };
 
     let path = crate::utils::validate_project_path(project).map_err(|e| e.to_string())?;
@@ -2265,7 +2368,15 @@ async fn confirm_push(project: &str, args: &Value) -> Value {
             "There's no push waiting for confirmation in this project. Call prepare_push first.",
         );
     };
-    match push_frozen(project, &pending.branch, &head, &tree).await {
+    match push_frozen(
+        project,
+        &pending.branch,
+        &head,
+        &tree,
+        "Update from Ship Studio remote access",
+    )
+    .await
+    {
         Ok(sha) => {
             text(format!(
                 "Pushed {} to origin/{} (commit {}). Exactly what was summarised — nothing changed after the PIN was checked.\n\nNEXT: Tell the user it's pushed, then call deploy_status to find out whether it went live and report that too.",
@@ -2375,25 +2486,25 @@ mod tests {
     fn projects_resolve_only_from_the_shared_list() {
         let c = config(&["/Users/a/ShipStudio/site", "/Users/a/ShipStudio/blog"]);
         assert_eq!(
-            resolve_project(&c, Some("site")).unwrap(),
+            resolve_project(&c.projects, Some("site")).unwrap(),
             "/Users/a/ShipStudio/site"
         );
         assert_eq!(
-            resolve_project(&c, Some("BLOG")).unwrap(),
+            resolve_project(&c.projects, Some("BLOG")).unwrap(),
             "/Users/a/ShipStudio/blog"
         );
-        assert!(resolve_project(&c, Some("/Users/a/ShipStudio/secret")).is_err());
-        assert!(resolve_project(&c, Some("secret")).is_err());
+        assert!(resolve_project(&c.projects, Some("/Users/a/ShipStudio/secret")).is_err());
+        assert!(resolve_project(&c.projects, Some("secret")).is_err());
         assert!(
-            resolve_project(&c, None).is_err(),
+            resolve_project(&c.projects, None).is_err(),
             "ambiguous without a name"
         );
         let one = config(&["/Users/a/ShipStudio/site"]);
         assert_eq!(
-            resolve_project(&one, None).unwrap(),
+            resolve_project(&one.projects, None).unwrap(),
             "/Users/a/ShipStudio/site"
         );
-        assert!(resolve_project(&config(&[]), Some("site")).is_err());
+        assert!(resolve_project(&config(&[]).projects, Some("site")).is_err());
     }
 
     #[test]

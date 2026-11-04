@@ -98,7 +98,9 @@ fn searchable(message: &AgentMessage) -> Option<&str> {
         | MessageKind::SentToAgent
         | MessageKind::FromAgent
         // A fired check-in's text is the note it was scheduled with.
-        | MessageKind::CheckIn => Some(&message.text),
+        | MessageKind::CheckIn
+        // What was sent to a project session, and its reply.
+        | MessageKind::Session => Some(&message.text),
         MessageKind::Approval | MessageKind::Error | MessageKind::Note | MessageKind::Changes => None,
     }
 }
@@ -228,6 +230,7 @@ mod tests {
             mentions: Vec::new(),
             failure: None,
             changes: None,
+            session: None,
         })
         .unwrap();
         id
@@ -296,6 +299,7 @@ mod tests {
                 mentions: Vec::new(),
                 failure: None,
                 changes: None,
+                session: None,
             })
             .unwrap();
             let found = search_in(&store::list().unwrap(), "deploy", 50).unwrap();
@@ -359,6 +363,7 @@ mod tests {
             mentions: Vec::new(),
             failure: None,
             changes: None,
+            session: None,
         };
         assert!(match_message(&message, &terms("müller")).is_some());
         assert!(match_message(&message, &terms("müller schmidt")).is_none());
