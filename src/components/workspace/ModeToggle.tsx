@@ -16,6 +16,7 @@
  * @module components/workspace/ModeToggle
  */
 
+import { Tooltip } from '../primitives/Tooltip';
 import { AgentsIcon, FolderOpenIcon } from '@/components/icons';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { useAgentsAttention, type AgentsAttention } from '../../lib/agentsStore';
@@ -73,25 +74,29 @@ export function ModeToggle({
         appearance="segmented"
         className={`mode-toggle mode-toggle--${layout} ${className ?? ''}`}
       >
-        <TabsTab
-          value="projects"
-          className={tabClass}
-          title={`Projects (${MODE_TOGGLE_SHORTCUT})`}
-          aria-label="Projects"
-          leftIcon={iconOnly ? <FolderOpenIcon size={12} /> : undefined}
-        >
-          {iconOnly ? undefined : 'Projects'}
-        </TabsTab>
-        <TabsTab
-          value="agents"
-          className={tabClass}
-          title={`${(showDot && attention) || 'Agents'} (${MODE_TOGGLE_SHORTCUT})`}
-          aria-label={showDot ? `Agents, ${attention}` : 'Agents'}
-          leftIcon={iconOnly ? <AgentsIcon size={12} /> : undefined}
-        >
-          {iconOnly ? undefined : 'Agents'}
-          {showDot && <span className="sidebar-row-dot dot-attention mode-toggle__dot" />}
-        </TabsTab>
+        {/* The app's tooltip, not a native `title`: WKWebView draws native
+            tooltips at the window's top-left, under the traffic lights. */}
+        <Tooltip content={`Projects (${MODE_TOGGLE_SHORTCUT})`}>
+          <TabsTab
+            value="projects"
+            className={tabClass}
+            aria-label="Projects"
+            leftIcon={iconOnly ? <FolderOpenIcon size={12} /> : undefined}
+          >
+            {iconOnly ? undefined : 'Projects'}
+          </TabsTab>
+        </Tooltip>
+        <Tooltip content={`${(showDot && attention) || 'Agents'} (${MODE_TOGGLE_SHORTCUT})`}>
+          <TabsTab
+            value="agents"
+            className={tabClass}
+            aria-label={showDot ? `Agents, ${attention}` : 'Agents'}
+            leftIcon={iconOnly ? <AgentsIcon size={12} /> : undefined}
+          >
+            {iconOnly ? undefined : 'Agents'}
+            {showDot && <span className="sidebar-row-dot dot-attention mode-toggle__dot" />}
+          </TabsTab>
+        </Tooltip>
       </TabsList>
     </Tabs>
   );
