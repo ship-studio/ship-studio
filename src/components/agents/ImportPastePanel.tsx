@@ -95,10 +95,27 @@ export function ImportPastePanel({ onCancel, onDone }: ImportPastePanelProps) {
   const preview = pasted ? checked?.preview : null;
   const current = checked?.text === text;
   const ready = current && !!preview && preview.problems.length === 0 && preview.agents.length > 0;
+  // A paste and an instant ⌘Enter beat the preview's delay: check it now
+  // rather than drop the key. Problems show as the preview lands.
+  const submit = async () => {
+    if (!pasted || importer.isLoading) return;
+    const checkedNow =
+      current && preview ? preview : await previewPasteImport(text).catch(() => null);
+    if (checkedNow && checkedNow.problems.length === 0 && checkedNow.agents.length > 0)
+      void importer.execute(text, checkedNow.agents);
+  };
 
   return (
     <>
-      <div className="agents-import__body">
+      <div
+        className="agents-import__body"
+        // ⌘Enter imports from the paste field or anywhere above it (as comments do).
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+          e.preventDefault();
+          void submit();
+        }}
+      >
         <p className="agents-import__lede">
           Bring your agents over with their instructions, memory and routines. It takes about two
           minutes, and they run on Claude Code on this Mac.
@@ -158,7 +175,8 @@ export function ImportPastePanel({ onCancel, onDone }: ImportPastePanelProps) {
         <Button
           variant="primary"
           disabled={!ready || importer.isLoading}
-          onClick={() => preview && void importer.execute(text, preview.agents)}
+          aria-keyshortcuts="Meta+Enter"
+          onClick={() => void submit()}
         >
           {ready && preview ? `Import ${plural(preview.agents.length, 'agent')}` : 'Import'}
         </Button>
