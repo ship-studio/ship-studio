@@ -356,8 +356,15 @@ export const AGENT_EVENTS = {
 } as const;
 
 export const getAgentsOverview = () => invoke<AgentsOverview>('agents_overview');
-export const getAgentMessages = (agentId: string, limit?: number) =>
-  invoke<AgentMessage[]>('agents_messages', { agentId, limit });
+/**
+ * The newest `limit` lines, oldest first. `before`: only lines older than that
+ * one (the next page up). `through`: reach back at least to that line.
+ */
+export const getAgentMessages = (
+  agentId: string,
+  limit?: number,
+  { before, through }: { before?: string; through?: string } = {}
+) => invoke<AgentMessage[]>('agents_messages', { agentId, limit, before, through });
 export const sendAgentMessage = (
   agentId: string,
   text: string,
@@ -470,13 +477,23 @@ export const cancelCheckIn = (agentId: string, id: string) =>
 export const pauseCheckIn = (agentId: string, id: string, paused: boolean) =>
   invoke<void>('agents_schedule_pause', { agentId, id, paused });
 
+/**
+ * Formatters are built once: `toLocaleTimeString` with options builds a new
+ * one per call, which over a few hundred rows was the costliest part of a
+ * chat render.
+ */
+const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const SHORT_DAY = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+const EXACT = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' });
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** "9:00 AM" in the user's locale, the same way `formatWhen` writes times. */
 const clockText = (hour: number, minute: number) =>
-  new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  CLOCK.format(new Date(2000, 0, 1, hour, minute));
 
 /** "Every weekday at 9:00 AM", "Every 2 hours" — `schedule::describe`'s words, locale times. */
 export function describeRepeat(repeat: Repeat): string {
@@ -503,19 +520,14 @@ export function describeRepeat(repeat: Repeat): string {
 /** "Today 9:00 AM", "Tomorrow 9:00 AM", "Thu, Nov 5 9:00 AM". */
 export function formatWhen(ts: number, now = Date.now()): string {
   const date = new Date(ts);
-  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = CLOCK.format(date);
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const dayMs = 24 * 60 * 60 * 1000;
   const start = today.getTime();
   if (ts >= start && ts < start + dayMs) return `Today ${time}`;
   if (ts >= start + dayMs && ts < start + 2 * dayMs) return `Tomorrow ${time}`;
-  const day = date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-  return `${day} ${time}`;
+  return `${SHORT_DAY.format(date)} ${time}`;
 }
 
 /**
@@ -621,9 +633,7 @@ export function hitSpeaker(hit: SearchHit): string | null {
 export function formatHitTime(ts: number, now = Date.now()): string {
   const date = new Date(ts);
   const today = new Date(now);
-  if (date.toDateString() === today.toDateString()) {
-    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
+  if (date.toDateString() === today.toDateString()) return CLOCK.format(date);
   return date.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -818,18 +828,13 @@ export function buildChatItems(messages: AgentMessage[]): ChatItem[] {
 /** "Today 2:01 PM", "Yesterday 9:12 AM", "Mon, Nov 2 4:00 PM". */
 export function formatDivider(ts: number, now = Date.now()): string {
   const date = new Date(ts);
-  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = CLOCK.format(date);
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
   const dayMs = 24 * 60 * 60 * 1000;
   if (ts >= startOfToday.getTime()) return `Today ${time}`;
   if (ts >= startOfToday.getTime() - dayMs) return `Yesterday ${time}`;
-  const day = date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-  return `${day} ${time}`;
+  return `${SHORT_DAY.format(date)} ${time}`;
 }
 
 /** The centred line for a collapsed run of agent-to-agent messages. */
@@ -886,12 +891,12 @@ export function splitQuotes(text: string): BubblePart[] {
 
 /** "9:24 AM": a message's time, on hover. */
 export function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return CLOCK.format(ts);
 }
 
 /** "Tuesday, November 4, 2026 at 9:24:13 AM": the exact time, in its tooltip. */
 export function formatExactTime(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'medium' });
+  return EXACT.format(ts);
 }
 
 /**

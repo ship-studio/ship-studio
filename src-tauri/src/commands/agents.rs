@@ -79,8 +79,16 @@ pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandEr
 pub async fn agents_messages(
     agent_id: String,
     limit: Option<usize>,
+    before: Option<String>,
+    through: Option<String>,
 ) -> Result<Vec<store::AgentMessage>, CommandError> {
-    store::messages(&agent_id, limit.unwrap_or(400).min(5000))
+    const MAX: usize = 5000;
+    store::messages_page(
+        &agent_id,
+        limit.unwrap_or(400).min(MAX),
+        before.as_deref(),
+        through.as_deref().map(|id| (id, MAX)),
+    )
 }
 
 #[tauri::command]

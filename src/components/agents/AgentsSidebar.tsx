@@ -16,7 +16,14 @@
  * @module components/agents/AgentsSidebar
  */
 
-import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
+import {
+  memo,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from 'react';
 import {
   AddIcon,
   BellOffIcon,
@@ -43,8 +50,10 @@ import {
 } from '../../lib/agents';
 import { kbd } from '../../lib/shortcuts';
 
-interface AgentsSidebarProps extends AgentActions {
+interface AgentsSidebarProps {
   agents: Agent[];
+  /** Stable across renders, so an event re-renders only the row it changed. */
+  actions: AgentActions;
   selectedId: string | null;
   showHidden: boolean;
   onToggleShowHidden: () => void;
@@ -134,12 +143,16 @@ export function AgentsSidebar({
   searchRef,
   onOpenHit,
   currentHit,
-  ...actions
+  actions,
 }: AgentsSidebarProps) {
   const searching = query.trim().length > 0;
-  const sorted = sortAgents(agents);
-  const visible = sorted.filter((a) => !a.hidden || a.id === selectedId);
-  const hidden = sorted.filter((a) => a.hidden && a.id !== selectedId);
+  const { visible, hidden } = useMemo(() => {
+    const sorted = sortAgents(agents);
+    return {
+      visible: sorted.filter((a) => !a.hidden || a.id === selectedId),
+      hidden: sorted.filter((a) => a.hidden && a.id !== selectedId),
+    };
+  }, [agents, selectedId]);
   // An agent that just did something slides to the top instead of jumping.
   const listRef = useRef<HTMLDivElement>(null);
   const shown = showHidden ? [...visible, ...hidden] : visible;
@@ -150,49 +163,16 @@ export function AgentsSidebar({
     ? selectedId
     : TEAM_ID;
 
-  const row = (agent: Agent) => {
-    const current = agent.id === selectedId;
-    return (
-      <ContextMenu key={agent.id}>
-        <ContextMenuTrigger asChild>
-          {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
-          <button
-            type="button"
-            tabIndex={agent.id === tabStop ? 0 : -1}
-            className={`agents-list__row${current ? ' is-current' : ''}`}
-            data-agent-id={agent.id}
-            data-hidden={agent.hidden || undefined}
-            aria-current={current ? 'true' : undefined}
-            onPointerEnter={tooltipIfTruncated}
-            onClick={() => onSelect(agent.id)}
-          >
-            <AgentAvatar name={agent.name} color={agent.color} selected={current} />
-            <span className="agents-list__text">
-              <span className="agents-list__name">
-                <span className="agents-list__name-text">{agent.name}</span>
-                {agent.pinned && (
-                  <PinIcon size={12} className="agents-list__pin" aria-label="Pinned" />
-                )}
-                {agent.muted && (
-                  <BellOffIcon size={12} className="agents-list__pin" aria-label="Muted" />
-                )}
-              </span>
-              <span className="agents-list__preview" data-state={lineState(agent)}>
-                {subtitle(agent)}
-              </span>
-            </span>
-            <span className="agents-list__status">
-              {/* Read already when it's the one open: no unread dot for it. */}
-              <AgentMark agent={current ? { ...agent, unread: 0 } : agent} />
-            </span>
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
-          <AgentActionItems agent={agent} kind="context" {...actions} />
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  };
+  const row = (agent: Agent) => (
+    <AgentRow
+      key={agent.id}
+      agent={agent}
+      current={agent.id === selectedId}
+      tabStop={agent.id === tabStop}
+      onSelect={onSelect}
+      actions={actions}
+    />
+  );
 
   return (
     <div
@@ -248,6 +228,62 @@ export function AgentsSidebar({
     </div>
   );
 }
+
+/** One agent's row, memoised: a status event re-renders the row it changed, not all of them. */
+const AgentRow = memo(function AgentRow({
+  agent,
+  current,
+  tabStop,
+  onSelect,
+  actions,
+}: {
+  agent: Agent;
+  current: boolean;
+  tabStop: boolean;
+  onSelect: (agentId: string) => void;
+  actions: AgentActions;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
+        <button
+          type="button"
+          tabIndex={tabStop ? 0 : -1}
+          className={`agents-list__row${current ? ' is-current' : ''}`}
+          data-agent-id={agent.id}
+          data-hidden={agent.hidden || undefined}
+          aria-current={current ? 'true' : undefined}
+          onPointerEnter={tooltipIfTruncated}
+          onClick={() => onSelect(agent.id)}
+        >
+          <AgentAvatar name={agent.name} color={agent.color} selected={current} />
+          <span className="agents-list__text">
+            <span className="agents-list__name">
+              <span className="agents-list__name-text">{agent.name}</span>
+              {agent.pinned && (
+                <PinIcon size={12} className="agents-list__pin" aria-label="Pinned" />
+              )}
+              {agent.muted && (
+                <BellOffIcon size={12} className="agents-list__pin" aria-label="Muted" />
+              )}
+            </span>
+            <span className="agents-list__preview" data-state={lineState(agent)}>
+              {subtitle(agent)}
+            </span>
+          </span>
+          <span className="agents-list__status">
+            {/* Read already when it's the one open: no unread dot for it. */}
+            <AgentMark agent={current ? { ...agent, unread: 0 } : agent} />
+          </span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
+        <AgentActionItems agent={agent} kind="context" {...actions} />
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+});
 
 /**
  * The first row: the Team overview, what's in flight across every agent.

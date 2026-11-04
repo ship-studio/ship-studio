@@ -556,10 +556,33 @@ fn read_log(agent_id: &str) -> Result<Vec<AgentMessage>, CommandError> {
 
 /// The newest `limit` messages, oldest first.
 pub fn messages(agent_id: &str, limit: usize) -> Result<Vec<AgentMessage>, CommandError> {
+    messages_page(agent_id, limit, None, None)
+}
+
+/// A page of the log, oldest first: the `limit` messages before the one with
+/// id `before` (all of them if it's absent), reaching further back to include
+/// `through` when that is older, but never more than `cap` in all. A `before`
+/// that isn't in the log yields nothing rather than a page from elsewhere.
+pub fn messages_page(
+    agent_id: &str,
+    limit: usize,
+    before: Option<&str>,
+    through: Option<(&str, usize)>,
+) -> Result<Vec<AgentMessage>, CommandError> {
     let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let all = read_log(agent_id)?;
-    let start = all.len().saturating_sub(limit);
-    Ok(all[start..].to_vec())
+    let mut all = read_log(agent_id)?;
+    let end = match before {
+        Some(id) => all.iter().position(|m| m.id == id).unwrap_or(0),
+        None => all.len(),
+    };
+    let mut start = end.saturating_sub(limit);
+    if let Some((id, cap)) = through {
+        if let Some(at) = all[..start].iter().position(|m| m.id == id) {
+            start = at.max(end.saturating_sub(cap));
+        }
+    }
+    all.truncate(end);
+    Ok(all.split_off(start))
 }
 
 /// Set an approval's outcome. Rewrites the log; approvals are rare enough
@@ -722,6 +745,58 @@ mod tests {
             color: None,
             is_main: false,
         }
+    }
+
+    #[test]
+    fn pages_back_through_the_log() {
+        with_root(|| {
+            let a = create(new("Pager")).unwrap();
+            for i in 0..10 {
+                append_message(&AgentMessage {
+                    id: format!("m{i}"),
+                    agent_id: a.id.clone(),
+                    ts: i,
+                    kind: MessageKind::User,
+                    text: format!("line {i}"),
+                    peer: None,
+                    approval: None,
+                    attachments: Vec::new(),
+                    check_in: None,
+                    stopped: false,
+                    mentions: Vec::new(),
+                    failure: None,
+                    changes: None,
+                })
+                .unwrap();
+            }
+            let ids = |v: Vec<AgentMessage>| v.into_iter().map(|m| m.id).collect::<Vec<_>>();
+            assert_eq!(ids(messages(&a.id, 3).unwrap()), ["m7", "m8", "m9"]);
+            assert_eq!(
+                ids(messages_page(&a.id, 3, Some("m7"), None).unwrap()),
+                ["m4", "m5", "m6"]
+            );
+            assert_eq!(
+                ids(messages_page(&a.id, 2, Some("m1"), None).unwrap()),
+                ["m0"]
+            );
+            // A search hit further back: everything from it to the cursor.
+            assert_eq!(
+                ids(messages_page(&a.id, 2, Some("m7"), Some(("m2", 100))).unwrap()),
+                ["m2", "m3", "m4", "m5", "m6"]
+            );
+            // A hit inside the page changes nothing; the cap still holds.
+            assert_eq!(
+                ids(messages_page(&a.id, 3, Some("m7"), Some(("m5", 100))).unwrap()),
+                ["m4", "m5", "m6"]
+            );
+            assert_eq!(
+                ids(messages_page(&a.id, 2, None, Some(("m0", 4))).unwrap()),
+                ["m6", "m7", "m8", "m9"]
+            );
+            assert!(messages_page(&a.id, 3, Some("gone"), None)
+                .unwrap()
+                .is_empty());
+        });
     }
 
     #[test]

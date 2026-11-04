@@ -43,7 +43,13 @@ import {
   type Agent,
   type SearchHit,
 } from '../../lib/agents';
-import { getAgentsSnapshot, loadMessages, refreshAgents, useAgents } from '../../lib/agentsStore';
+import {
+  getAgentsSnapshot,
+  loadMessages,
+  refreshAgents,
+  useAgentsList,
+  useAgentsSelector,
+} from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useAgentsIntents } from '../../commands/useAgentsCommands';
@@ -84,7 +90,10 @@ export function AgentsView(props: AgentsViewProps) {
 }
 
 function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
-  const { agents, loaded, error, messages } = useAgents();
+  // Slices, not the whole store: a reply streaming anywhere must not re-render the view.
+  const agents = useAgentsList();
+  const loaded = useAgentsSelector((s) => s.loaded);
+  const error = useAgentsSelector((s) => s.error);
   const { showToast } = useOptionalToast();
   const [selectedId, setSelectedId] = useState<string | null>(readSelected);
   const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null }>({
@@ -96,8 +105,8 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  /** The message a search result asked the chat to show. */
-  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  /** The message a search result asked a chat to show; only that agent's chat takes it. */
+  const [jump, setJump] = useState<{ agentId: string; messageId: string } | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   // The Team overview, else the last agent you had open, else the Chief of Staff.
@@ -112,8 +121,11 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   // The conversation on screen: the selected one once its messages are in,
   // until then whichever was there before.
   const [shownId, setShownId] = useState<string | null>(null);
-  const selectedReady = selected !== null && messages[selected.id] !== undefined;
-  if (selectedReady && shownId !== selected.id) setShownId(selected.id);
+  const selectedKey = selected?.id ?? null;
+  const selectedReady = useAgentsSelector(
+    (s) => selectedKey !== null && s.messages[selectedKey] !== undefined
+  );
+  if (selectedReady && selectedKey !== null && shownId !== selectedKey) setShownId(selectedKey);
   const shown = (shownId && agentsById.get(shownId)) || null;
 
   useEffect(() => {
@@ -206,7 +218,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openMessage = useCallback((agentId: string, messageId: string) => {
     setSelectedId(agentId);
-    setJumpTo(messageId);
+    setJump({ agentId, messageId });
   }, []);
   const openHit = useCallback(
     (hit: SearchHit) => {
@@ -215,7 +227,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     },
     [openMessage]
   );
-  const clearJump = useCallback(() => setJumpTo(null), []);
+  const clearJump = useCallback(() => setJump(null), []);
   useAgentsIntents({
     onNewAgent: openNew,
     onImportAgents: openImport,
@@ -275,9 +287,11 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   // The oldest card waiting on you, on the first agent (sidebar order) with one.
   const waitingOn = sortAgents(agents).find((a) => !a.hidden && needsYou(a)) ?? null;
-  const topCard = waitingOn
-    ? (messages[waitingOn.id] ?? []).find((m) => m.approval?.status === 'pending')
-    : undefined;
+  const topCard = useAgentsSelector((s) =>
+    waitingOn
+      ? (s.messages[waitingOn.id] ?? []).find((m) => m.approval?.status === 'pending')
+      : undefined
+  );
   useEffect(() => {
     if (waitingOn && !getAgentsSnapshot().messages[waitingOn.id]) void loadMessages(waitingOn.id);
   }, [waitingOn?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -362,21 +376,28 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     setEditor({ open: false, agent: null });
   };
 
-  const actions = {
-    onTogglePin: (a: Agent) => void run(() => updateAgent(a.id, { pinned: !a.pinned })),
-    onToggleHidden: (a: Agent) => void run(() => updateAgent(a.id, { hidden: !a.hidden })),
-    onToggleMuted: (a: Agent) => void run(() => updateAgent(a.id, { muted: !a.muted })),
-    onMarkUnread: (a: Agent) => {
-      if (a.id === selected?.id) {
-        // Step off it, or opening it again would mark it read straight away.
-        const other = order.find((o) => o.id !== a.id);
-        if (other) setSelectedId(other.id);
-      }
-      void run(() => markAgentUnread(a.id));
-    },
-    onEdit: (a: Agent) => setEditor({ open: true, agent: a }),
-    onDelete: setDeleting,
-  };
+  // Stable, so a status event re-renders only the sidebar row it changed.
+  const actions = useMemo(
+    () => ({
+      onTogglePin: (a: Agent) => void run(() => updateAgent(a.id, { pinned: !a.pinned })),
+      onToggleHidden: (a: Agent) => void run(() => updateAgent(a.id, { hidden: !a.hidden })),
+      onToggleMuted: (a: Agent) => void run(() => updateAgent(a.id, { muted: !a.muted })),
+      onMarkUnread: (a: Agent) => {
+        const { order, selected } = keys.current;
+        if (a.id === selected?.id) {
+          // Step off it, or opening it again would mark it read straight away.
+          const other = order.find((o) => o.id !== a.id);
+          if (other) setSelectedId(other.id);
+        }
+        void run(() => markAgentUnread(a.id));
+      },
+      onEdit: (a: Agent) => setEditor({ open: true, agent: a }),
+      onDelete: setDeleting,
+    }),
+    [run]
+  );
+  const toggleShowHidden = useCallback(() => setShowHidden((v) => !v), []);
+  const signIn = useCallback(() => setClaudeStep('sign-in'), []);
 
   return (
     <div className="app workspace workspace-home agents-mode">
@@ -398,10 +419,10 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
                 agents={agents}
                 selectedId={teamOpen ? TEAM_ID : (selected?.id ?? null)}
                 showHidden={showHidden}
-                onToggleShowHidden={() => setShowHidden((v) => !v)}
+                onToggleShowHidden={toggleShowHidden}
                 onSelect={setSelectedId}
                 onNew={openNew}
-                {...actions}
+                actions={actions}
                 query={popoverSearch ? '' : query}
                 searchRef={searchRef}
                 onOpenHit={openHit}
@@ -448,7 +469,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
               agentsById={agentsById}
               onOpenAgent={setSelectedId}
               onSetUpEngine={() => setClaudeStep('install')}
-              onSignIn={() => setClaudeStep('sign-in')}
+              onSignIn={signIn}
               onImport={openImport}
               onEscape={escapeSearch}
               compact={
@@ -461,7 +482,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
                   : undefined
               }
               {...actions}
-              jumpTo={jumpTo}
+              jumpTo={jump?.agentId === shown.id ? jump.messageId : null}
               onJumped={clearJump}
             />
           )}

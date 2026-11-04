@@ -15,7 +15,7 @@ import {
   SearchIcon,
 } from '@/components/icons';
 import { useCommands } from './useCommands';
-import { useAgents } from '../lib/agentsStore';
+import { useAgentsSelector, type AgentsState } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
 import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
 
@@ -63,8 +63,14 @@ export function useAgentsIntents(handlers: {
   }, [onNewAgent, onImportAgents, onOpenAgent, onSearch]);
 }
 
+/** What the "Open <agent>" commands name: a status or a new message doesn't change them. */
+const selectAgents = (s: AgentsState) => s.agents;
+const sameNames = (a: AgentsState['agents'], b: AgentsState['agents']) =>
+  a.length === b.length &&
+  a.every((x, i) => x.id === b[i].id && x.name === b[i].name && x.role === b[i].role);
+
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
-  const { agents } = useAgents();
+  const agents = useAgentsSelector(selectAgents, sameNames);
   // A clicked notification (the backend already focused this window): open that agent.
   useEffect(() => {
     const unlisten = listen<string>(AGENT_EVENTS.open, (e) => {

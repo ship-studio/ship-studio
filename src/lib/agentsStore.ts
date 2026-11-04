@@ -5,14 +5,18 @@
  * authority and pushes four events: `registry` (the list changed: reload it),
  * `status` (an agent started, is doing something, or went idle), `message`
  * (a new or updated chat line), and `draft` (a reply still being written).
- * Messages are kept only for chats that have been opened in this session; a
- * draft is kept for any agent until the message that completes it (same id)
- * arrives or the turn ends.
+ * Messages are kept only for chats that have been opened in this session,
+ * newest page first and older pages as you scroll up; a draft is kept for any
+ * agent until the message that completes it (same id) arrives or the turn ends.
+ *
+ * Components subscribe to a slice (`useAgentsSelector`), never the whole
+ * state: a reply streaming in another chat updates the store every 40 ms, and
+ * that must not re-render the app, the sidebar or the chat on screen.
  *
  * @module lib/agentsStore
  */
 
-import { useSyncExternalStore } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   AGENT_EVENTS,
@@ -33,6 +37,8 @@ export interface AgentsState {
   error: string | null;
   /** Chat lines per agent, oldest first; absent until that chat is opened. */
   messages: Record<string, AgentMessage[]>;
+  /** Chats with lines older than the ones loaded. */
+  older: Record<string, boolean>;
   /** The reply each agent is writing right now, if any. */
   drafts: Record<string, AgentMessage>;
 }
@@ -43,6 +49,7 @@ let state: AgentsState = {
   loaded: false,
   error: null,
   messages: {},
+  older: {},
   drafts: {},
 };
 const listeners = new Set<() => void>();
@@ -64,7 +71,7 @@ export async function refreshAgents(): Promise<void> {
     const overview = await getAgentsOverview();
     emit({
       ...state,
-      agents: overview.agents,
+      agents: keepUnchanged(state.agents, overview.agents),
       engineReady: overview.engineReady,
       loaded: true,
       error: null,
@@ -73,6 +80,25 @@ export async function refreshAgents(): Promise<void> {
     logger.error('[Agents] overview failed', { error: String(error) });
     emit({ ...state, loaded: true, error: formatCommandError(asCommandError(error)) });
   }
+}
+
+/**
+ * A reload returns every agent anew, though usually one row changed. Keep the
+ * objects (and the list) that didn't, so only what changed re-renders.
+ */
+function keepUnchanged(previous: Agent[], next: Agent[]): Agent[] {
+  const before = new Map(previous.map((a) => [a.id, a]));
+  let same = previous.length === next.length;
+  const merged = next.map((agent, i) => {
+    const old = before.get(agent.id);
+    if (old && JSON.stringify(old) === JSON.stringify(agent)) {
+      if (previous[i] !== old) same = false;
+      return old;
+    }
+    same = false;
+    return agent;
+  });
+  return same ? previous : merged;
 }
 
 /** Coalesce bursts of registry events (every message bumps the row). */
@@ -84,19 +110,59 @@ function scheduleRefresh() {
   }, 120);
 }
 
-/** Lines a chat loads by default; must match `agents_messages`' default. */
-export const MESSAGE_PAGE = 400;
-/** The most `agents_messages` returns: what a search jump loads to reach an old line. */
+/** Lines a chat opens with; older ones load a page at a time as you scroll up. */
+export const MESSAGE_PAGE = 150;
+/** The most `agents_messages` returns in one call. */
 export const MESSAGE_MAX = 5000;
 
-export async function loadMessages(agentId: string, limit?: number): Promise<void> {
+function setMessages(agentId: string, messages: AgentMessage[], older: boolean) {
+  emit({
+    ...state,
+    messages: { ...state.messages, [agentId]: messages },
+    older: { ...state.older, [agentId]: older },
+  });
+}
+
+/** (Re)load a chat's newest page. */
+export async function loadMessages(agentId: string): Promise<void> {
   try {
-    const messages = await getAgentMessages(agentId, limit);
-    emit({ ...state, messages: { ...state.messages, [agentId]: messages } });
+    const messages = await getAgentMessages(agentId, MESSAGE_PAGE);
+    setMessages(agentId, messages, messages.length >= MESSAGE_PAGE);
   } catch (error) {
     logger.error('[Agents] messages failed', { agentId, error: String(error) });
-    emit({ ...state, messages: { ...state.messages, [agentId]: state.messages[agentId] ?? [] } });
+    setMessages(agentId, state.messages[agentId] ?? [], false);
   }
+}
+
+/** One request per chat at a time: a scroll and a search jump can both ask. */
+const loadingOlder = new Map<string, Promise<void>>();
+
+/**
+ * Load the page before the oldest line loaded, or with `through`, every line
+ * back to that one (a search hit). Resolves once the store has them.
+ */
+export function loadOlderMessages(agentId: string, through?: string): Promise<void> {
+  const inFlight = loadingOlder.get(agentId);
+  if (inFlight)
+    return inFlight.then(() => (through ? loadOlderMessages(agentId, through) : undefined));
+  const loaded = state.messages[agentId];
+  if (!loaded || !state.older[agentId] || (through && loaded.some((m) => m.id === through))) {
+    return Promise.resolve();
+  }
+  const request = getAgentMessages(agentId, MESSAGE_PAGE, { before: loaded[0]?.id, through })
+    .then((page) => {
+      const current = state.messages[agentId] ?? [];
+      const have = new Set(current.map((m) => m.id));
+      const fresh = page.filter((m) => !have.has(m.id));
+      // Nothing new (a backend that ignores the cursor) means nothing older either.
+      setMessages(agentId, [...fresh, ...current], fresh.length > 0 && page.length >= MESSAGE_PAGE);
+    })
+    .catch((error: unknown) => {
+      logger.error('[Agents] older messages failed', { agentId, error: String(error) });
+    })
+    .finally(() => loadingOlder.delete(agentId));
+  loadingOlder.set(agentId, request);
+  return request;
 }
 
 function withoutDraft(agentId: string, id?: string): AgentsState['drafts'] {
@@ -198,9 +264,31 @@ export function subscribeAgents(listener: () => void): () => void {
   };
 }
 
-export function useAgents(): AgentsState {
-  return useSyncExternalStore(subscribeAgents, getAgentsSnapshot);
+/**
+ * A slice of the store; the component re-renders only when the slice changes
+ * (by `isEqual`, identity by default). `select` may be an inline function.
+ */
+export function useAgentsSelector<T>(
+  select: (state: AgentsState) => T,
+  isEqual: (a: T, b: T) => boolean = Object.is
+): T {
+  const last = useRef<{ state: AgentsState; select: typeof select; value: T } | null>(null);
+  const getSlice = () => {
+    const prev = last.current;
+    if (prev && prev.state === state && prev.select === select) return prev.value;
+    const value = select(state);
+    last.current = {
+      state,
+      select,
+      value: prev && isEqual(prev.value, value) ? prev.value : value,
+    };
+    return last.current.value;
+  };
+  return useSyncExternalStore(subscribeAgents, getSlice);
 }
+
+const selectAgents = (s: AgentsState) => s.agents;
+export const useAgentsList = () => useAgentsSelector(selectAgents);
 
 /** What the Agents side wants from you: who is waiting on your OK, and how many have news. */
 export interface AgentsAttention {
@@ -212,7 +300,10 @@ export interface AgentsAttention {
 
 /** Agents attention for the mode toggle's dot and tooltip. Hidden agents never ask. */
 export function useAgentsAttention(): AgentsAttention {
-  const { agents } = useAgents();
+  return useAgentsSelector(attentionOf, sameAttention);
+}
+
+function attentionOf({ agents }: AgentsState): AgentsAttention {
   const visible = agents.filter((a) => !a.hidden);
   const waiting = visible.filter(needsYou);
   return {
@@ -221,8 +312,20 @@ export function useAgentsAttention(): AgentsAttention {
   };
 }
 
+const sameAttention = (a: AgentsAttention, b: AgentsAttention) =>
+  a.unread === b.unread && a.waiting.join('\n') === b.waiting.join('\n');
+
 /** Test hook. */
 export function __resetAgentsStore() {
   stop();
-  state = { agents: [], engineReady: true, loaded: false, error: null, messages: {}, drafts: {} };
+  state = {
+    agents: [],
+    engineReady: true,
+    loaded: false,
+    error: null,
+    messages: {},
+    older: {},
+    drafts: {},
+  };
+  loadingOlder.clear();
 }

@@ -40,12 +40,14 @@ import {
   type Agent,
   type AgentMessage,
 } from '../../lib/agents';
-import { MESSAGE_PAGE, refreshAgents, upsertMessage, useAgents } from '../../lib/agentsStore';
+import { refreshAgents, upsertMessage, useAgentsSelector } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 /** Lines read per chat: enough for its latest reply. A chat with a card open reads a page. */
 const RECENT_LINES = 20;
+/** What a chat with a card open reads, to find its pending cards. */
+const CARD_LINES = 400;
 
 /**
  * The recent lines of every chat that isn't loaded in the store, refetched
@@ -68,7 +70,7 @@ function useRecentLines(agents: Agent[], loaded: Record<string, AgentMessage[]>)
     let live = true;
     for (const w of wanted) {
       if (fetched[w.id]?.key === w.key) continue;
-      getAgentMessages(w.id, w.cards ? MESSAGE_PAGE : RECENT_LINES)
+      getAgentMessages(w.id, w.cards ? CARD_LINES : RECENT_LINES)
         .then((lines) => {
           if (live) setFetched((current) => ({ ...current, [w.id]: { key: w.key, lines } }));
         })
@@ -167,7 +169,8 @@ export function AgentsTeamView({
   onSignIn,
   compact,
 }: AgentsTeamViewProps) {
-  const { agents, messages } = useAgents();
+  const agents = useAgentsSelector((s) => s.agents);
+  const messages = useAgentsSelector((s) => s.messages);
   const { showToast } = useOptionalToast();
   const lines = useRecentLines(agents, messages);
   const team = useMemo(() => summarizeTeam(agents, lines), [agents, lines]);

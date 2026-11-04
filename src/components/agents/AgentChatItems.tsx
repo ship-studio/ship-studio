@@ -5,7 +5,15 @@
  * @module components/agents/AgentChatItems
  */
 
-import { useCallback, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { Marked, type Token, type Tokens, type TokensList } from 'marked';
 import DOMPurify from 'dompurify';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -250,7 +258,12 @@ function Prose({ text }: { text: string }) {
 }
 
 /** A reply in prose, and any files the agent shared with it (`share_file`). */
-export function AgentBubble({ message, agent, arrived, streaming }: AgentBubbleProps) {
+export const AgentBubble = memo(function AgentBubble({
+  message,
+  agent,
+  arrived,
+  streaming,
+}: AgentBubbleProps) {
   const onClick = useProseLinks(agent.id);
   const attachments = message.attachments ?? [];
   const actions = !streaming && <MessageActions text={message.text} ts={message.ts} />;
@@ -286,7 +299,7 @@ export function AgentBubble({ message, agent, arrived, streaming }: AgentBubbleP
       )}
     </div>
   );
-}
+});
 
 interface UserBubbleProps extends Arrival {
   message: AgentMessage;
@@ -294,20 +307,22 @@ interface UserBubbleProps extends Arrival {
   agent: Agent;
   /** Sending failed; offer to try again. */
   failed?: boolean;
-  onRetry?: () => void;
+  /** Called with this message's id. */
+  onRetry?: (id: string) => void;
   /** An agent's colour, for tinting the names you @mentioned. */
   colorOf: (agentId: string) => string | undefined;
   /**
    * The newest message waiting for the turn in progress to end. It says so,
    * and offers to interrupt that turn to send it now.
    */
-  queued?: { onInterrupt: () => void };
+  queued?: boolean;
+  onInterrupt?: () => void;
   /** Still copying its files in: the files as staged, shown while it sends. */
   sending?: DraftAttachment[];
 }
 
 /** Attachments sit above the words, both against the right edge, as one message. */
-export function UserBubble({
+export const UserBubble = memo(function UserBubble({
   message,
   agent,
   arrived,
@@ -315,6 +330,7 @@ export function UserBubble({
   onRetry,
   colorOf,
   queued,
+  onInterrupt,
   sending,
 }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
@@ -373,7 +389,7 @@ export function UserBubble({
           <TextButton
             tabIndex={0}
             variant="accent"
-            onClick={queued.onInterrupt}
+            onClick={onInterrupt}
             title="Stop what it’s doing and send this now (⌘↵ when sending)"
           >
             Interrupt and send now
@@ -384,14 +400,14 @@ export function UserBubble({
         <div className="agent-chat__failed" role="alert">
           <WarningIcon size={12} />
           Not sent.
-          <TextButton variant="accent" tabIndex={0} onClick={onRetry}>
+          <TextButton variant="accent" tabIndex={0} onClick={() => onRetry?.(message.id)}>
             Try again
           </TextButton>
         </div>
       )}
     </div>
   );
-}
+});
 
 interface ErrorLineProps extends Arrival {
   message: AgentMessage;
@@ -409,7 +425,7 @@ interface ErrorLineProps extends Arrival {
  * or when the usage limit resets). A usage limit is expected and heals on its
  * own, so it reads as a notice, not an alarm.
  */
-export function ErrorLine({
+export const ErrorLine = memo(function ErrorLine({
   message,
   arrived,
   onRetry,
@@ -476,13 +492,16 @@ export function ErrorLine({
       <MessageActions text={message.text} ts={message.ts} />
     </div>
   );
-}
+});
 
 /**
  * "Scheduled check-in", centred like the agent-to-agent lines, with the note
  * the agent left itself. A late one says so: the app was closed when it was due.
  */
-export function CheckInLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+export const CheckInLine = memo(function CheckInLine({
+  message,
+  arrived,
+}: { message: AgentMessage } & Arrival) {
   const mark = message.checkIn;
   const label = mark?.repeats ? 'Routine' : 'Scheduled check-in';
   return (
@@ -501,13 +520,13 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
       <span className="agent-checkin__note">{message.text}</span>
     </div>
   );
-}
+});
 
 /**
  * Something Ship Studio did for the agent, said quietly so it never happens
  * invisibly: "Allowed automatically: npm test · Always allowed".
  */
-export function NoteLine({
+export const NoteLine = memo(function NoteLine({
   message,
   arrived,
   onOpenPeer,
@@ -534,15 +553,15 @@ export function NoteLine({
       )}
     </div>
   );
-}
+});
 
-export function DayDivider({ ts, arrived }: { ts: number } & Arrival) {
+export const DayDivider = memo(function DayDivider({ ts, arrived }: { ts: number } & Arrival) {
   return (
     <div className="agent-chat__divider" data-arrived={arrived || undefined}>
       {formatDivider(ts)}
     </div>
   );
-}
+});
 
 interface PeerGroupProps extends Arrival {
   peer: AgentRef;
@@ -563,7 +582,7 @@ interface PeerGroupProps extends Arrival {
  * Finance". Collapsed by default: the conversation between agents is there
  * when you want it and out of the way when you don't.
  */
-export function PeerGroup({
+export const PeerGroup = memo(function PeerGroup({
   peer,
   messages,
   peerAgent,
@@ -632,7 +651,7 @@ export function PeerGroup({
       )}
     </div>
   );
-}
+});
 
 const STATUS_LABEL = {
   allowed: 'Allowed',
@@ -701,7 +720,7 @@ function outcomeText(approval: Approval, agentName: string, compact: boolean): R
   return label;
 }
 
-export function ApprovalCard({
+export const ApprovalCard = memo(function ApprovalCard({
   message,
   agentName,
   paused,
@@ -858,7 +877,7 @@ export function ApprovalCard({
       </div>
     </div>
   );
-}
+});
 
 interface WorkingIndicatorProps {
   activity: string | null;

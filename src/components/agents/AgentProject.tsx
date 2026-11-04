@@ -10,6 +10,7 @@
 
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -179,7 +180,13 @@ function LineCounts({ added = 0, removed = 0 }: { added?: number; removed?: numb
 }
 
 /** What a bound agent's turn changed in its project, from git. */
-export function ChangeCard({ message, arrived }: { message: AgentMessage; arrived?: boolean }) {
+export const ChangeCard = memo(function ChangeCard({
+  message,
+  arrived,
+}: {
+  message: AgentMessage;
+  arrived?: boolean;
+}) {
   const ctx = useAgentProjects();
   const changes = message.changes;
   const [expanded, setExpanded] = useState(false);
@@ -267,4 +274,4 @@ export function ChangeCard({ message, arrived }: { message: AgentMessage; arrive
       )}
     </div>
   );
-}
+});
