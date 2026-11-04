@@ -58,8 +58,20 @@
 .agent-composer__hint {
   margin-right: var(--spacing-xs);
   font-size: var(--font-size-body-sm);
-  color: var(--text-faint);
+  color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* "Esc again to stop Acme Site": armed, so it reads as a warning, and Stop
+   beside it takes the same colour until the window passes. */
+.agent-composer__hint[data-armed] {
+  color: var(--accent-warning);
+}
+
+.button.agent-composer__stop[data-armed] {
+  color: var(--accent-warning);
+  border-color: rgba(var(--accent-warning-rgb), 0.6);
+  background: rgba(var(--accent-warning-rgb), 0.12);
 }
 
 .agent-permissions {
@@ -112,11 +124,7 @@
   color: var(--text-muted);
 }
 
-/* -------------------------------------------------------- deny with note */
-
-.text-button.button.agent-approval__deny-with-note {
-  color: var(--text-muted);
-}
+/* ---------------------------------- Deny: what to do instead, optional */
 
 .agent-approval__deny-note {
   display: flex;

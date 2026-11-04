@@ -537,10 +537,12 @@ export function AgentChat({
     });
   };
 
-  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked. */
+  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked and its files. */
   const retryAt = async (at: number) => {
+    // A check-in carries words only: its files are named by where they are.
+    const files = retrySource ? resendable(agent, retrySource).flatMap((f) => f.path ?? []) : [];
     try {
-      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? ''));
+      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? '', files));
       await refreshAgents();
     } catch (error) {
       showToast(formatCommandError(asCommandError(error)), 'error');
@@ -825,7 +827,7 @@ export function AgentChat({
                         arrived={arrived}
                         onSignIn={onSignIn}
                         onRetry={m.id === retryId ? retryFailed : undefined}
-                        onRetryAt={(at) => void retryAt(at)}
+                        onRetryAt={retryAt}
                         retryScheduled={Boolean(
                           m.failure?.resetsAt && retryScheduledAt(m.failure.resetsAt)
                         )}
@@ -972,7 +974,7 @@ export function AgentChat({
               )}
               <div className="agent-composer__actions">
                 {escArmed && working && !canSend && !dictating ? (
-                  <span className="agent-composer__hint" role="status">
+                  <span className="agent-composer__hint" data-armed role="status">
                     Esc again to stop {agent.name}
                   </span>
                 ) : (
@@ -1003,6 +1005,7 @@ export function AgentChat({
                     tabIndex={0}
                     variant="secondary"
                     className="agent-composer__stop"
+                    data-armed={escArmed || undefined}
                     icon={<span className="agent-composer__stop-square" aria-hidden />}
                     onClick={() => void onStop()}
                     aria-label={`Stop ${agent.name}`}
