@@ -63,6 +63,11 @@
   border-color: var(--accent-focus);
 }
 
+/* Focused itself only by a quiet (pointer) open — a container, not a control. */
+.ss-dropdown__menu:focus {
+  outline: none;
+}
+
 .ss-dropdown__menu--right {
   left: auto;
   right: 0;

@@ -1,6 +1,7 @@
 /**
  * Create a new agent, or edit one. Creating asks only what Grok Bot asks —
- * a name and a face — with the role and briefing one disclosure away, because
+ * a name and a face — plus the model it runs on, with the role and briefing
+ * one disclosure away, because
  * most agents are created by the Chief of Staff and briefed in conversation.
  *
  * @module components/agents/AgentEditorModal
@@ -147,6 +148,16 @@ export function AgentEditorModal({
           ))}
         </div>
 
+        <div className="agent-editor__label" role="group" aria-label="Model">
+          Model
+          <SegmentedControl
+            value={model}
+            options={AGENT_MODELS}
+            onValueChange={setModel}
+            aria-label="Model"
+          />
+        </div>
+
         {showBriefing ? (
           <div className="agent-editor__briefing">
             <label className="agent-editor__label">
@@ -167,15 +178,6 @@ export function AgentEditorModal({
                 onChange={(e) => setInstructions(e.target.value)}
               />
             </label>
-            <div className="agent-editor__label" role="group" aria-label="Model">
-              Model
-              <SegmentedControl
-                value={model}
-                options={AGENT_MODELS}
-                onValueChange={setModel}
-                aria-label="Model"
-              />
-            </div>
             {editing && (
               <p className="agent-editor__hint">
                 What it remembers is kept separately and isn't changed here.

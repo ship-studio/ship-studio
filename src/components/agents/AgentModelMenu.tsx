@@ -5,7 +5,7 @@
  * @module components/agents/AgentModelMenu
  */
 
-import { ChevronIcon } from '@/components/icons';
+import { CheckIcon, ChevronIcon } from '@/components/icons';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
 import { AGENT_MODELS, modelLabel, updateAgent, type Agent } from '../../lib/agents';
@@ -16,6 +16,8 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 export function AgentModelMenu({ agent }: { agent: Agent }) {
   const { showToast } = useOptionalToast();
   const current = agent.model ?? '';
+  // "Default" alone reads as a setting with no subject in a chat header.
+  const label = agent.model ? modelLabel(agent.model) : 'Default model';
   const choose = async (model: string) => {
     if (model === current) return;
     try {
@@ -28,6 +30,8 @@ export function AgentModelMenu({ agent }: { agent: Agent }) {
   return (
     <Dropdown
       align="right"
+      menuClassName="agent-model-menu"
+      quietOpen
       trigger={(props) => (
         <MenuButton
           variant="ghost"
@@ -35,10 +39,10 @@ export function AgentModelMenu({ agent }: { agent: Agent }) {
           className="agent-chat__model"
           expanded={props['aria-expanded']}
           title="Model for its next turn"
-          aria-label={`Model: ${modelLabel(agent.model)}`}
+          aria-label={`Model: ${label}`}
           {...props}
         >
-          {modelLabel(agent.model)}
+          {label}
           <ChevronIcon
             size={10}
             className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
@@ -47,12 +51,11 @@ export function AgentModelMenu({ agent }: { agent: Agent }) {
       )}
     >
       {AGENT_MODELS.map((m) => (
-        <DropdownItem
-          key={m.value}
-          active={m.value === current}
-          onSelect={() => void choose(m.value)}
-        >
-          {m.label}
+        <DropdownItem key={m.value} onSelect={() => void choose(m.value)}>
+          <span className="agent-model-menu__label">{m.label}</span>
+          <span className="agent-model-menu__check" aria-hidden="true">
+            {m.value === current && <CheckIcon size={12} />}
+          </span>
         </DropdownItem>
       ))}
     </Dropdown>

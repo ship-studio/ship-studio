@@ -77,6 +77,13 @@ interface DropdownProps {
   openOnHover?: boolean;
   /** Extra class on the trigger/menu wrapper. */
   className?: string;
+  /**
+   * When a pointer opens the menu, focus the menu itself rather than its first
+   * item, so nothing looks chosen before the user chooses — the way a native
+   * popup menu opens. Arrow keys still reach the items, and a keyboard open
+   * (Enter / Space on the trigger) focuses the first item as usual.
+   */
+  quietOpen?: boolean;
 }
 
 const DropdownContext = createContext<{ close: () => void } | null>(null);
@@ -109,6 +116,7 @@ export function Dropdown({
   search,
   openOnHover = false,
   className,
+  quietOpen = false,
 }: DropdownProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
@@ -120,6 +128,7 @@ export function Dropdown({
   const restoreFocusOnCloseRef = useRef(true);
   const hasSearch = search !== undefined;
   const openedByHoverRef = useRef(false);
+  const openedByPointerRef = useRef(false);
   const typeaheadRef = useRef('');
   const typeaheadTimerRef = useRef<number | null>(null);
   const hoverCloseTimerRef = useRef<number | null>(null);
@@ -170,6 +179,8 @@ export function Dropdown({
       e.stopPropagation();
       cancelHoverClose();
       openedByHoverRef.current = false;
+      // A keyboard-activated click has no click count.
+      openedByPointerRef.current = e.detail > 0;
       setOpen(!isOpen);
     },
     [cancelHoverClose, isOpen, setOpen]
@@ -238,8 +249,13 @@ export function Dropdown({
     }
     // With a filter field, focus belongs in the field — you opened the menu to
     // search it. ArrowDown from there hands focus to the list.
-    if (!hasSearch) focusEnabledMenuItemAt(0);
-  }, [focusEnabledMenuItemAt, hasSearch, isOpen]);
+    if (hasSearch) return;
+    if (quietOpen && openedByPointerRef.current) {
+      menuRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    focusEnabledMenuItemAt(0);
+  }, [focusEnabledMenuItemAt, hasSearch, isOpen, quietOpen]);
 
   useEffect(() => {
     return () => {

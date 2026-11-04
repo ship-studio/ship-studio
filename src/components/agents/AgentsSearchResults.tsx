@@ -55,8 +55,9 @@ export function moveHitFocus(
 ) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   const hits = Array.from(
-    e.currentTarget.closest('.agents-list')?.querySelectorAll<HTMLElement>('.agents-search__hit') ??
-      []
+    e.currentTarget
+      .closest('[data-agents-search-scope]')
+      ?.querySelectorAll<HTMLElement>('.agents-search__hit') ?? []
   );
   if (hits.length === 0) return;
   e.preventDefault();

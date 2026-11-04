@@ -283,6 +283,8 @@ export const agentsScenarios: Scenario[] = [
       agents_overview: liveOverview,
       agents_messages: messagesFor,
       agents_send: sendMessage,
+      // ⌘F works here too, including at compact width.
+      agents_search: searchFor,
     },
   },
   {
@@ -304,10 +306,13 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-search',
     title: 'Agents — searching every conversation',
     looksRightWhen:
-      'The search field atop the list holds “footer”; the agent rows give way to hits grouped by agent (avatar + name), each a two-line snippet with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
+      'The search button beside + in the Agents header is on, and the field it revealed sits under the header, its edges on the rows’ insets, holding “footer”. The agent rows give way to hits grouped by agent (avatar + name), each a two-line snippet with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
     openSelector: '.workspace-sidebar-agents',
-    requires: '.agents-list__search',
-    steps: [{ fill: '.agents-list__search input', value: 'footer' }],
+    requires: '.agents-list__search[data-open]',
+    steps: [
+      { click: '.agents-list__search-toggle' },
+      { fill: '.agents-list__search input', value: 'footer' },
+    ],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
@@ -320,8 +325,9 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Clicking the “dead links” hit opens the Chief of Staff chat with the agent-to-agent thread expanded and centred, ringed briefly in the agent’s colour.',
     openSelector: '.workspace-sidebar-agents',
-    requires: '.agents-list__search',
+    requires: '.agents-search__hit',
     steps: [
+      { click: '.agents-list__search-toggle' },
       { fill: '.agents-list__search input', value: 'dead links' },
       { click: '.agents-search__hit:nth-of-type(2)' },
     ],
@@ -355,7 +361,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-model-menu',
     title: 'Agents — the model menu in the chat header',
     looksRightWhen:
-      'A quiet “Default” control sits left of the edit button; open, it lists Default, Opus, Sonnet and Haiku with Default marked.',
+      'A quiet “Default model” control sits left of the edit button; open, it lists Default, Opus, Sonnet and Haiku in plain text with a check on Default, and no item ringed or highlighted.',
     openSelector: '.workspace-sidebar-agents',
     requires: '.ss-dropdown__item',
     steps: [{ click: '.agent-chat__model' }],
@@ -377,7 +383,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-new',
     title: 'Agents — creating an agent',
     looksRightWhen:
-      'A badge beside the name field that updates as you type and pick a colour; eleven colours; role and instructions one link away.',
+      'A badge beside the name field that updates as you type and pick a colour; eleven colours; the Default / Opus / Sonnet / Haiku control; role and instructions one link away.',
     command: 'agents.new',
     requires: '.agent-editor__colors',
     commands: {},

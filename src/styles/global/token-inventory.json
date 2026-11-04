@@ -2675,7 +2675,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 39
+      "consumerCount": 40
     },
     {
       "name": "--z-pane-separator",
@@ -4421,7 +4421,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 242
+      "consumerCount": 243
     },
     {
       "name": "--surface-control",
@@ -4502,7 +4502,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 472
+      "consumerCount": 473
     },
     {
       "name": "--text-secondary",
@@ -4511,7 +4511,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 410
+      "consumerCount": 411
     },
     {
       "name": "--text-muted",
@@ -4565,7 +4565,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 444
+      "consumerCount": 445
     },
     {
       "name": "--border-subtle",
@@ -4601,7 +4601,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 177
+      "consumerCount": 178
     },
     {
       "name": "--border-width-emphasis",
@@ -5069,7 +5069,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 65
+      "consumerCount": 68
     },
     {
       "name": "--transition-interaction-slow",
@@ -5204,7 +5204,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 458
+      "consumerCount": 460
     },
     {
       "name": "--spacing-sm",
@@ -5213,7 +5213,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 537
+      "consumerCount": 540
     },
     {
       "name": "--spacing-md",
@@ -5222,7 +5222,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 423
+      "consumerCount": 426
     },
     {
       "name": "--spacing-lg",
@@ -5231,7 +5231,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 171
+      "consumerCount": 173
     },
     {
       "name": "--spacing-xl",
@@ -5258,7 +5258,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 15
+      "consumerCount": 14
     },
     {
       "name": "--radius-control",
@@ -5276,7 +5276,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 171
+      "consumerCount": 172
     },
     {
       "name": "--radius-sm",
@@ -5537,7 +5537,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 25
+      "consumerCount": 26
     },
     {
       "name": "--shadow-lg",

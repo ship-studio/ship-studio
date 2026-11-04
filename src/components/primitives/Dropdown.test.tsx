@@ -40,6 +40,31 @@ describe('Dropdown', () => {
     expect(screen.getByRole('menuitem', { name: 'Disabled' })).toBeDisabled();
   });
 
+  it('with quietOpen, a pointer open focuses the menu and a keyboard open the first item', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dropdown
+        quietOpen
+        trigger={(props) => <TestTrigger {...props}>Open quiet menu</TestTrigger>}
+      >
+        <DropdownItem onSelect={vi.fn()}>One</DropdownItem>
+        <DropdownItem onSelect={vi.fn()}>Two</DropdownItem>
+      </Dropdown>
+    );
+    const trigger = screen.getByRole('button', { name: 'Open quiet menu' });
+
+    await user.click(trigger);
+    const menu = screen.getByRole('menu');
+    expect(menu).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: 'One' })).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'One' }), { key: 'Escape' });
+    expect(trigger).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menuitem', { name: 'One' })).toHaveFocus();
+  });
+
   it('opens on hover without stealing focus and keeps the menu reachable across the gap', async () => {
     vi.useFakeTimers();
     try {

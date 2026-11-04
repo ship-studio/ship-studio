@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { HomeSidebar } from '../workspace/HomeSidebar';
 import { AgentsSidebar } from './AgentsSidebar';
+import { AgentsSearchPopover } from './AgentsSearchBox';
 import { AgentChat } from './AgentChat';
 import { AgentEditorModal } from './AgentEditorModal';
 import { ImportAgentsModal } from './ImportAgentsModal';
@@ -102,18 +103,44 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openNew = useCallback(() => setEditor({ open: true, agent: null }), []);
   const openImport = useCallback(() => setImportOpen(true), []);
-  const focusSearch = useCallback(() => {
-    searchRef.current?.focus();
-    searchRef.current?.select();
+  // Search is put away until asked for: the header button, ⌘F, the palette.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  /** Bumped to (re)focus the field, including when it is already open. */
+  const [focusTick, setFocusTick] = useState(0);
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery('');
   }, []);
+  const focusSearch = useCallback(() => {
+    setSearchOpen(true);
+    setFocusTick((n) => n + 1);
+  }, []);
+  const toggleSearch = useCallback(() => {
+    if (searchOpen) closeSearch();
+    else focusSearch();
+  }, [searchOpen, closeSearch, focusSearch]);
+  useEffect(() => {
+    if (focusTick === 0) return;
+    // After the commit that un-inerts (or mounts) the field.
+    const frame = requestAnimationFrame(() => {
+      searchRef.current?.focus({ preventScroll: true });
+      searchRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTick]);
+  const search = useMemo(
+    () => ({ open: searchOpen, query, setQuery, close: closeSearch }),
+    [searchOpen, query, closeSearch]
+  );
   useAgentsIntents({ onNewAgent: openNew, onImportAgents: openImport, onSearch: focusSearch });
 
-  // ⌘F searches every conversation, wherever focus is in Agents mode.
+  // ⌘F searches every conversation, wherever focus is in Agents mode — and in
+  // compact mode too, where the field comes up over the chat.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f')
         return;
-      if (!searchRef.current) return;
       e.preventDefault();
       focusSearch();
     };
@@ -161,6 +188,8 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
                 }}
                 onEdit={(a) => setEditor({ open: true, agent: a })}
                 onDelete={setDeleting}
+                search={search}
+                onToggleSearch={toggleSearch}
                 searchRef={searchRef}
                 onOpenHit={openHit}
               />
@@ -169,6 +198,9 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
         )}
 
         <main className="agents-main">
+          {isCompact && (
+            <AgentsSearchPopover search={search} field={searchRef} onOpenHit={openHit} />
+          )}
           {!engineReady && (
             <div className="agents-banner" role="status">
               <span>Agents run on Claude Code, and it isn&apos;t installed on this Mac yet.</span>

@@ -4,9 +4,9 @@
  * header, the full-bleed row, the badge, the status slot, the ghost
  * "Open project" action — so it reads as the same sidebar, not a second app.
  *
- * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete. The field
- * at the top (⌘F) searches every conversation; while it has a query the
- * results take the list's place.
+ * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete. The
+ * search button in the header (or ⌘F) reveals a field that searches every
+ * conversation; while it has a query the results take the list's place.
  *
  * @module components/agents/AgentsSidebar
  */
@@ -20,6 +20,7 @@ import {
   EyeOffIcon,
   PinIcon,
   PlusIcon,
+  SearchIcon,
   TrashIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
@@ -31,11 +32,11 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '../primitives/ContextMenu';
-import { SearchField } from '../primitives/SearchField';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
-import { useRef, useState, type RefObject } from 'react';
+import { useRef, type RefObject } from 'react';
 import { AgentAvatar } from './AgentAvatar';
-import { AgentsSearchResults, moveHitFocus } from './AgentsSearchResults';
+import { AgentsSearchResults } from './AgentsSearchResults';
+import { AgentsSearchBox, type AgentsSearchState } from './AgentsSearchBox';
 import { useFlipReorder } from './useAgentMotion';
 import { sortAgents, type Agent, type SearchHit } from '../../lib/agents';
 
@@ -52,6 +53,9 @@ interface AgentsSidebarProps {
   onMarkUnread: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
   onDelete: (agent: Agent) => void;
+  search: AgentsSearchState;
+  /** Reveal the field (or put it away, if it's showing). */
+  onToggleSearch: () => void;
   /** ⌘F focuses this. */
   searchRef: RefObject<HTMLInputElement | null>;
   onOpenHit: (hit: SearchHit) => void;
@@ -81,11 +85,13 @@ export function AgentsSidebar({
   onMarkUnread,
   onEdit,
   onDelete,
+  search,
+  onToggleSearch,
   searchRef,
   onOpenHit,
 }: AgentsSidebarProps) {
-  const [query, setQuery] = useState('');
-  const searching = query.trim().length > 0;
+  const query = search.query;
+  const searching = search.open && query.trim().length > 0;
   const visible = sortAgents(agents).filter((a) => showHidden || !a.hidden || a.id === selectedId);
   const hiddenCount = agents.filter((a) => a.hidden).length;
   // An agent that just did something slides to the top instead of jumping.
@@ -93,13 +99,33 @@ export function AgentsSidebar({
   useFlipReorder(listRef, '[data-agent-id]', visible.map((a) => a.id).join(' '));
 
   return (
-    <div className="agents-list" role="navigation" aria-label="Agents" ref={listRef}>
+    <div
+      className="agents-list"
+      role="navigation"
+      aria-label="Agents"
+      ref={listRef}
+      data-agents-search-scope
+    >
       <div className="sidebar-group-header agents-list__header">
         <span className="sidebar-group-symbol" aria-hidden="true">
           <AgentsIcon size={14} />
         </span>
         <span className="sidebar-group-label">Agents</span>
         <span className="sidebar-group-count">{agents.length}</span>
+        <IconButton
+          variant="ghost"
+          size="compact"
+          className="agents-list__search-toggle"
+          icon={<SearchIcon size={12} />}
+          // Keep focus in the field, so its blur doesn't close it a moment
+          // before this click would.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onToggleSearch}
+          title="Search conversations (⌘F)"
+          aria-label="Search conversations"
+          aria-expanded={search.open}
+          aria-controls="agents-list-search"
+        />
         <IconButton
           variant="ghost"
           size="compact"
@@ -111,25 +137,16 @@ export function AgentsSidebar({
         />
       </div>
 
-      <SearchField
-        ref={searchRef}
-        density="compact"
+      <div
+        id="agents-list-search"
         className="agents-list__search"
-        value={query}
-        onChange={setQuery}
-        placeholder="Search conversations"
-        aria-label="Search conversations"
-        clearLabel="Clear search"
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && query) {
-            e.preventDefault();
-            e.stopPropagation();
-            setQuery('');
-          } else {
-            moveHitFocus(e, searchRef);
-          }
-        }}
-      />
+        data-open={search.open || undefined}
+        inert={!search.open}
+      >
+        <div className="agents-list__search-inner">
+          <AgentsSearchBox search={search} field={searchRef} />
+        </div>
+      </div>
 
       {searching && <AgentsSearchResults query={query} field={searchRef} onOpen={onOpenHit} />}
 

@@ -110,8 +110,10 @@
   margin-left: auto;
 }
 
+/* The header's buttons end on the rows' right inset (the status column, and
+   the search field's right edge), not the header's own padding. */
 .agents-list__new {
-  margin-right: calc(var(--spacing-tight) * -1);
+  margin-right: calc(var(--spacing-md) - var(--spacing-lg));
 }
 
 .agents-list__row {
@@ -896,8 +898,83 @@
 
 /* -------------------------------------------------------------- search */
 
+.agents-list__search-toggle[aria-expanded='true'] {
+  color: var(--text-primary);
+}
+
+/* Put away until asked for. The row animates its height open (0fr → 1fr) and
+   fades in; closed, it is inert, so nothing in it takes focus. */
 .agents-list__search {
-  margin: 0 var(--spacing-md) var(--spacing-sm);
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--transition-interaction),
+    opacity var(--transition-interaction);
+}
+
+.agents-list__search[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.agents-list__search-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Same insets as the rows below: the field's edges line up with the avatar's
+   left edge and the status column's right edge. */
+.agents-list__search .ss-search-field {
+  margin: var(--spacing-sm) var(--spacing-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agents-list__search {
+    transition: none;
+  }
+}
+
+/* Compact mode: no sidebar, so the search comes up over the chat. */
+.agents-search-popover {
+  position: absolute;
+  top: var(--spacing-sm);
+  left: 50%;
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100% - 2 * var(--spacing-md)));
+  max-height: min(560px, calc(100% - 2 * var(--spacing-sm)));
+  padding-bottom: var(--spacing-xs);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
+  transform: translateX(-50%);
+  animation: agents-search-popover-in var(--transition-interaction);
+}
+
+.agents-search-popover__field {
+  flex: 0 0 auto;
+  margin: var(--spacing-sm) var(--spacing-md);
+}
+
+.agents-search-popover__results {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@keyframes agents-search-popover-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(calc(var(--spacing-xs) * -1));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agents-search-popover {
+    animation: none;
+  }
 }
 
 .agents-search {
@@ -1018,4 +1095,16 @@
 
 .agent-editor__label .segmented-control {
   align-self: flex-start;
+}
+
+/* Model menu: plain text, a check on the current choice in a fixed column. */
+.agent-model-menu .agent-model-menu__label {
+  flex: 1;
+}
+
+.agent-model-menu .agent-model-menu__check {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: var(--spacing-lg);
+  color: var(--text-secondary);
 }
