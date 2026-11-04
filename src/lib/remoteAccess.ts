@@ -125,6 +125,25 @@ export const setRemotePushPin = (pin: string) =>
 export const clearRemotePushPin = () => invoke<RemoteAccessStatus>('clear_remote_push_pin');
 export const getRemoteAudit = (limit = 50) => invoke<AuditEntry[]>('get_remote_audit', { limit });
 
+/**
+ * What keeps agents going on this Mac, offered in Agents apart from remote
+ * access: hold it awake (the same assertion remote access holds), keep
+ * running when windows close, and open at login (remote access's own login
+ * item). Each is read back from the thing itself; all macOS only.
+ */
+export interface StayOn {
+  supported: boolean;
+  /** True while the Mac is held awake, including by remote access. */
+  keepAwake: boolean;
+  keepRunning: boolean;
+  openAtLogin: boolean;
+  /** False in a dev build, which has no installed app to reopen. */
+  openAtLoginAvailable: boolean;
+}
+export type StayOnChange = Partial<Pick<StayOn, 'keepAwake' | 'keepRunning' | 'openAtLogin'>>;
+export const getStayOn = () => invoke<StayOn>('get_stay_on');
+export const setStayOn = (change: StayOnChange) => invoke<StayOn>('set_stay_on', change);
+
 // ============================================================================
 // "Before you leave" — will the computer still be there?
 // ============================================================================

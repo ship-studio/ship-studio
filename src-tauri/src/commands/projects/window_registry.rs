@@ -30,6 +30,9 @@ pub async fn open_project_in_new_window(
                 project_path,
                 existing_label
             );
+            // It may have been hidden by a close (keep running when closed).
+            let _ = window.show();
+            crate::commands::window::forget_hidden_window(&existing_label);
             window.set_focus().map_err(|e| e.to_string())?;
             return Ok(existing_label);
         }
@@ -141,6 +144,8 @@ pub async fn focus_window_by_label(
     window_label: String,
 ) -> Result<(), CommandError> {
     if let Some(window) = app.get_webview_window(&window_label) {
+        let _ = window.show();
+        crate::commands::window::forget_hidden_window(&window_label);
         window.set_focus().map_err(|e| e.to_string())?;
         tracing::info!("Focused window {}", window_label);
         Ok(())

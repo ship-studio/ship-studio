@@ -26,7 +26,7 @@ pub struct McpServer {
 }
 
 /// Strip ANSI escape codes from a string.
-fn strip_ansi(s: &str) -> String {
+pub(crate) fn strip_ansi(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars().peekable();
 
@@ -130,7 +130,7 @@ fn parse_mcp_list_output(output: &str) -> Vec<McpServer> {
 }
 
 /// Map status text from CLI output to a normalized status string.
-fn parse_status_text(text: &str) -> String {
+pub(crate) fn parse_status_text(text: &str) -> String {
     let lower = text.to_lowercase();
     // Remove common unicode status indicators
     let lower = lower
@@ -527,7 +527,7 @@ pub async fn add_mcp_server(
 /// these since #675/#677 while remove and list forwarded the very same CLI
 /// failures raw (issues #746, #755, #800). `action` completes "Failed to …"
 /// ("add MCP server", "remove MCP server", "list MCP servers").
-fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
+pub(crate) fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
     let message = format!("Failed to {action}: {details}");
     let lower = details.to_ascii_lowercase();
 
@@ -765,7 +765,7 @@ fn cursor_has_no_mcp_cli(subcommand: &str) -> CommandError {
 /// (issues #1013, #1014). A path that doesn't exist can't be what the user
 /// meant, so leave it out and let Claude Code find Git Bash itself; a path
 /// that does exist is passed through untouched.
-fn drop_stale_git_bash_path(cmd: &mut std::process::Command) {
+pub(crate) fn drop_stale_git_bash_path(cmd: &mut std::process::Command) {
     const VAR: &str = "CLAUDE_CODE_GIT_BASH_PATH";
     if let Some(path) = std::env::var_os(VAR) {
         if !std::path::Path::new(&path).is_file() {
@@ -849,7 +849,7 @@ fn invalid_config_key(details: &str) -> Option<String> {
 /// "No project-local MCP server found with name: x", "x not found",
 /// "no such server". An allowlist of exact phrases kept missing variants
 /// (issue #295), so match on the shape instead.
-fn mcp_server_not_found(details: &str) -> bool {
+pub(crate) fn mcp_server_not_found(details: &str) -> bool {
     let lower = details.to_ascii_lowercase();
     lower.contains("not found")
         || lower.contains("no such")

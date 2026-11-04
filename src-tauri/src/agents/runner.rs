@@ -113,12 +113,102 @@ pub fn current_hop(agent_id: &str) -> u8 {
 }
 
 /// Whether a worker is draining this agent's inbox (a turn is running or about to).
-fn in_turn(agent_id: &str) -> bool {
+pub fn in_turn(agent_id: &str) -> bool {
     RUNTIMES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(agent_id)
         .is_some_and(|r| r.running)
+}
+
+/// A turn in flight, on disk (`<home>/turn.json`) from spawn until the turn
+/// ends. Still there at launch means Ship Studio quit or crashed mid-turn.
+#[derive(Serialize, serde::Deserialize, Default)]
+struct TurnMark {
+    /// Claude Code's process, once spawned.
+    pid: Option<u32>,
+    #[serde(default)]
+    session: String,
+    /// A bound agent's project and its snapshot from before the turn, for
+    /// the change card if the turn never gets to record one.
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    tree: Option<String>,
+}
+
+fn read_mark(agent_id: &str) -> Option<TurnMark> {
+    let raw = std::fs::read_to_string(mark_path(agent_id)?).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_mark(agent_id: &str, mark: TurnMark) {
+    if let (Some(path), Ok(json)) = (mark_path(agent_id), serde_json::to_vec(&mark)) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+fn mark_path(agent_id: &str) -> Option<std::path::PathBuf> {
+    store::agent_home(agent_id)
+        .ok()
+        .map(|h| h.join("turn.json"))
+}
+
+fn clear_mark(agent_id: &str) {
+    if let Some(path) = mark_path(agent_id) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// At launch: a turn the last run left mid-flight is over. Its Claude Code
+/// process can outlive the app (a quit doesn't run our cleanup), and would
+/// keep writing the same session as the next turn, so it is stopped; and the
+/// chat says the turn ended, instead of a message sitting there unanswered.
+pub async fn recover_after_restart(app: &AppHandle) {
+    let Ok(agents) = store::list() else { return };
+    for agent in agents {
+        let Some(path) = mark_path(&agent.id) else {
+            continue;
+        };
+        if !path.exists() {
+            continue;
+        }
+        let mark = read_mark(&agent.id).unwrap_or_default();
+        if let Some(pid) = mark.pid {
+            if !mark.session.is_empty() {
+                stop_orphan(pid, &mark.session).await;
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        // Same order as a turn that ends: its changes, then its error line,
+        // which tags the agent as needing you (Retry re-sends).
+        if let (Some(project), Some(tree)) = (mark.project, mark.tree) {
+            record_changes(app, &agent.id, project.into(), tree).await;
+        }
+        let text = "Ship Studio closed while this agent was working, so that turn didn't finish. Retry to send it again.";
+        let mut line = new_message(&agent.id, MessageKind::Error, text);
+        line.failure = Some(super::failure::Failure::OTHER);
+        let _ = record(app, line);
+    }
+}
+
+/// Stop `pid` only if it is still that turn's process: pids get reused, and
+/// the session id on its command line is what identifies it.
+async fn stop_orphan(pid: u32, session: &str) {
+    if cfg!(windows) {
+        return;
+    }
+    let mut ps = tokio::process::Command::new("ps");
+    ps.args(["-o", "command=", "-p", &pid.to_string()]);
+    let ours = crate::external_command::run_with_timeout(ps, "ps", 5)
+        .await
+        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(session));
+    if ours {
+        tracing::warn!("[Agents] stopping turn {pid} left over from the last run");
+        let mut kill = tokio::process::Command::new("kill");
+        kill.arg(pid.to_string());
+        let _ = crate::external_command::run_with_timeout(kill, "kill", 5).await;
+    }
 }
 
 pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
@@ -143,7 +233,10 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
-    store::append_message(&message)?;
+    if let Err(e) = store::append_message(&message) {
+        unsaved(app, &message, &e);
+        return Err(e);
+    }
     // Anything the agent says (or a check-in firing) while it isn't on screen
     // notifies. Approvals aren't unread: they're counted as pending until answered.
     let wants_user = message.kind.wants_user() && !notify::on_screen(app, &message.agent_id);
@@ -167,8 +260,8 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
                         .unwrap_or(super::failure::Failure::OTHER),
                 )
             }
-            // A note or a change card says nothing after the failure.
-            MessageKind::Note | MessageKind::Changes => {}
+            // A note, a change card or a session line says nothing after the failure.
+            MessageKind::Note | MessageKind::Changes | MessageKind::Session => {}
             _ => agent.failure = None,
         }
     });
@@ -181,6 +274,38 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
         notify::refresh_badge(app);
     }
     Ok(message)
+}
+
+/// The log couldn't be written (disk full, permissions). The user's own
+/// message fails its send and they see why. Anything else (a reply mid-turn)
+/// is still shown, since losing it on restart beats never seeing it, and the
+/// chat says so, at most once a minute per agent.
+fn unsaved(app: &AppHandle, message: &AgentMessage, error: &CommandError) {
+    static WARNED: LazyLock<Mutex<HashMap<String, std::time::Instant>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    tracing::error!(
+        "[Agents] couldn't save a message for {}: {error}",
+        message.agent_id
+    );
+    if message.kind == MessageKind::User {
+        return;
+    }
+    let _ = app.emit(EVENT_MESSAGE, message);
+    let now = std::time::Instant::now();
+    let mut warned = WARNED.lock().unwrap_or_else(|e| e.into_inner());
+    if warned
+        .get(&message.agent_id)
+        .is_some_and(|t| now.duration_since(*t).as_secs() < 60)
+    {
+        return;
+    }
+    warned.insert(message.agent_id.clone(), now);
+    let warning = new_message(
+        &message.agent_id,
+        MessageKind::Error,
+        "Couldn't save this conversation to disk, so what's shown here will be gone after Ship Studio restarts. Check that the disk isn't full.",
+    );
+    let _ = app.emit(EVENT_MESSAGE, &warning);
 }
 
 pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
@@ -217,7 +342,7 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
         MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
-        MessageKind::Note | MessageKind::Changes => None,
+        MessageKind::Note | MessageKind::Changes | MessageKind::Session => None,
     }
 }
 
@@ -247,6 +372,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         mentions: Vec::new(),
         failure: None,
         changes: None,
+        session: None,
     }
 }
 
@@ -363,8 +489,21 @@ async fn drain(app: AppHandle, agent_id: String) {
             }
         };
         // A bound agent's project, as it stood before the turn touched it.
+        // On disk too, so a turn cut short by a quit still gets its card.
         let start = turn_start(&agent_id).await;
+        write_mark(
+            &agent_id,
+            TurnMark {
+                pid: None,
+                session: String::new(),
+                project: start
+                    .as_ref()
+                    .map(|(p, _)| p.to_string_lossy().into_owned()),
+                tree: start.as_ref().map(|(_, t)| t.clone()),
+            },
+        );
         let result = run_turn(&app, &agent_id, &prompt, true).await;
+        clear_mark(&agent_id);
         // What the turn changed goes before its failure, so a failed turn still
         // ends on its error line (Retry and the sidebar's failure read the newest line).
         if let Some((project, from)) = start {
@@ -452,6 +591,22 @@ fn result_error_text(value: &serde_json::Value) -> String {
     }
 }
 
+/// Why a turn that never sent its `result` event failed. Every finished turn
+/// ends with one; without it the process died or wrote something unreadable,
+/// whatever its exit code says, so this is never a silent "done". The CLI's
+/// own words win when it left any.
+fn unfinished_turn(exited_cleanly: bool, stderr: String) -> String {
+    if !stderr.trim().is_empty() {
+        return stderr;
+    }
+    let what = if exited_cleanly {
+        "Claude Code stopped before finishing its reply."
+    } else {
+        "Claude Code quit unexpectedly before finishing its reply."
+    };
+    format!("{what} Send your message again; if it keeps happening, check that Claude Code works in a terminal.")
+}
+
 /// A prompt for a fresh session, prefixed with the visible conversation.
 fn with_recap(agent_id: &str, prompt: &str) -> String {
     let Ok(log) = store::messages(agent_id, 40) else {
@@ -532,7 +687,12 @@ pub fn describe_activity(line: &str) -> Option<String> {
         Some("message_agent") => format!("Messaging {}", field("agent")),
         Some("create_agent") => format!("Creating {}", field("name")),
         Some("list_agents") => "Checking on the team".to_string(),
-        Some("list_projects") => "Looking at your projects".to_string(),
+        Some("project_list") => "Looking at your projects".to_string(),
+        Some("project_create") => format!("Creating {}", field("name")),
+        Some("session_message" | "session_start") => format!("Working in {}", field("project")),
+        Some("session_wait" | "session_progress") => format!("Following {}", field("project")),
+        Some("preview_screenshot") => format!("Looking at {}", field("project")),
+        Some("push") => format!("Pushing {}", field("project")),
         Some(other) => other.replace('_', " "),
         None => match name {
             "Edit" | "Write" | "MultiEdit" => {
@@ -591,6 +751,10 @@ fn turn_args(
         "stream-json",
         "--verbose",
         "--include-partial-messages",
+        // Claude in Chrome. Verified in --print on 2.1.318: its tools load and
+        // answer when the extension is connected. Its calls aren't allowed in
+        // advance, so they ask through `approve` like any other MCP tool.
+        "--chrome",
     ]
     .map(String::from)
     .to_vec();
@@ -660,21 +824,7 @@ async fn run_turn(
         &system_prompt,
         &layout.add_dirs,
     ));
-    // A Ship Studio launched from inside a Claude Code session (a terminal
-    // running `claude`, or a dev build started by one) inherits that
-    // session's variables. With them, each agent runs as a nested child
-    // session that is never written to disk, so the next `--resume` finds
-    // nothing. Observed: every agent lost its memory between turns.
-    for (key, _) in std::env::vars_os() {
-        let key = key.to_string_lossy();
-        if key == "CLAUDECODE"
-            || key == "CLAUDE_PID"
-            || key == "CLAUDE_EFFORT"
-            || key.starts_with("CLAUDE_CODE_")
-        {
-            cmd.env_remove(key.as_ref());
-        }
-    }
+    strip_session_env(&mut cmd);
     cmd.env("PATH", crate::utils::get_extended_path())
         // Claude Code gives an MCP tool call ~60s by default, and the approval
         // tool waits for a person. Verified: with the default, a card left for
@@ -697,11 +847,17 @@ async fn run_turn(
         .spawn()
         .map_err(|e| CommandError::expected(format!("Couldn't start Claude Code: {e}")))?;
 
+    let mut mark = read_mark(agent_id).unwrap_or_default();
+    mark.pid = child.id();
+    mark.session = session_id.clone();
+    write_mark(agent_id, mark);
+
+    // A CLI that dies on startup closes stdin before reading it. Its exit
+    // status and stderr say why; a "Broken pipe" here would only hide that.
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt.as_bytes())
-            .await
-            .map_err(super::err_io)?;
+        if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
+            tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
+        }
         drop(stdin);
     }
     let stdout = child
@@ -756,6 +912,9 @@ async fn run_turn(
                 let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
                 match value.get("type").and_then(|t| t.as_str()) {
                     Some("system") => {
+                        if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {
+                            let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
+                        }
                         if !session_confirmed {
                             if let Some(sid) = value.get("session_id").and_then(|s| s.as_str()) {
                                 session_confirmed = true;
@@ -865,12 +1024,8 @@ async fn run_turn(
     if let Some(err) = result_error {
         return Err(CommandError::expected(err));
     }
-    if !status.success() && !saw_result {
-        let detail = if stderr_text.trim().is_empty() {
-            format!("Claude Code exited with {status}")
-        } else {
-            stderr_text
-        };
+    if !saw_result {
+        let detail = unfinished_turn(status.success(), stderr_text);
         if let Some(err) = crate::commands::ai::classify_agent_cli_failure("Claude Code", &detail) {
             return Err(err);
         }
@@ -882,6 +1037,25 @@ async fn run_turn(
         tracing::debug!("[Agents] {agent_id} finished a turn without a reply");
     }
     Ok(())
+}
+
+/// A Ship Studio launched from inside a Claude Code session (a terminal
+/// running `claude`, or a dev build started by one) inherits that session's
+/// variables. With them, each agent runs as a nested child session that is
+/// never written to disk, so the next `--resume` finds nothing. Observed:
+/// every agent lost its memory between turns. Every `claude` we run for
+/// Agents goes through this.
+pub fn strip_session_env(cmd: &mut std::process::Command) {
+    for (key, _) in std::env::vars_os() {
+        let key = key.to_string_lossy();
+        if key == "CLAUDECODE"
+            || key == "CLAUDE_PID"
+            || key == "CLAUDE_EFFORT"
+            || key.starts_with("CLAUDE_CODE_")
+        {
+            cmd.env_remove(key.as_ref());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -967,6 +1141,7 @@ mod tests {
             "stream-json",
             "--verbose",
             "--include-partial-messages",
+            "--chrome",
             "--resume",
             "sid",
             "--permission-mode",
@@ -1021,6 +1196,21 @@ mod tests {
             .windows(2)
             .any(|w| w[0] == "--session-id" && w[1] == "sid"));
         assert!(!args.contains(&"--model".to_string()));
+    }
+
+    #[test]
+    fn a_turn_without_a_result_is_always_a_failure_in_words() {
+        let clean = unfinished_turn(true, String::new());
+        let crashed = unfinished_turn(false, " \n".into());
+        for text in [&clean, &crashed] {
+            assert!(text.starts_with("Claude Code"), "{text}");
+            assert!(!text.contains("exit status") && !text.contains("signal"));
+        }
+        assert_ne!(clean, crashed);
+        assert_eq!(
+            unfinished_turn(false, "Error: bad flag".into()),
+            "Error: bad flag"
+        );
     }
 
     #[test]

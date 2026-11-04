@@ -62,8 +62,10 @@ export interface Agent {
   home: string;
   /** The newest line in its chat is a failed turn; omitted otherwise. */
   failure?: Failure;
-  /** The project it works in (a path from `list_projects`); omitted when unbound. */
+  /** The project it works in (a path from `project_list`); omitted when unbound. */
   project?: string;
+  /** What its last turn could use; omitted before its first turn. */
+  capabilities?: Capabilities;
 }
 
 /** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
@@ -94,6 +96,8 @@ export interface CheckInMark {
   dueAt: number;
   late: boolean;
   repeats: boolean;
+  /** Run now, by the user; its schedule didn't move. */
+  manual?: boolean;
 }
 
 export interface SchedulePreview {
@@ -118,7 +122,40 @@ export type MessageKind =
   /** A quiet line: an automatically allowed call, an interruption, what the Chief did. */
   | 'note'
   /** Files a project-bound agent's turn changed (`changes`). */
-  | 'changes';
+  | 'changes'
+  /** The agent worked in a project's session (`session`). */
+  | 'session';
+
+/** Mirrors `sessions::SessionMark`: what an agent did in a project's session. */
+export interface SessionMark {
+  /** The project's path. */
+  project: string;
+  event: 'started' | 'sent' | 'reply' | 'screenshot';
+  /** The tab's PTY session id; absent on a screenshot. */
+  sessionId?: string;
+  /** Its number among the project's tabs then. */
+  tab?: number;
+  /** The tab's agent CLI id (`claude`, `codex`, …). */
+  cli?: string;
+}
+
+const CLI_NAMES: Record<string, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'Opencode',
+};
+
+/** "Claude Code 1": the tab as the project's tab bar would name it. */
+export function sessionLabel(mark: SessionMark): string {
+  const cli = (mark.cli && CLI_NAMES[mark.cli]) ?? mark.cli ?? 'Session';
+  return mark.tab ? `${cli} ${mark.tab}` : cli;
+}
+
+/** Mirrors `capabilities::Capabilities`, from the agent's last turn. */
+export interface Capabilities {
+  seenAt: number;
+  lines: { what: string; detail: string }[];
+}
 
 /** What "Always allow" covers; mirrors `permissions::Scope`. */
 export interface PermissionScope {
@@ -196,6 +233,8 @@ export interface AgentMessage {
   failure?: Failure;
   /** On a `changes` line: what the turn changed in the project. */
   changes?: ChangeSummary;
+  /** On a `session` line. */
+  session?: SessionMark;
 }
 
 /** Mirrors `project::ChangedFile`: line counts are absent for a binary file. */
@@ -468,6 +507,59 @@ export const revokePermission = (agentId: string, ruleId: string) =>
 export const focusAgent = (agentId: string | null) => invoke<void>('agents_focus', { agentId });
 export const markAgentUnread = (agentId: string) => invoke<void>('agents_mark_unread', { agentId });
 export const getImportPrompt = () => invoke<string>('agents_import_prompt');
+
+/** One agent a pasted reply would import (see `agents/paste.rs`). */
+export interface PasteImportAgent {
+  name: string;
+  role: string;
+  isMain: boolean;
+  /** An agent with this name already exists and will be updated. */
+  existing: boolean;
+  instructionsChars: number;
+  memoryLines: number;
+  routines: PasteImportRoutine[];
+}
+
+/**
+ * One routine in a pasted reply: what it becomes (`schedule`), or why it
+ * won't be set (`refused`). A refused one doesn't block the import.
+ */
+export interface PasteImportRoutine {
+  when: string;
+  what: string;
+  schedule?: string;
+  refused?: string;
+}
+
+/** A routine an import set or refused. `detail` is what it became, or why not. */
+export interface ImportRoutineOutcome {
+  agent: string;
+  when: string;
+  what: string;
+  detail: string;
+}
+
+/** What importing a pasted reply would do. Any problem blocks the import. */
+export interface PasteImportPreview {
+  source: string;
+  blocks: number;
+  agents: PasteImportAgent[];
+  problems: string[];
+}
+
+export interface ImportSummary {
+  created: string[];
+  updated: string[];
+  /** `[name, why]` */
+  skipped: [string, string][];
+  routinesSet: ImportRoutineOutcome[];
+  routinesRefused: ImportRoutineOutcome[];
+}
+
+export const getPasteImportPrompt = () => invoke<string>('agents_import_paste_prompt');
+export const previewPasteImport = (text: string) =>
+  invoke<PasteImportPreview>('agents_import_paste_preview', { text });
+export const importPaste = (text: string) => invoke<ImportSummary>('agents_import_paste', { text });
 export const previewSchedule = (when: string) =>
   invoke<SchedulePreview>('agents_schedule_preview', { when });
 export const createCheckIn = (agentId: string, when: string, note: string) =>
@@ -476,6 +568,11 @@ export const cancelCheckIn = (agentId: string, id: string) =>
   invoke<void>('agents_schedule_cancel', { agentId, id });
 export const pauseCheckIn = (agentId: string, id: string, paused: boolean) =>
   invoke<void>('agents_schedule_pause', { agentId, id, paused });
+export const updateCheckIn = (agentId: string, id: string, when: string, note: string) =>
+  invoke<CheckIn>('agents_schedule_update', { agentId, id, when, note });
+/** Fire it now as a normal wake; its next time doesn't move. */
+export const runCheckInNow = (agentId: string, id: string) =>
+  invoke<void>('agents_schedule_run_now', { agentId, id });
 
 /**
  * Formatters are built once: `toLocaleTimeString` with options builds a new
@@ -539,6 +636,40 @@ export function splitScheduleInput(text: string): { when: string; note: string }
   const match = /^(.*?):\s+([\s\S]*)$/.exec(text);
   if (!match) return { when: text.trim().replace(/:$/, ''), note: '' };
   return { when: match[1].trim(), note: match[2].trim() };
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * The `when` words the schedule grammar reads back as this same schedule,
+ * for Edit to prefill: "every weekday at 09:00", "every 2 hours",
+ * "2026-11-20 09:00" (local). Mirrors `schedule::describe`.
+ */
+export function scheduleWhenPhrase(c: Pick<CheckIn, 'repeat' | 'nextAt'>): string {
+  const r = c.repeat;
+  if (!r) {
+    const d = new Date(c.nextAt);
+    const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    return `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+  if (r.kind === 'every') {
+    if (r.minutes % 60 !== 0) return `every ${r.minutes} minutes`;
+    return r.minutes === 60 ? 'every hour' : `every ${r.minutes / 60} hours`;
+  }
+  const days = [...r.days].sort((a, b) => a - b);
+  const key = days.join(',');
+  const named =
+    key === '0,1,2,3,4,5,6'
+      ? 'day'
+      : key === '1,2,3,4,5'
+        ? 'weekday'
+        : key === '0,6'
+          ? 'weekend day'
+          : days
+              .map((d) => DAY_NAMES[d % 7].toLowerCase())
+              .join(', ')
+              .replace(/, ([^,]*)$/, ' and $1');
+  return `every ${named} at ${pad2(r.hour)}:${pad2(r.minute)}`;
 }
 
 /** A row's secondary line: when it next runs, and how it repeats. */
@@ -736,7 +867,7 @@ export function lastOutcome(messages: AgentMessage[] | undefined): AgentMessage 
   if (!messages) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const kind = messages[i].kind;
-    if (kind !== 'note' && kind !== 'changes') return messages[i];
+    if (kind !== 'note' && kind !== 'changes' && kind !== 'session') return messages[i];
   }
   return null;
 }
@@ -753,7 +884,12 @@ export function drivingBriefId(items: ChatItem[], agent: Agent): string | null {
     const item = items[i];
     if (item.type === 'day') continue;
     if (item.type === 'message') {
-      if (item.message.ts > since || item.message.kind === 'note') continue;
+      if (
+        item.message.ts > since ||
+        item.message.kind === 'note' ||
+        item.message.kind === 'session'
+      )
+        continue;
       return null;
     }
     const last = item.messages[item.messages.length - 1];
@@ -1018,7 +1154,7 @@ export function mentionRuns(
   return runs;
 }
 
-/** The Team overview's place in the selection, beside agent ids. */
+/** The "What's in flight" overview's place in the selection, beside agent ids (⌘K only). */
 export const TEAM_ID = '__team';
 
 /** A reply's first line as plain words, for a one-line row. */
@@ -1084,22 +1220,4 @@ export function summarizeTeam(
     scheduled,
     replies,
   };
-}
-
-/** The Team row's second line: "2 working · 1 needs you · 1 failed", or quiet. */
-export function teamSubtitle(agents: Agent[]): string {
-  const shown = agents.filter((a) => !a.hidden);
-  const waiting = shown.filter(needsYou).length;
-  const working = shown.filter((a) => a.status.state === 'working' && !needsYou(a)).length;
-  // A usage limit isn't counted: it heals on its own, and its row says so.
-  const failed = shown.filter((a) => {
-    const failure = failedTurn(a);
-    return failure !== null && failure.kind !== 'usage_limit';
-  }).length;
-  const parts = [
-    working > 0 ? `${working} working` : '',
-    waiting > 0 ? `${waiting} ${waiting === 1 ? 'needs' : 'need'} you` : '',
-    failed > 0 ? `${failed} failed` : '',
-  ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'Nothing in flight';
 }

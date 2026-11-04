@@ -95,6 +95,9 @@ pub struct CheckInMark {
     pub due_at: i64,
     pub late: bool,
     pub repeats: bool,
+    /// The user pressed Run now; its schedule didn't move.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual: bool,
 }
 
 /* -------------------------------------------------------------- grammar */
@@ -533,6 +536,8 @@ pub struct Firing {
     /// app was closed: folded into this wake and removed with it, so a
     /// reopened app wakes each agent once, not once per missed note.
     pub also: Vec<CheckIn>,
+    /// Run now, from the schedule popover: on demand, ahead of its time.
+    pub manual: bool,
 }
 
 pub fn plan<Tz: TimeZone>(tz: &Tz, agents: &[store::Agent], now: i64) -> Plan {
@@ -568,6 +573,7 @@ pub fn plan<Tz: TimeZone>(tz: &Tz, agents: &[store::Agent], now: i64) -> Plan {
                             late,
                             next,
                             also,
+                            manual: false,
                         });
                     }
                 }
@@ -583,7 +589,10 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let c = &firing.check_in;
-    let late = if firing.late {
+    let late = if firing.manual {
+        " The user asked you to run it now, ahead of its time; its schedule is unchanged."
+            .to_string()
+    } else if firing.late {
         format!(
             " It was due {}, but Ship Studio wasn't running then, so it's late.",
             format_time(tz, c.next_at)
@@ -624,65 +633,128 @@ pub struct Created {
     pub summary: String,
 }
 
-/// Add a check-in to an agent. The returned summary is what the tool says
-/// back: the exact resolved time, so the agent tells the user something true.
-pub fn create(agent_id: &str, when: &str, note: &str) -> Result<Created, CommandError> {
-    create_in(&chrono::Local, agent_id, when, note, store::now_ms())
+/// Why a check-in wasn't added.
+#[derive(Debug)]
+pub enum Refused {
+    /// The phrase or the note can't be used. `why` is written for the agent
+    /// (it ends with example phrases); [`Refused::plain`] drops those.
+    Invalid {
+        field: &'static str,
+        why: String,
+    },
+    Full,
+    /// The same note on the same schedule is already there.
+    Duplicate,
+    Store(CommandError),
 }
 
-fn create_in<Tz: TimeZone>(
+impl Refused {
+    pub fn into_error(self) -> CommandError {
+        match self {
+            Refused::Invalid { field, why } => super::err_invalid(field, why),
+            Refused::Full => CommandError::expected(format!(
+                "You already have {MAX_PER_AGENT} check-ins. Cancel one you don't need first (list_check_ins)."
+            )),
+            Refused::Duplicate => CommandError::expected(
+                "That check-in is already scheduled. list_check_ins shows it.",
+            ),
+            Refused::Store(e) => e,
+        }
+    }
+
+    /// The reason in a sentence for the user, without the agent-facing examples.
+    pub fn plain(&self) -> String {
+        match self {
+            Refused::Invalid { why, .. } => plain_reason(why),
+            Refused::Full => {
+                format!("the agent already has {MAX_PER_AGENT} check-ins and routines.")
+            }
+            Refused::Duplicate => "it's already set.".into(),
+            Refused::Store(e) => e.to_string(),
+        }
+    }
+}
+
+/// A parse error without the trailing list of example phrases.
+pub fn plain_reason(why: &str) -> String {
+    why.strip_suffix(EXAMPLES).unwrap_or(why).trim().to_string()
+}
+
+/// Check a phrase and a note without storing anything: the repeat (if any)
+/// and the first time it fires, or why it can't be used.
+pub fn check<Tz: TimeZone>(
     tz: &Tz,
-    agent_id: &str,
     when: &str,
     note: &str,
     now: i64,
-) -> Result<Created, CommandError>
-where
-    Tz::Offset: std::fmt::Display,
-{
+) -> Result<(Option<Repeat>, i64), Refused> {
     let note = note.trim();
+    let invalid = |field, why: &str| Refused::Invalid {
+        field,
+        why: why.to_string(),
+    };
     if note.is_empty() {
-        return Err(super::err_invalid(
+        return Err(invalid(
             "note",
             "Write a note to yourself saying what to do when it fires.",
         ));
     }
     if note.chars().count() > MAX_NOTE_CHARS {
-        return Err(super::err_invalid(
-            "note",
-            "Keep the note under 600 characters.",
-        ));
+        return Err(invalid("note", "Keep the note under 600 characters."));
     }
-    let (repeat, next_at) = parse(when, tz, now).map_err(|e| super::err_invalid("when", e))?;
+    parse(when, tz, now).map_err(|why| Refused::Invalid { field: "when", why })
+}
+
+/// What a check-in is, for the user: "every weekday at 09:00", or "once, Fri 6 Nov 2026, 09:00 (UTC-05:00)".
+pub fn describe_schedule<Tz: TimeZone>(tz: &Tz, repeat: Option<&Repeat>, next_at: i64) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    match repeat {
+        Some(r) => describe(r),
+        None => format!("once, {}", format_time(tz, next_at)),
+    }
+}
+
+/// Add a check-in to an agent. The returned summary is what the tool says
+/// back: the exact resolved time, so the agent tells the user something true.
+pub fn create(agent_id: &str, when: &str, note: &str) -> Result<Created, CommandError> {
+    create_in(&chrono::Local, agent_id, when, note, store::now_ms()).map_err(Refused::into_error)
+}
+
+pub(crate) fn create_in<Tz: TimeZone>(
+    tz: &Tz,
+    agent_id: &str,
+    when: &str,
+    note: &str,
+    now: i64,
+) -> Result<Created, Refused>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let (repeat, next_at) = check(tz, when, note, now)?;
     let check_in = CheckIn {
         id: store::new_id()[..8].to_string(),
-        note: note.to_string(),
+        note: note.trim().to_string(),
         repeat,
         next_at,
         created_at: now,
         paused: false,
     };
-    let mut refused: Option<CommandError> = None;
+    let mut refused: Option<Refused> = None;
     let candidate = check_in.clone();
     store::update(agent_id, |agent| {
-        if agent.check_ins.len() >= MAX_PER_AGENT {
-            refused = Some(CommandError::expected(format!(
-                "You already have {MAX_PER_AGENT} check-ins. Cancel one you don't need first (list_check_ins)."
-            )));
+        if agent.check_ins.iter().any(|c| same_schedule(c, &candidate)) {
+            refused = Some(Refused::Duplicate);
             return;
         }
-        if agent.check_ins.iter().any(|c| {
-            c.note == candidate.note
-                && c.repeat == candidate.repeat
-                && (c.repeat.is_some() || c.next_at == candidate.next_at)
-        }) {
-            refused = Some(CommandError::expected(
-                "That check-in is already scheduled. list_check_ins shows it.",
-            ));
+        if agent.check_ins.len() >= MAX_PER_AGENT {
+            refused = Some(Refused::Full);
             return;
         }
         agent.check_ins.push(candidate);
-    })?;
+    })
+    .map_err(Refused::Store)?;
     if let Some(err) = refused {
         return Err(err);
     }
@@ -699,6 +771,79 @@ where
         ),
     };
     Ok(Created { check_in, summary })
+}
+
+/// Two entries that would do the same thing at the same times.
+fn same_schedule(a: &CheckIn, b: &CheckIn) -> bool {
+    a.note == b.note && a.repeat == b.repeat && (a.repeat.is_some() || a.next_at == b.next_at)
+}
+
+/// Change when and what, in place: same id, paused stays paused. `when` is
+/// re-read from now, so an edited routine's next time is its next one.
+pub fn edit(agent_id: &str, id: &str, when: &str, note: &str) -> Result<CheckIn, CommandError> {
+    edit_in(&chrono::Local, agent_id, id, when, note, store::now_ms())
+}
+
+fn edit_in<Tz: TimeZone>(
+    tz: &Tz,
+    agent_id: &str,
+    id: &str,
+    when: &str,
+    note: &str,
+    now: i64,
+) -> Result<CheckIn, CommandError> {
+    let (repeat, next_at) = check(tz, when, note, now).map_err(Refused::into_error)?;
+    let note = note.trim();
+    let mut outcome: Result<CheckIn, CommandError> =
+        Err(CommandError::expected("That check-in no longer exists."));
+    store::update(agent_id, |agent| {
+        let Some(i) = agent.check_ins.iter().position(|c| c.id == id) else {
+            return;
+        };
+        let edited = CheckIn {
+            note: note.to_string(),
+            repeat: repeat.clone(),
+            next_at,
+            ..agent.check_ins[i].clone()
+        };
+        let clash = agent
+            .check_ins
+            .iter()
+            .any(|c| c.id != id && same_schedule(c, &edited));
+        if clash {
+            outcome = Err(CommandError::expected(
+                "That check-in is already scheduled.",
+            ));
+            return;
+        }
+        agent.check_ins[i] = edited.clone();
+        outcome = Ok(edited);
+    })?;
+    outcome
+}
+
+/// Fire one now, as a normal wake, without touching its next time. A
+/// one-time check-in stays scheduled too: this is a rehearsal, not a skip.
+pub fn run_now(app: &AppHandle, agent_id: &str, id: &str) -> Result<(), CommandError> {
+    let firing = manual_firing(&store::get(agent_id)?, id)?;
+    wake(app, &chrono::Local, &firing, store::now_ms())
+}
+
+fn manual_firing(agent: &store::Agent, id: &str) -> Result<Firing, CommandError> {
+    let check_in = agent
+        .check_ins
+        .iter()
+        .find(|c| c.id == id)
+        .cloned()
+        .ok_or_else(|| CommandError::expected("That check-in no longer exists."))?;
+    Ok(Firing {
+        agent_id: agent.id.clone(),
+        check_in,
+        late: false,
+        next: None,
+        also: Vec::new(),
+        manual: true,
+    })
 }
 
 /// The tool's answer to `list_check_ins`.
@@ -810,33 +955,51 @@ fn tick(app: &AppHandle) -> Result<(), CommandError> {
                 c.id != firing.check_in.id && !firing.also.iter().any(|o| o.id == c.id)
             }),
         })?;
-        let note = std::iter::once(&firing.check_in)
-            .chain(&firing.also)
-            .map(|c| c.note.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut line = runner::new_message(&firing.agent_id, MessageKind::CheckIn, note);
-        line.check_in = Some(CheckInMark {
-            due_at: firing.check_in.next_at,
-            late: firing.late,
-            repeats: firing.check_in.repeat.is_some(),
-        });
-        // Wake first, then record the line: recorded during the turn, it goes
-        // through `runner::record` like a reply (a `wants_user` kind), so the
-        // notifications slice posts one banner for the check-in and its
-        // answer when the turn ends, rather than one for each.
-        runner::enqueue(
-            app,
-            &firing.agent_id,
-            wake_prompt(&tz, &firing, now),
-            runner::From::User,
-        );
-        runner::record(app, line)?;
+        wake(app, &tz, &firing, now)?;
     }
     if changed {
         let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
     }
     Ok(())
+}
+
+/// Queue the turn and leave the "Scheduled check-in" line above its answer.
+fn wake<Tz: TimeZone>(
+    app: &AppHandle,
+    tz: &Tz,
+    firing: &Firing,
+    now: i64,
+) -> Result<(), CommandError>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let note = std::iter::once(&firing.check_in)
+        .chain(&firing.also)
+        .map(|c| c.note.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut line = runner::new_message(&firing.agent_id, MessageKind::CheckIn, note);
+    line.check_in = Some(CheckInMark {
+        due_at: if firing.manual {
+            now
+        } else {
+            firing.check_in.next_at
+        },
+        late: firing.late,
+        repeats: firing.check_in.repeat.is_some(),
+        manual: firing.manual,
+    });
+    // Wake first, then record the line: recorded during the turn, it goes
+    // through `runner::record` like a reply (a `wants_user` kind), so the
+    // notifications slice posts one banner for the check-in and its
+    // answer when the turn ends, rather than one for each.
+    runner::enqueue(
+        app,
+        &firing.agent_id,
+        wake_prompt(tz, firing, now),
+        runner::From::User,
+    );
+    runner::record(app, line).map(|_| ())
 }
 
 #[cfg(test)]
@@ -1221,6 +1384,7 @@ mod tests {
             permissions: Vec::new(),
             failure: None,
             project: None,
+            capabilities: None,
         }
     }
 
@@ -1258,6 +1422,7 @@ mod tests {
             late: true,
             next: None,
             also: vec![check_in("x2", due_at + 3_600_000, None)],
+            manual: false,
         };
         let prompt = wake_prompt(&Eastern, &firing, at(2026, 11, 3, 15, 0));
         assert!(prompt.starts_with("[Scheduled check-in you set: note x1]"));
@@ -1351,6 +1516,139 @@ mod tests {
             store::get(&agent.id).unwrap().check_ins.len(),
             MAX_PER_AGENT
         );
+        store::set_root_for_tests(None);
+    }
+
+    #[test]
+    fn a_described_routine_reads_back_as_the_same_routine() {
+        // The popover's Edit prefills the composer with these words.
+        for when in [
+            "every weekday at 9:00",
+            "every day at 7:45",
+            "every weekend day at 10:00",
+            "every mon, thu and fri at 17:30",
+            "every 2 hours",
+            "every hour",
+            "every 45 minutes",
+        ] {
+            let repeat = parse(when, &Eastern, now()).unwrap().0.unwrap();
+            let again = parse(&describe(&repeat), &Eastern, now())
+                .unwrap()
+                .0
+                .unwrap();
+            assert_eq!(again, repeat, "{when}");
+        }
+    }
+
+    #[test]
+    fn run_now_is_a_normal_wake_that_says_it_was_asked_for() {
+        let agent = agent_with(
+            "a",
+            vec![check_in("r1", at(2026, 11, 5, 9, 0), weekdays_at_nine())],
+        );
+        let firing = manual_firing(&agent, "r1").unwrap();
+        assert!(firing.manual && !firing.late && firing.also.is_empty());
+        let prompt = wake_prompt(&Eastern, &firing, now());
+        assert!(prompt.starts_with("[Scheduled check-in you set: note r1]"));
+        assert!(prompt.contains("asked you to run it now"));
+        assert!(prompt.contains("This is a routine"));
+        assert!(!prompt.contains("late"));
+        assert!(manual_firing(&agent, "gone").is_err());
+        // The mark only grows a field when it was run by hand.
+        let mark = CheckInMark {
+            due_at: 0,
+            late: false,
+            repeats: true,
+            manual: false,
+        };
+        assert!(!serde_json::to_string(&mark).unwrap().contains("manual"));
+    }
+
+    #[test]
+    fn editing_changes_when_and_what_in_place() {
+        let _serial = store::tests_lock();
+        let dir = tempfile::tempdir().unwrap();
+        store::set_root_for_tests(Some(dir.path().to_path_buf()));
+        let agent = store::create(store::NewAgent {
+            name: "Finance".into(),
+            role: String::new(),
+            instructions: String::new(),
+            shape: None,
+            color: None,
+            is_main: false,
+        })
+        .unwrap();
+        let brief = create_in(&Eastern, &agent.id, "every weekday at 9", "Brief", now()).unwrap();
+        let other = create_in(&Eastern, &agent.id, "friday at 9:00", "Chase", now()).unwrap();
+        set_paused(&agent.id, &brief.check_in.id, true).unwrap();
+
+        let edited = edit_in(
+            &Eastern,
+            &agent.id,
+            &brief.check_in.id,
+            "every monday at 8am",
+            "Brief me on Acme",
+            now(),
+        )
+        .unwrap();
+        assert_eq!(edited.id, brief.check_in.id);
+        assert_eq!(edited.created_at, brief.check_in.created_at);
+        assert!(edited.paused, "a paused routine stays paused");
+        assert_eq!(
+            edited.repeat,
+            Some(Repeat::Days {
+                days: vec![1],
+                hour: 8,
+                minute: 0
+            })
+        );
+        assert_eq!(edited.next_at, at(2026, 11, 9, 8, 0));
+        let stored = store::get(&agent.id).unwrap().check_ins;
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0], edited, "kept its place in the list");
+
+        // A routine can become a one-off, and the grammar's errors come through.
+        let once = edit_in(
+            &Eastern,
+            &agent.id,
+            &edited.id,
+            "tomorrow at 10",
+            "Once",
+            now(),
+        )
+        .unwrap();
+        assert_eq!(once.repeat, None);
+        assert!(edit_in(&Eastern, &agent.id, &edited.id, "soon", "x", now()).is_err());
+        assert!(edit_in(
+            &Eastern,
+            &agent.id,
+            &edited.id,
+            "tomorrow at 10",
+            " ",
+            now()
+        )
+        .is_err());
+        // Can't be edited into a copy of another, nor edit one that's gone.
+        assert!(edit_in(
+            &Eastern,
+            &agent.id,
+            &edited.id,
+            "friday at 9:00",
+            "Chase",
+            now()
+        )
+        .is_err());
+        assert!(edit_in(&Eastern, &agent.id, "gone", "friday at 9:00", "x", now()).is_err());
+        // Saving it unchanged is not a clash with itself.
+        assert!(edit_in(
+            &Eastern,
+            &agent.id,
+            &other.check_in.id,
+            "friday at 9:00",
+            "Chase",
+            now()
+        )
+        .is_ok());
         store::set_root_for_tests(None);
     }
 

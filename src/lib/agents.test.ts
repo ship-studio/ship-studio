@@ -18,6 +18,7 @@ import {
   describeRepeat,
   formatWhen,
   splitScheduleInput,
+  scheduleWhenPhrase,
   sortCheckIns,
   formatDivider,
   formatUsage,
@@ -39,7 +40,6 @@ import {
   mentionRuns,
   replyPreview,
   summarizeTeam,
-  teamSubtitle,
 } from './agents';
 
 const msg = (id: string, kind: AgentMessage['kind'], ts: number, peer?: string): AgentMessage => ({
@@ -446,11 +446,9 @@ describe('Team overview', () => {
     ]);
     expect(summary.scheduled.map((s) => s.checkIn.id)).toEqual(['soon', 'late']);
     expect(summary.replies.map((r) => r.message.id)).toEqual(['b1', 'a1']);
-    expect(teamSubtitle(agents)).toBe('1 working · 1 needs you');
-    expect(teamSubtitle([make('q')])).toBe('Nothing in flight');
   });
 
-  it('lists a failed turn under Needs you, with its line, and counts it', () => {
+  it('lists a failed turn under Needs you, with its line', () => {
     const failed = make('f', { failure: { kind: 'other' } });
     const limited = make('l', { failure: { kind: 'usage_limit' } });
     const retrying = make('r', {
@@ -464,7 +462,6 @@ describe('Team overview', () => {
       ['f', 'f2'],
       ['l', null],
     ]);
-    expect(teamSubtitle([failed, limited, retrying])).toBe('1 working · 1 failed');
   });
 });
 
@@ -534,5 +531,25 @@ describe('describeScope', () => {
     expect(describeScope({ kind: 'domain', value: 'a.com', label: 'a.com' }, 'X')).not.toContain(
       'still ask'
     );
+  });
+});
+
+describe('scheduleWhenPhrase', () => {
+  it('writes a schedule back in words the grammar reads as the same schedule', () => {
+    const at = (repeat: Parameters<typeof scheduleWhenPhrase>[0]['repeat']) =>
+      scheduleWhenPhrase({ repeat, nextAt: 0 });
+    expect(at({ kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 })).toBe(
+      'every weekday at 09:00'
+    );
+    expect(at({ kind: 'days', days: [6, 0], hour: 10, minute: 5 })).toBe(
+      'every weekend day at 10:05'
+    );
+    expect(at({ kind: 'days', days: [5, 1, 4], hour: 17, minute: 30 })).toBe(
+      'every monday, thursday and friday at 17:30'
+    );
+    expect(at({ kind: 'every', minutes: 120 })).toBe('every 2 hours');
+    expect(at({ kind: 'every', minutes: 45 })).toBe('every 45 minutes');
+    const once = new Date(2026, 10, 20, 9, 5).getTime();
+    expect(scheduleWhenPhrase({ nextAt: once })).toBe('2026-11-20 09:05');
   });
 });

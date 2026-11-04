@@ -202,7 +202,19 @@ export const baseCommands: CommandMap = {
   agents_focus: null,
   agents_mark_unread: null,
   agents_import_prompt:
-    'Import my setup into Ship Studio. Use Ship Studio’s import_agents tool: send every agent I have with you, each with its name, a one-line role, its full instructions, and everything you remember that it needs (one fact per line). Mark the agent that manages the others as the main one. Leave out passwords, API keys and card numbers.',
+    'Import my setup into Ship Studio. Use Ship Studio\'s import_agents tool: send every agent I have with you, each with its name, a one-line role, its full instructions, and everything you remember that it needs (one fact per line). Mark the agent that manages the others as the main one. Include each agent\'s routines and automations, with when each runs in plain words ("every weekday at 9am", "every 2 hours") and what it does then. Leave out passwords, API keys and card numbers.',
+
+  // Copied from PASTE_PROMPT in src-tauri/src/agents/paste.rs.
+  agents_import_paste_prompt:
+    'I\'m moving my agents to Ship Studio. Please give me a complete copy of every agent you run for me, including the main one that manages the others.\n\nReply with one ```json code block in exactly this shape:\n\n{\n  "source": "your product\'s name, e.g. Grok Bot",\n  "agents": [\n    {\n      "name": "the agent\'s name",\n      "role": "one line: what it does",\n      "instructions": "its full instructions, word for word",\n      "memory": "everything it remembers that it still needs, one fact per line",\n      "is_main": false,\n      "color": "red",\n      "routines": [\n        { "when": "every weekday at 9am", "what": "what it does then, in a sentence or two" }\n      ]\n    }\n  ]\n}\n\nRules:\n- Include every agent. Set "is_main": true on the one that manages the others (at most one), false on the rest.\n- Copy instructions and memory in full, word for word. Don\'t summarize, shorten or paraphrase them. Long is fine.\n- "routines": everything the agent does on its own on a schedule (routines, automations, reminders, recurring check-ins), one entry each. Write "when" in plain words, like "every weekday at 9am", "every monday at 8:30am", "every day at 7pm", "every 2 hours" or, for a one-off, "friday at 2pm". Start repeating ones with "every". Write "what" so the agent knows exactly what to do when it fires. Use [] if it has none.\n- "color" is optional: if the agent has one, use the closest of white, brown, red, orange, amber, green, teal, blue, purple, pink, gray. Otherwise leave it out.\n- Never include passwords, API keys, tokens, card numbers or any other credentials. If an instruction or memory contains one, write [removed] in its place.\n- Valid JSON only: straight double quotes, line breaks written as \\n inside strings, no comments, no trailing commas.\n- If it\'s too long for one message, split it into numbered ```json blocks (Part 1 of 3, Part 2 of 3, ...), each in the same shape and each holding whole agents. Never split one agent across blocks. Send the next part when I say "continue".\n- Put nothing but the JSON inside each code block.',
+  agents_import_paste_preview: { source: '', blocks: 0, agents: [], problems: [] },
+  agents_import_paste: {
+    created: [],
+    updated: [],
+    skipped: [],
+    routinesSet: [],
+    routinesRefused: [],
+  },
 
   // ---- surfaces reachable from anywhere -----------------------------------
   // These live in the base layer, not the workspace layer: Help, Skills, MCP
@@ -223,6 +235,22 @@ export const baseCommands: CommandMap = {
   get_remote_access_status: remoteStatus(),
   get_remote_access_brief: remoteBrief(),
   get_remote_audit: [],
+  // "Keep this Mac awake" (Agents): supported, not held — remote access is off.
+  get_stay_on: {
+    supported: true,
+    keepAwake: false,
+    keepRunning: false,
+    openAtLogin: false,
+    openAtLoginAvailable: true,
+  },
+  set_stay_on: {
+    supported: true,
+    keepAwake: true,
+    keepRunning: false,
+    openAtLogin: false,
+    openAtLoginAvailable: true,
+  },
+  close_to_background: false,
   list_claude_skills: [],
   list_env_files: [],
   list_mcp_servers: [],

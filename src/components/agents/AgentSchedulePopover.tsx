@@ -4,14 +4,23 @@
  *
  * The trigger reads "N scheduled", or is a quiet clock when there's nothing.
  * The composer takes "when: what" in one line and reads the time back as the
- * backend resolved it, so what you see is what will fire. Changes apply at
- * once and the list follows the agent registry.
+ * backend resolved it, so what you see is what will fire. Edit puts a row's
+ * own words back in that composer; Run now wakes the agent with it at once,
+ * leaving its next time alone. Changes apply at once and the list follows
+ * the agent registry.
  *
  * @module components/agents/AgentSchedulePopover
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { CloseIcon, HistoryIcon, PauseIcon, PlayIcon } from '@/components/icons';
+import {
+  CloseIcon,
+  EditFieldIcon,
+  HistoryIcon,
+  PauseIcon,
+  PlayIcon,
+  SkipNextIcon,
+} from '@/components/icons';
 import { Dropdown } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
 import { Button } from '../primitives/Button';
@@ -24,12 +33,16 @@ import {
   formatWhen,
   pauseCheckIn,
   previewSchedule,
+  runCheckInNow,
+  scheduleWhenPhrase,
   sortCheckIns,
   splitScheduleInput,
+  updateCheckIn,
   type Agent,
   type CheckIn,
   type SchedulePreview,
 } from '../../lib/agents';
+import { KeepAwakeLink } from './AgentsStayOn';
 import { refreshAgents } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useAsyncState } from '../../hooks/useAsyncState';
@@ -87,15 +100,17 @@ export function AgentSchedulePopover({ agent, open, onOpenChange }: AgentSchedul
         )
       }
     >
-      <ScheduleBody agent={agent} />
+      <ScheduleBody agent={agent} onRan={() => onOpenChange(false)} />
     </Dropdown>
   );
 }
 
 /** Mounted each time the popover opens, so it starts fresh with focus in the composer. */
-function ScheduleBody({ agent }: { agent: Agent }) {
+function ScheduleBody({ agent, onRan }: { agent: Agent; onRan: () => void }) {
   const items = sortCheckIns(agent.checkIns ?? []);
   const [text, setText] = useState('');
+  /** The row whose words are in the composer, if it's an edit. */
+  const [editing, setEditing] = useState<CheckIn | null>(null);
   const [preview, setPreview] = useState<SchedulePreview | string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -132,14 +147,35 @@ function ScheduleBody({ agent }: { agent: Agent }) {
   const parsed = when && preview !== null && typeof preview !== 'string' ? preview : null;
   const canAdd = parsed !== null && note.length > 0 && !busy;
 
+  const reset = () => {
+    setEditing(null);
+    setText('');
+    setPreview(null);
+    setError(null);
+  };
+
+  const startEdit = (c: CheckIn) => {
+    setEditing(c);
+    setError(null);
+    setText(`${scheduleWhenPhrase(c)}: ${c.note}`);
+    inputRef.current?.focus();
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape' && editing) {
+      // Leave the edit, not the popover.
+      e.preventDefault();
+      e.stopPropagation();
+      reset();
+      return;
+    }
     if (e.key !== 'Enter') return;
     e.preventDefault();
     if (!canAdd) return;
     void run(async () => {
-      await createCheckIn(agent.id, when, note);
-      setText('');
-      setPreview(null);
+      if (editing) await updateCheckIn(agent.id, editing.id, when, note);
+      else await createCheckIn(agent.id, when, note);
+      reset();
     });
   };
 
@@ -148,8 +184,8 @@ function ScheduleBody({ agent }: { agent: Agent }) {
   const invalid = problem !== null;
   let readback = 'A time, a colon, then what to do. Return adds it.';
   if (problem) readback = problem;
-  else if (parsed)
-    readback = note ? readBack(parsed) : `${readBack(parsed)} · then a colon and what to do`;
+  else if (parsed && !note) readback = `${readBack(parsed)} · then a colon and what to do`;
+  else if (parsed) readback = readBack(parsed);
   else if (when) readback = '\u00a0';
 
   return (
@@ -161,6 +197,14 @@ function ScheduleBody({ agent }: { agent: Agent }) {
               key={c.id}
               item={c}
               busy={busy}
+              editing={editing?.id === c.id}
+              onRunNow={() =>
+                void run(async () => {
+                  await runCheckInNow(agent.id, c.id);
+                  onRan();
+                })
+              }
+              onEdit={() => startEdit(c)}
               onTogglePause={() => void run(() => pauseCheckIn(agent.id, c.id, !c.paused))}
               onCancel={() => void run(() => cancelCheckIn(agent.id, c.id))}
             />
@@ -177,7 +221,11 @@ function ScheduleBody({ agent }: { agent: Agent }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="e.g. every weekday 9am: brief me on Acme"
-          aria-label="New check-in: when, a colon, then what to do"
+          aria-label={
+            editing
+              ? `Edit “${editing.note}”: when, a colon, then what to do`
+              : 'New check-in: when, a colon, then what to do'
+          }
           invalid={invalid}
           maxLength={640}
         />
@@ -191,7 +239,15 @@ function ScheduleBody({ agent }: { agent: Agent }) {
       </div>
 
       <p className="agent-schedule__foot">
-        Runs only while Ship Studio is open; a missed check-in runs once when it reopens.
+        {editing ? (
+          'Return saves the change; Esc leaves it as it was.'
+        ) : (
+          <>
+            Runs only while Ship Studio is running and this Mac is awake; a missed check-in runs
+            once when it’s back.
+            <KeepAwakeLink />
+          </>
+        )}
       </p>
     </div>
   );
@@ -200,21 +256,51 @@ function ScheduleBody({ agent }: { agent: Agent }) {
 function ScheduleRow({
   item,
   busy,
+  editing,
+  onRunNow,
+  onEdit,
   onTogglePause,
   onCancel,
 }: {
   item: CheckIn;
   busy: boolean;
+  editing: boolean;
+  onRunNow: () => void;
+  onEdit: () => void;
   onTogglePause: () => void;
   onCancel: () => void;
 }) {
   return (
-    <li className="agent-schedule__item" data-paused={item.paused || undefined}>
+    <li
+      className="agent-schedule__item"
+      data-paused={item.paused || undefined}
+      data-editing={editing || undefined}
+    >
       <div className="agent-schedule__text">
         <span className="agent-schedule__note">{item.note}</span>
         <span className="agent-schedule__when">{describeCheckInTime(item)}</span>
       </div>
       <div className="agent-schedule__actions">
+        <IconButton
+          tabIndex={0}
+          variant="ghost"
+          size="compact"
+          icon={<SkipNextIcon size={12} />}
+          onClick={onRunNow}
+          disabled={busy}
+          title="Run now"
+          aria-label={`Run “${item.note}” now`}
+        />
+        <IconButton
+          tabIndex={0}
+          variant="ghost"
+          size="compact"
+          icon={<EditFieldIcon size={12} />}
+          onClick={onEdit}
+          disabled={busy}
+          title="Edit"
+          aria-label={`Edit “${item.note}”`}
+        />
         {item.repeat && (
           <IconButton
             tabIndex={0}

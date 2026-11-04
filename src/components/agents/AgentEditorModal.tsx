@@ -7,7 +7,7 @@
  * @module components/agents/AgentEditorModal
  */
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
@@ -45,6 +45,33 @@ function UsageLines({ usage }: { usage: UsageSummary | null }) {
       <dt>All time</dt>
       <dd>{allTime}</dd>
     </dl>
+  );
+}
+
+/**
+ * What it can use, as Claude Code listed it when its last turn started
+ * (`agents/capabilities.rs`). Nothing is claimed before a turn has said.
+ */
+function CanDo({ agent }: { agent: Agent }) {
+  const lines = agent.capabilities?.lines ?? [];
+  return (
+    <div className="agent-editor__label" role="group" aria-label={`What ${agent.name} can do`}>
+      What {agent.name} can do
+      {lines.length === 0 ? (
+        <p className="agent-editor__hint">
+          Shown after its first turn, from what Claude Code says it can use.
+        </p>
+      ) : (
+        <dl className="agent-editor__usage agent-editor__can-do">
+          {lines.map((line) => (
+            <Fragment key={line.what}>
+              <dt>{line.what}</dt>
+              <dd>{line.detail}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+    </div>
   );
 }
 
@@ -108,6 +135,8 @@ interface AgentEditorModalProps {
   onDelete?: (agent: Agent) => void;
   /** Colours other agents already wear, so a new one starts on a free one. */
   takenColors?: string[];
+  /** Open "Apps your agents can use" over the editor. */
+  onOpenApps?: () => void;
 }
 
 /** The first colour nobody has yet; white and gray are left for the user to pick. */
@@ -122,6 +151,7 @@ export function AgentEditorModal({
   onSaved,
   onDelete,
   takenColors,
+  onOpenApps,
 }: AgentEditorModalProps) {
   const editing = Boolean(agent);
   // Keyed by the caller per open, so these start fresh each time.
@@ -245,6 +275,20 @@ export function AgentEditorModal({
 
         <AgentProjectField value={project} onChange={setProject} />
 
+        {onOpenApps && (
+          <div className="agent-editor__label" role="group" aria-label="Apps">
+            Apps
+            <div className="agent-editor__apps">
+              <p className="agent-editor__hint">
+                Every agent can use the apps your Claude Code is connected to.
+              </p>
+              <Button variant="secondary" size="compact" onClick={onOpenApps}>
+                Manage apps…
+              </Button>
+            </div>
+          </div>
+        )}
+
         {showBriefing ? (
           <div className="agent-editor__briefing">
             <label className="agent-editor__label">
@@ -271,6 +315,7 @@ export function AgentEditorModal({
               </p>
             )}
             <UsageLines usage={usage} />
+            {agent && <CanDo agent={agent} />}
             {agent && <Permissions agent={agent} />}
           </div>
         ) : (

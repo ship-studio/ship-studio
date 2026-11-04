@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, attachments, files, import, mcp, notify, project, prompts, runner, schedule, search,
-    store, usage,
+    self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner, schedule,
+    search, store, usage,
 };
 use crate::errors::CommandError;
 
@@ -563,6 +563,39 @@ pub async fn agents_import_prompt() -> Result<String, CommandError> {
     Ok(import::IMPORT_PROMPT.to_string())
 }
 
+/// What the user sends their other assistant to get its agents back as JSON
+/// they can paste here: the import path that needs no remote access.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_import_paste_prompt() -> Result<String, CommandError> {
+    Ok(paste::PASTE_PROMPT.to_string())
+}
+
+/// What importing a pasted reply would do: its agents, and what's wrong with it.
+#[tauri::command]
+#[tracing::instrument(skip(text))]
+pub async fn agents_import_paste_preview(text: String) -> Result<paste::Preview, CommandError> {
+    tokio::task::spawn_blocking(move || paste::preview(&text))
+        .await
+        .map_err(agents::err_other)?
+}
+
+/// Import a pasted reply through the same merge as the `import_agents` tool.
+/// Any problem in the paste refuses the whole import (a Validation error).
+#[tauri::command]
+#[tracing::instrument(skip(app, text))]
+pub async fn agents_import_paste(
+    app: AppHandle,
+    text: String,
+) -> Result<import::ImportSummary, CommandError> {
+    tokio::task::spawn_blocking(move || {
+        let (agents, source) = paste::for_import(&text)?;
+        import::import_and_notify(&app, agents, &source)
+    })
+    .await
+    .map_err(agents::err_other)?
+}
+
 /// What a `when` phrase means, as the user types it in the schedule popover:
 /// the resolved first time and, for a routine, how it repeats (structured, so
 /// the UI words it the same way it words the list). A parse error comes
@@ -618,4 +651,51 @@ pub async fn agents_schedule_pause(
     schedule::set_paused(&agent_id, &id, paused)?;
     emit_registry(&app);
     Ok(())
+}
+
+/// Change a check-in's when and what in place (same id, same paused state).
+#[tauri::command]
+#[tracing::instrument(skip(app, note))]
+pub async fn agents_schedule_update(
+    app: AppHandle,
+    agent_id: String,
+    id: String,
+    when: String,
+    note: String,
+) -> Result<schedule::CheckIn, CommandError> {
+    let edited = schedule::edit(&agent_id, &id, &when, &note)?;
+    emit_registry(&app);
+    Ok(edited)
+}
+
+/// Fire a check-in now as a normal wake; its next time doesn't move.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_schedule_run_now(
+    app: AppHandle,
+    agent_id: String,
+    id: String,
+) -> Result<(), CommandError> {
+    schedule::run_now(&app, &agent_id, &id)
+}
+
+/// The apps agents can use: Claude Code's MCP servers, and a short list to add.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_apps_list() -> Result<apps::Apps, CommandError> {
+    apps::list().await
+}
+
+/// Add one of the suggested apps for every agent (Claude Code user scope).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_apps_add(server_name: String) -> Result<(), CommandError> {
+    apps::add(&server_name).await
+}
+
+/// Remove a user-scope app from Claude Code.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_apps_remove(name: String) -> Result<(), CommandError> {
+    apps::remove(&name).await
 }

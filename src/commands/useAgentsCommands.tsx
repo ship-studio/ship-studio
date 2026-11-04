@@ -11,10 +11,13 @@ import {
   AgentsIcon,
   CollaboratorsIcon,
   DownloadIcon,
+  PlugIcon,
   PlusIcon,
   SearchIcon,
 } from '@/components/icons';
 import { useCommands } from './useCommands';
+import { useOptionalToast } from '../contexts/ToastContext';
+import { setStayOn, type StayOnChange } from '../lib/remoteAccess';
 import { useAgentsSelector, type AgentsState } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
 import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
@@ -22,6 +25,7 @@ import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
 type AgentsIntent =
   | { kind: 'new' }
   | { kind: 'import' }
+  | { kind: 'apps' }
   | { kind: 'search' }
   | { kind: 'open'; agentId: string };
 let pendingIntent: AgentsIntent | null = null;
@@ -40,14 +44,16 @@ export function requestAgentsIntent(intent: AgentsIntent) {
 export function useAgentsIntents(handlers: {
   onNewAgent: () => void;
   onImportAgents: () => void;
+  onApps: () => void;
   onOpenAgent: (agentId: string) => void;
   onSearch: () => void;
 }) {
-  const { onNewAgent, onImportAgents, onOpenAgent, onSearch } = handlers;
+  const { onNewAgent, onImportAgents, onApps, onOpenAgent, onSearch } = handlers;
   useEffect(() => {
     const listener = (intent: AgentsIntent) => {
       if (intent.kind === 'new') onNewAgent();
       else if (intent.kind === 'import') onImportAgents();
+      else if (intent.kind === 'apps') onApps();
       else if (intent.kind === 'search') onSearch();
       else onOpenAgent(intent.agentId);
     };
@@ -60,7 +66,7 @@ export function useAgentsIntents(handlers: {
     return () => {
       intentListeners.delete(listener);
     };
-  }, [onNewAgent, onImportAgents, onOpenAgent, onSearch]);
+  }, [onNewAgent, onImportAgents, onApps, onOpenAgent, onSearch]);
 }
 
 /** What the "Open <agent>" commands name: a status or a new message doesn't change them. */
@@ -69,8 +75,43 @@ const sameNames = (a: AgentsState['agents'], b: AgentsState['agents']) =>
   a.length === b.length &&
   a.every((x, i) => x.id === b[i].id && x.name === b[i].name && x.role === b[i].role);
 
+/** ⌘K switches for keeping agents going; the same settings as the first-run note. */
+const STAY_ON_COMMANDS: { id: string; title: string; change: StayOnChange; done: string }[] = [
+  {
+    id: 'awakeOn',
+    title: 'Keep this Mac awake for agents',
+    change: { keepAwake: true },
+    done: 'This Mac stays awake while Ship Studio is running',
+  },
+  {
+    id: 'awakeOff',
+    title: 'Let this Mac sleep again',
+    change: { keepAwake: false },
+    done: 'This Mac can sleep again; agents pause while it sleeps',
+  },
+  {
+    id: 'runningOn',
+    title: 'Keep agents running when the window closes',
+    change: { keepRunning: true },
+    done: 'Closing the window keeps agents going; ⌘Q still quits',
+  },
+  {
+    id: 'runningOff',
+    title: 'Quit when the window closes',
+    change: { keepRunning: false },
+    done: 'Closing the window quits Ship Studio again',
+  },
+  {
+    id: 'loginOn',
+    title: 'Open Ship Studio at login',
+    change: { openAtLogin: true },
+    done: 'Ship Studio opens when you log in',
+  },
+];
+
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
   const agents = useAgentsSelector(selectAgents, sameNames);
+  const { showToast } = useOptionalToast();
   // A clicked notification (the backend already focused this window): open that agent.
   useEffect(() => {
     const unlisten = listen<string>(AGENT_EVENTS.open, (e) => {
@@ -103,10 +144,19 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
       },
       {
         id: 'agents.team',
-        title: 'Team: what’s in flight',
+        title: 'What’s in flight',
         icon: <CollaboratorsIcon size={14} />,
         category: 'navigation',
-        keywords: ['agents', 'tasks', 'working', 'approvals', 'scheduled', 'overview', 'status'],
+        keywords: [
+          'agents',
+          'team',
+          'tasks',
+          'working',
+          'approvals',
+          'scheduled',
+          'overview',
+          'status',
+        ],
         run: () => {
           requestAgentsIntent({ kind: 'open', agentId: TEAM_ID });
           setView('agents');
@@ -134,6 +184,47 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
           setView('agents');
         },
       },
+      {
+        id: 'agents.apps',
+        title: 'Connect an app for agents…',
+        icon: <PlugIcon size={14} />,
+        category: 'navigation',
+        keywords: [
+          'agents',
+          'mcp',
+          'gmail',
+          'calendar',
+          'slack',
+          'notion',
+          'linear',
+          'connectors',
+          'integrations',
+        ],
+        run: () => {
+          requestAgentsIntent({ kind: 'apps' });
+          setView('agents');
+        },
+      },
+      // Reachable any time, not only from the first-run screen: agents run on
+      // this Mac, so they pause when it sleeps and stop when the app quits.
+      ...STAY_ON_COMMANDS.map((c) => ({
+        id: `agents.stayOn.${c.id}`,
+        title: c.title,
+        icon: <AgentsIcon size={14} />,
+        category: 'navigation' as const,
+        keywords: ['agents', 'awake', 'sleep', 'background', 'always on', 'login', 'close'],
+        run: async () => {
+          try {
+            const result = await setStayOn(c.change);
+            showToast(
+              result.supported ? c.done : 'Only available on macOS',
+              result.supported ? 'success' : 'info'
+            );
+          } catch (err) {
+            showToast(`Couldn't change that setting: ${String(err)}`, 'error');
+          }
+        },
+      })),
       // One per agent, so typing its name in ⌘K opens it.
       ...agents.map((agent) => ({
         id: `agents.open.${agent.id}`,
@@ -147,6 +238,6 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
         },
       })),
     ],
-    [setView, agents]
+    [setView, agents, showToast]
   );
 }

@@ -163,8 +163,11 @@ pub fn run() {
             // the Dock badge starts from what's left once those expire.
             agents::notify::init(_app.handle());
             let badge_app = _app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                agents::store::expire_stale_approvals();
+            tauri::async_runtime::spawn(async move {
+                let _ = tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals)
+                    .await;
+                // A turn the last run quit in the middle of: stop its process, say so.
+                agents::runner::recover_after_restart(&badge_app).await;
                 agents::notify::refresh_badge(&badge_app);
             });
             // Agents' check-ins and routines: one tick a minute, only while open.
@@ -180,6 +183,13 @@ pub fn run() {
                         tracing::error!("[AgentBridge] Failed to start global bridge: {}", e);
                     }
                 });
+            }
+
+            // "Keep this Mac awake" (Agents) is a standing preference: hold it again.
+            if commands::setup::read_app_state().keep_awake == Some(true) {
+                if let Err(e) = remote_access::power::set_keep_awake_asked(true, false) {
+                    tracing::error!("[Power] Could not keep the Mac awake at launch: {}", e);
+                }
             }
 
             // Remote access: if the user left it on, bring it back — a Mac that
@@ -583,10 +593,18 @@ pub fn run() {
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,
+            commands::agents::agents_import_paste_prompt,
+            commands::agents::agents_import_paste_preview,
+            commands::agents::agents_import_paste,
             commands::agents::agents_schedule_preview,
             commands::agents::agents_schedule_create,
             commands::agents::agents_schedule_cancel,
             commands::agents::agents_schedule_pause,
+            commands::agents::agents_schedule_update,
+            commands::agents::agents_schedule_run_now,
+            commands::agents::agents_apps_list,
+            commands::agents::agents_apps_add,
+            commands::agents::agents_apps_remove,
             commands::agents::agents_search,
             commands::agents::agents_usage,
             commands::workflows::list_all_workflows,
@@ -879,6 +897,8 @@ pub fn run() {
             // Remote access
             commands::remote_access::get_remote_access_status,
             commands::remote_access::get_remote_access_brief,
+            commands::remote_access::get_stay_on,
+            commands::remote_access::set_stay_on,
             commands::remote_access::copy_remote_link,
             commands::remote_access::set_remote_push_pin,
             commands::remote_access::clear_remote_push_pin,
@@ -1008,6 +1028,7 @@ pub fn run() {
             // Window / Compact Mode
             commands::window::set_always_on_top,
             commands::window::set_window_title,
+            commands::window::close_to_background,
             // Clipboard (Windows terminal paste)
             commands::clipboard::read_clipboard_text,
             commands::clipboard::stage_clipboard_image,
@@ -1015,6 +1036,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
+            // Dock icon clicked while every window is hidden (closed with
+            // "Keep running when windows close" on): bring them back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                commands::window::reopen_hidden_windows(_app);
+            }
             if let tauri::RunEvent::Exit = event {
                 // The quit path calls exit(0) after preventDefault() on the
                 // close request, so WindowEvent::Destroyed cleanup never runs.

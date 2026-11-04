@@ -228,6 +228,7 @@ pub fn init(app: &AppHandle) {
         };
         let _ = window.unminimize();
         let _ = window.show();
+        crate::commands::window::forget_hidden_window(window.label());
         let _ = window.set_focus();
         let _ = handle.emit_to(window.label(), EVENT_OPEN, agent_id);
     });
@@ -295,6 +296,7 @@ mod tests {
             permissions: Vec::new(),
             failure: None,
             project: None,
+            capabilities: None,
         }
     }
 

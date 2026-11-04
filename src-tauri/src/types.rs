@@ -891,6 +891,15 @@ pub struct AppState {
     /// automatic stop behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_dev_servers_running: Option<bool>,
+    /// Hold the Mac awake while Ship Studio is open, so agents and check-ins
+    /// keep running. Opt-in; remote access holds it awake on its own too.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_awake: Option<bool>,
+    /// Closing a window hides it and Ship Studio keeps running, so agents and
+    /// check-ins keep going (macOS). Opt-in: `None` keeps the old behaviour,
+    /// where closing a window quits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_running_when_closed: Option<bool>,
     /// Whether the dashboard home header is hidden
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_header_hidden: Option<bool>,

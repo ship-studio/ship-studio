@@ -4,6 +4,7 @@
 //! experience running on the user's own Claude Code. One of them, the Chief of
 //! Staff, manages the rest: it creates, briefs, delegates to and deletes them.
 //!
+//! - [`apps`]: the user's Claude Code MCP servers, which every turn loads
 //! - [`store`]: the registry and each agent's home (CLAUDE.md + chat log)
 //! - [`runner`]: per-agent inbox; each turn is one `claude --print --resume`
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
@@ -22,18 +23,22 @@
 //!
 //! Full design: docs/agents.md.
 
+pub mod apps;
 pub mod attachments;
+pub mod capabilities;
 pub mod failure;
 pub mod files;
 pub mod import;
 pub mod mcp;
 pub mod notify;
+pub mod paste;
 pub mod permissions;
 pub mod project;
 pub mod prompts;
 pub mod runner;
 pub mod schedule;
 pub mod search;
+pub mod sessions;
 pub mod store;
 pub mod stream;
 pub mod usage;

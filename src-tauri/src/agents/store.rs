@@ -88,6 +88,9 @@ pub struct Agent {
     /// CLAUDE.md and settings load; `None` runs in its home, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// What its last turn could use, as Claude Code itself listed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<super::capabilities::Capabilities>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +123,9 @@ pub enum MessageKind {
     Note,
     /// Files a project-bound agent's turn changed in its project (`changes`).
     Changes,
+    /// The agent worked in a project's session (`session`): started one,
+    /// sent it a message, its reply, or a preview screenshot.
+    Session,
 }
 
 impl MessageKind {
@@ -206,6 +212,8 @@ pub struct AgentMessage {
     pub failure: Option<super::failure::Failure>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<super::project::ChangeSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<super::sessions::SessionMark>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -279,30 +287,82 @@ fn registry_path() -> Result<PathBuf, CommandError> {
 
 fn read_registry() -> Result<Registry, CommandError> {
     let path = registry_path()?;
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).map_err(|e| {
-            super::err_other(format!(
-                "The agents registry at {} is unreadable: {e}",
-                path.display()
-            ))
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Registry::default()),
-        Err(e) => Err(super::err_io(e.to_string())),
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Registry::default()),
+        Err(e) => return Err(super::err_io(e.to_string())),
+    };
+    match serde_json::from_str(&raw) {
+        Ok(registry) => Ok(registry),
+        Err(e) => recover_registry(&path, &raw, &e.to_string()),
     }
+}
+
+/// The registry didn't parse (a crash or a full disk mid-write, or a bad hand
+/// edit). Load what can still be read, rather than every agent vanishing: the
+/// entries that parse one by one, else the copy kept beside it on every write.
+/// The damaged file is kept aside first, because the recovered one replaces it.
+fn recover_registry(path: &Path, raw: &str, why: &str) -> Result<Registry, CommandError> {
+    let backup = std::fs::read_to_string(path.with_extension("json.bak"))
+        .ok()
+        .and_then(|b| serde_json::from_str::<Registry>(&b).ok());
+    let salvaged = salvage_entries(raw);
+    // Whichever kept more agents: a parse that dropped a bad entry, or the last good copy.
+    let recovered = match (salvaged, backup) {
+        (Some(s), Some(b)) if b.agents.len() > s.agents.len() => b,
+        (Some(s), _) => s,
+        (None, Some(b)) => b,
+        (None, None) => {
+            return Err(super::err_other(format!(
+                "The agents registry at {} is unreadable: {why}",
+                path.display()
+            )))
+        }
+    };
+    let aside = path.with_extension(format!("json.corrupt-{}", now_ms()));
+    std::fs::copy(path, &aside).map_err(|e| super::err_io(e.to_string()))?;
+    tracing::error!(
+        "[Agents] registry unreadable ({why}); recovered {} agents, damaged copy kept at {}",
+        recovered.agents.len(),
+        aside.display()
+    );
+    write_registry(&recovered)?;
+    Ok(recovered)
+}
+
+/// Every entry of a registry that is valid JSON but has a bad agent in it.
+fn salvage_entries(raw: &str) -> Option<Registry> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let agents = value
+        .get("agents")?
+        .as_array()?
+        .iter()
+        .filter_map(|a| serde_json::from_value(a.clone()).ok())
+        .collect();
+    Some(Registry { agents })
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommandError> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| super::err_io(e.to_string()))?;
     }
-    let tmp = path.with_extension("tmp");
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
     std::fs::write(&tmp, bytes).map_err(|e| super::err_io(e.to_string()))?;
     std::fs::rename(&tmp, path).map_err(|e| super::err_io(e.to_string()))
 }
 
+/// Written twice: the copy is what [`recover_registry`] falls back on if the
+/// main file is ever torn.
 fn write_registry(registry: &Registry) -> Result<(), CommandError> {
     let json = serde_json::to_vec_pretty(registry).map_err(|e| super::err_other(e.to_string()))?;
-    write_atomic(&registry_path()?, &json)
+    let path = registry_path()?;
+    write_atomic(&path, &json)?;
+    if let Err(e) = write_atomic(&path.with_extension("json.bak"), &json) {
+        tracing::warn!("[Agents] registry backup not written: {e}");
+    }
+    Ok(())
 }
 
 pub fn list() -> Result<Vec<Agent>, CommandError> {
@@ -438,6 +498,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         permissions: Vec::new(),
         failure: None,
         project: None,
+        capabilities: None,
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -534,10 +595,26 @@ pub fn append_message(message: &AgentMessage) -> Result<(), CommandError> {
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(&path)
         .map_err(|e| super::err_io(e.to_string()))?;
+    // A crash mid-append leaves a last line with no newline. Appending straight
+    // after it would fuse this message into that broken line and lose it too.
+    if !ends_with_newline(&mut file) {
+        line.insert(0, '\n');
+    }
     file.write_all(line.as_bytes())
         .map_err(|e| super::err_io(e.to_string()))
+}
+
+/// True for an empty file, or one whose last byte is a newline.
+fn ends_with_newline(file: &mut std::fs::File) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    if file.seek(SeekFrom::End(-1)).is_err() {
+        return true;
+    }
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last).is_err() || last[0] == b'\n'
 }
 
 fn read_log(agent_id: &str) -> Result<Vec<AgentMessage>, CommandError> {
@@ -756,7 +833,12 @@ mod tests {
                     id: format!("m{i}"),
                     agent_id: a.id.clone(),
                     ts: i,
-                    kind: MessageKind::User,
+                    // Session lines page like any other line.
+                    kind: if i % 3 == 0 {
+                        MessageKind::Session
+                    } else {
+                        MessageKind::User
+                    },
                     text: format!("line {i}"),
                     peer: None,
                     approval: None,
@@ -766,6 +848,13 @@ mod tests {
                     mentions: Vec::new(),
                     failure: None,
                     changes: None,
+                    session: (i % 3 == 0).then(|| crate::agents::sessions::SessionMark {
+                        project: "/p".into(),
+                        event: crate::agents::sessions::SessionEvent::Sent,
+                        session_id: Some("s1".into()),
+                        tab: Some(1),
+                        cli: Some("claude".into()),
+                    }),
                 })
                 .unwrap();
             }
@@ -883,6 +972,7 @@ mod tests {
                 mentions: Vec::new(),
                 failure: None,
                 changes: None,
+                session: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();
@@ -902,6 +992,101 @@ mod tests {
             assert_eq!(
                 log[1].approval.as_ref().unwrap().status,
                 ApprovalStatus::Expired
+            );
+        });
+    }
+
+    fn note(agent_id: &str, text: &str) -> AgentMessage {
+        AgentMessage {
+            id: new_id(),
+            agent_id: agent_id.into(),
+            ts: now_ms(),
+            kind: MessageKind::Note,
+            text: text.into(),
+            peer: None,
+            approval: None,
+            attachments: Vec::new(),
+            check_in: None,
+            stopped: false,
+            mentions: Vec::new(),
+            changes: None,
+            failure: None,
+            session: None,
+        }
+    }
+
+    #[test]
+    fn a_torn_last_line_doesnt_swallow_the_next_message() {
+        with_root(|| {
+            let a = create(new("Finance")).unwrap();
+            append_message(&note(&a.id, "one")).unwrap();
+            let path = log_path(&a.id).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            f.write_all(br#"{"id":"torn","kind":"us"#).unwrap();
+            append_message(&note(&a.id, "two")).unwrap();
+            let texts: Vec<String> = messages(&a.id, 10)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.text)
+                .collect();
+            assert_eq!(texts, ["one", "two"]);
+        });
+    }
+
+    #[test]
+    fn a_torn_registry_comes_back_from_its_copy_and_is_kept_aside() {
+        with_root(|| {
+            create(new("Finance")).unwrap();
+            create(new("Travel")).unwrap();
+            let path = registry_path().unwrap();
+            let raw = std::fs::read(&path).unwrap();
+            std::fs::write(&path, &raw[..raw.len() / 2]).unwrap();
+            assert_eq!(list().unwrap().len(), 2);
+            let aside = std::fs::read_dir(agents_root().unwrap())
+                .unwrap()
+                .flatten()
+                .filter(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with("agents.json.corrupt-")
+                })
+                .count();
+            assert_eq!(aside, 1);
+            // Repaired on disk: the next read neither recovers nor copies again.
+            assert_eq!(list().unwrap().len(), 2);
+        });
+    }
+
+    #[test]
+    fn one_bad_entry_doesnt_hide_the_rest() {
+        with_root(|| {
+            create(new("Finance")).unwrap();
+            create(new("Travel")).unwrap();
+            let path = registry_path().unwrap();
+            let mut value: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            value["agents"][0]["shape"] = serde_json::json!("not a number");
+            std::fs::write(&path, value.to_string()).unwrap();
+            std::fs::remove_file(path.with_extension("json.bak")).unwrap();
+            let names: Vec<String> = list().unwrap().into_iter().map(|a| a.name).collect();
+            assert_eq!(names, ["Travel"]);
+        });
+    }
+
+    #[test]
+    fn an_unrecoverable_registry_is_an_error_not_an_empty_list() {
+        with_root(|| {
+            create(new("Finance")).unwrap();
+            let path = registry_path().unwrap();
+            std::fs::write(&path, b"{\"agents\": [").unwrap();
+            std::fs::remove_file(path.with_extension("json.bak")).unwrap();
+            assert!(list().is_err());
+            assert!(
+                create(new("Travel")).is_err(),
+                "must not overwrite what it couldn't read"
             );
         });
     }

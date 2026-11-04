@@ -29,7 +29,18 @@ use crate::errors::CommandError;
 /// So we answer first, at 240s, with "paused for the user" — and the card stays
 /// live. A late Allow grants exactly that call and wakes the agent.
 pub const APPROVAL_WAIT_SECS: u64 = 240;
-const APPROVAL_WAIT: Duration = Duration::from_secs(APPROVAL_WAIT_SECS);
+
+/// The wait, shortened in debug builds by `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS`
+/// so the end-to-end suite (examples/agents_e2e.rs) can reach the late-Allow
+/// path without sitting out four minutes.
+fn approval_wait() -> Duration {
+    let override_secs = cfg!(debug_assertions)
+        .then(|| std::env::var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS").ok())
+        .flatten()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| *s < APPROVAL_WAIT_SECS);
+    Duration::from_secs(override_secs.unwrap_or(APPROVAL_WAIT_SECS))
+}
 
 /// One-time grants from late Allows: (agent id, tool, input). The next
 /// matching `approve` call from that agent is allowed without a card.
@@ -59,7 +70,7 @@ fn take_grant(agent_id: &str, tool: &str, input: &Value) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Answer {
+pub(super) enum Answer {
     Allowed,
     /// With what the user said, if they said why.
     Denied(Option<String>),
@@ -117,12 +128,6 @@ const TOOLS: &[Tool] = &[
         }),
     },
     Tool {
-        name: "list_projects",
-        description: "The user's Ship Studio projects: name and folder path. Work on a project by using its path.",
-        main_only: false,
-        schema: || json!({ "type": "object", "properties": {} }),
-    },
-    Tool {
         name: "create_agent",
         description: "Create a new agent with a standing responsibility. It appears in the user's sidebar immediately. Optionally hand it a first task.",
         main_only: true,
@@ -133,7 +138,7 @@ const TOOLS: &[Tool] = &[
                 "role": { "type": "string", "description": "One line: what this agent is responsible for." },
                 "instructions": { "type": "string", "description": "A briefing, as if for a new hire: context, standing rules, who's who, where things live." },
                 "color": { "type": "string", "enum": store::COLORS },
-                "project": { "type": "string", "description": "Optional: the Ship Studio project it owns (name or path from list_projects). Its turns then run inside that project, with the project's own CLAUDE.md and settings." },
+                "project": { "type": "string", "description": "Optional: bind it to one Ship Studio project (name or path from project_list), so its own turns run inside that project. Usually unnecessary: any agent can work on any project through sessions." },
                 "first_task": { "type": "string", "description": "Optional message to start it on right away." }
             },
             "required": ["name", "role", "instructions"]
@@ -141,7 +146,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "update_agent",
-        description: "Change an agent's name, role, instructions or project. Instructions replace the old ones; its memory is kept. `project` takes a name or path from list_projects, or \"none\" to unbind it.",
+        description: "Change an agent's name, role, instructions or project. Instructions replace the old ones; its memory is kept. `project` takes a name or path from project_list, or \"none\" to unbind it.",
         main_only: true,
         schema: || json!({
             "type": "object",
@@ -241,16 +246,18 @@ pub fn initialize_result(params: Option<&Value>) -> Value {
         "protocolVersion": requested,
         "capabilities": { "tools": {} },
         "serverInfo": { "name": "shipstudio-agents", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": "Your team in Ship Studio: other agents you can message, the user's projects, and (for the Chief of Staff) creating and managing agents."
+        "instructions": "Ship Studio: the user's projects, which you work on through their sessions (project_* and session_* tools), other agents you can message, and (for the Chief of Staff) creating and managing agents."
     })
 }
 
 fn tools_list(caller: &store::Agent) -> Value {
-    let tools: Vec<Value> = TOOLS
+    let mut tools: Vec<Value> = TOOLS
         .iter()
         .filter(|t| !t.main_only || caller.is_main)
         .map(|t| json!({ "name": t.name, "description": t.description, "inputSchema": (t.schema)() }))
         .collect();
+    // Every agent works on projects the same way.
+    tools.extend(super::sessions::definitions());
     json!({ "tools": tools })
 }
 
@@ -278,6 +285,9 @@ pub async fn handle_rpc(app: &AppHandle, agent_id: &str, message: &Value) -> Val
                 .and_then(|p| p.get("arguments"))
                 .cloned()
                 .unwrap_or_else(|| json!({}));
+            if let Some(tool) = super::sessions::find(name) {
+                return ok(super::sessions::call(app, &caller, tool, &args).await);
+            }
             let Some(tool) = TOOLS.iter().find(|t| t.name == name) else {
                 return fail(-32602, &format!("Unknown tool: {name}"));
             };
@@ -303,7 +313,6 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
     match name {
         "list_agents" => list_agents(caller),
         "message_agent" => message_agent(app, caller, args),
-        "list_projects" => list_projects().await,
         "share_file" => share_file(app, caller, args).await,
         "create_agent" => create_agent(app, caller, args).await,
         "update_agent" => update_agent(app, caller, args).await,
@@ -435,20 +444,6 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
         "Delivered to {}. They'll message you back if they need to; don't wait on it.",
         target.name
     ))
-}
-
-async fn list_projects() -> Value {
-    match crate::commands::projects::list_projects().await {
-        Ok(projects) if projects.is_empty() => text("The user has no Ship Studio projects yet."),
-        Ok(projects) => text(
-            projects
-                .iter()
-                .map(|p| format!("- {}: {}", p.name, p.path))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-        Err(e) => error(format!("Couldn't list projects: {e}")),
-    }
 }
 
 /// Copy a file the agent made into its chat as a message from it. Only files
@@ -741,7 +736,7 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
 ///
 /// `call` is the Claude Code tool call the card is about, if any. Those cards
 /// outlive the wait (see APPROVAL_WAIT_SECS); cards without one expire with it.
-async fn ask_user(
+pub(super) async fn ask_user(
     app: &AppHandle,
     caller: &store::Agent,
     title: String,
@@ -771,7 +766,7 @@ async fn ask_user(
         },
     );
 
-    let answer = match tokio::time::timeout(APPROVAL_WAIT, rx).await {
+    let answer = match tokio::time::timeout(approval_wait(), rx).await {
         Ok(Ok(true)) => Answer::Allowed,
         // The command wrote the decision (and any note) before waking us.
         Ok(Ok(false)) => Answer::Denied(
@@ -816,7 +811,7 @@ async fn ask_user(
 
 /// The card for a request. Only a Claude Code tool call can be always
 /// allowed: Ship Studio's own confirmations (delete an agent) never offer it.
-fn new_card(
+pub(super) fn new_card(
     request_id: String,
     title: String,
     detail: String,
@@ -1247,6 +1242,7 @@ mod tests {
             permissions: Vec::new(),
             failure: None,
             project: None,
+            capabilities: None,
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

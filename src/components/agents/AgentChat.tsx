@@ -41,6 +41,7 @@ import { AgentModelMenu } from './AgentModelMenu';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
+import { AgentsStayOnNote } from './AgentsStayOn';
 import { AgentSchedulePopover } from './AgentSchedulePopover';
 import { AgentFilesModal } from './AgentFilesModal';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
@@ -70,6 +71,7 @@ import {
   WorkingIndicator,
 } from './AgentChatItems';
 import { AgentProjectChip, ChangeCard } from './AgentProject';
+import { SessionCard } from './AgentSession';
 import {
   answerApproval,
   buildChatItems,
@@ -174,6 +176,9 @@ interface AgentChatProps extends AgentActions {
   onJumped?: () => void;
 }
 
+/** Unsent composer text per agent, for the life of the window. */
+const unsentText = new Map<string, string>();
+
 function statusLabel(agent: Agent): string | null {
   if (needsYou(agent)) return 'Needs your OK';
   if (agent.status.state === 'working') return 'Working';
@@ -205,7 +210,13 @@ export function AgentChat({
     [rawDraft, draftText]
   );
   const { showToast } = useOptionalToast();
-  const [draft, setDraft] = useState('');
+  // Kept outside the component: an agent opening a project switches this
+  // window away from Agents and back, and what you were typing survives it.
+  const [draft, setDraft] = useState(() => unsentText.get(agent.id) ?? '');
+  useEffect(() => {
+    if (draft) unsentText.set(agent.id, draft);
+    else unsentText.delete(agent.id);
+  }, [agent.id, draft]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -786,6 +797,8 @@ export function AgentChat({
               );
             case 'changes':
               return <ChangeCard key={m.id} message={m} arrived={arrived} />;
+            case 'session':
+              return <SessionCard key={m.id} message={m} agent={rowAgent} arrived={arrived} />;
             default:
               return null;
           }
@@ -934,6 +947,7 @@ export function AgentChat({
                       </Button>
                     </div>
                   )}
+                  <AgentsStayOnNote />
                 </>
               ) : (
                 <>
