@@ -278,13 +278,21 @@ the same predicate as replies, and is recorded after the wake starts, so it
 falls inside the turn. Notifications use the same predicate, so a check-in
 and its answer post one notification per turn.
 
-## When the Mac sleeps or Ship Studio quits
+## When the Mac sleeps, a window closes, or Ship Studio quits
 
 Agents are not a service. Each turn is one `claude --print --resume <session>`
 process that Ship Studio starts on this Mac and reads to the end, and the
 check-in tick is a loop inside the app. So:
 
-- **Ship Studio quits.** The turn in progress ends with it: its Claude Code
+- **A window closes.** By default closing a window quits Ship Studio (the
+  frontend's close handler calls `exit`), so it is the same as quitting. With
+  **Keep running when closed** on (opt-in, macOS), the window is hidden
+  instead (`close_to_background`) and nothing stops: agents, check-ins,
+  terminals and dev servers in that window carry on. Hiding rather than
+  destroying matters, because a destroyed main window runs the global cleanup
+  that kills agent processes. Clicking the Dock icon brings hidden windows
+  back (`RunEvent::Reopen`); so do a notification and opening that project.
+- **Ship Studio quits** (⌘Q, or a close with the option off). The turn in progress ends with it: its Claude Code
   process is stopped on the way out (`cleanup_agent_processes`), and any that
   outlived a crash are cleaned up at the next launch. What the agent already
   did (files written, commands run) stands. Messages queued behind that turn
@@ -303,18 +311,32 @@ check-in tick is a loop inside the app. So:
   the turn can end in an error, shown with Retry like any other. A check-in due during sleep is
   late, under the same rules.
 
-"Keep this Mac awake" holds the same idle-sleep assertion remote access uses
-(`remote_access::power::start_keep_awake`, `caffeinate -i -s -m -w <pid>`), as
-a standing preference of its own (`AppState.keep_awake`, held again at launch;
-`get_keep_awake` / `set_keep_awake`). It dies with the app, `-s` only holds
-on mains power, and it can't stop a laptop sleeping when the lid closes (see
-remote access's lid-closed mode). Turning remote access off leaves it held if
-the user asked for it here. It is offered in two quiet places only: under the
-Chief of Staff's first-run starters ("Agents run on this Mac. They pause when
-it sleeps or Ship Studio quits.", replaced by "This Mac stays awake while Ship
-Studio is open" once held, with one line suggesting an always-on Mac, such as
-a Mac mini or a cloud Mac, for round-the-clock agents), and as a link at the
-end of the schedule popover's footnote. Elsewhere than macOS neither shows.
+Three things help, offered together (`get_stay_on` / `set_stay_on`), each read
+back from the thing itself:
+
+- **Keep this Mac awake** holds the same idle-sleep assertion remote access
+  uses (`remote_access::power::start_keep_awake`, `caffeinate -i -s -m -w
+  <pid>`), as a standing preference of its own (`AppState.keep_awake`, held
+  again at launch). It dies with the app, `-s` only holds on mains power, and
+  it can't stop a laptop sleeping when the lid closes (see remote access's
+  lid-closed mode). Turning remote access off leaves it held if the user asked
+  for it here.
+- **Keep running when closed** (`AppState.keep_running_when_closed`) is
+  opt-in because it changes what closing a window does for every project, not
+  only Agents. Nobody who hasn't turned it on here sees any difference.
+- **Open at login** is remote access's own login item
+  (`remote_access::power::set_open_at_login`, the
+  `studio.ship.reopen-at-login` LaunchAgent): one file, so turning it on or off
+  here shows in remote access's checklist too. Hidden in a dev build, which has
+  no installed app to reopen.
+
+They are offered in two quiet places only: under the Chief of Staff's
+first-run starters, with a line that says what happens ("Closing Ship Studio
+stops them, and sleep pauses them.", or with Keep running on, "Closing the
+window keeps them going; quitting stops them, and sleep pauses them.") and one
+line suggesting an always-on Mac, such as a Mac mini or a cloud Mac, for
+round-the-clock agents; and as a "Keep this Mac awake" link at the end of the
+schedule popover's footnote. Elsewhere than macOS none of it shows.
 
 ## Search, model and usage
 

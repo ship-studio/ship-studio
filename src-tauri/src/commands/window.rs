@@ -170,3 +170,85 @@ pub async fn set_window_title(window: Window, title: String) -> Result<(), Comma
 
     Ok(())
 }
+
+// ============================================================================
+// Keep running when windows close (opt-in, macOS)
+// ============================================================================
+
+/// Windows hidden by a close while "Keep running when windows close" is on.
+/// Clicking the Dock icon brings them back (`reopen_hidden_windows`).
+static HIDDEN_BY_CLOSE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether a window close should hide it rather than quit. Opt-in so nobody
+/// who never asked finds Ship Studio still running after closing it.
+pub fn keep_running_when_closed() -> bool {
+    cfg!(target_os = "macos") && read_app_state().keep_running_when_closed == Some(true)
+}
+
+/// Called by the frontend's close-request handler before it quits. With the
+/// preference on, hides the window instead (so its agents, terminals and
+/// check-ins keep going) and answers `true`; otherwise `false`, and the
+/// caller quits exactly as before.
+///
+/// Hiding rather than destroying matters: a destroyed main window runs the
+/// global cleanup that kills agent processes.
+#[tauri::command]
+#[tracing::instrument(skip(window), fields(label = %window.label()))]
+pub async fn close_to_background(window: tauri::WebviewWindow) -> Result<bool, CommandError> {
+    if !keep_running_when_closed() {
+        return Ok(false);
+    }
+    let label = window.label().to_string();
+    {
+        let mut hidden = HIDDEN_BY_CLOSE.lock().unwrap_or_else(|e| e.into_inner());
+        if !hidden.contains(&label) {
+            hidden.push(label.clone());
+        }
+    }
+    if window.is_fullscreen().unwrap_or(false) {
+        // Hiding a full-screen window leaves an empty Space behind; leave
+        // full screen first and hide once the animation has had time to run.
+        window
+            .set_fullscreen(false)
+            .map_err(|e| format!("Failed to leave full screen: {e}"))?;
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    }
+    window
+        .hide()
+        .map_err(|e| format!("Failed to hide window: {e}"))?;
+    tracing::info!("Window {} hidden; Ship Studio keeps running", label);
+    Ok(true)
+}
+
+/// The Dock icon was clicked with nothing on screen: bring back what a close
+/// hid. Falls back to the main window if the list is empty.
+pub fn reopen_hidden_windows(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let labels: Vec<String> =
+        std::mem::take(&mut *HIDDEN_BY_CLOSE.lock().unwrap_or_else(|e| e.into_inner()));
+    let windows = app.webview_windows();
+    let mut shown = false;
+    for label in &labels {
+        if let Some(w) = windows.get(label) {
+            let _ = w.show();
+            let _ = w.set_focus();
+            shown = true;
+        }
+    }
+    if !shown {
+        if let Some(w) = windows.get("main").or_else(|| windows.values().next()) {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+}
+
+/// A window shown again some other way (a notification, opening its
+/// project) is no longer one the Dock needs to bring back.
+pub fn forget_hidden_window(label: &str) {
+    HIDDEN_BY_CLOSE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|l| l != label);
+}

@@ -16,7 +16,7 @@ import {
 } from '@/components/icons';
 import { useCommands } from './useCommands';
 import { useOptionalToast } from '../contexts/ToastContext';
-import { setKeepAwake } from '../lib/remoteAccess';
+import { setStayOn, type StayOnChange } from '../lib/remoteAccess';
 import { useAgents } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
 import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
@@ -64,6 +64,40 @@ export function useAgentsIntents(handlers: {
     };
   }, [onNewAgent, onImportAgents, onOpenAgent, onSearch]);
 }
+
+/** ⌘K switches for keeping agents going; the same settings as the first-run note. */
+const STAY_ON_COMMANDS: { id: string; title: string; change: StayOnChange; done: string }[] = [
+  {
+    id: 'awakeOn',
+    title: 'Keep this Mac awake for agents',
+    change: { keepAwake: true },
+    done: 'This Mac stays awake while Ship Studio is running',
+  },
+  {
+    id: 'awakeOff',
+    title: 'Let this Mac sleep again',
+    change: { keepAwake: false },
+    done: 'This Mac can sleep again; agents pause while it sleeps',
+  },
+  {
+    id: 'runningOn',
+    title: 'Keep agents running when the window closes',
+    change: { keepRunning: true },
+    done: 'Closing the window keeps agents going; ⌘Q still quits',
+  },
+  {
+    id: 'runningOff',
+    title: 'Quit when the window closes',
+    change: { keepRunning: false },
+    done: 'Closing the window quits Ship Studio again',
+  },
+  {
+    id: 'loginOn',
+    title: 'Open Ship Studio at login',
+    change: { openAtLogin: true },
+    done: 'Ship Studio opens when you log in',
+  },
+];
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
   const { agents } = useAgents();
@@ -140,29 +174,23 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
           setView('agents');
         },
       },
-      // Reachable any time, not only from the first-run screen. Agents run on
-      // this Mac, so they pause when it sleeps.
-      ...(['on', 'off'] as const).map((state) => ({
-        id: `agents.keepAwake.${state}`,
-        title: state === 'on' ? 'Keep this Mac awake for agents' : 'Let this Mac sleep again',
+      // Reachable any time, not only from the first-run screen: agents run on
+      // this Mac, so they pause when it sleeps and stop when the app quits.
+      ...STAY_ON_COMMANDS.map((c) => ({
+        id: `agents.stayOn.${c.id}`,
+        title: c.title,
         icon: <AgentsIcon size={14} />,
         category: 'navigation' as const,
-        keywords: ['agents', 'awake', 'sleep', 'caffeinate', 'always on', 'background'],
+        keywords: ['agents', 'awake', 'sleep', 'background', 'always on', 'login', 'close'],
         run: async () => {
           try {
-            const result = await setKeepAwake(state === 'on');
-            if (!result.supported) {
-              showToast('Keeping the Mac awake is only available on macOS', 'info');
-              return;
-            }
+            const result = await setStayOn(c.change);
             showToast(
-              result.active
-                ? 'This Mac stays awake while Ship Studio is open'
-                : 'This Mac can sleep again; agents pause while it sleeps',
-              'success'
+              result.supported ? c.done : 'Only available on macOS',
+              result.supported ? 'success' : 'info'
             );
           } catch (err) {
-            showToast(`Couldn't change keep-awake: ${String(err)}`, 'error');
+            showToast(`Couldn't change that setting: ${String(err)}`, 'error');
           }
         },
       })),
