@@ -1074,7 +1074,7 @@ export const agentsScenarios: Scenario[] = [
     steps: [
       { click: '[data-agent-id="acme"]' },
       { click: '.agent-chat__menu [aria-label^="Actions for"]' },
-      { click: '[role="menuitem"]:nth-child(5)' },
+      { click: '[role="menuitem"]:nth-child(6)' },
     ],
     commands: {
       agents_overview: acmeWith({
