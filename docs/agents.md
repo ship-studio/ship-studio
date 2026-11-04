@@ -24,7 +24,9 @@ it is an icon pair at the top bar's leading edge.
 | Identity | `<projects root>/.shipstudio/agents/agents.json` | name, role, avatar (shape + colour key), pinned/hidden, unread, Claude session id |
 | Home | `<projects root>/.shipstudio/agents/<id>/` | the agent's working directory |
 | Instructions + memory | `<home>/CLAUDE.md` | Claude Code loads it every turn. Instructions on top, `## Memory` below, which the agent maintains itself. Editing instructions never touches memory. |
-| Conversation | `<home>/messages.jsonl` | what *you* were shown: your messages, its replies, agent-to-agent lines, approval cards, errors |
+| Conversation | `<home>/messages.jsonl` | what *you* were shown: your messages, its replies, agent-to-agent lines, approval cards, errors. Append-only |
+| Card answers | `<home>/approvals.jsonl` | one line per answered approval card, applied over the card on read (answering never rewrites the log) |
+| In flight | `<home>/turn.json`, `<home>/inbox.json` | the turn running now, and what is queued behind it; both survive a quit |
 
 The chat log is ours, not Claude Code's transcript. The UI never reconstructs a
 conversation from tool output it doesn't own (see "Never Assume Data").
@@ -78,23 +80,43 @@ From the stream:
   Team lists it under Needs you with its remedy.
 
 A vanished session (`--resume` → "No conversation found") is replaced once with
-a fresh one. **Stop** kills the process and drops the queue; it leaves a quiet
+a fresh one. **Stop** ends the turn and drops the queue; it leaves a quiet
 "Stopped" note (your doing, not a failure). A turn is capped at 3 hours.
 
-**Quitting mid-turn.** A turn writes `<home>/turn.json` (pid, session, and
-for a bound agent the project snapshot taken before it) while it runs. A quit
-or crash doesn't run our cleanup, and the Claude Code process outlives the app
-(observed), so at launch `runner::recover_after_restart` stops that process if
-its command line still names the session, removes the mark, records the
-turn's change card if it changed the project, and ends on an error line
-(tagged `failure: other`) saying the turn didn't finish, so Retry re-sends it.
-What was queued behind it is not re-sent.
+**Process trees.** Each turn's `claude` leads its own process group
+(`agents::procs`). Stop, interrupt, the timeout and quitting walk its process
+tree first (a backgrounded child that called `setsid` has left the group but
+is still a descendant), then signal the group and every descendant: SIGTERM,
+then SIGKILL after 1.5s. A dev server or watcher its Bash tool started dies
+with it. Once `claude` closes its output, its exit and stderr are waited on
+for at most 10s.
 
-**Damaged files.** `agents.json` is written atomically and again as
-`agents.json.bak`. If it doesn't parse, the agents that do parse (or the
-backup, whichever holds more) are loaded and written back, and the damaged
-file is kept as `agents.json.corrupt-<ms>`; with neither readable it is an
-error, never an empty list that would be saved over it. A torn last line in
+**Slots.** At most 3 turns run at once; an agent past that shows "Waiting for
+a free slot (3 agents already working)", can be stopped while it waits, and
+picks up whatever else arrived meanwhile when its slot frees.
+
+**Quitting mid-turn.** A turn writes `<home>/turn.json` (pid, session, and
+for a bound agent the project snapshot taken before it) while it runs. On
+quit, `RunEvent::Exit` calls `runner::shutdown_sync`, which stops every
+turn's process tree and leaves the marks in place. A crash or force quit runs
+no cleanup at all, so at launch `runner::recover_after_restart` also stops a
+leftover process (if its command line still names the session), removes the
+mark, records the turn's change card if it changed the project, and ends on
+an error line (tagged `failure: other`) saying the turn didn't finish. The
+messages queued behind it (`inbox.json`) are then sent once, after a note
+naming them; the interrupted turn itself is not re-run. An update's restart
+waits for working agents ("After agents finish"; click again to restart now).
+
+**Damaged files and newer builds.** `agents.json` is written atomically and
+again as `agents.json.bak`. It is read and written losslessly: fields this
+build doesn't know (on an agent, a check-in, a rule), unknown top-level keys,
+and whole entries it can't read (a newer build's) are kept and written back
+untouched, so running an older build never deletes what a newer one saved.
+Only a file that isn't JSON counts as damage: the backup is loaded and written
+back, and the damaged file is kept as `agents.json.corrupt-<ms>`; with no
+readable backup it is an error, never an empty list that would be saved over
+it. A chat line of a kind this build doesn't know is skipped on read and stays
+on disk, since the log is append-only. A torn last line in
 `messages.jsonl` is skipped on read, and the next append starts a new line
 instead of fusing into it. A log that can't be written: the user's own send
 fails with the reason; a reply mid-turn is still shown, with one error line
@@ -432,11 +454,20 @@ prunes them the diff says it can't be shown.
 
 - Claude Code only. The runner is CLI-specific in `run_turn`; Codex
   (`codex exec --json`) and Opencode would slot in there.
-- No OS notification when an agent replies while Ship Studio is in the
-  background. The unread badge is the only signal.
 - Search scans files on every query. Fine at one person's scale (tens of
   agents, thousands of lines); an index would be needed well past that.
-- Many agents can run at once; there's no global concurrency cap.
+- At most 3 turns run at once (`runner::MAX_TURNS`); the rest wait, shown as
+  "Waiting for a free slot". An agent waiting on an approval card holds its
+  slot until it is answered or the wait runs out.
+- A turn's process tree is stopped on Stop, interrupt, the 3-hour timeout and
+  quit. A turn that finishes normally is trusted to have cleaned up after
+  itself: anything it deliberately left running in the background is not
+  stopped.
+- Check-ins and routines only fire while Ship Studio is open.
+- Notification click-through is unverified in a signed build.
+- After a restart, the interrupted turn is not re-run (it may have done half
+  its work); messages queued behind it are, once. Retry then belongs to
+  whatever failed last.
 - Debug builds: `research/design-canvas` (not on main) disables the agent
   bridge under `debug_assertions`. Agents depends on it, so that branch needs
   an exception for the `/agents/` route before both land.
@@ -445,11 +476,13 @@ prunes them the diff says it can't be shown.
 
 ## Testing
 
-- `cargo test --lib agents::`: store, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
+- `cargo test --lib agents::`: store (including frozen compatibility
+  fixtures in `agents/testdata/compat/`: every registry shape and message
+  kind users have on disk must load, and a write must keep what a newer build
+  added), process trees, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, ~$0.10 and ~2.5
-  minutes for all ten): `src-tauri/examples/agents_e2e.rs` drives the real
+- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e.rs` drives the real
   runner, store, bridge and MCP tools through the same Tauri commands the UI
   calls, on `claude --model haiku`, in a throwaway HOME (only the keychain is
   linked, for sign-in). Scenarios: memory across turns, quit mid-turn and
@@ -457,8 +490,10 @@ prunes them the diff says it can't be shown.
   (runs in the project, leaves a change card), delegation +
   two agents at once + the hop cap, Stop and interrupt, approvals (Allow,
   late Allow after a shortened wait, Always allow), a fake CLI (startup
-  error, garbage output, crash, bare error code), damaged store files, and 20
-  rapid messages. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
+  error, garbage output, crash, bare error code), damaged store files, 20
+  rapid messages, Stop ending a turn's whole process tree (a background
+  child included), quitting mid-turn (the Exit hook, then relaunch), and more
+  turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
 - `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, Team overview, @mention menu, approval, first run, new
   agent, import, Claude Code missing.
