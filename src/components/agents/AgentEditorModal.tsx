@@ -12,7 +12,6 @@ import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
 import { TextButton } from '../primitives/TextButton';
 import { AgentAvatar } from './AgentAvatar';
-import { AgentSchedule } from './AgentSchedule';
 import {
   AGENT_COLORS,
   createAgent,
@@ -152,8 +151,6 @@ export function AgentEditorModal({
             Add a role and instructions
           </TextButton>
         )}
-
-        {agent && <AgentSchedule agent={agent} />}
 
         {error && (
           <p className="agent-editor__error" role="alert">

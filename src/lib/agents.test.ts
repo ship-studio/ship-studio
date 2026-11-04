@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildChatItems,
+  describeCheckInTime,
   describeRepeat,
   formatWhen,
+  splitScheduleInput,
   sortCheckIns,
   formatDivider,
   peerGroupLabel,
@@ -87,22 +89,59 @@ describe('sortAgents', () => {
 });
 
 describe('schedule helpers', () => {
-  it('describes routines in the same words as the backend', () => {
+  // Times are written in the user's locale, like everything else on screen.
+  const at = (hour: number, minute: number) =>
+    new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+
+  it("describes routines in the backend's words, with locale times", () => {
     expect(describeRepeat({ kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 })).toBe(
-      'Every weekday at 09:00'
+      `Every weekday at ${at(9, 0)}`
     );
     expect(describeRepeat({ kind: 'days', days: [0, 1, 2, 3, 4, 5, 6], hour: 7, minute: 45 })).toBe(
-      'Every day at 07:45'
+      `Every day at ${at(7, 45)}`
     );
     expect(describeRepeat({ kind: 'days', days: [1, 4], hour: 8, minute: 30 })).toBe(
-      'Every Monday and Thursday at 08:30'
+      `Every Monday and Thursday at ${at(8, 30)}`
     );
     expect(describeRepeat({ kind: 'days', days: [1, 3, 5], hour: 8, minute: 30 })).toBe(
-      'Every Monday, Wednesday and Friday at 08:30'
+      `Every Monday, Wednesday and Friday at ${at(8, 30)}`
     );
     expect(describeRepeat({ kind: 'every', minutes: 120 })).toBe('Every 2 hours');
     expect(describeRepeat({ kind: 'every', minutes: 60 })).toBe('Every hour');
     expect(describeRepeat({ kind: 'every', minutes: 90 })).toBe('Every 90 minutes');
+  });
+
+  it('splits "when: what" at the first colon that is followed by a space', () => {
+    expect(splitScheduleInput('every weekday 9am: brief me on Acme')).toEqual({
+      when: 'every weekday 9am',
+      note: 'brief me on Acme',
+    });
+    expect(splitScheduleInput('tomorrow 9:30: check: the invoices')).toEqual({
+      when: 'tomorrow 9:30',
+      note: 'check: the invoices',
+    });
+    expect(splitScheduleInput('every weekday 9:30')).toEqual({
+      when: 'every weekday 9:30',
+      note: '',
+    });
+    expect(splitScheduleInput('tomorrow 9am:')).toEqual({ when: 'tomorrow 9am', note: '' });
+  });
+
+  it('words a row: next time, how it repeats, paused', () => {
+    const now = new Date(2026, 10, 4, 15, 0).getTime();
+    const nextAt = new Date(2026, 10, 5, 9, 0).getTime();
+    const repeat = { kind: 'days' as const, days: [1, 2, 3, 4, 5], hour: 9, minute: 0 };
+    const base = { id: 'x', note: 'n', nextAt, createdAt: 0, paused: false };
+    expect(describeCheckInTime(base, now)).toBe(`Tomorrow ${at(9, 0)}`);
+    expect(describeCheckInTime({ ...base, repeat }, now)).toBe(
+      `Every weekday at ${at(9, 0)} · next tomorrow ${at(9, 0)}`
+    );
+    expect(describeCheckInTime({ ...base, repeat, paused: true }, now)).toBe(
+      `Paused · Every weekday at ${at(9, 0)}`
+    );
   });
 
   it('names today and tomorrow, and dates further out', () => {

@@ -79,8 +79,8 @@ export interface CheckInMark {
 
 export interface SchedulePreview {
   nextAt: number;
-  /** "every weekday at 09:00"; absent for a one-time check-in. */
-  repeat: string | null;
+  /** How it repeats; null for a one-time check-in. */
+  repeat: Repeat | null;
 }
 
 export interface AgentsOverview {
@@ -174,10 +174,14 @@ export const pauseCheckIn = (agentId: string, id: string, paused: boolean) =>
   invoke<void>('agents_schedule_pause', { agentId, id, paused });
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** "9:00 AM" in the user's locale, the same way `formatWhen` writes times. */
 const clockText = (hour: number, minute: number) =>
-  `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 
-/** "Every weekday at 09:00", "Every 2 hours" — the same words `schedule::describe` uses. */
+/** "Every weekday at 9:00 AM", "Every 2 hours" — `schedule::describe`'s words, locale times. */
 export function describeRepeat(repeat: Repeat): string {
   if (repeat.kind === 'every') {
     const { minutes } = repeat;
@@ -215,6 +219,26 @@ export function formatWhen(ts: number, now = Date.now()): string {
     day: 'numeric',
   });
   return `${day} ${time}`;
+}
+
+/**
+ * The schedule composer takes one line, "when: what" — "every weekday 9am:
+ * brief me on Acme". The split is the first colon followed by a space, so
+ * clock times ("9:30") stay whole. No such colon yet: it's all "when".
+ */
+export function splitScheduleInput(text: string): { when: string; note: string } {
+  const match = /^(.*?):\s+([\s\S]*)$/.exec(text);
+  if (!match) return { when: text.trim().replace(/:$/, ''), note: '' };
+  return { when: match[1].trim(), note: match[2].trim() };
+}
+
+/** A row's secondary line: when it next runs, and how it repeats. */
+export function describeCheckInTime(c: CheckIn, now = Date.now()): string {
+  if (!c.repeat) return formatWhen(c.nextAt, now);
+  const repeat = describeRepeat(c.repeat);
+  if (c.paused) return `Paused · ${repeat}`;
+  const next = formatWhen(c.nextAt, now).replace(/^(Today|Tomorrow)/, (w) => w.toLowerCase());
+  return `${repeat} · next ${next}`;
 }
 
 /** Soonest first; paused ones last. */

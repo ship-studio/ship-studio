@@ -129,10 +129,7 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
     store::append_message(&message)?;
-    let counts_as_unread = matches!(
-        message.kind,
-        MessageKind::Agent | MessageKind::Approval | MessageKind::Error
-    ) && !is_focused(&message.agent_id);
+    let counts_as_unread = message.kind.wants_user() && !is_focused(&message.agent_id);
     let preview = preview_for(&message);
     let ts = message.ts;
     let _ = store::update(&message.agent_id, |agent| {

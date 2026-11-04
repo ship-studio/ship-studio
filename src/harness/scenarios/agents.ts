@@ -238,7 +238,11 @@ const FINANCE_CHAT = [
 
 const schedulePreview = (args: Record<string, unknown>) => {
   const when = String(args.when).toLowerCase();
-  if (when.startsWith('every')) return { nextAt: tomorrowAt(9), repeat: 'every weekday at 09:00' };
+  if (when.startsWith('every'))
+    return {
+      nextAt: tomorrowAt(9),
+      repeat: { kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 },
+    };
   if (when.includes('tomorrow')) return { nextAt: tomorrowAt(9), repeat: null };
   throw new Error('Give it a day and a time.');
 };
@@ -332,21 +336,36 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-scheduled',
-    title: 'Agents — the Scheduled section in the agent editor',
+    title: 'Agents — the schedule popover',
     looksRightWhen:
-      'Editing Finance shows a Scheduled section: the one-time check-in, the weekday routine with its next time, the paused Monday routine dimmed and last. Below, When and What fields with Add, the phrase read back as typed, and the line saying it runs only while Ship Studio is open.',
+      'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote.',
     requires: '.agent-schedule__item',
     openSelector: '.workspace-sidebar-agents',
     steps: [
       { click: '[data-agent-id="finance"]' },
       { click: '.agent-chat__scheduled' },
-      { fill: '.agent-schedule__add input[aria-label="When"]', value: 'every weekday 9am' },
+      { fill: '.agent-schedule__composer input', value: 'every weekday 9am: brief me on Acme' },
     ],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
-      agents_instructions: 'Invoices, expenses and the books.',
       agents_schedule_preview: schedulePreview,
+    },
+  },
+  {
+    id: 'agents-schedule-empty',
+    title: 'Agents — scheduling for an agent with nothing scheduled',
+    looksRightWhen:
+      'The header shows a quiet clock button, not a chip. Open, it says nothing is scheduled yet, with the composer focused and its hint under it.',
+    requires: '.agent-schedule__empty',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [
+      { click: '[data-agent-id="leadgen"]' },
+      { click: '.agent-chat__header [aria-label^="Schedule a check-in"]' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
     },
   },
   {

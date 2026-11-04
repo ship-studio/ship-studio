@@ -97,6 +97,19 @@ pub enum MessageKind {
     CheckIn,
 }
 
+impl MessageKind {
+    /// The kinds that are news for the user when they arrive off screen: they
+    /// count as unread, and they are what the notifications slice raises a
+    /// macOS notification for. A fired check-in is one — the user (or the
+    /// agent, on their behalf) asked for it to happen at that time.
+    pub fn wants_user(self) -> bool {
+        matches!(
+            self,
+            Self::Agent | Self::Approval | Self::Error | Self::CheckIn
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {

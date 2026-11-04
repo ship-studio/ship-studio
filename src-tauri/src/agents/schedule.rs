@@ -821,13 +821,17 @@ fn tick(app: &AppHandle) -> Result<(), CommandError> {
             late: firing.late,
             repeats: firing.check_in.repeat.is_some(),
         });
-        runner::record(app, line)?;
+        // Wake first, then record the line: recorded during the turn, it goes
+        // through `runner::record` like a reply (a `wants_user` kind), so the
+        // notifications slice posts one banner for the check-in and its
+        // answer when the turn ends, rather than one for each.
         runner::enqueue(
             app,
             &firing.agent_id,
             wake_prompt(&tz, &firing, now),
             runner::From::User,
         );
+        runner::record(app, line)?;
     }
     if changed {
         let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());

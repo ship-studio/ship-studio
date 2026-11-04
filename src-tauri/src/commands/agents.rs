@@ -278,14 +278,15 @@ pub async fn agents_import_prompt() -> Result<String, CommandError> {
     Ok(import::IMPORT_PROMPT.to_string())
 }
 
-/// What a `when` phrase means, as the user types it in the editor: the
-/// resolved first time and, for a routine, how it repeats. A parse error comes
+/// What a `when` phrase means, as the user types it in the schedule popover:
+/// the resolved first time and, for a routine, how it repeats (structured, so
+/// the UI words it the same way it words the list). A parse error comes
 /// back as a Validation error with the shapes that work.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchedulePreview {
     pub next_at: i64,
-    pub repeat: Option<String>,
+    pub repeat: Option<schedule::Repeat>,
 }
 
 #[tauri::command]
@@ -293,10 +294,7 @@ pub struct SchedulePreview {
 pub async fn agents_schedule_preview(when: String) -> Result<SchedulePreview, CommandError> {
     let (repeat, next_at) = schedule::parse(&when, &chrono::Local, store::now_ms())
         .map_err(|e| agents::err_invalid("when", e))?;
-    Ok(SchedulePreview {
-        next_at,
-        repeat: repeat.as_ref().map(schedule::describe),
-    })
+    Ok(SchedulePreview { next_at, repeat })
 }
 
 #[tauri::command]

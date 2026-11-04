@@ -8,11 +8,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, HistoryIcon, SettingsSlidersIcon } from '@/components/icons';
+import { useCommands } from '../../commands/useCommands';
 import { IconButton } from '../primitives/IconButton';
-import { TextButton } from '../primitives/TextButton';
 import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
+import { AgentSchedulePopover } from './AgentSchedulePopover';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import {
   AgentBubble,
@@ -54,6 +55,22 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const atBottomRef = useRef(true);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
+  // Only mounted in Agents mode, for the agent on screen.
+  useCommands(
+    () => [
+      {
+        id: 'agents.scheduleCheckIn',
+        title: `Schedule a check-in for ${agent.name}…`,
+        icon: <HistoryIcon size={14} />,
+        category: 'action',
+        keywords: ['routine', 'remind', 'every', 'recurring', 'later', 'scheduled'],
+        run: () => setScheduleOpen(true),
+      },
+    ],
+    [agent.name]
+  );
 
   // Mounted once per agent (keyed by id), so the draft starts empty.
   useEffect(() => {
@@ -157,16 +174,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
           <h2 className="agent-chat__name">{agent.name}</h2>
           {agent.role && <p className="agent-chat__role">{agent.role}</p>}
         </div>
-        {(agent.checkIns?.length ?? 0) > 0 && (
-          <TextButton
-            className="agent-chat__scheduled"
-            onClick={() => onEditAgent(agent)}
-            title="Scheduled check-ins and routines"
-          >
-            <HistoryIcon size={12} />
-            {agent.checkIns?.length} scheduled
-          </TextButton>
-        )}
+        <AgentSchedulePopover agent={agent} open={scheduleOpen} onOpenChange={setScheduleOpen} />
         <IconButton
           variant="ghost"
           className="agent-chat__edit"

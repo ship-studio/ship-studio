@@ -129,6 +129,35 @@ assistant and links to Remote access setup.
 What doesn't come across: the other platform's own connectors (its Gmail,
 Calendar…). Here, agents use what this Mac and Claude Code are connected to.
 
+## Check-ins and routines (`src-tauri/src/agents/schedule.rs`)
+
+An agent that says "I'll check back tomorrow" can: `schedule_check_in {when,
+note}` (with `list_check_ins` and `cancel_check_in`) takes a plain-language
+time in the user's zone, once ("tomorrow 9am") or repeating ("every weekday
+9am", "every 2 hours"). A phrase it can't read is refused, never guessed. The
+Chief of Staff can schedule for another agent. They are stored on the agent's
+registry entry.
+
+The user sees them in a popover on the chat header ("N scheduled", or a clock
+when there are none; Cmd+K → "Schedule a check-in for <agent>…"). Each row
+can be paused (routines) or cancelled. The composer takes one line, `when:
+what`, split at the first colon followed by a space, and reads the time back
+as the backend resolved it before Return adds it.
+
+A one-minute tick fires them, with the workflow scheduler's rules: nothing
+fires while the app is closed, at most one firing per tick, and a routine never
+catches up a backlog. A one-time check-in missed while closed fires once, marked
+late; an agent that missed several is woken once with all of their notes. A
+firing records a `check_in` line in the chat, then wakes the agent with the
+note.
+
+That line goes through `runner::record` as a `MessageKind::wants_user()` kind,
+the same predicate as replies, and is recorded after the wake starts, so it
+falls inside the turn. That is the seam for notifications: when the
+notifications slice lands, its own list of notifying kinds becomes
+`kind.wants_user()`, and it then posts one notification per turn for the
+check-in and its answer.
+
 ## Access
 
 An agent can do what your user account can do: it runs as you, with your files,
@@ -142,9 +171,6 @@ cards.
 
 - Claude Code only. The runner is CLI-specific in `run_turn`; Codex
   (`codex exec --json`) and Opencode would slot in there.
-- No scheduled / proactive check-ins yet (Grok Bot's "I'll check back in a few
-  days"). An agent watching CI only works within a turn (≤3h). Workflows'
-  scheduler tick is the natural home for this.
 - No OS notification when an agent replies while Ship Studio is in the
   background. The unread badge is the only signal.
 - No attachments or voice in the composer yet.

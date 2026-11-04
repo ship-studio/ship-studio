@@ -273,9 +273,6 @@
 }
 
 .agent-chat__scheduled {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-tight);
   font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   white-space: nowrap;
@@ -868,24 +865,17 @@
   margin-right: auto;
 }
 
-.agent-editor__hint[data-invalid] {
-  color: var(--accent-warning);
+/* The schedule popover, anchored to the chat header's "N scheduled" */
+.ss-dropdown__menu.agent-schedule {
+  width: 340px;
+  max-width: calc(100vw - var(--spacing-2xl));
+  max-height: min(480px, calc(100vh - var(--spacing-2xl) * 3));
+  padding: var(--spacing-xs);
 }
 
-.agent-editor__section-title {
-  margin: 0;
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-  color: var(--text-secondary);
-}
-
-/* The editor's "Scheduled" section */
-.agent-schedule {
+.agent-schedule__body {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding-top: var(--spacing-md);
-  border-top: var(--border-width-default) solid var(--border-subtle);
 }
 
 .agent-schedule__list {
@@ -899,47 +889,95 @@
 .agent-schedule__item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) 0;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-interaction);
 }
 
-.agent-schedule__item[data-paused] .agent-schedule__text {
-  opacity: 0.55;
+.agent-schedule__item:hover,
+.agent-schedule__item:focus-within {
+  background: var(--tint-subtle);
 }
 
 .agent-schedule__text {
   display: flex;
   flex: 1;
   flex-direction: column;
+  gap: var(--spacing-2xs);
   min-width: 0;
-}
-
-.agent-schedule__when {
-  font-size: var(--font-size-body-sm);
-  color: var(--text-muted);
 }
 
 .agent-schedule__note {
   overflow: hidden;
   font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
   color: var(--text-primary);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.agent-schedule__add {
+.agent-schedule__when {
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-schedule__item[data-paused] .agent-schedule__note {
+  color: var(--text-muted);
+}
+
+/* Row actions surface on hover or keyboard focus; they keep their space so
+   the note doesn't reflow under the pointer. */
+.agent-schedule__actions {
+  display: flex;
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity var(--transition-interaction);
+}
+
+.agent-schedule__item:hover .agent-schedule__actions,
+.agent-schedule__item:focus-within .agent-schedule__actions {
+  opacity: 1;
+}
+
+.agent-schedule__empty {
+  margin: 0;
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+.agent-schedule__composer {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-tight);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-sm) 0;
+  border-top: var(--border-width-default) solid var(--border-subtle);
 }
 
-.agent-schedule__row {
-  display: flex;
-  gap: var(--spacing-sm);
+.agent-schedule__readback {
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.agent-schedule__row .ss-text-field {
-  flex: 1;
+.agent-schedule__readback[data-invalid] {
+  color: var(--accent-warning);
+}
+
+.agent-schedule__foot {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-help);
+  color: var(--text-faint);
 }
 
 .modal-frame-content.agents-import {
