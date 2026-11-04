@@ -224,6 +224,7 @@ mod tests {
             approval: None,
             attachments: Vec::new(),
             check_in: None,
+            stopped: false,
         })
         .unwrap();
         id
@@ -288,6 +289,7 @@ mod tests {
                 approval: None,
                 attachments: Vec::new(),
                 check_in: None,
+                stopped: false,
             })
             .unwrap();
             let found = search_in(&store::list().unwrap(), "deploy", 50).unwrap();
@@ -347,6 +349,7 @@ mod tests {
             approval: None,
             attachments: Vec::new(),
             check_in: None,
+            stopped: false,
         };
         assert!(match_message(&message, &terms("müller")).is_some());
         assert!(match_message(&message, &terms("müller schmidt")).is_none());

@@ -111,6 +111,35 @@
    conversation up until the new one's messages are in, and the new one
    lands already scrolled to its bottom, so there is nothing to fade over. */
 
+/* ------------------------------------------------- streaming reply */
+
+/* A reply being written grows in place (the bubble arrives once, like any
+   line; its text changing never re-runs that). A soft dot breathes at the end
+   of the last line until the finished message takes over. */
+.agent-bubble[data-streaming] .agent-markdown__prose:last-child > :last-child:not(ul, ol)::after,
+.agent-bubble[data-streaming]
+  .agent-markdown__prose:last-child
+  > :is(ul, ol):last-child
+  > li:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-left: 0.3em;
+  vertical-align: baseline;
+  background: currentColor;
+  border-radius: var(--radius-pill);
+  opacity: 0.5;
+  animation: agents-motion-caret var(--agents-motion-typing-period)
+    var(--agents-motion-typing-easing) infinite;
+}
+
+@keyframes agents-motion-caret {
+  50% {
+    opacity: 0.15;
+  }
+}
+
 /* ----------------------------------------------- working indicator */
 
 /* The indicator's height is known (one line, fixed min-height in
@@ -279,6 +308,11 @@
   .agent-composer__stop,
   .agent-composer__notice,
   .agents-list__status > * {
+    animation: none;
+  }
+
+  .agent-bubble[data-streaming] .agent-markdown__prose:last-child > :last-child::after,
+  .agent-bubble[data-streaming] .agent-markdown__prose li:last-child::after {
     animation: none;
   }
 

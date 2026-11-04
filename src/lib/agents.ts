@@ -127,6 +127,8 @@ export interface AgentMessage {
   /** Files sent with a user message. */
   attachments?: Attachment[];
   checkIn?: CheckInMark;
+  /** A reply cut off by Stop: what had streamed by then. */
+  stopped?: boolean;
 }
 
 /** A file sent with a message, as kept in the agent's home. */
@@ -254,6 +256,8 @@ export const AGENT_EVENTS = {
   message: 'agents://message',
   status: 'agents://status',
   registry: 'agents://registry',
+  /** A reply being written: `{ agentId, id, text }`, the text so far. */
+  draft: 'agents://draft',
   /** A notification was clicked; payload is the agent id to open. */
   open: 'agents://open',
 } as const;

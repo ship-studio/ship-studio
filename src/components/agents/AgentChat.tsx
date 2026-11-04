@@ -8,6 +8,9 @@
  * neither re-animates nor jumps), or that turns into "Not sent" if the send
  * fails.
  *
+ * A reply streams in as a draft that grows in place; the finished message
+ * carries the draft's id, so it takes over the same bubble without a flicker.
+ *
  * @module components/agents/AgentChat
  */
 
@@ -115,8 +118,15 @@ export function AgentChat({
   onJumped,
   ...actions
 }: AgentChatProps) {
-  const { messages: allMessages, engineReady } = useAgents();
+  const { messages: allMessages, drafts, engineReady } = useAgents();
   const messages = allMessages[agent.id];
+  // Whitespace that hasn't become words yet isn't worth a bubble.
+  const rawDraft = drafts[agent.id];
+  const draftText = rawDraft?.text.trimStart() ?? '';
+  const streaming = useMemo(
+    () => (rawDraft && draftText.trim() ? { ...rawDraft, text: draftText } : null),
+    [rawDraft, draftText]
+  );
   const { showToast } = useOptionalToast();
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<Pending[]>([]);
@@ -234,15 +244,20 @@ export function AgentChat({
       local.push({ id: p.key, agentId: agent.id, ts: p.ts, kind: 'user', text: p.text });
       if (p.failed) failed.add(p.key);
     }
-    return { shown: [...list, ...local], aliases, failed };
-  }, [messages, pending, agent.id]);
+    // The reply being written sits after what's settled and before anything
+    // you've just sent, which it will read next.
+    const draft = streaming && !list.some((m) => m.id === streaming.id) ? [streaming] : [];
+    return { shown: [...list, ...draft, ...local], aliases, failed };
+  }, [messages, pending, agent.id, streaming]);
 
   const keyOf = (id: string) => aliases.get(id) ?? id;
 
   const items = useMemo(() => buildChatItems(shown), [shown]);
   // A card left open after the turn ended is not "working": no dots, no Stop.
   const working = agent.status.state === 'working';
-  const indicator = usePresence(working);
+  // While words are arriving they are the sign of life; the dots and what
+  // it's doing come back between text blocks, while tools run.
+  const indicator = usePresence(working && !streaming);
 
   // Only lines that arrive while the chat is open animate in.
   const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
@@ -259,10 +274,22 @@ export function AgentChat({
   const { follow, isGliding } = useFollowBottom(scrollRef, messagesRef, atBottomRef);
 
   // Follow new content only if the reader was already at the bottom: glide
-  // to a new line, land on the bottom (before paint) on first render.
+  // to a new line, land on the bottom (before paint) on first render. A reply
+  // growing is not a new line: it stays pinned without a glide per word.
+  const lastItem = items[items.length - 1];
+  const lastKey = !lastItem
+    ? ''
+    : lastItem.type === 'day'
+      ? `day-${lastItem.ts}`
+      : lastItem.type === 'peer-group'
+        ? lastItem.messages[0].id
+        : lastItem.message.id;
+  const lastKeyRef = useRef(lastKey);
   useLayoutEffect(() => {
-    if (atBottomRef.current) follow(newestArrived);
-  }, [items, working, agent.status.activity, follow, newestArrived]);
+    const isNew = lastKeyRef.current !== lastKey;
+    lastKeyRef.current = lastKey;
+    if (atBottomRef.current) follow(newestArrived && isNew);
+  }, [items, lastKey, working, agent.status.activity, follow, newestArrived]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -545,7 +572,14 @@ export function AgentChat({
                     />
                   );
                 case 'agent':
-                  return <AgentBubble key={m.id} message={m} arrived={arrived} />;
+                  return (
+                    <AgentBubble
+                      key={m.id}
+                      message={m}
+                      arrived={arrived}
+                      streaming={m === streaming}
+                    />
+                  );
                 case 'approval':
                   return (
                     <ApprovalCard

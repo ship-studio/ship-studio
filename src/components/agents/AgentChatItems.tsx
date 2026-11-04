@@ -112,16 +112,28 @@ function CodeBlock({ text }: { text: string }) {
   );
 }
 
-export function AgentBubble({ message, arrived }: { message: AgentMessage } & Arrival) {
+interface AgentBubbleProps extends Arrival {
+  message: AgentMessage;
+  /** Still being written: the text grows in place and a caret marks its end. */
+  streaming?: boolean;
+}
+
+export function AgentBubble({ message, arrived, streaming }: AgentBubbleProps) {
   const segments = useMemo(() => toSegments(message.text), [message.text]);
   const onClick = useExternalLinks();
   return (
     <div
       className="agent-chat__row agent-chat__row--agent"
       data-arrived={arrived || undefined}
+      data-stopped={message.stopped || undefined}
       data-message-ids={message.id}
     >
-      <div className="agent-bubble agent-bubble--agent agent-markdown" onClick={onClick}>
+      <div
+        className="agent-bubble agent-bubble--agent agent-markdown"
+        data-streaming={streaming || undefined}
+        aria-busy={streaming || undefined}
+        onClick={onClick}
+      >
         {segments.map((segment, i) =>
           segment.type === 'code' ? (
             <CodeBlock key={i} text={segment.text} />
@@ -134,6 +146,7 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
           )
         )}
       </div>
+      {message.stopped && <span className="agent-bubble__stopped">Stopped</span>}
     </div>
   );
 }

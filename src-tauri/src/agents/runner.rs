@@ -8,8 +8,9 @@
 //! agent, so twenty idle agents cost nothing.
 //!
 //! What the user sees is built from the stream as it happens: each text block
-//! the model writes becomes a chat message the moment it arrives; tool calls
-//! only ever update the "working" line under the agent's name.
+//! the model writes streams in as a draft (see [`super::stream`]) and becomes
+//! a chat message under the same id when it completes; tool calls only ever
+//! update the "working" line under the agent's name.
 
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
@@ -21,11 +22,19 @@ use tokio::sync::Notify;
 use super::notify;
 use super::prompts;
 use super::store::{self, AgentMessage, AgentRef, MessageKind};
+use super::stream::{self, Drafts};
 use crate::errors::CommandError;
 
 pub const EVENT_MESSAGE: &str = "agents://message";
 pub const EVENT_STATUS: &str = "agents://status";
 pub const EVENT_REGISTRY: &str = "agents://registry";
+/// A reply being written: `{agentId, id, text}`, the text so far. The message
+/// that completes it arrives on [`EVENT_MESSAGE`] with the same id.
+pub const EVENT_DRAFT: &str = "agents://draft";
+
+/// How often a growing draft is sent to the UI: smooth to the eye, and a
+/// burst of tiny deltas costs one event rather than dozens.
+const DRAFT_EVERY: std::time::Duration = std::time::Duration::from_millis(40);
 
 /// Agents messaging agents can ping-pong forever. A chain started by the user
 /// may run this many agent-to-agent hops before `message_agent` refuses.
@@ -185,6 +194,17 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
     }
 }
 
+fn emit_draft(app: &AppHandle, agent_id: &str, id: &str, text: &str) {
+    #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload<'a> {
+        agent_id: &'a str,
+        id: &'a str,
+        text: &'a str,
+    }
+    let _ = app.emit(EVENT_DRAFT, Payload { agent_id, id, text });
+}
+
 pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -> AgentMessage {
     AgentMessage {
         id: store::new_id(),
@@ -196,6 +216,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         approval: None,
         attachments: Vec::new(),
         check_in: None,
+        stopped: false,
     }
 }
 
@@ -440,7 +461,8 @@ async fn run_turn(
     };
 
     let mut cmd = crate::utils::create_command(&binary);
-    cmd.args(["--print", "--output-format", "stream-json", "--verbose"]);
+    cmd.args(["--print", "--output-format", "stream-json", "--verbose"])
+        .arg("--include-partial-messages");
     if resuming {
         cmd.args(["--resume", &session_id]);
     } else {
@@ -540,7 +562,11 @@ async fn run_turn(
     let mut session_confirmed = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_secs(TURN_TIMEOUT_SECS));
     tokio::pin!(deadline);
-    let mut stopped: Option<&'static str> = None;
+    // None: ran to the end. Some(None): the user pressed Stop. Some(Some(note)): we stopped it.
+    let mut stopped: Option<Option<&'static str>> = None;
+    let mut drafts = Drafts::default();
+    let mut draft_tick = tokio::time::interval(DRAFT_EVERY);
+    draft_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
@@ -557,16 +583,23 @@ async fn run_turn(
                             }
                         }
                     }
+                    Some("stream_event") => drafts.on_stream_event(&value, store::new_id),
                     Some("assistant") => {
                         // Sub-agent (Task) chatter is internal; only top-level text is a reply.
-                        let top_level = value.get("parent_tool_use_id").is_none_or(|p| p.is_null());
+                        let top_level = stream::top_level(&value);
                         if let Some(blocks) = value.pointer("/message/content").and_then(|c| c.as_array()) {
                             for block in blocks {
                                 if top_level && block.get("type").and_then(|t| t.as_str()) == Some("text") {
                                     let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("").trim();
+                                    // Recorded under the draft's id, so it takes the draft's place.
+                                    let draft_id = drafts.finish(text);
                                     if !text.is_empty() {
                                         said_anything = true;
-                                        let _ = record(app, new_message(agent_id, MessageKind::Agent, text));
+                                        let mut message = new_message(agent_id, MessageKind::Agent, text);
+                                        if let Some(id) = draft_id {
+                                            message.id = id;
+                                        }
+                                        let _ = record(app, message);
                                     }
                                 }
                             }
@@ -592,8 +625,13 @@ async fn run_turn(
                     _ => {}
                 }
             }
-            _ = cancel.notified() => { stopped = Some("Stopped."); break; }
-            _ = &mut deadline => { stopped = Some("Stopped after 3 hours. Send a message to pick it back up."); break; }
+            _ = draft_tick.tick(), if drafts.dirty() => {
+                if let Some((id, text)) = drafts.flush() {
+                    emit_draft(app, agent_id, id, text);
+                }
+            }
+            _ = cancel.notified() => { stopped = Some(None); break; }
+            _ = &mut deadline => { stopped = Some(Some("Stopped after 3 hours. Send a message to pick it back up.")); break; }
         }
     }
 
@@ -603,8 +641,21 @@ async fn run_turn(
     let status = child.wait().await.map_err(super::err_io)?;
     let stderr_text = stderr_task.await.unwrap_or_default();
 
+    // A reply cut off mid-sentence keeps what it had said, marked as stopped.
+    let cut_off = drafts.take().map(|(id, text)| {
+        let mut message = new_message(agent_id, MessageKind::Agent, text);
+        message.id = id;
+        message.stopped = true;
+        said_anything = true;
+        let _ = record(app, message);
+    });
+
     if let Some(note) = stopped {
-        let _ = record(app, new_message(agent_id, MessageKind::Error, note));
+        // Stopped by the user: the cut-off reply already says so.
+        let note = note.or(cut_off.is_none().then_some("Stopped."));
+        if let Some(note) = note {
+            let _ = record(app, new_message(agent_id, MessageKind::Error, note));
+        }
         return Ok(());
     }
 

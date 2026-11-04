@@ -416,6 +416,70 @@ const startListening = () => {
 };
 
 /**
+ * A reply streaming in, played the way the backend sends it: drafts every
+ * 40ms carrying the text so far, then the finished message under the draft's
+ * id, the working line ("Editing …") while a tool runs, and a second block.
+ * Frozen (the default capture) it stops mid-way through the second block, so
+ * the screenshot is deterministic; with `?freeze=off` it plays in real time.
+ */
+const STREAM_ASK = msg('user', 'Where are we on the Acme pricing fix?', 0);
+const STREAM_BLOCKS = [
+  'Checking with Acme Site now. The pricing cards were stacking at 400px but **not at tablet widths**, which is the bug the client saw.',
+  'Fixed. The cards now stack below 640px, and the footer links point at the right pages:\n\n- `/careers` goes to the new jobs page\n- the old Twitter link is now the X profile\n\nStaging redeploys in a minute; I’ll send you the link.',
+];
+let streamStarted = false;
+
+const playStream = () => {
+  const frozen = document.documentElement.hasAttribute('data-harness-freeze');
+  const at = (ms: number, fn: () => void) => (frozen ? fn() : void setTimeout(fn, ms));
+  const working = (activity: string | null) =>
+    void emit('agents://status', {
+      agentId: 'chief',
+      status: { state: 'working', activity, since: Date.now() },
+    });
+  // Real deltas are a word or three.
+  const chunks = (text: string) =>
+    text
+      .match(/\S+\s*|\s+/g)
+      ?.flatMap((w, i, all) => (i % 2 === 0 ? [w + (all[i + 1] ?? '')] : [])) ?? [text];
+  let t = 600;
+  STREAM_BLOCKS.forEach((block, b) => {
+    const id = `stream-${b}`;
+    const parts = chunks(block);
+    const last = b === STREAM_BLOCKS.length - 1;
+    // Frozen, the second block stops a little over halfway, still writing.
+    const shown = frozen && last ? Math.ceil(parts.length * 0.6) : parts.length;
+    let text = '';
+    for (let i = 0; i < shown; i++) {
+      text += parts[i];
+      const draft = text;
+      at((t += 45), () => void emit('agents://draft', { agentId: 'chief', id, text: draft }));
+    }
+    if (shown < parts.length) return;
+    at((t += 60), () => {
+      void emit('agents://message', {
+        ...STREAM_ASK,
+        id,
+        ts: Date.now(),
+        kind: 'agent',
+        text: block,
+      });
+      if (!last) working('Editing PricingCards.tsx');
+      else void emit('agents://status', { agentId: 'chief', status: status('idle') });
+    });
+    t += 1600;
+  });
+};
+
+const streamMessages = () => {
+  if (!streamStarted) {
+    streamStarted = true;
+    setTimeout(playStream, 300);
+  }
+  return [...CHIEF_CHAT, { ...STREAM_ASK, ts: Date.now() }];
+};
+
+/**
  * A plain scan like the backend's: every word, any case, newest first, with
  * the snippet cut around the first match.
  */
@@ -689,6 +753,22 @@ export const agentsScenarios: Scenario[] = [
     command: 'agents.import',
     requires: '.agents-import__prompt',
     commands: {},
+  },
+  {
+    id: 'agents-streaming',
+    title: 'Agents — a reply streaming in',
+    looksRightWhen:
+      'The first reply is complete; below it the second is still being written: plain agent bubble, same width and type as the rest, a soft dot breathing at the end of its last line, no typing dots under it. The header still says Working and the composer offers Stop. With ?freeze=off it plays live: words arrive every 40ms, the bubble grows without re-animating, and “Editing PricingCards.tsx” shows between the two blocks.',
+    command: 'agents.open',
+    requires: '.agent-bubble[data-streaming]',
+    mockEvents: true,
+    commands: {
+      agents_overview: overview(
+        TEAM.map((a) => (a.id === 'chief' ? { ...a, status: status('working') } : a))
+      ),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'chief' ? streamMessages() : messagesFor(args),
+    },
   },
   {
     id: 'agents-dictating',
