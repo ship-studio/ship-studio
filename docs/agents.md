@@ -64,13 +64,32 @@ From the stream:
 - every **tool call** only updates the line under the agent's name ("Editing
   PricingTable.tsx", "Messaging Finance"); it never becomes a message;
 - `system/init` confirms the session id, which is stored for the next `--resume`;
-- an `is_error` result, or a non-zero exit with no result, becomes an error
+- an `is_error` result, or any exit without a `result` event (a crash, or
+  output that wasn't stream-json, even with exit code 0), becomes an error
   bubble, classified through `classify_agent_cli_failure` so usage limits and
-  expired logins read the same as everywhere else.
+  expired logins read the same as everywhere else. A crash keeps what had
+  streamed, marked `stopped`.
 
 A vanished session (`--resume` → "No conversation found") is replaced once with
 a fresh one. **Stop** kills the process and drops the queue. A turn is capped
 at 3 hours.
+
+**Quitting mid-turn.** A turn writes `<home>/turn.json` (pid, session) while
+it runs. A quit or crash doesn't run our cleanup, and the Claude Code process
+outlives the app (observed), so at launch `runner::recover_after_restart`
+stops that process if its command line still names the session, removes the
+mark, and records a note that the turn stopped. What was queued behind it is
+not re-sent; the note asks the user to send again.
+
+**Damaged files.** `agents.json` is written atomically and again as
+`agents.json.bak`. If it doesn't parse, the agents that do parse (or the
+backup, whichever holds more) are loaded and written back, and the damaged
+file is kept as `agents.json.corrupt-<ms>`; with neither readable it is an
+error, never an empty list that would be saved over it. A torn last line in
+`messages.jsonl` is skipped on read, and the next append starts a new line
+instead of fusing into it. A log that can't be written: the user's own send
+fails with the reason; a reply mid-turn is still shown, with one error line
+(at most a minute) saying it won't survive a restart.
 
 ## Tools agents get (`src-tauri/src/agents/mcp.rs`)
 
@@ -350,5 +369,16 @@ cards.
 - `cargo test --lib agents::`: store, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
+- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, ~$0.08 and ~2.5
+  minutes for all nine): `src-tauri/examples/agents_e2e.rs` drives the real
+  runner, store, bridge and MCP tools through the same Tauri commands the UI
+  calls, on `claude --model haiku`, in a throwaway HOME (only the keychain is
+  linked, for sign-in). Scenarios: memory across turns, quit mid-turn and
+  relaunch (a second process, SIGKILLed), lost session file, delegation +
+  two agents at once + the hop cap, Stop and interrupt, approvals (Allow,
+  late Allow after a shortened wait, Always allow), a fake CLI (startup
+  error, garbage output, crash, bare error code), damaged store files, and 20
+  rapid messages. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
+  approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
 - `node scripts/harness-capture.mjs agents-`: team, Team overview, @mention menu, approval, first run, new
   agent, import, Claude Code missing.
