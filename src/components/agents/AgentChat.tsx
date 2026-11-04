@@ -159,10 +159,11 @@ export function AgentChat({
         icon: <HistoryIcon size={14} />,
         category: 'action',
         keywords: ['routine', 'remind', 'every', 'recurring', 'later', 'scheduled'],
+        when: () => engineReady,
         run: () => setScheduleOpen(true),
       },
     ],
-    [agent.name]
+    [agent.name, engineReady]
   );
 
   const toastError = useCallback((message: string) => showToast(message, 'error'), [showToast]);
@@ -462,8 +463,17 @@ export function AgentChat({
           <div className="agent-chat__title">{title}</div>
         )}
         <div className="agent-chat__actions">
-          <AgentSchedulePopover agent={agent} open={scheduleOpen} onOpenChange={setScheduleOpen} />
-          <AgentModelMenu agent={agent} />
+          {/* Nothing to schedule or pick a model for until Claude Code is here. */}
+          {engineReady && (
+            <>
+              <AgentSchedulePopover
+                agent={agent}
+                open={scheduleOpen}
+                onOpenChange={setScheduleOpen}
+              />
+              <AgentModelMenu agent={agent} />
+            </>
+          )}
           <Dropdown
             align="right"
             portal
@@ -482,7 +492,7 @@ export function AgentChat({
             <AgentActionItems
               agent={agent}
               kind="dropdown"
-              onSchedule={() => setScheduleOpen(true)}
+              onSchedule={engineReady ? () => setScheduleOpen(true) : undefined}
               {...actions}
             />
           </Dropdown>
