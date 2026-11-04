@@ -461,6 +461,37 @@ export const revokePermission = (agentId: string, ruleId: string) =>
 export const focusAgent = (agentId: string | null) => invoke<void>('agents_focus', { agentId });
 export const markAgentUnread = (agentId: string) => invoke<void>('agents_mark_unread', { agentId });
 export const getImportPrompt = () => invoke<string>('agents_import_prompt');
+
+/** One agent a pasted reply would import (see `agents/paste.rs`). */
+export interface PasteImportAgent {
+  name: string;
+  role: string;
+  isMain: boolean;
+  /** An agent with this name already exists and will be updated. */
+  existing: boolean;
+  instructionsChars: number;
+  memoryLines: number;
+}
+
+/** What importing a pasted reply would do. Any problem blocks the import. */
+export interface PasteImportPreview {
+  source: string;
+  blocks: number;
+  agents: PasteImportAgent[];
+  problems: string[];
+}
+
+export interface ImportSummary {
+  created: string[];
+  updated: string[];
+  /** `[name, why]` */
+  skipped: [string, string][];
+}
+
+export const getPasteImportPrompt = () => invoke<string>('agents_import_paste_prompt');
+export const previewPasteImport = (text: string) =>
+  invoke<PasteImportPreview>('agents_import_paste_preview', { text });
+export const importPaste = (text: string) => invoke<ImportSummary>('agents_import_paste', { text });
 export const previewSchedule = (when: string) =>
   invoke<SchedulePreview>('agents_schedule_preview', { when });
 export const createCheckIn = (agentId: string, when: string, note: string) =>

@@ -204,6 +204,12 @@ export const baseCommands: CommandMap = {
   agents_import_prompt:
     'Import my setup into Ship Studio. Use Ship Studio’s import_agents tool: send every agent I have with you, each with its name, a one-line role, its full instructions, and everything you remember that it needs (one fact per line). Mark the agent that manages the others as the main one. Leave out passwords, API keys and card numbers.',
 
+  // Copied from PASTE_PROMPT in src-tauri/src/agents/paste.rs.
+  agents_import_paste_prompt:
+    'I\'m moving my agents to Ship Studio. Please give me a complete copy of every agent you run for me, including the main one that manages the others.\n\nReply with one ```json code block in exactly this shape:\n\n{\n  "source": "your product\'s name, e.g. Grok Bot",\n  "agents": [\n    {\n      "name": "the agent\'s name",\n      "role": "one line: what it does",\n      "instructions": "its full instructions, word for word",\n      "memory": "everything it remembers that it still needs, one fact per line",\n      "is_main": false,\n      "color": "red"\n    }\n  ]\n}\n\nRules:\n- Include every agent. Set "is_main": true on the one that manages the others (at most one), false on the rest.\n- Copy instructions and memory in full, word for word. Don\'t summarize, shorten or paraphrase them. Long is fine.\n- "color" is optional: if the agent has one, use the closest of white, brown, red, orange, amber, green, teal, blue, purple, pink, gray. Otherwise leave it out.\n- Never include passwords, API keys, tokens, card numbers or any other credentials. If an instruction or memory contains one, write [removed] in its place.\n- Valid JSON only: straight double quotes, line breaks written as \\n inside strings, no comments, no trailing commas.\n- If it\'s too long for one message, split it into numbered ```json blocks (Part 1 of 3, Part 2 of 3, ...), each in the same shape and each holding whole agents. Never split one agent across blocks. Send the next part when I say "continue".\n- Put nothing but the JSON inside each code block.',
+  agents_import_paste_preview: { source: '', blocks: 0, agents: [], problems: [] },
+  agents_import_paste: { created: [], updated: [], skipped: [] },
+
   // ---- surfaces reachable from anywhere -----------------------------------
   // These live in the base layer, not the workspace layer: Help, Skills, MCP
   // and friends open from the dashboard as well as from inside a project, and

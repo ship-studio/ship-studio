@@ -28,6 +28,7 @@ pub mod files;
 pub mod import;
 pub mod mcp;
 pub mod notify;
+pub mod paste;
 pub mod permissions;
 pub mod project;
 pub mod prompts;
