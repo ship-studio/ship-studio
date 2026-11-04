@@ -1,0 +1,306 @@
+/* "Install on my phone" — src/components/phone/PhoneInstall*.tsx */
+
+.phone-modal--install {
+  width: auto;
+}
+
+/* The route choice reads like the Phone panel; the build needs room for the
+   checklist beside a terminal. */
+.phone-install {
+  width: 560px; /* css-ok: route-choice measure */
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.phone-install__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  min-height: 28px; /* css-ok: matches a compact control, so the bar doesn't jump between views */
+}
+
+.phone-install--build {
+  width: 900px; /* css-ok: checklist + terminal side by side */
+}
+
+.phone-install__where {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+/* ---- Route choice --------------------------------------------------------- */
+
+.phone-route {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+}
+
+.phone-route[data-unavailable] {
+  background: transparent;
+  border-style: dashed;
+}
+
+.phone-route__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+
+.phone-route__title {
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+}
+
+.phone-route[data-unavailable] .phone-route__title {
+  color: var(--text-secondary);
+}
+
+.phone-route__detail {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.phone-route__badge {
+  flex: none;
+  padding: var(--spacing-3xs) var(--spacing-sm);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Build: checklist beside the work ------------------------------------- */
+
+.phone-install__grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr); /* css-ok: checklist column */
+  gap: var(--spacing-lg);
+  align-items: start;
+}
+
+.phone-install-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-install-step {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+}
+
+.phone-install-step + .phone-install-step {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.phone-install-step__mark {
+  flex: none;
+  width: 16px; /* css-ok: icon box */
+  height: 18px; /* css-ok: one line of title text */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-success);
+}
+
+.phone-install-step__mark > span {
+  width: 8px; /* css-ok: status dot */
+  height: 8px; /* css-ok: status dot */
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--text-muted); /* css-ok: hairline ring */
+}
+
+.phone-install-step[data-state='you'] .phone-install-step__mark > span {
+  border-color: var(--accent-warning);
+  background: rgba(var(--accent-warning-rgb), 0.25);
+}
+
+.phone-install-step[data-state='agent'] .phone-install-step__mark > span {
+  border-color: var(--text-secondary);
+}
+
+.phone-install-step__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+}
+
+.phone-install-step__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.phone-install-step__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+  line-height: 18px; /* css-ok: aligns with the 18px mark */
+}
+
+.phone-install-step[data-state='waiting'] .phone-install-step__title {
+  color: var(--text-muted);
+}
+
+.phone-install-step__who {
+  flex: none;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+.phone-install-step[data-state='you'] .phone-install-step__who {
+  color: var(--accent-warning);
+}
+
+.phone-install-step__detail {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.phone-install-step[data-state='you'] .phone-install-step__detail {
+  color: var(--text-secondary);
+}
+
+.phone-install-step__action {
+  align-self: flex-start;
+  margin-top: var(--spacing-xs);
+}
+
+.phone-install__work {
+  min-width: 0;
+}
+
+.phone-install__terminal {
+  position: relative;
+  height: 420px; /* css-ok: terminal viewport height */
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--surface-app);
+  padding: var(--spacing-sm) 0 0 var(--spacing-md);
+}
+
+.phone-install__ended {
+  position: absolute;
+  left: var(--spacing-sm);
+  right: var(--spacing-sm);
+  bottom: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+/* ---- Before the agent starts ---------------------------------------------- */
+
+.phone-install-start,
+.phone-install-done {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-height: 420px; /* css-ok: the terminal's height, so starting it doesn't move anything */
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background: var(--surface-recessed);
+}
+
+.phone-install-start__title,
+.phone-install-done__title {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+}
+
+.phone-install-start__text,
+.phone-install-done__line {
+  margin: 0;
+  max-width: 52ch;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.phone-install-start__note,
+.phone-install-done__hint {
+  margin: 0;
+  max-width: 52ch;
+  padding-left: var(--spacing-md);
+  border-left: 2px solid var(--border-strong); /* css-ok: quote rule */
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.phone-install-start__actions,
+.phone-install-done__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.phone-install-start__blocked {
+  margin: 0;
+  max-width: 52ch;
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+  color: var(--accent-warning);
+}
+
+/* ---- Done ----------------------------------------------------------------- */
+
+.phone-install-done {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.phone-install-done__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px; /* css-ok: icon tile */
+  height: 44px; /* css-ok: icon tile */
+  margin-bottom: var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  background: rgba(var(--accent-success-rgb), 0.12);
+  color: var(--accent-success);
+}
+
+.phone-install-done__hint {
+  border-left: 0;
+  padding-left: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+}

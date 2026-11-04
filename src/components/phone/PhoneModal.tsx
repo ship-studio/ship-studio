@@ -43,6 +43,9 @@ import {
 } from '../../lib/companion';
 import { PairCode, PairConfirm, PairOffer } from './PhonePairing';
 import { PhoneDevices } from './PhoneDevices';
+import { PhoneInstall } from './PhoneInstall';
+import { PhoneInstallEntry } from './PhoneInstallEntry';
+import { takeInstallOnOpen, type InstallPlatform } from '../../lib/companionInstall';
 
 const errMsg = (err: unknown) => formatCommandError(asCommandError(err));
 
@@ -58,6 +61,8 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
   const [code, setCode] = useState<PairingCode | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // "Install on my phone": the route choice, or a reinstall for one platform.
+  const [install, setInstall] = useState<{ reinstall?: InstallPlatform } | null>(null);
   const { copy } = useCopyToClipboard({
     onCopy: () => showToast('Pairing link copied. It works once, for five minutes.', 'success'),
   });
@@ -95,8 +100,10 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
   useEffect(() => {
     if (!isOpen) {
       setCode(null);
+      setInstall(null);
       return;
     }
+    if (takeInstallOnOpen()) setInstall({});
     let unlisten: (() => void) | undefined;
     let closed = false;
     void listen(COMPANION_CHANGED_EVENT, () => void load()).then((fn) => {
@@ -153,6 +160,26 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
       return next;
     });
 
+  if (install) {
+    return (
+      <ModalFrame
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Install on my phone"
+        className="phone-modal phone-modal--install"
+      >
+        <PhoneInstall
+          reinstall={install.reinstall}
+          onBack={() => setInstall(null)}
+          onPair={() => {
+            setInstall(null);
+            if (s && phoneStep(s).kind === 'ready') void pair();
+          }}
+        />
+      </ModalFrame>
+    );
+  }
+
   return (
     <ModalFrame isOpen={isOpen} onClose={onClose} title="Phone" className="phone-modal">
       <div className="settings-modal-body phone-access">
@@ -190,6 +217,12 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
                 )}
               </section>
             )}
+
+            <PhoneInstallEntry
+              now={now}
+              onInstall={() => setInstall({})}
+              onReinstall={(platform) => setInstall({ reinstall: platform })}
+            />
 
             {(s.enabled || s.devices.length > 0) && (
               <section className="phone-section">

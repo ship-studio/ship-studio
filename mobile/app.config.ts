@@ -9,6 +9,9 @@ const projectId = process.env.EAS_PROJECT_ID;
 // PLACEHOLDER: the official bundle id is not registered yet. Replace once the
 // owner's App Store Connect team has the app record.
 const bundleId = process.env.SHIPSTUDIO_BUNDLE_ID ?? 'com.shipstudio.companion';
+// A build on the user's own Mac signs with their team (Ship Studio → Phone →
+// Install on my phone sets it); unset, Xcode's own signing settings apply.
+const appleTeamId = process.env.APPLE_TEAM_ID;
 const updatesUrl = process.env.UPDATES_URL ?? (projectId ? `https://u.expo.dev/${projectId}` : '');
 
 const SURFACE_APP = '#141414'; // --surface-app
@@ -31,6 +34,7 @@ export default (): ExpoConfig => ({
     : { enabled: false },
   ios: {
     bundleIdentifier: bundleId,
+    ...(appleTeamId ? { appleTeamId } : {}),
     supportsTablet: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,

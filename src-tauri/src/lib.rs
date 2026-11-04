@@ -903,6 +903,12 @@ pub fn run() {
             commands::agent_bridge::agent_bridge_respond,
             // Remote access
             commands::companion::companion_status,
+            commands::companion_install::companion_install_ios_status,
+            commands::companion_install::companion_install_ios_app,
+            commands::companion_install::companion_install_ios_launch,
+            commands::companion_install::companion_install_android_status,
+            commands::companion_install::companion_install_android_app,
+            commands::companion_install::companion_install_remind,
             commands::companion::companion_set_enabled,
             commands::companion::companion_retry_tailscale,
             commands::companion::companion_pair_start,
