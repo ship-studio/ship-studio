@@ -741,6 +741,28 @@ first.
   `fixtures.gen.ts`, and `pnpm typecheck` checks it. Method results in it go
   through the real router.
 
+### P2 app: as built
+
+- **Navigation.** Native tabs: Agents, Projects, and the system Search tab.
+  Chat, the agent sheet, Files, a session and the photo viewer push over them.
+- **Attachments.** Camera, Photos or Files; the desktop's limits are checked
+  before upload and again by the Mac. Each file uploads as soon as it's
+  picked (with progress, retry and remove), so Send sends blob ids. Images
+  show as the Mac's `?w=` thumbnails and open in a zooming viewer with
+  Share; anything else opens in Quick Look (`File.preview`, with the share
+  sheet as the fallback). Downloads are cached by blob id or agent + path.
+- **clientId.** The optimistic bubble settles on the echoed `clientId`;
+  text matching is kept only for a Mac that doesn't echo one.
+- **Sessions.** Session cards in chat open a read-only view of the session
+  (`sessions.read`, refreshed every 2.5 s while open). Answering a question
+  and typing stay on the Mac: `sessions.send`/`sessions.key` aren't served.
+- **Projects** poll `projects.list` every 4 s while the tab is visible,
+  since `projects.changed` isn't journaled yet.
+- **Search** pages a chat back with `before` until the hit is loaded (40
+  pages at most), scrolls to it and lights it.
+- **Not yet:** quotes and @mentions, `agents.fetchPath` for paths in a
+  reply, the offline SQLite cache and outbox, the LAN route.
+
 ### P2: everything else in the chat, and projects
 
 - Attachments both ways (blobs).
