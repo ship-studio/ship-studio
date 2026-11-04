@@ -207,6 +207,34 @@ be confused with agent-to-agent `message_agent`:
   no "Always allow" is offered and no rule can skip it. Allow pushes exactly
   the tree the card described (`frozen_tree` / `push_frozen`); a change in
   between pushes nothing. An unanswered card expires after 240s.
+- **Questions a session asks** (`agents/decisions.rs`): when a session stops
+  on something it can't answer itself (Claude Code's folder-trust dialog, a
+  permission prompt in the tab, any menu or y/n `agent_state.rs` recognises),
+  Ship Studio raises a card with the prompt's own text and options, and the
+  agent's tool call waits on it like `approve` (240s; then the card stays live
+  and an answer wakes the agent with "call session_wait"). The card goes in
+  the owner's chat **and** where the work came from: up the delegation chain
+  (`runner::turn_origin`) to the agent the user asked, plus the chat a window
+  is showing. One request id in every chat; answering in any resolves all
+  (`decisions::resolve_all`), the others turning into the quiet "Allowed ·
+  Yes, I trust this folder" line. It is announced once (`record_quietly` for
+  the copies) and counts as "Needs your OK" in each row, ⌘J and the badge.
+  Allow / Deny (or the session's other options) send that option's keys
+  (its number; for the trust dialog's unnumbered menu, arrows then Enter),
+  after checking the session is still asking the same thing. Agents can't
+  answer: `session_key` refuses while a question is up, and the prompts tell
+  them to say "Allow it on the card above". A message refused because the
+  session was asking is sent once the card is answered.
+- **Folder trust:** one card per project ("Let Claude Code work in
+  demo-site?"). Allow writes `projects["<real path>"].hasTrustDialogAccepted
+  = true` into `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`), keeping
+  everything else, then answers the dialog in every session of that project
+  showing it. Observed with Claude Code 2.1.318 in a throwaway HOME: that is
+  exactly what accepting the dialog writes, keyed by the canonical path, and
+  an entry with only that key (on the folder or a parent) skips the dialog.
+  Nothing is trusted without the card.
+- **Change cards:** a message that changed the project leaves a `changes`
+  card ("Changed 1 file in demo-site", View diff), once per message.
 - **Audit:** the remote's `remote_audit.jsonl`, same rules (reads skipped,
   previews only), with `actor` set to the agent's name. The Remote access
   modal's activity list leaves those out.
@@ -704,7 +732,10 @@ prunes them the diff says it can't be shown.
   two agents at once + the hop cap, Stop and interrupt, approvals (Allow,
   late Allow after a shortened wait, Always allow), a fake CLI (startup
   error, garbage output, crash, bare error code), damaged store files, 20
-  rapid messages, Stop ending a turn's whole process tree (a background
+  rapid messages, a session's questions (`session-prompt`: Chief → Site
+  Builder → a fresh untrusted project; the trust card in both chats, Allowed
+  in the Chief's; trust recorded; the edit's permission card; the edit; a
+  change card), Stop ending a turn's whole process tree (a background
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.

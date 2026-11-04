@@ -18,6 +18,12 @@
 //! - **Pushing:** no PIN. The user is asked with a card in the agent's chat
 //!   showing the branch, the commits and the remote. It has no tool call
 //!   behind it, so "Always allow" is never offered and no rule can skip it.
+//! - **Questions:** a session waiting on a decision (folder trust, a
+//!   permission prompt, a menu) puts a card in front of the user
+//!   (`decisions.rs`) and the call waits on it; an agent can't press the
+//!   answer itself.
+//! - **Changes:** a message that changed the project leaves a change card,
+//!   like a bound agent's turn does.
 //! - **Audit:** the remote's log, with the agent's name as the actor.
 //! - **The window never moves.** A session is spawned in the background and
 //!   adopted by the project's tabs (`lib/backgroundSessions.ts`); a screenshot
@@ -36,6 +42,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use tauri::AppHandle;
 
+use super::decisions;
 use super::mcp::{self, Answer};
 use super::runner;
 use super::store::{self, MessageKind};
@@ -89,7 +96,7 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "session_key",
         remote: "press_key",
-        description: "Press one key in a session to answer what it is asking (STATUS: needs_decision lists the options). Only with the user's answer: ask them first, in this chat.",
+        description: "Press one key in a session that isn't asking anything (escape interrupts it). A question a session asks (STATUS: needs_decision) is the user's to answer on the card Ship Studio shows them; this tool refuses while one is up.",
     },
     Tool {
         name: "session_close",
@@ -347,6 +354,30 @@ async fn all_projects() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Run one shared handler for an agent, collecting what it saw.
+async fn run_shared(
+    app: &AppHandle,
+    projects: &[String],
+    remote: &str,
+    args: Value,
+) -> (Value, Seen) {
+    AGENTS_CALL
+        .scope(AgentsCall::default(), async {
+            let result = shared::call_in(app, projects, remote, args).await;
+            let seen = AGENTS_CALL.with(|c| Seen {
+                shots: c.shots.take(),
+                outcomes: c.outcomes.take(),
+                started: c.started.take(),
+            });
+            (result, seen)
+        })
+        .await
+}
+
+/// Questions answered on cards within one call, at most: each answer is
+/// followed, and a session can ask again (trust, then an edit).
+const MAX_QUESTIONS: usize = 4;
+
 pub async fn call(app: &AppHandle, caller: &store::Agent, tool: &Tool, args: &Value) -> Value {
     let projects = all_projects().await;
     let wanted = args.get("project").and_then(Value::as_str);
@@ -360,25 +391,114 @@ pub async fn call(app: &AppHandle, caller: &store::Agent, tool: &Tool, args: &Va
                     .unwrap_or_default(),
             ),
         }
+    } else if let Some(refusal) = refuse_key(tool, project.as_deref(), args) {
+        mcp_error(refusal)
     } else {
-        let (result, seen) = AGENTS_CALL
-            .scope(AgentsCall::default(), async {
-                let result = shared::call_in(app, &projects, tool.remote, args.clone()).await;
-                let seen = AGENTS_CALL.with(|c| Seen {
-                    shots: c.shots.take(),
-                    outcomes: c.outcomes.take(),
-                    started: c.started.take(),
-                });
-                (result, seen)
-            })
-            .await;
-        if let Some(p) = &project {
-            record_lines(app, caller, tool.name, p, args, &seen);
-        }
-        rename_result(result)
+        rename_result(run_with_cards(app, caller, &projects, project.as_deref(), tool, args).await)
     };
     audit(caller, tool, project.as_deref(), args, &result);
     result
+}
+
+/// An agent never presses the answer to a question the user is being asked.
+fn refuse_key(tool: &Tool, project: Option<&str>, args: &Value) -> Option<String> {
+    if tool.name != "session_key" {
+        return None;
+    }
+    let tab = args.get("tab").and_then(Value::as_str);
+    let asking = shared::asking_in(project?, tab)?;
+    Some(format!(
+        "Not pressed: the session is asking \"{}\", and only the user answers that, on the card in the chat. Tell them to answer it on the card above.",
+        asking.question
+    ))
+}
+
+/// Run the call; when a session stops on a question, put it to the user as a
+/// card, wait, and follow what the session does with the answer.
+async fn run_with_cards(
+    app: &AppHandle,
+    caller: &store::Agent,
+    projects: &[String],
+    project: Option<&str>,
+    tool: &Tool,
+    args: &Value,
+) -> Value {
+    let (mut name, mut remote, mut args_now) = (tool.name, tool.remote, args.clone());
+    let mut answered = Vec::new();
+    let mut rounds = 0;
+    loop {
+        let (result, seen) = run_shared(app, projects, remote, args_now.clone()).await;
+        let Some(p) = project else {
+            return result;
+        };
+        record_lines(app, caller, name, p, &args_now, &seen);
+        record_changes(app, caller, p, &seen).await;
+        let asked = seen.outcomes.iter().rev().find(|o| o.decision.is_some());
+        let settled = match asked {
+            Some(o) if rounds < MAX_QUESTIONS => {
+                rounds += 1;
+                Some((
+                    o.session_id.clone(),
+                    decisions::ask(app, caller, p, o).await,
+                ))
+            }
+            _ => None,
+        };
+        match settled {
+            Some((_, decisions::Settled::NotYet)) | None => {
+                return with_lead(result, &answered);
+            }
+            Some((session, settled)) => {
+                answered.push(match settled {
+                    decisions::Settled::Answered(label) => {
+                        format!("The user answered the session's question on the card: “{label}”.")
+                    }
+                    _ => "The session's question was answered in the session itself.".to_string(),
+                });
+                // A message refused because the session was asking wasn't
+                // sent: send it now. Anything else: follow the session.
+                let refused = name == "session_message"
+                    && result.get("isError").and_then(Value::as_bool) == Some(true);
+                if !refused {
+                    (name, remote) = ("session_wait", "wait_for_agent");
+                    args_now = json!({ "project": p, "tab": session });
+                }
+            }
+        }
+    }
+}
+
+/// Put what happened on the cards ahead of the session's answer.
+fn with_lead(mut result: Value, lead: &[String]) -> Value {
+    if lead.is_empty() {
+        return result;
+    }
+    if let Some(blocks) = result.get_mut("content").and_then(Value::as_array_mut) {
+        blocks.insert(0, json!({ "type": "text", "text": lead.join("\n") }));
+    }
+    result
+}
+
+/// A finished message that changed the project: a change card, once per
+/// message, like the one a bound agent's turn leaves.
+async fn record_changes(app: &AppHandle, caller: &store::Agent, project: &str, seen: &Seen) {
+    for o in seen.outcomes.iter().filter(|o| o.state == "finished") {
+        let Some(before) = shared::take_run_tree(&o.session_id) else {
+            continue;
+        };
+        let dir = std::path::Path::new(project);
+        let Some(summary) = super::project::summary(dir, &before).await else {
+            continue;
+        };
+        let files = match summary.file_count {
+            1 => "1 file".to_string(),
+            n => format!("{n} files"),
+        };
+        let text = format!("Changed {files} in {}", shared::project_name(project));
+        let mut line = runner::new_message(&caller.id, MessageKind::Changes, text);
+        line.changes = Some(summary);
+        let _ = runner::record(app, line);
+    }
 }
 
 /// The same log, rules and wording as remote access, naming the agent.
@@ -516,6 +636,7 @@ mod tests {
             cli: "claude".into(),
             state,
             reply: reply.iter().map(|s| s.to_string()).collect(),
+            decision: None,
         }
     }
 

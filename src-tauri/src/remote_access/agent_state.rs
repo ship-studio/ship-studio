@@ -151,6 +151,9 @@ fn tidy_activity(line: &str) -> String {
     }
 }
 
+/// Marks the option an unnumbered menu has highlighted (Enter picks it).
+pub const HIGHLIGHTED: &str = " (highlighted — enter picks it)";
+
 const POINTERS: [char; 5] = ['❯', '>', '›', '▶', '→'];
 
 /// The numbered options at the bottom of the screen, with a long option's
@@ -257,7 +260,7 @@ fn unnumbered_menu(lines: &[String]) -> Option<(String, Vec<String>)> {
             let t = lines[i].trim();
             let label = t.trim_start_matches(POINTERS).trim();
             if i == h {
-                format!("{label} (highlighted — enter picks it)")
+                format!("{label}{HIGHLIGHTED}")
             } else {
                 label.to_string()
             }
@@ -290,6 +293,36 @@ pub fn decision_context(lines: &[String]) -> Option<String> {
             l.trim_matches(|c: char| c == '│' || c.is_whitespace())
                 .to_string()
         })
+}
+
+/// What a permission prompt says above its question, as drawn: Claude Code's
+/// "Bash command" / "Create empty file x.txt" / "touch x.txt", between the
+/// box's top rule and "Do you want to proceed?". Inner dashed rules and blank
+/// lines are dropped; the tool line ("⏺ Bash(…)") above the box is not part
+/// of it. Empty when there is no such box.
+pub fn decision_body(lines: &[String]) -> Vec<String> {
+    let floor = lines.len().saturating_sub(24);
+    let Some(q) = (floor..lines.len()).rev().find(|&i| {
+        let lower = lines[i].trim().to_lowercase();
+        lower.starts_with("do you want")
+            || lower.starts_with("allow ")
+            || lower.contains("would you like to proceed")
+    }) else {
+        return Vec::new();
+    };
+    let top = (q.saturating_sub(14)..q).rev().find(|&i| {
+        let t = lines[i].trim();
+        (is_rule(t) && t.contains(['─', '━'])) || t.starts_with(['⏺', '•'])
+    });
+    let Some(top) = top else {
+        return Vec::new();
+    };
+    lines[top + 1..q]
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !is_rule(l))
+        .map(str::to_string)
+        .collect()
 }
 
 /// A horizontal rule or box edge — the agent's input-box chrome.
@@ -613,6 +646,16 @@ mod tests {
             decision_context(&screen).as_deref(),
             Some("touch made-by-bash.txt")
         );
+        assert_eq!(
+            decision_body(&screen),
+            vec![
+                "Bash command",
+                "Create empty file made-by-bash.txt",
+                "touch made-by-bash.txt"
+            ]
+        );
+        // No box above the question: nothing to show but the question.
+        assert!(decision_body(&lines(&["Do you want to proceed?", "❯ 1. Yes"])).is_empty());
     }
 
     #[test]

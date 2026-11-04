@@ -120,6 +120,9 @@ struct Runtime {
     cancel: Option<Arc<Notify>>,
     /// Hop count of the turn in progress (0 when the user started it).
     hop: u8,
+    /// The agent whose message started the turn in progress; `None` when the
+    /// user's own message is among what it answers.
+    origin: Option<String>,
     /// What the turn in progress was asked, for the note an interruption leaves.
     prompt: Option<String>,
     /// The user asked to interrupt the turn in progress (see [`interrupt`]).
@@ -138,6 +141,16 @@ pub fn status_of(agent_id: &str) -> Status {
         .get(agent_id)
         .and_then(|r| r.status.clone())
         .unwrap_or_else(Status::idle)
+}
+
+/// Who handed this agent the turn it is running: another agent's id, or
+/// `None` when the user asked (or nothing is running).
+pub fn turn_origin(agent_id: &str) -> Option<String> {
+    RUNTIMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(agent_id)
+        .and_then(|r| r.origin.clone())
 }
 
 pub fn current_hop(agent_id: &str) -> u8 {
@@ -344,6 +357,23 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
+    record_as(app, message, true)
+}
+
+/// `record` without the OS notification: the same card shown in a second
+/// chat, which was already announced once.
+pub fn record_quietly(
+    app: &AppHandle,
+    message: AgentMessage,
+) -> Result<AgentMessage, CommandError> {
+    record_as(app, message, false)
+}
+
+fn record_as(
+    app: &AppHandle,
+    message: AgentMessage,
+    alert: bool,
+) -> Result<AgentMessage, CommandError> {
     if let Err(e) = store::append_message(&message) {
         unsaved(app, &message, &e);
         return Err(e);
@@ -379,7 +409,7 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
     let _ = app.emit(EVENT_MESSAGE, &message);
     let _ = app.emit(EVENT_REGISTRY, ());
     if wants_user {
-        if let Ok(agent) = &updated {
+        if let (Ok(agent), true) = (&updated, alert) {
             notify::message_recorded(app, agent, &message, in_turn(&message.agent_id));
         }
         notify::refresh_badge(app);
@@ -621,6 +651,7 @@ async fn drain(app: AppHandle, agent_id: String) {
                 runtime.running = false;
                 runtime.cancel = None;
                 runtime.hop = 0;
+                runtime.origin = None;
                 runtime.prompt = None;
                 drop(runtimes);
                 set_status(&app, &agent_id, Status::idle());
@@ -630,6 +661,14 @@ async fn drain(app: AppHandle, agent_id: String) {
             save_inbox(&agent_id, &runtime.queue);
             // The turn inherits the deepest hop it is answering; a user message
             // in the batch resets the chain.
+            runtime.origin = if batch.iter().any(|m| matches!(m.from, From::User)) {
+                None
+            } else {
+                batch.iter().rev().find_map(|m| match &m.from {
+                    From::Agent { sender, .. } => Some(sender.id.clone()),
+                    From::User => None,
+                })
+            };
             runtime.hop = if batch.iter().any(|m| matches!(m.from, From::User)) {
                 0
             } else {

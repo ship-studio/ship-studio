@@ -188,6 +188,14 @@ pub struct Approval {
     /// What the user said when they declined, handed to the agent with the No.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// A question a project session is waiting on (a folder-trust dialog, a
+    /// permission prompt, a menu), answered with keys sent to that session.
+    /// The same card can sit in more than one chat (`agents/decisions.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<super::decisions::SessionPrompt>,
+    /// The option the user picked on a `prompt` card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -661,6 +669,8 @@ struct Answer {
     always_allowed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    choice: Option<String>,
 }
 
 impl Answer {
@@ -671,6 +681,9 @@ impl Answer {
         }
         approval.always_allowed |= self.always_allowed;
         approval.note = self.note.clone();
+        if self.choice.is_some() {
+            approval.choice = self.choice.clone();
+        }
     }
 }
 
@@ -885,7 +898,17 @@ pub fn set_approval_status(
     request_id: &str,
     status: ApprovalStatus,
 ) -> Result<Option<AgentMessage>, CommandError> {
-    resolve_approval(agent_id, request_id, status, None, None)
+    resolve_approval(agent_id, request_id, status, None, None, None)
+}
+
+/// Answer a session-prompt card with the option the user picked.
+pub fn answer_prompt(
+    agent_id: &str,
+    request_id: &str,
+    status: ApprovalStatus,
+    choice: &str,
+) -> Result<Option<AgentMessage>, CommandError> {
+    resolve_approval(agent_id, request_id, status, None, None, Some(choice))
 }
 
 /// Decline a pending card with what the user said, which the agent is handed too.
@@ -900,6 +923,7 @@ pub fn deny_with_note(
         ApprovalStatus::Denied,
         None,
         Some(note),
+        None,
     )
 }
 
@@ -916,6 +940,7 @@ pub fn allow_always(
         ApprovalStatus::Allowed,
         Some(rule),
         None,
+        None,
     )
 }
 
@@ -927,6 +952,7 @@ fn resolve_approval(
     status: ApprovalStatus,
     rule: Option<&super::permissions::Scope>,
     note: Option<&str>,
+    choice: Option<&str>,
 ) -> Result<Option<AgentMessage>, CommandError> {
     let lock = log_lock(agent_id);
     let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -943,6 +969,7 @@ fn resolve_approval(
             always: rule.cloned(),
             always_allowed: rule.is_some(),
             note: note.map(str::to_string),
+            choice: choice.map(str::to_string),
         };
         append_line(&answers_path(agent_id)?, &answer)?;
         if let Some(approval) = message.approval.as_mut() {
@@ -1123,6 +1150,8 @@ mod tests {
                         always: None,
                         always_allowed: false,
                         note: None,
+                        prompt: None,
+                        choice: None,
                     });
                 }
                 append_message(&line).unwrap();
@@ -1264,6 +1293,8 @@ mod tests {
                     always: None,
                     always_allowed: false,
                     note: None,
+                    prompt: None,
+                    choice: None,
                 }),
                 attachments: Vec::new(),
                 check_in: None,
@@ -1352,6 +1383,8 @@ mod tests {
                 always: None,
                 always_allowed: false,
                 note: None,
+                prompt: None,
+                choice: None,
             });
             append_message(&card).unwrap();
             let raw = std::fs::read(log_path(&a.id).unwrap()).unwrap();

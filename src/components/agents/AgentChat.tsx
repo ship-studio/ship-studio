@@ -663,9 +663,9 @@ export function AgentChat({
   const retryLast = useStableEvent(retryFailed);
   const retryLater = useStableEvent(retryAt);
   const onAnswer = useStableEvent(
-    async (requestId: string, allow: boolean, always?: boolean, note?: string) => {
+    async (requestId: string, allow: boolean, always?: boolean, note?: string, choice?: number) => {
       try {
-        await answerApproval(agent.id, requestId, allow, always, note);
+        await answerApproval(agent.id, requestId, allow, always, note, choice);
       } catch (error) {
         showToast(formatCommandError(asCommandError(error)), 'error');
       }

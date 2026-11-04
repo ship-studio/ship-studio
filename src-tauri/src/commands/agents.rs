@@ -434,8 +434,9 @@ pub async fn agents_answer_approval(
     allow: bool,
     always: Option<bool>,
     note: Option<String>,
+    choice: Option<usize>,
 ) -> Result<(), CommandError> {
-    blocking(move || answer_card(&app, &agent_id, &request_id, allow, always, note)).await
+    blocking(move || answer_card(&app, &agent_id, &request_id, allow, always, note, choice)).await
 }
 
 fn answer_card(
@@ -445,6 +446,7 @@ fn answer_card(
     allow: bool,
     always: Option<bool>,
     note: Option<String>,
+    choice: Option<usize>,
 ) -> Result<(), CommandError> {
     let note = note
         .map(|n| n.trim().chars().take(MAX_DENY_NOTE).collect::<String>())
@@ -458,6 +460,11 @@ fn answer_card(
         .ok_or_else(|| CommandError::expected("That request no longer exists."))?;
     if approval.status != store::ApprovalStatus::Pending {
         return Err(CommandError::expected("That request was already answered."));
+    }
+    // A session's question: keys to the session, and every chat holding the
+    // card is answered with it.
+    if approval.prompt.is_some() {
+        return agents::decisions::answer(app, &approval, allow, choice);
     }
     let rule = if allow && always == Some(true) {
         Some(mcp::always_allow(agent_id, &approval)?)

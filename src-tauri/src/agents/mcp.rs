@@ -33,7 +33,7 @@ pub const APPROVAL_WAIT_SECS: u64 = 240;
 /// The wait, shortened in debug builds by `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS`
 /// so the end-to-end suite (examples/agents_e2e.rs) can reach the late-Allow
 /// path without sitting out four minutes.
-fn approval_wait() -> Duration {
+pub(super) fn approval_wait() -> Duration {
     let override_secs = cfg!(debug_assertions)
         .then(|| std::env::var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS").ok())
         .flatten()
@@ -80,6 +80,23 @@ pub(super) enum Answer {
 
 static PENDING_APPROVALS: LazyLock<Mutex<HashMap<String, oneshot::Sender<bool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Wait for the answer to a card someone else put up (`decisions.rs`).
+pub(super) fn register_waiter(request_id: &str) -> oneshot::Receiver<bool> {
+    let (tx, rx) = oneshot::channel();
+    PENDING_APPROVALS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(request_id.to_string(), tx);
+    rx
+}
+
+pub(super) fn drop_waiter(request_id: &str) {
+    PENDING_APPROVALS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(request_id);
+}
 
 pub fn answer_approval(request_id: &str, allow: bool) -> bool {
     let sender = PENDING_APPROVALS
@@ -827,6 +844,8 @@ pub(super) fn new_card(
         always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
         always_allowed: false,
         note: None,
+        prompt: None,
+        choice: None,
     }
 }
 

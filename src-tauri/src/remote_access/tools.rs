@@ -396,6 +396,98 @@ pub(crate) struct Outcome {
     /// `working`, `needs_decision`, `finished` or `exited`.
     pub state: &'static str,
     pub reply: Vec<String>,
+    /// What it is asking, when `state` is `needs_decision`.
+    pub decision: Option<Decision>,
+}
+
+/// A question a session is waiting on, as its screen shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Decision {
+    pub question: String,
+    /// The options as listed by `agent_state::awaiting_choice_detail`.
+    pub options: Vec<String>,
+    /// What the prompt says above the question (the command, the file).
+    pub body: Vec<String>,
+}
+
+impl Decision {
+    fn from_screen(question: &str, options: &[String], lines: &[String]) -> Self {
+        let mut body = agent_state::decision_body(lines);
+        if body.is_empty() {
+            body.extend(agent_state::decision_context(lines));
+        }
+        Decision {
+            question: question.to_string(),
+            options: options.to_vec(),
+            body,
+        }
+    }
+}
+
+/// Record what a call saw of a tab, for an agent's chat.
+fn note_outcome(
+    n: usize,
+    tab: &SessionSummary,
+    state: &AgentState,
+    reply: &[String],
+    lines: &[String],
+) {
+    let decision = match state {
+        AgentState::NeedsDecision { question, options } => {
+            Some(Decision::from_screen(question, options, lines))
+        }
+        _ => None,
+    };
+    let _ = AGENTS_CALL.try_with(|call| {
+        call.outcomes.borrow_mut().push(Outcome {
+            session_id: tab.session_id.clone(),
+            tab: n,
+            cli: tab.agent_id.clone().unwrap_or_default(),
+            state: state.keyword(),
+            reply: reply.to_vec(),
+            decision,
+        })
+    });
+}
+
+/// The question a session is showing right now, if any.
+pub(crate) fn asking_now(session_id: &str) -> Option<Decision> {
+    let snap = pty_session::session_snapshot(session_id)?;
+    if !snap.alive {
+        return None;
+    }
+    let lines = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 40);
+    let (question, options) = agent_state::awaiting_choice_detail(&lines)?;
+    Some(Decision::from_screen(&question, &options, &lines))
+}
+
+/// Press keys (names from [`key_bytes`]) in a session, a beat apart so a menu
+/// redraws between them. Blocking: call it off the async runtime.
+pub(crate) fn press_keys(session_id: &str, keys: &[String]) -> Result<(), String> {
+    for (i, key) in keys.iter().enumerate() {
+        let bytes = key_bytes(key).ok_or_else(|| format!("\"{key}\" isn't a key"))?;
+        if i > 0 {
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        write(session_id, bytes)?;
+    }
+    Ok(())
+}
+
+/// The question the tab `wanted` (or the one `pick_tab` would choose) is
+/// showing right now, if any.
+pub(crate) fn asking_in(project: &str, wanted: Option<&str>) -> Option<Decision> {
+    let (_, tab) = pick_tab(&sessions_for(project), wanted).ok()?;
+    asking_now(&tab.session_id)
+}
+
+/// A project's live agent tabs, by session id.
+pub(crate) fn live_agent_sessions(project: &str) -> Vec<String> {
+    sessions_for(project)
+        .into_iter()
+        .filter(|s| is_agent_tab(s) && s.alive)
+        .map(|s| s.session_id)
+        .collect()
 }
 
 /// What a call made for an agent saw, beyond the answer it returns.
@@ -686,6 +778,8 @@ struct Run {
     message: String,
     /// The working tree as git would commit it, before the message.
     tree_before: Option<String>,
+    /// Its change card was recorded (see [`take_run_tree`]).
+    carded: bool,
 }
 
 static RUNS: LazyLock<Mutex<HashMap<String, Run>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -708,12 +802,22 @@ fn begin_run(session_id: &str, message: &str, tree_before: Option<String>) {
             sent_ms: super::now_ms(),
             message: message.to_string(),
             tree_before,
+            carded: false,
         },
     );
 }
 
 fn run_for(session_id: &str) -> Option<Run> {
     RUNS.lock().ok()?.get(session_id).cloned()
+}
+
+/// The tree from before the message a session last got, once per message:
+/// what an agent's change card for that message diffs against.
+pub(crate) fn take_run_tree(session_id: &str) -> Option<String> {
+    let mut runs = RUNS.lock().ok()?;
+    let run = runs.get_mut(session_id).filter(|r| !r.carded)?;
+    run.carded = true;
+    run.tree_before.clone()
 }
 
 /// The working tree's content hash, if this is a git project.
@@ -852,6 +956,19 @@ fn describe(state: &AgentState, lines: &[String], head: &str, reply: &[String]) 
 }
 
 const NEXT_DECISION: &str = "NEXT: Ask the user now, in one short sentence, what the agent wants to do and which option they want (in plain words). When they answer, call press_key with that option's number (or y / n); for options without numbers, press up / down to move to it, then enter. Don't answer it yourself unless the user already asked for exactly this.";
+/// For Ship Studio's own agents a question is never theirs to answer: the
+/// user gets a card for it (`agents/decisions.rs`), and this is what an agent
+/// reads when the user hasn't answered it yet.
+const NEXT_DECISION_AGENTS: &str = "NEXT: Ship Studio has put this question in front of the user as a card in the chat, with these options. Only the user can answer it, on the card; you can't, and neither can another agent passing on their reply. Tell them in one short line what it's asking and to answer it on the card above, then stop. When they answer, you'll be woken to carry on.";
+
+fn next_decision() -> &'static str {
+    if for_agents() {
+        NEXT_DECISION_AGENTS
+    } else {
+        NEXT_DECISION
+    }
+}
+
 const NEXT_EXITED: &str = "NEXT: Tell the user the agent stopped (and why, if the screen says). If they want to carry on, message_agent starts a new one.";
 
 /// "bakery-site · tab 1 (claude-code) · 2m 10s since the message", the
@@ -894,15 +1011,7 @@ async fn agent_outcome(
     call_started: tokio::time::Instant,
 ) -> Value {
     let (head, reply, run) = heading(project, n, tab, &observed.lines);
-    let _ = AGENTS_CALL.try_with(|call| {
-        call.outcomes.borrow_mut().push(Outcome {
-            session_id: tab.session_id.clone(),
-            tab: n,
-            cli: tab.agent_id.clone().unwrap_or_default(),
-            state: observed.state.keyword(),
-            reply: reply.clone(),
-        })
-    });
+    note_outcome(n, tab, &observed.state, &reply, &observed.lines);
     let mut parts = Vec::new();
     if !lead.is_empty() {
         parts.push(lead.to_string());
@@ -921,7 +1030,7 @@ async fn agent_outcome(
                 "NEXT: Call wait_for_agent now (same project and tab), and keep calling it until STATUS is finished or needs_decision. Don't stop and don't reply to the user in between — they asked for the result.".into()
             }
         }
-        AgentState::NeedsDecision { .. } => NEXT_DECISION.into(),
+        AgentState::NeedsDecision { .. } => next_decision().into(),
         AgentState::Exited => NEXT_EXITED.into(),
         AgentState::Finished => {
             let changed = match run.as_ref().and_then(|r| r.tree_before.as_deref()) {
@@ -1264,6 +1373,11 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
     if let Some(snap) = pty_session::session_snapshot(&tab.session_id) {
         let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
         if let Some((question, options)) = agent_state::awaiting_choice_detail(&screen) {
+            let state = AgentState::NeedsDecision {
+                question: question.clone(),
+                options: options.clone(),
+            };
+            note_outcome(n, &tab, &state, &[], &screen);
             let options = if options.is_empty() {
                 String::new()
             } else {
@@ -1912,6 +2026,7 @@ async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> V
             match observe(&tab.session_id, wait, Duration::ZERO).await {
                 Ok(observed) => {
                     let (head, reply, _) = heading(project, n, &tab, &observed.lines);
+                    note_outcome(n, &tab, &observed.state, &reply, &observed.lines);
                     parts.extend(describe(&observed.state, &observed.lines, &head, &reply));
                     state = Some(observed.state);
                 }
@@ -1969,7 +2084,7 @@ async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> V
     let (mut content, lines) = shots_content(&captured);
     parts.extend(lines);
     parts.push(match state {
-        Some(AgentState::NeedsDecision { .. }) => NEXT_DECISION.into(),
+        Some(AgentState::NeedsDecision { .. }) => next_decision().into(),
         Some(AgentState::Exited) => NEXT_EXITED.into(),
         Some(AgentState::Working { .. }) => "NEXT: Reply to the user now in one or two plain sentences — what's done so far and what the agent is doing — with the screenshot. If they asked for the finished result instead, call wait_for_agent and report when it's done.".to_string(),
         _ => "NEXT: Reply to the user now in one or two plain sentences — what's done and what's next — with the screenshot. No code, diffs or terminal output unless they ask.".to_string(),

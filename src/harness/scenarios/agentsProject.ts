@@ -260,7 +260,138 @@ const openAcme = {
   steps: [{ click: '[data-agent-id="acme"]' }],
 };
 
+/**
+ * The walkthrough that found it: the user asks the Chief, the Chief hands it
+ * to Acme Site, Acme Site's new session in demo-site stops on Claude Code's
+ * folder-trust dialog. The card is in both chats.
+ */
+const DEMO_PATH = `${HARNESS_ROOT}/demo-site`;
+const trustCard = (agentId: string, statusOver: Record<string, unknown> = {}) =>
+  msg('approval', '', 1, {
+    agentId,
+    approval: {
+      requestId: 'req-trust-demo',
+      title: 'Let Claude Code work in demo-site?',
+      detail:
+        'Claude Code asks once per folder before it reads, edits and runs files in it. Allow, and demo-site stays trusted, the way Claude Code records it when you accept its own dialog.',
+      status: 'pending',
+      prompt: {
+        kind: 'trust',
+        project: DEMO_PATH,
+        sessionId: 'pty-demo-1',
+        tab: 1,
+        question: 'Quick safety check: Is this a project you created or one you trust?',
+        options: [
+          { label: 'No, exit', keys: ['enter'], role: 'deny' },
+          { label: 'Yes, I trust this folder', keys: ['down', 'enter'], role: 'allow' },
+        ],
+        owner: { id: 'acme', name: 'Acme Site' },
+        chats: ['acme', 'chief'],
+      },
+      ...statusOver,
+    },
+  });
+const CHIEF_DELEGATED_PROMPT = [
+  msg('user', 'Have Acme Site change the demo-site heading to “Bake better bread”.', 3),
+  msg('agent', 'Handed to Acme Site.', 3),
+  msg('sent_to_agent', 'Change the main heading in demo-site to “Bake better bread”.', 3, {
+    peer: { id: 'acme', name: 'Acme Site' },
+  }),
+  trustCard('chief'),
+  msg(
+    'from_agent',
+    'demo-site’s new session is waiting for Claude Code to be allowed in the folder. Allow it on the card above.',
+    1,
+    { peer: { id: 'acme', name: 'Acme Site' } }
+  ),
+];
+const ACME_PROMPTS = [
+  msg('from_agent', 'Change the main heading in demo-site to “Bake better bread”.', 3, {
+    agentId: 'acme',
+    peer: { id: 'chief', name: 'Chief of Staff' },
+  }),
+  msg('session', 'Change the main heading in demo-site to “Bake better bread”.', 2, {
+    agentId: 'acme',
+    session: {
+      project: DEMO_PATH,
+      event: 'started',
+      sessionId: 'pty-demo-1',
+      tab: 1,
+      cli: 'claude',
+    },
+  }),
+  trustCard('acme', { status: 'allowed', choice: 'Yes, I trust this folder' }),
+  msg('approval', '', 0.5, {
+    agentId: 'acme',
+    approval: {
+      requestId: 'req-edit-demo',
+      title: 'Do you want to make this edit to index.html?',
+      detail: 'Edit file\nindex.html',
+      status: 'pending',
+      prompt: {
+        kind: 'permission',
+        project: DEMO_PATH,
+        sessionId: 'pty-demo-1',
+        tab: 1,
+        question: 'Do you want to make this edit to index.html?',
+        options: [
+          { label: 'Yes', keys: ['1'], role: 'allow' },
+          {
+            label: 'Yes, allow all edits during this session (shift+tab)',
+            keys: ['2'],
+            role: 'other',
+          },
+          { label: 'No, and tell Claude what to do differently (esc)', keys: ['3'], role: 'deny' },
+        ],
+        owner: { id: 'acme', name: 'Acme Site' },
+        chats: ['acme'],
+      },
+    },
+  }),
+];
+const promptTeam = () =>
+  overview(
+    TEAM.map((a) =>
+      a.id === 'chief' || a.id === 'acme'
+        ? {
+            ...a,
+            status: a.id === 'acme' ? status('waiting', 'Waiting for your OK') : status('idle'),
+            pendingApprovals: 1,
+          }
+        : a
+    )
+  );
+
 export const agentsProjectScenarios: Scenario[] = [
+  {
+    id: 'agents-session-prompt-chief',
+    title: 'Agents — a delegated session’s question, answerable in the Chief’s chat',
+    looksRightWhen:
+      'The Chief’s chat: the user’s ask, “Handed to Acme Site.”, the hand-off line, then a card “Let Claude Code work in demo-site?” with “Acme Site’s session in demo-site · Claude Code 1” under it, the explanation, and Deny / Allow. Acme Site’s message below says to allow it on the card above. Both Chief and Acme Site rows say they need your OK.',
+    command: 'agents.open',
+    requires: '.agent-approval[data-prompt="trust"]',
+    commands: {
+      agents_overview: promptTeam(),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'chief' ? CHIEF_DELEGATED_PROMPT : messagesFor(args),
+      agents_answer_approval: null,
+    },
+  },
+  {
+    id: 'agents-session-prompt-owner',
+    title: 'Agents — the session’s own chat: trust answered, an edit to allow',
+    looksRightWhen:
+      'Acme Site’s chat: the Chief’s brief, “Started a session in demo-site”, the trust card resolved to a quiet “Allowed · Yes, I trust this folder”, then a pending card “Do you want to make this edit to index.html?” with “Its session in demo-site · Claude Code 1”, the edit’s text, and the session’s own extra choice “Yes, allow all edits during this session” beside Deny / Allow.',
+    requires: '.agent-approval[data-prompt="permission"]',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: '[data-agent-id="acme"]' }],
+    commands: {
+      agents_overview: promptTeam(),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'acme' ? ACME_PROMPTS : messagesFor(args),
+      agents_answer_approval: null,
+    },
+  },
   {
     id: 'agents-project-bound',
     title: 'Agents — an agent that works in a project, with change cards',

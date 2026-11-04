@@ -27,6 +27,7 @@
 pub mod apps;
 pub mod attachments;
 pub mod capabilities;
+pub mod decisions;
 pub mod failure;
 pub mod files;
 pub mod import;

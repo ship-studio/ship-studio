@@ -21,7 +21,7 @@
 //!
 //! Full design: `docs/remote-access.md`.
 
-mod agent_state;
+pub(crate) mod agent_state;
 mod deploy;
 pub mod power;
 pub mod screen;

@@ -1085,6 +1085,25 @@
   gap: var(--spacing-sm);
 }
 
+/* A session's question: whose session asked, under the question. */
+.agent-approval__source {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+/* The session's own extra choices wrap ahead of Deny / Allow. */
+.agent-approval__actions[data-wrap] {
+  flex-wrap: wrap;
+}
+
+.agent-approval__choice {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+}
+
 .agent-approval__outcome {
   font-size: var(--font-size-body-sm);
   color: var(--text-muted);
