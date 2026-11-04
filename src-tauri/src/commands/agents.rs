@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::agents::{self, import, mcp, runner, store};
+use crate::agents::{self, import, mcp, runner, schedule, store};
 use crate::errors::CommandError;
 
 #[derive(Serialize)]
@@ -276,4 +276,63 @@ pub async fn agents_mark_unread(agent_id: String) -> Result<(), CommandError> {
 #[tracing::instrument]
 pub async fn agents_import_prompt() -> Result<String, CommandError> {
     Ok(import::IMPORT_PROMPT.to_string())
+}
+
+/// What a `when` phrase means, as the user types it in the editor: the
+/// resolved first time and, for a routine, how it repeats. A parse error comes
+/// back as a Validation error with the shapes that work.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchedulePreview {
+    pub next_at: i64,
+    pub repeat: Option<String>,
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_schedule_preview(when: String) -> Result<SchedulePreview, CommandError> {
+    let (repeat, next_at) = schedule::parse(&when, &chrono::Local, store::now_ms())
+        .map_err(|e| agents::err_invalid("when", e))?;
+    Ok(SchedulePreview {
+        next_at,
+        repeat: repeat.as_ref().map(schedule::describe),
+    })
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(app, note))]
+pub async fn agents_schedule_create(
+    app: AppHandle,
+    agent_id: String,
+    when: String,
+    note: String,
+) -> Result<schedule::CheckIn, CommandError> {
+    let created = schedule::create(&agent_id, &when, &note)?;
+    emit_registry(&app);
+    Ok(created.check_in)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_schedule_cancel(
+    app: AppHandle,
+    agent_id: String,
+    id: String,
+) -> Result<(), CommandError> {
+    schedule::cancel(&agent_id, &id)?;
+    emit_registry(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_schedule_pause(
+    app: AppHandle,
+    agent_id: String,
+    id: String,
+    paused: bool,
+) -> Result<(), CommandError> {
+    schedule::set_paused(&agent_id, &id, paused)?;
+    emit_registry(&app);
+    Ok(())
 }

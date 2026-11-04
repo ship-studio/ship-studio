@@ -8,6 +8,14 @@ import type { Scenario } from '../types';
 const MIN = 60_000;
 const now = Date.now();
 
+/** Tomorrow at a local wall-clock time, so fixtures agree with their own "at 09:00". */
+const tomorrowAt = (hour: number, minute = 0) => {
+  const d = new Date(now);
+  d.setDate(d.getDate() + 1);
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+};
+
 const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
   state,
   activity,
@@ -63,6 +71,31 @@ const TEAM = [
     color: 'orange',
     minutesAgo: 40,
     unread: 2,
+    checkIns: [
+      {
+        id: 'ci1',
+        note: 'See whether Northwind paid the $4,200 invoice; if not, draft a firmer reminder.',
+        nextAt: tomorrowAt(9),
+        createdAt: now - 60 * MIN,
+        paused: false,
+      },
+      {
+        id: 'ci2',
+        note: 'Brief me on what came in and went out yesterday, and anything overdue.',
+        repeat: { kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 },
+        nextAt: tomorrowAt(9),
+        createdAt: now - 7 * 24 * 60 * MIN,
+        paused: false,
+      },
+      {
+        id: 'ci3',
+        note: 'Reconcile the month against the bank export.',
+        repeat: { kind: 'days', days: [1], hour: 8, minute: 30 },
+        nextAt: now + 5 * 24 * 60 * MIN,
+        createdAt: now - 30 * 24 * 60 * MIN,
+        paused: true,
+      },
+    ],
     role: 'Invoices, expenses and the books.',
     preview: 'Two invoices are overdue: Northwind ($4,200) and Globex ($1,150).',
   }),
@@ -183,6 +216,33 @@ const LEADGEN_CHAT = [
   }),
 ];
 
+const FINANCE_CHAT = [
+  msg('user', 'Chase Northwind if they haven’t paid by tomorrow.', 70, { agentId: 'finance' }),
+  msg(
+    'agent',
+    'Will do. I’ll check back tomorrow at 9:00 and draft a firmer reminder if it’s still open.',
+    69,
+    { agentId: 'finance' }
+  ),
+  msg('check_in', 'Brief me on what came in and went out yesterday, and anything overdue.', 41, {
+    agentId: 'finance',
+    checkIn: { dueAt: tomorrowAt(9) - 24 * 60 * MIN, late: true, repeats: false },
+  }),
+  msg(
+    'agent',
+    'Two invoices are overdue: **Northwind** ($4,200, 9 days) and **Globex** ($1,150, 3 days). Nothing else needs you.',
+    40,
+    { agentId: 'finance' }
+  ),
+];
+
+const schedulePreview = (args: Record<string, unknown>) => {
+  const when = String(args.when).toLowerCase();
+  if (when.startsWith('every')) return { nextAt: tomorrowAt(9), repeat: 'every weekday at 09:00' };
+  if (when.includes('tomorrow')) return { nextAt: tomorrowAt(9), repeat: null };
+  throw new Error('Give it a day and a time.');
+};
+
 const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
 
 /**
@@ -224,6 +284,7 @@ const messagesFor = (args: Record<string, unknown>) => {
   const sent = SENT[String(args.agentId)] ?? [];
   if (args.agentId === 'chief') return [...CHIEF_CHAT, ...sent];
   if (args.agentId === 'leadgen') return [...LEADGEN_CHAT, ...sent];
+  if (args.agentId === 'finance') return [...FINANCE_CHAT, ...sent];
   return sent;
 };
 
@@ -254,6 +315,38 @@ export const agentsScenarios: Scenario[] = [
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-check-in',
+    title: 'Agents — a scheduled check-in fired in the chat',
+    looksRightWhen:
+      'The Finance chat shows a centred “Scheduled check-in · late, was due …” line with the note under it, then the reply. The header shows “3 scheduled” beside the edit button.',
+    requires: '.agent-checkin',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="finance"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-scheduled',
+    title: 'Agents — the Scheduled section in the agent editor',
+    looksRightWhen:
+      'Editing Finance shows a Scheduled section: the one-time check-in, the weekday routine with its next time, the paused Monday routine dimmed and last. Below, When and What fields with Add, the phrase read back as typed, and the line saying it runs only while Ship Studio is open.',
+    requires: '.agent-schedule__item',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__scheduled' },
+      { fill: '.agent-schedule__add input[aria-label="When"]', value: 'every weekday 9am' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Invoices, expenses and the books.',
+      agents_schedule_preview: schedulePreview,
     },
   },
   {

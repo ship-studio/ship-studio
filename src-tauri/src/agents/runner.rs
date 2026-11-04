@@ -170,6 +170,7 @@ fn preview_for(message: &AgentMessage) -> Option<String> {
             .approval
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
+        MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
     }
 }
 
@@ -182,6 +183,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         text: text.into(),
         peer: None,
         approval: None,
+        check_in: None,
     }
 }
 
@@ -315,6 +317,7 @@ fn with_recap(agent_id: &str, prompt: &str) -> String {
                 MessageKind::Agent => "You".to_string(),
                 MessageKind::SentToAgent => format!("You → {}", m.peer.as_ref()?.name),
                 MessageKind::FromAgent => format!("{} → you", m.peer.as_ref()?.name),
+                MessageKind::CheckIn => "Your scheduled check-in".to_string(),
                 _ => return None,
             };
             let text: String = m.text.chars().take(600).collect();

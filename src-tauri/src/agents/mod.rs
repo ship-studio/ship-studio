@@ -8,6 +8,7 @@
 //! - [`runner`]: per-agent inbox; each turn is one `claude --print --resume`
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`import`]: bring an existing setup over from another assistant
+//! - [`schedule`]: check-ins and routines that wake an agent on time
 //! - [`prompts`]: voice and role
 //!
 //! Full design: docs/agents.md.
@@ -16,6 +17,7 @@ pub mod import;
 pub mod mcp;
 pub mod prompts;
 pub mod runner;
+pub mod schedule;
 pub mod store;
 
 use crate::errors::CommandError;

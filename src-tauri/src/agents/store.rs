@@ -66,6 +66,9 @@ pub struct Agent {
     /// Explicit model override (`--model`); `None` uses Claude Code's default.
     #[serde(default)]
     pub model: Option<String>,
+    /// Check-ins and routines this agent is woken by (see `schedule`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub check_ins: Vec<super::schedule::CheckIn>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -90,6 +93,8 @@ pub enum MessageKind {
     Approval,
     /// Something went wrong running the agent — shown, never hidden.
     Error,
+    /// A scheduled check-in or routine fired; `text` is the note it left.
+    CheckIn,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -135,6 +140,8 @@ pub struct AgentMessage {
     pub peer: Option<AgentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<Approval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_in: Option<super::schedule::CheckInMark>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -340,6 +347,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         unread: 0,
         pending_approvals: 0,
         model: None,
+        check_ins: Vec::new(),
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -645,6 +653,7 @@ mod tests {
                     tool: None,
                     input: None,
                 }),
+                check_in: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

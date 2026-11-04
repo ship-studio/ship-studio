@@ -160,6 +160,8 @@ pub fn run() {
             // Agents: a card still "pending" from the last run has nobody
             // waiting on it any more.
             tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals);
+            // Agents' check-ins and routines: one tick a minute, only while open.
+            agents::schedule::spawn(_app.handle().clone());
 
             // Start the agent preview bridge (global loopback MCP server) at
             // launch so it's listening before any agent session spawns —
@@ -560,6 +562,10 @@ pub fn run() {
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,
+            commands::agents::agents_schedule_preview,
+            commands::agents::agents_schedule_create,
+            commands::agents::agents_schedule_cancel,
+            commands::agents::agents_schedule_pause,
             commands::workflows::list_all_workflows,
             commands::workflows::save_workflow_file,
             commands::workflows::delete_workflow_file,

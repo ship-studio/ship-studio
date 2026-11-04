@@ -7,8 +7,9 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownIcon, ArrowUpIcon, SettingsSlidersIcon } from '@/components/icons';
+import { ArrowDownIcon, ArrowUpIcon, HistoryIcon, SettingsSlidersIcon } from '@/components/icons';
 import { IconButton } from '../primitives/IconButton';
+import { TextButton } from '../primitives/TextButton';
 import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
@@ -17,6 +18,7 @@ import {
   AgentBubble,
   ApprovalCard,
   DayDivider,
+  CheckInLine,
   ErrorLine,
   PeerGroup,
   UserBubble,
@@ -155,6 +157,16 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
           <h2 className="agent-chat__name">{agent.name}</h2>
           {agent.role && <p className="agent-chat__role">{agent.role}</p>}
         </div>
+        {(agent.checkIns?.length ?? 0) > 0 && (
+          <TextButton
+            className="agent-chat__scheduled"
+            onClick={() => onEditAgent(agent)}
+            title="Scheduled check-ins and routines"
+          >
+            <HistoryIcon size={12} />
+            {agent.checkIns?.length} scheduled
+          </TextButton>
+        )}
         <IconButton
           variant="ghost"
           className="agent-chat__edit"
@@ -222,6 +234,8 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
                   );
                 case 'error':
                   return <ErrorLine key={m.id} message={m} arrived={arrived} />;
+                case 'check_in':
+                  return <CheckInLine key={m.id} message={m} arrived={arrived} />;
                 default:
                   return null;
               }

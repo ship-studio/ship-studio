@@ -272,6 +272,15 @@
   border-bottom: var(--border-width-default) solid var(--border-subtle);
 }
 
+.agent-chat__scheduled {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-tight);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .agent-chat__title {
   display: flex;
   flex: 1;
@@ -482,6 +491,31 @@
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-compact);
   color: var(--text-faint);
+}
+
+/* "Scheduled check-in · late, was due Mon 9:00 AM" + the note it left */
+.agent-checkin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.agent-checkin__late {
+  color: var(--text-faint);
+}
+
+.agent-checkin__note {
+  display: -webkit-box;
+  max-width: min(480px, 100%);
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-faint);
+  text-align: center;
+  white-space: pre-line;
 }
 
 /* "Messaged FI Finance" */
@@ -832,6 +866,80 @@
 
 .agent-editor__delete {
   margin-right: auto;
+}
+
+.agent-editor__hint[data-invalid] {
+  color: var(--accent-warning);
+}
+
+.agent-editor__section-title {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+/* The editor's "Scheduled" section */
+.agent-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agent-schedule__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-schedule__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) 0;
+}
+
+.agent-schedule__item[data-paused] .agent-schedule__text {
+  opacity: 0.55;
+}
+
+.agent-schedule__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-schedule__when {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+.agent-schedule__note {
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-schedule__add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agent-schedule__row {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.agent-schedule__row .ss-text-field {
+  flex: 1;
 }
 
 .modal-frame-content.agents-import {

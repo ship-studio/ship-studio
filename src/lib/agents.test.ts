@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildChatItems,
+  describeRepeat,
+  formatWhen,
+  sortCheckIns,
   formatDivider,
   peerGroupLabel,
   sortAgents,
@@ -80,5 +83,45 @@ describe('sortAgents', () => {
   it('puts pinned first, then most recent', () => {
     const sorted = sortAgents([a('old', 1), a('pinned-old', 0, true), a('new', 5)]);
     expect(sorted.map((x) => x.id)).toEqual(['pinned-old', 'new', 'old']);
+  });
+});
+
+describe('schedule helpers', () => {
+  it('describes routines in the same words as the backend', () => {
+    expect(describeRepeat({ kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 })).toBe(
+      'Every weekday at 09:00'
+    );
+    expect(describeRepeat({ kind: 'days', days: [0, 1, 2, 3, 4, 5, 6], hour: 7, minute: 45 })).toBe(
+      'Every day at 07:45'
+    );
+    expect(describeRepeat({ kind: 'days', days: [1, 4], hour: 8, minute: 30 })).toBe(
+      'Every Monday and Thursday at 08:30'
+    );
+    expect(describeRepeat({ kind: 'days', days: [1, 3, 5], hour: 8, minute: 30 })).toBe(
+      'Every Monday, Wednesday and Friday at 08:30'
+    );
+    expect(describeRepeat({ kind: 'every', minutes: 120 })).toBe('Every 2 hours');
+    expect(describeRepeat({ kind: 'every', minutes: 60 })).toBe('Every hour');
+    expect(describeRepeat({ kind: 'every', minutes: 90 })).toBe('Every 90 minutes');
+  });
+
+  it('names today and tomorrow, and dates further out', () => {
+    const now = new Date(2026, 10, 4, 15, 0).getTime();
+    expect(formatWhen(new Date(2026, 10, 4, 18, 0).getTime(), now)).toMatch(/^Today /);
+    expect(formatWhen(new Date(2026, 10, 5, 9, 0).getTime(), now)).toMatch(/^Tomorrow /);
+    expect(formatWhen(new Date(2026, 10, 9, 9, 0).getTime(), now)).not.toMatch(/Today|Tomorrow/);
+  });
+
+  it('lists the soonest first and paused ones last', () => {
+    const c = (id: string, nextAt: number, paused = false) => ({
+      id,
+      note: id,
+      nextAt,
+      createdAt: 0,
+      paused,
+    });
+    expect(
+      sortCheckIns([c('late', 3), c('paused', 1, true), c('soon', 2)]).map((x) => x.id)
+    ).toEqual(['soon', 'late', 'paused']);
   });
 });
