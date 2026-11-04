@@ -20,7 +20,8 @@ const tomorrowAt = (hour: number, minute = 0) => {
   return d.getTime();
 };
 
-const IMPORT_STARTER = '.agent-chat__starters > button:last-child';
+/** The first-run way into import: the sidebar note's link, or with no sidebar the Chief's starter. */
+const IMPORT_STARTER = '.agents-import-nudge__action, .agent-chat__starters > button:last-child';
 
 /** A reply Grok Bot might paste back: prose around two numbered blocks. */
 const PASTED_REPLY = [
@@ -1288,7 +1289,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). Set apart below, one muted line (“Agents run on this Mac. They pause when it sleeps or Ship Studio quits.”), a small ghost “Keep this Mac awake”, and the “Always on?” line. The composer is ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and two one-click starters under it (Set up my team, What can you do?). Import is the sidebar note’s alone. Set apart below, one muted line (“Agents run on this Mac. Closing Ship Studio stops them, and sleep pauses them.”), three small ghost actions (Keep this Mac awake, Keep running when closed, Open at login), and the “Always on?” line. The composer is ready.',
     command: 'agents.open',
     requires: '.agents-stay-on .button',
     commands: {},
@@ -1346,7 +1347,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Step 1 has folded to a ticked line with “Show message”; the paste field is shorter. Under it: “4 agents from Grok Bot, in 2 parts · 1 routine can’t be set as written” (the tail amber). One sidebar-style row per agent: its badge in the colour it will have (the main one wears the Chief of Staff’s badge), the name with a chip (Merges into Chief of Staff, Updates, New in green), the role, and compact counts (2.1k chars of instructions · 3 memories · 2 routines). Finance’s counts end in amber “1 won’t be set”. Each row has a chevron. The primary button reads “Import 4 agents”.',
     // Steps run before a palette command, so these walk in: Agents mode, then
-    // the first-run Import agents… starter.
+    // the sidebar note's Import agents.
     requires: '.agents-import-agent',
     clipSelector: '.agents-import',
     openSelector: AGENTS_TAB,
