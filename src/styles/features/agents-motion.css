@@ -1,0 +1,276 @@
+/* Agents mode — motion.
+ *
+ * Layout and look live in agents.css; this file only moves things. It uses
+ * the app's existing motion language rather than a new one: arrivals take the
+ * icon-swap deceleration (--agents-motion-enter, 300ms), quick fades take the
+ * interaction transition, and anything that relocates an existing thing (a
+ * sidebar row reordering, a thread opening) settles like drag-sort does.
+ *
+ * Only what is new moves. History loads still; a line animates only when it
+ * arrives while the chat is open (`data-arrived`, set by useArrivals), the
+ * working indicator only opens when it appears mid-chat, and an approval only
+ * resolves on screen if it was pending when the chat opened. Every animation
+ * here uses `backwards` fill, never `both`, so nothing lingers on `transform`
+ * and fights a button's own :active scale.
+ *
+ * All of it is switched off under prefers-reduced-motion at the bottom.
+ */
+
+/* --------------------------------------------------------- keyframes */
+
+@keyframes agents-motion-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--spacing-sm)) scale(0.98);
+  }
+}
+
+@keyframes agents-motion-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes agents-motion-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--spacing-2xs));
+  }
+}
+
+@keyframes agents-motion-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+@keyframes agents-motion-working-open {
+  from {
+    height: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--agents-motion-working-height);
+  }
+}
+
+@keyframes agents-motion-working-close {
+  from {
+    height: var(--agents-motion-working-height);
+  }
+  to {
+    height: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes agents-motion-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.75);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes agents-motion-resolve {
+  from {
+    min-height: var(--control-height-standard);
+    opacity: 0;
+  }
+}
+
+@keyframes agents-motion-jump-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(var(--spacing-xs));
+  }
+}
+
+/* ------------------------------------------------ arriving messages */
+
+/* Your bubble, an agent's reply, an approval card, an error, the
+   "Messaged Finance" line: a short rise from just below, settling into
+   place. Each grows from the edge it is anchored to. */
+.agent-chat__messages > [data-arrived] {
+  transform-origin: bottom left;
+  animation: agents-motion-rise var(--agents-motion-enter) backwards;
+}
+
+.agent-chat__messages > .agent-chat__row--user[data-arrived] {
+  transform-origin: bottom right;
+}
+
+.agent-chat__messages > .agent-peer[data-arrived],
+.agent-chat__messages > .agent-chat__divider[data-arrived] {
+  transform-origin: bottom center;
+}
+
+/* Opening an agent: its conversation fades in rather than snapping, which
+   is also what makes switching between two agents read as one motion. */
+.agent-chat__messages[data-state='ready'] {
+  animation: agents-motion-fade-in var(--transition-interaction) backwards;
+}
+
+/* A fast load shows nothing rather than flashing a spinner; a slow one
+   fades the spinner in. */
+.agent-chat__loading {
+  animation: agents-motion-fade-in var(--transition-interaction) var(--agents-motion-reveal-delay)
+    backwards;
+}
+
+/* ----------------------------------------------- working indicator */
+
+/* The indicator's height is known (one line, fixed min-height in
+   agents.css), so it can open and close instead of popping. The chat's
+   ResizeObserver keeps the bottom pinned while it does, which turns the
+   height change into a smooth scroll rather than a jump. */
+.agent-chat__row--working {
+  --agents-motion-working-height: calc(var(--font-size-subhead) * 1.4 + var(--spacing-sm) * 2);
+}
+
+.agent-chat__row--working[data-entering] {
+  overflow: hidden;
+  animation: agents-motion-working-open var(--agents-motion-enter) backwards;
+}
+
+.agent-chat__row--working[data-leaving] {
+  overflow: hidden;
+  animation: agents-motion-working-close var(--transition-interaction) forwards;
+}
+
+/* Refined dots: a soft swell rather than a bounce, staggered at the
+   interaction step, on the loader period the pixel loaders use. */
+.agent-working__dots span {
+  animation: agents-motion-dot var(--agents-motion-typing-period) var(--agents-motion-typing-easing)
+    infinite;
+  animation-delay: 0s;
+}
+
+.agent-working__dots span:nth-child(2) {
+  animation-delay: var(--agents-motion-typing-stagger);
+}
+
+.agent-working__dots span:nth-child(3) {
+  animation-delay: calc(var(--agents-motion-typing-stagger) * 2);
+}
+
+/* "Editing PricingTable.tsx" → "Running tests": the new text eases in. */
+.agent-working__activity[data-changed] {
+  animation: agents-motion-swap-in var(--agents-motion-enter) backwards;
+}
+
+/* ------------------------------------------------------- approvals */
+
+.agent-approval {
+  transition: border-color var(--transition-interaction-slow);
+}
+
+/* The buttons resolve into the outcome: the row eases down from the
+   buttons' height to the text's while the text fades in. */
+.agent-approval__outcome[data-resolved] {
+  animation: agents-motion-resolve var(--agents-motion-enter) backwards;
+}
+
+/* ------------------------------------------------------ peer thread */
+
+/* Height, padding and margin are driven between 0 and natural size by
+   useHeightReveal; this is the curve they travel on. */
+.agent-peer__thread {
+  overflow: hidden;
+  transition:
+    height var(--agents-motion-settle),
+    padding var(--agents-motion-settle),
+    margin var(--agents-motion-settle),
+    opacity var(--transition-interaction);
+}
+
+.agent-peer__toggle,
+.agent-peer__name {
+  transition: color var(--transition-interaction-fast);
+}
+
+/* ------------------------------------------------------ jump button */
+
+.agent-chat__jump {
+  animation: agents-motion-jump-in var(--agents-motion-enter) backwards;
+}
+
+/* --------------------------------------------------------- composer */
+
+/* Auto-grow eases between line counts (AgentChat measures, then sets the
+   height, so this has a start to run from). */
+.agent-composer .agent-composer__input {
+  transition: height var(--transition-interaction-fast);
+}
+
+.agent-composer {
+  transition: border-color var(--transition-interaction);
+}
+
+/* Send ⇄ Stop swap in place rather than cut. */
+.agent-composer__send,
+.agent-composer__stop {
+  animation: agents-motion-pop-in var(--transition-interaction) backwards;
+}
+
+/* ---------------------------------------------------------- sidebar */
+
+/* Hover and selection keep the project row's fast background change; the
+   transform is what useFlipReorder animates when an agent moves to the
+   top, settling like a dragged project does. */
+.agents-list__row {
+  transition:
+    background var(--transition-interaction-fast),
+    transform var(--agents-motion-settle);
+}
+
+.agent-avatar {
+  transition:
+    color var(--transition-interaction-fast),
+    background var(--transition-interaction-fast);
+}
+
+/* Working → needs you → unread: each status swaps in instead of cutting. */
+.agents-list__status > * {
+  animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
+}
+
+/* ---------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat__messages > [data-arrived],
+  .agent-chat__messages[data-state='ready'],
+  .agent-chat__loading,
+  .agent-chat__row--working[data-entering],
+  .agent-chat__row--working[data-leaving],
+  .agent-working__activity[data-changed],
+  .agent-approval__outcome[data-resolved],
+  .agent-chat__jump,
+  .agent-composer__send,
+  .agent-composer__stop,
+  .agents-list__status > * {
+    animation: none;
+  }
+
+  .agent-working__dots span {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  .agent-peer__thread,
+  .agent-composer .agent-composer__input {
+    transition: none;
+  }
+
+  .agents-list__row {
+    transition: background var(--transition-interaction-fast);
+  }
+}

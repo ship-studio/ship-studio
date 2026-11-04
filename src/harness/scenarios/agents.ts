@@ -185,10 +185,46 @@ const LEADGEN_CHAT = [
 
 const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
 
+/**
+ * Sending, so the motion of a send can be watched (and recorded) in the
+ * harness: the message comes back as the backend's would, and for a few
+ * seconds afterwards the overview reports that agent as the most recent and
+ * working, so the next `agents_overview` moves its row to the top and shows
+ * the typing indicator. Nothing replies; there is no event channel here.
+ */
+const SENT: Record<string, ReturnType<typeof msg>[]> = {};
+let lastSend: { agentId: string; at: number } | null = null;
+
+const sendMessage = (args: Record<string, unknown>) => {
+  const agentId = String(args.agentId);
+  const sent = { ...msg('user', String(args.text), 0, { agentId }), ts: Date.now() };
+  (SENT[agentId] ??= []).push(sent);
+  lastSend = { agentId, at: Date.now() };
+  return sent;
+};
+
+const liveOverview = () => {
+  const send = lastSend;
+  if (!send) return overview();
+  const working = Date.now() - send.at < 4000;
+  return overview(
+    TEAM.map((a) =>
+      a.id === send.agentId
+        ? {
+            ...a,
+            lastActivityAt: send.at,
+            status: working ? status('working', 'Reading the message') : status('idle'),
+          }
+        : a
+    )
+  );
+};
+
 const messagesFor = (args: Record<string, unknown>) => {
-  if (args.agentId === 'chief') return CHIEF_CHAT;
-  if (args.agentId === 'leadgen') return LEADGEN_CHAT;
-  return [];
+  const sent = SENT[String(args.agentId)] ?? [];
+  if (args.agentId === 'chief') return [...CHIEF_CHAT, ...sent];
+  if (args.agentId === 'leadgen') return [...LEADGEN_CHAT, ...sent];
+  return sent;
 };
 
 export const agentsScenarios: Scenario[] = [
@@ -200,8 +236,9 @@ export const agentsScenarios: Scenario[] = [
     command: 'agents.open',
     requires: '.agent-chat .agent-bubble--agent',
     commands: {
-      agents_overview: overview(),
+      agents_overview: liveOverview,
       agents_messages: messagesFor,
+      agents_send: sendMessage,
     },
   },
   {

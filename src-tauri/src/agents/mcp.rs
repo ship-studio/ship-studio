@@ -577,17 +577,90 @@ pub fn describe_request(tool: &str, input: &Value) -> (String, String) {
         "WebFetch" => ("Open a web page".into(), field("url")),
         "WebSearch" => ("Search the web".into(), field("query")),
         other => {
-            let pretty = other
-                .strip_prefix("mcp__")
-                .map(|rest| rest.replacen("__", ": ", 1).replace('_', " "))
-                .unwrap_or_else(|| other.to_string());
             let mut detail = serde_json::to_string_pretty(input).unwrap_or_default();
             if detail.chars().count() > 600 {
                 detail = detail.chars().take(600).collect::<String>() + "…";
             }
-            (format!("Use {pretty}"), detail)
+            (mcp_title(other), detail)
         }
     }
+}
+
+/// `mcp__gmail__send_email` → "Send an email · Gmail": a verb phrase from the
+/// tool's name, with the server it belongs to as context. Anything that isn't
+/// an MCP tool name keeps its own name after "Use".
+fn mcp_title(tool: &str) -> String {
+    let Some((server, name)) = tool.strip_prefix("mcp__").and_then(|t| t.split_once("__")) else {
+        return format!("Use {tool}");
+    };
+    let words = split_words(name);
+    let Some((verb, object)) = words.split_first() else {
+        return format!("Use {tool}");
+    };
+    let mut phrase = capitalize(verb);
+    if !object.is_empty() {
+        let last = object.last().map(String::as_str).unwrap_or("");
+        // "Send an email", "Create a draft"; but "List messages", "Get status".
+        let countable = !last.ends_with('s')
+            && ![
+                "content",
+                "data",
+                "info",
+                "information",
+                "metadata",
+                "text",
+                "code",
+                "status",
+            ]
+            .contains(&last);
+        if countable {
+            let vowel = object[0].starts_with(['a', 'e', 'i', 'o', 'u']);
+            phrase.push_str(if vowel { " an" } else { " a" });
+        }
+        phrase.push(' ');
+        phrase.push_str(&object.join(" "));
+    }
+    // Claude.ai connectors arrive as `claude_ai_Gmail`.
+    let server = server.strip_prefix("claude_ai_").unwrap_or(server);
+    let server = match server.to_ascii_lowercase().as_str() {
+        "github" => "GitHub".to_string(),
+        _ => split_words(server)
+            .iter()
+            .map(|w| capitalize(w))
+            .collect::<Vec<_>>()
+            .join(" "),
+    };
+    format!("{phrase} · {server}")
+}
+
+/// `send_email`, `send-email` and `sendEmail` → ["send", "email"].
+fn split_words(name: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    for c in name.chars() {
+        if c == '_' || c == '-' || c == ' ' || c == '.' {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+        } else if c.is_uppercase() && current.chars().last().is_some_and(|p| p.is_lowercase()) {
+            words.push(std::mem::take(&mut current));
+            current.extend(c.to_lowercase());
+        } else {
+            current.extend(c.to_lowercase());
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+fn capitalize(word: &str) -> String {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
@@ -644,8 +717,22 @@ mod tests {
 
     #[test]
     fn mcp_tools_get_a_readable_name() {
-        let (title, _) = describe_request("mcp__gmail__send_email", &json!({ "to": "x" }));
-        assert_eq!(title, "Use gmail: send email");
+        let title = |tool: &str| describe_request(tool, &json!({ "to": "x" })).0;
+        assert_eq!(title("mcp__gmail__send_email"), "Send an email · Gmail");
+        assert_eq!(
+            title("mcp__claude_ai_Gmail__create_draft"),
+            "Create a draft · Gmail"
+        );
+        assert_eq!(
+            title("mcp__github__list_pull_requests"),
+            "List pull requests · GitHub"
+        );
+        assert_eq!(
+            title("mcp__google-drive__getFileContent"),
+            "Get file content · Google Drive"
+        );
+        assert_eq!(title("mcp__linear__search"), "Search · Linear");
+        assert_eq!(title("SomethingElse"), "Use SomethingElse");
     }
 
     #[test]

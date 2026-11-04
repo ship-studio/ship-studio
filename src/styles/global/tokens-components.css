@@ -331,6 +331,17 @@
   --drag-sort-reorder-transition: var(--transition-interaction);
   --drag-sort-settle-transition: var(--duration-sortable-settle) cubic-bezier(0.25, 1, 0.5, 1);
 
+  /* Agents mode motion (features/agents-motion.css). Arrivals use the
+     icon-swap deceleration; anything that moves an existing thing (a row
+     reordering, a thread opening) settles exactly as drag-sort does, so the
+     sidebar's reorder and a dragged project land the same way. */
+  --agents-motion-enter: var(--transition-icon-swap);
+  --agents-motion-settle: var(--drag-sort-settle-transition);
+  --agents-motion-typing-period: var(--duration-loader-standard);
+  --agents-motion-typing-easing: var(--pixel-loader-easing);
+  --agents-motion-typing-stagger: var(--duration-standard);
+  --agents-motion-reveal-delay: var(--duration-slow);
+
   --editor-panel-w: 300px;
   --editor-panel-visual-w: 240px;
   --editor-panel-inline-pad: var(--spacing-md);

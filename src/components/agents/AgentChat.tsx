@@ -12,6 +12,7 @@ import { IconButton } from '../primitives/IconButton';
 import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
+import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import {
   AgentBubble,
   ApprovalCard,
@@ -61,20 +62,35 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   const items = useMemo(() => buildChatItems(messages ?? []), [messages]);
   // A card left open after the turn ended is not "working": no dots, no Stop.
   const working = agent.status.state === 'working';
+  const indicator = usePresence(working);
 
-  // Follow new content only if the reader was already at the bottom.
+  // Only lines that arrive while the chat is open animate in.
+  const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
+  const isArrived = useArrivals(messageIds);
+  const arrivedAt = (index: number) => {
+    const item = items[index];
+    if (!item) return false;
+    if (item.type === 'day') return arrivedAt(index + 1);
+    return isArrived(item.type === 'peer-group' ? item.messages[0].id : item.message.id);
+  };
+  const newestArrived = arrivedAt(items.length - 1);
+
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const { follow, isGliding } = useFollowBottom(scrollRef, messagesRef, atBottomRef);
+
+  // Follow new content only if the reader was already at the bottom: glide
+  // to a new line, jump on first load.
   useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [items, working, agent.status.activity]);
+    if (atBottomRef.current) follow(newestArrived);
+  }, [items, working, agent.status.activity, follow, newestArrived]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || isGliding()) return;
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD;
     atBottomRef.current = bottom;
     setAtBottom(bottom);
-  }, []);
+  }, [isGliding]);
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -115,8 +131,16 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   useLayoutEffect(() => {
     const el = inputRef.current;
     if (!el) return;
+    // Measure at `auto` with transitions off, put the old height back, then
+    // set the new one, so the CSS height transition has a start to run from.
+    const previous = el.style.height;
+    el.style.transition = 'none';
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+    const next = `${Math.min(el.scrollHeight, 180)}px`;
+    el.style.height = previous || next;
+    void el.offsetHeight;
+    el.style.transition = '';
+    el.style.height = next;
   }, [draft]);
 
   return (
@@ -142,7 +166,11 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
       </header>
 
       <div className="agent-chat__scroll" ref={scrollRef} onScroll={onScroll}>
-        <div className="agent-chat__messages">
+        <div
+          className="agent-chat__messages"
+          ref={messagesRef}
+          data-state={messages === undefined ? 'loading' : 'ready'}
+        >
           {messages === undefined ? (
             <div className="agent-chat__loading">
               <Spinner />
@@ -156,7 +184,14 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
           ) : (
             items.map((item, index) => {
               if (item.type === 'day')
-                return <DayDivider key={`day-${item.ts}-${index}`} ts={item.ts} />;
+                return (
+                  <DayDivider
+                    key={`day-${item.ts}-${index}`}
+                    ts={item.ts}
+                    arrived={arrivedAt(index)}
+                  />
+                );
+              const arrived = arrivedAt(index);
               if (item.type === 'peer-group') {
                 return (
                   <PeerGroup
@@ -165,15 +200,16 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
                     messages={item.messages}
                     peerAgent={agentsById.get(item.peer.id)}
                     onOpenPeer={onOpenAgent}
+                    arrived={arrived}
                   />
                 );
               }
               const m = item.message;
               switch (m.kind) {
                 case 'user':
-                  return <UserBubble key={m.id} message={m} />;
+                  return <UserBubble key={m.id} message={m} arrived={arrived} />;
                 case 'agent':
-                  return <AgentBubble key={m.id} message={m} />;
+                  return <AgentBubble key={m.id} message={m} arrived={arrived} />;
                 case 'approval':
                   return (
                     <ApprovalCard
@@ -181,16 +217,24 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
                       message={m}
                       paused={agent.status.state === 'idle'}
                       onAnswer={onAnswer}
+                      arrived={arrived}
                     />
                   );
                 case 'error':
-                  return <ErrorLine key={m.id} message={m} />;
+                  return <ErrorLine key={m.id} message={m} arrived={arrived} />;
                 default:
                   return null;
               }
             })
           )}
-          {working && <WorkingIndicator activity={agent.status.activity} />}
+          {indicator.mounted && (
+            <WorkingIndicator
+              activity={agent.status.activity}
+              entering={indicator.entering}
+              leaving={indicator.leaving}
+              onExited={indicator.onExited}
+            />
+          )}
         </div>
       </div>
 

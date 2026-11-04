@@ -105,7 +105,9 @@ pub fn system_prompt(agent: &Agent) -> String {
 }
 
 pub const CHIEF_NAME: &str = "Chief of Staff";
-pub const CHIEF_ROLE: &str = "The user's main agent: runs the other agents, delegates work, and keeps track of everything in flight.";
+/// Shown to the user (empty state, editor) and to the agent ("Your role: …"),
+/// so it is worded to read right to both.
+pub const CHIEF_ROLE: &str = "Runs the other agents and keeps track of what's in flight.";
 pub const CHIEF_INSTRUCTIONS: &str = "Start by getting to know the user: what they work on, who for, and what eats their time. Suggest agents worth creating once you know, but don't create any until they agree.";
 
 /// How a message from another agent is presented to the recipient.

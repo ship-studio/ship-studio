@@ -30,7 +30,9 @@ import {
   ContextMenuTrigger,
 } from '../primitives/ContextMenu';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
+import { useRef } from 'react';
 import { AgentAvatar } from './AgentAvatar';
+import { useFlipReorder } from './useAgentMotion';
 import { sortAgents, type Agent } from '../../lib/agents';
 
 interface AgentsSidebarProps {
@@ -75,9 +77,12 @@ export function AgentsSidebar({
 }: AgentsSidebarProps) {
   const visible = sortAgents(agents).filter((a) => showHidden || !a.hidden || a.id === selectedId);
   const hiddenCount = agents.filter((a) => a.hidden).length;
+  // An agent that just did something slides to the top instead of jumping.
+  const listRef = useRef<HTMLDivElement>(null);
+  useFlipReorder(listRef, '[data-agent-id]', visible.map((a) => a.id).join(' '));
 
   return (
-    <div className="agents-list" role="navigation" aria-label="Agents">
+    <div className="agents-list" role="navigation" aria-label="Agents" ref={listRef}>
       <div className="sidebar-group-header agents-list__header">
         <span className="sidebar-group-symbol" aria-hidden="true">
           <AgentsIcon size={14} />
