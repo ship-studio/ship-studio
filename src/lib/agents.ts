@@ -94,6 +94,8 @@ export interface CheckInMark {
   dueAt: number;
   late: boolean;
   repeats: boolean;
+  /** Run now, by the user; its schedule didn't move. */
+  manual?: boolean;
 }
 
 export interface SchedulePreview {
@@ -469,6 +471,11 @@ export const cancelCheckIn = (agentId: string, id: string) =>
   invoke<void>('agents_schedule_cancel', { agentId, id });
 export const pauseCheckIn = (agentId: string, id: string, paused: boolean) =>
   invoke<void>('agents_schedule_pause', { agentId, id, paused });
+export const updateCheckIn = (agentId: string, id: string, when: string, note: string) =>
+  invoke<CheckIn>('agents_schedule_update', { agentId, id, when, note });
+/** Fire it now as a normal wake; its next time doesn't move. */
+export const runCheckInNow = (agentId: string, id: string) =>
+  invoke<void>('agents_schedule_run_now', { agentId, id });
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** "9:00 AM" in the user's locale, the same way `formatWhen` writes times. */
@@ -527,6 +534,40 @@ export function splitScheduleInput(text: string): { when: string; note: string }
   const match = /^(.*?):\s+([\s\S]*)$/.exec(text);
   if (!match) return { when: text.trim().replace(/:$/, ''), note: '' };
   return { when: match[1].trim(), note: match[2].trim() };
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * The `when` words the schedule grammar reads back as this same schedule,
+ * for Edit to prefill: "every weekday at 09:00", "every 2 hours",
+ * "2026-11-20 09:00" (local). Mirrors `schedule::describe`.
+ */
+export function scheduleWhenPhrase(c: Pick<CheckIn, 'repeat' | 'nextAt'>): string {
+  const r = c.repeat;
+  if (!r) {
+    const d = new Date(c.nextAt);
+    const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    return `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+  if (r.kind === 'every') {
+    if (r.minutes % 60 !== 0) return `every ${r.minutes} minutes`;
+    return r.minutes === 60 ? 'every hour' : `every ${r.minutes / 60} hours`;
+  }
+  const days = [...r.days].sort((a, b) => a - b);
+  const key = days.join(',');
+  const named =
+    key === '0,1,2,3,4,5,6'
+      ? 'day'
+      : key === '1,2,3,4,5'
+        ? 'weekday'
+        : key === '0,6'
+          ? 'weekend day'
+          : days
+              .map((d) => DAY_NAMES[d % 7].toLowerCase())
+              .join(', ')
+              .replace(/, ([^,]*)$/, ' and $1');
+  return `every ${named} at ${pad2(r.hour)}:${pad2(r.minute)}`;
 }
 
 /** A row's secondary line: when it next runs, and how it repeats. */

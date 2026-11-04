@@ -242,6 +242,16 @@ can be paused (routines) or cancelled. The composer takes one line, `when:
 what`, split at the first colon followed by a space, and reads the time back
 as the backend resolved it before Return adds it.
 
+**Run now** (`agents_schedule_run_now`) fires a row immediately as an ordinary
+wake: the same `check_in` line (marked `manual`, shown "· run now") and the
+same prompt, which tells the agent it was asked for ahead of time. Its
+`nextAt` doesn't move, and a one-time check-in stays scheduled: it's a
+rehearsal, not a skip. **Edit** (`agents_schedule_update`) puts the row's own
+words back in the composer (`scheduleWhenPhrase`, which the grammar reads back
+as the same schedule; a Rust test holds `describe` to that) and Return saves
+it in place: same id, paused stays paused, `when` re-read from now. It can't be
+edited into a copy of another row. Esc leaves the edit, not the popover.
+
 A one-minute tick fires them, with the workflow scheduler's rules: nothing
 fires while the app is closed, at most one firing per tick, and a routine never
 catches up a backlog. A one-time check-in missed while closed fires once, marked
@@ -253,6 +263,35 @@ That line goes through `runner::record` as a `MessageKind::wants_user()` kind,
 the same predicate as replies, and is recorded after the wake starts, so it
 falls inside the turn. Notifications use the same predicate, so a check-in
 and its answer post one notification per turn.
+
+## Apps agents can use (`src-tauri/src/agents/apps.rs`)
+
+Every turn is a `claude` process, and Claude Code loads the user's MCP servers
+into it, so the apps an agent can use are exactly Claude Code's. "Apps your
+agents can use" (the agent editor's Apps row, or ⌘K → "Connect an app for
+agents…") is a window onto that, with no state of its own:
+
+- **Connected**: `claude mcp list`, which health-checks each server, so the
+  status is Claude Code's. Which rows are user scope is read (never written)
+  from Claude Code's `.claude.json` top-level `mcpServers`; only those get
+  Remove. claude.ai connectors (names starting `claude.ai `) say "Managed on
+  claude.ai"; project/local/plugin servers say they're set up elsewhere.
+- **Add an app**: a fixed list in Rust (`SUGGESTED`): Linear, Notion, Figma,
+  Sentry, Stripe, Vercel, each the vendor's own remote MCP endpoint with OAuth.
+  The webview sends only a name, never a URL. Added with
+  `claude mcp add --scope user --transport http <name> <url>`. Left out:
+  GitHub (its remote server wants a token header, not OAuth) and Gmail,
+  Calendar and Slack, which have no vendor remote endpoint; they come from
+  claude.ai's connectors, which Claude Code loads for a claude.ai account.
+- **Sign in…** on a "Needs sign-in" row opens `claude` in a terminal sheet,
+  where `/mcp` runs Claude Code's own OAuth. Whether a headless `--print`
+  turn can start that sign-in itself is not verified, so the copy doesn't
+  promise it.
+
+Every call goes through `run_with_timeout` (60s for list, 30s for changes)
+with `runner::strip_session_env`, from the agents folder, so what's listed is
+what a turn sees. The project MCP modal edits the same Claude Code settings for
+the active agent CLI, plus project scope; it's left as it is.
 
 ## Search, model and usage
 

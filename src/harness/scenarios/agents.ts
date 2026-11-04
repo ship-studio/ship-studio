@@ -726,6 +726,42 @@ const totals = (turns: number, tokens: number, cost: number, minutes: number) =>
   durationMs: minutes * MIN,
 });
 
+const SUGGESTED = [
+  ['linear', 'Linear', 'Issues, projects and cycles', 'https://mcp.linear.app/mcp'],
+  ['notion', 'Notion', 'Pages and databases', 'https://mcp.notion.com/mcp'],
+  ['figma', 'Figma', 'Designs, frames and comments', 'https://mcp.figma.com/mcp'],
+  ['sentry', 'Sentry', 'Errors and their stack traces', 'https://mcp.sentry.dev/mcp'],
+  ['stripe', 'Stripe', 'Customers, payments and invoices', 'https://mcp.stripe.com'],
+  ['vercel', 'Vercel', 'Deployments, logs and projects', 'https://mcp.vercel.com'],
+] as const;
+
+/** `agents_apps_list`: Claude Code's servers, and the curated list marked against them. */
+const agentApps = (
+  connected: { name: string; target: string; status: string; source: string }[]
+) => ({
+  connected,
+  suggestions: SUGGESTED.map(([serverName, title, blurb, url]) => ({
+    serverName,
+    title,
+    blurb,
+    url,
+    added: connected.some((c) => c.name === serverName || c.target === url),
+  })),
+});
+
+const CONNECTED_APPS = [
+  // As Claude Code 2.1.318 lists a claude.ai connector.
+  {
+    name: 'claude.ai Google Drive',
+    target: 'https://drivemcp.googleapis.com/mcp/v1',
+    status: 'connected',
+    source: 'claudeAi',
+  },
+  { name: 'figma', target: 'https://mcp.figma.com/mcp', status: 'connected', source: 'user' },
+  { name: 'linear', target: 'https://mcp.linear.app/mcp', status: 'needs_auth', source: 'user' },
+  { name: 'playwright', target: 'npx @playwright/mcp@latest', status: 'error', source: 'other' },
+];
+
 export const agentsScenarios: Scenario[] = [
   {
     id: 'agents-team',
@@ -948,6 +984,49 @@ export const agentsScenarios: Scenario[] = [
       agents_overview: overview(),
       agents_messages: messagesFor,
       agents_schedule_preview: schedulePreview,
+    },
+  },
+  {
+    id: 'agents-schedule-edit',
+    title: 'Agents — editing a routine in the schedule popover',
+    looksRightWhen:
+      'Each row carries Run now (bolt), Edit (pencil), Pause for routines, and Cancel, quiet until hovered. After Edit on the weekday brief, that row stays highlighted and the composer below holds “every weekday at 09:00: Brief me on…” with the time read back and “Return saves” under it.',
+    requires: '.agent-schedule__item[data-editing]',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__scheduled' },
+      { click: '.agent-schedule__item:nth-child(2) [aria-label^="Edit"]' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_schedule_preview: schedulePreview,
+    },
+  },
+  {
+    id: 'agents-apps',
+    title: 'Agents — apps your agents can use',
+    looksRightWhen:
+      'A calm dialog: one sentence on why agents can use Claude Code’s apps; Connected lists Google Drive (managed on claude.ai), figma (Connected, Remove), linear (Needs sign-in in amber, Sign in…, Remove) and playwright (Can’t connect, set up elsewhere, no Remove); Add an app lists six with Figma and Linear marked Added; three short notes; Done.',
+    command: 'agents.apps',
+    requires: '.agent-apps__list',
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_apps_list: agentApps(CONNECTED_APPS),
+    },
+  },
+  {
+    id: 'agents-apps-empty',
+    title: 'Agents — apps, nothing connected yet',
+    looksRightWhen: 'Connected says “Nothing yet. Add one below.”; all six suggestions offer Add.',
+    command: 'agents.apps',
+    requires: '.agent-apps__list',
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_apps_list: agentApps([]),
     },
   },
   {

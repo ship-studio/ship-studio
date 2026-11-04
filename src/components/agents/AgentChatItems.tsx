@@ -481,6 +481,7 @@ export function ErrorLine({
 /**
  * "Scheduled check-in", centred like the agent-to-agent lines, with the note
  * the agent left itself. A late one says so: the app was closed when it was due.
+ * One you ran from the schedule popover says that instead.
  */
 export function CheckInLine({ message, arrived }: { message: AgentMessage } & Arrival) {
   const mark = message.checkIn;
@@ -494,6 +495,7 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
       <span className="agent-peer__line">
         <HistoryIcon size={12} />
         {label}
+        {mark?.manual && <span className="agent-checkin__late">· run now</span>}
         {mark?.late && (
           <span className="agent-checkin__late">· late, was due {formatWhen(mark.dueAt)}</span>
         )}

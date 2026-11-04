@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, attachments, files, import, mcp, notify, project, prompts, runner, schedule, search,
-    store, usage,
+    self, apps, attachments, files, import, mcp, notify, project, prompts, runner, schedule,
+    search, store, usage,
 };
 use crate::errors::CommandError;
 
@@ -610,4 +610,51 @@ pub async fn agents_schedule_pause(
     schedule::set_paused(&agent_id, &id, paused)?;
     emit_registry(&app);
     Ok(())
+}
+
+/// Change a check-in's when and what in place (same id, same paused state).
+#[tauri::command]
+#[tracing::instrument(skip(app, note))]
+pub async fn agents_schedule_update(
+    app: AppHandle,
+    agent_id: String,
+    id: String,
+    when: String,
+    note: String,
+) -> Result<schedule::CheckIn, CommandError> {
+    let edited = schedule::edit(&agent_id, &id, &when, &note)?;
+    emit_registry(&app);
+    Ok(edited)
+}
+
+/// Fire a check-in now as a normal wake; its next time doesn't move.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_schedule_run_now(
+    app: AppHandle,
+    agent_id: String,
+    id: String,
+) -> Result<(), CommandError> {
+    schedule::run_now(&app, &agent_id, &id)
+}
+
+/// The apps agents can use: Claude Code's MCP servers, and a short list to add.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_apps_list() -> Result<apps::Apps, CommandError> {
+    apps::list().await
+}
+
+/// Add one of the suggested apps for every agent (Claude Code user scope).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_apps_add(server_name: String) -> Result<(), CommandError> {
+    apps::add(&server_name).await
+}
+
+/// Remove a user-scope app from Claude Code.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_apps_remove(name: String) -> Result<(), CommandError> {
+    apps::remove(&name).await
 }

@@ -108,6 +108,8 @@ interface AgentEditorModalProps {
   onDelete?: (agent: Agent) => void;
   /** Colours other agents already wear, so a new one starts on a free one. */
   takenColors?: string[];
+  /** Open "Apps your agents can use" over the editor. */
+  onOpenApps?: () => void;
 }
 
 /** The first colour nobody has yet; white and gray are left for the user to pick. */
@@ -122,6 +124,7 @@ export function AgentEditorModal({
   onSaved,
   onDelete,
   takenColors,
+  onOpenApps,
 }: AgentEditorModalProps) {
   const editing = Boolean(agent);
   // Keyed by the caller per open, so these start fresh each time.
@@ -244,6 +247,20 @@ export function AgentEditorModal({
         </div>
 
         <AgentProjectField value={project} onChange={setProject} />
+
+        {onOpenApps && (
+          <div className="agent-editor__label" role="group" aria-label="Apps">
+            Apps
+            <div className="agent-editor__apps">
+              <p className="agent-editor__hint">
+                Every agent can use the apps your Claude Code is connected to.
+              </p>
+              <Button variant="secondary" size="compact" onClick={onOpenApps}>
+                Manage apps…
+              </Button>
+            </div>
+          </div>
+        )}
 
         {showBriefing ? (
           <div className="agent-editor__briefing">

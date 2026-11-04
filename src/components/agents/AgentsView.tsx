@@ -27,6 +27,7 @@ import { AgentsTeamView } from './AgentsTeamView';
 import { AgentEditorModal } from './AgentEditorModal';
 import { AgentProjectsProvider } from './AgentProject';
 import { ImportAgentsModal } from './ImportAgentsModal';
+import { AgentAppsModal } from './AgentAppsModal';
 import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { Spinner } from '../primitives/Spinner';
 import {
@@ -92,6 +93,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     agent: null,
   });
   const [importOpen, setImportOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -147,6 +149,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openNew = useCallback(() => setEditor({ open: true, agent: null }), []);
   const openImport = useCallback(() => setImportOpen(true), []);
+  const openApps = useCallback(() => setAppsOpen(true), []);
   // The sidebar's top field searches conversations. With no sidebar to hold
   // it (compact, or the rail collapsed) it comes up over the chat instead.
   const popoverSearch = isCompact || sidebarProps.isSidebarHidden;
@@ -219,6 +222,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   useAgentsIntents({
     onNewAgent: openNew,
     onImportAgents: openImport,
+    onApps: openApps,
     onOpenAgent: setSelectedId,
     onSearch: focusSearch,
   });
@@ -479,8 +483,10 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
           setSelectedId(id);
         }}
         onDelete={setDeleting}
+        onOpenApps={openApps}
       />
       <ImportAgentsModal isOpen={importOpen} onClose={() => setImportOpen(false)} />
+      <AgentAppsModal isOpen={appsOpen} onClose={() => setAppsOpen(false)} />
       {claudeStep && <ClaudeSignInModal start={claudeStep} onClose={() => setClaudeStep(null)} />}
       {stopping && (
         <ProjectActionConfirmModal

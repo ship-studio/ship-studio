@@ -814,21 +814,7 @@ async fn run_turn(
         &system_prompt,
         &layout.add_dirs,
     ));
-    // A Ship Studio launched from inside a Claude Code session (a terminal
-    // running `claude`, or a dev build started by one) inherits that
-    // session's variables. With them, each agent runs as a nested child
-    // session that is never written to disk, so the next `--resume` finds
-    // nothing. Observed: every agent lost its memory between turns.
-    for (key, _) in std::env::vars_os() {
-        let key = key.to_string_lossy();
-        if key == "CLAUDECODE"
-            || key == "CLAUDE_PID"
-            || key == "CLAUDE_EFFORT"
-            || key.starts_with("CLAUDE_CODE_")
-        {
-            cmd.env_remove(key.as_ref());
-        }
-    }
+    strip_session_env(&mut cmd);
     cmd.env("PATH", crate::utils::get_extended_path())
         // Claude Code gives an MCP tool call ~60s by default, and the approval
         // tool waits for a person. Verified: with the default, a card left for
@@ -1038,6 +1024,25 @@ async fn run_turn(
         tracing::debug!("[Agents] {agent_id} finished a turn without a reply");
     }
     Ok(())
+}
+
+/// A Ship Studio launched from inside a Claude Code session (a terminal
+/// running `claude`, or a dev build started by one) inherits that session's
+/// variables. With them, each agent runs as a nested child session that is
+/// never written to disk, so the next `--resume` finds nothing. Observed:
+/// every agent lost its memory between turns. Every `claude` we run for
+/// Agents goes through this.
+pub fn strip_session_env(cmd: &mut std::process::Command) {
+    for (key, _) in std::env::vars_os() {
+        let key = key.to_string_lossy();
+        if key == "CLAUDECODE"
+            || key == "CLAUDE_PID"
+            || key == "CLAUDE_EFFORT"
+            || key.starts_with("CLAUDE_CODE_")
+        {
+            cmd.env_remove(key.as_ref());
+        }
+    }
 }
 
 #[cfg(test)]

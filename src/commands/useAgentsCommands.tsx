@@ -11,6 +11,7 @@ import {
   AgentsIcon,
   CollaboratorsIcon,
   DownloadIcon,
+  PlugIcon,
   PlusIcon,
   SearchIcon,
 } from '@/components/icons';
@@ -22,6 +23,7 @@ import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
 type AgentsIntent =
   | { kind: 'new' }
   | { kind: 'import' }
+  | { kind: 'apps' }
   | { kind: 'search' }
   | { kind: 'open'; agentId: string };
 let pendingIntent: AgentsIntent | null = null;
@@ -40,14 +42,16 @@ export function requestAgentsIntent(intent: AgentsIntent) {
 export function useAgentsIntents(handlers: {
   onNewAgent: () => void;
   onImportAgents: () => void;
+  onApps: () => void;
   onOpenAgent: (agentId: string) => void;
   onSearch: () => void;
 }) {
-  const { onNewAgent, onImportAgents, onOpenAgent, onSearch } = handlers;
+  const { onNewAgent, onImportAgents, onApps, onOpenAgent, onSearch } = handlers;
   useEffect(() => {
     const listener = (intent: AgentsIntent) => {
       if (intent.kind === 'new') onNewAgent();
       else if (intent.kind === 'import') onImportAgents();
+      else if (intent.kind === 'apps') onApps();
       else if (intent.kind === 'search') onSearch();
       else onOpenAgent(intent.agentId);
     };
@@ -60,7 +64,7 @@ export function useAgentsIntents(handlers: {
     return () => {
       intentListeners.delete(listener);
     };
-  }, [onNewAgent, onImportAgents, onOpenAgent, onSearch]);
+  }, [onNewAgent, onImportAgents, onApps, onOpenAgent, onSearch]);
 }
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
@@ -125,6 +129,27 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
         keywords: ['agents', 'migrate', 'grok', 'bring over', 'setup'],
         run: () => {
           requestAgentsIntent({ kind: 'import' });
+          setView('agents');
+        },
+      },
+      {
+        id: 'agents.apps',
+        title: 'Connect an app for agents…',
+        icon: <PlugIcon size={14} />,
+        category: 'navigation',
+        keywords: [
+          'agents',
+          'mcp',
+          'gmail',
+          'calendar',
+          'slack',
+          'notion',
+          'linear',
+          'connectors',
+          'integrations',
+        ],
+        run: () => {
+          requestAgentsIntent({ kind: 'apps' });
           setView('agents');
         },
       },
