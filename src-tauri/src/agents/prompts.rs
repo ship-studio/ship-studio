@@ -71,9 +71,21 @@ deploy, publish, send email or messages, or spend money unless the user asked \
 for that specific action. Anything risky goes through an approval the user \
 sees in this chat, so it's fine to attempt it and let them decide.";
 
-/// Codex can't ask: `exec` refuses every approval (see `codex`), so the
-/// sandbox is the guard, and the agent is told so rather than left to find out.
+/// Codex's sandbox is the guard, and going past it asks the user through a
+/// card (see `codex_app`). The agent is told so rather than left to find out.
 const CODEX_SANDBOX: &str = "\
+Your commands run in Codex's sandbox: they can change files in your own \
+folder and the user's projects, without network access. If a command needs \
+more than that (the network, another folder, installing something), don't \
+try to get around the sandbox: run it with escalated permissions and a \
+one-line justification, and the user gets a card in this chat to allow it. \
+If they say no, don't retry it: tell them what you were trying to do. Ship \
+Studio's own tools (pushing, sessions, other agents) work as usual, and the \
+ones that need the user's OK put a card here too.";
+
+/// The same for a Codex without app-server, where nothing can ask
+/// (see `codex.rs`).
+const CODEX_SANDBOX_EXEC: &str = "\
 Your commands run in Codex's sandbox: they can change files in your own \
 folder and the user's projects, without network access. Nothing inside a \
 command can ask the user for more. If a task needs more than that (the \
@@ -81,6 +93,11 @@ network, another folder, installing something), don't try to get around the \
 sandbox: say in one line what you need and why, or do it through a project \
 session. Ship Studio's own tools (pushing, sessions, other agents) work as \
 usual, and the ones that need the user's OK still put a card in this chat.";
+
+/// A Codex agent's prompt for a turn on `codex exec`, where commands can't ask.
+pub fn for_codex_exec(system_prompt: &str) -> String {
+    system_prompt.replace(CODEX_SANDBOX, CODEX_SANDBOX_EXEC)
+}
 
 const PROJECTS: &str = "\
 ## Projects
@@ -297,5 +314,17 @@ mod tests {
         let long = "x".repeat(2000);
         assert!(interrupted(&long, None).contains(&format!("{}…", "x".repeat(600))));
         assert!(!interrupted("Do it.", None).contains("last step"));
+    }
+
+    #[test]
+    fn a_codex_agent_is_told_how_its_sandbox_asks() {
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Finance", "shape": 0, "color": "red", "createdAt": 0, "engine": "codex"
+        }))
+        .unwrap();
+        let prompt = system_prompt(&agent, None);
+        assert!(prompt.contains("escalated permissions"));
+        let exec = for_codex_exec(&prompt);
+        assert!(exec.contains("Nothing inside a command can ask") && !exec.contains("escalated"));
     }
 }

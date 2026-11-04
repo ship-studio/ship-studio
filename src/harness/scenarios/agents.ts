@@ -644,7 +644,7 @@ const CODEX_TEAM = [
         {
           what: 'On this Mac',
           detail:
-            "Run commands, read and edit files, use the web, send you files and schedule check-ins, in Codex's sandbox: your projects and its own folder, with no network for commands.",
+            "Run commands, read and edit files, use the web, send you files and schedule check-ins, in Codex's sandbox: your projects and its own folder, with no network for commands unless you allow it.",
         },
       ],
     },

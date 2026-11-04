@@ -21,6 +21,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
+use super::codex_app::Out;
 use super::engine::Engine;
 use super::notify;
 use super::procs;
@@ -980,6 +981,16 @@ async fn finish(
     child.wait().await
 }
 
+/// Write to an app-server turn's stdin; `None` closes it.
+fn send(
+    writer: &Option<tokio::sync::mpsc::UnboundedSender<Option<String>>>,
+    msg: Option<serde_json::Value>,
+) {
+    if let Some(tx) = writer {
+        let _ = tx.send(msg.map(|m| m.to_string()));
+    }
+}
+
 /// [`record`] on a blocking thread: it writes the log and the registry.
 async fn record_off(app: &AppHandle, message: AgentMessage) {
     let app = app.clone();
@@ -1033,8 +1044,10 @@ async fn run_turn(
         }
     }
     // Codex announces no tools, so its list is read before the turn instead.
+    // Codex speaks app-server when it can: streaming, cards, interrupt.
+    let app_server = engine == Engine::Codex && super::codex_app::available(&binary).await;
     if engine == Engine::Codex {
-        let caps = super::codex::capabilities(&agent, &binary, store::now_ms()).await;
+        let caps = super::codex::capabilities(&agent, &binary, store::now_ms(), app_server).await;
         agent.capabilities = Some(caps.clone());
         let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
     }
@@ -1049,11 +1062,12 @@ async fn run_turn(
             &system_prompt,
             &layout.add_dirs,
         )),
+        Engine::Codex if app_server => cmd.args(super::codex_app::args(&url, &layout.add_dirs)),
         Engine::Codex => cmd.args(super::codex::args(
             &agent,
             resuming.then_some(session_id.as_str()),
             &url,
-            &system_prompt,
+            &prompts::for_codex_exec(&system_prompt),
             &layout.add_dirs,
         )),
     };
@@ -1097,14 +1111,44 @@ async fn run_turn(
     };
     write_mark(agent_id, mark);
 
-    // A CLI that dies on startup closes stdin before reading it. Its exit
-    // status and stderr say why; a "Broken pipe" here would only hide that.
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
-            tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
+    // An app-server conversation: stdin stays open for the turn, written by
+    // one task (approval answers come from tasks of their own); `None` closes it.
+    let (writer, mut conversation) = if app_server {
+        let (conversation, first) = super::codex_app::Conversation::new(
+            resuming.then_some(session_id.as_str()),
+            &layout.cwd,
+            agent.model.as_deref(),
+            &system_prompt,
+            &prompt,
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
+        let mut stdin = child.stdin.take();
+        tokio::spawn(async move {
+            while let Some(Some(line)) = rx.recv().await {
+                let Some(pipe) = stdin.as_mut() else { break };
+                if pipe
+                    .write_all(format!("{line}\n").as_bytes())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            drop(stdin);
+        });
+        let _ = tx.send(Some(first.to_string()));
+        (Some(tx), Some(conversation))
+    } else {
+        // A CLI that dies on startup closes stdin before reading it. Its exit
+        // status and stderr say why; a "Broken pipe" here would only hide that.
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
+                tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
+            }
+            drop(stdin);
         }
-        drop(stdin);
-    }
+        (None, None)
+    };
     let stdout = child
         .stdout
         .take()
@@ -1174,7 +1218,30 @@ async fn run_turn(
                         continue;
                     }
                     Engine::Claude => stream::claude_steps(&value, &line, store::now_ms()),
-                    Engine::Codex => super::codex::steps(&value),
+                    Engine::Codex => match conversation.as_mut() {
+                        Some(conversation) => {
+                            let mut steps = Vec::new();
+                            for out in conversation.on_message(&value) {
+                                match out {
+                                    Out::Step(step) => steps.push(step),
+                                    Out::Send(msg) => send(&writer, Some(msg)),
+                                    Out::Close => send(&writer, None),
+                                    Out::DraftOpen => drafts.open(store::new_id()),
+                                    Out::DraftDelta(text) => drafts.grow(&text),
+                                    Out::Ask(ask) => {
+                                        let (app, id, tx) = (app.clone(), agent_id.to_string(), writer.clone());
+                                        tokio::spawn(async move {
+                                            for msg in super::codex_app::answer(&app, &id, *ask).await {
+                                                send(&tx, Some(msg));
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                            steps
+                        }
+                        None => super::codex::steps(&value),
+                    },
                 };
                 for step in steps {
                     match step {
@@ -1238,6 +1305,39 @@ async fn run_turn(
             _ = cancel.notified() => { stopped = Some(None); break; }
             _ = &mut deadline => { stopped = Some(Some("Stopped after 3 hours. Send a message to pick it back up.")); break; }
         }
+    }
+
+    // An app-server turn is interrupted first, so Codex ends it cleanly and
+    // the thread records it; what streams meanwhile still counts as written.
+    if let (Some(_), Some(conversation)) = (&stopped, conversation.as_mut()) {
+        if let Some(interrupt) = conversation.interrupt() {
+            send(&writer, Some(interrupt));
+            let _ = tokio::time::timeout(Duration::from_secs(3), async {
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                        continue;
+                    };
+                    for out in conversation.on_message(&value) {
+                        match out {
+                            Out::DraftDelta(text) => drafts.grow(&text),
+                            // Completed under the interrupt: kept whole, not cut off.
+                            Out::Step(Step::Reply(text)) if !text.is_empty() => {
+                                let id = drafts.finish(&text).unwrap_or_else(store::new_id);
+                                let mut message = new_message(agent_id, MessageKind::Agent, text);
+                                message.id = id;
+                                record_off(app, message).await;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if conversation.over() {
+                        break;
+                    }
+                }
+            })
+            .await;
+        }
+        send(&writer, None);
     }
 
     // Stop, interrupt and the timeout end the whole tree, not just `claude`:

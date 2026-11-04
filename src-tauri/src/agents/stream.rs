@@ -136,6 +136,23 @@ impl Drafts {
         }
     }
 
+    /// A new reply started streaming (Codex's `item/started agentMessage`).
+    pub fn open(&mut self, id: String) {
+        self.current = Some(Draft {
+            id,
+            index: 0,
+            text: String::new(),
+        });
+    }
+
+    /// More of the reply that's streaming (Codex's `item/agentMessage/delta`).
+    pub fn grow(&mut self, text: &str) {
+        if let Some(draft) = self.current.as_mut().filter(|_| !text.is_empty()) {
+            draft.text.push_str(text);
+            self.dirty = true;
+        }
+    }
+
     /// Changed since the last `flush`.
     pub fn dirty(&self) -> bool {
         self.dirty

@@ -1,6 +1,9 @@
-//! Codex as an engine: one `codex exec --json` (or `codex exec resume <id>`)
-//! per turn, its JSONL mapped onto the same [`Step`]s Claude Code's stream
-//! gives, so the chat, the activity line, usage and failures are the same.
+//! Codex as an engine: what every Codex turn shares (models, config,
+//! capabilities, activity labels), and the `codex exec --json` fallback for a
+//! Codex without a usable app-server (turns normally run through
+//! [`super::codex_app`]). Its JSONL maps onto the same [`Step`]s Claude
+//! Code's stream gives, so the chat, the activity line, usage and failures
+//! are the same.
 //!
 //! Verified against Codex 0.166 driven by a scripted Responses endpoint
 //! (`testdata/codex-exec.jsonl` is its real output), and signed out against
@@ -119,7 +122,30 @@ pub(super) fn scripted() -> bool {
     !extra_config().is_empty()
 }
 
-/// Every argument a turn's `codex` gets. The prompt goes on stdin (`-`).
+/// The `-c` overrides every Codex turn gets, whichever way it runs: where
+/// commands may write, our MCP server (its tools pre-approved: they put up
+/// their own cards), and CLAUDE.md as the project doc. Then the e2e suite's
+/// own, in debug builds.
+pub(super) fn shared_config(url: &str, writable: &[String]) -> Vec<String> {
+    let server = format!(
+        "mcp_servers.{}={{url={},tool_timeout_sec={},default_tools_approval_mode=\"approve\"}}",
+        super::prompts::SERVER_KEY,
+        toml(url),
+        super::mcp::APPROVAL_WAIT_SECS + 60,
+    );
+    [
+        format!("sandbox_workspace_write.writable_roots={}", toml(writable)),
+        server,
+        "project_doc_fallback_filenames=[\"CLAUDE.md\"]".to_string(),
+    ]
+    .into_iter()
+    .chain(extra_config())
+    .collect()
+}
+
+/// Every argument a turn's `codex exec` gets, for a Codex without
+/// `app-server` (see [`super::codex_app::available`]). The prompt goes on
+/// stdin (`-`).
 pub fn args(
     agent: &Agent,
     session: Option<&str>,
@@ -132,21 +158,12 @@ pub fn args(
         args.push("resume".into());
     }
     args.extend(["--json".into(), "--skip-git-repo-check".into()]);
-    let server = format!(
-        "mcp_servers.{}={{url={},tool_timeout_sec={},default_tools_approval_mode=\"approve\"}}",
-        super::prompts::SERVER_KEY,
-        toml(url),
-        super::mcp::APPROVAL_WAIT_SECS + 60,
-    );
     let config = [
         "sandbox_mode=\"workspace-write\"".to_string(),
         "approval_policy=\"never\"".to_string(),
-        format!("sandbox_workspace_write.writable_roots={}", toml(writable)),
-        server,
-        "project_doc_fallback_filenames=[\"CLAUDE.md\"]".to_string(),
         format!("developer_instructions={}", toml(developer_instructions)),
     ];
-    for value in config.into_iter().chain(extra_config()) {
+    for value in config.into_iter().chain(shared_config(url, writable)) {
         args.extend(["-c".into(), value]);
     }
     if let Some(model) = &agent.model {
@@ -160,7 +177,7 @@ pub fn args(
 }
 
 /// `/bin/zsh -lc 'npm test'` → `npm test`: the command, as the agent wrote it.
-fn unwrap_shell(command: &str) -> &str {
+pub(super) fn unwrap_shell(command: &str) -> &str {
     let inner = command
         .split_once(" -lc ")
         .or_else(|| command.split_once(" -c "))
@@ -174,7 +191,7 @@ fn unwrap_shell(command: &str) -> &str {
 
 /// What a Codex item is doing, in the activity line's words: the item as the
 /// Claude Code tool call it corresponds to, labelled the same way.
-fn activity(item: &Value) -> Option<String> {
+pub(super) fn activity(item: &Value) -> Option<String> {
     let field = |k: &str| item.get(k).cloned().unwrap_or(Value::Null);
     let (name, input) = match item.get("type")?.as_str()? {
         "command_execution" => (
@@ -287,7 +304,8 @@ pub fn steps(value: &Value) -> Vec<Step> {
 /// What a Codex agent can use: our own tools as served to it, Codex's
 /// built-in shell, file edits and web search (seen in what it sends its
 /// model), and the user's Codex MCP servers as `codex mcp list` reports them.
-pub async fn capabilities(caller: &Agent, binary: &Path, now: i64) -> Capabilities {
+/// `asks`: the turn runs on app-server, where going past the sandbox asks.
+pub async fn capabilities(caller: &Agent, binary: &Path, now: i64, asks: bool) -> Capabilities {
     let ours: Vec<String> = super::mcp::tool_names(caller)
         .into_iter()
         .map(|name| format!("mcp__{}__{name}", super::prompts::SERVER_KEY))
@@ -302,11 +320,23 @@ pub async fn capabilities(caller: &Agent, binary: &Path, now: i64) -> Capabiliti
         .ok()
         .map(|out| servers_from(&String::from_utf8_lossy(&out.stdout)))
         .unwrap_or_default();
+    let mut lines = capabilities::lines(Engine::Codex, &tools, &servers);
+    if asks {
+        for line in &mut lines {
+            line.detail = line.detail.replace(
+                SANDBOX_LINE,
+                "with no network for commands unless you allow it",
+            );
+        }
+    }
     Capabilities {
         seen_at: now,
-        lines: capabilities::lines(Engine::Codex, &tools, &servers),
+        lines,
     }
 }
+
+/// How the capability line ends for the sandbox (see `capabilities::lines`).
+const SANDBOX_LINE: &str = "with no network for commands";
 
 /// `codex mcp list --json`: enabled servers; one it says isn't logged in needs sign-in.
 fn servers_from(raw: &str) -> Vec<Server> {
@@ -449,6 +479,12 @@ mod tests {
         let servers = servers_from(raw);
         assert_eq!(servers.len(), 2);
         assert!(servers[0].connected && !servers[1].connected);
+    }
+
+    #[test]
+    fn the_sandbox_line_is_the_one_capabilities_writes() {
+        let lines = capabilities::lines(Engine::Codex, &["Bash"], &[]);
+        assert!(lines.iter().any(|l| l.detail.contains(SANDBOX_LINE)));
     }
 
     #[test]

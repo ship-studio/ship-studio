@@ -1055,40 +1055,71 @@ fn capitalize(word: &str) -> String {
         .unwrap_or_default()
 }
 
+/// What became of a tool call that needed the user's OK.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Decision {
+    Allow,
+    /// Refused, with what to tell the agent.
+    Deny(String),
+}
+
+/// Decide a tool call the engine wants the user's OK for: a one-time grant
+/// from a late Allow, a standing "Always allow" rule, or else a card. Shared
+/// by Claude Code's permission prompt tool and Codex's approval requests.
+/// `why` is the engine's own reason, when it gave one, shown on the card.
+pub(super) async fn decide(
+    app: &AppHandle,
+    caller: &store::Agent,
+    tool: &str,
+    input: &Value,
+    why: Option<&str>,
+) -> Decision {
+    if take_grant(&caller.id, tool, input) {
+        return Decision::Allow;
+    }
+    if permissions::matching(&caller.permissions, tool, input).is_some() {
+        // Nothing happens invisibly: each one leaves a quiet line in the chat.
+        let line = format!(
+            "Allowed automatically: {} · Always allowed",
+            one_line(tool, input)
+        );
+        let _ = runner::record(
+            app,
+            runner::new_message(&caller.id, MessageKind::Note, line),
+        );
+        return Decision::Allow;
+    }
+    let (title, mut detail) = describe_request(tool, input);
+    if let Some(why) = why.map(str::trim).filter(|w| !w.is_empty()) {
+        detail = format!("{detail}\n\n{why}");
+    }
+    match ask_user(app, caller, title, detail, Some((tool, input))).await {
+        Answer::Allowed => Decision::Allow,
+        Answer::Denied(note) => Decision::Deny(denied(note)),
+        Answer::NotYet => Decision::Deny(NOT_YET.to_string()),
+    }
+}
+
+/// What the agent is told when the user said no.
+pub(super) fn denied(note: Option<String>) -> String {
+    match note {
+        None => "The user said no to this. Don't retry it; tell them what you were trying to do, or find another way.".to_string(),
+        Some(note) => format!("The user said no to this, and told you: \"{note}\". Don't retry it; do what they said instead."),
+    }
+}
+
+/// What the agent is told when the card is still waiting.
+pub(super) const NOT_YET: &str = "The user hasn't answered yet; they may be away. Don't retry and don't work around it. Stop here and tell them in one short line what you need approved and why. The request stays in their chat: if they allow it later, you'll be woken up to finish, and that exact call will go through.";
+
 async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
     let tool = args
         .get("tool_name")
         .and_then(Value::as_str)
         .unwrap_or("a tool");
     let input = args.get("input").cloned().unwrap_or_else(|| json!({}));
-    let allow = json!({ "behavior": "allow", "updatedInput": input });
-    if take_grant(&caller.id, tool, &input) {
-        return text(allow.to_string());
-    }
-    if permissions::matching(&caller.permissions, tool, &input).is_some() {
-        // Nothing happens invisibly: each one leaves a quiet line in the chat.
-        let line = format!(
-            "Allowed automatically: {} · Always allowed",
-            one_line(tool, &input)
-        );
-        let _ = runner::record(
-            app,
-            runner::new_message(&caller.id, MessageKind::Note, line),
-        );
-        return text(allow.to_string());
-    }
-    let (title, detail) = describe_request(tool, &input);
-    let answer = match ask_user(app, caller, title, detail, Some((tool, &input))).await {
-        Answer::Allowed => allow,
-        Answer::Denied(None) => {
-            json!({ "behavior": "deny", "message": "The user said no to this. Don't retry it; tell them what you were trying to do, or find another way." })
-        }
-        Answer::Denied(Some(note)) => {
-            json!({ "behavior": "deny", "message": format!("The user said no to this, and told you: \"{note}\". Don't retry it; do what they said instead.") })
-        }
-        Answer::NotYet => {
-            json!({ "behavior": "deny", "message": "The user hasn't answered yet; they may be away. Don't retry and don't work around it. Stop here and tell them in one short line what you need approved and why. The request stays in their chat: if they allow it later, you'll be woken up to finish, and that exact call will go through." })
-        }
+    let answer = match decide(app, caller, tool, &input, None).await {
+        Decision::Allow => json!({ "behavior": "allow", "updatedInput": input }),
+        Decision::Deny(message) => json!({ "behavior": "deny", "message": message }),
     };
     text(answer.to_string())
 }

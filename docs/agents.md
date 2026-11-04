@@ -485,7 +485,7 @@ line suggesting an always-on Mac, such as a Mac mini or a cloud Mac, for
 round-the-clock agents; and as a "Keep this Mac awake" link at the end of the
 schedule popover's footnote. Elsewhere than macOS none of it shows.
 
-## Engines: Claude Code or Codex (`agents/engine.rs`, `agents/codex.rs`)
+## Engines: Claude Code or Codex (`agents/engine.rs`, `agents/codex_app.rs`, `agents/codex.rs`)
 
 Each agent has `engine: "claude" | "codex"` (default `claude`), so it can run
 on a ChatGPT plan with the same chat, tools, memory and Chief around it. The
@@ -499,55 +499,83 @@ Switching clears the session and the model, leaves a note ("Runs on Codex
 from its next message"), and the next turn gets the recent conversation
 (`Agent.newEngine` → `with_recap`).
 
-A Codex turn:
+A Codex turn is one `codex app-server` (`agents/codex_app.rs`), spoken to
+over JSON-RPC on stdin/stdout:
 
 ```
-codex exec [resume <thread id>] --json --skip-git-repo-check
-  -c sandbox_mode="workspace-write" -c approval_policy="never"
+codex app-server
   -c sandbox_workspace_write.writable_roots=[<home or project dirs>]
   -c mcp_servers.shipstudio_agents={url=…,tool_timeout_sec=300,default_tools_approval_mode="approve"}
   -c project_doc_fallback_filenames=["CLAUDE.md"]
-  -c developer_instructions=<voice + role + team rules>
-  [-m <model>] -          (prompt on stdin; cwd as for Claude Code)
+→ initialize, initialized
+→ thread/start {cwd, approvalPolicy:"on-request", sandbox:"workspace-write",
+                model, developerInstructions}    (or thread/resume {threadId, …})
+→ turn/start {threadId, input:[prompt]}
 ```
 
-Its JSONL maps onto the same `stream::Step`s as Claude Code's stream-json:
-`thread.started` → session, `item.completed agent_message` → a reply,
-`item.started` command / MCP call / web search and `file_change` → the
-activity line (labelled as the matching Claude Code tool), `turn.completed`
-→ usage (tokens only: a plan reports no price; duration timed here),
-`turn.failed` → the error, and `error` retries → "Reconnecting to Codex 2/5".
+Its messages map onto the same `stream::Step`s as Claude Code's stream-json,
+and only those in our own thread (a sub-agent's run in threads of their own
+and stay internal): the thread id → session; `item/started agentMessage` +
+`item/agentMessage/delta` → a draft, and `item/completed agentMessage` → the
+reply in its place; other items as they start → the activity line (labelled
+as the matching Claude Code tool); `thread/tokenUsage/updated` (`last`,
+summed over the turn) → usage (tokens only: a plan reports no price;
+duration timed here); `turn/completed` → done, or the error when `failed`;
+`error` with `willRetry` → "Reconnecting to Codex". Done closes stdin, and
+the app-server exits.
+
+**Approvals.** Sandboxed commands run without asking, like Claude Code's
+`acceptEdits` edits. Anything that needs more reaches us as a request and
+becomes the same card a Claude Code call gets, through `mcp::decide`
+(one-time grant from a late Allow → "Always allow" rule → card):
+
+| Codex asks | Card as | Allow / deny |
+|---|---|---|
+| `item/commandExecution/requestApproval` (the model asked to escalate) | `Bash {command}` (shell wrapper peeled), Codex's reason under it | `accept` / `decline` |
+| `item/fileChange/requestApproval` | `Edit {file_path}` (paths from the item) | `accept` / `decline` |
+| `mcpServer/elicitation/request` with `_meta.codex_approval_kind = "mcp_tool_call"` (a write tool on the user's own MCP servers) | `mcp__<server>__<tool> {tool_params}` | `accept` / `decline` |
+| `item/permissions/requestApproval` | "Allow more access" (network, paths) | the requested profile for the turn / none |
+
+A decline carries no message, so what the agent is told ("the user said no,
+and told you: …", or "hasn't answered yet") goes as `turn/steer` just before
+it: queued on the open turn, the model reads it with the declined call's
+result (sent after, it can miss the turn). Questions (`requestUserInput`)
+and other elicitations are declined with a steer to ask in the chat;
+requests we don't handle get a JSON-RPC error rather than hanging.
+
+**Stop and ⌘Enter** send `turn/interrupt` and wait up to 3s for the turn to
+end (`interrupted`) before the process tree is stopped. Codex sends no
+completed message for a reply cut off, so the draft is kept as stopped,
+exactly as for Claude Code.
+
+**Fallback.** `codex_app::available` asks the installed Codex for its own
+protocol schema (`app-server generate-json-schema`, ~0.1s, once per binary
+until it changes) and needs every method above. Without them a turn is
+`codex exec [resume <thread id>] --json --skip-git-repo-check` with the same
+`-c` overrides plus `sandbox_mode="workspace-write"`, `approval_policy="never"`
+and `developer_instructions`: replies arrive whole, nothing can ask (exec
+forces approvals to "never"), and the prompt says so instead
+(`prompts::for_codex_exec`). Debug builds force it with
+`SHIPSTUDIO_AGENTS_CODEX_EXEC=1`.
+
 Capabilities come from what we serve it, its built-ins and `codex mcp list
 --json`, read before each turn (Codex announces no tools). Failures read as
 "Codex's usage limit is reached. It resets at 7:18 PM." (from its "try again
 at 7:18 PM", this Mac's time) and "Codex is signed out." (checked before the
 turn, which otherwise spends 20s retrying a 401), with "Sign in to Codex"
-running `codex login`. A vanished thread ("no rollout found") is replaced
-once, like a lost Claude session.
+running `codex login`. A vanished thread (`thread/resume` → "no rollout
+found") is replaced once, like a lost Claude session.
 
-What differs from a Claude Code agent, all verified on Codex 0.166:
+What still differs from a Claude Code agent, verified on Codex 0.166:
 
-- **No streaming.** `exec --json` emits an `agent_message` only complete,
-  even when the model streams it, so a Codex reply appears whole. Stop keeps
-  nothing partial; it leaves the "Stopped" note.
-- **No approval cards for its own commands.** `exec` forces approval to
-  "never" whatever is configured, so nothing reaches a client or a
-  `PermissionRequest` hook, and hooks passed with `-c` don't run without
-  `--dangerously-bypass-hook-trust`, which we don't use (it would also run
-  any untrusted hook in a project). So the guard is Codex's sandbox: commands
-  can write only in the agent's home and the user's projects, with no
-  network, and anything beyond fails inside the turn; the prompt tells it to
-  say what it needs instead. Ship Studio's own cards (push, delete an agent)
-  still appear, since those are our tools. The user's own Codex MCP servers
-  keep their defaults, so their write tools are refused rather than asked.
-  `codex app-server` routes approvals and streams deltas; moving to it is the
-  way to close both gaps.
-- **Memory.** `developer_instructions` is fixed at session start (a resume
-  keeps the first), but Codex re-reads the project doc every turn and hands
-  over a changed one, so an unbound agent's CLAUDE.md is its project doc and
-  memory edits reach the next turn. A bound Codex agent runs in its project,
-  whose own AGENTS.md (or CLAUDE.md) loads; its identity rides in the
-  developer instructions as of its session's start.
+- **What asks.** Claude Code asks for every command not allowed; Codex runs
+  commands inside its sandbox (the agent's home and the user's projects, no
+  network) without asking, and only going past it asks.
+- **Memory.** `developer_instructions` is set when a thread starts; Codex
+  re-reads the project doc every turn and hands over a changed one, so an
+  unbound agent's CLAUDE.md is its project doc and memory edits reach the
+  next turn. A bound Codex agent runs in its project, whose own AGENTS.md
+  (or CLAUDE.md) loads; its identity rides in the developer instructions.
 - No Claude in Chrome; "Apps" are the MCP servers set up in Codex.
 
 Not verified against a signed-in ChatGPT account (none on the build machine):
@@ -778,13 +806,16 @@ prunes them the diff says it can't be shown.
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
-- Codex: `scripts/agents-e2e.sh codex-memory codex-stop codex-delegation`
-  runs those scenarios on Codex. With Codex signed in they use the account
-  (its `auth.json` copied into a throwaway `CODEX_HOME`); otherwise the real
-  `codex` binary talks to a scripted Responses endpoint
+- Codex: `scripts/agents-e2e.sh codex-memory codex-stop codex-delegation
+  codex-approvals` runs those scenarios on Codex. With Codex signed in they
+  use the account (its `auth.json` copied into a throwaway `CODEX_HOME`);
+  otherwise the real `codex` binary talks to a scripted Responses endpoint
   (`scripts/agents-e2e-codex-model.py`, passed in through the debug-only
-  `SHIPSTUDIO_AGENTS_CODEX_CONFIG`), which proves resume, Stop/interrupt and
-  delegation through the bridge, not a model's judgement.
-  `AGENTS_E2E_CODEX=real|scripted|skip` forces one.
+  `SHIPSTUDIO_AGENTS_CODEX_CONFIG`), which proves resume, streaming drafts
+  kept on Stop/interrupt, delegation through the bridge, and the approval
+  round-trip (Allow, Deny with a note the model reads, late Allow, Always
+  allow) for an escalated command, not a model's judgement.
+  `AGENTS_E2E_CODEX=real|scripted|skip` forces one;
+  `SHIPSTUDIO_AGENTS_CODEX_EXEC=1` runs them on the `exec` fallback.
 - `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
   agent, import, Claude Code missing, the engine picker (`agents-engine-picker`) and a Codex agent's chat (`agents-codex-chat`).

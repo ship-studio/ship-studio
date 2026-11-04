@@ -12,6 +12,10 @@ RULES is a list of {"match": text, "steps": [...], "then": text}. The newest
 user message picks the first rule whose `match` it contains. Steps:
   {"text": "..."}                 a message, streamed word by word
   {"call": "tool", "args": {...}} a call to one of Ship Studio's agent tools
+  {"exec": "cmd", "escalate": true, "justification": "..."}
+                                  a shell command through Codex's own
+                                  exec_command; `escalate` asks to run it
+                                  outside the sandbox (an approval)
   {"recall": "regex"}             a message with the regex's first group, from
                                   any earlier user message Codex sent (so it
                                   only answers if the session kept them)
@@ -111,6 +115,15 @@ class Handler(BaseHTTPRequestHandler):
                         "name": step["call"], "namespace": SERVER, "arguments": json.dumps(step["args"])}
                 event({"type": "response.output_item.added", "output_index": i, "item": item})
                 event({"type": "response.output_item.done", "output_index": i, "item": item})
+            elif "exec" in step:
+                args = {"cmd": step["exec"]}
+                if step.get("escalate"):
+                    args["sandbox_permissions"] = "require_escalated"
+                    args["justification"] = step.get("justification", "")
+                item = {"type": "function_call", "id": f"fc_{i}", "call_id": f"call_{time.time_ns()}",
+                        "name": "exec_command", "arguments": json.dumps(args)}
+                event({"type": "response.output_item.added", "output_index": i, "item": item})
+                event({"type": "response.output_item.done", "output_index": i, "item": item})
             elif "sleep" in step:
                 time.sleep(step["sleep"])
         event({"type": "response.completed", "response": {"id": "resp", "usage": {
@@ -118,4 +131,11 @@ class Handler(BaseHTTPRequestHandler):
             "output_tokens": 20, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 1020}}})
 
 
-ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # Stop and interrupt hang up mid-stream; that's the point, not a fault.
+        if not isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            super().handle_error(request, client_address)
+
+
+Server(("127.0.0.1", PORT), Handler).serve_forever()

@@ -14,7 +14,8 @@
 //!
 //! Scenarios: memory, restart, lost-session, delegation, stop, approvals,
 //! cli-failures, corrupt-store, burst, stop-tree, quit, slots, and on Codex
-//! codex-memory, codex-stop, codex-delegation. Codex runs on the signed-in
+//! codex-memory, codex-stop (streaming drafts, Stop and interrupt),
+//! codex-delegation, codex-approvals (cards for Codex's own commands). Codex runs on the signed-in
 //! account (copied into the throwaway CODEX_HOME) when there is one, else on
 //! a scripted model (scripts/agents-e2e-codex-model.py), which proves the
 //! plumbing (real `codex`, runner, bridge, resume) but not a model's
@@ -843,9 +844,11 @@ async fn delegation(h: &H) -> Check {
 async fn stop(h: &H) -> Check {
     let a = h.agent("Talker", "Writes long things", "");
     let story = "Write a 600-word story about a lighthouse. No preamble.";
-    // Codex sends a reply only once it's complete: there is no draft to keep,
-    // so Stop is checked mid-turn instead, and leaves its quiet note.
-    let codex = h.engine() == Engine::Codex;
+    // Codex on `exec` (the fallback) sends a reply only once it's complete:
+    // there is no draft to keep, so Stop is checked mid-turn instead, and
+    // leaves its quiet note. On app-server it streams like Claude Code.
+    let codex =
+        h.engine() == Engine::Codex && std::env::var("SHIPSTUDIO_AGENTS_CODEX_EXEC").is_ok();
     let mid_reply = || async {
         if codex {
             h.until("a turn underway", Duration::from_secs(90), || {
@@ -1042,6 +1045,133 @@ async fn approvals_scenario(h: &H) -> Check {
     ensure(
         last_reply(&a.id).to_lowercase().contains("understood"),
         format!("deny note not read: {:?}", last_reply(&a.id)),
+    )?;
+    no_errors(&a.id)
+}
+
+/// (6b) Codex's own commands ask through the same cards: a command that
+/// needs to leave the sandbox gets one; Allow runs it, a note on Deny reaches
+/// the model, a late Allow finishes it without asking again, and Always
+/// allow lets the next one through with a note.
+async fn codex_approvals(h: &H) -> Check {
+    let out = outside(&h.home);
+    let a = h.agent(
+        "Runner",
+        "Runs commands",
+        "When asked to run a command, run it exactly as written and reply with only: Ran it.",
+    );
+    let run = |command: String| {
+        format!("Run this exact command. It writes outside your folders, so ask for escalated permissions. Then reply with just: Ran it. Command: {command}")
+    };
+    let path = |name: &str| format!("{}/{name}", out.display());
+
+    // Allow, through the command the UI calls.
+    h.send(&a.id, &run(format!("touch {}", path("once.txt"))))
+        .await?;
+    let c = card(h, &a.id, 0).await?;
+    ensure(
+        c.tool.as_deref() == Some("Bash") && c.detail.contains("once.txt"),
+        format!("card: {:?} {:?}", c.tool, c.detail),
+    )?;
+    ensure(
+        runner::status_of(&a.id).state == "waiting",
+        "row doesn't say waiting",
+    )?;
+    ensure(!out.join("once.txt").exists(), "it ran before the OK")?;
+    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(
+        out.join("once.txt").exists(),
+        "the allowed command didn't run",
+    )?;
+    ensure(
+        last_reply(&a.id).contains("Ran it"),
+        format!("allowed run: {:?}", last_reply(&a.id)),
+    )?;
+
+    // Deny with a note: it doesn't run, and the model reads the note.
+    h.send(&a.id, &run(format!("touch {}", path("denied.txt"))))
+        .await?;
+    let c = card(h, &a.id, 1).await?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        false,
+        None,
+        Some("Don't run it. Reply with just the word: understood".into()),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(!out.join("denied.txt").exists(), "the denied command ran")?;
+    ensure(
+        last_reply(&a.id).to_lowercase().contains("understood"),
+        format!("deny note not read: {:?}", last_reply(&a.id)),
+    )?;
+
+    // The wait runs out (shortened); the card stays live; a late Allow
+    // wakes the agent and the same command goes through without a card.
+    std::env::set_var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS", "5");
+    h.send(&a.id, &run(format!("touch {}", path("late.txt"))))
+        .await?;
+    let c = card(h, &a.id, 2).await?;
+    h.turn(&a.id).await?;
+    std::env::remove_var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS");
+    ensure(!out.join("late.txt").exists(), "it ran without an answer")?;
+    let still = approvals(&a.id).pop().unwrap();
+    ensure(
+        still.status == store::ApprovalStatus::Pending,
+        format!("card not live after the wait: {:?}", still.status),
+    )?;
+    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(approvals(&a.id).len() == 3, "the retry asked again")?;
+    ensure(
+        out.join("late.txt").exists(),
+        "the late Allow didn't run it",
+    )?;
+
+    // Always allow: the next `git init` goes through with a note.
+    h.send(&a.id, &run(format!("git init {}", path("always-one"))))
+        .await?;
+    let c = card(h, &a.id, 3).await?;
+    ensure(
+        c.always.is_some(),
+        format!("card offers no Always allow: {:?}", c.detail),
+    )?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        Some(true),
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    h.send(&a.id, &run(format!("git init {}", path("always-two"))))
+        .await?;
+    h.turn(&a.id).await?;
+    ensure(approvals(&a.id).len() == 4, "Always allow still asked")?;
+    ensure(
+        of_kind(&a.id, MessageKind::Note)
+            .iter()
+            .any(|n| n.text.starts_with("Allowed automatically")),
+        "no 'Allowed automatically' line",
+    )?;
+    ensure(
+        out.join("always-one/.git").exists() && out.join("always-two/.git").exists(),
+        "the allowed commands didn't run",
+    )?;
+    ensure(
+        store::get(&a.id).unwrap().pending_approvals == 0,
+        "cards left pending",
     )?;
     no_errors(&a.id)
 }
@@ -1365,7 +1495,7 @@ async fn burst(h: &H) -> Check {
 
 /* --------------------------------------------------------------------- main */
 
-const ALL: [&str; 16] = [
+const ALL: [&str; 17] = [
     "memory",
     "restart",
     "lost-session",
@@ -1382,6 +1512,7 @@ const ALL: [&str; 16] = [
     "codex-memory",
     "codex-stop",
     "codex-delegation",
+    "codex-approvals",
 ];
 
 /// What the Codex scenarios run on: the signed-in account, a scripted model,
@@ -1416,12 +1547,27 @@ fn codex_mode(real_home: &Path) -> CodexMode {
     }
 }
 
+/// A folder no agent may write to without asking (codex-approvals).
+fn outside(home: &Path) -> PathBuf {
+    let dir = home.join("outside");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// The rules the scripted model follows for the Codex scenarios.
 const CODEX_RULES: &str = r#"[
  {"match": "My favourite number is", "steps": [{"text": "noted"}]},
  {"match": "What is my favourite number", "steps": [{"recall": "favourite number is (\\d+)"}]},
  {"match": "Forget the story", "steps": [{"text": "switched"}]},
- {"match": "Write a 600-word story", "steps": [{"sleep": 90}, {"text": "Once upon a time."}]},
+ {"match": "Write a 600-word story", "steps": [{"text": "The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn.", "delay": 0.25}]},
+ {"match": "has now approved this", "steps": [{"exec": "touch {OUT}/late.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "The user said no to this, and told you", "steps": [{"text": "understood"}]},
+ {"match": "hasn't answered yet", "steps": [{"text": "I need your OK to run that."}]},
+ {"match": "Command: touch {OUT}/once.txt", "steps": [{"exec": "touch {OUT}/once.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: touch {OUT}/denied.txt", "steps": [{"exec": "touch {OUT}/denied.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: touch {OUT}/late.txt", "steps": [{"exec": "touch {OUT}/late.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: git init {OUT}/always-one", "steps": [{"exec": "git init {OUT}/always-one", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: git init {OUT}/always-two", "steps": [{"exec": "git init {OUT}/always-two", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
  {"match": "Reply with just: ready", "steps": [{"text": "ready"}]},
  {"match": "Reply with just: echo-ok", "steps": [{"text": "echo-ok"}]},
  {"match": "Use message_agent to ask Scout", "steps": [{"call": "message_agent", "args": {"agent": "Scout", "message": "What is 6 times 7? Reply to Chief of Staff with message_agent."}}], "then": "Asked Scout."},
@@ -1449,7 +1595,13 @@ fn codex_setup(mode: CodexMode, real_home: &Path, home: &Path) -> Option<std::pr
         CodexMode::Scripted => {
             let port = 18_000 + (std::process::id() % 1000) as u16;
             let rules = home.join("codex-rules.json");
-            std::fs::write(&rules, CODEX_RULES).unwrap();
+            // `{OUT}`: a folder outside every agent's writable roots.
+            let outside = outside(home);
+            std::fs::write(
+                &rules,
+                CODEX_RULES.replace("{OUT}", &outside.to_string_lossy()),
+            )
+            .unwrap();
             let script =
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/agents-e2e-codex-model.py");
             let child = std::process::Command::new("python3")
@@ -1526,10 +1678,14 @@ fn main() {
     }
     std::fs::create_dir_all(home.join("ShipStudio")).unwrap();
 
-    let app = tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .build(tauri::generate_context!())
         .expect("build tauri app");
+    // Headless: no Dock icon, never takes focus from whatever is in front.
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     let h = H::new(app.handle().clone(), home.clone());
 
     if args.first().map(String::as_str) == Some("--phase") {
@@ -1588,6 +1744,7 @@ fn main() {
                 "project" => project_agent(&h).await,
                 "delegation" => delegation(&h).await,
                 "stop" => stop(&h).await,
+                "approvals" if on_codex.is_some() => codex_approvals(&h).await,
                 "approvals" => approvals_scenario(&h).await,
                 "cli-failures" => cli_failures(&h).await,
                 "corrupt-store" => corrupt_store(&h).await,
