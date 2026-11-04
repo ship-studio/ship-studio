@@ -127,6 +127,9 @@ struct Runtime {
     cancel: Option<Arc<Notify>>,
     /// Hop count of the turn in progress (0 when the user started it).
     hop: u8,
+    /// The agent whose message started the turn in progress; `None` when the
+    /// user's own message is among what it answers.
+    origin: Option<String>,
     /// What the turn in progress was asked, for the note an interruption leaves.
     prompt: Option<String>,
     /// The user asked to interrupt the turn in progress (see [`interrupt`]).
@@ -149,6 +152,16 @@ pub fn status_of(agent_id: &str) -> Status {
         .get(agent_id)
         .and_then(|r| r.status.clone())
         .unwrap_or_else(Status::idle)
+}
+
+/// Who handed this agent the turn it is running: another agent's id, or
+/// `None` when the user asked (or nothing is running).
+pub fn turn_origin(agent_id: &str) -> Option<String> {
+    RUNTIMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(agent_id)
+        .and_then(|r| r.origin.clone())
 }
 
 pub fn current_hop(agent_id: &str) -> u8 {
@@ -229,7 +242,10 @@ fn save_inbox(agent_id: &str, queue: &VecDeque<Inbound>) {
     let path = home.join("inbox.json");
     if queue.is_empty() {
         let _ = std::fs::remove_file(path);
-    } else if let Ok(json) = serde_json::to_vec(queue) {
+    } else if let Ok(json) = serde_json::to_value(queue).and_then(|mut v| {
+        super::secrets::redact_value(&mut v);
+        serde_json::to_vec(&v)
+    }) {
         if let Err(e) = std::fs::write(&path, json) {
             tracing::warn!("[Agents] couldn't save {agent_id}'s queue: {e}");
         }
@@ -333,7 +349,10 @@ async fn stop_orphan(pid: u32, session: &str) {
     }
 }
 
-pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
+pub fn set_status(app: &AppHandle, agent_id: &str, mut status: Status) {
+    if let Some(activity) = status.activity.as_mut() {
+        *activity = super::secrets::redact(activity).into_owned();
+    }
     {
         let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
         runtimes.entry(agent_id.to_string()).or_default().status = Some(status.clone());
@@ -355,6 +374,24 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
+    record_as(app, message, true)
+}
+
+/// `record` without the OS notification: the same card shown in a second
+/// chat, which was already announced once.
+pub fn record_quietly(
+    app: &AppHandle,
+    message: AgentMessage,
+) -> Result<AgentMessage, CommandError> {
+    record_as(app, message, false)
+}
+
+fn record_as(
+    app: &AppHandle,
+    message: AgentMessage,
+    alert: bool,
+) -> Result<AgentMessage, CommandError> {
+    let message = super::secrets::redact_message(message);
     if let Err(e) = store::append_message(&message) {
         unsaved(app, &message, &e);
         return Err(e);
@@ -390,7 +427,7 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
     let _ = app.emit(EVENT_MESSAGE, &message);
     let _ = app.emit(EVENT_REGISTRY, ());
     if wants_user {
-        if let Ok(agent) = &updated {
+        if let (Ok(agent), true) = (&updated, alert) {
             notify::message_recorded(app, agent, &message, in_turn(&message.agent_id));
         }
         notify::refresh_badge(app);
@@ -476,6 +513,7 @@ fn emit_draft(app: &AppHandle, agent_id: &str, id: &str, text: &str) {
         id: &'a str,
         text: &'a str,
     }
+    let text = &super::secrets::redact(text);
     let _ = app.emit(EVENT_DRAFT, Payload { agent_id, id, text });
 }
 
@@ -688,6 +726,7 @@ async fn drain(app: AppHandle, agent_id: String) {
                 runtime.running = false;
                 runtime.cancel = None;
                 runtime.hop = 0;
+                runtime.origin = None;
                 runtime.prompt = None;
                 drop(runtimes);
                 set_status(&app, &agent_id, Status::idle());
@@ -698,6 +737,14 @@ async fn drain(app: AppHandle, agent_id: String) {
             routine = batch.iter().all(|m| m.routine);
             // The turn inherits the deepest hop it is answering; a user message
             // in the batch resets the chain.
+            runtime.origin = if batch.iter().any(|m| matches!(m.from, From::User)) {
+                None
+            } else {
+                batch.iter().rev().find_map(|m| match &m.from {
+                    From::Agent { sender, .. } => Some(sender.id.clone()),
+                    From::User => None,
+                })
+            };
             runtime.hop = if batch.iter().any(|m| matches!(m.from, From::User)) {
                 0
             } else {
@@ -1264,7 +1311,14 @@ async fn run_turn(
             )));
         }
     }
-    let system_prompt = system_prompt_for(&agent, &home, &layout);
+    // This agent's secrets, as variables of this process only (see `secrets`).
+    let secret_env = super::secrets::env_for(&agent);
+    let mut system_prompt = system_prompt_for(&agent, &home, &layout);
+    let have = super::secrets::prompt_section(&agent, &secret_env);
+    if !have.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&have);
+    }
     let mut cmd = crate::utils::create_command(&binary);
     let model = if routine {
         agent.routine_model()
@@ -1291,6 +1345,7 @@ async fn run_turn(
             "MCP_TOOL_TIMEOUT",
             ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
         )
+        .envs(secret_env)
         .current_dir(&layout.cwd);
 
     let mut cmd = tokio::process::Command::from(cmd);
@@ -1318,6 +1373,8 @@ async fn run_turn(
     // A CLI that dies on startup closes stdin before reading it. Its exit
     // status and stderr say why; a "Broken pipe" here would only hide that.
     if let Some(mut stdin) = child.stdin.take() {
+        // A value pasted into a message reaches the agent as its reference.
+        let prompt = super::secrets::redact(prompt);
         if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
             tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
         }
@@ -1384,7 +1441,19 @@ async fn run_turn(
             line = lines.next_line() => {
                 let Ok(Some(line)) = line else { break };
                 let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-                match value.get("type").and_then(|t| t.as_str()) {
+                let kind = value.get("type").and_then(|t| t.as_str());
+                // A `result` can answer something queued ahead of the user's
+                // message (resumed after a Stop, Claude Code first answers the
+                // killed background task's notification, then the message):
+                // the model still talking means the turn isn't over, and the
+                // row that went idle at that `result` is working again.
+                if saw_result && matches!(kind, Some("stream_event" | "assistant")) {
+                    drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
+                    if status_of(agent_id).state == "idle" {
+                        set_status(app, agent_id, Status { state: "working", activity: None, since: Some(started) });
+                    }
+                }
+                match kind {
                     Some("system") => {
                         timing.mark_boot();
                         if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {

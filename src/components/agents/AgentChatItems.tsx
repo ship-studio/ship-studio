@@ -35,6 +35,7 @@ import { ComposerAttachments, MessageAttachments } from './AgentAttachments';
 import type { DraftAttachment } from './useComposerAttachments';
 import { MentionText } from './AgentMentions';
 import { AgentPeerStatus } from './AgentPeerStatus';
+import { SecretCard } from './AgentSecretCard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
@@ -42,6 +43,7 @@ import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   describeScope,
   errorRemedy,
+  folderName,
   formatClock,
   formatDivider,
   formatExactTime,
@@ -56,6 +58,7 @@ import {
   type AgentMessage,
   type AgentRef,
   type Approval,
+  type SessionPrompt,
 } from '../../lib/agents';
 
 /**
@@ -696,7 +699,14 @@ interface ApprovalCardProps extends Arrival {
   agentName: string;
   /** The agent stopped waiting (its turn ended). Allowing wakes it to finish. */
   paused: boolean;
-  onAnswer: (requestId: string, allow: boolean, always?: boolean, note?: string) => Promise<void>;
+  onAnswer: (
+    requestId: string,
+    allow: boolean,
+    always?: boolean,
+    note?: string,
+    /** On a session's question: the index of the option picked. */
+    choice?: number
+  ) => Promise<void>;
   /**
    * Team's compact form: field values clamp to two lines with "Show all",
    * and the outcome says what happens next.
@@ -746,6 +756,9 @@ function outcomeText(approval: Approval, agentName: string, compact: boolean): R
   if (approval.status === 'denied' && approval.note) {
     return <>Declined · “{approval.note}”</>;
   }
+  if (approval.choice && approval.status !== 'expired') {
+    return `${STATUS_LABEL[approval.status as 'allowed' | 'denied']} · ${approval.choice}`;
+  }
   const label = STATUS_LABEL[approval.status as keyof typeof STATUS_LABEL];
   if (compact && approval.status === 'allowed') return `${label} · ${agentName} is carrying on`;
   return label;
@@ -780,6 +793,24 @@ export const ApprovalCard = memo(function ApprovalCard({
   // a card that loads already answered just shows it.
   const [openedPending] = useState(approval?.status === 'pending');
   if (!approval) return null;
+  if (approval.prompt) {
+    return (
+      <SessionPromptCard
+        message={message}
+        approval={approval}
+        prompt={approval.prompt}
+        agentName={agentName}
+        onAnswer={onAnswer}
+        arrived={arrived}
+        compact={compact}
+      />
+    );
+  }
+  if (approval.secret) {
+    return (
+      <SecretCard message={message} agentName={agentName} onAnswer={onAnswer} arrived={arrived} />
+    );
+  }
   const pending = approval.status === 'pending';
   const fields = approvalFields(approval.tool, approval.input);
   const answer = async (allow: boolean, always = false, why?: string) => {
@@ -916,6 +947,121 @@ export const ApprovalCard = memo(function ApprovalCard({
     </div>
   );
 });
+
+interface SessionPromptCardProps extends Arrival {
+  message: AgentMessage;
+  approval: Approval;
+  prompt: SessionPrompt;
+  agentName: string;
+  onAnswer: ApprovalCardProps['onAnswer'];
+  compact: boolean;
+}
+
+/**
+ * A question a project session is waiting on, with the session's own words
+ * and options. The same card is in every chat the work touched; answering
+ * here sends the option's keys to the session and resolves it everywhere.
+ */
+function SessionPromptCard({
+  message,
+  approval,
+  prompt,
+  agentName,
+  onAnswer,
+  arrived,
+  compact,
+}: SessionPromptCardProps) {
+  const [busy, setBusy] = useState(false);
+  const [openedPending] = useState(approval.status === 'pending');
+  const pending = approval.status === 'pending';
+  const choose = async (allow: boolean, choice?: number) => {
+    setBusy(true);
+    try {
+      await onAnswer(approval.requestId, allow, false, undefined, choice);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const indexed = prompt.options.map((option, index) => ({ option, index }));
+  const allow = indexed.find(({ option }) => option.role === 'allow');
+  const deny = indexed.find(({ option }) => option.role === 'deny');
+  const others = indexed.filter(({ option }) => option.role === 'other');
+  const owner = prompt.owner.name === agentName ? 'Its' : `${prompt.owner.name}’s`;
+  return (
+    <div
+      className="agent-chat__row agent-chat__row--agent agent-chat__row--card"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
+      <div className="agent-approval" data-status={approval.status} data-prompt={prompt.kind}>
+        <div className="agent-approval__title">
+          {pending && <WarningIcon size={14} className="agent-approval__icon" />}
+          {approval.title}
+        </div>
+        <p className="agent-approval__source">
+          {owner} session in {folderName(prompt.project)} · Claude Code {prompt.tab}
+        </p>
+        {/* Folder trust is our explanation, not the session's text: prose. */}
+        {approval.detail &&
+          (prompt.kind === 'trust' ? (
+            <p className="agent-approval__note">{approval.detail}</p>
+          ) : (
+            <pre className="agent-approval__detail">{approval.detail}</pre>
+          ))}
+        {pending ? (
+          <div className="agent-approval__actions" data-wrap={others.length > 0 || undefined}>
+            {others.map(({ option, index }) => (
+              <Button
+                key={index}
+                tabIndex={0}
+                variant="secondary"
+                size={compact ? 'compact' : undefined}
+                className="agent-approval__choice"
+                disabled={busy}
+                onClick={() => void choose(true, index)}
+              >
+                {option.label}
+              </Button>
+            ))}
+            {deny && (
+              <Tooltip content={deny.option.label}>
+                <Button
+                  tabIndex={0}
+                  variant="secondary"
+                  className="agent-approval__deny"
+                  disabled={busy}
+                  onClick={() => void choose(false, deny.index)}
+                >
+                  Deny
+                </Button>
+              </Tooltip>
+            )}
+            {allow && (
+              <Tooltip content={allow.option.label}>
+                <Button
+                  tabIndex={0}
+                  variant="primary"
+                  data-allow
+                  disabled={busy}
+                  onClick={() => void choose(true, allow.index)}
+                >
+                  Allow
+                </Button>
+              </Tooltip>
+            )}
+          </div>
+        ) : (
+          <div
+            className="agent-approval__outcome"
+            data-resolved={(openedPending && !pending) || undefined}
+          >
+            {outcomeText(approval, agentName, false)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface WorkingIndicatorProps {
   activity: string | null;

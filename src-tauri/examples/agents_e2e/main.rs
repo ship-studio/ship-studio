@@ -13,9 +13,9 @@
 //! ```
 //!
 //! Scenarios: memory, restart, lost-session, project, delegation, stop,
-//! approvals, cli-failures, corrupt-store, burst, stop-tree, quit, slots.
-//! `behaviour` (opt-in, not part of the default run) checks how agents behave
-//! rather than whether the plumbing works; see `behaviour.rs`.
+//! approvals, cli-failures, corrupt-store, burst, stop-tree, quit, slots,
+//! session-prompt. `behaviour` (opt-in, not part of the default run) checks
+//! how agents behave rather than whether the plumbing works; see `behaviour.rs`.
 
 // A test driver: a failed unwrap is a failed run, and `pgrep`/re-exec are the point.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
@@ -527,6 +527,7 @@ async fn turn_with_children(h: &H, name: &str, tag: u32) -> Result<store::Agent,
                 true,
                 None,
                 None,
+                None,
             )
             .await;
         }
@@ -895,9 +896,17 @@ async fn approvals_scenario(h: &H) -> Check {
         runner::status_of(&a.id).state == "waiting",
         "row doesn't say waiting",
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
-        .await
-        .map_err(|e| e.to_string())?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
     ensure(
         last_reply(&a.id).contains("42"),
@@ -919,9 +928,17 @@ async fn approvals_scenario(h: &H) -> Check {
         store::get(&a.id).unwrap().pending_approvals == 1,
         "pending count off",
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
-        .await
-        .map_err(|e| e.to_string())?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
     ensure(approvals(&a.id).len() == 2, "the retry asked again")?;
     ensure(
@@ -943,6 +960,7 @@ async fn approvals_scenario(h: &H) -> Check {
         c.request_id,
         true,
         Some(true),
+        None,
         None,
     )
     .await
@@ -982,6 +1000,7 @@ async fn approvals_scenario(h: &H) -> Check {
         false,
         None,
         Some("Don't run it. Reply with just the word: understood".into()),
+        None,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -1108,6 +1127,215 @@ async fn project_agent(h: &H) -> Check {
         store::get(&a.id).unwrap().failure.is_none(),
         "failure not cleared by the next reply",
     )
+}
+
+/// Stand in for the window: spawn the PTY a background session asks for, the
+/// way `lib/backgroundSessions.ts` does, with a real interactive `claude` on
+/// Haiku in default permission mode (so edits ask).
+fn serve_session_starts(h: &H) {
+    let app = h.app.clone();
+    let home = h.home.clone();
+    h.app.listen_any("remote-start-agent", move |e| {
+        let Ok(v) = serde_json::from_str::<Value>(e.payload()) else {
+            return;
+        };
+        let (app, home) = (app.clone(), home.clone());
+        tauri::async_runtime::spawn(async move {
+            let project = v["projectPath"].as_str().unwrap_or("").to_string();
+            let env = [
+                ("HOME", home.to_string_lossy().to_string()),
+                ("PATH", std::env::var("PATH").unwrap_or_default()),
+                ("TERM", "xterm-256color".to_string()),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+            let opened = ship_studio_lib::commands::pty_session::pty_session_open(
+                app,
+                v["sessionId"].as_str().unwrap_or("").to_string(),
+                "claude".into(),
+                vec![
+                    "--model".into(),
+                    "haiku".into(),
+                    // Edits ask, whatever the account's default mode is.
+                    "--permission-mode".into(),
+                    "default".into(),
+                    v["prompt"].as_str().unwrap_or("").to_string(),
+                ],
+                Some(project.clone()),
+                env,
+                120,
+                40,
+                Some(project),
+                Some("claude".into()),
+            )
+            .await;
+            if let Err(e) = opened {
+                println!("      session didn't open: {e}");
+            }
+        });
+    });
+}
+
+fn prompt_cards(id: &str) -> Vec<store::Approval> {
+    approvals(id)
+        .into_iter()
+        .filter(|a| a.prompt.is_some())
+        .collect()
+}
+
+/// The walkthrough bug: Chief → Site Builder → a session in a fresh,
+/// untrusted project stops on the folder-trust dialog. One card in both
+/// chats; Allow in the Chief's records the trust as Claude Code does and
+/// resolves Site Builder's too; the edit happens; a change card follows.
+async fn session_prompt(h: &H) -> Check {
+    use ship_studio_lib::agents::decisions;
+    serve_session_starts(h);
+    let dir = git_project(h, "demo");
+    std::fs::write(
+        dir.join("index.html"),
+        "<html><body><h1>Old heading</h1></body></html>\n",
+    )
+    .unwrap();
+    let config = h.home.join(".claude.json");
+    ensure(
+        !decisions::trusted(&config, &dir),
+        "demo is already trusted before the card",
+    )?;
+    let chief = h.chief();
+    let site = h.agent(
+        "Site Builder",
+        "Builds and edits the user's sites",
+        "Work on projects only through their sessions (session_message). Answer in as few words as possible.",
+    );
+    // The Chief delegates, exactly as message_agent would.
+    runner::enqueue(
+        &h.app,
+        &site.id,
+        "In the Ship Studio project \"demo\", change the <h1> text in index.html to exactly: Hello there. Use session_message with that project; don't edit the file yourself.".into(),
+        runner::From::Agent {
+            sender: store::AgentRef {
+                id: chief.id.clone(),
+                name: chief.name.clone(),
+            },
+            hop: 1,
+        },
+    );
+    h.until("the trust card", Duration::from_secs(180), || {
+        !prompt_cards(&site.id).is_empty()
+    })
+    .await?;
+    let card = prompt_cards(&site.id).remove(0);
+    let prompt = card.prompt.clone().unwrap();
+    ensure(
+        prompt.kind == decisions::PromptKind::Trust
+            && card.title == "Let Claude Code work in demo?",
+        format!("first card: {:?} {:?}", prompt.kind, card.title),
+    )?;
+    ensure(
+        prompt.chats == vec![site.id.clone(), chief.id.clone()],
+        format!("card is in {:?}", prompt.chats),
+    )?;
+    let in_chief = prompt_cards(&chief.id);
+    ensure(
+        in_chief.len() == 1 && in_chief[0].request_id == card.request_id,
+        "no matching card in the Chief's chat",
+    )?;
+    ensure(
+        store::get(&chief.id).unwrap().pending_approvals == 1,
+        "the Chief's row doesn't need your OK",
+    )?;
+    ensure(
+        !decisions::trusted(&config, &dir),
+        "trusted before anyone answered",
+    )?;
+    // Answered where the user is: the Chief's chat.
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        chief.id.clone(),
+        card.request_id.clone(),
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| format!("answer in the Chief's chat: {e}"))?;
+    ensure(decisions::trusted(&config, &dir), "trust not recorded")?;
+    let mirrored = store::find_approval(&site.id, &card.request_id)
+        .unwrap()
+        .unwrap();
+    ensure(
+        mirrored.status == store::ApprovalStatus::Allowed
+            && mirrored.choice.as_deref() == Some("Yes, I trust this folder"),
+        format!(
+            "Site Builder's copy: {:?} {:?}",
+            mirrored.status, mirrored.choice
+        ),
+    )?;
+    // Any further question (the edit's permission prompt) is allowed in
+    // Site Builder's chat, until the file changes.
+    let start = Instant::now();
+    let mut allowed = vec![card.request_id.clone()];
+    loop {
+        let html = std::fs::read_to_string(dir.join("index.html")).unwrap_or_default();
+        if html.contains("Hello there") {
+            break;
+        }
+        for c in prompt_cards(&site.id)
+            .into_iter()
+            .filter(|c| c.status == store::ApprovalStatus::Pending)
+        {
+            if !allowed.contains(&c.request_id) {
+                println!("      allowing: {}", c.title);
+                allowed.push(c.request_id.clone());
+                let _ = cmd::agents_answer_approval(
+                    h.app.clone(),
+                    site.id.clone(),
+                    c.request_id,
+                    true,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+            }
+        }
+        if start.elapsed() > Duration::from_secs(240) {
+            return Err(format!("the edit never happened: {html:?}"));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    h.idle(
+        &[&site.id],
+        Duration::from_secs(2),
+        Duration::from_secs(240),
+    )
+    .await?;
+    let changes = of_kind(&site.id, MessageKind::Changes);
+    let summary = changes
+        .last()
+        .and_then(|c| c.changes.clone())
+        .ok_or("no change card in Site Builder's chat")?;
+    ensure(
+        summary.files.iter().any(|f| f.path == "index.html"),
+        format!(
+            "change card lists {:?}",
+            summary.files.iter().map(|f| &f.path).collect::<Vec<_>>()
+        ),
+    )?;
+    ensure(
+        store::get(&chief.id).unwrap().pending_approvals == 0
+            && store::get(&site.id).unwrap().pending_approvals == 0,
+        "cards still pending",
+    )?;
+    let _ = ship_studio_lib::commands::pty_session::kill_all_sessions_sync();
+    ensure(
+        allowed.len() >= 2,
+        "the edit's permission prompt never became a card",
+    )?;
+    println!("      {} card(s) answered", allowed.len());
+    Ok(())
 }
 
 /// (8) Malformed output, a crash, a bare error code: a clean error, nothing stuck.
@@ -1313,7 +1541,7 @@ async fn burst(h: &H) -> Check {
 
 /* --------------------------------------------------------------------- main */
 
-const ALL: [&str; 13] = [
+const ALL: [&str; 14] = [
     "memory",
     "restart",
     "lost-session",
@@ -1327,6 +1555,7 @@ const ALL: [&str; 13] = [
     "stop-tree",
     "quit",
     "slots",
+    "session-prompt",
 ];
 
 /// Claude Code reads its sign-in from the login keychain under HOME and the
@@ -1432,6 +1661,7 @@ fn main() {
                 "stop-tree" => stop_tree(&h).await,
                 "quit" => quit(&h).await,
                 "slots" => slots(&h).await,
+                "session-prompt" => session_prompt(&h).await,
                 "behaviour" => behaviour::suite(&h).await,
                 other => Err(format!("unknown scenario {other}")),
             };

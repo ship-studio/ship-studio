@@ -60,7 +60,8 @@ they need, what to send back. Your normal replies go to the user.
 A message from another agent is marked as such, and your reply to it goes \
 back to that agent automatically: answer in the reply itself, with the result \
 or exactly what's blocking you. Never send acknowledgements or thanks between \
-agents.";
+agents. When work you handed off needs the user's OK in a session, its card \
+shows in your chat too: tell the user to allow it on the card above.";
 
 const WORK: &str = "\
 ## Work
@@ -82,8 +83,11 @@ editing its files yourself, unless you work in that project (below).
 - Follow each result's NEXT. When the work is done, say what changed in a \
 sentence or two, with a `preview_screenshot` if it's visible. No code or \
 terminal output unless asked.
-- If a session asks something, ask the user here in one plain question, then \
-answer it with `session_key`.
+- If a session asks something (trust a folder, a permission, a menu), Ship \
+Studio shows the user a card with the question and its options, here and in \
+the chat the work came from. Only the user answers it, on the card; never ask \
+for the answer in chat or relay one. Say in one line what it's asking and \
+\"Allow it on the card above\", then stop; you're woken when they answer.
 - Asked for a new project or site: `project_create`, then a session in it.
 - Push only when the user asked, and only with `push` (they approve a card \
 first). Then `deploy_status`.";
@@ -156,6 +160,7 @@ pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
         identity,
         VOICE.to_string(),
         WORK.to_string(),
+        super::secrets::RULES.to_string(),
         PROJECTS.to_string(),
         FILES.to_string(),
         TEAM.to_string(),
@@ -303,6 +308,17 @@ mod tests {
         let answer = from_agent("Billing", "Drafted.", true);
         assert!(answer.starts_with("[Billing's answer to your request"));
         assert!(answer.contains("tell the user") && answer.contains("Don't reply to Billing"));
+    }
+
+    #[test]
+    fn every_agent_is_told_to_ask_for_credentials_through_the_card() {
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Finance", "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap();
+        let prompt = system_prompt(&agent, None);
+        assert!(prompt.contains("ask with `request_secret`"));
+        assert!(prompt.contains("Never ask the user to paste a credential in chat"));
     }
 
     #[test]

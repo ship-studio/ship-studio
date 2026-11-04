@@ -21,7 +21,7 @@
 //!
 //! Full design: `docs/remote-access.md`.
 
-mod agent_state;
+pub(crate) mod agent_state;
 mod deploy;
 pub mod power;
 pub mod screen;
@@ -255,7 +255,8 @@ pub(crate) fn audit_as(
         at_ms: now_ms(),
         tool: tool.to_string(),
         project: project.map(str::to_string),
-        detail,
+        // An agent's secret is never written down, here either.
+        detail: crate::agents::secrets::redact(&detail).into_owned(),
         ok,
         actor: actor.map(str::to_string),
     };

@@ -137,6 +137,7 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
 | `project_*`, `session_*`, `preview_screenshot`, `git_status`, `push`, `deploy_status` | all | working on projects, below |
 | `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
+| `request_secret` | all | a secure input card for a password, key, token or login; the agent gets `$VAR` and a reference, never the value (below) |
 | `create_agent` | Chief | name, role, instructions, optional `project` and `first_task` |
 | `update_agent` | Chief | name / role / instructions / project (memory kept) |
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
@@ -218,6 +219,34 @@ be confused with agent-to-agent `message_agent`:
   no "Always allow" is offered and no rule can skip it. Allow pushes exactly
   the tree the card described (`frozen_tree` / `push_frozen`); a change in
   between pushes nothing. An unanswered card expires after 240s.
+- **Questions a session asks** (`agents/decisions.rs`): when a session stops
+  on something it can't answer itself (Claude Code's folder-trust dialog, a
+  permission prompt in the tab, any menu or y/n `agent_state.rs` recognises),
+  Ship Studio raises a card with the prompt's own text and options, and the
+  agent's tool call waits on it like `approve` (240s; then the card stays live
+  and an answer wakes the agent with "call session_wait"). The card goes in
+  the owner's chat **and** where the work came from: up the delegation chain
+  (`runner::turn_origin`) to the agent the user asked, plus the chat a window
+  is showing. One request id in every chat; answering in any resolves all
+  (`decisions::resolve_all`), the others turning into the quiet "Allowed ·
+  Yes, I trust this folder" line. It is announced once (`record_quietly` for
+  the copies) and counts as "Needs your OK" in each row, ⌘J and the badge.
+  Allow / Deny (or the session's other options) send that option's keys
+  (its number; for the trust dialog's unnumbered menu, arrows then Enter),
+  after checking the session is still asking the same thing. Agents can't
+  answer: `session_key` refuses while a question is up, and the prompts tell
+  them to say "Allow it on the card above". A message refused because the
+  session was asking is sent once the card is answered.
+- **Folder trust:** one card per project ("Let Claude Code work in
+  demo-site?"). Allow writes `projects["<real path>"].hasTrustDialogAccepted
+  = true` into `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`), keeping
+  everything else, then answers the dialog in every session of that project
+  showing it. Observed with Claude Code 2.1.318 in a throwaway HOME: that is
+  exactly what accepting the dialog writes, keyed by the canonical path, and
+  an entry with only that key (on the folder or a parent) skips the dialog.
+  Nothing is trusted without the card.
+- **Change cards:** a message that changed the project leaves a `changes`
+  card ("Changed 1 file in demo-site", View diff), once per message.
 - **Audit:** the remote's `remote_audit.jsonl`, same rules (reads skipped,
   previews only), with `actor` set to the agent's name. The Remote access
   modal's activity list leaves those out.
@@ -295,6 +324,47 @@ Adding a rule also answers every other open card from the same agent that it
 covers (`mcp::covered_by`), through the same path as Allow: a live waiter is
 woken, and a card nobody waits on any more gets a late Allow that wakes the
 agent.
+
+## Secrets (`src-tauri/src/agents/secrets.rs`)
+
+`request_secret {name, purpose, kind, fields?}` puts a secure input card in
+the agent's chat: what it wants, why, a masked field per part, Save / Deny.
+It's an approval card (`Approval.secret`), so it counts as "Needs your OK",
+notifies, and shows in What's in flight; nothing waits on it, so it survives
+restarts and can be answered whenever. Save (`agents_save_secret`) sends the
+value from the webview to the macOS Keychain, service
+`ship-studio-agent-<agent id>`, one item per variable, and wakes the agent
+with the variable's name and the reference (`secret:finance/stripe_key`).
+Deny wakes it with a plain refusal (or the user's note). The registry keeps
+names, purpose, reference, created and last-used only.
+
+**Use: environment variables.** Each turn is a fresh `claude` process, so
+that agent's turns (and no other's) start with its secrets as variables
+(`$STRIPE_KEY`; a login's fields as `$BANK_USERNAME`, `$BANK_PASSWORD`), and
+the turn's prompt lists which it has. Chosen over a `use_secret`
+substitution tool because it needs no command runner of our own, works for
+scripts and SDKs that read the environment, and an approval card shows the
+command with `$STRIPE_KEY` unexpanded. Variables that change the shell,
+Claude Code, the linker or git (`PATH`, `CLAUDE*`, `DYLD_*`, `GIT_*`…) are
+refused as names. "Last used" is the last turn started with it; whether the
+agent read it isn't known.
+
+**Redaction** (defence in depth): every known value (loaded at launch, and on
+save or injection; 6+ characters) becomes `[secret:…]` in every line the
+store appends (chat log, card answers), the queue, recorded and emitted
+messages (a session's question card included: its question, options and
+the answer picked, in every chat that holds it), drafts, the activity line,
+the prompt piped to the next turn, and the remote/agents audit log. Not covered: a turn that prints the variable
+sends it to Claude as tool output and into Claude Code's own transcript; the
+prompt forbids printing one.
+
+Every agent is told to ask with `request_secret` and never to ask for a
+credential in chat. If the composer holds something key-shaped (Stripe,
+GitHub, OpenAI, Anthropic, AWS, Slack, Google, JWT, `password=…`), a quiet
+line offers "Store it securely" (`agents_add_secret`), which replaces it in
+the draft with its variable; it never blocks sending. Edit agent → Secrets
+lists them with Revoke, which deletes the Keychain items; deleting an agent
+deletes its items too. macOS only, like workspace credentials.
 
 ## Steering a working agent
 
@@ -722,7 +792,10 @@ prunes them the diff says it can't be shown.
   two agents at once + the hop cap, Stop and interrupt, approvals (Allow,
   late Allow after a shortened wait, Always allow), a fake CLI (startup
   error, garbage output, crash, bare error code), damaged store files, 20
-  rapid messages, Stop ending a turn's whole process tree (a background
+  rapid messages, a session's questions (`session-prompt`: Chief → Site
+  Builder → a fresh untrusted project; the trust card in both chats, Allowed
+  in the Chief's; trust recorded; the edit's permission card; the edit; a
+  change card), Stop ending a turn's whole process tree (a background
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
@@ -741,5 +814,5 @@ prunes them the diff says it can't be shown.
   time goes (`agents::timing`: our prep, CLI start-up, tail after the
   result). `AGENTS_E2E_RUNS`, `AGENTS_E2E_JOBS`, `AGENTS_E2E_ONLY`,
   `AGENTS_E2E_OUT=<file.json>`.
-- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
+- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
   agent, import, Claude Code missing.

@@ -886,6 +886,83 @@ const QUEUED_CHAT = [
 const acmeWith = (over: Record<string, unknown>) =>
   overview(TEAM.map((a) => (a.id === 'acme' ? { ...a, ...over } : a)));
 
+const financeWith = (over: Record<string, unknown>) =>
+  overview(TEAM.map((a) => (a.id === 'finance' ? { ...a, ...over } : a)));
+
+const STRIPE_REQUEST = {
+  name: 'stripe_key',
+  purpose: 'Read last month’s payouts from Stripe to reconcile against the bank export.',
+  kind: 'api_key',
+  fields: [{ label: 'API key', env: 'STRIPE_KEY' }],
+  reference: 'secret:finance/stripe_key',
+};
+
+/** Finance asks for a Stripe key through a secure card, in the state given. */
+const secretChat = (state: 'pending' | 'allowed' | 'denied') => [
+  msg('user', 'Reconcile October’s Stripe payouts against the bank export.', 6, {
+    agentId: 'finance',
+  }),
+  msg('approval', '', 5, {
+    agentId: 'finance',
+    approval: {
+      requestId: 'sec-1',
+      title: 'Secure input · stripe_key',
+      detail: STRIPE_REQUEST.purpose,
+      status: state,
+      secret: STRIPE_REQUEST,
+    },
+  }),
+  msg(
+    'agent',
+    'I need a read-only Stripe key to pull the payouts. Pop it in the card above; I never see the key itself.',
+    5,
+    { agentId: 'finance' }
+  ),
+  ...(state === 'allowed'
+    ? [
+        msg(
+          'agent',
+          'October reconciles: 31 payouts, $18,420 in total, all matched to the bank export.',
+          1,
+          { agentId: 'finance' }
+        ),
+      ]
+    : state === 'denied'
+      ? [
+          msg(
+            'agent',
+            'No problem. Export October’s payouts as CSV from the Stripe dashboard and drop it here, and I’ll reconcile from that.',
+            1,
+            { agentId: 'finance' }
+          ),
+        ]
+      : []),
+];
+
+const secretScenario = (state: 'pending' | 'allowed' | 'denied', looksRightWhen: string) => ({
+  id: `agents-secret-${state === 'pending' ? 'card' : state === 'allowed' ? 'saved' : 'denied'}`,
+  title: `Agents — secure input card (${state})`,
+  looksRightWhen,
+  requires: '.agent-secret',
+  openSelector: AGENTS_TAB,
+  steps: [{ click: '[data-agent-id="finance"]' }],
+  commands: {
+    agents_overview: financeWith(
+      state === 'pending'
+        ? {
+            pendingApprovals: 1,
+            status: status('idle'),
+            preview: 'Needs your OK: Secure input · stripe_key',
+          }
+        : {}
+    ),
+    agents_messages: (args: Record<string, unknown>) =>
+      args.agentId === 'finance' ? secretChat(state) : messagesFor(args),
+    agents_save_secret: null,
+    agents_answer_approval: null,
+  },
+});
+
 /** The Agents half of the sidebar's Projects | Agents toggle. */
 export const AGENTS_TAB = '.mode-toggle [data-tab-value="agents"]';
 
@@ -1556,6 +1633,7 @@ export const agentsScenarios: Scenario[] = [
     // Steps run before a palette command, so walk in through the sidebar.
     openSelector: AGENTS_TAB,
     requires: '.agent-composer__notice',
+    clipSelector: '.agent-chat__footer',
     steps: [{ click: '.agent-composer__mic' }],
     commands: {
       agents_overview: overview(),
@@ -1757,5 +1835,80 @@ export const agentsScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     requires: '.compact-topbar',
     commands: { ...workspaceCommands, agents_overview: overview() },
+  },
+  secretScenario(
+    'pending',
+    'Finance’s chat: a card with a lock, “Finance asks for stripe_key” (stripe_key in mono), the purpose under it, one masked “API key” field, a muted line saying it’s kept in the Keychain for Finance only and Finance gets $STRIPE_KEY, then Deny and a disabled Save on the right.'
+  ),
+  secretScenario(
+    'allowed',
+    'The same card resolved: no field or buttons, a green “Saved to your Keychain · Finance uses $STRIPE_KEY”, then Finance’s reconciliation reply.'
+  ),
+  secretScenario(
+    'denied',
+    'The same card resolved: a muted “Declined · Finance was told”, then Finance offering the CSV route instead.'
+  ),
+  {
+    id: 'agents-secrets-editor',
+    title: 'Agents — the Secrets list in Edit agent',
+    looksRightWhen:
+      'Editing Finance, below Permissions: a Secrets group listing stripe_key ($STRIPE_KEY) and bank ($BANK_USERNAME, $BANK_PASSWORD), each with its purpose, when it was added and when a turn last had it (or “not used yet”), hairline-separated, each with a quiet Revoke on the right.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-secrets__row',
+    clipSelector: '.agent-editor [role="group"][aria-label="Secrets"]',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+    ],
+    commands: {
+      agents_overview: financeWith({
+        secrets: [
+          {
+            id: 's1',
+            ...STRIPE_REQUEST,
+            purpose: 'Read payouts to reconcile against the bank export',
+            createdAt: now - 3 * 24 * 60 * MIN,
+            lastUsedAt: now - 2 * 60 * MIN,
+          },
+          {
+            id: 's2',
+            name: 'bank',
+            purpose: 'Download monthly statements',
+            kind: 'password',
+            fields: [
+              { label: 'Username', env: 'BANK_USERNAME' },
+              { label: 'Password', env: 'BANK_PASSWORD' },
+            ],
+            reference: 'secret:finance/bank',
+            createdAt: now - 20 * MIN,
+          },
+        ],
+      }),
+      agents_messages: messagesFor,
+      agents_instructions: 'Invoices, expenses and the books.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_revoke_secret: null,
+    },
+  },
+  {
+    id: 'agents-secret-paste-hint',
+    title: 'Agents — a key pasted in the composer',
+    looksRightWhen:
+      'Above Finance’s composer, a quiet line: “That looks like a Stripe key. Keep it out of the chat?” with “Store it securely” and “Dismiss”. The composer holds the message with the key; nothing is blocked.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-composer__notice',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      {
+        fill: '.agent-composer__input',
+        value: 'Here is the Stripe key: sk_live_51HxAbCdEfGhIjKlMnOpQr',
+      },
+    ],
+    commands: {
+      agents_overview: financeWith({}),
+      agents_messages: messagesFor,
+      agents_add_secret: null,
+    },
   },
 ];

@@ -23,6 +23,7 @@ import { AgentMark, AgentSwitcher } from './AgentSwitcher';
 import { useHeightReveal } from './useAgentMotion';
 import {
   answerApproval,
+  promptAnswer,
   createCheckIn,
   failedTurn,
   failureLine,
@@ -201,7 +202,8 @@ export function AgentsTeamView({
     message: AgentMessage,
     allow: boolean,
     always?: boolean,
-    note?: string
+    note?: string,
+    choice?: number
   ) => {
     const approval = message.approval;
     if (!approval) return;
@@ -209,7 +211,7 @@ export function AgentsTeamView({
       `[data-message-ids~="${CSS.escape(message.id)}"]`
     );
     try {
-      await answerApproval(agent.id, approval.requestId, allow, always, note);
+      await answerApproval(agent.id, approval.requestId, allow, always, note, choice);
     } catch (error) {
       toastError(error);
       return;
@@ -221,6 +223,7 @@ export function AgentsTeamView({
         status: allow ? 'allowed' : 'denied',
         alwaysAllowed: always && allow ? true : approval.alwaysAllowed,
         note: allow ? undefined : note?.trim() || undefined,
+        ...(approval.prompt && promptAnswer(approval.prompt, allow, choice)),
       },
     };
     setHeld((h) => ({
@@ -362,8 +365,8 @@ export function AgentsTeamView({
                           agentName={agent.name}
                           paused={agent.status.state === 'idle'}
                           compact
-                          onAnswer={(_requestId, allow, always, note) =>
-                            answer(agent, m, allow, always, note)
+                          onAnswer={(_requestId, allow, always, note, choice) =>
+                            answer(agent, m, allow, always, note, choice)
                           }
                           arrived={false}
                         />

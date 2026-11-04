@@ -6,6 +6,7 @@
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import type { FileDiff } from './git';
+import type { AgentSecret, SecretRequest } from './agentSecrets';
 
 /** Avatar colour keys. The CSS maps each to a feature token. */
 export const AGENT_COLORS = [
@@ -68,6 +69,8 @@ export interface Agent {
   project?: string;
   /** What its last turn could use; omitted before its first turn. */
   capabilities?: Capabilities;
+  /** Secrets it has in the Keychain (names only); omitted when none. */
+  secrets?: AgentSecret[];
 }
 
 /** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
@@ -214,6 +217,53 @@ export interface Approval {
   alwaysAllowed?: boolean;
   /** What you told the agent when you declined. */
   note?: string;
+  /** A secure input card: what the agent asked for. */
+  secret?: SecretRequest;
+  /** A question a project session is waiting on, answered with keys sent to it. */
+  prompt?: SessionPrompt;
+  /** The option picked on a `prompt` card. */
+  choice?: string;
+}
+
+/**
+ * What answering a session's question means, as the backend decides it: the
+ * option picked, else the card's Allow or Deny option. Lets a card resolve in
+ * place before the registry catches up.
+ */
+export function promptAnswer(
+  prompt: SessionPrompt,
+  allow: boolean,
+  choice?: number
+): { status: 'allowed' | 'denied'; choice: string } {
+  const picked =
+    choice !== undefined && prompt.options[choice]
+      ? prompt.options[choice]
+      : prompt.options.find((o) => o.role === (allow ? 'allow' : 'deny'));
+  if (!picked) return { status: 'denied', choice: 'Cancelled' };
+  return { status: picked.role === 'deny' ? 'denied' : 'allowed', choice: picked.label };
+}
+
+/** One answer a session's question offers, as the session shows it. */
+export interface PromptOption {
+  label: string;
+  keys: string[];
+  role: 'allow' | 'deny' | 'other';
+}
+
+/**
+ * A question a project session can't answer itself (folder trust, a
+ * permission prompt, a menu). The same card sits in every chat in `chats`;
+ * answering it in one answers it in all.
+ */
+export interface SessionPrompt {
+  kind: 'trust' | 'permission' | 'choice';
+  project: string;
+  sessionId: string;
+  tab: number;
+  question: string;
+  options: PromptOption[];
+  owner: AgentRef;
+  chats: string[];
 }
 
 export interface AgentMessage {
@@ -512,7 +562,9 @@ export const answerApproval = (
   requestId: string,
   allow: boolean,
   always = false,
-  note?: string
+  note?: string,
+  /** On a session's question: the option picked (an index into its options). */
+  choice?: number
 ) =>
   invoke<void>('agents_answer_approval', {
     agentId,
@@ -520,6 +572,7 @@ export const answerApproval = (
     allow,
     always: always || undefined,
     note: note?.trim() || undefined,
+    choice,
   });
 /** Stop the turn in progress so what's queued sends now. */
 export const interruptAgent = (agentId: string) => invoke<boolean>('agents_interrupt', { agentId });

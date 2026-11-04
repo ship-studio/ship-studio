@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { agentInitials, distinctInitials } from '../components/agents/AgentAvatar';
 import {
+  promptAnswer,
+  type SessionPrompt,
   buildChatItems,
   describeScope,
   errorRemedy,
@@ -559,5 +561,31 @@ describe('scheduleWhenPhrase', () => {
     expect(at({ kind: 'every', minutes: 45 })).toBe('every 45 minutes');
     const once = new Date(2026, 10, 20, 9, 5).getTime();
     expect(scheduleWhenPhrase({ nextAt: once })).toBe('2026-11-20 09:05');
+  });
+});
+
+describe('promptAnswer', () => {
+  const prompt: SessionPrompt = {
+    kind: 'permission',
+    project: '/p/demo-site',
+    sessionId: 's1',
+    tab: 1,
+    question: 'Do you want to make this edit to index.html?',
+    options: [
+      { label: 'Yes', keys: ['1'], role: 'allow' },
+      { label: 'Yes, allow all edits during this session', keys: ['2'], role: 'other' },
+      { label: 'No', keys: ['3'], role: 'deny' },
+    ],
+    owner: { id: 'site', name: 'Site Builder' },
+    chats: ['site', 'chief'],
+  };
+  it('resolves Allow, Deny and a specific choice the way the backend does', () => {
+    expect(promptAnswer(prompt, true)).toEqual({ status: 'allowed', choice: 'Yes' });
+    expect(promptAnswer(prompt, false)).toEqual({ status: 'denied', choice: 'No' });
+    expect(promptAnswer(prompt, true, 1).choice).toBe('Yes, allow all edits during this session');
+    expect(promptAnswer({ ...prompt, options: [] }, false)).toEqual({
+      status: 'denied',
+      choice: 'Cancelled',
+    });
   });
 });

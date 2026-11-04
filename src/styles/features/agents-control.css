@@ -163,3 +163,71 @@
 .agent-chat__row[tabindex='-1']:focus {
   outline: none;
 }
+
+/* ------------------------------------------------- secure input (secrets) */
+
+.agent-secret__icon {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.agent-secret__name,
+.agent-secrets__name code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-body);
+}
+
+.agent-secret__purpose {
+  margin: 0;
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.agent-secret__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agent-secret__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.agent-secret__label {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-muted);
+}
+
+.agent-secrets__row {
+  align-items: flex-start;
+}
+
+.agent-secrets__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.agent-secrets__name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.agent-secrets__vars,
+.agent-secrets__meta {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.agent-secrets__vars {
+  font-family: var(--font-mono);
+}
