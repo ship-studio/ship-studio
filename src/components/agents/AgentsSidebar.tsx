@@ -23,6 +23,7 @@ import { Button } from '../primitives/Button';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
+import { ImportNudge } from './ImportNudge';
 import { AgentMark } from './AgentSwitcher';
 import { useFlipReorder } from './useAgentMotion';
 import {
@@ -218,6 +219,7 @@ export function AgentsSidebar({
             </button>
           )}
           {showHidden && hidden.map(row)}
+          <ImportNudge agentCount={agents.length} onImport={onImport} />
           <div className="workspace-sidebar-active-actions">
             <Button
               variant="ghost"
