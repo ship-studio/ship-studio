@@ -46,8 +46,13 @@ interface AgentsSidebarProps {
   onDelete: (agent: Agent) => void;
 }
 
+/** Waiting on you: either mid-turn on a card, or paused with one still open. */
+export function needsYou(agent: Agent): boolean {
+  return agent.status.state === 'waiting' || (agent.pendingApprovals ?? 0) > 0;
+}
+
 function rowSubtitle(agent: Agent): string {
-  if (agent.status.state === 'waiting') return 'Needs your OK';
+  if (needsYou(agent)) return 'Needs your OK';
   if (agent.status.state === 'working') return agent.status.activity ?? 'Working…';
   return agent.preview ?? agent.role ?? '';
 }
@@ -153,11 +158,14 @@ export function AgentsSidebar({
                     {agent.name}
                     {agent.pinned && <PinIcon size={10} className="agents-row__pin" />}
                   </span>
-                  <span className="agents-row__preview" data-state={agent.status.state}>
+                  <span
+                    className="agents-row__preview"
+                    data-state={needsYou(agent) ? 'waiting' : agent.status.state}
+                  >
                     {rowSubtitle(agent)}
                   </span>
                 </span>
-                {agent.status.state === 'waiting' ? (
+                {needsYou(agent) ? (
                   <span
                     className="agents-row__badge agents-row__badge--waiting"
                     aria-label="Waiting for you"

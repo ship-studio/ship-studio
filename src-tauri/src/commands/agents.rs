@@ -228,17 +228,22 @@ pub async fn agents_answer_approval(
     } else {
         store::ApprovalStatus::Denied
     };
+    let approval = store::find_approval(&agent_id, &request_id)?
+        .ok_or_else(|| CommandError::expected("That request no longer exists."))?;
+    if approval.status != store::ApprovalStatus::Pending {
+        return Err(CommandError::expected("That request was already answered."));
+    }
     // Write the decision before waking the waiter, so the card can't be
-    // overwritten as "expired" by the waiter's own cleanup.
+    // overwritten by the waiter's own cleanup.
     let updated = store::set_approval_status(&agent_id, &request_id, status)?;
-    let delivered = mcp::answer_approval(&request_id, allow);
     if let Some(message) = updated {
         let _ = app.emit(runner::EVENT_MESSAGE, &message);
     }
-    if !delivered {
-        return Err(CommandError::expected(
-            "That request isn't waiting any more. The agent stopped, or it timed out.",
-        ));
+    emit_registry(&app);
+    if !mcp::answer_approval(&request_id, allow) {
+        // Nobody is waiting on it (the agent paused, or the app restarted):
+        // a late Allow grants that exact call and wakes the agent.
+        mcp::answer_late(&app, &agent_id, &approval, allow)?;
     }
     Ok(())
 }

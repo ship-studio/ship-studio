@@ -59,6 +59,10 @@ pub struct Agent {
     pub preview: Option<String>,
     #[serde(default)]
     pub unread: u32,
+    /// Approval cards still waiting on the user. Kept here so the sidebar can
+    /// say "Needs your OK" without reading every chat log.
+    #[serde(default)]
+    pub pending_approvals: u32,
     /// Explicit model override (`--model`); `None` uses Claude Code's default.
     #[serde(default)]
     pub model: Option<String>,
@@ -107,6 +111,15 @@ pub struct Approval {
     /// The exact thing it will do (the command, the file, the URL).
     pub detail: String,
     pub status: ApprovalStatus,
+    /// The Claude Code tool and input this card is about. Present for
+    /// permission prompts, which stay answerable after the agent stopped
+    /// waiting (Claude Code abandons a prompt at 300s): a late Allow grants
+    /// exactly this call and wakes the agent. Absent for Ship Studio's own
+    /// confirmations (delete an agent), which only mean something while asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -325,6 +338,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         last_activity_at: now,
         preview: None,
         unread: 0,
+        pending_approvals: 0,
         model: None,
     };
     let home = agents_root()?.join(&agent.id);
@@ -476,7 +490,39 @@ pub fn set_approval_status(
         }
         write_atomic(&log_path(agent_id)?, out.as_bytes())?;
     }
+    let pending = count_pending(&all);
+    drop(_guard);
+    let _ = update(agent_id, |a| a.pending_approvals = pending);
     Ok(changed)
+}
+
+fn count_pending(log: &[AgentMessage]) -> u32 {
+    log.iter()
+        .filter(|m| {
+            m.approval
+                .as_ref()
+                .is_some_and(|a| a.status == ApprovalStatus::Pending)
+        })
+        .count() as u32
+}
+
+/// Recount an agent's pending cards (after one is added).
+pub fn refresh_pending(agent_id: &str) {
+    let pending = {
+        let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        read_log(agent_id)
+            .map(|log| count_pending(&log))
+            .unwrap_or(0)
+    };
+    let _ = update(agent_id, |a| a.pending_approvals = pending);
+}
+
+pub fn find_approval(agent_id: &str, request_id: &str) -> Result<Option<Approval>, CommandError> {
+    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(read_log(agent_id)?
+        .into_iter()
+        .filter_map(|m| m.approval)
+        .find(|a| a.request_id == request_id))
 }
 
 /// On startup nothing is waiting on an approval any more: the process that
@@ -490,7 +536,10 @@ pub fn expire_stale_approvals() {
         };
         for m in log {
             if let Some(a) = m.approval {
-                if a.status == ApprovalStatus::Pending {
+                // Permission cards stay answerable across restarts (a late
+                // Allow re-wakes the agent); only Ship Studio's own
+                // confirmations lose their meaning when the asker is gone.
+                if a.status == ApprovalStatus::Pending && a.tool.is_none() {
                     let _ = set_approval_status(&agent.id, &a.request_id, ApprovalStatus::Expired);
                 }
             }
@@ -593,6 +642,8 @@ mod tests {
                     title: "Run a command".into(),
                     detail: "ls".into(),
                     status: ApprovalStatus::Pending,
+                    tool: None,
+                    input: None,
                 }),
             };
             append_message(&pending("r1")).unwrap();

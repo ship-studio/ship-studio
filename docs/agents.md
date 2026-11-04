@@ -92,12 +92,25 @@ chat showing the exact command, file, URL or tool input, and waits for
 Verified against Claude Code 2.1.318: the tool receives
 `{tool_name, input, tool_use_id}` and must answer
 `{"behavior":"allow","updatedInput":…}` or `{"behavior":"deny","message":…}`.
-**Claude Code times an MCP call out at about 60s by default**, and a timed-out
-approval came back to the agent as "Bash is hanging". Turns therefore set
-`MCP_TOOL_TIMEOUT` just past our own 30-minute approval timeout; a 100s wait
-was verified to go through. After 30 minutes the card shows "Not answered in
-time" and the agent is told no. Cards still pending when the app quits are
-marked expired on the next launch.
+
+Two timeouts shape the design, both observed:
+
+- **~60s**: Claude Code's default MCP call timeout. A timed-out approval came
+  back to the agent as "Bash is hanging". Turns set `MCP_TOOL_TIMEOUT` well
+  past our wait.
+- **300s**: Claude Code abandons a *permission prompt* at five minutes
+  regardless of `MCP_TOOL_TIMEOUT` (two unanswered cards were both given up at
+  exactly 300s, while their buttons still looked live).
+
+So approvals are asynchronous. `approve` waits 240s. If you haven't answered,
+it tells the agent "the user may be away: stop, say what you need, you'll be
+woken if they allow it", and **the card stays live**. A late **Allow** grants
+that exact tool call once (same tool, same input) and queues a turn telling the
+agent to carry on; its retry goes through without a second card. A late
+**Deny** just records the answer. Live cards survive restarts, because the
+tool and input are stored on the card. Ship Studio's own confirmations (delete
+an agent) do expire, since they only mean something while asked. The sidebar
+shows "Needs your OK" while any card is open (`pendingApprovals`).
 
 ## Import from Grok Bot (or any connected assistant)
 

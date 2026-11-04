@@ -34,6 +34,7 @@ const agent = (
     lastActivityAt: now - minutesAgo * MIN,
     preview: null,
     unread: 0,
+    pendingApprovals: 0,
     model: null,
     status: status('idle'),
     ...rest,

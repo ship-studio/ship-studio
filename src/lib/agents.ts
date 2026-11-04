@@ -46,6 +46,8 @@ export interface Agent {
   lastActivityAt: number;
   preview: string | null;
   unread: number;
+  /** Approval cards still waiting on the user, including ones the agent paused on. */
+  pendingApprovals: number;
   model: string | null;
   status: AgentStatus;
 }
@@ -67,6 +69,8 @@ export interface Approval {
   title: string;
   detail: string;
   status: 'pending' | 'allowed' | 'denied' | 'expired';
+  tool?: string;
+  input?: unknown;
 }
 
 export interface AgentMessage {

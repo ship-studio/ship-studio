@@ -168,6 +168,7 @@ export const baseCommands: CommandMap = {
         lastActivityAt: 1_790_000_000_000,
         preview: null,
         unread: 0,
+        pendingApprovals: 0,
         model: null,
         status: { state: 'idle', activity: null, since: null },
       },

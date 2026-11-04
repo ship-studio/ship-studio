@@ -16,10 +16,52 @@ use tokio::sync::oneshot;
 
 use super::runner::{self, From, Status};
 use super::store::{self, AgentRef, Approval, ApprovalStatus, MessageKind};
+use crate::errors::CommandError;
 
-/// How long a permission card waits before it counts as a "no".
-pub const APPROVAL_TIMEOUT_SECS: u64 = 30 * 60;
-const APPROVAL_TIMEOUT: Duration = Duration::from_secs(APPROVAL_TIMEOUT_SECS);
+/// How long a call to `approve` holds Claude Code before answering.
+///
+/// Claude Code abandons a permission prompt at 300s no matter what
+/// MCP_TOOL_TIMEOUT says (observed: two cards left unanswered were both given
+/// up on at exactly 300s, and the agent reported the commands as timed out).
+/// So we answer first, at 240s, with "paused for the user" — and the card stays
+/// live. A late Allow grants exactly that call and wakes the agent.
+pub const APPROVAL_WAIT_SECS: u64 = 240;
+const APPROVAL_WAIT: Duration = Duration::from_secs(APPROVAL_WAIT_SECS);
+
+/// One-time grants from late Allows: (agent id, tool, input). The next
+/// matching `approve` call from that agent is allowed without a card.
+static GRANTS: LazyLock<Mutex<Vec<(String, String, Value)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+pub fn grant_once(agent_id: &str, tool: &str, input: &Value) {
+    GRANTS.lock().unwrap_or_else(|e| e.into_inner()).push((
+        agent_id.to_string(),
+        tool.to_string(),
+        input.clone(),
+    ));
+}
+
+fn take_grant(agent_id: &str, tool: &str, input: &Value) -> bool {
+    let mut grants = GRANTS.lock().unwrap_or_else(|e| e.into_inner());
+    match grants
+        .iter()
+        .position(|(a, t, i)| a == agent_id && t == tool && i == input)
+    {
+        Some(index) => {
+            grants.remove(index);
+            true
+        }
+        None => false,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    Allowed,
+    Denied,
+    /// The user hasn't answered within the wait. The card stays live.
+    NotYet,
+}
 
 static PENDING_APPROVALS: LazyLock<Mutex<HashMap<String, oneshot::Sender<bool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -396,14 +438,15 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
     if agent.is_main {
         return error("The Chief of Staff can't be deleted.");
     }
-    let allowed = ask_user(
+    let answer = ask_user(
         app,
         caller,
         format!("Delete {}", agent.name),
         "Its memory and conversation are deleted too. This can't be undone.".to_string(),
+        None,
     )
     .await;
-    if !allowed {
+    if answer != Answer::Allowed {
         return error("The user said no. Don't delete it.");
     }
     runner::stop(&agent.id);
@@ -417,7 +460,16 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
 }
 
 /// Put an Allow / Deny card in the caller's chat and wait for the answer.
-async fn ask_user(app: &AppHandle, caller: &store::Agent, title: String, detail: String) -> bool {
+///
+/// `call` is the Claude Code tool call the card is about, if any. Those cards
+/// outlive the wait (see APPROVAL_WAIT_SECS); cards without one expire with it.
+async fn ask_user(
+    app: &AppHandle,
+    caller: &store::Agent,
+    title: String,
+    detail: String,
+    call: Option<(&str, &Value)>,
+) -> Answer {
     let request_id = store::new_id();
     let (tx, rx) = oneshot::channel();
     PENDING_APPROVALS
@@ -431,8 +483,11 @@ async fn ask_user(app: &AppHandle, caller: &store::Agent, title: String, detail:
         title,
         detail,
         status: ApprovalStatus::Pending,
+        tool: call.map(|(tool, _)| tool.to_string()),
+        input: call.map(|(_, input)| input.clone()),
     });
     let _ = runner::record(app, card);
+    store::refresh_pending(&caller.id);
     let before = runner::status_of(&caller.id);
     runner::set_status(
         app,
@@ -444,25 +499,26 @@ async fn ask_user(app: &AppHandle, caller: &store::Agent, title: String, detail:
         },
     );
 
-    let allowed = matches!(
-        tokio::time::timeout(APPROVAL_TIMEOUT, rx).await,
-        Ok(Ok(true))
-    );
+    let answer = match tokio::time::timeout(APPROVAL_WAIT, rx).await {
+        Ok(Ok(true)) => Answer::Allowed,
+        Ok(Ok(false)) => Answer::Denied,
+        _ => Answer::NotYet,
+    };
     PENDING_APPROVALS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .remove(&request_id);
 
-    // Whatever the outcome, the card stops offering buttons. If the user
-    // answered, the command already wrote their choice and this is a no-op.
-    let final_status = if allowed {
-        ApprovalStatus::Allowed
-    } else {
-        ApprovalStatus::Expired
-    };
-    if let Ok(Some(updated)) = store::set_approval_status(&caller.id, &request_id, final_status) {
-        let _ = tauri::Emitter::emit(app, runner::EVENT_MESSAGE, &updated);
+    // An answered card was already written by the command. An unanswered one
+    // stays pending if a late answer can still act on it, else it expires.
+    if answer == Answer::NotYet && call.is_none() {
+        if let Ok(Some(updated)) =
+            store::set_approval_status(&caller.id, &request_id, ApprovalStatus::Expired)
+        {
+            let _ = tauri::Emitter::emit(app, runner::EVENT_MESSAGE, &updated);
+        }
     }
+    let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
     runner::set_status(
         app,
         &caller.id,
@@ -472,7 +528,36 @@ async fn ask_user(app: &AppHandle, caller: &store::Agent, title: String, detail:
             since: before.since,
         },
     );
-    allowed
+    answer
+}
+
+/// The user answered a card nobody is waiting on any more. Allow grants that
+/// exact call once and wakes the agent to finish; Deny just records it.
+pub fn answer_late(
+    app: &AppHandle,
+    agent_id: &str,
+    approval: &Approval,
+    allow: bool,
+) -> Result<(), CommandError> {
+    let (Some(tool), Some(input)) = (&approval.tool, &approval.input) else {
+        return Err(CommandError::expected(
+            "That request isn't waiting any more. Ask the agent to try again.",
+        ));
+    };
+    if !allow {
+        return Ok(());
+    }
+    grant_once(agent_id, tool, input);
+    runner::enqueue(
+        app,
+        agent_id,
+        format!(
+            "[The user has now approved this, which you asked for earlier: {} — {}. It will go through without asking if you run it exactly as before. Carry on with what you were doing.]",
+            approval.title, approval.detail
+        ),
+        runner::From::User,
+    );
+    Ok(())
 }
 
 /// Turn a pending tool call into words a person can approve.
@@ -511,12 +596,19 @@ async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
         .and_then(Value::as_str)
         .unwrap_or("a tool");
     let input = args.get("input").cloned().unwrap_or_else(|| json!({}));
+    let allow = json!({ "behavior": "allow", "updatedInput": input });
+    if take_grant(&caller.id, tool, &input) {
+        return text(allow.to_string());
+    }
     let (title, detail) = describe_request(tool, &input);
-    let allowed = ask_user(app, caller, title, detail).await;
-    let answer = if allowed {
-        json!({ "behavior": "allow", "updatedInput": input })
-    } else {
-        json!({ "behavior": "deny", "message": "The user didn't allow this. Don't retry it; tell them what you were trying to do or find another way." })
+    let answer = match ask_user(app, caller, title, detail, Some((tool, &input))).await {
+        Answer::Allowed => allow,
+        Answer::Denied => {
+            json!({ "behavior": "deny", "message": "The user said no to this. Don't retry it; tell them what you were trying to do, or find another way." })
+        }
+        Answer::NotYet => {
+            json!({ "behavior": "deny", "message": "The user hasn't answered yet; they may be away. Don't retry and don't work around it. Stop here and tell them in one short line what you need approved and why. The request stays in their chat: if they allow it later, you'll be woken up to finish, and that exact call will go through." })
+        }
     };
     text(answer.to_string())
 }
@@ -524,6 +616,23 @@ async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_late_allow_grants_exactly_one_identical_call() {
+        let input = json!({ "command": "git commit -m x" });
+        grant_once("agent-a", "Bash", &input);
+        // Another agent, another tool or another input doesn't match.
+        assert!(!take_grant("agent-b", "Bash", &input));
+        assert!(!take_grant("agent-a", "Write", &input));
+        assert!(!take_grant(
+            "agent-a",
+            "Bash",
+            &json!({ "command": "git push" })
+        ));
+        assert!(take_grant("agent-a", "Bash", &input));
+        // Once.
+        assert!(!take_grant("agent-a", "Bash", &input));
+    }
 
     #[test]
     fn commands_are_described_by_the_command_itself() {
@@ -555,6 +664,7 @@ mod tests {
             last_activity_at: 0,
             preview: None,
             unread: 0,
+            pending_approvals: 0,
             model: None,
         };
         let names: Vec<String> = tools_list(&agent)["tools"]

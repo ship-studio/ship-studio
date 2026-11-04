@@ -388,11 +388,12 @@ async fn run_turn(
         // Claude Code gives an MCP tool call ~60s by default, and the approval
         // tool waits for a person. Verified: with the default, a card left for
         // two minutes came back as a timeout the agent read as "Bash is
-        // hanging"; with this, it waits. Slightly past the approval timeout so
-        // ours always decides first.
+        // hanging". Raised past our own approval wait so we always answer
+        // first. (Claude Code still caps a permission prompt at 300s; see
+        // mcp::APPROVAL_WAIT_SECS.)
         .env(
             "MCP_TOOL_TIMEOUT",
-            ((super::mcp::APPROVAL_TIMEOUT_SECS + 60) * 1000).to_string(),
+            ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
         )
         .current_dir(&home);
 
