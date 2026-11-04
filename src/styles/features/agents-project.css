@@ -204,3 +204,36 @@
 .agent-peer__state .pixel-loader {
   color: var(--accent-success);
 }
+
+/* ------------------------------------------------------- session lines */
+
+/* An agent working in a project's session (components/agents/AgentSession):
+   started / sent are one quiet line; a reply or screenshot reuses the change
+   card's surface. */
+.agent-session {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.agent-session .agent-peer__line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-session-card__reply {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+
+.agent-session-card .agent-attachments {
+  align-self: stretch;
+}

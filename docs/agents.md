@@ -90,7 +90,7 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | --- | --- | --- |
 | `list_agents` | all | names, roles, busy / waiting |
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
-| `list_projects` | all | Ship Studio projects and paths |
+| `project_*`, `session_*`, `preview_screenshot`, `git_status`, `push`, `deploy_status` | all | working on projects, below |
 | `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
 | `create_agent` | Chief | name, role, instructions, optional `project` and `first_task` |
 | `update_agent` | Chief | name / role / instructions / project (memory kept) |
@@ -101,6 +101,74 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 at hop 0; each `message_agent` from a turn at hop *n* delivers at *n+1*, and
 `message_agent` refuses past hop 6. The prompts also tell agents not to send
 acknowledgements to each other.
+
+## Working on projects (`src-tauri/src/agents/sessions.rs`)
+
+Agents work on Ship Studio projects the way Remote Access does: in the
+project's real agent tabs (backend PTY sessions), so the user can open the
+project and carry on the same conversation. It is Remote Access's toolset,
+run by the same handlers in `remote_access/tools.rs`, under names that can't
+be confused with agent-to-agent `message_agent`:
+
+| Agents | Remote handler |
+| --- | --- |
+| `project_list` / `project_create` / `project_open` | `list_projects` / `create_project` / `open_project` |
+| `session_message` (the default) / `session_start` | `message_agent` / `start_agent` |
+| `session_wait` / `session_read` / `session_key` / `session_close` / `session_progress` | `wait_for_agent` / `read_agent` / `press_key` / `close_agent` / `show_progress` |
+| `preview_screenshot`, `git_status`, `deploy_status` | same |
+| `push` | own: a card instead of the PIN |
+
+- **Scope:** every Ship Studio project (agents already run as the user with
+  every project as an `--add-dir`), not the remote's opt-in list.
+  `project_create` doesn't share the project for remote access and doesn't
+  switch the window; starting a session opens it.
+- **Answers:** the shared STATUS / reply / NEXT shape, with remote tool names
+  rewritten to the agent's (`sessions::rename`, whole identifiers only).
+- **Chat:** each call runs inside `AGENTS_CALL` (a task-local in
+  `tools.rs`), which collects what it started, the replies it saw and its
+  screenshots. They become `session` lines: "Started a session in
+  acme-marketing", "Sent to acme-marketing · Claude Code 1", the reply (once
+  per distinct reply), and screenshots inline. "Open session" opens the
+  project with that tab selected (`openAgentSession` →
+  `useRemoteAgentControl`). Screenshots are written to the agent's
+  attachments and never stored behind the remote's public image links.
+- **Window:** a tab only starts, and a preview only renders, while its project
+  is showing, so the window switches to the project as it does for remote
+  access. Calls that may switch are bracketed by `agents-session-begin/-end`;
+  if Agents was showing, the window goes back to it afterwards
+  (`useAgentsReturn`), unless you went elsewhere. The composer keeps unsent
+  text across the switch.
+- **Safety:** unchanged shared rules. Text only to agent tabs, never shells;
+  a leading `!`, a `/` command outside the allowlist and control characters
+  are refused; an opening prompt can't start with `-`.
+- **Push:** no PIN. `push` puts a card in the agent's chat ("Push
+  acme-marketing") with the branch, origin (credentials stripped), the
+  commits and what gets committed first. It has no tool call behind it, so
+  no "Always allow" is offered and no rule can skip it. Allow pushes exactly
+  the tree the card described (`frozen_tree` / `push_frozen`); a change in
+  between pushes nothing. An unanswered card expires after 240s.
+- **Audit:** the remote's `remote_audit.jsonl`, same rules (reads skipped,
+  previews only), with `actor` set to the agent's name. The Remote access
+  modal's activity list leaves those out.
+- **Bound agents** are still an option; sessions are the default.
+
+## What an agent can do (`src-tauri/src/agents/capabilities.rs`)
+
+Turns run with `--chrome`. Each turn's `system/init` lists the session's
+tools and MCP servers with their status; the runner keeps the last one on
+the agent and builds one line per kind of capability (projects, the team,
+Chrome, computer use, on this Mac, connectors, needs sign-in). The lines go
+into the next turn's prompt ("What you can do here") and into the editor
+("What <agent> can do"). Nothing is listed before the first turn.
+
+Verified on Claude Code 2.1.318 in `--print`: Claude in Chrome loads with
+`--chrome` and a tool call answered (extension connected); the user's MCP
+servers load with their status; there is no computer-use server in a
+headless turn, so it isn't claimed. Not verified: Chrome with the extension
+disconnected (the line then says "Not connected" if Claude Code reports it
+so), and a Chrome call going through an approval card in the running app.
+`cargo test --lib agents::capabilities -- --ignored` repeats the headless
+check.
 
 ## Approvals
 
