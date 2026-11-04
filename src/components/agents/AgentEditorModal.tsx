@@ -16,6 +16,7 @@ import { TextButton } from '../primitives/TextButton';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { AgentProjectField } from './AgentProject';
 import { AgentAvatar } from './AgentAvatar';
+import { AgentSecrets } from './AgentSecrets';
 import {
   AGENT_COLORS,
   type AgentColor,
@@ -366,6 +367,7 @@ export function AgentEditorModal({
             <UsageLines usage={usage} />
             {agent && <CanDo agent={agent} />}
             {agent && <Permissions agent={agent} />}
+            {agent && <AgentSecrets agent={agent} />}
           </div>
         ) : (
           <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>

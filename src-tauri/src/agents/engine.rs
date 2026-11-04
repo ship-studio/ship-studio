@@ -81,15 +81,20 @@ impl EngineInfo {
 
 type Probe<T> = LazyLock<Mutex<HashMap<Engine, (T, String, Instant)>>>;
 
-/// The engine's binary, validated (`--version`) at most once a minute per
-/// PATH rather than on every turn: the probe spawns a process.
+/// Each engine's binary, found and validated once per PATH.
+static BINARIES: Probe<PathBuf> = LazyLock::new(Default::default);
+
+/// The engine's binary, found and validated (`--version`, which spawns a
+/// process and costs ~100ms) once per PATH, not per turn. It is looked for
+/// again if the file goes away, or fails to start ([`forget_binary`]).
 pub async fn binary(engine: Engine) -> Option<PathBuf> {
-    static CACHE: Probe<PathBuf> = LazyLock::new(Default::default);
     let path_var = std::env::var("PATH").unwrap_or_default();
-    if let Some((binary, for_path, at)) =
-        CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&engine)
+    if let Some((binary, for_path, _)) = BINARIES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&engine)
     {
-        if *for_path == path_var && at.elapsed() < Duration::from_secs(60) && binary.exists() {
+        if *for_path == path_var && binary.exists() {
             return Some(binary.clone());
         }
     }
@@ -100,11 +105,19 @@ pub async fn binary(engine: Engine) -> Option<PathBuf> {
     .await
     .ok()
     .flatten()?;
-    CACHE
+    BINARIES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(engine, (binary.clone(), path_var, Instant::now()));
     Some(binary)
+}
+
+/// The cached binary failed to start: look for it again next time.
+pub fn forget_binary(engine: Engine) {
+    BINARIES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&engine);
 }
 
 /// Whether the engine is signed in. A yes is kept for a minute; a no only

@@ -999,12 +999,12 @@ where
     // through `runner::record` like a reply (a `wants_user` kind), so the
     // notifications slice posts one banner for the check-in and its
     // answer when the turn ends, rather than one for each.
-    runner::enqueue(
-        app,
-        &firing.agent_id,
-        wake_prompt(tz, firing, now),
-        runner::From::User,
-    );
+    let prompt = wake_prompt(tz, firing, now);
+    if firing.check_in.repeat.is_some() {
+        runner::enqueue_routine(app, &firing.agent_id, prompt);
+    } else {
+        runner::enqueue(app, &firing.agent_id, prompt, runner::From::User);
+    }
     runner::record(app, line).map(|_| ())
 }
 
@@ -1387,6 +1387,7 @@ mod tests {
             engine: Default::default(),
             model: None,
             new_engine: false,
+            routine_model: None,
             muted: false,
             check_ins,
             usage: Default::default(),
@@ -1394,6 +1395,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
             extra: Default::default(),
         }
     }

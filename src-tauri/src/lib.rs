@@ -166,6 +166,8 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let _ = tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals)
                     .await;
+                // Agents' secrets, known to redaction before any turn runs.
+                let _ = tauri::async_runtime::spawn_blocking(agents::secrets::load_known).await;
                 // A turn the last run quit in the middle of: stop its process, say so.
                 agents::runner::recover_after_restart(&badge_app).await;
                 agents::notify::refresh_badge(&badge_app);
@@ -591,6 +593,9 @@ pub fn run() {
             commands::agents::agents_answer_approval,
             commands::agents::agents_interrupt,
             commands::agents::agents_revoke_permission,
+            commands::agents::agents_save_secret,
+            commands::agents::agents_add_secret,
+            commands::agents::agents_revoke_secret,
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,

@@ -32,9 +32,9 @@ use crate::errors::CommandError;
 pub const APPROVAL_WAIT_SECS: u64 = 240;
 
 /// The wait, shortened in debug builds by `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS`
-/// so the end-to-end suite (examples/agents_e2e.rs) can reach the late-Allow
+/// so the end-to-end suite (examples/agents_e2e/main.rs) can reach the late-Allow
 /// path without sitting out four minutes.
-fn approval_wait() -> Duration {
+pub(super) fn approval_wait() -> Duration {
     let override_secs = cfg!(debug_assertions)
         .then(|| std::env::var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS").ok())
         .flatten()
@@ -82,6 +82,23 @@ pub(super) enum Answer {
 static PENDING_APPROVALS: LazyLock<Mutex<HashMap<String, oneshot::Sender<bool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Wait for the answer to a card someone else put up (`decisions.rs`).
+pub(super) fn register_waiter(request_id: &str) -> oneshot::Receiver<bool> {
+    let (tx, rx) = oneshot::channel();
+    PENDING_APPROVALS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(request_id.to_string(), tx);
+    rx
+}
+
+pub(super) fn drop_waiter(request_id: &str) {
+    PENDING_APPROVALS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(request_id);
+}
+
 pub fn answer_approval(request_id: &str, allow: bool) -> bool {
     let sender = PENDING_APPROVALS
         .lock()
@@ -117,7 +134,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "message_agent",
-        description: "Send a message to another agent. Asynchronous: it returns once delivered; the agent works in its own conversation and messages you back if it needs to. Write it as a complete brief: they don't see your conversation with the user.",
+        description: "Hand another agent work, or answer one. Asynchronous: it returns once delivered; they work in their own conversation and their answer comes back to you as a new message. Brief them in a few lines: they don't see your conversation with the user.",
         main_only: false,
         schema: || json!({
             "type": "object",
@@ -222,6 +239,21 @@ const TOOLS: &[Tool] = &[
                 "agent": { "type": "string", "description": "Chief of Staff only: another agent's." }
             },
             "required": ["id"]
+        }),
+    },
+    Tool {
+        name: "request_secret",
+        description: "Ask the user for a password, API key, token or login through a secure card in this chat. They type it into a masked field; it goes into the macOS Keychain for you alone, and you get an environment variable and a reference, never the value. Always use this for credentials: never ask the user to paste one in chat. It returns at once: stop and tell the user in one line what it's for; you'll be woken when they save or decline it.",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Short snake_case name, e.g. stripe_key. It becomes the variable: $STRIPE_KEY." },
+                "purpose": { "type": "string", "description": "What you'll use it for, in one line. Shown to the user on the card." },
+                "kind": { "type": "string", "enum": ["password", "api_key", "token", "other"] },
+                "fields": { "type": "array", "items": { "type": "string" }, "description": "Optional: labels for a login with several parts, e.g. [\"Username\", \"Password\"]. Each becomes $NAME_USERNAME, $NAME_PASSWORD." }
+            },
+            "required": ["name", "purpose", "kind"]
         }),
     },
     Tool {
@@ -334,6 +366,7 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
             check_ins(app, caller, name, args)
         }
         "approve" => approve(app, caller, args).await,
+        "request_secret" => request_secret(app, caller, args),
         _ => error("Unknown tool"),
     }
 }
@@ -438,12 +471,18 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
     if hop > runner::MAX_HOPS {
         return error("Not sent: this chain of agent-to-agent messages is too long. Tell the user where things stand instead.");
     }
+    // Answering a request the target sent: settles it (see runner::settle).
+    let answer = runner::settle(&caller.id, &target.id);
     let mut sent = runner::new_message(&caller.id, MessageKind::SentToAgent, body);
     sent.peer = Some(peer(&target));
     let _ = runner::record(app, sent);
     let mut received = runner::new_message(&target.id, MessageKind::FromAgent, body);
     received.peer = Some(peer(caller));
     let _ = runner::record(app, received);
+    if answer {
+        runner::enqueue_reply(app, &target.id, body.to_string(), peer(caller), hop);
+        return text(format!("Delivered to {}.", target.name));
+    }
     runner::enqueue(
         app,
         &target.id,
@@ -454,7 +493,7 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
         },
     );
     text(format!(
-        "Delivered to {}. They'll message you back if they need to; don't wait on it.",
+        "Delivered to {}. Their answer comes back to you as a new message when they're done; don't wait for it.",
         target.name
     ))
 }
@@ -643,7 +682,8 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
                         hop: 1,
                     },
                 );
-                started = " and started it on its first task".to_string();
+                started =
+                    " and started it on its first task; its answer comes back to you".to_string();
             }
             text(format!(
                 "Created {}{started}. It's in the user's sidebar now.",
@@ -772,6 +812,59 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
     }
 }
 
+/// A secure input card. Nothing waits on it: saving or declining wakes the
+/// agent (see `commands::agents::agents_save_secret`), so a card answered
+/// tomorrow works as well as one answered now.
+fn request_secret(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
+    let labels: Vec<String> = args
+        .get("fields")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let request = match super::secrets::build_request(
+        caller,
+        arg(args, "name").unwrap_or(""),
+        arg(args, "purpose").unwrap_or(""),
+        arg(args, "kind").unwrap_or(""),
+        &labels,
+    ) {
+        Ok(r) => r,
+        Err(e) => return error(e.to_string()),
+    };
+    let open = store::pending_approvals(&caller.id).unwrap_or_default();
+    if open
+        .iter()
+        .any(|a| a.secret.as_ref().is_some_and(|s| s.name == request.name))
+    {
+        return text(format!(
+            "You already asked for {}; the card is still waiting in this chat. Stop here.",
+            request.name
+        ));
+    }
+    let mut approval = new_card(
+        store::new_id(),
+        format!("Secure input · {}", request.name),
+        request.purpose.clone(),
+        None,
+    );
+    let reply = super::secrets::asked_reply(&request);
+    approval.secret = Some(request);
+    let mut card = runner::new_message(&caller.id, MessageKind::Approval, "");
+    card.approval = Some(approval);
+    if let Err(e) = runner::record(app, card) {
+        return error(e.to_string());
+    }
+    store::refresh_pending(&caller.id);
+    super::notify::refresh_badge(app);
+    let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+    text(reply)
+}
+
 /// Put an Allow / Deny card in the caller's chat and wait for the answer.
 ///
 /// `call` is the Claude Code tool call the card is about, if any. Those cards
@@ -867,6 +960,9 @@ pub(super) fn new_card(
         always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
         always_allowed: false,
         note: None,
+        prompt: None,
+        choice: None,
+        secret: None,
     }
 }
 
@@ -1310,6 +1406,7 @@ mod tests {
             engine: Default::default(),
             model: None,
             new_engine: false,
+            routine_model: None,
             muted: false,
             check_ins: Vec::new(),
             usage: Default::default(),
@@ -1317,6 +1414,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
             extra: Default::default(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]

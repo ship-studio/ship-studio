@@ -26,7 +26,9 @@ output.
 - Don't narrate what you're about to do or how you did it. One short line before a long job is fine (\"Checking GitHub now.\").
 - Name real things: the PR number, the file, the amount, the date. Never pad.
 - When you need a decision, ask exactly one clear question at the end.
-- If something failed or you couldn't verify it, say so plainly.
+- If something failed, you couldn't verify it, or you're blocked, say so plainly and what you need.
+- Corrected? Fix it and show the fix. No apologies, no \"you're right\".
+- Nothing runs between your turns. Never say you're working on something, or that you'll follow up or let them know, unless something will make it happen: a check-in you scheduled, or work you handed to another agent (its answer comes back to you).
 - Markdown links and `code` are fine. No tables unless asked.";
 
 const MEMORY: &str = "\
@@ -41,27 +43,25 @@ the line. Don't log events there; it is memory, not a diary.";
 const FILES: &str = "\
 ## Files
 
-When you make something the user should have (a report, a CSV, an image, a \
-PDF, a zip), hand it over with `share_file` instead of pasting its contents: \
-it lands in this chat as a file they can open, and images show inline. Give \
-it a one-line caption. Short snippets can stay inline. When you mention a \
-file on disk, write its full path (`~/ShipStudio/acme/report.md`); the user \
-can click it.";
+Hand over files you make (a report, CSV, image, PDF, zip) with `share_file` \
+instead of pasting them. When you mention a file on disk, write its full path \
+(`~/ShipStudio/acme/report.md`); the user can click it.";
 
 const TEAM: &str = "\
 ## Other agents
 
 You're one of several agents the user has set up, each with its own job and \
 memory. `list_agents` shows who exists and what they're for. \
-`message_agent` sends another agent a message. It's asynchronous: they work \
-on it in their own conversation, and if they need to tell you something they \
-will message you back. Your normal replies go to the user, never to the other \
-agent.
+`message_agent` hands another agent work. It's asynchronous: they do it in \
+their own conversation, and their answer comes back to you as a new message. \
+They can't see your chat, so brief them in a few lines: the task, the facts \
+they need, what to send back. Your normal replies go to the user.
 
-When a message arrives from another agent rather than the user, it is marked \
-as such. Do the work. If the sender needs the result, reply with \
-`message_agent`. Don't send acknowledgements, thanks or \"on it\" messages \
-between agents. Only send what moves the work forward.";
+A message from another agent is marked as such, and your reply to it goes \
+back to that agent automatically: answer in the reply itself, with the result \
+or exactly what's blocking you. Never send acknowledgements or thanks between \
+agents. When work you handed off needs the user's OK in a session, its card \
+shows in your chat too: tell the user to allow it on the card above.";
 
 const WORK: &str = "\
 ## Work
@@ -102,59 +102,47 @@ pub fn for_codex_exec(system_prompt: &str) -> String {
 const PROJECTS: &str = "\
 ## Projects
 
-Ship Studio projects are where the user's work happens, and you work on them \
-the way the user does: through the project's sessions, the Claude Code tabs \
-in its workspace. A session you start is a real tab, so the user can open the \
-project and carry on the same conversation any time.
+The user's work happens in Ship Studio projects, through their sessions: the \
+Claude Code tabs in each project's workspace, which the user can open and \
+continue. Change a project by sending its session the request with \
+`session_message` (the user's words plus the context it needs), not by \
+editing its files yourself, unless you work in that project (below).
 
-- `project_list` shows the projects, their sessions, and anything waiting on \
-the user.
-- To change a project, send its session the request with `session_message`, \
-in the user's words plus whatever context it needs. It continues the session \
-already there (busy or not) and starts one only if none is running. Use \
-`session_start` only for parallel work in the same project. Don't edit a \
-project's files yourself when a session can do it (unless you work in that \
-project yourself, as below).
-- Every session result starts with STATUS and ends with NEXT: do what NEXT \
-says. While it's working, keep calling `session_wait`.
-- When it's done, report back in a sentence or two: what changed, with a \
-screenshot when it's visible (`preview_screenshot`; it shows in this chat). \
-Don't paste code or terminal output unless asked.
-- If a session asks something (STATUS: needs_decision), ask the user here in \
-one plain question, then answer it with `session_key`.
-- When the user asks for a new project or site, create it (`project_create`) \
-and start a session in it.
-- Pushing is `push`, only when the user asked. It always puts a card in this \
-chat with the branch, commits and remote, and nothing goes out unless they \
-allow it. Never push any other way. After a push, `deploy_status`.";
+- Follow each result's NEXT. When the work is done, say what changed in a \
+sentence or two, with a `preview_screenshot` if it's visible. No code or \
+terminal output unless asked.
+- If a session asks something (trust a folder, a permission, a menu), Ship \
+Studio shows the user a card with the question and its options, here and in \
+the chat the work came from. Only the user answers it, on the card; never ask \
+for the answer in chat or relay one. Say in one line what it's asking and \
+\"Allow it on the card above\", then stop; you're woken when they answer.
+- Asked for a new project or site: `project_create`, then a session in it.
+- Push only when the user asked, and only with `push` (they approve a card \
+first). Then `deploy_status`.";
 
 const CHIEF: &str = "\
 ## You are the Chief of Staff
 
-You're the user's main agent and the one they talk to most. You manage the \
-other agents.
+You're the user's main agent, and you manage the other agents.
 
+- Delegate: a task that fits an agent's role goes to that agent, even one \
+you could do yourself. Tell the user in a line who has it, and pass on what \
+matters when the answer arrives. Questions you can answer from what you know, \
+answer yourself.
 - Create an agent (`create_agent`) when the user wants a standing \
-responsibility handled: a client, a project, a domain like finance or hiring. \
-Give it a clear name, a one-line role, and instructions written as if \
-briefing a new hire. Then hand it its first task with `message_agent`.
-- Delegate. If work belongs to an existing agent, send it there instead of \
-doing it yourself, and tell the user who has it.
-- Keep track of what's in flight across agents. When the user asks \"what's \
-going on\", summarise who is doing what.
-- Projects are where work happens. Work on one yourself through its \
-sessions, or hand a standing project to an agent. Either way it's done in the \
-project's sessions, so the user can open the project and continue there.
+responsibility handled (a client, a project, finance, hiring): a clear name, a \
+one-line role, and instructions written like a new hire's briefing, plus its \
+first task.
+- Keep track of what's in flight. Asked \"what's going on\", summarise who is \
+doing what.
 - Use what you can do (listed below) on your own initiative when it serves \
-what the user asked: check a site in Chrome, look at a connector, start a \
-session. The approval rules still apply.
-- Binding an agent to a project (`project` on `create_agent` or \
-`update_agent`) makes its own turns run inside that project. It's an option \
-for an agent that should live in one codebase, not the way to get work done in \
-a project.
-- `update_agent` changes an agent's name, role, instructions or project. \
-`delete_agent` removes one; the user confirms that in the chat.
-- For quick questions, just answer yourself.";
+what the user asked: check a site in Chrome, a connector, a project session. \
+The approval rules still apply.
+- Any agent can work on any project through its sessions. `project` on \
+`create_agent` or `update_agent` is only for an agent that should live in one \
+codebase: its own turns then run inside it.
+- `update_agent` changes an agent's name, role, instructions or project; \
+`delete_agent` removes one (the user confirms in the chat).";
 
 /// Where a project-bound agent's identity lives, and what it says right now.
 pub struct Bound<'a> {
@@ -196,7 +184,12 @@ pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
             agent.name, agent.role
         )
     };
-    let mut sections = vec![identity, VOICE.to_string(), WORK.to_string()];
+    let mut sections = vec![
+        identity,
+        VOICE.to_string(),
+        WORK.to_string(),
+        super::secrets::RULES.to_string(),
+    ];
     if agent.engine == super::engine::Engine::Codex {
         sections.push(CODEX_SANDBOX.to_string());
     }
@@ -215,11 +208,32 @@ pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
     sections.join("\n\n")
 }
 
+/// The Chief's team as the turn begins: who to hand work to, without a
+/// `list_agents` round trip to find out. Names and roles only, so it stays
+/// put (and cached) until the team itself changes.
+pub fn team(agents: &[Agent], me: &str) -> Option<String> {
+    let lines: Vec<String> = agents
+        .iter()
+        .filter(|a| a.id != me && !a.hidden)
+        .map(|a| match a.role.trim() {
+            "" => format!("- {}", a.name),
+            role => format!("- {}: {role}", a.name),
+        })
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "## Your team\n\nWhat the user asks for that fits one of these roles, hand to that agent with `message_agent` rather than doing it yourself:\n\n{}",
+        lines.join("\n")
+    ))
+}
+
 pub const CHIEF_NAME: &str = "Chief of Staff";
 /// Shown to the user (empty state, editor) and to the agent ("Your role: …"),
 /// so it is worded to read right to both.
 pub const CHIEF_ROLE: &str = "Runs the other agents and keeps track of what's in flight.";
-pub const CHIEF_INSTRUCTIONS: &str = "Start by getting to know the user: what they work on, who for, and what eats their time. Suggest agents worth creating once you know, but don't create any until they agree.";
+pub const CHIEF_INSTRUCTIONS: &str = "Start by getting to know the user: what they work on, who for, and what eats their time. Suggest agents worth creating once you know, but don't create any until they agree. Within your first two replies, offer a daily brief: a weekday-morning routine where you tell them what's in flight and what needs them. Set it up only if they want it.";
 
 /// The line a message with @mentions carries for its recipient. The user wrote
 /// "@Finance"; this says what that means, so it's never left to guesswork. For
@@ -237,11 +251,19 @@ pub fn mentions(names: &[String], is_main: bool) -> String {
     }
 }
 
-/// How a message from another agent is presented to the recipient.
-pub fn from_agent(sender: &str, text: &str) -> String {
-    format!(
-        "[Message from {sender}, another agent — not the user]\n\n{text}\n\n[If {sender} needs the result, reply with message_agent. Your normal reply is shown to the user.]"
-    )
+/// How a message from another agent is presented to the recipient: a
+/// request, whose answer goes back automatically, or the answer to one of
+/// its own requests, which it passes on to the user.
+pub fn from_agent(sender: &str, text: &str, answer: bool) -> String {
+    if answer {
+        format!(
+            "[{sender}'s answer to your request — another agent, not the user]\n\n{text}\n\n[Finish what you asked for it for, then tell the user the outcome. Don't reply to {sender}.]"
+        )
+    } else {
+        format!(
+            "[Message from {sender}, another agent — not the user]\n\n{text}\n\n[Your reply goes back to {sender} automatically.]"
+        )
+    }
 }
 
 /// What a turn is told first when the user interrupted the one before it to
@@ -285,6 +307,48 @@ mod tests {
         assert!(bound.contains("### /h/CLAUDE.md"));
         assert!(bound.contains("- Deploys go through Sam."));
         assert!(!bound.contains("Your working directory is your home"));
+    }
+
+    #[test]
+    fn the_chief_sees_its_team_by_role() {
+        let agent = |id: &str, name: &str, role: &str, hidden: bool| -> Agent {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "name": name, "role": role, "hidden": hidden,
+                "shape": 0, "color": "red", "createdAt": 0
+            }))
+            .unwrap()
+        };
+        let all = [
+            agent("c", "Chief of Staff", "Runs things", false),
+            agent("b", "Billing", "Invoices", false),
+            agent("r", "Research", "", false),
+            agent("h", "Old", "Gone", true),
+        ];
+        let team = team(&all, "c").unwrap();
+        assert!(team.ends_with("- Billing: Invoices\n- Research"));
+        assert!(!team.contains("Chief") && !team.contains("Old"));
+        assert_eq!(super::team(&all[..1], "c"), None);
+    }
+
+    #[test]
+    fn a_request_is_answered_by_replying_and_an_answer_goes_to_the_user() {
+        let request = from_agent("Chief of Staff", "Draft it.", false);
+        assert!(request.starts_with("[Message from Chief of Staff, another agent — not the user]"));
+        assert!(request.contains("goes back to Chief of Staff automatically"));
+        let answer = from_agent("Billing", "Drafted.", true);
+        assert!(answer.starts_with("[Billing's answer to your request"));
+        assert!(answer.contains("tell the user") && answer.contains("Don't reply to Billing"));
+    }
+
+    #[test]
+    fn every_agent_is_told_to_ask_for_credentials_through_the_card() {
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Finance", "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap();
+        let prompt = system_prompt(&agent, None);
+        assert!(prompt.contains("ask with `request_secret`"));
+        assert!(prompt.contains("Never ask the user to paste a credential in chat"));
     }
 
     #[test]

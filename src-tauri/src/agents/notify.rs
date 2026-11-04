@@ -143,6 +143,23 @@ fn showing_in(window: &str) -> Option<String> {
         .cloned()
 }
 
+/// The chat the user is in: the agent a focused window shows, else the one
+/// any window shows (the app may be in the background while they read it).
+pub fn chat_in_view(app: &AppHandle) -> Option<String> {
+    let showing: Vec<(String, String)> = SHOWING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(w, a)| (w.clone(), a.clone()))
+        .collect();
+    let focused = showing.iter().find(|(label, _)| {
+        app.get_webview_window(label)
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false)
+    });
+    focused.or(showing.first()).map(|(_, id)| id.clone())
+}
+
 /// Whether a focused window shows this agent right now.
 pub fn on_screen(app: &AppHandle, agent_id: &str) -> bool {
     let windows: Vec<String> = SHOWING
@@ -292,6 +309,7 @@ mod tests {
             engine: Default::default(),
             model: None,
             new_engine: false,
+            routine_model: None,
             muted,
             check_ins: Vec::new(),
             usage: Default::default(),
@@ -299,6 +317,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
             extra: Default::default(),
         }
     }
@@ -315,6 +334,9 @@ mod tests {
             always: None,
             always_allowed: false,
             note: None,
+            prompt: None,
+            choice: None,
+            secret: None,
         });
         message
     }

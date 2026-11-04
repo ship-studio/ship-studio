@@ -137,10 +137,22 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
 | `project_*`, `session_*`, `preview_screenshot`, `git_status`, `push`, `deploy_status` | all | working on projects, below |
 | `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
+| `request_secret` | all | a secure input card for a password, key, token or login; the agent gets `$VAR` and a reference, never the value (below) |
 | `create_agent` | Chief | name, role, instructions, optional `project` and `first_task` |
 | `update_agent` | Chief | name / role / instructions / project (memory kept) |
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
 | `approve` | CLI only | the permission prompt tool (below) |
+
+**Answers come back on their own.** A `message_agent` request is a debt: the
+turn that handles it owes the sender an answer. When that turn ends, whatever
+it said (or "couldn't finish: …" if it failed) is delivered back to the
+sender as its answer (`runner::return_results`), so delegated work always
+reports back and the delegate never spends a tool call doing it. Messaging
+the sender during the turn settles the debt instead (`runner::settle`). An
+answer is framed differently from a request ("Billing's answer to your
+request … tell the user the outcome; don't reply"), and handling it owes
+nobody anything, so answers can't ping-pong. Stop drops the debt; an
+interrupted turn passes it to the turn that replaces it.
 
 **Loops.** Agents messaging agents can ping-pong. A user message starts a chain
 at hop 0; each `message_agent` from a turn at hop *n* delivers at *n+1*, and
@@ -207,6 +219,34 @@ be confused with agent-to-agent `message_agent`:
   no "Always allow" is offered and no rule can skip it. Allow pushes exactly
   the tree the card described (`frozen_tree` / `push_frozen`); a change in
   between pushes nothing. An unanswered card expires after 240s.
+- **Questions a session asks** (`agents/decisions.rs`): when a session stops
+  on something it can't answer itself (Claude Code's folder-trust dialog, a
+  permission prompt in the tab, any menu or y/n `agent_state.rs` recognises),
+  Ship Studio raises a card with the prompt's own text and options, and the
+  agent's tool call waits on it like `approve` (240s; then the card stays live
+  and an answer wakes the agent with "call session_wait"). The card goes in
+  the owner's chat **and** where the work came from: up the delegation chain
+  (`runner::turn_origin`) to the agent the user asked, plus the chat a window
+  is showing. One request id in every chat; answering in any resolves all
+  (`decisions::resolve_all`), the others turning into the quiet "Allowed ·
+  Yes, I trust this folder" line. It is announced once (`record_quietly` for
+  the copies) and counts as "Needs your OK" in each row, ⌘J and the badge.
+  Allow / Deny (or the session's other options) send that option's keys
+  (its number; for the trust dialog's unnumbered menu, arrows then Enter),
+  after checking the session is still asking the same thing. Agents can't
+  answer: `session_key` refuses while a question is up, and the prompts tell
+  them to say "Allow it on the card above". A message refused because the
+  session was asking is sent once the card is answered.
+- **Folder trust:** one card per project ("Let Claude Code work in
+  demo-site?"). Allow writes `projects["<real path>"].hasTrustDialogAccepted
+  = true` into `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`), keeping
+  everything else, then answers the dialog in every session of that project
+  showing it. Observed with Claude Code 2.1.318 in a throwaway HOME: that is
+  exactly what accepting the dialog writes, keyed by the canonical path, and
+  an entry with only that key (on the folder or a parent) skips the dialog.
+  Nothing is trusted without the card.
+- **Change cards:** a message that changed the project leaves a `changes`
+  card ("Changed 1 file in demo-site", View diff), once per message.
 - **Audit:** the remote's `remote_audit.jsonl`, same rules (reads skipped,
   previews only), with `actor` set to the agent's name. The Remote access
   modal's activity list leaves those out.
@@ -284,6 +324,47 @@ Adding a rule also answers every other open card from the same agent that it
 covers (`mcp::covered_by`), through the same path as Allow: a live waiter is
 woken, and a card nobody waits on any more gets a late Allow that wakes the
 agent.
+
+## Secrets (`src-tauri/src/agents/secrets.rs`)
+
+`request_secret {name, purpose, kind, fields?}` puts a secure input card in
+the agent's chat: what it wants, why, a masked field per part, Save / Deny.
+It's an approval card (`Approval.secret`), so it counts as "Needs your OK",
+notifies, and shows in What's in flight; nothing waits on it, so it survives
+restarts and can be answered whenever. Save (`agents_save_secret`) sends the
+value from the webview to the macOS Keychain, service
+`ship-studio-agent-<agent id>`, one item per variable, and wakes the agent
+with the variable's name and the reference (`secret:finance/stripe_key`).
+Deny wakes it with a plain refusal (or the user's note). The registry keeps
+names, purpose, reference, created and last-used only.
+
+**Use: environment variables.** Each turn is a fresh `claude` process, so
+that agent's turns (and no other's) start with its secrets as variables
+(`$STRIPE_KEY`; a login's fields as `$BANK_USERNAME`, `$BANK_PASSWORD`), and
+the turn's prompt lists which it has. Chosen over a `use_secret`
+substitution tool because it needs no command runner of our own, works for
+scripts and SDKs that read the environment, and an approval card shows the
+command with `$STRIPE_KEY` unexpanded. Variables that change the shell,
+Claude Code, the linker or git (`PATH`, `CLAUDE*`, `DYLD_*`, `GIT_*`…) are
+refused as names. "Last used" is the last turn started with it; whether the
+agent read it isn't known.
+
+**Redaction** (defence in depth): every known value (loaded at launch, and on
+save or injection; 6+ characters) becomes `[secret:…]` in every line the
+store appends (chat log, card answers), the queue, recorded and emitted
+messages (a session's question card included: its question, options and
+the answer picked, in every chat that holds it), drafts, the activity line,
+the prompt piped to the next turn, and the remote/agents audit log. Not covered: a turn that prints the variable
+sends it to Claude as tool output and into Claude Code's own transcript; the
+prompt forbids printing one.
+
+Every agent is told to ask with `request_secret` and never to ask for a
+credential in chat. If the composer holds something key-shaped (Stripe,
+GitHub, OpenAI, Anthropic, AWS, Slack, Google, JWT, `password=…`), a quiet
+line offers "Store it securely" (`agents_add_secret`), which replaces it in
+the draft with its variable; it never blocks sending. Edit agent → Secrets
+lists them with Revoke, which deletes the Keychain items; deleting an agent
+deletes its items too. macOS only, like workspace credentials.
 
 ## Steering a working agent
 
@@ -608,6 +689,17 @@ time. The e2e Codex scenarios run on the account when one is signed in.
   note carries what you asked; once it exists the line says "Retries at …".
   "Set up Claude Code" (no Claude Code yet) runs the install terminal, then
   sign-in, and the composer unlocks when the overview says it's there.
+- **Routines' model.** The same menu says what routines run on, and changes
+  it: Automatic (Haiku while the agent is on the default model, otherwise its
+  own model), Same as its chats, or a model. A routine fires again and again,
+  usually long after the last turn (so nothing is cached either way), and
+  mostly checks things, so this is where a cheaper model saves the most.
+  Haiku is Claude Code's: a Codex agent's routines run on its own model
+  (Same as its chats) unless one of Codex's models is picked, because which
+  of Codex's models is cheaper is not something Codex says. Moving an agent
+  to another engine resets the setting along with its model.
+  One-time check-ins, including "Retry at", run on the agent's own model
+  (`store::Agent::routine_model`).
 - **Model.** Default / Opus / Sonnet / Haiku, passed as `--model` from the next
   turn. Set it when creating the agent, in the editor, or from the menu in the
   chat header. Only Claude Code's own aliases are accepted, and the backend
@@ -793,7 +885,7 @@ prunes them the diff says it can't be shown.
   added), process trees, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e.rs` drives the real
+- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e/main.rs` drives the real
   runner, store, bridge and MCP tools through the same Tauri commands the UI
   calls, on `claude --model haiku`, in a throwaway HOME (only the keychain is
   linked, for sign-in). Scenarios: memory across turns, quit mid-turn and
@@ -802,7 +894,10 @@ prunes them the diff says it can't be shown.
   two agents at once + the hop cap, Stop and interrupt, approvals (Allow,
   late Allow after a shortened wait, Always allow), a fake CLI (startup
   error, garbage output, crash, bare error code), damaged store files, 20
-  rapid messages, Stop ending a turn's whole process tree (a background
+  rapid messages, a session's questions (`session-prompt`: Chief → Site
+  Builder → a fresh untrusted project; the trust card in both chats, Allowed
+  in the Chief's; trust recorded; the edit's permission card; the edit; a
+  change card), Stop ending a turn's whole process tree (a background
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
@@ -817,5 +912,20 @@ prunes them the diff says it can't be shown.
   allow) for an escalated command, not a model's judgement.
   `AGENTS_E2E_CODEX=real|scripted|skip` forces one;
   `SHIPSTUDIO_AGENTS_CODEX_EXEC=1` runs them on the `exec` fallback.
-- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
+- `scripts/agents-e2e.sh behaviour` (opt-in, about $1.50 for three runs):
+  `examples/agents_e2e/behaviour.rs` checks behaviour rather than plumbing,
+  each scenario in its own HOME, several runs, with pass rates per check:
+  the Chief delegates work that belongs to a specialist (named or not) and
+  answers trivial questions itself; one brief and no chatter between agents;
+  the Chief reports back unprompted; reminders and "in two hours, tell me"
+  get a check-in; no promise of a later update without a check-in or an
+  answer actually arriving; every message gets a visible reply; a
+  correction is fixed without apology; "ask before sending email" holds
+  across turns and sending happens on yes; a fresh Chief offers a daily brief
+  and sets it up only on yes; a blocked delegate's blocker reaches the user.
+  It prints tokens (the CLI's own), cost, time to first word, and where turn
+  time goes (`agents::timing`: our prep, CLI start-up, tail after the
+  result). `AGENTS_E2E_RUNS`, `AGENTS_E2E_JOBS`, `AGENTS_E2E_ONLY`,
+  `AGENTS_E2E_OUT=<file.json>`.
+- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
   agent, import, Claude Code missing, the engine picker (`agents-engine-picker`) and a Codex agent's chat (`agents-codex-chat`).

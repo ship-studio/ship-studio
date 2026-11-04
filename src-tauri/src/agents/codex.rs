@@ -147,7 +147,7 @@ pub(super) fn shared_config(url: &str, writable: &[String]) -> Vec<String> {
 /// `app-server` (see [`super::codex_app::available`]). The prompt goes on
 /// stdin (`-`).
 pub fn args(
-    agent: &Agent,
+    model: Option<&str>,
     session: Option<&str>,
     url: &str,
     developer_instructions: &str,
@@ -166,8 +166,8 @@ pub fn args(
     for value in config.into_iter().chain(shared_config(url, writable)) {
         args.extend(["-c".into(), value]);
     }
-    if let Some(model) = &agent.model {
-        args.extend(["-m".into(), model.clone()]);
+    if let Some(model) = model {
+        args.extend(["-m".into(), model.to_string()]);
     }
     if let Some(id) = session {
         args.push(id.to_string());
@@ -434,7 +434,7 @@ mod tests {
         .unwrap();
         let roots = vec!["/h/a".to_string(), "/u/Ship \"Studio\"".to_string()];
         let fresh = args(
-            &agent,
+            agent.model.as_deref(),
             None,
             "http://127.0.0.1:9/mcp/t/agents/a",
             "Be \"brief\".\nOk",
@@ -453,7 +453,7 @@ mod tests {
         assert!(config.contains(&r#"developer_instructions="Be \"brief\".\nOk""#));
         assert!(fresh.windows(2).any(|w| w[0] == "-m" && w[1] == "gpt-5.5"));
         assert_eq!(fresh.last().unwrap(), "-");
-        let resumed = args(&agent, Some("01a1"), "http://x", "", &roots);
+        let resumed = args(agent.model.as_deref(), Some("01a1"), "http://x", "", &roots);
         assert_eq!(&resumed[..2], ["exec", "resume"]);
         assert_eq!(&resumed[resumed.len() - 2..], ["01a1", "-"]);
     }
