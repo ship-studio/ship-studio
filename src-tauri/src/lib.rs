@@ -582,6 +582,8 @@ pub fn run() {
             commands::agents::agents_schedule_create,
             commands::agents::agents_schedule_cancel,
             commands::agents::agents_schedule_pause,
+            commands::agents::agents_search,
+            commands::agents::agents_usage,
             commands::workflows::list_all_workflows,
             commands::workflows::save_workflow_file,
             commands::workflows::delete_workflow_file,

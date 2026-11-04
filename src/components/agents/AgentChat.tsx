@@ -27,6 +27,7 @@ import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown'
 import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
 import { TextButton } from '../primitives/TextButton';
+import { AgentModelMenu } from './AgentModelMenu';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
@@ -60,7 +61,13 @@ import {
   type Agent,
   type AgentMessage,
 } from '../../lib/agents';
-import { upsertMessage, useAgents } from '../../lib/agentsStore';
+import {
+  loadMessages,
+  MESSAGE_MAX,
+  MESSAGE_PAGE,
+  upsertMessage,
+  useAgents,
+} from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
@@ -87,6 +94,9 @@ interface AgentChatProps extends AgentActions {
   onSetUpEngine: () => void;
   /** Below the compact breakpoint the sidebar is gone; the header carries navigation. */
   compact?: { agents: Agent[]; onGoHome: () => void };
+  /** A search result to scroll to and flash; `onJumped` is called once it's shown. */
+  jumpTo?: string | null;
+  onJumped?: () => void;
 }
 
 function statusLabel(agent: Agent): string | null {
@@ -101,6 +111,8 @@ export function AgentChat({
   onOpenAgent,
   onSetUpEngine,
   compact,
+  jumpTo,
+  onJumped,
   ...actions
 }: AgentChatProps) {
   const { messages: allMessages, engineReady } = useAgents();
@@ -258,6 +270,37 @@ export function AgentChat({
     atBottomRef.current = bottom;
     setAtBottom(bottom);
   }, [isGliding]);
+
+  // A search hit: bring its line to the middle and flash it. A line older
+  // than the loaded page loads the rest first; one that's gone just stops.
+  useLayoutEffect(() => {
+    if (!jumpTo || !messages) return;
+    const target = messagesRef.current?.querySelector<HTMLElement>(
+      `[data-message-ids~="${CSS.escape(jumpTo)}"]`
+    );
+    if (!target) {
+      if (messages.length >= MESSAGE_PAGE && messages.length < MESSAGE_MAX) {
+        void loadMessages(agent.id, MESSAGE_MAX);
+      } else {
+        onJumped?.();
+      }
+      return;
+    }
+    // The scroll handler settles `atBottom`; until then, don't follow new lines.
+    atBottomRef.current = false;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Restart the flash if it's already running (the same hit, clicked twice).
+    target.removeAttribute('data-flash');
+    void target.offsetWidth;
+    target.setAttribute('data-flash', '');
+    const clear = (e: AnimationEvent) => {
+      if (e.animationName !== 'agents-motion-flash') return;
+      target.removeAttribute('data-flash');
+      target.removeEventListener('animationend', clear);
+    };
+    target.addEventListener('animationend', clear);
+    onJumped?.();
+  }, [jumpTo, messages, agent.id, onJumped]);
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -420,6 +463,7 @@ export function AgentChat({
         )}
         <div className="agent-chat__actions">
           <AgentSchedulePopover agent={agent} open={scheduleOpen} onOpenChange={setScheduleOpen} />
+          <AgentModelMenu agent={agent} />
           <Dropdown
             align="right"
             portal
@@ -473,6 +517,7 @@ export function AgentChat({
                     peerAgent={agentsById.get(item.peer.id)}
                     onOpenPeer={onOpenAgent}
                     arrived={arrived}
+                    reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
                   />
                 );
               }

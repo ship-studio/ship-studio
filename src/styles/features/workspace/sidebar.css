@@ -335,13 +335,37 @@
   margin-right: var(--spacing-xs);
 }
 
-/* The + menu rides at the row's trailing edge, inside its selected fill. */
-.workspace-sidebar-agents-row > .ss-dropdown,
-.workspace-sidebar-agents-row > .workspace-sidebar-agents-add {
+/* Search and the + menu ride at the row's trailing edge, inside its selected
+   fill. Search shows on hover, on keyboard focus, or while its field is open. */
+.workspace-sidebar-agents-actions {
   position: absolute;
   top: 50%;
   right: var(--spacing-2xs);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
   transform: translateY(-50%);
+}
+
+.workspace-sidebar-agents-search {
+  opacity: 0;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.workspace-sidebar-agents-row:hover .workspace-sidebar-agents-search,
+.workspace-sidebar-agents-search:focus-visible,
+.workspace-sidebar-agents-actions[data-search-open] .workspace-sidebar-agents-search {
+  opacity: 1;
+}
+
+.workspace-sidebar-agents-actions[data-search-open] .workspace-sidebar-agents-search {
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-sidebar-agents-search {
+    transition: none;
+  }
 }
 
 .workspace-sidebar.is-hidden .workspace-sidebar-agents {
@@ -350,7 +374,7 @@
 }
 
 .workspace-sidebar.is-hidden .workspace-sidebar-agents-label,
-.workspace-sidebar.is-hidden .workspace-sidebar-agents-row > .ss-dropdown {
+.workspace-sidebar.is-hidden .workspace-sidebar-agents-actions {
   display: none;
 }
 

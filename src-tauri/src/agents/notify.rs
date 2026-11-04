@@ -291,6 +291,7 @@ mod tests {
             model: None,
             muted,
             check_ins: Vec::new(),
+            usage: Default::default(),
         }
     }
 

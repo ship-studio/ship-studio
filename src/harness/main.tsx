@@ -169,7 +169,13 @@ async function runSteps(): Promise<void> {
       return;
     }
     if (step.click) {
-      el.click();
+      // A mouse click, with its click count. `el.click()` sends detail 0,
+      // which is what a keyboard-activated click looks like, so anything that
+      // tells the two apart (a menu that only rings its first item for the
+      // keyboard) would be photographed in the keyboard state.
+      el.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, view: window, detail: 1 })
+      );
       stepLog.push(`clicked ${selector}`);
     } else if (step.fill) {
       fillInput(el, step.value ?? '');

@@ -1374,3 +1374,212 @@
   justify-content: flex-end;
   gap: var(--spacing-sm);
 }
+
+/* -------------------------------------------------------------- search */
+
+/* Put away until asked for. The row animates its height open (0fr → 1fr) and
+   fades in; closed, it is inert, so nothing in it takes focus. */
+.agents-list__search {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--transition-interaction),
+    opacity var(--transition-interaction);
+}
+
+.agents-list__search[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.agents-list__search-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Same insets as the rows below: the field's edges line up with the avatar's
+   left edge and the status column's right edge. */
+.agents-list__search .ss-search-field {
+  margin: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) var(--spacing-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agents-list__search {
+    transition: none;
+  }
+}
+
+/* Compact mode: no sidebar, so the search comes up over the chat. */
+.agents-search-popover {
+  position: absolute;
+  top: var(--spacing-sm);
+  left: 50%;
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100% - 2 * var(--spacing-md)));
+  max-height: min(560px, calc(100% - 2 * var(--spacing-sm)));
+  padding-bottom: var(--spacing-xs);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
+  transform: translateX(-50%);
+  animation: agents-search-popover-in var(--transition-interaction);
+}
+
+.agents-search-popover__field {
+  flex: 0 0 auto;
+  margin: var(--spacing-sm) var(--spacing-md);
+}
+
+.agents-search-popover__results {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@keyframes agents-search-popover-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(calc(var(--spacing-xs) * -1));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agents-search-popover {
+    animation: none;
+  }
+}
+
+.agents-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agents-search__agent {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-2xs) var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.agents-search__agent-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agents-search__hit {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-xs) var(--spacing-sm);
+  text-align: left;
+  font: inherit;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background var(--transition-interaction-fast);
+}
+
+.agents-search__hit:hover {
+  background: var(--surface-control);
+}
+
+.agents-search__hit:focus-visible {
+  outline: none;
+  background: var(--surface-control);
+  box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
+}
+
+/* Two lines of context, then cut. */
+.agents-search__snippet {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.agents-search__snippet mark {
+  color: var(--text-primary);
+  background: rgba(var(--accent-warning-rgb), 0.22);
+  border-radius: var(--radius-sm);
+}
+
+.agents-search__speaker {
+  color: var(--text-secondary);
+}
+
+.agents-search__time {
+  flex: 0 0 auto;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.agents-search__note {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------- model, usage */
+
+.agent-chat__model {
+  color: var(--text-muted);
+}
+
+.agent-chat__model[aria-expanded='true'],
+.agent-chat__model:hover {
+  color: var(--text-primary);
+}
+
+.agent-editor__usage {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-2xs) var(--spacing-md);
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-editor__usage dt {
+  color: var(--text-faint);
+}
+
+.agent-editor__usage dd {
+  margin: 0;
+}
+
+.agent-editor__label .segmented-control {
+  align-self: flex-start;
+}
+
+/* Model menu: plain text, a check on the current choice in a fixed column. */
+.agent-model-menu .agent-model-menu__label {
+  flex: 1;
+}
+
+.agent-model-menu .agent-model-menu__check {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: var(--spacing-lg);
+  color: var(--text-secondary);
+}

@@ -72,6 +72,9 @@ pub struct Agent {
     /// Check-ins and routines this agent is woken by (see `schedule`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check_ins: Vec<super::schedule::CheckIn>,
+    /// Tokens and cost of its turns, as Claude Code reported them.
+    #[serde(default)]
+    pub usage: super::usage::AgentUsage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -322,6 +325,26 @@ pub fn validate_name(name: &str) -> Result<String, CommandError> {
     Ok(name.to_string())
 }
 
+/// The `--model` values offered: Claude Code's own aliases, which always
+/// resolve to the current model of that family. `None` is Claude Code's default.
+pub const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
+
+/// A `--model` value: empty means Claude Code's default; anything else must
+/// be one of [`MODELS`]. It becomes a CLI argument, so nothing else gets through.
+pub fn normalize_model(model: &str) -> Result<Option<String>, CommandError> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Ok(None);
+    }
+    if !MODELS.contains(&model) {
+        return Err(super::err_invalid(
+            "model",
+            "Pick Opus, Sonnet, Haiku or Default.",
+        ));
+    }
+    Ok(Some(model.to_string()))
+}
+
 pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
     let name = validate_name(&new.name)?;
     let _guard = REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -368,6 +391,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         model: None,
         muted: false,
         check_ins: Vec::new(),
+        usage: Default::default(),
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -696,6 +720,16 @@ mod tests {
                 ApprovalStatus::Expired
             );
         });
+    }
+
+    #[test]
+    fn models_are_the_cli_aliases_only() {
+        assert_eq!(normalize_model(" ").unwrap(), None);
+        assert_eq!(normalize_model(" opus ").unwrap().as_deref(), Some("opus"));
+        assert!(normalize_model("haiku").is_ok());
+        assert!(normalize_model("gpt-5").is_err());
+        assert!(normalize_model("--dangerously-skip-permissions").is_err());
+        assert!(normalize_model("opus; rm -rf").is_err());
     }
 
     #[test]

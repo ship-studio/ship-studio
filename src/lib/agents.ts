@@ -48,6 +48,7 @@ export interface Agent {
   unread: number;
   /** Approval cards still waiting on the user, including ones the agent paused on. */
   pendingApprovals: number;
+  /** `--model`; null is Claude Code's default. */
   model: string | null;
   /** No OS notifications; unread and the Dock badge still count it. */
   muted: boolean;
@@ -189,6 +190,7 @@ export interface NewAgentInput {
   color?: string;
   role?: string;
   instructions?: string;
+  model?: string;
 }
 
 export interface UpdateAgentInput {
@@ -200,6 +202,52 @@ export interface UpdateAgentInput {
   pinned?: boolean;
   hidden?: boolean;
   muted?: boolean;
+  /** An alias from AGENT_MODELS, or '' for Claude Code's default. */
+  model?: string;
+}
+
+/**
+ * The models an agent can run on: Claude Code's own `--model` aliases, which
+ * always mean the current model of that family. Must match `MODELS` in store.rs.
+ */
+export const AGENT_MODELS = [
+  { value: '', label: 'Default' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' },
+] as const;
+
+export function modelLabel(model: string | null): string {
+  return AGENT_MODELS.find((m) => m.value === (model ?? ''))?.label ?? model ?? 'Default';
+}
+
+export interface SearchHit {
+  agentId: string;
+  agentName: string;
+  agentColor: string;
+  messageId: string;
+  ts: number;
+  kind: MessageKind;
+  peerName?: string;
+  /** Text around the first match, on one line, with … where cut. */
+  snippet: string;
+}
+
+export interface UsageTotals {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number;
+  /** Turns that reported a cost; costUsd is complete only when this equals turns. */
+  pricedTurns: number;
+  durationMs: number;
+}
+
+export interface UsageSummary {
+  week: UsageTotals;
+  allTime: UsageTotals;
 }
 
 export const AGENT_EVENTS = {
@@ -322,6 +370,94 @@ export function sortCheckIns(checkIns: CheckIn[]): CheckIn[] {
   return [...checkIns].sort((a, b) =>
     a.paused !== b.paused ? (a.paused ? 1 : -1) : a.nextAt - b.nextAt
   );
+}
+
+export const searchAgents = (query: string) => invoke<SearchHit[]>('agents_search', { query });
+export const getAgentUsage = (agentId: string) => invoke<UsageSummary>('agents_usage', { agentId });
+
+/** Hits grouped by agent, groups in the order their newest hit appears. */
+export function groupHits(hits: SearchHit[]): { agentId: string; hits: SearchHit[] }[] {
+  const groups = new Map<string, SearchHit[]>();
+  for (const hit of hits) {
+    const group = groups.get(hit.agentId);
+    if (group) group.push(hit);
+    else groups.set(hit.agentId, [hit]);
+  }
+  return [...groups].map(([agentId, group]) => ({ agentId, hits: group }));
+}
+
+function compact(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function duration(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/**
+ * "$0.42 · 38k tokens · 6 turns · 4 min", from what Claude Code reported.
+ * The cost is left out unless every turn reported one: a partial sum would
+ * read as the whole. Null when there were no turns.
+ */
+export function formatUsage(totals: UsageTotals): string | null {
+  if (totals.turns === 0) return null;
+  const tokens =
+    totals.inputTokens + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
+  const parts = [
+    `${compact(tokens)} tokens`,
+    `${totals.turns} ${totals.turns === 1 ? 'turn' : 'turns'}`,
+  ];
+  if (totals.durationMs > 0) parts.push(duration(totals.durationMs));
+  if (totals.pricedTurns === totals.turns) {
+    parts.unshift(totals.costUsd < 0.01 ? '<$0.01' : `$${totals.costUsd.toFixed(2)}`);
+  }
+  return parts.join(' · ');
+}
+
+/** Who said a hit's line, when it wasn't the agent itself. */
+export function hitSpeaker(hit: SearchHit): string | null {
+  if (hit.kind === 'user') return 'You';
+  if (hit.kind === 'sent_to_agent') return hit.peerName ? `To ${hit.peerName}` : null;
+  if (hit.kind === 'from_agent') return hit.peerName ?? null;
+  return null;
+}
+
+/** "2:01 PM" today, "Nov 2" this year, "Nov 2, 2025" before. */
+export function formatHitTime(ts: number, now = Date.now()): string {
+  const date = new Date(ts);
+  const today = new Date(now);
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+  });
+}
+
+/**
+ * Split text into plain and matching runs for highlighting: every
+ * case-insensitive occurrence of any query word is a match.
+ */
+export function highlightRuns(text: string, query: string): { text: string; match: boolean }[] {
+  const words = query
+    .split(/\s+/)
+    .filter(Boolean)
+    // Longest first, so "invoice" wins over "in" at the same spot.
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (words.length === 0) return [{ text, match: false }];
+  // With one capturing group, split puts the matches at the odd indices.
+  return text
+    .split(new RegExp(`(${words.join('|')})`, 'gi'))
+    .map((part, i) => ({ text: part, match: i % 2 === 1 }))
+    .filter((run) => run.text.length > 0);
 }
 
 /**

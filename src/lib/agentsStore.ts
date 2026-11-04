@@ -78,9 +78,14 @@ function scheduleRefresh() {
   }, 120);
 }
 
-export async function loadMessages(agentId: string): Promise<void> {
+/** Lines a chat loads by default; must match `agents_messages`' default. */
+export const MESSAGE_PAGE = 400;
+/** The most `agents_messages` returns: what a search jump loads to reach an old line. */
+export const MESSAGE_MAX = 5000;
+
+export async function loadMessages(agentId: string, limit?: number): Promise<void> {
   try {
-    const messages = await getAgentMessages(agentId);
+    const messages = await getAgentMessages(agentId, limit);
     emit({ ...state, messages: { ...state.messages, [agentId]: messages } });
   } catch (error) {
     logger.error('[Agents] messages failed', { agentId, error: String(error) });

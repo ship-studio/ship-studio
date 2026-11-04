@@ -116,7 +116,11 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
   const segments = useMemo(() => toSegments(message.text), [message.text]);
   const onClick = useExternalLinks();
   return (
-    <div className="agent-chat__row agent-chat__row--agent" data-arrived={arrived || undefined}>
+    <div
+      className="agent-chat__row agent-chat__row--agent"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
       <div className="agent-bubble agent-bubble--agent agent-markdown" onClick={onClick}>
         {segments.map((segment, i) =>
           segment.type === 'code' ? (
@@ -150,6 +154,7 @@ export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBub
       className="agent-chat__row agent-chat__row--user"
       data-arrived={arrived || undefined}
       data-failed={failed || undefined}
+      data-message-ids={message.id}
     >
       {attachments.length > 0 && <MessageAttachments agent={agent} attachments={attachments} />}
       {message.text && (
@@ -182,7 +187,11 @@ export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBub
 
 export function ErrorLine({ message, arrived }: { message: AgentMessage } & Arrival) {
   return (
-    <div className="agent-chat__row agent-chat__row--agent" data-arrived={arrived || undefined}>
+    <div
+      className="agent-chat__row agent-chat__row--agent"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
       <div className="agent-bubble agent-bubble--error" role="alert">
         {message.text}
       </div>
@@ -198,7 +207,11 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
   const mark = message.checkIn;
   const label = mark?.repeats ? 'Routine' : 'Scheduled check-in';
   return (
-    <div className="agent-checkin" data-arrived={arrived || undefined}>
+    <div
+      className="agent-checkin"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
       <span className="agent-peer__line">
         <HistoryIcon size={12} />
         {label}
@@ -225,6 +238,8 @@ interface PeerGroupProps extends Arrival {
   /** The peer as it exists now, for its colour; absent if it was deleted. */
   peerAgent?: Agent;
   onOpenPeer: (agentId: string) => void;
+  /** A search jumped to a line inside: open the thread to show it. */
+  reveal?: boolean;
 }
 
 /**
@@ -232,12 +247,28 @@ interface PeerGroupProps extends Arrival {
  * Finance". Collapsed by default: the conversation between agents is there
  * when you want it and out of the way when you don't.
  */
-export function PeerGroup({ peer, messages, peerAgent, onOpenPeer, arrived }: PeerGroupProps) {
-  const [open, setOpen] = useState(false);
+export function PeerGroup({
+  peer,
+  messages,
+  peerAgent,
+  onOpenPeer,
+  arrived,
+  reveal,
+}: PeerGroupProps) {
+  const [open, setOpen] = useState(Boolean(reveal));
+  const [revealed, setRevealed] = useState(reveal);
+  if (reveal !== revealed) {
+    setRevealed(reveal);
+    if (reveal) setOpen(true);
+  }
   const threadRef = useRef<HTMLDivElement>(null);
   const threadShown = useHeightReveal(threadRef, open);
   return (
-    <div className="agent-peer" data-arrived={arrived || undefined}>
+    <div
+      className="agent-peer"
+      data-arrived={arrived || undefined}
+      data-message-ids={messages.map((m) => m.id).join(' ')}
+    >
       <div className="agent-peer__line">
         <button
           type="button"
@@ -336,6 +367,7 @@ export function ApprovalCard({ message, paused, onAnswer, arrived }: ApprovalCar
     <div
       className="agent-chat__row agent-chat__row--agent agent-chat__row--card"
       data-arrived={arrived || undefined}
+      data-message-ids={message.id}
     >
       <div className="agent-approval" data-status={approval.status}>
         <div className="agent-approval__title">

@@ -5,16 +5,18 @@
  * shared status dots — so it reads as the same sidebar, not a second app.
  *
  * There is one group, so there is no group header: the Agents nav row above
- * it is the heading, and carries the + menu (`AgentsAddMenu`).
+ * it is the heading, and carries search and the + menu (`AgentsNavActions`).
+ * Search (or ⌘F) reveals a field above the list; while it has a query the
+ * results take the list's place.
  *
  * Right-click a row for Pin, Mark as unread, Mute notifications, Edit, Hide
- * and Delete; the
- * conversation header's … menu has the same items for the open agent.
+ * and Delete; the conversation header's … menu has the same items for the
+ * open agent.
  *
  * @module components/agents/AgentsSidebar
  */
 
-import { useRef, type KeyboardEvent } from 'react';
+import { useRef, type KeyboardEvent, type RefObject } from 'react';
 import {
   BellOffIcon,
   ChevronRightIcon,
@@ -22,6 +24,7 @@ import {
   EditIcon,
   PinIcon,
   PlusIcon,
+  SearchIcon,
 } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
@@ -29,8 +32,10 @@ import { IconButton } from '../primitives/IconButton';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
+import { AgentsSearchResults } from './AgentsSearchResults';
+import { AgentsSearchBox, type AgentsSearchState } from './AgentsSearchBox';
 import { useFlipReorder } from './useAgentMotion';
-import { needsYou, sortAgents, type Agent } from '../../lib/agents';
+import { needsYou, sortAgents, type Agent, type SearchHit } from '../../lib/agents';
 import { kbd } from '../../lib/shortcuts';
 
 interface AgentsSidebarProps extends AgentActions {
@@ -39,6 +44,10 @@ interface AgentsSidebarProps extends AgentActions {
   showHidden: boolean;
   onToggleShowHidden: () => void;
   onSelect: (agentId: string) => void;
+  search: AgentsSearchState;
+  /** ⌘F focuses this. */
+  searchRef: RefObject<HTMLInputElement | null>;
+  onOpenHit: (hit: SearchHit) => void;
 }
 
 function subtitle(agent: Agent): string {
@@ -64,8 +73,12 @@ export function AgentsSidebar({
   showHidden,
   onToggleShowHidden,
   onSelect,
+  search,
+  searchRef,
+  onOpenHit,
   ...actions
 }: AgentsSidebarProps) {
+  const searching = search.open && search.query.trim().length > 0;
   const sorted = sortAgents(agents);
   const visible = sorted.filter((a) => !a.hidden || a.id === selectedId);
   const hidden = sorted.filter((a) => a.hidden && a.id !== selectedId);
@@ -136,50 +149,95 @@ export function AgentsSidebar({
       aria-label="Agents"
       ref={listRef}
       onKeyDown={onListKeyDown}
+      data-agents-search-scope
     >
-      {visible.map(row)}
-      {hidden.length > 0 && (
-        <button
-          type="button"
-          tabIndex={0}
-          className="agents-list__hidden-toggle"
-          aria-expanded={showHidden}
-          onClick={onToggleShowHidden}
-        >
-          <ChevronRightIcon size={10} className="agents-list__hidden-chevron" />
-          Hidden ({hidden.length})
-        </button>
+      <div
+        id="agents-list-search"
+        className="agents-list__search"
+        data-open={search.open || undefined}
+        inert={!search.open}
+      >
+        <div className="agents-list__search-inner">
+          <AgentsSearchBox search={search} field={searchRef} />
+        </div>
+      </div>
+
+      {searching ? (
+        <AgentsSearchResults query={search.query} field={searchRef} onOpen={onOpenHit} />
+      ) : (
+        <>
+          {visible.map(row)}
+          {hidden.length > 0 && (
+            <button
+              type="button"
+              tabIndex={0}
+              className="agents-list__hidden-toggle"
+              aria-expanded={showHidden}
+              onClick={onToggleShowHidden}
+            >
+              <ChevronRightIcon size={10} className="agents-list__hidden-chevron" />
+              Hidden ({hidden.length})
+            </button>
+          )}
+          {showHidden && hidden.map(row)}
+        </>
       )}
-      {showHidden && hidden.map(row)}
     </div>
   );
 }
 
 /** The + on the Agents nav row: a new agent, or bring some over. */
-export function AgentsAddMenu({ onNew, onImport }: { onNew: () => void; onImport: () => void }) {
+/** The Agents nav row's trailing controls: search (on hover, or while open) and +. */
+export function AgentsNavActions({
+  onNew,
+  onImport,
+  searchOpen,
+  onToggleSearch,
+}: {
+  onNew: () => void;
+  onImport: () => void;
+  searchOpen: boolean;
+  onToggleSearch: () => void;
+}) {
   return (
-    <Dropdown
-      align="right"
-      portal
-      trigger={(p) => (
-        <IconButton
-          {...p}
-          tabIndex={0}
-          variant="ghost"
-          size="compact"
-          className="workspace-sidebar-agents-add"
-          icon={<PlusIcon size={12} />}
-          title={`New agent (${kbd('mod', 'N')})`}
-          aria-label="New agent"
-        />
-      )}
-    >
-      <DropdownItem icon={<EditIcon size={14} />} onSelect={onNew}>
-        New agent…
-      </DropdownItem>
-      <DropdownItem icon={<DownloadIcon size={14} />} onSelect={onImport}>
-        Import agents…
-      </DropdownItem>
-    </Dropdown>
+    <div className="workspace-sidebar-agents-actions" data-search-open={searchOpen || undefined}>
+      <IconButton
+        variant="ghost"
+        size="compact"
+        className="workspace-sidebar-agents-search"
+        icon={<SearchIcon size={12} />}
+        // Keep focus in the field, so its blur doesn't close it a moment
+        // before this click would.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onToggleSearch}
+        title={`Search conversations (${kbd('mod', 'F')})`}
+        aria-label="Search conversations"
+        aria-expanded={searchOpen}
+        aria-controls="agents-list-search"
+      />
+      <Dropdown
+        align="right"
+        portal
+        trigger={(p) => (
+          <IconButton
+            {...p}
+            tabIndex={0}
+            variant="ghost"
+            size="compact"
+            className="workspace-sidebar-agents-add"
+            icon={<PlusIcon size={12} />}
+            title={`New agent (${kbd('mod', 'N')})`}
+            aria-label="New agent"
+          />
+        )}
+      >
+        <DropdownItem icon={<EditIcon size={14} />} onSelect={onNew}>
+          New agent…
+        </DropdownItem>
+        <DropdownItem icon={<DownloadIcon size={14} />} onSelect={onImport}>
+          Import agents…
+        </DropdownItem>
+      </Dropdown>
+    </div>
   );
 }

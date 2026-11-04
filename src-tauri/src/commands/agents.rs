@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::agents::{self, attachments, import, mcp, notify, runner, schedule, store};
+use crate::agents::{
+    self, attachments, import, mcp, notify, runner, schedule, search, store, usage,
+};
 use crate::errors::CommandError;
 
 #[derive(Serialize)]
@@ -148,6 +150,9 @@ pub struct CreateAgentInput {
     pub role: String,
     #[serde(default)]
     pub instructions: String,
+    /// `--model`; omitted or empty uses Claude Code's default.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[tauri::command]
@@ -156,6 +161,12 @@ pub async fn agents_create(
     app: AppHandle,
     input: CreateAgentInput,
 ) -> Result<store::Agent, CommandError> {
+    let model = input
+        .model
+        .as_deref()
+        .map(store::normalize_model)
+        .transpose()?
+        .flatten();
     let agent = store::create(store::NewAgent {
         name: input.name,
         role: input.role,
@@ -164,6 +175,10 @@ pub async fn agents_create(
         color: input.color,
         is_main: false,
     })?;
+    let agent = match model {
+        Some(model) => store::update(&agent.id, |a| a.model = Some(model))?,
+        None => agent,
+    };
     emit_registry(&app);
     Ok(agent)
 }
@@ -179,6 +194,8 @@ pub struct UpdateAgentInput {
     pub pinned: Option<bool>,
     pub hidden: Option<bool>,
     pub muted: Option<bool>,
+    /// `--model`; an empty string goes back to Claude Code's default.
+    pub model: Option<String>,
 }
 
 #[tauri::command]
@@ -206,6 +223,11 @@ pub async fn agents_update(
     let color = input.color.filter(|c| store::COLORS.contains(&c.as_str()));
     let shape = input.shape.filter(|s| *s < store::SHAPE_COUNT);
     let role = input.role.clone();
+    let model = input
+        .model
+        .as_deref()
+        .map(store::normalize_model)
+        .transpose()?;
     let updated = store::update(&agent_id, |a| {
         if let Some(n) = name {
             a.name = n;
@@ -227,6 +249,9 @@ pub async fn agents_update(
         }
         if let Some(m) = input.muted {
             a.muted = m;
+        }
+        if let Some(m) = model {
+            a.model = m;
         }
     })?;
     // The name and role are written into CLAUDE.md's heading, so any change
@@ -330,6 +355,22 @@ pub async fn agents_mark_unread(app: AppHandle, agent_id: String) -> Result<(), 
     store::update(&agent_id, |a| a.unread = a.unread.max(1))?;
     notify::refresh_badge(&app);
     Ok(())
+}
+
+/// Every agent's conversation, searched: all words must match, newest first.
+#[tauri::command]
+#[tracing::instrument(skip(query))]
+pub async fn agents_search(query: String) -> Result<Vec<search::SearchHit>, CommandError> {
+    tokio::task::spawn_blocking(move || search::search(&query))
+        .await
+        .map_err(agents::err_other)?
+}
+
+/// Tokens and cost for one agent: this week and all time.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_usage(agent_id: String) -> Result<usage::UsageSummary, CommandError> {
+    Ok(store::get(&agent_id)?.usage.summary(usage::today()))
 }
 
 /// What the user pastes into their other assistant to start an import.

@@ -1,6 +1,7 @@
 /**
  * Create a new agent, or edit one. Creating asks only what Grok Bot asks —
- * a name and a face — with the role and briefing one disclosure away, because
+ * a name and a face — plus the model it runs on, with the role and briefing
+ * one disclosure away, because
  * most agents are created by the Chief of Staff and briefed in conversation.
  *
  * @module components/agents/AgentEditorModal
@@ -11,16 +12,36 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
 import { TextButton } from '../primitives/TextButton';
+import { SegmentedControl } from '../primitives/SegmentedControl';
 import { AgentAvatar } from './AgentAvatar';
 import {
   AGENT_COLORS,
+  AGENT_MODELS,
   createAgent,
+  formatUsage,
   getAgentInstructions,
+  getAgentUsage,
   updateAgent,
   type Agent,
+  type UsageSummary,
 } from '../../lib/agents';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useAsyncState } from '../../hooks/useAsyncState';
+
+/** This week and all time, as Claude Code reported them; nothing before any turn. */
+function UsageLines({ usage }: { usage: UsageSummary | null }) {
+  const week = usage && formatUsage(usage.week);
+  const allTime = usage && formatUsage(usage.allTime);
+  if (!allTime) return null;
+  return (
+    <dl className="agent-editor__usage">
+      <dt>This week</dt>
+      <dd>{week ?? 'No turns'}</dd>
+      <dt>All time</dt>
+      <dd>{allTime}</dd>
+    </dl>
+  );
+}
 
 interface AgentEditorModalProps {
   isOpen: boolean;
@@ -52,6 +73,8 @@ export function AgentEditorModal({
   const [color, setColor] = useState<string>(() => agent?.color ?? freeColor(takenColors));
   const [role, setRole] = useState(agent?.role ?? '');
   const [instructions, setInstructions] = useState('');
+  const [model, setModel] = useState(agent?.model ?? '');
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [showBriefing, setShowBriefing] = useState(Boolean(agent));
   const [error, setError] = useState<string | null>(null);
 
@@ -63,6 +86,11 @@ export function AgentEditorModal({
         if (live) setInstructions(text);
       })
       .catch(() => undefined);
+    getAgentUsage(agent.id)
+      .then((summary) => {
+        if (live) setUsage(summary);
+      })
+      .catch(() => undefined);
     return () => {
       live = false;
     };
@@ -72,10 +100,10 @@ export function AgentEditorModal({
     setError(null);
     try {
       if (agent) {
-        await updateAgent(agent.id, { name, color, role, instructions });
+        await updateAgent(agent.id, { name, color, role, instructions, model });
         onSaved(agent.id);
       } else {
-        const created = await createAgent({ name, color, role, instructions });
+        const created = await createAgent({ name, color, role, instructions, model });
         onSaved(created.id);
       }
       onClose();
@@ -128,6 +156,16 @@ export function AgentEditorModal({
           ))}
         </div>
 
+        <div className="agent-editor__label" role="group" aria-label="Model">
+          Model
+          <SegmentedControl
+            value={model}
+            options={AGENT_MODELS}
+            onValueChange={setModel}
+            aria-label="Model"
+          />
+        </div>
+
         {showBriefing ? (
           <div className="agent-editor__briefing">
             <label className="agent-editor__label">
@@ -153,6 +191,7 @@ export function AgentEditorModal({
                 What it remembers is kept separately and isn't changed here.
               </p>
             )}
+            <UsageLines usage={usage} />
           </div>
         ) : (
           <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>

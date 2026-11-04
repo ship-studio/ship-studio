@@ -7,13 +7,17 @@
 
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { AgentsIcon, DownloadIcon, PlusIcon } from '@/components/icons';
+import { AgentsIcon, DownloadIcon, PlusIcon, SearchIcon } from '@/components/icons';
 import { useCommands } from './useCommands';
 import { useAgents } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
 import { AGENT_EVENTS } from '../lib/agents';
 
-type AgentsIntent = { kind: 'new' } | { kind: 'import' } | { kind: 'open'; agentId: string };
+type AgentsIntent =
+  | { kind: 'new' }
+  | { kind: 'import' }
+  | { kind: 'search' }
+  | { kind: 'open'; agentId: string };
 let pendingIntent: AgentsIntent | null = null;
 const intentListeners = new Set<(intent: AgentsIntent) => void>();
 
@@ -31,12 +35,14 @@ export function useAgentsIntents(handlers: {
   onNewAgent: () => void;
   onImportAgents: () => void;
   onOpenAgent: (agentId: string) => void;
+  onSearch: () => void;
 }) {
-  const { onNewAgent, onImportAgents, onOpenAgent } = handlers;
+  const { onNewAgent, onImportAgents, onOpenAgent, onSearch } = handlers;
   useEffect(() => {
     const listener = (intent: AgentsIntent) => {
       if (intent.kind === 'new') onNewAgent();
       else if (intent.kind === 'import') onImportAgents();
+      else if (intent.kind === 'search') onSearch();
       else onOpenAgent(intent.agentId);
     };
     intentListeners.add(listener);
@@ -48,7 +54,7 @@ export function useAgentsIntents(handlers: {
     return () => {
       intentListeners.delete(listener);
     };
-  }, [onNewAgent, onImportAgents, onOpenAgent]);
+  }, [onNewAgent, onImportAgents, onOpenAgent, onSearch]);
 }
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
@@ -80,6 +86,17 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
         keywords: ['agents', 'create', 'bot'],
         run: () => {
           requestAgentsIntent({ kind: 'new' });
+          setView('agents');
+        },
+      },
+      {
+        id: 'agents.search',
+        title: 'Search agent conversations',
+        icon: <SearchIcon size={14} />,
+        category: 'navigation',
+        keywords: ['agents', 'find', 'messages', 'chat', 'history'],
+        run: () => {
+          requestAgentsIntent({ kind: 'search' });
           setView('agents');
         },
       },

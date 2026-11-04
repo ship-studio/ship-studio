@@ -165,10 +165,29 @@ note.
 
 That line goes through `runner::record` as a `MessageKind::wants_user()` kind,
 the same predicate as replies, and is recorded after the wake starts, so it
-falls inside the turn. That is the seam for notifications: when the
-notifications slice lands, its own list of notifying kinds becomes
-`kind.wants_user()`, and it then posts one notification per turn for the
-check-in and its answer.
+falls inside the turn. Notifications use the same predicate, so a check-in
+and its answer post one notification per turn.
+
+## Search, model and usage
+
+- **Search.** The search button in the Agents header, ⌘F, or ⌘K → "Search
+  agent conversations" reveals a field above the list (in compact mode it opens
+  over the chat instead). It scans every agent's `messages.jsonl` directly, with
+  no index: every word must appear, case is ignored, newest first, at most 50
+  hits (`src-tauri/src/agents/search.rs`). Results replace the list, grouped by
+  agent. Opening one loads older history if needed, expands a collapsed
+  agent-to-agent thread that holds it, and centres the line. Esc, or leaving
+  the field empty, puts it away.
+- **Model.** Default / Opus / Sonnet / Haiku, passed as `--model` from the next
+  turn. Set it when creating the agent, in the editor, or from the menu in the
+  chat header. Only Claude Code's own aliases are accepted, and the backend
+  enforces that too. Default means no `--model`, so whatever Claude Code
+  defaults to.
+- **Usage.** Each turn's final stream-json `result` event adds its token counts,
+  `total_cost_usd` and `duration_ms` to the agent, all time and per day for the
+  last 7 days (`src-tauri/src/agents/usage.rs`). Nothing is estimated: a turn
+  that reports no cost adds tokens only, and a period containing one shows no
+  dollar figure at all. The editor shows "This week" and "All time".
 
 ## Access
 
@@ -209,8 +228,10 @@ cards.
   (`codex exec --json`) and Opencode would slot in there.
 - No OS notification when an agent replies while Ship Studio is in the
   background. The unread badge is the only signal.
-- No voice in the composer yet. Agents can't send files back to you yet (a
-  `share_file` tool would post a file card).
+- Agents can't send files back to you yet (a `share_file` tool would post a
+  file card).
+- Search scans files on every query. Fine at one person's scale (tens of
+  agents, thousands of lines); an index would be needed well past that.
 - Many agents can run at once; there's no global concurrency cap.
 - Debug builds: `research/design-canvas` (not on main) disables the agent
   bridge under `debug_assertions`. Agents depends on it, so that branch needs

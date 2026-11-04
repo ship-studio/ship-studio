@@ -1217,6 +1217,7 @@ mod tests {
             model: None,
             muted: false,
             check_ins,
+            usage: Default::default(),
         }
     }
 
