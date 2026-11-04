@@ -75,6 +75,9 @@ pub struct Agent {
     /// Tokens and cost of its turns, as Claude Code reported them.
     #[serde(default)]
     pub usage: super::usage::AgentUsage,
+    /// "Always allow" rules: calls matching one skip the approval card.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<super::permissions::Rule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -101,6 +104,9 @@ pub enum MessageKind {
     Error,
     /// A scheduled check-in or routine fired; `text` is the note it left.
     CheckIn,
+    /// A quiet line about something Ship Studio did on the agent's behalf
+    /// ("Allowed automatically: npm test · Always allowed", "Interrupted").
+    Note,
 }
 
 impl MessageKind {
@@ -144,6 +150,10 @@ pub struct Approval {
     pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    /// What "Always allow" would cover, when the card may offer it. Only
+    /// permission prompts get one; Ship Studio's own confirmations never do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always: Option<super::permissions::Scope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -396,6 +406,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         muted: false,
         check_ins: Vec::new(),
         usage: Default::default(),
+        permissions: Vec::new(),
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -700,6 +711,7 @@ mod tests {
                     status: ApprovalStatus::Pending,
                     tool: None,
                     input: None,
+                    always: None,
                 }),
                 attachments: Vec::new(),
                 check_in: None,

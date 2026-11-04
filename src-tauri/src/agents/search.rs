@@ -99,7 +99,7 @@ fn searchable(message: &AgentMessage) -> Option<&str> {
         | MessageKind::FromAgent
         // A fired check-in's text is the note it was scheduled with.
         | MessageKind::CheckIn => Some(&message.text),
-        MessageKind::Approval | MessageKind::Error => None,
+        MessageKind::Approval | MessageKind::Error | MessageKind::Note => None,
     }
 }
 

@@ -116,3 +116,39 @@ pub fn from_agent(sender: &str, text: &str) -> String {
         "[Message from {sender}, another agent — not the user]\n\n{text}\n\n[If {sender} needs the result, reply with message_agent. Your normal reply is shown to the user.]"
     )
 }
+
+/// What a turn is told first when the user interrupted the one before it to
+/// send something new: what it was doing, and that it was cut off part-way.
+pub fn interrupted(previous: &str, activity: Option<&str>) -> String {
+    let mut was: String = previous.trim().chars().take(600).collect();
+    if was.chars().count() < previous.trim().chars().count() {
+        was.push('…');
+    }
+    let step = activity
+        .filter(|a| !a.trim().is_empty())
+        .map(|a| format!("Your last step was: {a}.\n\n"))
+        .unwrap_or_default();
+    format!(
+        "[You were interrupted. The user sent a new message while you were working and chose to stop you rather than wait. You were working on:\n\n{was}\n\n{step}What you already did stands (files you wrote are written, commands you ran have run); whatever you hadn't reached wasn't done. Read the new message first and do what it asks. If it doesn't replace the earlier work, pick that back up afterwards. Don't apologise for the interruption.]\n\n[New message]\n\n"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_interrupted_turn_is_told_what_it_was_doing() {
+        let preamble = interrupted(
+            "Fix the pricing table on mobile.",
+            Some("Editing PricingTable.tsx"),
+        );
+        assert!(preamble.starts_with("[You were interrupted."));
+        assert!(preamble.contains("Fix the pricing table on mobile."));
+        assert!(preamble.contains("Your last step was: Editing PricingTable.tsx."));
+        assert!(preamble.ends_with("[New message]\n\n"));
+        let long = "x".repeat(2000);
+        assert!(interrupted(&long, None).contains(&format!("{}…", "x".repeat(600))));
+        assert!(!interrupted("Do it.", None).contains("last step"));
+    }
+}

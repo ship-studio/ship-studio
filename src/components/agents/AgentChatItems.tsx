@@ -23,6 +23,7 @@ import { MessageAttachments } from './AgentAttachments';
 import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
+  describeScope,
   errorRemedy,
   formatClock,
   formatDivider,
@@ -193,10 +194,15 @@ interface UserBubbleProps extends Arrival {
   /** Sending failed; offer to try again. */
   failed?: boolean;
   onRetry?: () => void;
+  /**
+   * The newest message waiting for the turn in progress to end. It says so,
+   * and offers to interrupt that turn to send it now.
+   */
+  queued?: { onInterrupt: () => void };
 }
 
 /** Attachments sit above the words, both against the right edge, as one message. */
-export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBubbleProps) {
+export function UserBubble({ message, agent, arrived, failed, onRetry, queued }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
   const actions = !failed && <MessageActions text={message.text} ts={message.ts} />;
   return (
@@ -229,6 +235,20 @@ export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBub
               )
             )}
           </div>
+        </div>
+      )}
+      {queued && !failed && (
+        <div className="agent-chat__queued" role="status">
+          Queued, sends when {agent.name} finishes
+          <span aria-hidden>·</span>
+          <TextButton
+            tabIndex={0}
+            variant="accent"
+            onClick={queued.onInterrupt}
+            title="Stop what it’s doing and send this now (⌘↵ when sending)"
+          >
+            Interrupt and send now
+          </TextButton>
         </div>
       )}
       {failed && (
@@ -308,6 +328,18 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
         )}
       </span>
       <span className="agent-checkin__note">{message.text}</span>
+    </div>
+  );
+}
+
+/**
+ * Something Ship Studio did for the agent, said quietly so it never happens
+ * invisibly: "Allowed automatically: npm test · Always allowed".
+ */
+export function NoteLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+  return (
+    <div className="agent-note" data-arrived={arrived || undefined} data-message-ids={message.id}>
+      {message.text}
     </div>
   );
 }
@@ -404,9 +436,11 @@ const STATUS_LABEL = {
 
 interface ApprovalCardProps extends Arrival {
   message: AgentMessage;
+  /** Whose card this is, for what "Always allow" says it covers. */
+  agentName: string;
   /** The agent stopped waiting (its turn ended). Allowing wakes it to finish. */
   paused: boolean;
-  onAnswer: (requestId: string, allow: boolean) => Promise<void>;
+  onAnswer: (requestId: string, allow: boolean, always?: boolean) => Promise<void>;
 }
 
 /** "subject" → "Subject", "cc_list" → "Cc list". */
@@ -434,7 +468,7 @@ function approvalFields(tool: string | undefined, input: unknown): [string, stri
   return fields.length ? fields : null;
 }
 
-export function ApprovalCard({ message, paused, onAnswer, arrived }: ApprovalCardProps) {
+export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: ApprovalCardProps) {
   const approval = message.approval;
   const [busy, setBusy] = useState(false);
   // Answered while on screen, so the buttons resolve into the outcome;
@@ -443,10 +477,10 @@ export function ApprovalCard({ message, paused, onAnswer, arrived }: ApprovalCar
   if (!approval) return null;
   const pending = approval.status === 'pending';
   const fields = approvalFields(approval.tool, approval.input);
-  const answer = async (allow: boolean) => {
+  const answer = async (allow: boolean, always = false) => {
     setBusy(true);
     try {
-      await onAnswer(approval.requestId, allow);
+      await onAnswer(approval.requestId, allow, always);
     } finally {
       setBusy(false);
     }
@@ -481,6 +515,22 @@ export function ApprovalCard({ message, paused, onAnswer, arrived }: ApprovalCar
         )}
         {pending ? (
           <div className="agent-approval__actions">
+            {approval.always && (
+              <TextButton
+                tabIndex={0}
+                className="agent-approval__always"
+                disabled={busy}
+                onClick={() => void answer(true, true)}
+                title={describeScope(approval.always, agentName)}
+              >
+                Always allow{' '}
+                {approval.always.kind.startsWith('command') ? (
+                  <code>{approval.always.label}</code>
+                ) : (
+                  approval.always.label
+                )}
+              </TextButton>
+            )}
             {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
             <Button
               tabIndex={0}

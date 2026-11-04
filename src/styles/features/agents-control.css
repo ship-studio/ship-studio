@@ -1,0 +1,95 @@
+/*
+ * Agents — control: "Always allow" on approval cards, the quiet lines that
+ * say what was allowed or interrupted, a message queued behind the turn in
+ * progress, and the Permissions list in the agent editor.
+ */
+
+/* "Allowed automatically: npm test · Always allowed" — centred like the
+   agent-to-agent lines: something that happened, not something said. */
+.agent-note {
+  align-self: center;
+  max-width: min(480px, 100%);
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  color: var(--text-muted);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The quiet option sits apart from Deny / Allow, on the left. */
+.agent-approval__always {
+  min-width: 0;
+  margin-right: auto;
+}
+
+/* Quieter than a TextButton's default; hover still brings it up. */
+.text-button.button.agent-approval__always,
+.text-button.button.agent-permissions__revoke {
+  color: var(--text-muted);
+}
+
+.agent-approval__always code,
+.agent-permissions__what code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+.agent-approval__always:hover:not(:disabled) code {
+  color: var(--text-primary);
+}
+
+/* "Queued, sends when Acme Site finishes · Interrupt and send now" */
+.agent-chat__queued {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+.agent-chat__row--user:has(.agent-chat__queued) .agent-bubble--user {
+  opacity: 0.75;
+}
+
+/* "↵ queues · ⌘↵ interrupts and sends now", only while it works and you type. */
+.agent-composer__hint {
+  margin-right: var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.agent-permissions {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-permissions__rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) 0;
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-body);
+  color: var(--text-primary);
+}
+
+.agent-permissions__rule + .agent-permissions__rule {
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agent-permissions__what {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-permissions__revoke {
+  flex: 0 0 auto;
+}

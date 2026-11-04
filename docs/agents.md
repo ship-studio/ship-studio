@@ -118,6 +118,34 @@ tool and input are stored on the card. Ship Studio's own confirmations (delete
 an agent) do expire, since they only mean something while asked. The sidebar
 shows "Needs your OK" while any card is open (`pendingApprovals`).
 
+**Always allow** (`agents/permissions.rs`). A permission card can offer a
+quiet "Always allow …" beside Deny / Allow, scoped when the card is made and
+stored on it, so the UI can only accept that scope, never widen it: a Bash
+command's leading words (`npm test`, `git push`, `npm run build`), or the exact
+command for wrappers and risky programs (`sudo`, `rm`, `bash`, `curl`…) and for
+anything whose second word is a flag; one exact host for WebFetch; one
+connector tool; web search. Never Bash, Write or Edit as a whole, and never on
+Ship Studio's own confirmations (delete an agent has no tool call, so no
+scope). A command only matches if it is one plain command: `;`, `&`, `|`,
+redirects, `$`, backticks, parentheses, backslashes and line breaks all ask
+again, so `npm test && rm -rf ~` never matches `npm test`. Rules are stored per
+agent (`Agent.permissions`); each auto-allowed call leaves a muted `note` line
+("Allowed automatically: npm test · Always allowed"); the agent editor lists
+them under Permissions with Revoke.
+
+## Steering a working agent
+
+Sending mid-turn queues the message for the next turn (default). The newest
+queued bubble says "Queued, sends when <agent> finishes" with **Interrupt and
+send now**; ⌘↵ in the composer sends and interrupts at once. A message is
+queued when it was sent after the turn in progress began (`isQueued`: its `ts`
+is after `status.since`). `agents_interrupt` cancels the turn without dropping
+the queue (Stop drops it); the cut-off reply is kept as `stopped`, a note
+"Interrupted to read your new message" is recorded, and the next turn's prompt
+opens with `prompts::interrupted`: what it was working on, its last step, and
+that the work already done stands. A card the interrupted turn was waiting on
+stays live, with the usual late-Allow behaviour.
+
 ## Notifications (`src-tauri/src/agents/notify.rs`)
 
 The backend decides, since it knows when a message is recorded and when a turn ends.

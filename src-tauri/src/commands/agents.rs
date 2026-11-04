@@ -293,6 +293,16 @@ pub async fn agents_stop(agent_id: String) -> Result<bool, CommandError> {
     Ok(runner::stop(&agent_id))
 }
 
+/// Stop the turn in progress so the messages queued behind it run now. The
+/// next turn is told what it was doing when it was cut off.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_interrupt(agent_id: String) -> Result<bool, CommandError> {
+    Ok(runner::interrupt(&agent_id))
+}
+
+/// `always`: allow, and keep allowing what the card offered to (its stored
+/// scope, never one the caller supplies).
 #[tauri::command]
 #[tracing::instrument(skip(app))]
 pub async fn agents_answer_approval(
@@ -300,6 +310,7 @@ pub async fn agents_answer_approval(
     agent_id: String,
     request_id: String,
     allow: bool,
+    always: Option<bool>,
 ) -> Result<(), CommandError> {
     let status = if allow {
         store::ApprovalStatus::Allowed
@@ -310,6 +321,9 @@ pub async fn agents_answer_approval(
         .ok_or_else(|| CommandError::expected("That request no longer exists."))?;
     if approval.status != store::ApprovalStatus::Pending {
         return Err(CommandError::expected("That request was already answered."));
+    }
+    if allow && always == Some(true) {
+        mcp::always_allow(&agent_id, &approval)?;
     }
     // Write the decision before waking the waiter, so the card can't be
     // overwritten by the waiter's own cleanup.
@@ -324,6 +338,19 @@ pub async fn agents_answer_approval(
         // a late Allow grants that exact call and wakes the agent.
         mcp::answer_late(&app, &agent_id, &approval, allow)?;
     }
+    Ok(())
+}
+
+/// Take back an "Always allow" rule: matching calls ask again.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_revoke_permission(
+    app: AppHandle,
+    agent_id: String,
+    rule_id: String,
+) -> Result<(), CommandError> {
+    store::update(&agent_id, |a| a.permissions.retain(|r| r.id != rule_id))?;
+    emit_registry(&app);
     Ok(())
 }
 

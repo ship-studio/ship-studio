@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { agentInitials } from '../components/agents/AgentAvatar';
 import {
   buildChatItems,
+  describeScope,
   errorRemedy,
+  isQueued,
   lastUserText,
   describeCheckInTime,
   describeRepeat,
@@ -282,5 +284,33 @@ describe('lastUserText', () => {
     const list = [m('user', 'first'), m('agent', 'ok'), m('user', 'second'), m('error', 'x')];
     expect(lastUserText(list as never, 3)).toBe('second');
     expect(lastUserText(list as never, 0)).toBeNull();
+  });
+});
+
+describe('isQueued', () => {
+  const working = { status: { state: 'working', activity: null, since: 1000 } } as Agent;
+  const user = (ts: number) => msg('u', 'user', ts);
+  it('is a message you sent after the turn in progress began', () => {
+    expect(isQueued(user(1500), working)).toBe(true);
+    expect(isQueued(user(500), working)).toBe(false);
+    expect(isQueued(msg('a', 'agent', 1500), working)).toBe(false);
+  });
+  it('is nothing once the agent is idle', () => {
+    const idle = { status: { state: 'idle', activity: null, since: null } } as Agent;
+    expect(isQueued(user(1500), idle)).toBe(false);
+  });
+});
+
+describe('describeScope', () => {
+  it('says exactly what stops asking, and that chains still ask', () => {
+    const text = describeScope(
+      { kind: 'command_prefix', value: 'npm test', label: 'npm test' },
+      'Acme Site'
+    );
+    expect(text).toContain('Any command starting with “npm test” runs for Acme Site');
+    expect(text).toContain('still ask');
+    expect(describeScope({ kind: 'domain', value: 'a.com', label: 'a.com' }, 'X')).not.toContain(
+      'still ask'
+    );
   });
 });

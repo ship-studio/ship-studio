@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
+use super::permissions;
 use super::runner::{self, From, Status};
 use super::schedule;
 use super::store::{self, AgentRef, Approval, ApprovalStatus, MessageKind};
@@ -560,14 +561,7 @@ async fn ask_user(
         .insert(request_id.clone(), tx);
 
     let mut card = runner::new_message(&caller.id, MessageKind::Approval, "");
-    card.approval = Some(Approval {
-        request_id: request_id.clone(),
-        title,
-        detail,
-        status: ApprovalStatus::Pending,
-        tool: call.map(|(tool, _)| tool.to_string()),
-        input: call.map(|(_, input)| input.clone()),
-    });
+    card.approval = Some(new_card(request_id.clone(), title, detail, call));
     let _ = runner::record(app, card);
     store::refresh_pending(&caller.id);
     super::notify::refresh_badge(app);
@@ -603,16 +597,74 @@ async fn ask_user(
     }
     let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
     super::notify::refresh_badge(app);
-    runner::set_status(
-        app,
-        &caller.id,
-        Status {
-            state: "working",
-            activity: None,
-            since: before.since,
-        },
-    );
+    // Back to work, unless the turn already ended under the card (Stop, or
+    // the user interrupted it): then it isn't ours to change.
+    if runner::status_of(&caller.id).state == "waiting" {
+        runner::set_status(
+            app,
+            &caller.id,
+            Status {
+                state: "working",
+                activity: None,
+                since: before.since,
+            },
+        );
+    }
     answer
+}
+
+/// The card for a request. Only a Claude Code tool call can be always
+/// allowed: Ship Studio's own confirmations (delete an agent) never offer it.
+fn new_card(
+    request_id: String,
+    title: String,
+    detail: String,
+    call: Option<(&str, &Value)>,
+) -> Approval {
+    Approval {
+        request_id,
+        title,
+        detail,
+        status: ApprovalStatus::Pending,
+        tool: call.map(|(tool, _)| tool.to_string()),
+        input: call.map(|(_, input)| input.clone()),
+        always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
+    }
+}
+
+/// The user chose "Always allow" on a card: keep its scope as a rule.
+pub fn always_allow(agent_id: &str, approval: &Approval) -> Result<(), CommandError> {
+    let Some(scope) = approval.always.clone() else {
+        return Err(CommandError::expected(
+            "This one can't be always allowed. Allow it once instead.",
+        ));
+    };
+    store::update(agent_id, |a| {
+        if !a.permissions.iter().any(|r| r.scope == scope) {
+            a.permissions.push(permissions::Rule {
+                id: store::new_id(),
+                scope,
+                created_at: store::now_ms(),
+            });
+        }
+    })?;
+    Ok(())
+}
+
+/// What an automatically allowed call is, in one line: the command or the
+/// address when there is one, else what the tool does.
+fn one_line(tool: &str, input: &Value) -> String {
+    let (title, detail) = describe_request(tool, input);
+    let line = match tool {
+        "Bash" | "WebFetch" | "WebSearch" => detail.lines().next().unwrap_or("").trim().to_string(),
+        _ => String::new(),
+    };
+    let line = if line.is_empty() { title } else { line };
+    if line.chars().count() > 120 {
+        line.chars().take(120).collect::<String>() + "…"
+    } else {
+        line
+    }
 }
 
 /// The user answered a card nobody is waiting on any more. Allow grants that
@@ -757,6 +809,18 @@ async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
     if take_grant(&caller.id, tool, &input) {
         return text(allow.to_string());
     }
+    if permissions::matching(&caller.permissions, tool, &input).is_some() {
+        // Nothing happens invisibly: each one leaves a quiet line in the chat.
+        let line = format!(
+            "Allowed automatically: {} · Always allowed",
+            one_line(tool, &input)
+        );
+        let _ = runner::record(
+            app,
+            runner::new_message(&caller.id, MessageKind::Note, line),
+        );
+        return text(allow.to_string());
+    }
     let (title, detail) = describe_request(tool, &input);
     let answer = match ask_user(app, caller, title, detail, Some((tool, &input))).await {
         Answer::Allowed => allow,
@@ -789,6 +853,29 @@ mod tests {
         assert!(take_grant("agent-a", "Bash", &input));
         // Once.
         assert!(!take_grant("agent-a", "Bash", &input));
+    }
+
+    #[test]
+    fn only_tool_calls_can_be_always_allowed() {
+        let input = json!({ "command": "npm test" });
+        let card = new_card("r".into(), "t".into(), "d".into(), Some(("Bash", &input)));
+        assert_eq!(card.always.map(|s| s.value).as_deref(), Some("npm test"));
+        // Ship Studio's own confirmation (delete an agent) has no call.
+        let confirm = new_card("r".into(), "Delete Finance".into(), "d".into(), None);
+        assert!(confirm.always.is_none());
+        assert!(always_allow("agent-a", &confirm).is_err());
+    }
+
+    #[test]
+    fn auto_allowed_lines_name_the_call() {
+        assert_eq!(
+            one_line("Bash", &json!({ "command": "npm test\nmore" })),
+            "npm test"
+        );
+        assert_eq!(
+            one_line("mcp__gmail__send_email", &json!({ "to": "x" })),
+            "Send an email · Gmail"
+        );
     }
 
     #[test]
@@ -840,6 +927,7 @@ mod tests {
             muted: false,
             check_ins: Vec::new(),
             usage: Default::default(),
+            permissions: Vec::new(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()
