@@ -146,6 +146,22 @@ describe('ModalFrame', () => {
     expect(last).toHaveFocus();
   });
 
+  it('wraps Tab past controls in a hidden panel (an inactive tab)', () => {
+    render(
+      <ModalFrame isOpen onClose={vi.fn()} ariaLabel="Tabbed dialog" showCloseButton={false}>
+        <button type="button">First</button>
+        <button type="button">Last shown</button>
+        <div hidden>
+          <button type="button">In the other tab</button>
+        </div>
+      </ModalFrame>
+    );
+    const last = screen.getByRole('button', { name: 'Last shown' });
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+  });
+
   it('only dismisses the topmost modal when Escape is allowed', () => {
     const onClose = vi.fn();
     const { rerender } = render(
