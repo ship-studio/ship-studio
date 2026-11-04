@@ -182,6 +182,13 @@ pub fn run() {
                 });
             }
 
+            // "Keep this Mac awake" (Agents) is a standing preference: hold it again.
+            if commands::setup::read_app_state().keep_awake == Some(true) {
+                if let Err(e) = remote_access::power::set_keep_awake_asked(true, false) {
+                    tracing::error!("[Power] Could not keep the Mac awake at launch: {}", e);
+                }
+            }
+
             // Remote access: if the user left it on, bring it back — a Mac that
             // restarted overnight should be reachable again once it's logged in.
             {
@@ -879,6 +886,8 @@ pub fn run() {
             // Remote access
             commands::remote_access::get_remote_access_status,
             commands::remote_access::get_remote_access_brief,
+            commands::remote_access::get_keep_awake,
+            commands::remote_access::set_keep_awake,
             commands::remote_access::copy_remote_link,
             commands::remote_access::set_remote_push_pin,
             commands::remote_access::clear_remote_push_pin,

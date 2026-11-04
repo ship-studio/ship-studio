@@ -366,3 +366,37 @@ mod tests {
         );
     }
 }
+
+/// "Keep this Mac awake", apart from remote access: the same `caffeinate`
+/// assertion, held while Ship Studio is open. `active` is read back from the
+/// assertion itself, so it is also true while remote access holds it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepAwake {
+    /// macOS only; elsewhere there is nothing to hold.
+    pub supported: bool,
+    pub active: bool,
+}
+
+fn keep_awake_now() -> KeepAwake {
+    KeepAwake {
+        supported: cfg!(target_os = "macos"),
+        active: power::keep_awake_active(),
+    }
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_keep_awake() -> Result<KeepAwake, CommandError> {
+    Ok(keep_awake_now())
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_keep_awake(enabled: bool) -> Result<KeepAwake, CommandError> {
+    let mut state = crate::commands::setup::read_app_state();
+    state.keep_awake = Some(enabled);
+    crate::commands::setup::write_app_state(&state)?;
+    power::set_keep_awake_asked(enabled, remote_access::read_config().enabled)?;
+    Ok(keep_awake_now())
+}

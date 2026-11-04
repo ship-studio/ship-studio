@@ -1,5 +1,6 @@
 /**
- * Team: what's in flight across every agent, in one calm column. Who is
+ * What's in flight across every agent, in one calm column. Reached only from
+ * ⌘K ("What's in flight"); the sidebar lists agents, not overviews. Who is
  * working (with what they're doing), who needs you (approval cards you can
  * answer here, and turns that didn't finish, with their one next step), what's scheduled next, and the latest replies. Every row
  * opens that conversation; a reply opens it at that line.
@@ -286,12 +287,12 @@ export function AgentsTeamView({
       <span className="agent-avatar agent-avatar--row agent-avatar--selected agents-team__badge">
         <CollaboratorsIcon size={14} />
       </span>
-      <h2 className="agent-chat__name">Team</h2>
+      <h2 className="agent-chat__name">What’s in flight</h2>
     </>
   );
 
   return (
-    <section className="agent-chat agents-team" aria-label="Team">
+    <section className="agent-chat agents-team" aria-label="What’s in flight">
       <header className="agent-chat__header">
         {compact && (
           <CompactModeToggle
@@ -305,7 +306,7 @@ export function AgentsTeamView({
             agents={compact.agents}
             currentId={TEAM_ID}
             title={title}
-            label="Team. Switch agent"
+            label="What’s in flight. Switch agent"
             onOpenAgent={onOpenAgent}
             onGoHome={compact.onGoHome}
           />

@@ -30,6 +30,7 @@ import {
   type CheckIn,
   type SchedulePreview,
 } from '../../lib/agents';
+import { KeepAwakeLink } from './AgentsStayOn';
 import { refreshAgents } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useAsyncState } from '../../hooks/useAsyncState';
@@ -191,7 +192,9 @@ function ScheduleBody({ agent }: { agent: Agent }) {
       </div>
 
       <p className="agent-schedule__foot">
-        Runs only while Ship Studio is open; a missed check-in runs once when it reopens.
+        Runs only while Ship Studio is open and this Mac is awake; a missed check-in runs once when
+        it’s back.
+        <KeepAwakeLink />
       </p>
     </div>
   );

@@ -11,7 +11,7 @@ the sidebar (⌘⇧A, or ⌘K → Switch to Agents) turns the whole window into 
 chat app: agent list on the left, one conversation on the right. Switching
 back returns to wherever you were on the Projects side (the dashboard,
 Workflows, the Inbox, or the open project); switching in returns to the last
-conversation, or Team. While Projects is showing, an amber badge on the
+conversation. While Projects is showing, an amber badge on the
 Agents segment says an agent needs your OK or has news, and its tooltip says
 which. New agent is ⌘N, the row at the foot of the agent list, or ⌘K. In the
 collapsed rail the toggle is two stacked icons; below the compact breakpoint
@@ -74,7 +74,7 @@ From the stream:
   carries the tag while the error is the newest line (`Agent.failure`, cleared
   by anything said after it), so the sidebar shows "Didn't finish: …" with a
   red dot, or "Usage limit · resets 3:00 PM" quietly with an amber one, and
-  Team lists it under Needs you with its remedy.
+  What's in flight lists it under Needs you with its remedy.
 
 A vanished session (`--resume` → "No conversation found") is replaced once with
 a fresh one. **Stop** kills the process and drops the queue; it leaves a quiet
@@ -234,6 +234,44 @@ the same predicate as replies, and is recorded after the wake starts, so it
 falls inside the turn. Notifications use the same predicate, so a check-in
 and its answer post one notification per turn.
 
+## When the Mac sleeps or Ship Studio quits
+
+Agents are not a service. Each turn is one `claude --print --resume <session>`
+process that Ship Studio starts on this Mac and reads to the end, and the
+check-in tick is a loop inside the app. So:
+
+- **Ship Studio quits.** The turn in progress ends with it: its Claude Code
+  process is stopped on the way out (`cleanup_agent_processes`), and any that
+  outlived a crash are cleaned up at the next launch. What the agent already
+  did (files written, commands run) stands. Messages queued behind that turn
+  live in memory (`runner::Runtime`), so they are not sent; say it again.
+  Nothing fires while the app is closed.
+- **It reopens.** Every conversation is on disk and the next message resumes
+  the same Claude Code session, so the agent still has its context. There is
+  no automatic restart of an interrupted turn on this branch: you pick it up
+  by sending the next message. Ship Studio's own confirmation cards left
+  pending are marked expired (`store::expire_stale_approvals`); permission
+  cards stay answerable, and a late Allow wakes the agent again. Missed
+  check-ins follow the rules above: a one-time one fires once, late; a routine
+  doesn't backfill.
+- **The Mac sleeps.** Everything, the agent's process included, is frozen
+  with it, and carries on when it wakes. If its connection dropped meanwhile
+  the turn can end in an error, shown with Retry like any other. A check-in due during sleep is
+  late, under the same rules.
+
+"Keep this Mac awake" holds the same idle-sleep assertion remote access uses
+(`remote_access::power::start_keep_awake`, `caffeinate -i -s -m -w <pid>`), as
+a standing preference of its own (`AppState.keep_awake`, held again at launch;
+`get_keep_awake` / `set_keep_awake`). It dies with the app, `-s` only holds
+on mains power, and it can't stop a laptop sleeping when the lid closes (see
+remote access's lid-closed mode). Turning remote access off leaves it held if
+the user asked for it here. It is offered in two quiet places only: under the
+Chief of Staff's first-run starters ("Agents run on this Mac. They pause when
+it sleeps or Ship Studio quits.", replaced by "This Mac stays awake while Ship
+Studio is open" once held, with one line suggesting an always-on Mac, such as
+a Mac mini or a cloud Mac, for round-the-clock agents), and as a link at the
+end of the schedule popover's footnote. Elsewhere than macOS neither shows.
+
 ## Search, model and usage
 
 - **Search.** In Agents mode the sidebar's top field searches conversations
@@ -303,7 +341,7 @@ cards.
   ahead of what you typed. User bubbles show those blockquotes as quote bars
   (`splitQuotes`); nothing else in a user's text is read as Markdown.
 
-## @mentions and Team
+## @mentions and What's in flight
 
 - **@mentions.** Typing `@` in the composer opens a small menu of your other
   agents (the app's menu surface; the field keeps focus: ↑ ↓, Return or Tab,
@@ -315,7 +353,9 @@ cards.
   recipient does it with `message_agent`. The bubble tints each recorded
   `@Name` in that agent's colour. A name typed without the menu still counts
   if it matches an agent exactly.
-- **Team** (first row of the list, or ⌘K → "Team: what's in flight") shows,
+- **What's in flight** (⌘K only, id `agents.team`; it used to be the list's
+  first row and the compact switcher's, and was demoted so the list is just
+  agents, with ⌘J and the toggle's badge carrying "who needs you") shows,
   in a fixed order and present even when empty: who needs you (with their
   pending approval cards, answerable in place, and turns that didn't finish,
   with Retry, Retry at the reset, or Sign in), who is working (their
@@ -325,7 +365,8 @@ cards.
   replies from each chat's recent lines (live for chats open this session,
   otherwise the last 20 lines, re-read when that agent's row changes; a
   chat with an open card reads a page). Hidden agents are left out. While
-  Team is open no chat is on screen, so replies keep counting as unread.
+  it is open no chat is on screen, so replies keep counting as unread. It is
+  never restored on reopen: Agents comes back to the last conversation.
   An answered card shows what it resolved to ("Allowed · Lead Gen is
   carrying on") for 1.2s, then folds away, and focus moves to the next
   card's Allow (or the next row). Long field values clamp to two lines with
@@ -428,5 +469,5 @@ prunes them the diff says it can't be shown.
 - `cargo test --lib agents::`: store, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, Team overview, @mention menu, approval, first run, new
+- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
   agent, import, Claude Code missing.

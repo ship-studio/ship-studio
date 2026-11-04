@@ -39,7 +39,6 @@ import {
   mentionRuns,
   replyPreview,
   summarizeTeam,
-  teamSubtitle,
 } from './agents';
 
 const msg = (id: string, kind: AgentMessage['kind'], ts: number, peer?: string): AgentMessage => ({
@@ -446,11 +445,9 @@ describe('Team overview', () => {
     ]);
     expect(summary.scheduled.map((s) => s.checkIn.id)).toEqual(['soon', 'late']);
     expect(summary.replies.map((r) => r.message.id)).toEqual(['b1', 'a1']);
-    expect(teamSubtitle(agents)).toBe('1 working · 1 needs you');
-    expect(teamSubtitle([make('q')])).toBe('Nothing in flight');
   });
 
-  it('lists a failed turn under Needs you, with its line, and counts it', () => {
+  it('lists a failed turn under Needs you, with its line', () => {
     const failed = make('f', { failure: { kind: 'other' } });
     const limited = make('l', { failure: { kind: 'usage_limit' } });
     const retrying = make('r', {
@@ -464,7 +461,6 @@ describe('Team overview', () => {
       ['f', 'f2'],
       ['l', null],
     ]);
-    expect(teamSubtitle([failed, limited, retrying])).toBe('1 working · 1 failed');
   });
 });
 

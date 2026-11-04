@@ -563,7 +563,10 @@ pub async fn tear_down() {
         }
     }
     stop_server();
-    power::stop_keep_awake();
+    // Still held if the user asked for it apart from remote access.
+    if !power::keep_awake_asked() {
+        power::stop_keep_awake();
+    }
 }
 
 // ============================================================================
