@@ -46,7 +46,11 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
   );
   const onClick = useExternalLinks();
   return (
-    <div className="agent-chat__row agent-chat__row--agent" data-arrived={arrived || undefined}>
+    <div
+      className="agent-chat__row agent-chat__row--agent"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
       <div
         className="agent-bubble agent-bubble--agent agent-markdown"
         onClick={onClick}
@@ -58,7 +62,11 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
 
 export function UserBubble({ message, arrived }: { message: AgentMessage } & Arrival) {
   return (
-    <div className="agent-chat__row agent-chat__row--user" data-arrived={arrived || undefined}>
+    <div
+      className="agent-chat__row agent-chat__row--user"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
       <div className="agent-bubble agent-bubble--user">{message.text}</div>
     </div>
   );
@@ -66,7 +74,11 @@ export function UserBubble({ message, arrived }: { message: AgentMessage } & Arr
 
 export function ErrorLine({ message, arrived }: { message: AgentMessage } & Arrival) {
   return (
-    <div className="agent-chat__row agent-chat__row--agent" data-arrived={arrived || undefined}>
+    <div
+      className="agent-chat__row agent-chat__row--agent"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
       <div className="agent-bubble agent-bubble--error" role="alert">
         {message.text}
       </div>
@@ -88,6 +100,8 @@ interface PeerGroupProps extends Arrival {
   /** The peer as it exists now, for its avatar; absent if it was deleted. */
   peerAgent?: Agent;
   onOpenPeer: (agentId: string) => void;
+  /** A search jumped to a line inside: open the thread to show it. */
+  reveal?: boolean;
 }
 
 /**
@@ -95,12 +109,28 @@ interface PeerGroupProps extends Arrival {
  * Finance". Collapsed by default, as in Grok Bot: the conversation between
  * agents is there when you want it and out of the way when you don't.
  */
-export function PeerGroup({ peer, messages, peerAgent, onOpenPeer, arrived }: PeerGroupProps) {
-  const [open, setOpen] = useState(false);
+export function PeerGroup({
+  peer,
+  messages,
+  peerAgent,
+  onOpenPeer,
+  arrived,
+  reveal,
+}: PeerGroupProps) {
+  const [open, setOpen] = useState(Boolean(reveal));
+  const [revealed, setRevealed] = useState(reveal);
+  if (reveal !== revealed) {
+    setRevealed(reveal);
+    if (reveal) setOpen(true);
+  }
   const threadRef = useRef<HTMLDivElement>(null);
   const threadShown = useHeightReveal(threadRef, open);
   return (
-    <div className="agent-peer" data-arrived={arrived || undefined}>
+    <div
+      className="agent-peer"
+      data-arrived={arrived || undefined}
+      data-message-ids={messages.map((m) => m.id).join(' ')}
+    >
       <div className="agent-peer__line">
         <button
           type="button"

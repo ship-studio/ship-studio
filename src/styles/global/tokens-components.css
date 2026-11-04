@@ -336,6 +336,8 @@
      reordering, a thread opening) settles exactly as drag-sort does, so the
      sidebar's reorder and a dragged project land the same way. */
   --agents-motion-enter: var(--transition-icon-swap);
+  /* A search hit's ring: long enough to find after the scroll lands. */
+  --agents-motion-flash: calc(var(--duration-slow) * 6) var(--ease-standard);
   --agents-motion-settle: var(--drag-sort-settle-transition);
   --agents-motion-typing-period: var(--duration-loader-standard);
   --agents-motion-typing-easing: var(--pixel-loader-easing);

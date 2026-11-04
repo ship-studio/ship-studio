@@ -753,6 +753,7 @@ mod tests {
             unread: 0,
             pending_approvals: 0,
             model: None,
+            usage: Default::default(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

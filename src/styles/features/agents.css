@@ -893,3 +893,129 @@
   justify-content: flex-end;
   gap: var(--spacing-sm);
 }
+
+/* -------------------------------------------------------------- search */
+
+.agents-list__search {
+  margin: 0 var(--spacing-md) var(--spacing-sm);
+}
+
+.agents-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agents-search__agent {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-2xs);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.agents-search__agent-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agents-search__hit {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-md);
+  text-align: left;
+  font: inherit;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background var(--transition-interaction-fast);
+}
+
+.agents-search__hit:hover {
+  background: var(--surface-control);
+}
+
+.agents-search__hit:focus-visible {
+  outline: none;
+  background: var(--surface-control);
+  box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
+}
+
+/* Two lines of context, then cut. */
+.agents-search__snippet {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.agents-search__snippet mark {
+  color: var(--text-primary);
+  background: rgba(var(--accent-warning-rgb), 0.22);
+  border-radius: var(--radius-sm);
+}
+
+.agents-search__speaker {
+  color: var(--text-secondary);
+}
+
+.agents-search__time {
+  flex: 0 0 auto;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.agents-search__note {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------- model, usage */
+
+.agent-chat__model {
+  color: var(--text-muted);
+}
+
+.agent-chat__model[aria-expanded='true'],
+.agent-chat__model:hover {
+  color: var(--text-primary);
+}
+
+.agent-editor__usage {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-2xs) var(--spacing-md);
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-editor__usage dt {
+  color: var(--text-faint);
+}
+
+.agent-editor__usage dd {
+  margin: 0;
+}
+
+.agent-editor__label .segmented-control {
+  align-self: flex-start;
+}

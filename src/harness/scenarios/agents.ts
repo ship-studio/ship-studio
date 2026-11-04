@@ -35,7 +35,7 @@ const agent = (
     preview: null,
     unread: 0,
     pendingApprovals: 0,
-    model: null,
+    model: null as string | null,
     status: status('idle'),
     ...rest,
   };
@@ -227,6 +227,50 @@ const messagesFor = (args: Record<string, unknown>) => {
   return sent;
 };
 
+/**
+ * A plain scan like the backend's: every word, any case, newest first, with
+ * the snippet cut around the first match.
+ */
+const searchFor = (args: Record<string, unknown>) => {
+  const words = String(args.query).toLowerCase().split(/\s+/).filter(Boolean);
+  const names: Record<string, [string, string]> = {
+    chief: ['Chief of Staff', 'white'],
+    leadgen: ['Lead Gen', 'teal'],
+  };
+  return [...CHIEF_CHAT, ...LEADGEN_CHAT]
+    .filter((m) => m.kind !== 'approval' && words.every((w) => m.text.toLowerCase().includes(w)))
+    .sort((a, b) => b.ts - a.ts)
+    .map((m) => {
+      const at = Math.max(0, m.text.toLowerCase().indexOf(words[0]) - 40);
+      return {
+        agentId: m.agentId,
+        agentName: names[m.agentId][0],
+        agentColor: names[m.agentId][1],
+        messageId: m.id,
+        ts: m.ts,
+        kind: m.kind,
+        peerName: (m as { peer?: { name: string } }).peer?.name,
+        snippet:
+          (at > 0 ? '…' : '') +
+          m.text
+            .replace(/\*\*|`/g, '')
+            .replace(/\s+/g, ' ')
+            .slice(at),
+      };
+    });
+};
+
+const totals = (turns: number, tokens: number, cost: number, minutes: number) => ({
+  turns,
+  inputTokens: Math.round(tokens * 0.01),
+  outputTokens: Math.round(tokens * 0.04),
+  cacheReadTokens: Math.round(tokens * 0.7),
+  cacheWriteTokens: Math.round(tokens * 0.25),
+  costUsd: cost,
+  pricedTurns: turns,
+  durationMs: minutes * MIN,
+});
+
 export const agentsScenarios: Scenario[] = [
   {
     id: 'agents-team',
@@ -251,6 +295,70 @@ export const agentsScenarios: Scenario[] = [
     requires: '.agent-approval',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '[data-agent-id="leadgen"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-search',
+    title: 'Agents — searching every conversation',
+    looksRightWhen:
+      'The search field atop the list holds “footer”; the agent rows give way to hits grouped by agent (avatar + name), each a two-line snippet with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agents-list__search',
+    steps: [{ fill: '.agents-list__search input', value: 'footer' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_search: searchFor,
+    },
+  },
+  {
+    id: 'agents-search-jump',
+    title: 'Agents — a search hit opened',
+    looksRightWhen:
+      'Clicking the “dead links” hit opens the Chief of Staff chat with the agent-to-agent thread expanded and centred, ringed briefly in the agent’s colour.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agents-list__search',
+    steps: [
+      { fill: '.agents-list__search input', value: 'dead links' },
+      { click: '.agents-search__hit:nth-of-type(2)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_search: searchFor,
+    },
+  },
+  {
+    id: 'agents-edit-usage',
+    title: 'Agents — editing an agent: model and usage',
+    looksRightWhen:
+      'The editor shows a Default / Opus / Sonnet / Haiku control with Sonnet chosen, and under it quiet This week / All time lines: cost, tokens, turns and time, as reported.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agent-editor__usage',
+    steps: [{ click: '.agent-chat__edit' }],
+    commands: {
+      agents_overview: overview(
+        TEAM.map((a) => (a.id === 'chief' ? { ...a, model: 'sonnet' } : a))
+      ),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the team moving.',
+      agents_usage: {
+        week: totals(14, 412_000, 3.81, 22),
+        allTime: totals(161, 5_930_000, 47.2, 274),
+      },
+    },
+  },
+  {
+    id: 'agents-model-menu',
+    title: 'Agents — the model menu in the chat header',
+    looksRightWhen:
+      'A quiet “Default” control sits left of the edit button; open, it lists Default, Opus, Sonnet and Haiku with Default marked.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.ss-dropdown__item',
+    steps: [{ click: '.agent-chat__model' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,

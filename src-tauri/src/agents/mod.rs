@@ -9,6 +9,8 @@
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`import`]: bring an existing setup over from another assistant
 //! - [`prompts`]: voice and role
+//! - [`search`]: find a message across every conversation
+//! - [`usage`]: tokens and cost per agent, from each turn's `result` event
 //!
 //! Full design: docs/agents.md.
 
@@ -16,7 +18,9 @@ pub mod import;
 pub mod mcp;
 pub mod prompts;
 pub mod runner;
+pub mod search;
 pub mod store;
+pub mod usage;
 
 use crate::errors::CommandError;
 

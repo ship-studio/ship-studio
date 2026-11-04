@@ -560,6 +560,8 @@ pub fn run() {
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,
+            commands::agents::agents_search,
+            commands::agents::agents_usage,
             commands::workflows::list_all_workflows,
             commands::workflows::save_workflow_file,
             commands::workflows::delete_workflow_file,

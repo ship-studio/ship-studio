@@ -243,6 +243,27 @@
   animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
 }
 
+/* A search jumped here: the line's bubble rings in its agent's colour and
+   fades, so the eye lands on it after the scroll. Kept under reduced motion
+   (it's a fade, not movement): it is how you find the line. */
+@keyframes agents-motion-flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 var(--border-width-emphasis) var(--agents-tint);
+  }
+  100% {
+    box-shadow: 0 0 0 var(--border-width-emphasis) transparent;
+  }
+}
+
+.agent-chat__messages [data-flash] > :first-child {
+  animation: agents-motion-flash var(--agents-motion-flash);
+}
+
+.agent-peer[data-flash] > :first-child {
+  border-radius: var(--radius-pill);
+}
+
 /* ---------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {

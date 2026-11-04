@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, SettingsSlidersIcon } from '@/components/icons';
 import { IconButton } from '../primitives/IconButton';
+import { AgentModelMenu } from './AgentModelMenu';
 import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
@@ -29,7 +30,13 @@ import {
   stopAgent,
   type Agent,
 } from '../../lib/agents';
-import { loadMessages, upsertMessage, useAgents } from '../../lib/agentsStore';
+import {
+  loadMessages,
+  MESSAGE_MAX,
+  MESSAGE_PAGE,
+  upsertMessage,
+  useAgents,
+} from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
@@ -41,9 +48,19 @@ interface AgentChatProps {
   agentsById: Map<string, Agent>;
   onOpenAgent: (agentId: string) => void;
   onEditAgent: (agent: Agent) => void;
+  /** A search result to scroll to and flash; `onJumped` is called once it's shown. */
+  jumpTo?: string | null;
+  onJumped?: () => void;
 }
 
-export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: AgentChatProps) {
+export function AgentChat({
+  agent,
+  agentsById,
+  onOpenAgent,
+  onEditAgent,
+  jumpTo,
+  onJumped,
+}: AgentChatProps) {
   const { messages: allMessages, engineReady } = useAgents();
   const messages = allMessages[agent.id];
   const { showToast } = useOptionalToast();
@@ -91,6 +108,37 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
     atBottomRef.current = bottom;
     setAtBottom(bottom);
   }, [isGliding]);
+
+  // A search hit: bring its line to the middle and flash it. A line older
+  // than the loaded page loads the rest first; one that's gone just stops.
+  useLayoutEffect(() => {
+    if (!jumpTo || !messages) return;
+    const target = messagesRef.current?.querySelector<HTMLElement>(
+      `[data-message-ids~="${CSS.escape(jumpTo)}"]`
+    );
+    if (!target) {
+      if (messages.length >= MESSAGE_PAGE && messages.length < MESSAGE_MAX) {
+        void loadMessages(agent.id, MESSAGE_MAX);
+      } else {
+        onJumped?.();
+      }
+      return;
+    }
+    // The scroll handler settles `atBottom`; until then, don't follow new lines.
+    atBottomRef.current = false;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Restart the flash if it's already running (the same hit, clicked twice).
+    target.removeAttribute('data-flash');
+    void target.offsetWidth;
+    target.setAttribute('data-flash', '');
+    const clear = (e: AnimationEvent) => {
+      if (e.animationName !== 'agents-motion-flash') return;
+      target.removeAttribute('data-flash');
+      target.removeEventListener('animationend', clear);
+    };
+    target.addEventListener('animationend', clear);
+    onJumped?.();
+  }, [jumpTo, messages, agent.id, onJumped]);
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -155,6 +203,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
           <h2 className="agent-chat__name">{agent.name}</h2>
           {agent.role && <p className="agent-chat__role">{agent.role}</p>}
         </div>
+        <AgentModelMenu agent={agent} />
         <IconButton
           variant="ghost"
           className="agent-chat__edit"
@@ -201,6 +250,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
                     peerAgent={agentsById.get(item.peer.id)}
                     onOpenPeer={onOpenAgent}
                     arrived={arrived}
+                    reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
                   />
                 );
               }

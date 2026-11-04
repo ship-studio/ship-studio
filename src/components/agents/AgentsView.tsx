@@ -7,7 +7,7 @@
  * @module components/agents/AgentsView
  */
 
-import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { HomeSidebar } from '../workspace/HomeSidebar';
 import { AgentsSidebar } from './AgentsSidebar';
 import { AgentChat } from './AgentChat';
@@ -23,6 +23,7 @@ import {
   sortAgents,
   updateAgent,
   type Agent,
+  type SearchHit,
 } from '../../lib/agents';
 import { refreshAgents, useAgents } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -66,6 +67,9 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  /** The message a search result asked the chat to show. */
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   // The last agent you had open, else the Chief of Staff.
@@ -98,7 +102,30 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openNew = useCallback(() => setEditor({ open: true, agent: null }), []);
   const openImport = useCallback(() => setImportOpen(true), []);
-  useAgentsIntents({ onNewAgent: openNew, onImportAgents: openImport });
+  const focusSearch = useCallback(() => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  }, []);
+  useAgentsIntents({ onNewAgent: openNew, onImportAgents: openImport, onSearch: focusSearch });
+
+  // ⌘F searches every conversation, wherever focus is in Agents mode.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f')
+        return;
+      if (!searchRef.current) return;
+      e.preventDefault();
+      focusSearch();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focusSearch]);
+
+  const openHit = useCallback((hit: SearchHit) => {
+    setSelectedId(hit.agentId);
+    setJumpTo(hit.messageId);
+  }, []);
+  const clearJump = useCallback(() => setJumpTo(null), []);
 
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -134,6 +161,8 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
                 }}
                 onEdit={(a) => setEditor({ open: true, agent: a })}
                 onDelete={setDeleting}
+                searchRef={searchRef}
+                onOpenHit={openHit}
               />
             }
           />
@@ -161,6 +190,8 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
               agentsById={agentsById}
               onOpenAgent={setSelectedId}
               onEditAgent={(a) => setEditor({ open: true, agent: a })}
+              jumpTo={jumpTo}
+              onJumped={clearJump}
             />
           )}
         </main>

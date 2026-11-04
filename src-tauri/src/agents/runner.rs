@@ -564,6 +564,10 @@ async fn run_turn(
                     }
                     Some("result") => {
                         saw_result = true;
+                        if let Some(turn) = super::usage::from_result(&value) {
+                            let today = super::usage::today();
+                            let _ = store::update(agent_id, |a| a.usage.record(&turn, today));
+                        }
                         let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
                         if is_error {
                             result_error = Some(result_error_text(&value));

@@ -4,7 +4,9 @@
  * header, the full-bleed row, the badge, the status slot, the ghost
  * "Open project" action — so it reads as the same sidebar, not a second app.
  *
- * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete.
+ * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete. The field
+ * at the top (⌘F) searches every conversation; while it has a query the
+ * results take the list's place.
  *
  * @module components/agents/AgentsSidebar
  */
@@ -29,11 +31,13 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '../primitives/ContextMenu';
+import { SearchField } from '../primitives/SearchField';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
-import { useRef } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { AgentAvatar } from './AgentAvatar';
+import { AgentsSearchResults, moveHitFocus } from './AgentsSearchResults';
 import { useFlipReorder } from './useAgentMotion';
-import { sortAgents, type Agent } from '../../lib/agents';
+import { sortAgents, type Agent, type SearchHit } from '../../lib/agents';
 
 interface AgentsSidebarProps {
   agents: Agent[];
@@ -48,6 +52,9 @@ interface AgentsSidebarProps {
   onMarkUnread: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
   onDelete: (agent: Agent) => void;
+  /** ⌘F focuses this. */
+  searchRef: RefObject<HTMLInputElement | null>;
+  onOpenHit: (hit: SearchHit) => void;
 }
 
 /** Waiting on you: mid-turn on a card, or paused with one still open. */
@@ -74,7 +81,11 @@ export function AgentsSidebar({
   onMarkUnread,
   onEdit,
   onDelete,
+  searchRef,
+  onOpenHit,
 }: AgentsSidebarProps) {
+  const [query, setQuery] = useState('');
+  const searching = query.trim().length > 0;
   const visible = sortAgents(agents).filter((a) => showHidden || !a.hidden || a.id === selectedId);
   const hiddenCount = agents.filter((a) => a.hidden).length;
   // An agent that just did something slides to the top instead of jumping.
@@ -100,93 +111,118 @@ export function AgentsSidebar({
         />
       </div>
 
-      {visible.map((agent) => {
-        const current = agent.id === selectedId;
-        const waiting = needsYou(agent);
-        const working = agent.status.state === 'working' && !waiting;
-        const unread = !current && agent.unread > 0;
-        return (
-          <ContextMenu key={agent.id}>
-            <ContextMenuTrigger asChild>
-              <button
-                type="button"
-                className={`agents-list__row${current ? ' is-current' : ''}`}
-                data-agent-id={agent.id}
-                data-hidden={agent.hidden || undefined}
-                aria-current={current ? 'true' : undefined}
-                onClick={() => onSelect(agent.id)}
-              >
-                <AgentAvatar name={agent.name} color={agent.color} selected={current} />
-                <span className="agents-list__text">
-                  <span className="agents-list__name">
-                    {agent.name}
-                    {agent.pinned && <PinIcon size={10} className="agents-list__pin" />}
-                  </span>
-                  <span
-                    className="agents-list__preview"
-                    data-state={waiting ? 'waiting' : working ? 'working' : undefined}
-                  >
-                    {subtitle(agent)}
-                  </span>
-                </span>
-                <span className="agents-list__status">
-                  {working ? (
-                    <PixelLoaderRings size="sm" label={`${agent.name} is working`} />
-                  ) : waiting ? (
-                    <span className="sidebar-row-dot dot-attention" aria-label="Needs your OK" />
-                  ) : unread ? (
-                    <span className="agents-list__unread" aria-label="Unread" />
-                  ) : null}
-                </span>
-              </button>
-            </ContextMenuTrigger>
-            <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
-              <ContextMenuItem onSelect={() => onTogglePin(agent)}>
-                <PinIcon size={12} /> {agent.pinned ? 'Unpin' : 'Pin'}
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => onMarkUnread(agent)}>
-                <BellIcon size={12} /> Mark as unread
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => onEdit(agent)}>
-                <EditIcon size={12} /> Edit agent…
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem onSelect={() => onToggleHidden(agent)}>
-                {agent.hidden ? <EyeIcon size={12} /> : <EyeOffIcon size={12} />}
-                {agent.hidden ? 'Show in sidebar' : 'Hide from sidebar'}
-              </ContextMenuItem>
-              {!agent.isMain && (
-                <ContextMenuItem variant="destructive" onSelect={() => onDelete(agent)}>
-                  <TrashIcon size={12} /> Delete…
-                </ContextMenuItem>
-              )}
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      })}
+      <SearchField
+        ref={searchRef}
+        density="compact"
+        className="agents-list__search"
+        value={query}
+        onChange={setQuery}
+        placeholder="Search conversations"
+        aria-label="Search conversations"
+        clearLabel="Clear search"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && query) {
+            e.preventDefault();
+            e.stopPropagation();
+            setQuery('');
+          } else {
+            moveHitFocus(e, searchRef);
+          }
+        }}
+      />
 
-      <div className="workspace-sidebar-active-actions agents-list__actions">
-        {hiddenCount > 0 && (
+      {searching && <AgentsSearchResults query={query} field={searchRef} onOpen={onOpenHit} />}
+
+      {!searching &&
+        visible.map((agent) => {
+          const current = agent.id === selectedId;
+          const waiting = needsYou(agent);
+          const working = agent.status.state === 'working' && !waiting;
+          const unread = !current && agent.unread > 0;
+          return (
+            <ContextMenu key={agent.id}>
+              <ContextMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={`agents-list__row${current ? ' is-current' : ''}`}
+                  data-agent-id={agent.id}
+                  data-hidden={agent.hidden || undefined}
+                  aria-current={current ? 'true' : undefined}
+                  onClick={() => onSelect(agent.id)}
+                >
+                  <AgentAvatar name={agent.name} color={agent.color} selected={current} />
+                  <span className="agents-list__text">
+                    <span className="agents-list__name">
+                      {agent.name}
+                      {agent.pinned && <PinIcon size={10} className="agents-list__pin" />}
+                    </span>
+                    <span
+                      className="agents-list__preview"
+                      data-state={waiting ? 'waiting' : working ? 'working' : undefined}
+                    >
+                      {subtitle(agent)}
+                    </span>
+                  </span>
+                  <span className="agents-list__status">
+                    {working ? (
+                      <PixelLoaderRings size="sm" label={`${agent.name} is working`} />
+                    ) : waiting ? (
+                      <span className="sidebar-row-dot dot-attention" aria-label="Needs your OK" />
+                    ) : unread ? (
+                      <span className="agents-list__unread" aria-label="Unread" />
+                    ) : null}
+                  </span>
+                </button>
+              </ContextMenuTrigger>
+              <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
+                <ContextMenuItem onSelect={() => onTogglePin(agent)}>
+                  <PinIcon size={12} /> {agent.pinned ? 'Unpin' : 'Pin'}
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onMarkUnread(agent)}>
+                  <BellIcon size={12} /> Mark as unread
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onEdit(agent)}>
+                  <EditIcon size={12} /> Edit agent…
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => onToggleHidden(agent)}>
+                  {agent.hidden ? <EyeIcon size={12} /> : <EyeOffIcon size={12} />}
+                  {agent.hidden ? 'Show in sidebar' : 'Hide from sidebar'}
+                </ContextMenuItem>
+                {!agent.isMain && (
+                  <ContextMenuItem variant="destructive" onSelect={() => onDelete(agent)}>
+                    <TrashIcon size={12} /> Delete…
+                  </ContextMenuItem>
+                )}
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        })}
+
+      {!searching && (
+        <div className="workspace-sidebar-active-actions agents-list__actions">
+          {hiddenCount > 0 && (
+            <Button
+              variant="ghost"
+              width="fill"
+              className="workspace-sidebar-add-project"
+              onClick={onToggleShowHidden}
+            >
+              {showHidden ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+              <span>{showHidden ? 'Hide hidden agents' : `Show ${hiddenCount} hidden`}</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             width="fill"
             className="workspace-sidebar-add-project"
-            onClick={onToggleShowHidden}
+            onClick={onImport}
           >
-            {showHidden ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
-            <span>{showHidden ? 'Hide hidden agents' : `Show ${hiddenCount} hidden`}</span>
+            <DownloadIcon size={16} />
+            <span>Import agents</span>
           </Button>
-        )}
-        <Button
-          variant="ghost"
-          width="fill"
-          className="workspace-sidebar-add-project"
-          onClick={onImport}
-        >
-          <DownloadIcon size={16} />
-          <span>Import agents</span>
-        </Button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
