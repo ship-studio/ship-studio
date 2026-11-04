@@ -14,8 +14,8 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::import::ImportedAgent;
-use super::store;
+use super::import::{ImportedAgent, ImportedRoutine};
+use super::{schedule, store};
 use crate::errors::CommandError;
 
 /// The most agents one import takes (the same cap [`super::import::import`] applies).
@@ -36,7 +36,10 @@ Reply with one ```json code block in exactly this shape:
       "instructions": "its full instructions, word for word",
       "memory": "everything it remembers that it still needs, one fact per line",
       "is_main": false,
-      "color": "red"
+      "color": "red",
+      "routines": [
+        { "when": "every weekday at 9am", "what": "what it does then, in a sentence or two" }
+      ]
     }
   ]
 }
@@ -44,6 +47,7 @@ Reply with one ```json code block in exactly this shape:
 Rules:
 - Include every agent. Set "is_main": true on the one that manages the others (at most one), false on the rest.
 - Copy instructions and memory in full, word for word. Don't summarize, shorten or paraphrase them. Long is fine.
+- "routines": everything the agent does on its own on a schedule (routines, automations, reminders, recurring check-ins), one entry each. Write "when" in plain words, like "every weekday at 9am", "every monday at 8:30am", "every day at 7pm", "every 2 hours" or, for a one-off, "friday at 2pm". Start repeating ones with "every". Write "what" so the agent knows exactly what to do when it fires. Use [] if it has none.
 - "color" is optional: if the agent has one, use the closest of white, brown, red, orange, amber, green, teal, blue, purple, pink, gray. Otherwise leave it out.
 - Never include passwords, API keys, tokens, card numbers or any other credentials. If an instruction or memory contains one, write [removed] in its place.
 - Valid JSON only: straight double quotes, line breaks written as \n inside strings, no comments, no trailing commas.
@@ -71,6 +75,21 @@ pub struct PreviewAgent {
     pub existing: bool,
     pub instructions_chars: usize,
     pub memory_lines: usize,
+    pub routines: Vec<PreviewRoutine>,
+}
+
+/// One routine as the preview lists it: what it becomes, or why it won't be set.
+/// A refused routine doesn't block the import; it's listed so it isn't lost.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewRoutine {
+    pub when: String,
+    pub what: String,
+    /// "every weekday at 09:00" or "once, Fri 6 Nov 2026, 14:00 (UTC-05:00)".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -262,6 +281,7 @@ fn read_agent(value: &Value, position: &str, problems: &mut Vec<String>) -> Opti
             false
         }
     };
+    let routines = read_routines(obj, &who, problems);
     let color = match obj.get("color") {
         None | Some(Value::Null) => None,
         Some(Value::String(s)) => Some(s.trim().to_ascii_lowercase()),
@@ -280,7 +300,81 @@ fn read_agent(value: &Value, position: &str, problems: &mut Vec<String>) -> Opti
         memory,
         is_main,
         color,
+        routines,
     })
+}
+
+/// The `routines` list. Its shape must be right (a list of `{when, what}`);
+/// whether each phrase can be scheduled is the preview's business, not a problem.
+fn read_routines(
+    obj: &Map<String, Value>,
+    who: &str,
+    problems: &mut Vec<String>,
+) -> Vec<ImportedRoutine> {
+    let list = match obj.get("routines") {
+        None | Some(Value::Null) => return Vec::new(),
+        Some(Value::Array(list)) => list,
+        Some(other) => {
+            problems.push(format!(
+                "{who}: \"routines\" should be a list, not {}.",
+                kind(other)
+            ));
+            return Vec::new();
+        }
+    };
+    let mut routines = Vec::with_capacity(list.len());
+    for (i, item) in list.iter().enumerate() {
+        let at = format!("{who}, routine {}", i + 1);
+        let Some(entry) = item.as_object() else {
+            problems.push(format!(
+                "{at}: expected {{\"when\", \"what\"}}, found {}.",
+                kind(item)
+            ));
+            continue;
+        };
+        let mut field = |name: &str| match entry.get(name) {
+            Some(Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+            Some(Value::String(_)) | None | Some(Value::Null) => {
+                problems.push(format!("{at} has no \"{name}\"."));
+                None
+            }
+            Some(other) => {
+                problems.push(format!(
+                    "{at}: \"{name}\" should be text, not {}.",
+                    kind(other)
+                ));
+                None
+            }
+        };
+        if let (Some(when), Some(what)) = (field("when"), field("what")) {
+            routines.push(ImportedRoutine { when, what });
+        }
+    }
+    routines
+}
+
+/// What each routine would become, checked the way the import will check it.
+fn preview_routines(routines: &[ImportedRoutine]) -> Vec<PreviewRoutine> {
+    let tz = chrono::Local;
+    let now = store::now_ms();
+    routines
+        .iter()
+        .map(|r| {
+            let (schedule, refused) = match schedule::check(&tz, &r.when, &r.what, now) {
+                Ok((repeat, next_at)) => (
+                    Some(schedule::describe_schedule(&tz, repeat.as_ref(), next_at)),
+                    None,
+                ),
+                Err(why) => (None, Some(why.plain())),
+            };
+            PreviewRoutine {
+                when: r.when.clone(),
+                what: r.what.clone(),
+                schedule,
+                refused,
+            }
+        })
+        .collect()
 }
 
 /// Everything in a pasted reply: the agents from every block, merged in order.
@@ -404,6 +498,7 @@ pub fn preview(text: &str) -> Result<Preview, CommandError> {
             is_main: a.is_main,
             instructions_chars: a.instructions.trim().chars().count(),
             memory_lines: a.memory.lines().filter(|l| !l.trim().is_empty()).count(),
+            routines: preview_routines(&a.routines),
         });
     }
     Ok(Preview {
@@ -535,6 +630,57 @@ mod tests {
         assert!(all.contains("Agent 2 has no \"name\"."), "{all}");
         assert!(all.contains("Agent 3 isn't an agent"), "{all}");
         assert!(all.contains("\u{201C}ops\u{201D} appears twice"), "{all}");
+    }
+
+    #[test]
+    fn routines_are_read_and_previewed_and_refused_phrases_are_listed_not_blocking() {
+        let reply = r#"```json
+{"source":"Grok Bot","agents":[
+  {"name":"Finance","routines":[
+    {"when":"every weekday at 9am","what":"Send yesterday's spending."},
+    {"when":"when the moon is full","what":"Review the budget."}
+  ]},
+  {"name":"Travel","routines":[]}
+]}
+```"#;
+        let p = parse(reply);
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        assert_eq!(p.agents[0].routines.len(), 2);
+        assert!(p.agents[1].routines.is_empty());
+
+        let shown = preview_routines(&p.agents[0].routines);
+        assert_eq!(shown[0].schedule.as_deref(), Some("every weekday at 09:00"));
+        assert!(shown[0].refused.is_none());
+        assert!(shown[1].schedule.is_none());
+        let why = shown[1].refused.as_deref().unwrap();
+        assert!(!why.is_empty() && !why.contains("Examples:"), "{why}");
+        assert!(for_import(reply).is_ok(), "a refused phrase doesn't block");
+
+        // A wrong shape does block, and says where.
+        let p = parse(
+            r#"{"agents":[
+                {"name":"A","routines":"every day at 9"},
+                {"name":"B","routines":[{"when":"every day at 9"},"daily",{"when":9,"what":"x"}]}
+            ]}"#,
+        );
+        let all = p.problems.join("\n");
+        assert!(
+            all.contains("\u{201C}A\u{201D}: \"routines\" should be a list, not text."),
+            "{all}"
+        );
+        assert!(
+            all.contains("\u{201C}B\u{201D}, routine 1 has no \"what\"."),
+            "{all}"
+        );
+        assert!(
+            all.contains("\u{201C}B\u{201D}, routine 2: expected"),
+            "{all}"
+        );
+        assert!(
+            all.contains("routine 3: \"when\" should be text, not a number."),
+            "{all}"
+        );
+        assert!(p.agents.is_empty());
     }
 
     #[test]

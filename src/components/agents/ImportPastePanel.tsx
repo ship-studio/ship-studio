@@ -20,6 +20,7 @@ import {
   getPasteImportPrompt,
   importPaste,
   previewPasteImport,
+  type ImportSummary,
   type PasteImportAgent,
   type PasteImportPreview,
 } from '../../lib/agents';
@@ -38,11 +39,45 @@ function detailFor(agent: PasteImportAgent) {
   const instructions = agent.instructionsChars
     ? `${plural(agent.instructionsChars, 'character')} of instructions`
     : 'No instructions';
-  return `${instructions} · ${plural(agent.memoryLines, 'memory line')}`;
+  const parts = [instructions, plural(agent.memoryLines, 'memory line')];
+  if (agent.routines.length) parts.push(plural(agent.routines.length, 'routine'));
+  return parts.join(' · ');
+}
+
+/** Each routine: what it becomes, or the phrase that won't be set and why. */
+function RoutineList({ agent }: { agent: PasteImportAgent }) {
+  if (!agent.routines.length) return null;
+  return (
+    <ul className="agents-import__routines">
+      {agent.routines.map((r, i) =>
+        r.refused ? (
+          <li key={i} className="agents-import__routine" data-refused="">
+            Won&apos;t be set: &ldquo;{r.when}&rdquo;. {r.refused}
+          </li>
+        ) : (
+          <li key={i} className="agents-import__routine">
+            {r.schedule}: {r.what}
+          </li>
+        )
+      )}
+    </ul>
+  );
+}
+
+function doneText(done: ImportSummary) {
+  return [
+    done.created.length ? `Created ${done.created.join(', ')}.` : '',
+    done.updated.length ? `Updated ${done.updated.join(', ')}.` : '',
+    ...done.skipped.map(([name, why]) => `Skipped ${name}: ${why}`),
+    done.routinesSet.length ? `Set ${plural(done.routinesSet.length, 'routine')}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function PreviewList({ preview }: { preview: PasteImportPreview }) {
   const { agents, problems, source, blocks } = preview;
+  const refused = agents.reduce((n, a) => n + a.routines.filter((r) => r.refused).length, 0);
   return (
     <div className="agents-import__preview" aria-live="polite">
       {problems.length > 0 && (
@@ -61,6 +96,8 @@ function PreviewList({ preview }: { preview: PasteImportPreview }) {
             {plural(agents.length, 'agent')}
             {source ? ` from ${source}` : ''}
             {blocks > 1 ? `, in ${blocks} parts` : ''}
+            {refused > 0 &&
+              `. ${plural(refused, 'routine')} can't be set as written; the rest import fine.`}
           </span>
           <ul className="agents-import__list">
             {agents.map((a) => (
@@ -69,6 +106,7 @@ function PreviewList({ preview }: { preview: PasteImportPreview }) {
                   <span className="agents-import__agent-name">{a.name}</span>
                   {a.role && <span className="agents-import__agent-role">{a.role}</span>}
                   <span className="agents-import__agent-detail">{detailFor(a)}</span>
+                  <RoutineList agent={a} />
                 </div>
                 <span className="agents-import__tag" data-main={a.isMain || undefined}>
                   {tagFor(a)}
@@ -178,16 +216,24 @@ export function ImportPastePanel({ onClose }: { onClose: () => void }) {
         </li>
       </ol>
       {done ? (
-        <p className="agents-import__done" role="status">
-          {[
-            done.created.length ? `Created ${done.created.join(', ')}.` : '',
-            done.updated.length ? `Updated ${done.updated.join(', ')}.` : '',
-            ...done.skipped.map(([name, why]) => `Skipped ${name}: ${why}`),
-          ]
-            .filter(Boolean)
-            .join(' ')}{' '}
-          They don&apos;t start working until you message them.
-        </p>
+        <div className="agents-import__done" role="status">
+          <p>
+            {doneText(done)} They don&apos;t start working until you message them, apart from their
+            routines, which run while Ship Studio is open.
+          </p>
+          {done.routinesRefused.length > 0 && (
+            <div className="agents-import__problems">
+              <span>These routines weren&apos;t set. Ask the agent to schedule them:</span>
+              <ul>
+                {done.routinesRefused.map((r, i) => (
+                  <li key={i}>
+                    {r.agent}: &ldquo;{r.when}&rdquo; ({r.what}). {r.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       ) : (
         preview && <PreviewList preview={preview} />
       )}

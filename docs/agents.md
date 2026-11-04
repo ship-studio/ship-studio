@@ -194,12 +194,23 @@ The backend decides, since it knows when a message is recorded and when a turn e
 
 Only the other assistant knows its own agents, instructions and memory, so the
 import runs from its side. Remote access gains an `import_agents` tool:
-`{source, agents: [{name, role, instructions, memory, is_main}]}`. Ship Studio
+`{source, agents: [{name, role, instructions, memory, is_main, routines}]}`. Ship Studio
 creates each agent, writes its instructions, and appends its memory under
 `### Imported from <source>`. The `is_main` agent merges into the Chief of
 Staff. Re-importing updates same-named agents instead of duplicating them.
-Imported agents don't run until you message them. Every import is audited like
-any other remote-access action.
+Imported agents don't run until you message them, apart from their routines.
+Every import is audited like any other remote-access action.
+
+Each agent can also bring `routines: [{when, what}]`, with `when` in plain
+words ("every weekday at 9am", "every 2 hours", "friday at 2pm"). Each goes
+through the same parser and limits as `schedule_check_in` (`schedule::check`)
+and becomes a routine, or a one-time check-in, with `what` as its note. A
+phrase that can't be read, or is too frequent, or a full agent, isn't
+guessed at: the paste preview shows it under its agent with the reason, and the
+result (`routinesRefused`, and the tool's reply, which tells the assistant to
+list each one to the user) names it by agent. A refused routine doesn't block
+the rest of the import. Re-importing doesn't duplicate routines: the same note
+on the same schedule, or the same one-off note, counts as already set.
 
 The **Import agents** button in Agents mode offers two paths, as tabs:
 

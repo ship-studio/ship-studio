@@ -471,6 +471,26 @@ export interface PasteImportAgent {
   existing: boolean;
   instructionsChars: number;
   memoryLines: number;
+  routines: PasteImportRoutine[];
+}
+
+/**
+ * One routine in a pasted reply: what it becomes (`schedule`), or why it
+ * won't be set (`refused`). A refused one doesn't block the import.
+ */
+export interface PasteImportRoutine {
+  when: string;
+  what: string;
+  schedule?: string;
+  refused?: string;
+}
+
+/** A routine an import set or refused. `detail` is what it became, or why not. */
+export interface ImportRoutineOutcome {
+  agent: string;
+  when: string;
+  what: string;
+  detail: string;
 }
 
 /** What importing a pasted reply would do. Any problem blocks the import. */
@@ -486,6 +506,8 @@ export interface ImportSummary {
   updated: string[];
   /** `[name, why]` */
   skipped: [string, string][];
+  routinesSet: ImportRoutineOutcome[];
+  routinesRefused: ImportRoutineOutcome[];
 }
 
 export const getPasteImportPrompt = () => invoke<string>('agents_import_paste_prompt');
