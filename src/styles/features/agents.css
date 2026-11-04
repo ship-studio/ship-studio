@@ -443,7 +443,7 @@
   max-width: calc(var(--agents-chat-width) + (var(--spacing-xl) * 2));
   min-height: 100%;
   margin: 0 auto;
-  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-md);
+  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
 }
 
 .agent-chat__messages > :first-child {
@@ -453,26 +453,26 @@
 /* Rhythm: a run from one speaker sits tight; a change of speaker breathes.
    A card is its own object, so it breathes even after its agent's bubble. */
 .agent-chat__messages > * + * {
-  margin-top: var(--spacing-md);
+  margin-top: var(--spacing-2xl);
 }
 
 .agent-chat__row--user + .agent-chat__row--user {
-  margin-top: var(--spacing-2xs);
+  margin-top: var(--spacing-sm);
 }
 
 /* Unboxed, two replies in a row read as paragraphs of one answer. */
 .agent-chat__row--agent + .agent-chat__row--agent:not(.agent-chat__row--card) {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
 }
 
 /* A message that opens with attachments is a new message, not a tail on
    the one before it. */
 .agent-chat__row--user + .agent-chat__row--user[data-attachments] {
-  margin-top: var(--spacing-md);
+  margin-top: var(--spacing-lg);
 }
 
 .agent-chat__messages > .agent-chat__row--card {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
 }
 
 .agent-chat__empty {
@@ -539,6 +539,7 @@
 .agent-bubble--agent {
   max-width: min(var(--agents-prose-measure), 100%);
   padding: 0;
+  line-height: var(--line-height-reading);
   border-radius: 0;
 }
 
@@ -657,7 +658,7 @@
 }
 
 .agent-markdown > * + * {
-  margin-top: var(--spacing-md);
+  margin-top: var(--spacing-lg);
 }
 
 .agent-markdown p,
@@ -665,7 +666,7 @@
 .agent-markdown ol,
 .agent-markdown blockquote,
 .agent-markdown table {
-  margin: 0 0 var(--spacing-md);
+  margin: 0 0 var(--spacing-lg);
 }
 
 .agent-markdown ul,
@@ -674,7 +675,7 @@
 }
 
 .agent-markdown li + li {
-  margin-top: var(--spacing-2xs);
+  margin-top: var(--spacing-xs);
 }
 
 .agent-markdown li > ul,
