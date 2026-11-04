@@ -11,7 +11,7 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
 import { TextButton } from '../primitives/TextButton';
-import { AgentAvatar, AVATAR_SHAPES } from './AgentAvatar';
+import { AgentAvatar } from './AgentAvatar';
 import {
   AGENT_COLORS,
   createAgent,
@@ -41,9 +41,6 @@ export function AgentEditorModal({
   const editing = Boolean(agent);
   // Keyed by the caller per open, so these start fresh each time.
   const [name, setName] = useState(agent?.name ?? '');
-  const [shape, setShape] = useState(
-    () => agent?.shape ?? Math.floor(Math.random() * AVATAR_SHAPES.length)
-  );
   const [color, setColor] = useState<string>(agent?.color ?? 'purple');
   const [role, setRole] = useState(agent?.role ?? '');
   const [instructions, setInstructions] = useState('');
@@ -67,10 +64,10 @@ export function AgentEditorModal({
     setError(null);
     try {
       if (agent) {
-        await updateAgent(agent.id, { name, shape, color, role, instructions });
+        await updateAgent(agent.id, { name, color, role, instructions });
         onSaved(agent.id);
       } else {
-        const created = await createAgent({ name, shape, color, role, instructions });
+        const created = await createAgent({ name, color, role, instructions });
         onSaved(created.id);
       }
       onClose();
@@ -95,34 +92,16 @@ export function AgentEditorModal({
           if (canSave) void save.execute();
         }}
       >
-        <div className="agent-editor__preview">
-          <AgentAvatar shape={shape} color={color} size={72} />
-        </div>
-        <TextField
-          className="agent-editor__name"
-          placeholder="Name your agent"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-label="Agent name"
-          maxLength={40}
-          autoFocus
-        />
-
-        <div className="agent-editor__shapes" role="radiogroup" aria-label="Shape">
-          {AVATAR_SHAPES.map((_, index) => (
-            <button
-              key={index}
-              type="button"
-              role="radio"
-              aria-checked={shape === index}
-              aria-label={`Shape ${index + 1}`}
-              className="agent-editor__choice"
-              data-selected={shape === index || undefined}
-              onClick={() => setShape(index)}
-            >
-              <AgentAvatar shape={index} color={color} size={28} />
-            </button>
-          ))}
+        <div className="agent-editor__identity">
+          <AgentAvatar name={name || '?'} color={color} size={36} selected />
+          <TextField
+            placeholder="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="Agent name"
+            maxLength={40}
+            autoFocus
+          />
         </div>
 
         <div className="agent-editor__colors" role="radiogroup" aria-label="Colour">

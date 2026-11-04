@@ -273,6 +273,63 @@ fn compose(batch: &[Inbound]) -> String {
         .join("\n\n")
 }
 
+/// What a failed `result` event means, in words. The CLI puts the reason in
+/// `errors` (e.g. "No conversation found with session ID: …") and only a code
+/// in `subtype` ("error_during_execution"), which must never reach the chat.
+fn result_error_text(value: &serde_json::Value) -> String {
+    if let Some(text) = value
+        .get("result")
+        .and_then(|r| r.as_str())
+        .filter(|t| !t.trim().is_empty())
+    {
+        return text.to_string();
+    }
+    let errors: Vec<String> = value
+        .get("errors")
+        .and_then(|e| e.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|e| e.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if !errors.is_empty() {
+        return errors.join(" ");
+    }
+    match value.get("subtype").and_then(|s| s.as_str()) {
+        Some("error_max_turns") => "It ran out of steps before finishing. Send a message to let it continue.".into(),
+        _ => "Something went wrong running this agent. Send your message again; if it keeps happening, check that Claude Code works in a terminal.".into(),
+    }
+}
+
+/// A prompt for a fresh session, prefixed with the visible conversation.
+fn with_recap(agent_id: &str, prompt: &str) -> String {
+    let Ok(log) = store::messages(agent_id, 40) else {
+        return prompt.to_string();
+    };
+    let lines: Vec<String> = log
+        .iter()
+        .filter_map(|m| {
+            let who = match m.kind {
+                MessageKind::User => "User".to_string(),
+                MessageKind::Agent => "You".to_string(),
+                MessageKind::SentToAgent => format!("You → {}", m.peer.as_ref()?.name),
+                MessageKind::FromAgent => format!("{} → you", m.peer.as_ref()?.name),
+                _ => return None,
+            };
+            let text: String = m.text.chars().take(600).collect();
+            Some(format!("{who}: {text}"))
+        })
+        .collect();
+    if lines.is_empty() {
+        return prompt.to_string();
+    }
+    format!(
+        "[Your previous working session was lost, so here is the recent conversation for context. Don't mention this unless asked.]\n\n{}\n\n[New message]\n\n{prompt}",
+        lines.join("\n")
+    )
+}
+
 /// Claude Code's `--resume` refuses a session id it has no file for (the
 /// user cleared ~/.claude, or the first turn died before writing one).
 fn is_missing_session(detail: &str) -> bool {
@@ -384,6 +441,21 @@ async fn run_turn(
     if let Some(model) = &agent.model {
         cmd.args(["--model", model]);
     }
+    // A Ship Studio launched from inside a Claude Code session (a terminal
+    // running `claude`, or a dev build started by one) inherits that
+    // session's variables. With them, each agent runs as a nested child
+    // session that is never written to disk, so the next `--resume` finds
+    // nothing. Observed: every agent lost its memory between turns.
+    for (key, _) in std::env::vars_os() {
+        let key = key.to_string_lossy();
+        if key == "CLAUDECODE"
+            || key == "CLAUDE_PID"
+            || key == "CLAUDE_EFFORT"
+            || key.starts_with("CLAUDE_CODE_")
+        {
+            cmd.env_remove(key.as_ref());
+        }
+    }
     cmd.env("PATH", crate::utils::get_extended_path())
         // Claude Code gives an MCP tool call ~60s by default, and the approval
         // tool waits for a person. Verified: with the default, a card left for
@@ -494,10 +566,7 @@ async fn run_turn(
                         saw_result = true;
                         let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
                         if is_error {
-                            let text = value.get("result").and_then(|r| r.as_str())
-                                .or_else(|| value.get("subtype").and_then(|s| s.as_str()))
-                                .unwrap_or("The agent stopped with an error.");
-                            result_error = Some(text.to_string());
+                            result_error = Some(result_error_text(&value));
                         }
                     }
                     _ => {}
@@ -519,15 +588,15 @@ async fn run_turn(
         return Ok(());
     }
 
-    if retry_fresh
-        && resuming
-        && !status.success()
-        && !saw_result
-        && is_missing_session(&stderr_text)
-    {
+    let missing_session =
+        is_missing_session(&stderr_text) || result_error.as_deref().is_some_and(is_missing_session);
+    if retry_fresh && resuming && missing_session {
         tracing::warn!("[Agents] Session {session_id} for {agent_id} is gone; starting a new one");
         let _ = store::update(agent_id, |a| a.session_id = None);
-        return Box::pin(run_turn(app, agent_id, prompt, false)).await;
+        // The new session starts blank. Hand it the conversation the user
+        // can see, so the agent doesn't greet them like a stranger.
+        let prompt = with_recap(agent_id, prompt);
+        return Box::pin(run_turn(app, agent_id, &prompt, false)).await;
     }
 
     if let Some(err) = result_error {
@@ -598,6 +667,16 @@ mod tests {
         let prompt = compose(&batch);
         assert!(prompt.starts_with("Do X"));
         assert!(prompt.contains("[Message from Finance, another agent — not the user]"));
+    }
+
+    #[test]
+    fn result_errors_are_never_shown_as_raw_codes() {
+        let missing = serde_json::json!({"type":"result","is_error":true,"subtype":"error_during_execution","result":null,"errors":["No conversation found with session ID: x"]});
+        let text = result_error_text(&missing);
+        assert!(is_missing_session(&text));
+        let bare =
+            serde_json::json!({"type":"result","is_error":true,"subtype":"error_during_execution"});
+        assert!(!result_error_text(&bare).contains("error_during_execution"));
     }
 
     #[test]

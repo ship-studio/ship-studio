@@ -1,27 +1,27 @@
 /**
- * The agent list: who you have, what each last said, who's busy, who's
- * waiting on you. Right-click (or the row's menu) for Pin, Rename, Mark as
- * unread, Hide and Delete — the same verbs as Grok Bot's sidebar.
+ * The agent list, shown in the home sidebar in place of the projects while
+ * Agents mode is on. It is built from the sidebar's own parts — the group
+ * header, the full-bleed row, the badge, the status slot, the ghost
+ * "Open project" action — so it reads as the same sidebar, not a second app.
+ *
+ * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete.
  *
  * @module components/agents/AgentsSidebar
  */
 
-import { useMemo, useState } from 'react';
 import {
+  AgentsIcon,
+  BellIcon,
   DownloadIcon,
+  EditIcon,
   EyeIcon,
   EyeOffIcon,
-  HomeIcon,
   PinIcon,
   PlusIcon,
-  SearchIcon,
   TrashIcon,
-  EditIcon,
-  BellIcon,
 } from '@/components/icons';
+import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
-import { TextButton } from '../primitives/TextButton';
-import { TextField } from '../primitives/TextField';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -29,16 +29,18 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '../primitives/ContextMenu';
+import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
 import { sortAgents, type Agent } from '../../lib/agents';
 
 interface AgentsSidebarProps {
   agents: Agent[];
   selectedId: string | null;
+  showHidden: boolean;
+  onToggleShowHidden: () => void;
   onSelect: (agentId: string) => void;
   onNew: () => void;
   onImport: () => void;
-  onGoProjects: () => void;
   onTogglePin: (agent: Agent) => void;
   onToggleHidden: (agent: Agent) => void;
   onMarkUnread: (agent: Agent) => void;
@@ -46,12 +48,12 @@ interface AgentsSidebarProps {
   onDelete: (agent: Agent) => void;
 }
 
-/** Waiting on you: either mid-turn on a card, or paused with one still open. */
+/** Waiting on you: mid-turn on a card, or paused with one still open. */
 export function needsYou(agent: Agent): boolean {
   return agent.status.state === 'waiting' || (agent.pendingApprovals ?? 0) > 0;
 }
 
-function rowSubtitle(agent: Agent): string {
+function subtitle(agent: Agent): string {
   if (needsYou(agent)) return 'Needs your OK';
   if (agent.status.state === 'working') return agent.status.activity ?? 'Working…';
   return agent.preview ?? agent.role ?? '';
@@ -60,135 +62,88 @@ function rowSubtitle(agent: Agent): string {
 export function AgentsSidebar({
   agents,
   selectedId,
+  showHidden,
+  onToggleShowHidden,
   onSelect,
   onNew,
   onImport,
-  onGoProjects,
   onTogglePin,
   onToggleHidden,
   onMarkUnread,
   onEdit,
   onDelete,
 }: AgentsSidebarProps) {
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [showHidden, setShowHidden] = useState(false);
-
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return sortAgents(agents).filter((a) => {
-      if (q) return a.name.toLowerCase().includes(q) || a.role.toLowerCase().includes(q);
-      return showHidden || !a.hidden || a.id === selectedId;
-    });
-  }, [agents, query, showHidden, selectedId]);
+  const visible = sortAgents(agents).filter((a) => showHidden || !a.hidden || a.id === selectedId);
   const hiddenCount = agents.filter((a) => a.hidden).length;
 
   return (
-    <aside className="agents-sidebar" aria-label="Agents">
-      <div className="workspace-sidebar-top-row agents-sidebar__top">
+    <div className="agents-list" role="navigation" aria-label="Agents">
+      <div className="sidebar-group-header agents-list__header">
+        <span className="sidebar-group-symbol" aria-hidden="true">
+          <AgentsIcon size={14} />
+        </span>
+        <span className="sidebar-group-label">Agents</span>
+        <span className="sidebar-group-count">{agents.length}</span>
         <IconButton
           variant="ghost"
-          className="workspace-sidebar-home"
-          icon={<HomeIcon size={12} />}
-          onClick={onGoProjects}
-          title="Projects"
-          aria-label="Back to projects"
-        />
-        <span className="agents-sidebar__spacer" />
-        <IconButton
-          variant="ghost"
-          className="workspace-sidebar-home"
-          icon={<SearchIcon size={12} />}
-          onClick={() => {
-            setSearching((v) => !v);
-            setQuery('');
-          }}
-          aria-pressed={searching}
-          title="Search agents"
-          aria-label="Search agents"
-        />
-        <IconButton
-          variant="ghost"
-          className="workspace-sidebar-home"
+          size="compact"
+          className="agents-list__new"
           icon={<PlusIcon size={12} />}
           onClick={onNew}
-          title="New agent"
+          title="New agent (⌘N)"
           aria-label="New agent"
         />
       </div>
 
-      {searching && (
-        <div className="agents-sidebar__search">
-          <TextField
-            autoFocus
-            placeholder="Search agents"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setSearching(false);
-                setQuery('');
-              }
-            }}
-            aria-label="Search agents"
-          />
-        </div>
-      )}
-
-      <nav className="agents-sidebar__list">
-        {visible.map((agent) => (
+      {visible.map((agent) => {
+        const current = agent.id === selectedId;
+        const waiting = needsYou(agent);
+        const working = agent.status.state === 'working' && !waiting;
+        const unread = !current && agent.unread > 0;
+        return (
           <ContextMenu key={agent.id}>
             <ContextMenuTrigger asChild>
               <button
                 type="button"
-                className="agents-row"
+                className={`agents-list__row${current ? ' is-current' : ''}`}
                 data-agent-id={agent.id}
-                aria-current={agent.id === selectedId ? 'true' : undefined}
                 data-hidden={agent.hidden || undefined}
+                aria-current={current ? 'true' : undefined}
                 onClick={() => onSelect(agent.id)}
               >
-                <AgentAvatar
-                  shape={agent.shape}
-                  color={agent.color}
-                  size={34}
-                  working={agent.status.state === 'working'}
-                />
-                <span className="agents-row__text">
-                  <span className="agents-row__name">
+                <AgentAvatar name={agent.name} color={agent.color} selected={current} />
+                <span className="agents-list__text">
+                  <span className="agents-list__name">
                     {agent.name}
-                    {agent.pinned && <PinIcon size={10} className="agents-row__pin" />}
+                    {agent.pinned && <PinIcon size={10} className="agents-list__pin" />}
                   </span>
                   <span
-                    className="agents-row__preview"
-                    data-state={needsYou(agent) ? 'waiting' : agent.status.state}
+                    className="agents-list__preview"
+                    data-state={waiting ? 'waiting' : working ? 'working' : undefined}
                   >
-                    {rowSubtitle(agent)}
+                    {subtitle(agent)}
                   </span>
                 </span>
-                {needsYou(agent) ? (
-                  <span
-                    className="agents-row__badge agents-row__badge--waiting"
-                    aria-label="Waiting for you"
-                  >
-                    !
-                  </span>
-                ) : agent.unread > 0 && agent.id !== selectedId ? (
-                  <span className="agents-row__badge" aria-label={`${agent.unread} unread`}>
-                    {agent.unread > 9 ? '9+' : agent.unread}
-                  </span>
-                ) : null}
+                <span className="agents-list__status">
+                  {working ? (
+                    <PixelLoaderRings size="sm" label={`${agent.name} is working`} />
+                  ) : waiting ? (
+                    <span className="sidebar-row-dot dot-attention" aria-label="Needs your OK" />
+                  ) : unread ? (
+                    <span className="agents-list__unread" aria-label="Unread" />
+                  ) : null}
+                </span>
               </button>
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
               <ContextMenuItem onSelect={() => onTogglePin(agent)}>
                 <PinIcon size={12} /> {agent.pinned ? 'Unpin' : 'Pin'}
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => onMarkUnread(agent)}>
                 <BellIcon size={12} /> Mark as unread
               </ContextMenuItem>
-              <ContextMenuSeparator />
               <ContextMenuItem onSelect={() => onEdit(agent)}>
-                <EditIcon size={12} /> Edit agent
+                <EditIcon size={12} /> Edit agent…
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem onSelect={() => onToggleHidden(agent)}>
@@ -197,27 +152,36 @@ export function AgentsSidebar({
               </ContextMenuItem>
               {!agent.isMain && (
                 <ContextMenuItem variant="destructive" onSelect={() => onDelete(agent)}>
-                  <TrashIcon size={12} /> Delete
+                  <TrashIcon size={12} /> Delete…
                 </ContextMenuItem>
               )}
             </ContextMenuContent>
           </ContextMenu>
-        ))}
-        {hiddenCount > 0 && !query && (
-          <TextButton
-            className="agents-sidebar__hidden-toggle"
-            onClick={() => setShowHidden((v) => !v)}
-          >
-            {showHidden ? 'Hide hidden agents' : `${hiddenCount} hidden`}
-          </TextButton>
-        )}
-      </nav>
+        );
+      })}
 
-      <div className="agents-sidebar__footer">
-        <TextButton className="agents-sidebar__import" onClick={onImport}>
-          <DownloadIcon size={12} /> Import agents
-        </TextButton>
+      <div className="workspace-sidebar-active-actions agents-list__actions">
+        {hiddenCount > 0 && (
+          <Button
+            variant="ghost"
+            width="fill"
+            className="workspace-sidebar-add-project"
+            onClick={onToggleShowHidden}
+          >
+            {showHidden ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+            <span>{showHidden ? 'Hide hidden agents' : `Show ${hiddenCount} hidden`}</span>
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          width="fill"
+          className="workspace-sidebar-add-project"
+          onClick={onImport}
+        >
+          <DownloadIcon size={16} />
+          <span>Import agents</span>
+        </Button>
       </div>
-    </aside>
+    </div>
   );
 }

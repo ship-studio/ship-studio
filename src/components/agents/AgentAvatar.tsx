@@ -1,69 +1,51 @@
 /**
- * An agent's face: one rounded tile in one of eleven colours, with one of
- * fourteen expressions. Identity lives in the face, not the silhouette.
+ * An agent's badge: its initials on a tile tinted with its colour. The same
+ * shape and type as a project's badge in the sidebar, so agents read as part
+ * of Ship Studio rather than as a separate app's mascots.
  *
  * @module components/agents/AgentAvatar
  */
 
-import type { ComponentType, SVGProps } from 'react';
-import DotsFace from '@/assets/graphics/agents/agent-avatar-dots.svg?react';
-import HappyFace from '@/assets/graphics/agents/agent-avatar-happy.svg?react';
-import VisorFace from '@/assets/graphics/agents/agent-avatar-visor.svg?react';
-import CyclopsFace from '@/assets/graphics/agents/agent-avatar-cyclops.svg?react';
-import GlassesFace from '@/assets/graphics/agents/agent-avatar-glasses.svg?react';
-import WinkFace from '@/assets/graphics/agents/agent-avatar-wink.svg?react';
-import SleepyFace from '@/assets/graphics/agents/agent-avatar-sleepy.svg?react';
-import SquareFace from '@/assets/graphics/agents/agent-avatar-square.svg?react';
-import SurprisedFace from '@/assets/graphics/agents/agent-avatar-surprised.svg?react';
-import PlusFace from '@/assets/graphics/agents/agent-avatar-plus.svg?react';
-import TrioFace from '@/assets/graphics/agents/agent-avatar-trio.svg?react';
-import SmirkFace from '@/assets/graphics/agents/agent-avatar-smirk.svg?react';
-import BrowsFace from '@/assets/graphics/agents/agent-avatar-brows.svg?react';
-import ShadesFace from '@/assets/graphics/agents/agent-avatar-shades.svg?react';
+import type { CSSProperties } from 'react';
 
-/** Index order is persisted (`shape` in the registry). Append only. */
-export const AVATAR_SHAPES: ComponentType<SVGProps<SVGSVGElement>>[] = [
-  DotsFace,
-  HappyFace,
-  VisorFace,
-  CyclopsFace,
-  GlassesFace,
-  WinkFace,
-  SleepyFace,
-  SquareFace,
-  SurprisedFace,
-  PlusFace,
-  TrioFace,
-  SmirkFace,
-  BrowsFace,
-  ShadesFace,
-];
+/** "Chief of Staff" → "CS", "Finance" → "FI", "Acme Site" → "AS". */
+export function agentInitials(name: string): string {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(
+      (w) => /[A-Za-z0-9]/.test(w) && !['of', 'the', 'and', 'for', '&'].includes(w.toLowerCase())
+    );
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  const word = words[0] ?? name.trim();
+  return word.slice(0, 2).toUpperCase() || '?';
+}
 
 interface AgentAvatarProps {
-  shape: number;
+  name: string;
   color: string;
+  /** Edge length in px. */
   size?: number;
-  /** Pulses while the agent works, so a glance at the sidebar says who's busy. */
-  working?: boolean;
+  /** Solid fill, for the agent you're looking at (like the current project's badge). */
+  selected?: boolean;
   className?: string;
 }
 
 export function AgentAvatar({
-  shape,
+  name,
   color,
-  size = 32,
-  working = false,
+  size = 24,
+  selected = false,
   className,
 }: AgentAvatarProps) {
-  const Shape = AVATAR_SHAPES[shape] ?? AVATAR_SHAPES[0];
   return (
     <span
-      className={`agent-avatar${working ? ' agent-avatar--working' : ''}${className ? ` ${className}` : ''}`}
+      className={`agent-avatar${selected ? ' agent-avatar--selected' : ''}${className ? ` ${className}` : ''}`}
       data-color={color}
-      style={{ width: size, height: size }}
+      style={{ '--agent-avatar-size': `${size}px` } as CSSProperties}
       aria-hidden
     >
-      <Shape width={size} height={size} />
+      {agentInitials(name)}
     </span>
   );
 }

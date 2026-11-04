@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownIcon, ArrowUpIcon } from '@/components/icons';
+import { ArrowDownIcon, ArrowUpIcon, SettingsSlidersIcon } from '@/components/icons';
 import { IconButton } from '../primitives/IconButton';
 import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
@@ -59,7 +59,8 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   }, [agent.id]);
 
   const items = useMemo(() => buildChatItems(messages ?? []), [messages]);
-  const working = agent.status.state !== 'idle';
+  // A card left open after the turn ended is not "working": no dots, no Stop.
+  const working = agent.status.state === 'working';
 
   // Follow new content only if the reader was already at the bottom.
   useLayoutEffect(() => {
@@ -124,15 +125,21 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
       data-color={agent.color}
       aria-label={`Conversation with ${agent.name}`}
     >
-      <button
-        type="button"
-        className="agent-chat__pill"
-        onClick={() => onEditAgent(agent)}
-        title="Edit agent"
-      >
-        <AgentAvatar shape={agent.shape} color={agent.color} size={20} working={working} />
-        <span>{agent.name}</span>
-      </button>
+      <header className="agent-chat__header">
+        <AgentAvatar name={agent.name} color={agent.color} size={24} selected />
+        <div className="agent-chat__title">
+          <h2 className="agent-chat__name">{agent.name}</h2>
+          {agent.role && <p className="agent-chat__role">{agent.role}</p>}
+        </div>
+        <IconButton
+          variant="ghost"
+          className="agent-chat__edit"
+          icon={<SettingsSlidersIcon size={14} />}
+          onClick={() => onEditAgent(agent)}
+          title="Edit agent"
+          aria-label={`Edit ${agent.name}`}
+        />
+      </header>
 
       <div className="agent-chat__scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="agent-chat__messages">
@@ -142,7 +149,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
             </div>
           ) : items.length === 0 ? (
             <div className="agent-chat__empty">
-              <AgentAvatar shape={agent.shape} color={agent.color} size={56} />
+              <AgentAvatar name={agent.name} color={agent.color} size={48} selected />
               <p className="agent-chat__empty-name">{agent.name}</p>
               {agent.role && <p className="agent-chat__empty-role">{agent.role}</p>}
             </div>
@@ -168,7 +175,14 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
                 case 'agent':
                   return <AgentBubble key={m.id} message={m} />;
                 case 'approval':
-                  return <ApprovalCard key={m.id} message={m} onAnswer={onAnswer} />;
+                  return (
+                    <ApprovalCard
+                      key={m.id}
+                      message={m}
+                      paused={agent.status.state === 'idle'}
+                      onAnswer={onAnswer}
+                    />
+                  );
                 case 'error':
                   return <ErrorLine key={m.id} message={m} />;
                 default:

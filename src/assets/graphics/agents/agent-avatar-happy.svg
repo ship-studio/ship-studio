@@ -1,4 +1,0 @@
-<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
-  <rect x="2.5" y="2.5" width="27" height="27" rx="10" fill="currentColor" />
-  <path d="M10 15.5q2-2.6 4 0M18 15.5q2-2.6 4 0" stroke="var(--agents-avatar-eyes)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" /><path d="M13 20.5q3 2.4 6 0" stroke="var(--agents-avatar-eyes)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-</svg>

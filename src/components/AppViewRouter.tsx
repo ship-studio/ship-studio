@@ -147,7 +147,7 @@ export function AppViewRouter({
   if (view === 'agents') {
     return (
       <>
-        <AgentsView onGoProjects={homeSidebarProps.onGoHome} />
+        <AgentsView isCompact={isCompact} sidebarProps={homeSidebarProps} />
         <ToastList toasts={toasts} onDismiss={onDismissToast} />
         {quitConfirmModal}
       </>

@@ -1,4 +1,0 @@
-<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
-  <rect x="2.5" y="2.5" width="27" height="27" rx="10" fill="currentColor" />
-  <circle cx="10.5" cy="15" r="1.6" fill="var(--agents-avatar-eyes)" /><circle cx="16" cy="13" r="1.6" fill="var(--agents-avatar-eyes)" /><circle cx="21.5" cy="15" r="1.6" fill="var(--agents-avatar-eyes)" />
-</svg>

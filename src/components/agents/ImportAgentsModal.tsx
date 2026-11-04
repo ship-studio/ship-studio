@@ -48,14 +48,14 @@ export function ImportAgentsModal({ isOpen, onClose }: ImportAgentsModalProps) {
         </p>
         <ol className="agents-import__steps">
           <li>
-            <span>Connect that assistant to Ship Studio, if you haven&apos;t already.</span>
-            <Button variant="secondary" size="compact" onClick={() => openModal('remoteAccess')}>
-              Remote access…
-            </Button>
+            <div className="agents-import__step">
+              <span>Connect it to Ship Studio, if you haven&apos;t already.</span>
+              <Button variant="secondary" size="compact" onClick={() => openModal('remoteAccess')}>
+                Remote access…
+              </Button>
+            </div>
           </li>
-          <li>
-            <span>Send it this message:</span>
-          </li>
+          <li>Send it this message:</li>
         </ol>
         <blockquote className="agents-import__prompt">{prompt}</blockquote>
         <p className="agents-import__note">

@@ -284,15 +284,21 @@
   color: var(--text-secondary);
 }
 
+/* Agents mode is showing: the row reads as the current destination, the way
+   the current project row does. */
+.workspace-sidebar-agents.is-active,
+.workspace-sidebar-agents.is-active:hover {
+  color: var(--text-primary);
+  background: var(--surface-selected);
+  cursor: default;
+}
+
+/* Unread replies: a quiet dot, not a count. */
 .workspace-sidebar-agents-badge {
+  width: var(--spacing-tight);
+  height: var(--spacing-tight);
   margin-left: auto;
-  min-width: var(--spacing-lg);
-  padding: 0 var(--spacing-xs);
-  font-size: var(--font-size-badge);
-  font-weight: var(--font-weight-heading);
-  line-height: var(--spacing-lg);
-  text-align: center;
-  color: var(--text-on-accent);
+  margin-right: var(--spacing-xs);
   background: var(--accent-active);
   border-radius: var(--radius-pill);
 }

@@ -8,6 +8,7 @@
  * @module components/workspace/HomeSidebar
  */
 
+import type { ReactNode } from 'react';
 import { WorkspaceSidebar, type ToggleProjectPinHandler } from './WorkspaceSidebar';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 
@@ -17,7 +18,9 @@ const noop = () => {};
 
 interface HomeSidebarProps {
   /** Which home destination is showing, so the nav row can mark it current. */
-  activeNav: 'home' | 'workflows' | 'inbox';
+  activeNav: 'home' | 'workflows' | 'inbox' | 'agents';
+  /** Agents mode shows its agent list in place of the projects. */
+  listContent?: ReactNode;
   onGoHome: () => void;
   onGoWorkflows: () => void;
   onGoInbox: () => void;
@@ -48,6 +51,7 @@ export function HomeSidebar({
   inboxUnreadCount,
   onGoAgents,
   agentsUnreadCount,
+  listContent,
   isSidebarHidden,
   onToggleSidebar,
   onOpenProjectPicker,
@@ -74,6 +78,7 @@ export function HomeSidebar({
       inboxUnreadCount={inboxUnreadCount}
       onGoAgents={onGoAgents}
       agentsUnreadCount={agentsUnreadCount}
+      listContent={listContent}
       onOpenProjectPicker={onOpenProjectPicker}
       isSidebarHidden={isSidebarHidden}
       onToggleSidebar={onToggleSidebar}

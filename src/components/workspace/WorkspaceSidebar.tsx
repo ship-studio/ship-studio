@@ -154,7 +154,12 @@ interface Props {
    * Which top-level destination is showing, so the
    * nav row can mark it current. Defaults to Home when omitted.
    */
-  activeNav?: 'home' | 'workflows' | 'inbox';
+  activeNav?: 'home' | 'workflows' | 'inbox' | 'agents';
+  /**
+   * Replaces the project list. Agents mode keeps this whole sidebar (nav,
+   * search, footer) and shows its agent list here, so it reads as the same app.
+   */
+  listContent?: ReactNode;
   /** Open the Workflows page. Hides the nav button when omitted. */
   onGoWorkflows?: () => void;
   /** Open the Inbox. Hides the nav button when omitted. */
@@ -425,6 +430,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   inboxUnreadCount = 0,
   onGoAgents,
   agentsUnreadCount = 0,
+  listContent,
   onGoHome,
   onOpenProjectPicker,
   isSidebarHidden,
@@ -1758,17 +1764,19 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           {onGoAgents && (
             <button
               type="button"
-              className="workspace-sidebar-filter workspace-sidebar-agents"
+              className={`workspace-sidebar-filter workspace-sidebar-agents${
+                activeNav === 'agents' ? ' is-active' : ''
+              }`}
               onClick={onGoAgents}
+              disabled={activeNav === 'agents'}
+              aria-current={activeNav === 'agents' ? 'page' : undefined}
               title="Agents"
               aria-label={agentsUnreadCount > 0 ? `Agents — ${agentsUnreadCount} unread` : 'Agents'}
             >
               <AgentsIcon size={12} />
               <span className="workspace-sidebar-filter-placeholder">Agents</span>
-              {agentsUnreadCount > 0 && (
-                <span className="workspace-sidebar-agents-badge" aria-hidden>
-                  {agentsUnreadCount > 9 ? '9+' : agentsUnreadCount}
-                </span>
+              {agentsUnreadCount > 0 && activeNav !== 'agents' && (
+                <span className="workspace-sidebar-agents-badge" aria-hidden />
               )}
             </button>
           )}
@@ -1777,7 +1785,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <SpotifyWidget isSidebarHidden={isSidebarHidden} />
 
         <div className="workspace-sidebar-scroll">
-          {hasSortableProjectGroups ? (
+          {listContent ? (
+            listContent
+          ) : hasSortableProjectGroups ? (
             <DragSortScope
               axis="vertical"
               allowCrossGroup={canMoveBetweenProjectGroups}

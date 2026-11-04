@@ -173,6 +173,12 @@ const LEADGEN_CHAT = [
       detail:
         '{\n  "to": "hello@northwind.example",\n  "subject": "Your site, faster",\n  "body": "Hi Sam — I build marketing sites for studios like yours…"\n}',
       status: 'pending',
+      tool: 'mcp__gmail__send_email',
+      input: {
+        to: 'hello@northwind.example',
+        subject: 'Your site, faster',
+        body: 'Hi Sam — I build marketing sites for studios like yours…',
+      },
     },
   }),
 ];
@@ -226,9 +232,9 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-new',
     title: 'Agents — creating an agent',
     looksRightWhen:
-      'Name field, fourteen shapes and eleven colours, the preview updating with the selection. Role and instructions are one link away.',
+      'A badge beside the name field that updates as you type and pick a colour; eleven colours; role and instructions one link away.',
     command: 'agents.new',
-    requires: '.agent-editor__shapes',
+    requires: '.agent-editor__colors',
     commands: {},
   },
   {

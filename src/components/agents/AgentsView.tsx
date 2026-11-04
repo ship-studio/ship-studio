@@ -1,12 +1,14 @@
 /**
- * Agents mode: the whole window becomes a chat app. Your agents on the left,
- * the one you're talking to on the right. Every agent is a Claude Code
- * session on this Mac; the Chief of Staff manages the rest.
+ * Agents mode: the home sidebar lists your agents instead of your projects,
+ * and the rest of the window is the conversation with the one you picked.
+ * Every agent is a Claude Code session on this Mac; the Chief of Staff
+ * manages the rest.
  *
  * @module components/agents/AgentsView
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { HomeSidebar } from '../workspace/HomeSidebar';
 import { AgentsSidebar } from './AgentsSidebar';
 import { AgentChat } from './AgentChat';
 import { AgentEditorModal } from './AgentEditorModal';
@@ -47,10 +49,11 @@ function writeSelected(id: string) {
 }
 
 interface AgentsViewProps {
-  onGoProjects: () => void;
+  isCompact: boolean;
+  sidebarProps: Omit<ComponentProps<typeof HomeSidebar>, 'activeNav' | 'listContent'>;
 }
 
-export function AgentsView({ onGoProjects }: AgentsViewProps) {
+export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const { agents, loaded, error, engineReady } = useAgents();
   const { showToast } = useOptionalToast();
   const openModal = useOpenModal();
@@ -62,6 +65,7 @@ export function AgentsView({ onGoProjects }: AgentsViewProps) {
   const [importOpen, setImportOpen] = useState(false);
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   // The last agent you had open, else the Chief of Staff.
@@ -108,23 +112,32 @@ export function AgentsView({ onGoProjects }: AgentsViewProps) {
 
   return (
     <div className="app workspace workspace-home agents-mode">
-      <div className="agents-layout">
-        <AgentsSidebar
-          agents={agents}
-          selectedId={selected?.id ?? null}
-          onSelect={setSelectedId}
-          onNew={openNew}
-          onImport={openImport}
-          onGoProjects={onGoProjects}
-          onTogglePin={(a) => void run(() => updateAgent(a.id, { pinned: !a.pinned }))}
-          onToggleHidden={(a) => void run(() => updateAgent(a.id, { hidden: !a.hidden }))}
-          onMarkUnread={(a) => {
-            if (a.id === selectedId) setSelectedId(null);
-            void run(() => markAgentUnread(a.id));
-          }}
-          onEdit={(a) => setEditor({ open: true, agent: a })}
-          onDelete={setDeleting}
-        />
+      <div className={`projects-with-rail${isCompact ? ' is-compact' : ''}`} key="view-agents">
+        {!isCompact && (
+          <HomeSidebar
+            {...sidebarProps}
+            activeNav="agents"
+            listContent={
+              <AgentsSidebar
+                agents={agents}
+                selectedId={selected?.id ?? null}
+                showHidden={showHidden}
+                onToggleShowHidden={() => setShowHidden((v) => !v)}
+                onSelect={setSelectedId}
+                onNew={openNew}
+                onImport={openImport}
+                onTogglePin={(a) => void run(() => updateAgent(a.id, { pinned: !a.pinned }))}
+                onToggleHidden={(a) => void run(() => updateAgent(a.id, { hidden: !a.hidden }))}
+                onMarkUnread={(a) => {
+                  if (a.id === selectedId) setSelectedId(null);
+                  void run(() => markAgentUnread(a.id));
+                }}
+                onEdit={(a) => setEditor({ open: true, agent: a })}
+                onDelete={setDeleting}
+              />
+            }
+          />
+        )}
 
         <main className="agents-main">
           {!engineReady && (
