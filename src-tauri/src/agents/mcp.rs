@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
+use super::engine::Engine;
 use super::files;
 use super::permissions;
 use super::runner::{self, From, Status};
@@ -139,6 +140,7 @@ const TOOLS: &[Tool] = &[
                 "instructions": { "type": "string", "description": "A briefing, as if for a new hire: context, standing rules, who's who, where things live." },
                 "color": { "type": "string", "enum": store::COLORS },
                 "project": { "type": "string", "description": "Optional: bind it to one Ship Studio project (name or path from project_list), so its own turns run inside that project. Usually unnecessary: any agent can work on any project through sessions." },
+                "engine": { "type": "string", "enum": ["claude", "codex"], "description": "Optional: what it runs on. `claude` (Claude Code, the default) or `codex` (Codex, on the user's ChatGPT plan). Only when the user asks for it; it must be installed and signed in." },
                 "first_task": { "type": "string", "description": "Optional message to start it on right away." }
             },
             "required": ["name", "role", "instructions"]
@@ -146,7 +148,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "update_agent",
-        description: "Change an agent's name, role, instructions or project. Instructions replace the old ones; its memory is kept. `project` takes a name or path from project_list, or \"none\" to unbind it.",
+        description: "Change an agent's name, role, instructions, project or engine. Instructions replace the old ones; its memory is kept. `project` takes a name or path from project_list, or \"none\" to unbind it. `engine` (`claude` or `codex`) switches what it runs on from its next turn: a new session, handed the recent conversation.",
         main_only: true,
         schema: || json!({
             "type": "object",
@@ -155,7 +157,8 @@ const TOOLS: &[Tool] = &[
                 "name": { "type": "string" },
                 "role": { "type": "string" },
                 "instructions": { "type": "string" },
-                "project": { "type": "string" }
+                "project": { "type": "string" },
+                "engine": { "type": "string", "enum": ["claude", "codex"] }
             },
             "required": ["agent"]
         }),
@@ -248,6 +251,16 @@ pub fn initialize_result(params: Option<&Value>) -> Value {
         "serverInfo": { "name": "shipstudio-agents", "version": env!("CARGO_PKG_VERSION") },
         "instructions": "Ship Studio: the user's projects, which you work on through their sessions (project_* and session_* tools), other agents you can message, and (for the Chief of Staff) creating and managing agents."
     })
+}
+
+/// The names of the tools this caller is served, as `tools/list` gives them.
+pub(super) fn tool_names(caller: &store::Agent) -> Vec<String> {
+    tools_list(caller)["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str().map(String::from))
+        .collect()
 }
 
 fn tools_list(caller: &store::Agent) -> Value {
@@ -584,6 +597,14 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         },
         None => None,
     };
+    let engine = match arg(args, "engine").map(Engine::parse) {
+        Some(Ok(engine)) => match super::engine::require_ready(engine).await {
+            Ok(()) => Some(engine),
+            Err(e) => return error(e.to_string()),
+        },
+        Some(Err(e)) => return error(e.to_string()),
+        None => None,
+    };
     let created = store::create(store::NewAgent {
         name: name.to_string(),
         role: arg(args, "role").unwrap_or("").to_string(),
@@ -592,9 +613,12 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         color: arg(args, "color").map(str::to_string),
         is_main: false,
     });
-    let created = created.and_then(|agent| match &project {
-        Some(p) => store::update(&agent.id, |a| a.project = Some(p.path.clone())),
-        None => Ok(agent),
+    let created = created.and_then(|agent| match (&project, engine) {
+        (None, None) => Ok(agent),
+        _ => store::update(&agent.id, |a| {
+            a.project = project.as_ref().map(|p| p.path.clone());
+            a.engine = engine.unwrap_or_default();
+        }),
     });
     match created {
         Ok(agent) => {
@@ -655,6 +679,16 @@ async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         },
         None => None,
     };
+    let engine = match arg(args, "engine").map(Engine::parse) {
+        Some(Ok(engine)) if engine != agent.engine => {
+            match super::engine::require_ready(engine).await {
+                Ok(()) => Some(engine),
+                Err(e) => return error(e.to_string()),
+            }
+        }
+        Some(Err(e)) => return error(e.to_string()),
+        _ => None,
+    };
     let role = arg(args, "role").map(str::to_string);
     let mut fields = Vec::new();
     if role.as_deref().is_some_and(|r| r != agent.role) {
@@ -666,6 +700,9 @@ async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
     if project.as_ref().is_some_and(|p| *p != agent.project) {
         fields.push("project");
     }
+    if engine.is_some() {
+        fields.push("engine");
+    }
     let updated = store::update(&agent.id, |a| {
         if let Some(n) = new_name {
             a.name = n;
@@ -675,6 +712,9 @@ async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         }
         if let Some(p) = project {
             a.project = p;
+        }
+        if let Some(engine) = engine {
+            a.switch_engine(engine);
         }
     });
     let updated = match updated {
@@ -1236,7 +1276,9 @@ mod tests {
             preview: None,
             unread: 0,
             pending_approvals: 0,
+            engine: Default::default(),
             model: None,
+            new_engine: false,
             muted: false,
             check_ins: Vec::new(),
             usage: Default::default(),

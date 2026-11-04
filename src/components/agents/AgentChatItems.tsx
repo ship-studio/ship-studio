@@ -41,6 +41,7 @@ import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   describeScope,
+  ENGINE_LABEL,
   errorRemedy,
   formatClock,
   formatDivider,
@@ -53,6 +54,7 @@ import {
   PROSE_PATH,
   splitQuotes,
   type Agent,
+  type AgentEngine,
   type AgentMessage,
   type AgentRef,
   type Approval,
@@ -420,6 +422,8 @@ interface ErrorLineProps extends Arrival {
   /** A retry already waits for that reset (a check-in at that time). */
   retryScheduled?: boolean;
   onSignIn?: () => void;
+  /** What the agent runs on, which "Sign in to …" names. */
+  engine?: AgentEngine;
 }
 
 /**
@@ -434,6 +438,7 @@ export const ErrorLine = memo(function ErrorLine({
   onRetryAt,
   retryScheduled,
   onSignIn,
+  engine = 'claude',
 }: ErrorLineProps) {
   const signIn = errorRemedy(message) === 'sign-in' && onSignIn;
   const resetsAt = message.failure?.kind === 'usage_limit' ? message.failure.resetsAt : undefined;
@@ -471,7 +476,7 @@ export const ErrorLine = memo(function ErrorLine({
           <div className="agent-bubble__remedy">
             {signIn && (
               <Button tabIndex={0} size="compact" variant="secondary" onClick={onSignIn}>
-                Sign in to Claude Code
+                Sign in to {ENGINE_LABEL[engine]}
               </Button>
             )}
             {retryAt &&

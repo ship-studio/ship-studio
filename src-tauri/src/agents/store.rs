@@ -66,9 +66,17 @@ pub struct Agent {
     /// say "Needs your OK" without reading every chat log.
     #[serde(default)]
     pub pending_approvals: u32,
-    /// Explicit model override (`--model`); `None` uses Claude Code's default.
+    /// What its turns run on: Claude Code (the default) or Codex.
+    #[serde(default)]
+    pub engine: super::engine::Engine,
+    /// Explicit model override (`--model` / `-m`), one its engine offers;
+    /// `None` uses the engine's own default.
     #[serde(default)]
     pub model: Option<String>,
+    /// It moved to another engine and hasn't had a turn there yet: the next
+    /// turn starts a new session and is handed the recent conversation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_engine: bool,
     /// No OS notifications for this agent. Unread and the Dock badge still count it.
     #[serde(default)]
     pub muted: bool,
@@ -99,6 +107,21 @@ pub struct Agent {
     /// strips what a newer one saved.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Agent {
+    /// Move it to another engine from its next turn. A session can't cross
+    /// engines, and neither can a model.
+    pub fn switch_engine(&mut self, engine: super::engine::Engine) {
+        if engine == self.engine {
+            return;
+        }
+        self.engine = engine;
+        self.model = None;
+        self.session_id = None;
+        self.new_engine = true;
+        self.capabilities = None;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -534,7 +557,9 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         preview: None,
         unread: 0,
         pending_approvals: 0,
+        engine: Default::default(),
         model: None,
+        new_engine: false,
         muted: false,
         check_ins: Vec::new(),
         usage: Default::default(),

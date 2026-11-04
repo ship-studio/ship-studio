@@ -71,6 +71,17 @@ deploy, publish, send email or messages, or spend money unless the user asked \
 for that specific action. Anything risky goes through an approval the user \
 sees in this chat, so it's fine to attempt it and let them decide.";
 
+/// Codex can't ask: `exec` refuses every approval (see `codex`), so the
+/// sandbox is the guard, and the agent is told so rather than left to find out.
+const CODEX_SANDBOX: &str = "\
+Your commands run in Codex's sandbox: they can change files in your own \
+folder and the user's projects, without network access. Nothing inside a \
+command can ask the user for more. If a task needs more than that (the \
+network, another folder, installing something), don't try to get around the \
+sandbox: say in one line what you need and why, or do it through a project \
+session. Ship Studio's own tools (pushing, sessions, other agents) work as \
+usual, and the ones that need the user's OK still put a card in this chat.";
+
 const PROJECTS: &str = "\
 ## Projects
 
@@ -168,14 +179,11 @@ pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
             agent.name, agent.role
         )
     };
-    let mut sections = vec![
-        identity,
-        VOICE.to_string(),
-        WORK.to_string(),
-        PROJECTS.to_string(),
-        FILES.to_string(),
-        TEAM.to_string(),
-    ];
+    let mut sections = vec![identity, VOICE.to_string(), WORK.to_string()];
+    if agent.engine == super::engine::Engine::Codex {
+        sections.push(CODEX_SANDBOX.to_string());
+    }
+    sections.extend([PROJECTS.to_string(), FILES.to_string(), TEAM.to_string()]);
     match bound {
         None => sections.push(MEMORY.to_string()),
         Some(b) => sections.extend(bound_sections(b)),
@@ -185,6 +193,7 @@ pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
     }
     sections.extend(super::capabilities::prompt_section(
         agent.capabilities.as_ref(),
+        agent.engine,
     ));
     sections.join("\n\n")
 }

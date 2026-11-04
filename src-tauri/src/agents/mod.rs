@@ -7,6 +7,9 @@
 //! - [`apps`]: the user's Claude Code MCP servers, which every turn loads
 //! - [`store`]: the registry and each agent's home (CLAUDE.md + chat log)
 //! - [`runner`]: per-agent inbox; each turn is one `claude --print --resume`
+//!   or `codex exec [resume]`
+//! - [`engine`]: Claude Code or Codex per agent: availability, sign-in, models
+//! - [`codex`]: Codex's command line and JSONL, mapped onto the same turn steps
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`permissions`]: "Always allow" rules and how narrowly they match
 //! - [`notify`]: macOS notifications and the Dock badge
@@ -27,6 +30,8 @@
 pub mod apps;
 pub mod attachments;
 pub mod capabilities;
+pub mod codex;
+pub mod engine;
 pub mod failure;
 pub mod files;
 pub mod import;

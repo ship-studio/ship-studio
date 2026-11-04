@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a1a8a4-95e2-70c2-ac7a-a7a2ec46924a"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `mock-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'echo hi > note.txt && cat note.txt'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'echo hi > note.txt && cat note.txt'","aggregated_output":"hi\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","type":"mcp_tool_call","server":"shipstudio_agents","tool":"list_agents","arguments":{},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"mcp_tool_call","server":"shipstudio_agents","tool":"list_agents","arguments":{},"result":{"content":[{"type":"text","text":"Finance (idle), Chief of Staff (you)"}],"structured_content":null},"error":null,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"All done."}}
+{"type":"turn.completed","usage":{"input_tokens":3600,"cached_input_tokens":3000,"cache_write_input_tokens":0,"output_tokens":102,"reasoning_output_tokens":12}}

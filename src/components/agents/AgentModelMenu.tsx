@@ -1,6 +1,8 @@
 /**
- * The model an agent runs on, as a quiet control in the chat header. Only
- * Claude Code's own aliases are offered; the change applies from its next turn.
+ * The model an agent runs on, as a quiet control in the chat header: its
+ * engine's own models (Claude Code's aliases, or Codex's list); the change
+ * applies from its next turn. A Codex agent's says so, since the engine is
+ * the bigger fact there.
  *
  * @module components/agents/AgentModelMenu
  */
@@ -8,16 +10,23 @@
 import { CheckIcon, ChevronIcon } from '@/components/icons';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
-import { AGENT_MODELS, modelLabel, updateAgent, type Agent } from '../../lib/agents';
-import { refreshAgents } from '../../lib/agentsStore';
+import { modelChoices, modelLabel, updateAgent, type Agent } from '../../lib/agents';
+import { refreshAgents, useAgentsSelector } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 export function AgentModelMenu({ agent }: { agent: Agent }) {
   const { showToast } = useOptionalToast();
+  const engines = useAgentsSelector((s) => s.engines);
+  const choices = modelChoices(agent.engine, engines);
   const current = agent.model ?? '';
   // "Default" alone reads as a setting with no subject in a chat header.
-  const label = agent.model ? modelLabel(agent.model) : 'Default model';
+  const label =
+    agent.engine === 'codex'
+      ? `Codex · ${modelLabel(agent.model, choices)}`
+      : agent.model
+        ? modelLabel(agent.model, choices)
+        : 'Default model';
   const choose = async (model: string) => {
     if (model === current) return;
     try {
@@ -50,7 +59,7 @@ export function AgentModelMenu({ agent }: { agent: Agent }) {
         </MenuButton>
       )}
     >
-      {AGENT_MODELS.map((m) => (
+      {choices.map((m) => (
         <DropdownItem key={m.value} onSelect={() => void choose(m.value)}>
           <span className="agent-model-menu__label">{m.label}</span>
           <span className="agent-model-menu__check" aria-hidden="true">

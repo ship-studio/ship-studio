@@ -485,6 +485,76 @@ line suggesting an always-on Mac, such as a Mac mini or a cloud Mac, for
 round-the-clock agents; and as a "Keep this Mac awake" link at the end of the
 schedule popover's footnote. Elsewhere than macOS none of it shows.
 
+## Engines: Claude Code or Codex (`agents/engine.rs`, `agents/codex.rs`)
+
+Each agent has `engine: "claude" | "codex"` (default `claude`), so it can run
+on a ChatGPT plan with the same chat, tools, memory and Chief around it. The
+editor's **Runs on** shows only engines that are installed and signed in
+(Codex: `codex login status`; Claude Code counts once installed), plus the
+one the agent is on, and hides itself when there is one choice. Model offers
+that engine's own list: Claude Code's aliases, or Codex's own
+`models_cache.json` (`visibility: list`, its order). The Chief can set it on
+`create_agent` / `update_agent`; both refuse an engine that isn't ready.
+Switching clears the session and the model, leaves a note ("Runs on Codex
+from its next message"), and the next turn gets the recent conversation
+(`Agent.newEngine` → `with_recap`).
+
+A Codex turn:
+
+```
+codex exec [resume <thread id>] --json --skip-git-repo-check
+  -c sandbox_mode="workspace-write" -c approval_policy="never"
+  -c sandbox_workspace_write.writable_roots=[<home or project dirs>]
+  -c mcp_servers.shipstudio_agents={url=…,tool_timeout_sec=300,default_tools_approval_mode="approve"}
+  -c project_doc_fallback_filenames=["CLAUDE.md"]
+  -c developer_instructions=<voice + role + team rules>
+  [-m <model>] -          (prompt on stdin; cwd as for Claude Code)
+```
+
+Its JSONL maps onto the same `stream::Step`s as Claude Code's stream-json:
+`thread.started` → session, `item.completed agent_message` → a reply,
+`item.started` command / MCP call / web search and `file_change` → the
+activity line (labelled as the matching Claude Code tool), `turn.completed`
+→ usage (tokens only: a plan reports no price; duration timed here),
+`turn.failed` → the error, and `error` retries → "Reconnecting to Codex 2/5".
+Capabilities come from what we serve it, its built-ins and `codex mcp list
+--json`, read before each turn (Codex announces no tools). Failures read as
+"Codex's usage limit is reached. It resets at 7:18 PM." (from its "try again
+at 7:18 PM", this Mac's time) and "Codex is signed out." (checked before the
+turn, which otherwise spends 20s retrying a 401), with "Sign in to Codex"
+running `codex login`. A vanished thread ("no rollout found") is replaced
+once, like a lost Claude session.
+
+What differs from a Claude Code agent, all verified on Codex 0.166:
+
+- **No streaming.** `exec --json` emits an `agent_message` only complete,
+  even when the model streams it, so a Codex reply appears whole. Stop keeps
+  nothing partial; it leaves the "Stopped" note.
+- **No approval cards for its own commands.** `exec` forces approval to
+  "never" whatever is configured, so nothing reaches a client or a
+  `PermissionRequest` hook, and hooks passed with `-c` don't run without
+  `--dangerously-bypass-hook-trust`, which we don't use (it would also run
+  any untrusted hook in a project). So the guard is Codex's sandbox: commands
+  can write only in the agent's home and the user's projects, with no
+  network, and anything beyond fails inside the turn; the prompt tells it to
+  say what it needs instead. Ship Studio's own cards (push, delete an agent)
+  still appear, since those are our tools. The user's own Codex MCP servers
+  keep their defaults, so their write tools are refused rather than asked.
+  `codex app-server` routes approvals and streams deltas; moving to it is the
+  way to close both gaps.
+- **Memory.** `developer_instructions` is fixed at session start (a resume
+  keeps the first), but Codex re-reads the project doc every turn and hands
+  over a changed one, so an unbound agent's CLAUDE.md is its project doc and
+  memory edits reach the next turn. A bound Codex agent runs in its project,
+  whose own AGENTS.md (or CLAUDE.md) loads; its identity rides in the
+  developer instructions as of its session's start.
+- No Claude in Chrome; "Apps" are the MCP servers set up in Codex.
+
+Not verified against a signed-in ChatGPT account (none on the build machine):
+real model behaviour on these prompts, the real usage-limit response (its
+wording was produced by Codex itself from a scripted 429), and a real reset
+time. The e2e Codex scenarios run on the account when one is signed in.
+
 ## Search, model and usage
 
 - **Search.** In Agents mode the sidebar's top field searches conversations
@@ -664,8 +734,8 @@ prunes them the diff says it can't be shown.
 
 ## Known limits / next
 
-- Claude Code only. The runner is CLI-specific in `run_turn`; Codex
-  (`codex exec --json`) and Opencode would slot in there.
+- Claude Code and Codex (see "Engines"). Opencode would slot in the same
+  way: a command line and a mapping onto `stream::Step`.
 - Search scans files on every query. Fine at one person's scale (tens of
   agents, thousands of lines); an index would be needed well past that.
 - At most 3 turns run at once (`runner::MAX_TURNS`); the rest wait, shown as
@@ -708,5 +778,13 @@ prunes them the diff says it can't be shown.
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
+- Codex: `scripts/agents-e2e.sh codex-memory codex-stop codex-delegation`
+  runs those scenarios on Codex. With Codex signed in they use the account
+  (its `auth.json` copied into a throwaway `CODEX_HOME`); otherwise the real
+  `codex` binary talks to a scripted Responses endpoint
+  (`scripts/agents-e2e-codex-model.py`, passed in through the debug-only
+  `SHIPSTUDIO_AGENTS_CODEX_CONFIG`), which proves resume, Stop/interrupt and
+  delegation through the bridge, not a model's judgement.
+  `AGENTS_E2E_CODEX=real|scripted|skip` forces one.
 - `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
-  agent, import, Claude Code missing.
+  agent, import, Claude Code missing, the engine picker (`agents-engine-picker`) and a Codex agent's chat (`agents-codex-chat`).

@@ -220,6 +220,7 @@ export const agent = (
     preview: null,
     unread: 0,
     pendingApprovals: 0,
+    engine: 'claude' as 'claude' | 'codex',
     model: null as string | null,
     muted: false,
     status: status('idle'),
@@ -593,7 +594,78 @@ const schedulePreview = (args: Record<string, unknown>) => {
   throw new Error('Give it a day and a time.');
 };
 
-export const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
+/** Both engines here and signed in, each with its own models (`engine::EngineInfo`). */
+export const ENGINES = [
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    installed: true,
+    signedIn: true,
+    models: [
+      { value: 'opus', label: 'Opus' },
+      { value: 'sonnet', label: 'Sonnet' },
+      { value: 'haiku', label: 'Haiku' },
+    ],
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    installed: true,
+    signedIn: true,
+    models: [
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
+      { value: 'gpt-5.5', label: 'GPT-5.5' },
+    ],
+  },
+];
+
+export const overview = (agents = TEAM, engineReady = true) => ({
+  agents,
+  engineReady,
+  engines: ENGINES,
+});
+
+/** Research runs on Codex: same chat, its own model in the header. */
+const CODEX_TEAM = [
+  ...TEAM,
+  agent('research', 'Research', {
+    engine: 'codex',
+    model: 'gpt-5.5',
+    color: 'teal',
+    shape: 9,
+    minutesAgo: 1,
+    role: 'Competitor and market research',
+    preview: 'Three of the five now list annual pricing first.',
+    status: status('working', '$ rg -l "annual" pricing/'),
+    capabilities: {
+      seenAt: now,
+      lines: [
+        { what: 'The team', detail: 'Message the other agents.' },
+        {
+          what: 'On this Mac',
+          detail:
+            "Run commands, read and edit files, use the web, send you files and schedule check-ins, in Codex's sandbox: your projects and its own folder, with no network for commands.",
+        },
+      ],
+    },
+  }),
+];
+
+const CODEX_CHAT = [
+  msg('note', 'Runs on Codex from its next message', 40, { agentId: 'research' }),
+  msg('user', 'How do the five competitors on our list show pricing now?', 38, {
+    agentId: 'research',
+  }),
+  msg(
+    'agent',
+    'Three of the five now list annual pricing first: Northwind, Fable and Linework. Basecamp-style flat pricing is gone from all of them. Halcyon still hides pricing behind a demo form.\n\nWant me to put the screenshots and the per-seat numbers in a sheet?',
+    35,
+    { agentId: 'research' }
+  ),
+  msg('user', 'Yes, and check whether any of them changed it this month.', 2, {
+    agentId: 'research',
+  }),
+];
 
 /**
  * Sending, so the motion of a send can be watched (and recorded) in the
@@ -1283,6 +1355,40 @@ export const agentsScenarios: Scenario[] = [
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-engine-picker',
+    title: 'Agents — moving an agent to Codex in the editor',
+    looksRightWhen:
+      'Editing the Chief of Staff: a “Runs on” control (Claude Code | Codex) above Model, with Codex chosen; under it one muted line saying its next message starts a new Codex session handed the recent conversation, instructions and memory carried over. Model now offers Default / GPT-5.6-Sol / GPT-5.5 with Default chosen. The Apps hint says a Codex agent uses the MCP servers set up in Codex, with no Manage apps button.',
+    openSelector: AGENTS_TAB,
+    requires: '[aria-label="Runs on"] [aria-pressed="true"]',
+    clipSelector: '.agent-editor',
+    steps: [
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+      { click: '[aria-label="Runs on"] button:nth-child(2)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the team moving.',
+      agents_usage: { week: totals(0, 0, 0, 0), allTime: totals(0, 0, 0, 0) },
+    },
+  },
+  {
+    id: 'agents-codex-chat',
+    title: 'Agents — an agent running on Codex',
+    looksRightWhen:
+      'Research’s chat looks like every other agent’s: a quiet “Runs on Codex from its next message” note, the question, an unboxed prose reply, and the newest question with Research working under it (“$ rg -l "annual" pricing/”). The header’s model control reads “Codex · GPT-5.5”.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-chat__model',
+    steps: [{ click: '[data-agent-id="research"]' }],
+    commands: {
+      agents_overview: overview(CODEX_TEAM),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'research' ? CODEX_CHAT : messagesFor(args),
     },
   },
   {

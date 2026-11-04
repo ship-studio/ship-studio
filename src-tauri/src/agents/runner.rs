@@ -21,11 +21,12 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
+use super::engine::Engine;
 use super::notify;
 use super::procs;
 use super::prompts;
 use super::store::{self, AgentMessage, AgentRef, MessageKind};
-use super::stream::{self, Drafts};
+use super::stream::{self, Drafts, Step};
 use crate::errors::CommandError;
 
 pub const EVENT_MESSAGE: &str = "agents://message";
@@ -677,7 +678,8 @@ async fn drain(app: AppHandle, agent_id: String) {
             record_changes(&app, &agent_id, project, from).await;
         }
         if let Err(err) = result {
-            let (text, failure) = super::failure::describe_now(&err.to_string());
+            let engine = store::get(&agent_id).map(|a| a.engine).unwrap_or_default();
+            let (text, failure) = super::failure::describe_now(engine, &err.to_string());
             let mut line = new_message(&agent_id, MessageKind::Error, text);
             line.failure = Some(failure);
             let _ = record(&app, line);
@@ -732,7 +734,7 @@ fn compose(batch: &[Inbound]) -> String {
 /// What a failed `result` event means, in words. The CLI puts the reason in
 /// `errors` (e.g. "No conversation found with session ID: …") and only a code
 /// in `subtype` ("error_during_execution"), which must never reach the chat.
-fn result_error_text(value: &serde_json::Value) -> String {
+pub(crate) fn result_error_text(value: &serde_json::Value) -> String {
     if let Some(text) = value
         .get("result")
         .and_then(|r| r.as_str())
@@ -762,16 +764,17 @@ fn result_error_text(value: &serde_json::Value) -> String {
 /// ends with one; without it the process died or wrote something unreadable,
 /// whatever its exit code says, so this is never a silent "done". The CLI's
 /// own words win when it left any.
-fn unfinished_turn(exited_cleanly: bool, stderr: String) -> String {
+fn unfinished_turn(engine: Engine, exited_cleanly: bool, stderr: String) -> String {
     if !stderr.trim().is_empty() {
         return stderr;
     }
+    let who = engine.label();
     let what = if exited_cleanly {
-        "Claude Code stopped before finishing its reply."
+        "stopped before finishing its reply"
     } else {
-        "Claude Code quit unexpectedly before finishing its reply."
+        "quit unexpectedly before finishing its reply"
     };
-    format!("{what} Send your message again; if it keeps happening, check that Claude Code works in a terminal.")
+    format!("{who} {what}. Send your message again; if it keeps happening, check that {who} works in a terminal.")
 }
 
 /// A prompt for a fresh session, prefixed with the visible conversation.
@@ -803,11 +806,14 @@ fn with_recap(agent_id: &str, prompt: &str) -> String {
     )
 }
 
-/// Claude Code's `--resume` refuses a session id it has no file for (the
-/// user cleared ~/.claude, or the first turn died before writing one).
+/// `--resume` / `exec resume` refusing a session it has no file for (the
+/// user cleared ~/.claude or ~/.codex, or the first turn died before writing
+/// one). Codex 0.166 says "no rollout found for thread id …" (observed).
 fn is_missing_session(detail: &str) -> bool {
     let lower = detail.to_lowercase();
-    lower.contains("no conversation found") || lower.contains("session not found")
+    lower.contains("no conversation found")
+        || lower.contains("session not found")
+        || lower.contains("no rollout found")
 }
 
 fn mcp_config(url: &str) -> String {
@@ -980,28 +986,6 @@ async fn record_off(app: &AppHandle, message: AgentMessage) {
     let _ = tokio::task::spawn_blocking(move || record(&app, message)).await;
 }
 
-/// The `claude` binary, validated (`claude --version`) at most once a
-/// minute per PATH rather than on every turn: the probe spawns a process.
-async fn claude_binary() -> Option<std::path::PathBuf> {
-    type Cached = (String, std::path::PathBuf, std::time::Instant);
-    static CACHE: LazyLock<Mutex<Option<Cached>>> = LazyLock::new(|| Mutex::new(None));
-    let path_var = std::env::var("PATH").unwrap_or_default();
-    if let Some((for_path, binary, at)) = &*CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
-        if *for_path == path_var && at.elapsed() < Duration::from_secs(60) && binary.exists() {
-            return Some(binary.clone());
-        }
-    }
-    let binary = tokio::task::spawn_blocking(|| {
-        crate::commands::claude::find_validated_binary("claude", "--version")
-    })
-    .await
-    .ok()
-    .flatten()?;
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((path_var, binary.clone(), std::time::Instant::now()));
-    Some(binary)
-}
-
 /// Run one turn. `retry_fresh` lets a vanished session be replaced once.
 async fn run_turn(
     app: &AppHandle,
@@ -1009,20 +993,33 @@ async fn run_turn(
     prompt: &str,
     retry_fresh: bool,
 ) -> Result<(), CommandError> {
-    let agent = store::get(agent_id)?;
+    let mut agent = store::get(agent_id)?;
+    let engine = agent.engine;
     let home = store::agent_home(agent_id)?;
     std::fs::create_dir_all(&home).map_err(super::err_io)?;
-    let binary = claude_binary().await.ok_or_else(|| {
-        CommandError::expected("Claude Code isn't installed, or Ship Studio can't find it. Install it from Settings → Agents, then send this again.")
+    let binary = super::engine::binary(engine).await.ok_or_else(|| {
+        CommandError::expected(format!("{} isn't installed, or Ship Studio can't find it. Install it, or move this agent to another engine in Edit agent, then send this again.", engine.label()))
     })?;
+    // Signed out, Codex retries for twenty seconds before saying so.
+    if engine == Engine::Codex && !super::engine::signed_in(engine).await {
+        return Err(CommandError::expected("Codex says: Not logged in."));
+    }
     let (port, token) = crate::agent_bridge::start_global_agent_bridge(app.clone())
         .await
         .map_err(super::err_other)?;
     let url = format!("http://127.0.0.1:{port}/mcp/{token}/agents/{agent_id}");
 
-    let (session_id, resuming) = match &agent.session_id {
-        Some(id) => (id.clone(), true),
-        None => (uuid::Uuid::new_v4().to_string(), false),
+    // Codex names its own session (`thread.started`); Claude Code takes ours.
+    let (session_id, resuming) = match (&agent.session_id, engine) {
+        (Some(id), _) => (id.clone(), true),
+        (None, Engine::Claude) => (uuid::Uuid::new_v4().to_string(), false),
+        (None, Engine::Codex) => (String::new(), false),
+    };
+    // First turn on a new engine: it starts blank, so it gets the conversation.
+    let prompt = if agent.new_engine && !resuming {
+        with_recap(agent_id, prompt)
+    } else {
+        prompt.to_string()
     };
 
     let layout = super::project::layout(&agent, &home, work_dirs());
@@ -1035,16 +1032,31 @@ async fn run_turn(
             )));
         }
     }
+    // Codex announces no tools, so its list is read before the turn instead.
+    if engine == Engine::Codex {
+        let caps = super::codex::capabilities(&agent, &binary, store::now_ms()).await;
+        agent.capabilities = Some(caps.clone());
+        let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
+    }
     let system_prompt = system_prompt_for(&agent, &home, &layout);
     let mut cmd = crate::utils::create_command(&binary);
-    cmd.args(turn_args(
-        &agent,
-        &session_id,
-        resuming,
-        &url,
-        &system_prompt,
-        &layout.add_dirs,
-    ));
+    match engine {
+        Engine::Claude => cmd.args(turn_args(
+            &agent,
+            &session_id,
+            resuming,
+            &url,
+            &system_prompt,
+            &layout.add_dirs,
+        )),
+        Engine::Codex => cmd.args(super::codex::args(
+            &agent,
+            resuming.then_some(session_id.as_str()),
+            &url,
+            &system_prompt,
+            &layout.add_dirs,
+        )),
+    };
     strip_session_env(&mut cmd);
     cmd.env("PATH", crate::utils::get_extended_path())
         // Claude Code gives an MCP tool call ~60s by default, and the approval
@@ -1052,7 +1064,7 @@ async fn run_turn(
         // two minutes came back as a timeout the agent read as "Bash is
         // hanging". Raised past our own approval wait so we always answer
         // first. (Claude Code still caps a permission prompt at 300s; see
-        // mcp::APPROVAL_WAIT_SECS.)
+        // mcp::APPROVAL_WAIT_SECS.) Codex gets the same as `tool_timeout_sec`.
         .env(
             "MCP_TOOL_TIMEOUT",
             ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
@@ -1068,15 +1080,21 @@ async fn run_turn(
     procs::own_group(&mut cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|e| CommandError::expected(format!("Couldn't start Claude Code: {e}")))?;
+        .map_err(|e| CommandError::expected(format!("Couldn't start {}: {e}", engine.label())))?;
     let pid = child.id();
     if let Some(pid) = pid {
         procs::register(agent_id, pid);
     }
 
+    // What identifies this turn's process on its command line, for the next
+    // launch to recognise a leftover: the session, or for a new Codex session
+    // (no id until it starts) the agent's home, which is a writable root.
     let mut mark = read_mark(agent_id).unwrap_or_default();
     mark.pid = pid;
-    mark.session = session_id.clone();
+    mark.session = match engine {
+        Engine::Claude => session_id.clone(),
+        Engine::Codex => home.to_string_lossy().into_owned(),
+    };
     write_mark(agent_id, mark);
 
     // A CLI that dies on startup closes stdin before reading it. Its exit
@@ -1123,6 +1141,8 @@ async fn run_turn(
     let mut saw_result = false;
     let mut said_anything = false;
     let mut result_error: Option<String> = None;
+    // What the engine said along the way, for a turn that ends without a result.
+    let mut last_detail: Option<String> = None;
     let mut session_confirmed = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_secs(TURN_TIMEOUT_SECS));
     tokio::pin!(deadline);
@@ -1148,62 +1168,61 @@ async fn run_turn(
             line = lines.next_line() => {
                 let Ok(Some(line)) = line else { break };
                 let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-                match value.get("type").and_then(|t| t.as_str()) {
-                    Some("system") => {
-                        if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {
+                let steps = match engine {
+                    Engine::Claude if value.get("type").and_then(|t| t.as_str()) == Some("stream_event") => {
+                        drafts.on_stream_event(&value, store::new_id);
+                        continue;
+                    }
+                    Engine::Claude => stream::claude_steps(&value, &line, store::now_ms()),
+                    Engine::Codex => super::codex::steps(&value),
+                };
+                for step in steps {
+                    match step {
+                        Step::Session(sid) if !session_confirmed => {
+                            session_confirmed = true;
+                            let id = agent_id.to_string();
+                            let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| {
+                                a.session_id = Some(sid);
+                                a.new_engine = false;
+                            })).await;
+                        }
+                        Step::Session(_) => {}
+                        Step::Capabilities(caps) => {
                             let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
                         }
-                        if !session_confirmed {
-                            if let Some(sid) = value.get("session_id").and_then(|s| s.as_str()) {
-                                session_confirmed = true;
-                                let sid = sid.to_string();
-                                let id = agent_id.to_string();
-                                let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| a.session_id = Some(sid))).await;
-                            }
-                        }
-                    }
-                    Some("stream_event") => drafts.on_stream_event(&value, store::new_id),
-                    Some("assistant") => {
-                        // Sub-agent (Task) chatter is internal; only top-level text is a reply.
-                        let top_level = stream::top_level(&value);
-                        if let Some(blocks) = value.pointer("/message/content").and_then(|c| c.as_array()) {
-                            for block in blocks {
-                                if top_level && block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                    let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("").trim();
-                                    // Recorded under the draft's id, so it takes the draft's place.
-                                    let draft_id = drafts.finish(text);
-                                    if !text.is_empty() {
-                                        said_anything = true;
-                                        let mut message = new_message(agent_id, MessageKind::Agent, text);
-                                        if let Some(id) = draft_id {
-                                            message.id = id;
-                                        }
-                                        record_off(app, message).await;
-                                    }
+                        Step::Reply(text) => {
+                            // Recorded under the draft's id, so it takes the draft's place.
+                            let draft_id = drafts.finish(&text);
+                            if !text.is_empty() {
+                                said_anything = true;
+                                let mut message = new_message(agent_id, MessageKind::Agent, text);
+                                if let Some(id) = draft_id {
+                                    message.id = id;
                                 }
+                                record_off(app, message).await;
                             }
                         }
-                        if let Some(activity) = describe_activity(&line) {
-                            let current = status_of(agent_id);
-                            if current.state != "waiting" {
+                        Step::Activity(activity) => {
+                            if status_of(agent_id).state != "waiting" {
                                 set_status(app, agent_id, Status { state: "working", activity: Some(activity), since: Some(started) });
                             }
                         }
-                    }
-                    Some("result") => {
-                        saw_result = true;
-                        drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
-                        if let Some(turn) = super::usage::from_result(&value) {
+                        Step::Usage(mut turn) => {
+                            // Codex doesn't time its turns; this one was timed here.
+                            if turn.duration_ms == 0 {
+                                turn.duration_ms = u64::try_from(store::now_ms() - started).unwrap_or(0);
+                            }
                             let today = super::usage::today();
                             let id = agent_id.to_string();
                             let _ = tokio::task::spawn_blocking(move || store::update(&id, |a| a.usage.record(&turn, today))).await;
                         }
-                        let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-                        if is_error {
-                            result_error = Some(result_error_text(&value));
+                        Step::Failed(text) => result_error = Some(text),
+                        Step::Detail(text) => last_detail = Some(text),
+                        Step::Done => {
+                            saw_result = true;
+                            drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
                         }
                     }
-                    _ => {}
                 }
             }
             _ = draft_tick.tick(), if drafts.dirty() => {
@@ -1276,7 +1295,7 @@ async fn run_turn(
         let _ = store::update(agent_id, |a| a.session_id = None);
         // The new session starts blank. Hand it the conversation the user
         // can see, so the agent doesn't greet them like a stranger.
-        let prompt = with_recap(agent_id, prompt);
+        let prompt = with_recap(agent_id, &prompt);
         return Box::pin(run_turn(app, agent_id, &prompt, false)).await;
     }
 
@@ -1284,8 +1303,13 @@ async fn run_turn(
         return Err(CommandError::expected(err));
     }
     if !saw_result {
-        let detail = unfinished_turn(status.success(), stderr_text);
-        if let Some(err) = crate::commands::ai::classify_agent_cli_failure("Claude Code", &detail) {
+        let stderr_text = match last_detail {
+            Some(detail) if stderr_text.trim().is_empty() => detail,
+            _ => stderr_text,
+        };
+        let detail = unfinished_turn(engine, status.success(), stderr_text);
+        if let Some(err) = crate::commands::ai::classify_agent_cli_failure(engine.label(), &detail)
+        {
             return Err(err);
         }
         return Err(CommandError::expected(
@@ -1459,15 +1483,15 @@ mod tests {
 
     #[test]
     fn a_turn_without_a_result_is_always_a_failure_in_words() {
-        let clean = unfinished_turn(true, String::new());
-        let crashed = unfinished_turn(false, " \n".into());
+        let clean = unfinished_turn(Engine::Claude, true, String::new());
+        let crashed = unfinished_turn(Engine::Claude, false, " \n".into());
         for text in [&clean, &crashed] {
             assert!(text.starts_with("Claude Code"), "{text}");
             assert!(!text.contains("exit status") && !text.contains("signal"));
         }
         assert_ne!(clean, crashed);
         assert_eq!(
-            unfinished_turn(false, "Error: bad flag".into()),
+            unfinished_turn(Engine::Claude, false, "Error: bad flag".into()),
             "Error: bad flag"
         );
     }

@@ -25,6 +25,10 @@ import {
   groupHits,
   highlightRuns,
   modelLabel,
+  modelChoices,
+  engineIsReady,
+  engineOptions,
+  type EngineInfo,
   peerGroupLabel,
   sortAgents,
   splitQuotes,
@@ -267,6 +271,31 @@ describe('formatUsage', () => {
     expect(modelLabel(null)).toBe('Default');
     expect(modelLabel('opus')).toBe('Opus');
     expect(modelLabel('claude-x')).toBe('claude-x');
+  });
+
+  it('offers each engine its own models and only engines that can run', () => {
+    const engines: EngineInfo[] = [
+      { id: 'claude', label: 'Claude Code', installed: true, signedIn: true, models: [] },
+      {
+        id: 'codex',
+        label: 'Codex',
+        installed: true,
+        signedIn: false,
+        models: [{ value: 'gpt-5.5', label: 'GPT-5.5' }],
+      },
+    ];
+    expect(modelChoices('claude', engines).map((m) => m.label)).toEqual([
+      'Default',
+      'Opus',
+      'Sonnet',
+      'Haiku',
+    ]);
+    expect(modelChoices('codex', engines).map((m) => m.value)).toEqual(['', 'gpt-5.5']);
+    expect(modelLabel('gpt-5.5', modelChoices('codex', engines))).toBe('GPT-5.5');
+    expect(engineIsReady('codex', engines, true)).toBe(false);
+    expect(engineIsReady('claude', engines, true)).toBe(true);
+    expect(engineOptions(engines, 'claude').map((e) => e.id)).toEqual(['claude']);
+    expect(engineOptions(engines, 'codex').map((e) => e.id)).toEqual(['claude', 'codex']);
   });
 });
 

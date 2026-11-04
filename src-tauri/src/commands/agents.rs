@@ -4,10 +4,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner, schedule,
-    search, store, usage,
+    self, apps, attachments, engine, files, import, mcp, notify, paste, project, prompts, runner,
+    schedule, search, store, usage,
 };
 use crate::errors::CommandError;
+use engine::Engine;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,26 +27,9 @@ pub struct AgentsOverview {
     /// Whether Claude Code is installed and runs. Without it nothing works,
     /// and the view says so instead of letting a message fail.
     pub engine_ready: bool,
-}
-
-/// Whether `claude` runs, re-checked at most once a minute: the overview is
-/// refetched on every chat message, and probing spawns a process.
-async fn engine_ready() -> bool {
-    use std::sync::{LazyLock, Mutex};
-    use std::time::{Duration, Instant};
-    static CACHE: LazyLock<Mutex<Option<(bool, Instant)>>> = LazyLock::new(|| Mutex::new(None));
-    if let Some((ready, at)) = *CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
-        if at.elapsed() < Duration::from_secs(60) {
-            return ready;
-        }
-    }
-    let ready = tokio::task::spawn_blocking(|| {
-        crate::commands::claude::find_validated_binary("claude", "--version").is_some()
-    })
-    .await
-    .unwrap_or(false);
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((ready, Instant::now()));
-    ready
+    /// Every engine an agent can run on: whether it's here and signed in,
+    /// and the models it offers.
+    pub engines: Vec<engine::EngineInfo>,
 }
 
 /// Store work (file reads and writes) on a blocking thread, off the async
@@ -67,7 +51,10 @@ fn emit_registry(app: &AppHandle) {
 pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandError> {
     agents::ensure_main()?;
     attachments::grant_asset_scope(&app);
-    let engine_ready = engine_ready().await;
+    let engines = engine::overview().await;
+    let engine_ready = engines
+        .iter()
+        .any(|e| e.id == Engine::Claude && e.installed);
     let agents = store::list()?
         .into_iter()
         .map(|agent| {
@@ -81,6 +68,7 @@ pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandEr
     Ok(AgentsOverview {
         agents,
         engine_ready,
+        engines,
     })
 }
 
@@ -221,7 +209,10 @@ pub struct CreateAgentInput {
     pub role: String,
     #[serde(default)]
     pub instructions: String,
-    /// `--model`; omitted or empty uses Claude Code's default.
+    /// `claude` (the default) or `codex`.
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// One of the engine's models; omitted or empty uses its default.
     #[serde(default)]
     pub model: Option<String>,
     /// A project path from `list_projects`; omitted or empty leaves it unbound.
@@ -235,10 +226,18 @@ pub async fn agents_create(
     app: AppHandle,
     input: CreateAgentInput,
 ) -> Result<store::Agent, CommandError> {
+    let engine = match input.engine.as_deref() {
+        Some(e) => {
+            let engine = Engine::parse(e)?;
+            engine::require_ready(engine).await?;
+            engine
+        }
+        None => Engine::default(),
+    };
     let model = input
         .model
         .as_deref()
-        .map(store::normalize_model)
+        .map(|m| engine::normalize_model(engine, m))
         .transpose()?
         .flatten();
     let project = match input.project.as_deref() {
@@ -253,8 +252,9 @@ pub async fn agents_create(
         color: input.color,
         is_main: false,
     })?;
-    let agent = if model.is_some() || project.is_some() {
+    let agent = if model.is_some() || project.is_some() || engine != Engine::default() {
         store::update(&agent.id, |a| {
+            a.engine = engine;
             a.model = model;
             a.project = project;
         })?
@@ -276,7 +276,11 @@ pub struct UpdateAgentInput {
     pub pinned: Option<bool>,
     pub hidden: Option<bool>,
     pub muted: Option<bool>,
-    /// `--model`; an empty string goes back to Claude Code's default.
+    /// `claude` or `codex`: from its next turn, in a new session handed the
+    /// recent conversation. The model goes back to the engine's default
+    /// unless one is given with it.
+    pub engine: Option<String>,
+    /// One of its engine's models; an empty string goes back to the default.
     pub model: Option<String>,
     /// A project path from `list_projects`; an empty string unbinds it.
     pub project: Option<String>,
@@ -307,10 +311,18 @@ pub async fn agents_update(
     let color = input.color.filter(|c| store::COLORS.contains(&c.as_str()));
     let shape = input.shape.filter(|s| *s < store::SHAPE_COUNT);
     let role = input.role.clone();
+    let current = store::get(&agent_id)?;
+    let engine = match input.engine.as_deref().map(Engine::parse).transpose()? {
+        Some(engine) if engine != current.engine => {
+            engine::require_ready(engine).await?;
+            Some(engine)
+        }
+        _ => None,
+    };
     let model = input
         .model
         .as_deref()
-        .map(store::normalize_model)
+        .map(|m| engine::normalize_model(engine.unwrap_or(current.engine), m))
         .transpose()?;
     let project = match input.project.as_deref() {
         Some(p) => Some(project::resolve(p).await?.map(|p| p.path)),
@@ -338,6 +350,9 @@ pub async fn agents_update(
         if let Some(m) = input.muted {
             a.muted = m;
         }
+        if let Some(engine) = engine {
+            a.switch_engine(engine);
+        }
         if let Some(m) = model {
             a.model = m;
         }
@@ -353,6 +368,13 @@ pub async fn agents_update(
             None => store::read_instructions(&agent_id)?,
         };
         store::write_instructions(&store::agent_home(&agent_id)?, &updated, &instructions)?;
+    }
+    if let Some(engine) = engine {
+        let line = format!("Runs on {} from its next message", engine.label());
+        let _ = runner::record(
+            &app,
+            runner::new_message(&agent_id, store::MessageKind::Note, line),
+        );
     }
     emit_registry(&app);
     // Hiding an agent takes its unread out of the badge, as it does the sidebar's.
