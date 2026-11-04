@@ -47,10 +47,8 @@ interface SessionHandle {
 }
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { homeDir } from '@tauri-apps/api/path';
-import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows, needsCmdExeWrapper, resolveCliPath, type ResolvedCli } from '../../lib/setup';
+import { isWindows } from '../../lib/setup';
 import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -61,7 +59,7 @@ import {
   isLegitimatelyHiddenPane,
 } from '../../lib/containerVisibility';
 import { getTerminalGpuEnabled } from '../../lib/settings';
-import { attachedLibraryDirs } from '../../lib/attached-libraries';
+import { buildAgentSpawn } from '../../lib/agentSpawn';
 import {
   agentStatusFromTitle,
   isFocusReport,
@@ -74,7 +72,7 @@ import {
   STARTUP_TIMEOUT_MS,
 } from './startupWatchdog';
 import { createTerminalOptions } from './terminalTheme';
-import { agentPromptArgs, type AgentConfig } from '../../lib/agent';
+import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
 /** Agent status based on terminal title */
@@ -606,170 +604,24 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           logger.info('[Terminal] Dimensions ready', { cols: term.cols, rows: term.rows });
         }
 
-        // Get extended PATH from backend (includes nvm, Claude desktop app, etc.)
-        const home = await homeDir();
-        const isWin = isWindows();
-        const sep = isWin ? '\\' : '/';
-        const homeNormalized = home.endsWith(sep) ? home : `${home}${sep}`;
-        const fullPath = await getShellPath();
-
-        // Build platform-appropriate env vars
-        // Must pass all essential env vars since env replaces (not merges with) parent environment
-        let env: Record<string, string>;
-        if (isWin) {
-          // Windows: get system env vars from backend and merge with PATH
-          const systemEnv = await getSystemEnv();
-          env = {
-            ...systemEnv,
-            PATH: fullPath,
-            TERM: 'xterm-256color',
-          };
-        } else {
-          env = {
-            PATH: fullPath,
-            HOME: homeNormalized.slice(0, -1),
-            USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
-            TERM: 'xterm-256color',
-            LANG: 'en_US.UTF-8',
-            SHELL: '/bin/zsh',
-          };
-        }
-        // Per-workspace isolation vars (CLAUDE_CONFIG_DIR, GH_CONFIG_DIR,
-        // CODEX_HOME, XDG_DATA_HOME) and credential tokens are injected
-        // SERVER-SIDE by `pty_session_open` from this project's workspace, so
-        // secret token values never have to cross into the webview's JS. Nothing
-        // to fetch or merge here — just pass `projectPath` (below) and the
-        // backend resolves the right Workspace env.
-
-        // The PTY merges this env over the app's own, so npm/pnpm "invocation
-        // directory" vars leak through when Ship Studio runs under `pnpm tauri
-        // dev`. Tools the agent runs (e.g. `shopify theme dev`) trust INIT_CWD
-        // over process.cwd() and resolve paths against the wrong directory —
-        // pin both to where this terminal actually runs.
-        env.INIT_CWD = projectPath;
-        env.PNPM_SCRIPT_SRC_DIR = projectPath;
-
-        const agentArgs: string[] = [];
-
-        // Session persistence for Claude Code: assign a fixed session ID per tab
-        // so we can resume the exact conversation when the project is reopened
+        // Exactly what a tab started in the background gets (lib/agentSpawn).
+        // The opening prompt is read from the ref, and deliberately not a
+        // dependency of this effect: the parent clears it as soon as the agent
+        // spawns with it, so depending on it here would tear this terminal
+        // down and respawn it the moment it succeeded.
+        const spawn = await buildAgentSpawn({
+          agent,
+          projectPath,
+          sessionName,
+          resume: attemptResume,
+          autoAccept: autoAcceptModeRef.current,
+          initialPrompt: initialPromptRef.current,
+        });
         if (agent.id === 'claude-code' && sessionName) {
-          if (attemptResume) {
-            agentArgs.push('--resume', sessionName);
-          } else {
-            agentArgs.push('--session-id', sessionName);
-          }
           logger.info('[Terminal] Session config', {
             sessionId: sessionName,
             resuming: attemptResume,
           });
-        }
-
-        // When autoAcceptMode is enabled, pass the agent's auto-accept flag.
-        // Read from the ref so the setup effect doesn't depend on the scalar.
-        if (autoAcceptModeRef.current && agent.autoAcceptFlag) {
-          agentArgs.push(agent.autoAcceptFlag);
-        }
-
-        // Attached libraries: ride the user's registered cross-project library
-        // folders into this session via the agent's additional-directory flag
-        // (Claude Code: `--add-dir`). Their skills load and files are readable,
-        // but their CLAUDE.md is not loaded, so they can't override the project.
-        // Only agents that expose such a flag opt in; the rest are a no-op.
-        // Best-effort: a failure to read the registry must never block the
-        // agent from starting, so we log and continue.
-        if (agent.additionalDirFlag) {
-          try {
-            const libraryDirs = await attachedLibraryDirs();
-            for (const dir of libraryDirs) {
-              agentArgs.push(agent.additionalDirFlag, dir);
-            }
-          } catch (err) {
-            logger.warn('[Terminal] Failed to load attached libraries', {
-              agent: agent.id,
-              error: String(err),
-            });
-          }
-        }
-
-        // The opening prompt goes last: every supported CLI takes it as a
-        // trailing positional argument (opencode behind --prompt), and a flag
-        // added after it would be read as part of the prompt.
-        //
-        // Read from the ref, and deliberately not a dependency of this effect.
-        // The parent clears the prompt as soon as the agent spawns with it, so
-        // depending on it here would tear this terminal down and respawn it the
-        // moment it succeeded.
-        const opening = initialPromptRef.current;
-        if (opening && opening.trim()) {
-          agentArgs.push(...agentPromptArgs(agent.id, opening));
-        }
-
-        // Placeholder — on Windows the real spawn shape (direct vs. wrapped
-        // in cmd.exe /C) is decided AFTER binary resolution below, because
-        // the decision depends on what the command resolves to (.cmd shim vs.
-        // real executable). See needsCmdExeWrapper in lib/setup.ts.
-        let spawnCmd = agent.binaryName;
-        let spawnArgs = agentArgs;
-
-        // Resolve the bare binary name through the backend's thorough
-        // discovery (every NVM version, ~/.<agent>/bin, npm prefix -g …) the
-        // way OnboardingTerminal already does. The hand-built PATH above is a
-        // subset of what the status checks search, so "installed ✓ but Unable
-        // to spawn claude" was possible (issue #280). Resolution errors fail
-        // OPEN — the spawn proceeds with the bare name as before.
-        //
-        // Guard: only bare names go to the resolver. The raw Terminal tab's
-        // "binary" is an absolute path (/bin/zsh), which the backend rejects
-        // with a validation error on every open (issue #303).
-        const isBareName = !agent.binaryName.includes('/') && !agent.binaryName.includes('\\');
-        let resolved: ResolvedCli | null | undefined;
-        if (isBareName) {
-          try {
-            resolved = await resolveCliPath(agent.binaryName);
-            if (resolved) {
-              const pathSep = isWin ? ';' : ':';
-              if (!env.PATH.split(pathSep).includes(resolved.dir)) {
-                env.PATH = `${env.PATH}${pathSep}${resolved.dir}`;
-              }
-              if (!isWin) {
-                // Spawn the resolved absolute path — deterministic, no PATH
-                // shadowing. (The Windows equivalent happens in the
-                // spawn-shape block below, where wrapper-vs-direct is
-                // decided.)
-                spawnCmd = resolved.path;
-              }
-            }
-          } catch (err) {
-            resolved = undefined;
-            logger.warn('[Terminal] resolveCliPath failed — spawning bare name', {
-              binary: agent.binaryName,
-              error: String(err),
-            });
-          }
-        }
-
-        if (isWin) {
-          // Windows spawn shape, same rule OnboardingTerminal already uses.
-          // Only .cmd/.bat shims need `cmd.exe /C` — they are batch scripts.
-          // Routing a REAL executable through cmd.exe adds a second parse
-          // layer (portable_pty composes one command line, then cmd re-parses
-          // it with its own quote rules) between us and the agent, which is
-          // what split a single `--session-id`/`--add-dir` value into several
-          // tokens and made Claude Code exit with "too many arguments"
-          // (issue #797). Unresolved names still wrap — needsCmdExeWrapper's
-          // conservative default — so nothing regresses when resolution
-          // fails open.
-          if (needsCmdExeWrapper(agent.binaryName, resolved?.path)) {
-            spawnCmd = 'cmd.exe';
-            spawnArgs = ['/C', agent.binaryName, ...agentArgs];
-          } else {
-            // Prefer the resolved absolute path (deterministic, no PATH
-            // shadowing); fall back to the bare name on the extended PATH
-            // when resolution failed open.
-            spawnCmd = resolved?.path ?? agent.binaryName;
-            spawnArgs = agentArgs;
-          }
         }
 
         // The backend session id is the tab's sessionName UUID — it survives
@@ -786,10 +638,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // this keeps xterm and the PTY in agreement.
         const opened = await openPtySession({
           sessionId: backendSessionId,
-          command: spawnCmd,
-          args: spawnArgs,
+          command: spawn.command,
+          args: spawn.args,
           cwd: projectPath,
-          env,
+          env: spawn.env,
           cols: Math.max(term.cols, 2),
           rows: Math.max(term.rows, 2),
           projectPath,

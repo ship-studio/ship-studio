@@ -1033,6 +1033,16 @@ export interface SavedTerminalTabPayload {
   custom_title?: string;
 }
 
+export interface SavedTerminalState {
+  tabs: SavedTerminalTabPayload[];
+  active_tab_index: number;
+}
+
+/** The saved terminal-tab list for a project, or null when none is saved. */
+export async function getTerminalState(projectPath: string): Promise<SavedTerminalState | null> {
+  return invoke<SavedTerminalState | null>('get_terminal_state', { projectPath });
+}
+
 export async function setTerminalState(
   projectPath: string,
   state: { tabs: SavedTerminalTabPayload[]; active_tab_index: number }

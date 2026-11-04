@@ -141,7 +141,7 @@ be confused with agent-to-agent `message_agent`:
 - **Scope:** every Ship Studio project (agents already run as the user with
   every project as an `--add-dir`), not the remote's opt-in list.
   `project_create` doesn't share the project for remote access and doesn't
-  switch the window; starting a session opens it.
+  switch the window.
 - **Answers:** the shared STATUS / reply / NEXT shape, with remote tool names
   rewritten to the agent's (`sessions::rename`, whole identifiers only).
 - **Chat:** each call runs inside `AGENTS_CALL` (a task-local in
@@ -152,12 +152,27 @@ be confused with agent-to-agent `message_agent`:
   project with that tab selected (`openAgentSession` →
   `useRemoteAgentControl`). Screenshots are written to the agent's
   attachments and never stored behind the remote's public image links.
-- **Window:** a tab only starts, and a preview only renders, while its project
-  is showing, so the window switches to the project as it does for remote
-  access. Calls that may switch are bracketed by `agents-session-begin/-end`;
-  if Agents was showing, the window goes back to it afterwards
-  (`useAgentsReturn`), unless you went elsewhere. The composer keeps unsent
-  text across the switch.
+- **Window: it never moves because of an agent.**
+  - *Sessions* start in the background. `start_agent` emits
+    `remote-start-agent`; `lib/backgroundSessions.ts` spawns the PTY with the
+    same builder a mounted tab uses (`lib/agentSpawn.ts`: PATH, `--session-id`,
+    auto-accept, `--add-dir` libraries, the prompt as argv), then the
+    project's tabs adopt it: its in-memory list if this window has opened the
+    project (the active tab is left alone), otherwise its saved list in
+    `.shipstudio/project.json`, which opening the project restores from. The
+    Terminal that mounts then finds the PTY alive (open is idempotent) and
+    replays its scrollback, so the conversation is all there. Messages,
+    reads, waits and key presses were always backend-only (`pty_session`).
+  - *Screenshots* are taken off-screen: headless Chromium (the preview's own
+    Playwright capture) against the project's running dev server, found
+    through its preview proxy (`proxy::dev_server_port_for`) — so not even
+    the page or width of a preview the user is looking at changes. With no
+    dev server running, the answer says the preview isn't running and the user
+    can open the project; starting one would mean opening the project.
+  - *Closing* a session is the tab's × done in the background, the same way.
+  - `project_open` is the one tool that switches the window, because the user
+    asked to see the project. "Open session" on a session line does too: the
+    user clicked it.
 - **Safety:** unchanged shared rules. Text only to agent tabs, never shells;
   a leading `!`, a `/` command outside the allowlist and control characters
   are refused; an opening prompt can't start with `-`.

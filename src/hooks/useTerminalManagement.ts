@@ -116,7 +116,19 @@ export interface UseTerminalManagementReturn {
   ) => void;
   /** Forget a tab's opening prompt once its agent has spawned with it. */
   clearInitialPrompt: (tabId: number, projectPath?: string) => void;
-  closeTerminalTab: (tabId: number) => void;
+  /** Close a tab of the current project, or of `projectPath` when given. */
+  closeTerminalTab: (tabId: number, projectPath?: string) => void;
+  /** A project's tabs, or null when it has no tab state in this window. */
+  tabsForProject: (projectPath: string) => readonly TerminalTab[] | null;
+  /**
+   * Add a tab for a PTY that is already running — one started in the
+   * background for an agent. It resumes rather than respawns if its process
+   * has gone by the time a Terminal mounts, and the active tab is left alone:
+   * what the user is looking at never changes under them. False when the
+   * project has no tab state here (its saved state adopts it instead) or is
+   * full.
+   */
+  adoptTerminalTab: (projectPath: string, tab: { agentId: string; sessionId: string }) => boolean;
   /** Destroy every tab + PTY for a specific project (explicit close). */
   closeAllTerminalsForProject: (projectPath: string) => void;
   /** Destroy every tab + PTY for every project (window close). */
@@ -320,9 +332,27 @@ export function useTerminalManagement(
     [bump]
   );
 
+  const tabsForProject = useCallback(
+    (projectPath: string) => statesRef.current.get(projectPath)?.tabs ?? null,
+    []
+  );
+
+  const adoptTerminalTab = useCallback(
+    (projectPath: string, tab: { agentId: string; sessionId: string }): boolean => {
+      const s = statesRef.current.get(projectPath);
+      if (!s || s.tabs.length >= MAX_TERMINAL_TABS) return false;
+      if (s.tabs.some((t) => t.sessionId === tab.sessionId)) return true;
+      s.counter += 1;
+      s.tabs = [...s.tabs, { id: s.counter, ...tab, shouldResume: true }];
+      bump();
+      return true;
+    },
+    [bump]
+  );
+
   const closeTerminalTab = useCallback(
-    (tabId: number) => {
-      const path = currentPathRef.current;
+    (tabId: number, projectPath?: string) => {
+      const path = projectPath ?? currentPathRef.current;
       if (!path) return;
       const s = statesRef.current.get(path);
       if (!s || s.tabs.length <= 1) return;
@@ -647,6 +677,8 @@ export function useTerminalManagement(
     addTerminalTab,
     clearInitialPrompt,
     closeTerminalTab,
+    tabsForProject,
+    adoptTerminalTab,
     closeAllTerminalsForProject,
     killAllTerminals,
     resetTerminals,

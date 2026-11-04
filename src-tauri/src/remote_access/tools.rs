@@ -161,7 +161,7 @@ const TOOLS: &[ToolDef] = &[
         title: "Switch project",
         effect: Effect::Reads,
         open_world: false,
-        description: "Switch Ship Studio on the computer to one of the shared projects, so its workspace, agents and preview are the ones showing. Screenshot and agent tools already do this themselves when they need to — call it when the user asks to switch, or to warm up a project's preview before showing it.",
+        description: "Switch Ship Studio on the computer to one of the shared projects, so its workspace, agents and preview are the ones showing. Agent tools work without it, and screenshots do it themselves when the project's dev server isn't running — call it when the user asks to switch, or to warm up a project's preview before showing it.",
         schema: || json!({
             "type": "object",
             "properties": { "project": project_prop() },
@@ -943,7 +943,7 @@ async fn agent_outcome(
             if changed_any && call_started.elapsed() < AUTO_SHOT_BEFORE {
                 if let Ok(Ok(c)) = tokio::time::timeout(
                     AUTO_SHOT_TIMEOUT,
-                    capture(app, project, shots::Device::Desktop, false),
+                    capture(app, project, shots::Device::Desktop, false, None),
                 )
                 .await
                 {
@@ -952,6 +952,11 @@ async fn agent_outcome(
             }
             if !shots.is_empty() {
                 "NEXT: Reply to the user now: one or two plain sentences on what the agent did (from its reply), with the screenshot. If its reply asks the user something, put that question to them.".into()
+            } else if changed_any
+                && for_agents()
+                && crate::proxy::dev_server_port_for(project).is_none()
+            {
+                format!("NEXT: Reply to the user now: one or two plain sentences on what the agent did (from its reply). {}'s preview isn't running, so there's no screenshot; they can open the project to see it. If its reply asks the user something, put that question to them.", project_name(project))
             } else if changed_any {
                 "NEXT: Call show_progress for a screenshot, then reply to the user in one or two plain sentences on what the agent did. If its reply asks the user something, put that question to them.".into()
             } else {
@@ -1469,7 +1474,7 @@ async fn start_agent_with(
             return Ok((i + 1, s.session_id.clone()));
         }
     }
-    Err("Ship Studio didn't open a new agent tab within a minute. The project may have hit its tab limit, its agent may not be installed, or the window is stuck on a dialog. Check list_projects; the user may need to look when they're back.".into())
+    Err("Ship Studio didn't start a new agent tab within a minute. The project may have hit its tab limit (5 tabs), or its agent may not be installed. Check list_projects; the user may need to look when they're back.".into())
 }
 
 async fn start_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
@@ -1568,8 +1573,10 @@ fn canonical_path(project: &str) -> String {
 }
 
 /// Make sure `project`'s preview is up, switching Ship Studio to it if
-/// another project is showing — the same thing start_agent does. Asking the
-/// user to "switch over" would be asking someone who isn't there.
+/// another project is showing. Only remote access does this, and only when
+/// no dev server is running for the project: asking the user to "switch over"
+/// would be asking someone who isn't there. Ship Studio's own agents never
+/// move the window (see `capture`).
 async fn ensure_preview(app: &tauri::AppHandle, project: &str) -> Result<(), String> {
     let canonical = canonical_path(project);
     if crate::agent_bridge::is_project_attached(&canonical) {
@@ -1611,24 +1618,144 @@ fn is_still_starting(message: &str) -> bool {
     message.contains("not running yet") || message.contains("not ready yet")
 }
 
-/// Capture the preview as `device` at high DPI, through the same preview the
-/// agent bridge drives, and store it behind its own image link. Opens the
-/// project and waits for its dev server first if it has to.
+/// How long a capture waits for a running dev server that isn't answering
+/// yet (mid-restart, or still compiling after a save).
+const SERVER_SETTLE: Duration = Duration::from_secs(10);
+
+/// The port of `project`'s running dev server, once it accepts connections.
+async fn running_dev_server(project: &str) -> Option<u16> {
+    let port = crate::proxy::dev_server_port_for(project)?;
+    let url = format!("http://localhost:{port}");
+    let deadline = tokio::time::Instant::now() + SERVER_SETTLE;
+    loop {
+        let probe = url.clone();
+        let listening =
+            tokio::task::spawn_blocking(move || crate::commands::ide::dev_server_listening(&probe))
+                .await
+                .unwrap_or(false);
+        if listening {
+            return Some(port);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+/// An agent's answer when the project's preview isn't running. Starting it
+/// would mean opening the project over whatever the user is looking at.
+fn preview_not_running(project: &str) -> String {
+    let name = project_name(project);
+    format!(
+        "{name}'s preview isn't running, so there's no screenshot: starting it would switch the user's window to {name}. Tell them they can open {name} to see it, or call open_project if they ask to see it now."
+    )
+}
+
+/// A path within the site, like `/pricing`.
+fn check_page(page: &str) -> Result<&str, String> {
+    let page = page.trim();
+    if !page.starts_with('/') || page.starts_with("//") || page.chars().any(char::is_control) {
+        return Err("page must be a path within the site, like /pricing.".into());
+    }
+    Ok(page)
+}
+
+/// Capture the preview as `device` at high DPI and store it behind its own
+/// image link.
+///
+/// A running dev server is captured off-screen, in headless Chromium against
+/// the server itself — the same Playwright capture the preview's own
+/// screenshot uses — so nothing the user sees moves: not the window, not the
+/// page or width of a preview they're looking at. With no server running,
+/// remote access opens the project to start one; an agent says so instead.
 async fn capture(
     app: &tauri::AppHandle,
     project: &str,
     device: shots::Device,
     full_page: bool,
+    page: Option<&str>,
 ) -> Result<Captured, String> {
-    ensure_preview(app, project).await?;
     let canonical = canonical_path(project);
+    let path = match running_dev_server(project).await {
+        Some(port) => capture_off_screen(&canonical, port, device, full_page, page).await?,
+        None if for_agents() => return Err(preview_not_running(project)),
+        None => capture_in_window(app, project, &canonical, device, full_page, page).await?,
+    };
+    let path = std::path::PathBuf::from(path);
+    if !shots::is_capture_path(std::path::Path::new(&canonical), &path) {
+        return Err("The screenshot was saved somewhere unexpected, so it wasn't read.".into());
+    }
+    let encoded = tokio::task::spawn_blocking(move || shots::encode(&path))
+        .await
+        .map_err(|e| e.to_string())??;
+    let jpeg = encoded.preview;
+    // An agent's pictures go into its chat, never behind a public link.
+    let mut full = Some(encoded.full);
+    let _ = AGENTS_CALL.try_with(|call| {
+        if let Some(full) = full.take() {
+            call.shots.borrow_mut().push((device.label(), full));
+        }
+    });
+    let link = match full {
+        None => None,
+        Some(full) => {
+            let id = shots::store(full);
+            match super::tailscale::status().await {
+                super::tailscale::TailscaleState::Connected { dns_name } => {
+                    Some(shots::public_url(&dns_name, &id))
+                }
+                _ => None,
+            }
+        }
+    };
+    Ok(Captured { device, jpeg, link })
+}
+
+async fn capture_off_screen(
+    canonical: &str,
+    port: u16,
+    device: shots::Device,
+    full_page: bool,
+    page: Option<&str>,
+) -> Result<String, String> {
+    let url = format!("http://localhost:{port}{}", page.unwrap_or(""));
+    let (width, height, scale) = device.viewport();
+    let (project, w, h, s) = (
+        canonical.to_string(),
+        Some(width),
+        Some(height),
+        Some(scale),
+    );
+    let shot = if full_page {
+        crate::commands::ide::capture_fullpage_playwright(project, url, w, h, s).await
+    } else {
+        crate::commands::ide::capture_viewport_playwright(project, url, w, h, s).await
+    };
+    shot.map_err(|e| e.to_string())
+}
+
+/// Through the preview the agent bridge drives, opening the project and
+/// waiting for its dev server first if it has to. Remote access only.
+async fn capture_in_window(
+    app: &tauri::AppHandle,
+    project: &str,
+    canonical: &str,
+    device: shots::Device,
+    full_page: bool,
+    page: Option<&str>,
+) -> Result<String, String> {
+    ensure_preview(app, project).await?;
+    if let Some(page) = page {
+        navigate(app, project, page).await?;
+    }
     let (width, height, scale) = device.viewport();
     let deadline = tokio::time::Instant::now() + DEV_SERVER_TIMEOUT;
     let mut waited = false;
     let result = loop {
         let result = crate::agent_bridge::call_preview_tool(
             app.clone(),
-            &canonical,
+            canonical,
             "preview_screenshot",
             json!({ "full_page": full_page, "width": width, "height": height, "scale": scale, "inline": false }),
         )
@@ -1660,38 +1787,11 @@ async fn capture(
         // load before it's photographed.
         tokio::time::sleep(Duration::from_millis(1500)).await;
     }
-    let path = result
+    result
         .pointer("/_meta/savedPath")
         .and_then(Value::as_str)
-        .ok_or("The preview didn't say where it saved the screenshot.")?;
-    let path = std::path::PathBuf::from(path);
-    if !shots::is_capture_path(std::path::Path::new(&canonical), &path) {
-        return Err("The screenshot was saved somewhere unexpected, so it wasn't read.".into());
-    }
-    let encoded = tokio::task::spawn_blocking(move || shots::encode(&path))
-        .await
-        .map_err(|e| e.to_string())??;
-    let jpeg = encoded.preview;
-    // An agent's pictures go into its chat, never behind a public link.
-    let mut full = Some(encoded.full);
-    let _ = AGENTS_CALL.try_with(|call| {
-        if let Some(full) = full.take() {
-            call.shots.borrow_mut().push((device.label(), full));
-        }
-    });
-    let link = match full {
-        None => None,
-        Some(full) => {
-            let id = shots::store(full);
-            match super::tailscale::status().await {
-                super::tailscale::TailscaleState::Connected { dns_name } => {
-                    Some(shots::public_url(&dns_name, &id))
-                }
-                _ => None,
-            }
-        }
-    };
-    Ok(Captured { device, jpeg, link })
+        .map(str::to_string)
+        .ok_or_else(|| "The preview didn't say where it saved the screenshot.".to_string())
 }
 
 /// Image blocks plus one text line per capture naming its link.
@@ -1722,14 +1822,14 @@ async fn preview_screenshot(app: &tauri::AppHandle, project: &str, args: &Value)
         .get("full_page")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    if let Some(page) = args.get("page").and_then(Value::as_str) {
-        if let Err(e) = navigate(app, project, page).await {
-            return error(e);
-        }
-    }
+    let page = match args.get("page").and_then(Value::as_str).map(check_page) {
+        Some(Err(e)) => return error(e),
+        Some(Ok(p)) => Some(p),
+        None => None,
+    };
     let mut captured = Vec::new();
     for device in devices_from(args.get("device").and_then(Value::as_str)) {
-        match capture(app, project, device, full_page).await {
+        match capture(app, project, device, full_page, page).await {
             Ok(c) => captured.push(c),
             Err(e) => return error(e),
         }
@@ -1744,10 +1844,7 @@ async fn preview_screenshot(app: &tauri::AppHandle, project: &str, args: &Value)
 
 /// Point the preview at a page before capturing it.
 async fn navigate(app: &tauri::AppHandle, project: &str, page: &str) -> Result<(), String> {
-    let page = page.trim();
-    if !page.starts_with('/') || page.starts_with("//") || page.chars().any(char::is_control) {
-        return Err("page must be a path within the site, like /pricing.".into());
-    }
+    let page = check_page(page)?;
     ensure_preview(app, project).await?;
     let canonical = canonical_path(project);
     let result = crate::agent_bridge::call_preview_tool(
@@ -1846,14 +1943,18 @@ async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> V
         }
     ));
 
-    if let Some(page) = args.get("page").and_then(Value::as_str) {
-        if let Err(e) = navigate(app, project, page).await {
-            parts.push(format!("Couldn't open {page}: {e}"));
+    let page = args.get("page").and_then(Value::as_str);
+    let page = match page.map(check_page) {
+        Some(Err(e)) => {
+            parts.push(format!("Couldn't open {}: {e}", page.unwrap_or("")));
+            None
         }
-    }
+        Some(Ok(p)) => Some(p),
+        None => None,
+    };
     let mut captured = Vec::new();
     for device in devices_from(args.get("device").and_then(Value::as_str)) {
-        match capture(app, project, device, false).await {
+        match capture(app, project, device, false, page).await {
             Ok(c) => captured.push(c),
             Err(e) => parts.push(format!("No screenshot: {e}")),
         }
@@ -2662,5 +2763,98 @@ mod tests {
             ..plugged
         };
         assert!(power_warnings(&fine)[0].contains("80%"));
+    }
+
+    #[test]
+    fn screenshot_pages_stay_within_the_site() {
+        assert_eq!(check_page(" /pricing "), Ok("/pricing"));
+        assert!(check_page("https://evil.example").is_err());
+        assert!(check_page("//evil.example/x").is_err());
+        assert!(check_page("/a\nb").is_err());
+        let said = preview_not_running("/Users/me/ShipStudio/bakery");
+        assert!(said.contains("bakery's preview isn't running"));
+        assert!(said.contains("open_project"));
+    }
+
+    /// A tiny site on a free port, standing in for a project's dev server.
+    async fn serve_page(body: &'static str) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let reply = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn a_running_preview_is_found_by_its_proxy_under_any_spelling_of_the_path() {
+        let dir = std::env::temp_dir().join(format!("ss-proxy-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let project = dir.to_string_lossy().to_string();
+        assert_eq!(running_dev_server(&project).await, None);
+        let port = serve_page("<p>hi</p>").await;
+        crate::proxy::start_preview_proxy("w".into(), project.clone(), port)
+            .await
+            .unwrap();
+        // macOS's temp dir is a symlink: the canonical spelling must match too.
+        let canonical = canonical_path(&project);
+        assert_eq!(crate::proxy::dev_server_port_for(&canonical), Some(port));
+        assert_eq!(running_dev_server(&project).await, Some(port));
+        crate::proxy::stop_preview_proxy("w", &project).await;
+        assert_eq!(crate::proxy::dev_server_port_for(&project), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Headless Chromium against a running server, with nothing on screen.
+    /// Needs Ship Studio's Playwright environment (~/.ship-studio/playwright-env)
+    /// and writes a scratch project under ~/ShipStudio, removed afterwards.
+    #[tokio::test]
+    #[ignore = "launches headless Chromium; run with --ignored"]
+    async fn a_running_preview_is_screenshotted_off_screen() {
+        let home = dirs::home_dir().unwrap();
+        let dir = home
+            .join("ShipStudio")
+            .join(format!(".offscreen-shot-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let project = dir.to_string_lossy().to_string();
+        let port = serve_page(
+            "<html><body style=\"margin:0;background:#2a6\"><h1>Off screen</h1></body></html>",
+        )
+        .await;
+        crate::proxy::start_preview_proxy("w-shot".into(), project.clone(), port)
+            .await
+            .unwrap();
+        let canonical = canonical_path(&project);
+        let found = running_dev_server(&project).await;
+        let shot = capture_off_screen(
+            &canonical,
+            port,
+            shots::Device::Phone,
+            false,
+            Some("/about"),
+        )
+        .await;
+        crate::proxy::stop_preview_proxy("w-shot", &project).await;
+        let result = shot.map(|path| {
+            let path = std::path::PathBuf::from(path);
+            let inside = shots::is_capture_path(std::path::Path::new(&canonical), &path);
+            (inside, shots::encode(&path).map(|e| e.full.len()))
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found, Some(port));
+        let (inside, encoded) = result.expect("capture");
+        assert!(inside);
+        assert!(encoded.expect("encode") > 1000);
     }
 }
