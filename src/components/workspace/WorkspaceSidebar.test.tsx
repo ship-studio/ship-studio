@@ -168,8 +168,9 @@ describe('WorkspaceSidebar project activity indicator', () => {
 
     const trigger = screen.getByRole('button', { name: 'Settings & Help' });
     expect(trigger).toHaveAttribute('data-settings-menu-trigger', 'workspace');
-    expect(trigger).toHaveClass('button--icon-only');
-    expect(trigger).not.toHaveTextContent('Settings');
+    // One workspace: Settings is a labelled half of the footer row.
+    expect(trigger).not.toHaveClass('button--icon-only');
+    expect(trigger).toHaveTextContent('Settings');
     expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
     fireEvent.click(trigger);
 
@@ -200,8 +201,8 @@ describe('WorkspaceSidebar project activity indicator', () => {
 
     await waitFor(() => {
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
-      expect(trigger).toHaveClass('button--icon-only');
-      expect(trigger).not.toHaveTextContent('Settings');
+      expect(trigger).not.toHaveClass('button--icon-only', 'workspace-sidebar-settings-summary');
+      expect(trigger).toHaveTextContent('Settings');
       expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
     });
   });
@@ -260,9 +261,19 @@ describe('WorkspaceSidebar project activity indicator', () => {
 
     await waitFor(() => {
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
-      expect(trigger).toHaveClass('button--icon-only');
+      // Back in the expanded sidebar with one workspace: the labelled half.
+      expect(trigger).not.toHaveClass('button--icon-only');
       expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
     });
+  });
+
+  it('splits the footer into labelled Slack and Settings halves with one workspace', () => {
+    render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
+    const slack = screen.getByRole('button', { name: /Slack/ });
+    const settings = screen.getByRole('button', { name: 'Settings & Help' });
+    expect(slack).toHaveTextContent('Slack');
+    expect(settings).toHaveTextContent('Settings');
+    expect(slack.closest('.workspace-sidebar-footer-actions')).toHaveClass('is-labeled');
   });
 
   it('collapses an empty Active group by default', async () => {

@@ -354,6 +354,35 @@
   margin-bottom: var(--spacing-2xs);
 }
 
+/* One workspace: no switcher between Slack and Settings, so the two split the
+ * row as labelled halves instead of sitting at either end with a gap. The
+ * settings drawer still opens across the whole row. */
+.workspace-sidebar-footer-actions.has-settings-drawer.is-labeled {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace-sidebar-footer-actions.is-labeled > .workspace-sidebar-support {
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.workspace-sidebar-footer-actions.is-labeled > .workspace-sidebar-settings-menu:not(.is-open) {
+  grid-column: 2;
+  width: 100%;
+  justify-self: stretch;
+  /* Closed, the drawer holds only its trigger: let the trigger's shadow show,
+     as Slack's does. The drawer clips again once it opens and animates. */
+  overflow: visible;
+}
+
+.workspace-sidebar-footer-actions.is-labeled
+  > .workspace-sidebar-settings-menu:not(.is-open)
+  > .workspace-sidebar-settings {
+  width: 100%;
+}
+
 .workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-switcher {
   grid-column: 1;
   grid-row: 1;

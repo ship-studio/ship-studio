@@ -501,6 +501,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // picker is still reachable any time via the ⌘K command below.
   const hasMultipleWorkspaces = accounts.length > 1;
   const showWorkspaceSwitcher = Boolean(onSwitchAccount && activeAccount && hasMultipleWorkspaces);
+  // With no workspace switcher between them, Slack and Settings share the row
+  // as two labelled halves instead of two icons with a gap in the middle.
+  const labeledFooterActions = !showWorkspaceSwitcher && !isSidebarHidden;
   const otherWorkspaces = accounts.filter((account) => account.id !== activeAccount?.id);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const currentServerSnapshot: ProjectDevServerSnapshot = currentProjectPath
@@ -1818,7 +1821,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           <div
             className={`workspace-sidebar-footer-actions has-settings-drawer${
               showWorkspaceSwitcher ? ' has-workspace-switcher' : ''
-            }`}
+            }${labeledFooterActions ? ' is-labeled' : ''}`}
           >
             {onSwitchAccount && activeAccount && hasMultipleWorkspaces && (
               <div
@@ -1904,15 +1907,29 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                   document.body
                 )
               : null}
-            <IconButton
-              variant="default"
-              className="workspace-sidebar-support"
-              icon={<SlackIcon size={12} />}
-              onClick={() => void openUrl(SLACK_INVITE_URL)}
-              title="Join the Ship Studio community on Slack"
-              aria-label="Support"
-              data-education-id="support-button"
-            />
+            {labeledFooterActions ? (
+              <Button
+                variant="default"
+                width="fill"
+                className="workspace-sidebar-support"
+                leftIcon={<SlackIcon size={12} />}
+                onClick={() => void openUrl(SLACK_INVITE_URL)}
+                title="Join the Ship Studio community on Slack"
+                data-education-id="support-button"
+              >
+                Slack
+              </Button>
+            ) : (
+              <IconButton
+                variant="default"
+                className="workspace-sidebar-support"
+                icon={<SlackIcon size={12} />}
+                onClick={() => void openUrl(SLACK_INVITE_URL)}
+                title="Join the Ship Studio community on Slack"
+                aria-label="Support"
+                data-education-id="support-button"
+              />
+            )}
             <SettingsMenu
               className="workspace-sidebar-settings-menu"
               onOpenSettings={appSettingsModal.open}
@@ -1928,6 +1945,23 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               }}
               renderTrigger={(props) => {
                 const settingsMenuOpen = props['aria-expanded'];
+                if (!settingsMenuOpen && labeledFooterActions) {
+                  return (
+                    <MenuButton
+                      variant="default"
+                      width="fill"
+                      className="workspace-sidebar-settings"
+                      leftIcon={<SettingsIcon size={12} />}
+                      title="Settings & Help"
+                      aria-label="Settings & Help"
+                      data-settings-menu-trigger="workspace"
+                      expanded={settingsMenuOpen}
+                      {...props}
+                    >
+                      Settings
+                    </MenuButton>
+                  );
+                }
                 if (!settingsMenuOpen) {
                   return (
                     <MenuButton
