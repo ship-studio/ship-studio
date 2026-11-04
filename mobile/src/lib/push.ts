@@ -17,6 +17,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { targetOf } from './notify';
 import { getApp, setApp } from './store';
 
 /** Built by Ship Studio's EAS project (TestFlight, the App Store). */
@@ -64,23 +65,8 @@ export function pushLine(
 }
 
 /** The agent a tapped notification is about: local (`data`), APNs (`body`) or FCM. */
-export function agentFromResponse(
-  response: Notifications.NotificationResponse | null
-): string | null {
-  if (!response) return null;
-  const request = response.notification.request;
-  const trigger = request.trigger as {
-    payload?: { body?: { agentId?: unknown } };
-    remoteMessage?: { data?: { agentId?: unknown } };
-  } | null;
-  const candidates = [
-    request.content.data?.agentId,
-    trigger?.payload?.body?.agentId,
-    trigger?.remoteMessage?.data?.agentId,
-  ];
-  const id = candidates.find((c) => typeof c === 'string' && c.length > 0);
-  return typeof id === 'string' ? id : null;
-}
+export const agentFromResponse = (response: Notifications.NotificationResponse | null) =>
+  targetOf(response?.notification.request)?.agentId ?? null;
 
 async function environment(): Promise<PushEnvironment | null> {
   if (Platform.OS !== 'ios') return 'production';

@@ -9,9 +9,11 @@
  * - waiting on your OK: **Queue**, and no Stop: the card above is the control;
  * - offline: **Send** waits for the Mac (outbox.ts), and says so.
  *
- * What's typed, quoted and @mentioned is the chat's draft (drafts.ts): it
- * survives leaving the chat and restarting the app. Files attach from the
- * camera, Photos or Files and upload at once, so Send has nothing to wait on.
+ * What's typed, quoted, @mentioned and attached is the chat's draft
+ * (drafts.ts): it survives leaving the chat and restarting the app. Files
+ * attach from the camera, Photos or Files and upload at once, so Send has
+ * nothing to wait on; once uploaded they're part of the draft, for as long
+ * as the Mac keeps them.
  */
 
 import {
@@ -21,7 +23,7 @@ import {
   type AgentRef,
 } from '@shipstudio/companion-protocol';
 import { Image } from 'expo-image';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -41,7 +43,15 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { needsYou } from '../lib/agents';
 import { mentionQuery, sendMode } from '../lib/composer';
-import { clearComposer, liveMentions, setComposer, useComposerDraft } from '../lib/drafts';
+import {
+  addFile,
+  clearComposer,
+  expiredFiles,
+  liveMentions,
+  removeFiles,
+  setComposer,
+  useComposerDraft,
+} from '../lib/drafts';
 import {
   admit,
   extensionOf,
@@ -72,6 +82,7 @@ const NONE: Agent[] = [];
 
 export function Composer({
   agent,
+  autoFocus,
   connected,
   macName,
   onError,
@@ -79,6 +90,7 @@ export function Composer({
   onHeight,
 }: {
   agent: Agent;
+  autoFocus?: boolean;
   connected: boolean;
   macName: string;
   onError: (text: string) => void;
@@ -93,9 +105,27 @@ export function Composer({
   const team = useApp((s) => s.overview?.agents ?? NONE);
   const seq = useRef(0);
 
-  const uploading = staged.some((f) => !f.blob && !f.error);
-  const ready = staged.filter((f) => f.blob);
+  const ready = draft.files ?? [];
+  const uploading = staged.some((f) => !f.error);
+  const attached = ready.length + staged.length;
   const hasContent = draft.text.trim().length > 0 || draft.quotes.length > 0 || ready.length > 0;
+
+  // A draft's files from over an hour ago are gone from the Mac: say so, once.
+  useEffect(() => {
+    const old = expiredFiles(draft);
+    if (!old.length) return;
+    removeFiles(
+      agent.id,
+      old.map((f) => f.blobId)
+    );
+    onError(
+      old.length === 1
+        ? `${old[0].name} waited over an hour, so ${macName} let it go. Attach it again.`
+        : `${old.length} files waited over an hour, so ${macName} let them go. Attach them again.`
+    );
+    // Once per chat opened: the draft's files only shrink from here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id]);
   const blocked = uploading || staged.some((f) => f.error);
   const mode = sendMode(agent, hasContent);
   const waitingOnYou = needsYou(agent);
@@ -115,25 +145,24 @@ export function Composer({
   const patch = (key: string, change: Partial<Staged>) =>
     setStaged((list) => list.map((f) => (f.key === key ? { ...f, ...change } : f)));
 
+  // Uploaded: it moves from this screen's list into the draft, which keeps it.
   const start = (item: Staged) =>
     upload(item.file, (progress) => patch(item.key, { progress }))
-      .then((ref) =>
-        patch(item.key, {
-          progress: 1,
-          error: undefined,
-          blob: {
-            blobId: ref.blobId,
-            uri: item.file.uri,
-            name: ref.name,
-            mime: ref.mime,
-            size: ref.size,
-          },
-        })
-      )
+      .then((ref) => {
+        addFile(agent.id, {
+          blobId: ref.blobId,
+          uri: item.file.uri,
+          name: ref.name,
+          mime: ref.mime,
+          size: ref.size,
+          stagedAt: Date.now(),
+        });
+        setStaged((list) => list.filter((f) => f.key !== item.key));
+      })
       .catch((error: unknown) => patch(item.key, { error: describeError(error) }));
 
   const add = (files: PickedFile[]) => {
-    const { kept, refused } = admit(files, MAX_ATTACHMENTS - staged.length);
+    const { kept, refused } = admit(files, MAX_ATTACHMENTS - attached);
     if (refused) onError(refused);
     const items = kept.map((file) => ({ key: `f${seq.current++}`, file, progress: 0 }));
     setStaged((list) => [...list, ...items]);
@@ -149,9 +178,7 @@ export function Composer({
       {
         label: 'Photo Library',
         run: () =>
-          void pickPhotos(MAX_ATTACHMENTS - staged.length).then(add, (e: Error) =>
-            onError(e.message)
-          ),
+          void pickPhotos(MAX_ATTACHMENTS - attached).then(add, (e: Error) => onError(e.message)),
       },
       {
         label: 'Choose File',
@@ -177,7 +204,7 @@ export function Composer({
     else haptic.light();
     const body = withQuotes(draft.quotes, draft.text.trim());
     const mentions = liveMentions(draft.text, draft.mentions).map((m) => m.id);
-    const files = ready.map((f) => f.blob!);
+    const files = ready.map(({ stagedAt: _at, ...f }) => f);
     clearComposer(agent.id);
     setStaged([]);
     onSent();
@@ -200,7 +227,7 @@ export function Composer({
       ? `Not connected · Send waits up to ${OUTBOX_WAIT_MS / 60_000} min for ${macName}`
       : 'Not connected · what you type stays here'
     : uploading
-      ? `Uploading ${staged.filter((f) => !f.blob && !f.error).length} of ${staged.length}…`
+      ? `Uploading ${staged.filter((f) => !f.error).length} of ${attached}…`
       : mode === 'queue'
         ? waitingOnYou
           ? `${agent.name} reads it after you answer above`
@@ -292,13 +319,27 @@ export function Composer({
           ))}
         </View>
       )}
-      {staged.length > 0 && (
+      {attached > 0 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tray}
           keyboardShouldPersistTaps="handled"
         >
+          {ready.map((f) => (
+            <Animated.View
+              key={f.blobId}
+              entering={ZoomIn.duration(160)}
+              exiting={ZoomOut.duration(120)}
+              layout={LinearTransition.duration(160)}
+            >
+              <StagedTile
+                item={{ key: f.blobId, file: f, progress: 1, blob: f }}
+                onRemove={() => removeFiles(agent.id, [f.blobId])}
+                onRetry={() => {}}
+              />
+            </Animated.View>
+          ))}
           {staged.map((f) => (
             <Animated.View
               key={f.key}
@@ -323,7 +364,7 @@ export function Composer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Attach files"
-            disabled={!connected || staged.length >= MAX_ATTACHMENTS}
+            disabled={!connected || attached >= MAX_ATTACHMENTS}
             onPress={attach}
             style={styles.hit}
           >
@@ -332,7 +373,7 @@ export function Composer({
                 style={[
                   styles.round,
                   styles.attach,
-                  (!connected || staged.length >= MAX_ATTACHMENTS) && styles.off,
+                  (!connected || attached >= MAX_ATTACHMENTS) && styles.off,
                   pressed && { backgroundColor: colors.surfaceControlHover },
                 ]}
               >
@@ -346,6 +387,7 @@ export function Composer({
             // A new text size remounts the field, so it never keeps a stale height.
             key={`input-${fontScale}`}
             value={draft.text}
+            autoFocus={autoFocus}
             onChangeText={setText}
             placeholder={`Message ${agent.name}`}
             placeholderTextColor={colors.textMuted}

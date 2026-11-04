@@ -10,7 +10,10 @@ import { useApp } from '../../lib/store';
 import { colors } from '../../lib/theme';
 
 export default function TabsLayout() {
-  // Count only, so a streaming reply never re-renders the tab bar.
+  // Counts only, so a streaming reply never re-renders the tab bar. A count
+  // is live news, so it shows only while the Mac is answering: offline the
+  // rows say "as of …", and a red number would claim more than is known.
+  const live = useApp((s) => s.link.kind === 'connected');
   const waiting = useApp(
     (s) => s.overview?.agents.filter((a) => !a.hidden && needsAttention(a)).length ?? 0
   );
@@ -32,13 +35,17 @@ export default function TabsLayout() {
           md="forum"
         />
         <NativeTabs.Trigger.Label>Agents</NativeTabs.Trigger.Label>
-        {waiting > 0 && <NativeTabs.Trigger.Badge>{String(waiting)}</NativeTabs.Trigger.Badge>}
+        {live && waiting > 0 && (
+          <NativeTabs.Trigger.Badge>{String(waiting)}</NativeTabs.Trigger.Badge>
+        )}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="projects">
         <NativeTabs.Trigger.Icon sf={{ default: 'folder', selected: 'folder.fill' }} md="folder" />
         <NativeTabs.Trigger.Label>Projects</NativeTabs.Trigger.Label>
         {/* Rendered only when there's a count: a hidden badge could linger as "0". */}
-        {asking > 0 && <NativeTabs.Trigger.Badge>{String(asking)}</NativeTabs.Trigger.Badge>}
+        {live && asking > 0 && (
+          <NativeTabs.Trigger.Badge>{String(asking)}</NativeTabs.Trigger.Badge>
+        )}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="search" role="search">
         <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />

@@ -17,7 +17,8 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { agentActions, type AgentAction, type AgentCaps } from '../lib/actions';
-import { formatAgo, lineState, subtitle } from '../lib/agents';
+import { formatAgo, lineState, needsLine, needsYou, subtitle } from '../lib/agents';
+import { useApp } from '../lib/store';
 import { haptic } from '../lib/haptics';
 import { chromeScale, colors, radius, space } from '../lib/theme';
 import { AgentAvatar, StatusMark } from './agent';
@@ -30,6 +31,9 @@ const lineColor = {
   working: colors.textSecondary,
   limited: colors.textSecondary,
 } as const;
+
+/** How far a row's words follow Dynamic Type: past this they'd outgrow the title above them. */
+const NAME_SCALE = 2;
 
 /** iOS 18+: the system's own context menu and preview (expo-router's Link.Menu). */
 const NATIVE_MENU = Platform.OS === 'ios';
@@ -216,6 +220,10 @@ function RowBody({
   // At the largest sizes the time moves under the subtitle so the name keeps its room.
   const stacked = fontScale >= 1.6;
   const state = lineState(agent);
+  // Waiting on you: say what for, when the saved chat knows.
+  const line = useApp((s) =>
+    needsYou(agent) ? needsLine(agent, s.chats[agent.id]?.messages) : subtitle(agent)
+  );
   const time = (
     <T
       variant="caption"
@@ -242,7 +250,7 @@ function RowBody({
       ]}
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
-      accessibilityLabel={`${agent.name}. ${subtitle(agent)}${agent.unread ? '. Unread' : ''}${
+      accessibilityLabel={`${agent.name}. ${line}${agent.unread ? '. Unread' : ''}${
         live ? '' : '. Last known'
       }`}
       accessibilityHint="Hold for Pin, Mute and Hide"
@@ -250,7 +258,14 @@ function RowBody({
       <AgentAvatar name={agent.name} color={agent.color} size={44} />
       <View style={styles.text}>
         <View style={styles.nameLine}>
-          <T variant="subhead" color={colors.textWhite} numberOfLines={1} style={styles.name}>
+          <T
+            variant="subhead"
+            color={colors.textWhite}
+            numberOfLines={1}
+            // Names stop growing at twice the size, under Home's large title.
+            maxFontSizeMultiplier={NAME_SCALE}
+            style={styles.name}
+          >
             {agent.name}
           </T>
           {agent.pinned && <Icon name="pin.fill" size={10} color={colors.textMuted} />}
@@ -260,11 +275,12 @@ function RowBody({
         <View style={styles.nameLine}>
           <T
             variant="small"
-            numberOfLines={stacked ? 2 : 1}
+            numberOfLines={stacked ? 3 : 1}
+            maxFontSizeMultiplier={NAME_SCALE}
             color={state && live ? lineColor[state] : colors.textSecondary}
             style={{ flex: 1 }}
           >
-            {subtitle(agent)}
+            {line}
           </T>
           <View style={styles.mark}>
             <StatusMark agent={agent} live={live} />

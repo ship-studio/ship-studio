@@ -21,7 +21,13 @@ import { ChatView } from '../../../components/ChatView';
 import { ConnectionNotice, useNow } from '../../../components/ConnectionPill';
 import { Button, Icon, IconButton, ripple, T, tap } from '../../../components/ui';
 import { toggleFor, type AgentAction } from '../../../lib/actions';
-import { formatAgo, needsAttention, sortAgents } from '../../../lib/agents';
+import {
+  attentionCounts,
+  formatAgo,
+  needsAttention,
+  nextNeedsYou,
+  sortAgents,
+} from '../../../lib/agents';
 import { pill } from '../../../lib/connection';
 import { haptic } from '../../../lib/haptics';
 import {
@@ -33,7 +39,7 @@ import {
   unpair,
 } from '../../../lib/session';
 import { setApp, useApp } from '../../../lib/store';
-import { chromeScale, colors, radius, space } from '../../../lib/theme';
+import { alpha, chromeScale, colors, radius, space } from '../../../lib/theme';
 
 type Row =
   | { kind: 'header'; key: string; title: string }
@@ -172,6 +178,9 @@ export default function Agents() {
         <>
           <ConnectionNotice />
           <Refused />
+          {live && !removed && (
+            <Summary onOpen={split ? (agentId) => setSelected(agentId) : undefined} />
+          )}
         </>
       }
       ListEmptyComponent={
@@ -277,6 +286,62 @@ export default function Agents() {
         </Animated.View>
       )}
     </>
+  );
+}
+
+/**
+ * What's going on, in one line: "2 need you · 3 working", and Next, which
+ * opens the first thing waiting on you at the card itself. Only while the
+ * Mac is answering: offline the rows already say what was last known.
+ */
+function Summary({ onOpen }: { onOpen?: (agentId: string) => void }) {
+  const router = useRouter();
+  const counts = useApp(useShallow((s) => attentionCounts(s.overview?.agents ?? [])));
+  if (!counts.needYou && !counts.working) return null;
+  const parts = [
+    counts.needYou && `${counts.needYou} need${counts.needYou === 1 ? 's' : ''} you`,
+    counts.working && `${counts.working} working`,
+  ].filter(Boolean);
+  const next = () => {
+    const s = useApp.getState();
+    const target = nextNeedsYou(s.overview?.agents ?? [], s.chats);
+    if (!target) return;
+    haptic.select();
+    if (onOpen) return onOpen(target.agentId);
+    router.push({
+      pathname: '/chat/[id]',
+      params: { id: target.agentId, ...(target.messageId ? { at: target.messageId } : {}) },
+    });
+  };
+  return (
+    <Animated.View
+      entering={FadeIn.duration(200)}
+      exiting={FadeOut.duration(150)}
+      layout={LinearTransition.duration(200)}
+      style={[styles.summary, counts.needYou > 0 && styles.summaryUrgent]}
+      accessibilityRole="summary"
+    >
+      {counts.needYou > 0 && (
+        <Icon name="exclamationmark.triangle.fill" size={13} color={colors.accentWarning} />
+      )}
+      <T
+        variant="subhead"
+        color={counts.needYou ? colors.textWhite : colors.textSecondary}
+        style={{ flex: 1 }}
+        maxFontSizeMultiplier={2}
+      >
+        {parts.join(' · ')}
+      </T>
+      {counts.needYou > 0 && (
+        <Button
+          title="Next"
+          size="compact"
+          variant="primary"
+          onPress={next}
+          accessibilityHint="Opens the first thing waiting on you"
+        />
+      )}
+    </Animated.View>
   );
 }
 
@@ -395,6 +460,22 @@ const styles = StyleSheet.create({
     padding: space.lg,
     minHeight: 48,
   },
+  summary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.lg,
+    marginTop: space.sm,
+    paddingLeft: space.lg,
+    paddingRight: space.sm,
+    paddingVertical: space.sm,
+    minHeight: 52,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfacePanel,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
+  },
+  summaryUrgent: { borderColor: alpha(colors.accentWarning, 0.45) },
   refused: {
     marginHorizontal: space.lg,
     marginBottom: space.md,

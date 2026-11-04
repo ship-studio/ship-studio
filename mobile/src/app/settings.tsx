@@ -23,6 +23,7 @@ type UpdateState =
 export default function Settings() {
   const router = useRouter();
   const credentials = useApp((s) => s.credentials);
+  const connected = useApp((s) => s.link.kind === 'connected');
   const haptics = useApp((s) => s.prefs.haptics);
   const push = useApp((s) => s.push);
   const pushInfo = pushLine(push, isOfficialBuild());
@@ -56,17 +57,27 @@ export default function Settings() {
     }
   };
 
+  const macName = credentials?.name ?? 'your Mac';
+  // Offline, the Mac can't be told now: say so, and that it's told later.
   const confirmUnpair = () =>
     Alert.alert(
       `Forget ${credentials?.name ?? 'this Mac'}?`,
-      'This phone stops reaching your agents, and the Mac removes it from its paired devices. You can pair again any time.',
+      connected
+        ? 'This phone stops reaching your agents, and the Mac removes it from its paired devices. You can pair again any time.'
+        : `This phone stops reaching your agents now. ${macName} can’t be reached, so it keeps this phone in its paired devices until it can: the next time this phone reaches it, it asks the Mac to remove it. You can also remove it in Ship Studio → Phone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Forget',
           style: 'destructive',
           onPress: async () => {
-            await unpair();
+            const result = await unpair();
+            if (result === 'queued' && connected) {
+              Alert.alert(
+                'Forgotten on this phone',
+                `${macName} didn’t answer, so it still lists this phone. It’s asked again the next time this phone reaches it; or remove it in Ship Studio → Phone.`
+              );
+            }
             router.replace('/pair');
           },
         },

@@ -11,6 +11,7 @@ import type {
   Failure,
   PermissionScope,
   SessionMark,
+  UsageTotals,
 } from '@shipstudio/companion-protocol';
 
 /** Pinned first, then most recently active. */
@@ -107,8 +108,11 @@ export const teamNames = (agents: Agent[]) =>
     .sort((a, b) => Number(b.isMain) - Number(a.isMain) || a.createdAt - b.createdAt)
     .map((a) => a.name);
 
-/** What "Always allow" will stop asking about, in a sentence. */
-export function describeScope(scope: PermissionScope, agentName: string): string {
+/**
+ * What "Always allow" will stop asking about, in a sentence. `revocable`:
+ * end by saying where it can be taken back (not needed beside Revoke itself).
+ */
+export function describeScope(scope: PermissionScope, agentName: string, revocable = true): string {
   const what =
     scope.kind === 'command_prefix'
       ? `Any command starting with “${scope.label}”`
@@ -120,7 +124,25 @@ export function describeScope(scope: PermissionScope, agentName: string): string
   const chained = scope.kind.startsWith('command')
     ? ' Commands chained with &&, ; or | still ask.'
     : '';
-  return `${what} runs for ${agentName} without asking.${chained} Revoke it in Edit agent → Permissions on your Mac.`;
+  const revoke = revocable ? ` Revoke it any time from ${agentName}’s sheet.` : '';
+  return `${what} runs for ${agentName} without asking.${chained}${revoke}`;
+}
+
+const tokenCount = (t: UsageTotals) => {
+  const n = t.inputTokens + t.outputTokens + t.cacheReadTokens + t.cacheWriteTokens;
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+};
+
+/** Turns, tokens and cost, as the Mac counts them. Cost only for the turns it could price. */
+export function usageLine(t: UsageTotals): string {
+  if (!t.turns) return 'Nothing yet';
+  const cost =
+    t.pricedTurns > 0
+      ? `$${t.costUsd.toFixed(2)}${t.pricedTurns < t.turns ? ` for ${t.pricedTurns} of them` : ''}`
+      : null;
+  return [`${t.turns} turn${t.turns === 1 ? '' : 's'}`, `${tokenCount(t)} tokens`, cost]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export function formatClock(ts: number): string {
@@ -151,4 +173,51 @@ export function formatAgo(ts: number, now = Date.now()): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h} h ago`;
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** An agent's approval still waiting, as far as this phone's copy of its chat shows. */
+export function pendingApproval(messages: AgentMessage[] | undefined): AgentMessage | undefined {
+  if (!messages) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].kind === 'approval' && messages[i].approval?.status === 'pending') {
+      return messages[i];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The row's second line for an agent waiting on you: what it's asking, when
+ * the saved chat says; only "Needs your OK" when it doesn't.
+ */
+export function needsLine(agent: Agent, messages: AgentMessage[] | undefined): string {
+  const asking = pendingApproval(messages)?.approval;
+  return asking?.detail
+    ? `Needs your OK · ${asking.detail.split('\n')[0]}`
+    : asking
+      ? `Needs your OK · ${asking.title}`
+      : subtitle(agent);
+}
+
+/** "2 need you · 3 working", over the agents shown on Home. */
+export function attentionCounts(agents: Agent[]) {
+  const shown = agents.filter((a) => !a.hidden);
+  return {
+    needYou: shown.filter(needsYou).length,
+    working: shown.filter((a) => !needsYou(a) && a.status.state === 'working').length,
+  };
+}
+
+/**
+ * The next thing waiting on you, in Home's order: the agent and, when the
+ * saved chat has it, the approval to open at.
+ */
+export function nextNeedsYou(
+  agents: Agent[],
+  chats: Record<string, { messages: AgentMessage[] } | undefined>
+): { agentId: string; messageId?: string } | null {
+  const next = sortAgents(agents.filter((a) => !a.hidden)).find(needsYou);
+  if (!next) return null;
+  const card = pendingApproval(chats[next.id]?.messages);
+  return { agentId: next.id, ...(card ? { messageId: card.id } : {}) };
 }
