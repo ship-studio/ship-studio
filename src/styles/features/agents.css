@@ -521,6 +521,27 @@
   color: var(--text-muted);
 }
 
+/* Where agents run: a quiet note set apart under the starters. */
+.agents-stay-on {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  max-width: 400px;
+  margin-top: var(--spacing-2xl);
+}
+
+.agents-stay-on__line {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+.agents-stay-on__line--quiet {
+  margin-top: var(--spacing-sm);
+}
+
 .agent-chat__row {
   display: flex;
 }

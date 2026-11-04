@@ -125,6 +125,20 @@ export const setRemotePushPin = (pin: string) =>
 export const clearRemotePushPin = () => invoke<RemoteAccessStatus>('clear_remote_push_pin');
 export const getRemoteAudit = (limit = 50) => invoke<AuditEntry[]>('get_remote_audit', { limit });
 
+/**
+ * "Keep this Mac awake" on its own, apart from remote access: the same
+ * keep-awake assertion remote access holds, kept while Ship Studio is open.
+ * `active` is read back from the assertion, so it is true while remote access
+ * holds it too.
+ */
+export interface KeepAwake {
+  /** macOS only. */
+  supported: boolean;
+  active: boolean;
+}
+export const getKeepAwake = () => invoke<KeepAwake>('get_keep_awake');
+export const setKeepAwake = (enabled: boolean) => invoke<KeepAwake>('set_keep_awake', { enabled });
+
 // ============================================================================
 // "Before you leave" — will the computer still be there?
 // ============================================================================

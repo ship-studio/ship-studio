@@ -41,6 +41,7 @@ import { AgentModelMenu } from './AgentModelMenu';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
+import { AgentsStayOnNote } from './AgentsStayOn';
 import { AgentSchedulePopover } from './AgentSchedulePopover';
 import { AgentFilesModal } from './AgentFilesModal';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
@@ -726,6 +727,7 @@ export function AgentChat({
                       </Button>
                     </div>
                   )}
+                  <AgentsStayOnNote />
                 </>
               ) : (
                 <>

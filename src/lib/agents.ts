@@ -1044,7 +1044,7 @@ export function mentionRuns(
   return runs;
 }
 
-/** The Team overview's place in the selection, beside agent ids. */
+/** The "What's in flight" overview's place in the selection, beside agent ids (⌘K only). */
 export const TEAM_ID = '__team';
 
 /** A reply's first line as plain words, for a one-line row. */
@@ -1110,22 +1110,4 @@ export function summarizeTeam(
     scheduled,
     replies,
   };
-}
-
-/** The Team row's second line: "2 working · 1 needs you · 1 failed", or quiet. */
-export function teamSubtitle(agents: Agent[]): string {
-  const shown = agents.filter((a) => !a.hidden);
-  const waiting = shown.filter(needsYou).length;
-  const working = shown.filter((a) => a.status.state === 'working' && !needsYou(a)).length;
-  // A usage limit isn't counted: it heals on its own, and its row says so.
-  const failed = shown.filter((a) => {
-    const failure = failedTurn(a);
-    return failure !== null && failure.kind !== 'usage_limit';
-  }).length;
-  const parts = [
-    working > 0 ? `${working} working` : '',
-    waiting > 0 ? `${waiting} ${waiting === 1 ? 'needs' : 'need'} you` : '',
-    failed > 0 ? `${failed} failed` : '',
-  ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'Nothing in flight';
 }

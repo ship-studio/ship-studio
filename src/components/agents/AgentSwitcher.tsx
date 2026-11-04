@@ -1,6 +1,6 @@
 /**
  * Below the compact breakpoint the sidebar is gone, so the header's title is
- * a menu of every agent, Team and Home. Each item carries the sidebar's own
+ * a menu of every agent and Home. Each item carries the sidebar's own
  * marks (the loader, the attention and unread dots), so state reads the same
  * here as in the list it stands in for.
  *
@@ -8,16 +8,16 @@
  */
 
 import type { ReactNode } from 'react';
-import { CheckIcon, ChevronIcon, CollaboratorsIcon, HomeIcon } from '@/components/icons';
+import { CheckIcon, ChevronIcon, HomeIcon } from '@/components/icons';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
-import { failedTurn, needsYou, sortAgents, TEAM_ID, type Agent } from '../../lib/agents';
+import { failedTurn, needsYou, sortAgents, type Agent } from '../../lib/agents';
 
 interface AgentSwitcherProps {
   agents: Agent[];
-  /** The agent on screen, or TEAM_ID. */
+  /** The agent on screen, or the what's-in-flight view's id. */
   currentId: string;
   /** What the trigger shows: the current agent's badge and name. */
   title: ReactNode;
@@ -92,12 +92,6 @@ export function AgentSwitcher({
           </DropdownItem>
         ))}
       <DropdownDivider />
-      <DropdownItem icon={<CollaboratorsIcon size={14} />} onSelect={() => onOpenAgent(TEAM_ID)}>
-        <span className="agent-model-menu__label">Team</span>
-        <span className="agent-switcher__mark">
-          {currentId === TEAM_ID && <CheckIcon size={12} aria-label="Open" />}
-        </span>
-      </DropdownItem>
       <DropdownItem icon={<HomeIcon size={14} />} onSelect={onGoHome}>
         Home
       </DropdownItem>

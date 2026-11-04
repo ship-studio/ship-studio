@@ -97,10 +97,19 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
       },
       {
         id: 'agents.team',
-        title: 'Team: what’s in flight',
+        title: 'What’s in flight',
         icon: <CollaboratorsIcon size={14} />,
         category: 'navigation',
-        keywords: ['agents', 'tasks', 'working', 'approvals', 'scheduled', 'overview', 'status'],
+        keywords: [
+          'agents',
+          'team',
+          'tasks',
+          'working',
+          'approvals',
+          'scheduled',
+          'overview',
+          'status',
+        ],
         run: () => {
           requestAgentsIntent({ kind: 'open', agentId: TEAM_ID });
           setView('agents');

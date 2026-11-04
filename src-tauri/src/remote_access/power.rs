@@ -20,6 +20,7 @@
 
 use crate::errors::CommandError;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -181,6 +182,29 @@ pub fn stop_keep_awake() {
         let _ = child.wait();
         tracing::info!("[Remote] Released the keep-awake assertion");
     }
+}
+
+/// The user asked for the Mac to stay awake on its own account ("Keep this
+/// Mac awake" in Agents), apart from remote access. Remote access turning off
+/// must not release an assertion the user asked for separately.
+static KEEP_AWAKE_ASKED: AtomicBool = AtomicBool::new(false);
+
+/// Hold or release the assertion for the user's own preference. Releasing
+/// leaves it held while remote access is on, which needs it as well.
+pub fn set_keep_awake_asked(asked: bool, remote_on: bool) -> Result<(), CommandError> {
+    KEEP_AWAKE_ASKED.store(asked, Ordering::SeqCst);
+    if asked {
+        start_keep_awake()
+    } else {
+        if !remote_on {
+            stop_keep_awake();
+        }
+        Ok(())
+    }
+}
+
+pub fn keep_awake_asked() -> bool {
+    KEEP_AWAKE_ASKED.load(Ordering::SeqCst)
 }
 
 pub fn keep_awake_active() -> bool {

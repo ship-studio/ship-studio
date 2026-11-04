@@ -882,12 +882,11 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-team-failures',
-    title: 'Agents — Team lists turns that didn’t finish',
+    title: 'Agents — What’s in flight lists turns that didn’t finish',
     looksRightWhen:
-      'The Team row says “1 working · 1 failed” (a usage limit heals on its own, so it isn’t counted). Needs you lists Lead Gen (“Didn’t finish: …”, red dot) with its error and Retry, and Finance (“Usage limit · resets <time>”, amber dot) with the quiet notice, “Retry at <time>” and “Retry now”. Each card spans from the name to the meta edge.',
-    openSelector: AGENTS_TAB,
+      'Opened from ⌘K. Needs you lists Lead Gen (“Didn’t finish: …”, red dot) with its error and Retry, and Finance (“Usage limit · resets <time>”, amber dot) with the quiet notice, “Retry at <time>” and “Retry now”. Each card spans from the name to the meta edge.',
+    command: 'agents.team',
     requires: '.agents-team .agent-bubble--error',
-    steps: [{ click: '[data-agent-id="__team"]' }],
     commands: {
       agents_overview: failingOverview,
       agents_messages: (args: Record<string, unknown>) =>
@@ -994,8 +993,8 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-scheduled',
     title: 'Agents — the schedule popover',
     looksRightWhen:
-      'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote.',
-    requires: '.agent-schedule__item',
+      'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote (Ship Studio open and this Mac awake) ending in an inline “Keep this Mac awake” link.',
+    requires: '.agent-schedule__foot .text-button',
     openSelector: AGENTS_TAB,
     steps: [
       { click: '[data-agent-id="finance"]' },
@@ -1095,10 +1094,19 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). The composer is ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). Set apart below, one muted line (“Agents run on this Mac. They pause when it sleeps or Ship Studio quits.”), a small ghost “Keep this Mac awake”, and the “Always on?” line. The composer is ready.',
     command: 'agents.open',
-    requires: '.agent-chat__empty',
+    requires: '.agents-stay-on .button',
     commands: {},
+  },
+  {
+    id: 'agents-first-run-awake',
+    title: 'Agents — first open, this Mac already kept awake',
+    looksRightWhen:
+      'As agents-first-run, but the quiet note under the starters reads “This Mac stays awake while Ship Studio is open.” with no button, and the always-on line under it.',
+    command: 'agents.open',
+    requires: '.agents-stay-on',
+    commands: { get_keep_awake: { supported: true, active: true } },
   },
   {
     id: 'agents-new',
@@ -1183,12 +1191,11 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-team-overview',
-    title: 'Agents — Team: what’s in flight',
+    title: 'Agents — What’s in flight (⌘K)',
     looksRightWhen:
-      'The Team row heads the agent list, selected, saying “1 working · 1 needs you”. The main column shows four sections in a fixed order: Needs you (Lead Gen, with its Gmail card answerable in place), Working now (Acme Site, “Editing PricingTable.tsx”, with the loader), Scheduled next (Finance’s two active check-ins, soonest first, the paused one absent), Recent replies (newest first, one plain line each, with times). Rows share the sidebar’s badge and type.',
-    openSelector: AGENTS_TAB,
+      'Opened from ⌘K; the agent list has no Team row and no row is selected. The header reads “What’s in flight”. The main column shows four sections in a fixed order: Needs you (Lead Gen, with its Gmail card answerable in place), Working now (Acme Site, “Editing PricingTable.tsx”, with the loader), Scheduled next (Finance’s two active check-ins, soonest first, the paused one absent), Recent replies (newest first, one plain line each, with times). Rows share the sidebar’s badge and type.',
+    command: 'agents.team',
     requires: '.agents-team .agent-approval',
-    steps: [{ click: '[data-agent-id="__team"]' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
