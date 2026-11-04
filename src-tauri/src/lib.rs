@@ -913,6 +913,11 @@ pub fn run() {
             // Native screen colour sampler
             commands::color_picker::get_color_sampler_support,
             commands::color_picker::sample_screen_color,
+            // Dictation (on-device speech to text)
+            commands::dictation::get_dictation_status,
+            commands::dictation::start_dictation,
+            commands::dictation::stop_dictation,
+            commands::dictation::cancel_dictation,
             // Code Browser
             commands::code::list_project_files,
             commands::code::read_project_file,

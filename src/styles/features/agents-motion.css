@@ -208,7 +208,9 @@
 /* Auto-grow eases between line counts (AgentChat measures, then sets the
    height, so this has a start to run from). */
 .agent-composer .agent-composer__input {
-  transition: height var(--transition-interaction-fast);
+  transition:
+    height var(--transition-interaction-fast),
+    color var(--transition-interaction);
 }
 
 .agent-composer {
@@ -245,6 +247,21 @@
 
 /* ---------------------------------------------------- reduced motion */
 
+/* --------------------------------------------------------- dictation */
+
+/* The halo follows the level with a short ease so 15 updates a second read
+   as breathing, not flicker; it grows in when listening starts and fades
+   out when it stops. The notice rises in like any other arrival. */
+.agent-composer__mic::before {
+  transition:
+    opacity var(--transition-icon-swap),
+    transform var(--transition-interaction);
+}
+
+.agent-composer__notice {
+  animation: agents-motion-swap-in var(--agents-motion-enter) backwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-chat__messages > [data-arrived],
   .agent-chat__messages[data-state='ready'],
@@ -256,6 +273,7 @@
   .agent-chat__jump,
   .agent-composer__send,
   .agent-composer__stop,
+  .agent-composer__notice,
   .agents-list__status > * {
     animation: none;
   }
@@ -266,7 +284,8 @@
   }
 
   .agent-peer__thread,
-  .agent-composer .agent-composer__input {
+  .agent-composer .agent-composer__input,
+  .agent-composer__mic::before {
     transition: none;
   }
 

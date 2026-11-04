@@ -1,3 +1,4 @@
+import MicrophoneSvg from '../../assets/icons/microphone.svg?react';
 import ChevronDownSvg from '../../assets/icons/chevron-down.svg?react';
 import ChevronRightSvg from '../../assets/icons/chevron-right.svg?react';
 import TickSvg from '../../assets/icons/tick.svg?react';
@@ -110,4 +111,11 @@ export const MoreHorizontalIcon = createIcon(MoreHorizontalSvg, {
   source: 'icons/old-icons/more-horizontal.svg',
   kind: 'ui',
   defaultSize: 14,
+});
+export const MicrophoneIcon = createIcon(MicrophoneSvg, {
+  name: 'MicrophoneIcon',
+  source: 'icons/microphone.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
 });

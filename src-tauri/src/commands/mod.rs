@@ -15,6 +15,7 @@ pub mod code;
 pub mod color_picker;
 pub mod conflicts;
 pub mod custom_classes;
+pub mod dictation;
 pub mod edit;
 pub mod edit_css;
 pub mod edit_structure;
