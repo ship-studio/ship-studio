@@ -310,4 +310,28 @@ export const agentsProjectScenarios: Scenario[] = [
         args.agentId === 'finance' ? FINANCE_DRIVEN_CHAT : messagesFor(args),
     },
   },
+  {
+    id: 'agents-waiting-for-slot',
+    title: 'Agents — a turn queued behind the cap on concurrent turns',
+    looksRightWhen:
+      'Finance’s header reads “Waiting for a free slot” (not “Working”), and its chat ends with the dots and “Waiting for a free slot (3 agents already working)”. Nothing shows a timer.',
+    requires: '.agent-chat__status',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: '[data-agent-id="finance"]' }],
+    commands: {
+      agents_overview: overview(
+        boundTeam({
+          finance: {
+            status: {
+              state: 'working',
+              activity: 'Waiting for a free slot (3 agents already working)',
+              since: null,
+            },
+          },
+        })
+      ),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'finance' ? FINANCE_DRIVEN_CHAT : messagesFor(args),
+    },
+  },
 ];

@@ -163,7 +163,10 @@ interface AgentChatProps extends AgentActions {
 
 function statusLabel(agent: Agent): string | null {
   if (needsYou(agent)) return 'Needs your OK';
-  if (agent.status.state === 'working') return 'Working';
+  // Queued behind the cap on concurrent turns: working, but not started (no `since`).
+  if (agent.status.state === 'working') {
+    return agent.status.since == null ? 'Waiting for a free slot' : 'Working';
+  }
   return null;
 }
 
