@@ -29,7 +29,18 @@ use crate::errors::CommandError;
 /// So we answer first, at 240s, with "paused for the user" — and the card stays
 /// live. A late Allow grants exactly that call and wakes the agent.
 pub const APPROVAL_WAIT_SECS: u64 = 240;
-const APPROVAL_WAIT: Duration = Duration::from_secs(APPROVAL_WAIT_SECS);
+
+/// The wait, shortened in debug builds by `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS`
+/// so the end-to-end suite (examples/agents_e2e.rs) can reach the late-Allow
+/// path without sitting out four minutes.
+fn approval_wait() -> Duration {
+    let override_secs = cfg!(debug_assertions)
+        .then(|| std::env::var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS").ok())
+        .flatten()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| *s < APPROVAL_WAIT_SECS);
+    Duration::from_secs(override_secs.unwrap_or(APPROVAL_WAIT_SECS))
+}
 
 /// One-time grants from late Allows: (agent id, tool, input). The next
 /// matching `approve` call from that agent is allowed without a card.
@@ -632,7 +643,7 @@ async fn ask_user(
         },
     );
 
-    let answer = match tokio::time::timeout(APPROVAL_WAIT, rx).await {
+    let answer = match tokio::time::timeout(approval_wait(), rx).await {
         Ok(Ok(true)) => Answer::Allowed,
         Ok(Ok(false)) => Answer::Denied,
         _ => Answer::NotYet,

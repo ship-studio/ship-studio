@@ -163,8 +163,11 @@ pub fn run() {
             // the Dock badge starts from what's left once those expire.
             agents::notify::init(_app.handle());
             let badge_app = _app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                agents::store::expire_stale_approvals();
+            tauri::async_runtime::spawn(async move {
+                let _ = tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals)
+                    .await;
+                // A turn the last run quit in the middle of: stop its process, say so.
+                agents::runner::recover_after_restart(&badge_app).await;
                 agents::notify::refresh_badge(&badge_app);
             });
             // Agents' check-ins and routines: one tick a minute, only while open.
