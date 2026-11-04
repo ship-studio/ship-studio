@@ -360,7 +360,11 @@ pub async fn agents_answer_approval(
     request_id: String,
     allow: bool,
     always: Option<bool>,
+    note: Option<String>,
 ) -> Result<(), CommandError> {
+    let note = note
+        .map(|n| n.trim().chars().take(MAX_DENY_NOTE).collect::<String>())
+        .filter(|n| !allow && !n.is_empty());
     let status = if allow {
         store::ApprovalStatus::Allowed
     } else {
@@ -380,6 +384,8 @@ pub async fn agents_answer_approval(
     // overwritten by the waiter's own cleanup.
     let updated = if let Some(scope) = &rule {
         store::allow_always(&agent_id, &request_id, scope)?
+    } else if let Some(note) = &note {
+        store::deny_with_note(&agent_id, &request_id, note)?
     } else {
         store::set_approval_status(&agent_id, &request_id, status)?
     };
@@ -388,7 +394,7 @@ pub async fn agents_answer_approval(
     }
     emit_registry(&app);
     notify::refresh_badge(&app);
-    wake(&app, &agent_id, &approval, allow)?;
+    wake(&app, &agent_id, &approval, allow, note.as_deref())?;
 
     // The new rule answers the other open cards it covers, the same way.
     if let Some(scope) = rule {
@@ -400,7 +406,7 @@ pub async fn agents_answer_approval(
             if let Some(message) = store::allow_always(&agent_id, &id, &scope)? {
                 let _ = app.emit(runner::EVENT_MESSAGE, &message);
             }
-            if let Err(e) = wake(&app, &agent_id, card, true) {
+            if let Err(e) = wake(&app, &agent_id, card, true, None) {
                 tracing::warn!(request_id = %id, error = %e, "covered card could not wake its agent");
             }
         }
@@ -412,18 +418,33 @@ pub async fn agents_answer_approval(
 
 /// Hand an answer to whoever is waiting on the card. Nobody is waiting on it
 /// (the agent paused, or the app restarted): a late Allow grants that exact
-/// call and wakes the agent.
+/// call and wakes the agent; a late No with a note hands the agent the note.
 fn wake(
     app: &AppHandle,
     agent_id: &str,
     approval: &store::Approval,
     allow: bool,
+    note: Option<&str>,
 ) -> Result<(), CommandError> {
     if !mcp::answer_approval(&approval.request_id, allow) {
         mcp::answer_late(app, agent_id, approval, allow)?;
+        if let Some(note) = note {
+            runner::enqueue(
+                app,
+                agent_id,
+                format!(
+                    "[The user declined what you asked for earlier: {} — {}. They said: \"{note}\". Do that instead.]",
+                    approval.title, approval.detail
+                ),
+                runner::From::User,
+            );
+        }
     }
     Ok(())
 }
+
+/// A "Deny with note…" is a steer, not an essay.
+const MAX_DENY_NOTE: usize = 500;
 
 /// Take back an "Always allow" rule: matching calls ask again.
 #[tauri::command]
