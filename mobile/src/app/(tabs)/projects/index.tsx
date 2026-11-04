@@ -1,7 +1,8 @@
 /**
  * Projects on the Mac and their session tabs, each with its state as
- * Remote Access reads it: anything waiting on a decision first. Refreshed
- * every few seconds while you look; tap a tab to watch its screen.
+ * Remote Access reads it: anything waiting on a decision first. The Mac
+ * sends each change as it happens (`projects.changed`); pull to re-read.
+ * Tap a tab to watch it, answer it, or type to it.
  */
 
 import type { ProjectSummary, SessionSummary } from '@shipstudio/companion-protocol';
@@ -10,13 +11,12 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { Spinner } from '../../../components/agent';
-import { ConnectionPill, useNow } from '../../../components/ConnectionPill';
+import { ConnectionNotice, useNow } from '../../../components/ConnectionPill';
 import { SessionState, tabName } from '../../../components/session';
-import { Icon, T, tap } from '../../../components/ui';
+import { Icon, ripple, T } from '../../../components/ui';
 import { formatAgo } from '../../../lib/agents';
 import { canCall, describeError, refreshProjects } from '../../../lib/session';
 import { useApp } from '../../../lib/store';
-import { usePolling } from '../../../lib/usePolling';
 import { colors, radius, space } from '../../../lib/theme';
 
 /** Waiting on you first, then the most recently active. */
@@ -44,13 +44,18 @@ export default function Projects() {
       ),
     []
   );
-  usePolling(served ? load : NOOP, 4000);
   const sorted = useMemo(() => order(projects ?? []), [projects]);
 
   return (
     <>
       <Stack.Screen
-        options={{ headerTitle: () => <ConnectionPill />, headerTitleAlign: 'center' }}
+        options={{
+          title: 'Projects',
+          headerLargeTitle: true,
+          headerLargeTitleShadowVisible: false,
+          headerLargeStyle: { backgroundColor: colors.surfaceApp },
+          headerLargeTitleStyle: { color: colors.textWhite },
+        }}
       />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
@@ -58,7 +63,7 @@ export default function Projects() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            tintColor={colors.textMuted}
+            tintColor={colors.textSecondary}
             onRefresh={() => {
               setRefreshing(true);
               void load().finally(() => setRefreshing(false));
@@ -66,9 +71,7 @@ export default function Projects() {
           />
         }
       >
-        <T variant="display" color={colors.textWhite} style={styles.title}>
-          Projects
-        </T>
+        <ConnectionNotice />
         {!served ? (
           <T color={colors.textSecondary} style={styles.note}>
             Update Ship Studio on {macName} to see its projects here.
@@ -94,8 +97,6 @@ export default function Projects() {
   );
 }
 
-const NOOP = () => Promise.resolve();
-
 function ProjectCard({ project }: { project: ProjectSummary }) {
   const meta = [
     project.branch,
@@ -106,19 +107,19 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
   return (
     <Animated.View layout={LinearTransition.springify().damping(20)} style={styles.card}>
       <View style={styles.cardHead}>
-        <Icon name="folder.fill" size={14} color={colors.textMuted} />
+        <Icon name="folder.fill" size={14} color={colors.textSecondary} />
         <T variant="subhead" color={colors.textWhite} numberOfLines={1} style={{ flexShrink: 1 }}>
           {project.name}
         </T>
         <View style={{ flex: 1 }} />
         {!!meta && (
-          <T variant="caption" color={colors.textMuted} numberOfLines={1} style={styles.meta}>
+          <T variant="caption" color={colors.textSecondary} numberOfLines={1} style={styles.meta}>
             {meta}
           </T>
         )}
       </View>
       {project.sessions.length === 0 ? (
-        <T variant="small" color={colors.textMuted} style={styles.empty}>
+        <T variant="small" color={colors.textSecondary} style={styles.empty}>
           No sessions open
         </T>
       ) : (
@@ -145,13 +146,18 @@ function SessionRow({
     <Animated.View entering={FadeIn.duration(200)}>
       <Pressable
         accessibilityRole="button"
-        onPress={() => {
-          tap();
+        android_ripple={ripple}
+        onPress={() =>
           router.push({
             pathname: '/session/[id]',
-            params: { id: session.sessionId, project: project.name, tab: tabName(session) },
-          });
-        }}
+            params: {
+              id: session.sessionId,
+              project: project.name,
+              path: project.path,
+              tab: tabName(session),
+            },
+          })
+        }
         style={({ pressed }) => [
           styles.session,
           !first && styles.divider,
@@ -163,13 +169,13 @@ function SessionRow({
             <T variant="small" color={colors.textPrimary}>
               {tabName(session)}
             </T>
-            <T variant="caption" color={colors.textFaint}>
+            <T variant="caption" color={colors.textMuted}>
               {formatAgo(session.lastOutputAt, now)}
             </T>
           </View>
           <SessionState session={session} />
         </View>
-        <Icon name="chevron.right" size={11} color={colors.textFaint} />
+        <Icon name="chevron.right" size={11} color={colors.textMuted} />
       </Pressable>
     </Animated.View>
   );
@@ -177,7 +183,6 @@ function SessionRow({
 
 const styles = StyleSheet.create({
   content: { paddingBottom: space['2xl'], gap: space.md },
-  title: { paddingHorizontal: space.lg, paddingTop: space.sm },
   note: { paddingHorizontal: space.lg, paddingVertical: space.md },
   card: {
     marginHorizontal: space.lg,

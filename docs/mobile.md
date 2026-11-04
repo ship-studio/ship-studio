@@ -325,9 +325,13 @@ cache directory.
 **When offline,** everything cached is readable under a "Last synced 3:12 PM"
 bar, and all actions are disabled.
 
-**A message typed offline** stays in the composer as **Not sent · Send**. It
-is never sent automatically later: a message arriving hours after it was
-written, with no one watching, is worse than one that waits to be sent.
+**A message sent offline** waits in the outbox ("Waiting for Julian's
+MacBook Pro") and goes by itself when the Mac answers, idempotent by its
+`clientId`, but only for **10 minutes** (`OUTBOX_WAIT_MS`). Past that it
+becomes **Not sent · Send · Discard** and is never sent on its own: a
+message arriving hours after it was written, with no one watching, is worse
+than one that waits to be sent. A send that may not have reached the Mac
+(no link, a timeout) waits the same way; a refusal is final.
 
 **On sign-out or revoke,** that Mac's database and cache are wiped.
 
@@ -754,14 +758,63 @@ first.
 - **clientId.** The optimistic bubble settles on the echoed `clientId`;
   text matching is kept only for a Mac that doesn't echo one.
 - **Sessions.** Session cards in chat open a read-only view of the session
-  (`sessions.read`, refreshed every 2.5 s while open). Answering a question
-  and typing stay on the Mac: `sessions.send`/`sessions.key` aren't served.
-- **Projects** poll `projects.list` every 4 s while the tab is visible,
-  since `projects.changed` isn't journaled yet.
+  (`sessions.read`, refreshed every 2.5 s while open). Answering and typing
+  came in the polish round (below).
+- **Projects** polled `projects.list` every 4 s (replaced by events in the
+  polish round, below).
 - **Search** pages a chat back with `before` until the hit is loaded (40
   pages at most), scrolls to it and lights it.
-- **Not yet:** quotes and @mentions, `agents.fetchPath` for paths in a
-  reply, the offline SQLite cache and outbox, the LAN route.
+- **Not yet:** the LAN route. (Quotes, @mentions, paths in a reply and the
+  offline cache and outbox landed in the polish round, below.)
+
+### Polish round 1: as built (critique 1 and the P2 leftovers)
+
+- **Drafts** (`lib/drafts.ts`): the text, quotes and @mentions of each chat
+  are in the store and in `drafts-<serverId>.json`, written 400 ms after the
+  last change and on going to the background. Survives leaving the chat and
+  a cold start.
+- **Offline cache and outbox** (`lib/cache.ts`, `lib/outbox.ts`): one JSON
+  file per Mac (`cache-<serverId>.json`) rather than SQLite, so Expo Go and
+  the existing deps cover it: overview, Mac status, projects, the last 400
+  messages of each opened chat, the outbox and the cursor, written together
+  so replay after a restart starts exactly where the copy ends. Chats come
+  back unloaded and are re-read once connected. Rules above.
+- **Contextual actions** (`lib/actions.ts` decides, screens run): rows have
+  the native iOS context menu (expo-router `Link.Menu`; the chat preview was
+  dropped, it rendered unstyled in Expo Go) or a Material sheet on Android
+  and in the iPad split; swipe left for Mute / Hide with Undo, right to pin.
+  Messages: hold for Copy, Copy as Markdown, Quote, Select Text. Message
+  bodies are no longer selectable in place, so a hold is always the menu;
+  Select Text opens a sheet where part of a message can be quoted or copied.
+- **`agents.update`** is served for `pinned`, `muted` and `hidden` only.
+- **Composer**: Send / Queue (with Send now and Stop beside it) / Stop, and
+  no Stop while an approval waits. 44 pt targets. @mentions suggest the
+  team as you type `@`; quotes sit above the field and are sent as `> `
+  blockquotes (the helpers moved into the protocol package).
+- **Paths in replies**: a path in code or a link (`src/app/page.tsx`,
+  `README.md`) is tappable; it goes through `agents.fetchPath` and opens in
+  Quick Look.
+- **Projects** come as `projects.changed` / `projects.removed` events from a
+  watcher on the Mac (tabs every 2 s, git every 10 s, only while a phone has
+  the app open); the 4 s polling is gone.
+- **Sessions** can be answered (each option a button, plus Esc) and typed
+  to, through `sessions.key` / `sessions.send`, which run Remote Access's
+  own `press` / `deliver` cores and refusals.
+- **Stale state**: while disconnected, status marks go grey and stop
+  turning, and section headers say "as of …". A Mac that removed the phone
+  shows only the Pair-again card. A chat for an agent that's gone says so.
+- **Type and contrast**: body 16, subtitles 14 in `textSecondary`;
+  `textMuted` is gray-500 on the phone (4.78:1 on panel); `textFaint` is
+  decoration only. Increase Contrast brightens each grey one step. Chrome
+  is clamped at 1.3x Dynamic Type; message bodies aren't.
+- **Haptics** only for send, interrupt, stop, approvals (after the Mac
+  confirms), failures and toggles; Settings → Feel → Haptics turns them off.
+- **iPad and landscape**: `supportsTablet`, all orientations; at 700 pt and
+  wider the Agents list and a chat sit side by side.
+- **Android**: every SF Symbol has a Material Symbol, ripples on presses,
+  predictive back on.
+- **Not done**: a streaming haptic (T3's throttled tick), Live Activities,
+  dictation, and verification on Android or a real device.
 
 ### P2: everything else in the chat, and projects
 

@@ -726,8 +726,8 @@ export function createMockServer(opts: MockOptions = {}) {
       return stored;
     },
     'sessions.send': (p) => {
-      const session = findSession(String(p.sessionId ?? ''));
-      const text = String(p.text ?? '').trim();
+      const session = findSession(typeof p.sessionId === 'string' ? p.sessionId : '');
+      const text = typeof p.text === 'string' ? p.text.trim() : '';
       if (!session) return fail({ type: 'Other', message: 'That session was closed.' });
       if (!text || text.startsWith('!') || /^\/(?!clear|compact|status|help)/.test(text)) {
         return fail({
@@ -753,7 +753,7 @@ export function createMockServer(opts: MockOptions = {}) {
           `${screens.get(session.sessionId)}\n⏺ Done. ${text.length > 40 ? 'That’s handled.' : `“${text}” is handled.`}\n`
         );
         setSession(session.sessionId, { state: 'finished', activity: undefined });
-      }, 2500);
+      }, 2500).unref();
       return { sessionId: session.sessionId };
     },
     'sessions.key': (p) => {
@@ -776,7 +776,7 @@ export function createMockServer(opts: MockOptions = {}) {
       setTimeout(
         () => setSession(session.sessionId, { state: 'finished', activity: undefined }),
         3000
-      );
+      ).unref();
       return null;
     },
     'agents.markUnread': (p) => {

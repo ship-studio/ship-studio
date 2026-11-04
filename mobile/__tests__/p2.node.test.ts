@@ -223,4 +223,53 @@ describe('P2 against the mock Mac', () => {
     expect(screen.screen).toContain('broken links');
     expect(screen.reply).toContain('0 broken');
   });
+
+  it('answers and types into a session, and hears each change as an event', async () => {
+    const tab = (id: string) =>
+      state.projects?.flatMap((p) => p.sessions).find((x) => x.sessionId === id);
+    // Typing into a tab that's asking a question would answer it: refused.
+    await expect(
+      t.request('sessions.send', {
+        project: '/Users/you/ShipStudio/acme-site',
+        sessionId: 'pty-site-2',
+        text: 'hello',
+        clientId: 's1',
+      })
+    ).rejects.toThrow(/waiting for your answer/);
+    // A digit only answers while a question shows.
+    await expect(t.request('sessions.key', { sessionId: 'pty-docs-1', key: '1' })).rejects.toThrow(
+      /isn’t asking/
+    );
+    await t.request('sessions.key', { sessionId: 'pty-site-2', key: '1' });
+    await until(() => tab('pty-site-2')?.state === 'working' && !tab('pty-site-2')?.question);
+    // Typed, once per clientId, and refused like agents.send.
+    const sent = await t.request('sessions.send', {
+      project: '/Users/you/ShipStudio/docs',
+      sessionId: 'pty-docs-1',
+      text: 'Check the links again',
+      clientId: 's2',
+    });
+    expect(sent.sessionId).toBe('pty-docs-1');
+    await until(() => tab('pty-docs-1')?.state === 'working');
+    await expect(
+      t.request('sessions.send', {
+        project: '/Users/you/ShipStudio/docs',
+        sessionId: 'pty-docs-1',
+        text: '!rm -rf /',
+        clientId: 's3',
+      })
+    ).rejects.toBeInstanceOf(WireFailure);
+    expect(events.some((e) => e.type === 'projects.changed')).toBe(true);
+  });
+
+  it('pins, mutes and hides, and nothing else', async () => {
+    const qa = () => state.overview?.agents.find((a) => a.id === 'qa');
+    await t.request('agents.update', { agentId: 'qa', input: { muted: true } });
+    await until(() => qa()?.muted === true);
+    await expect(
+      t.request('agents.update', { agentId: 'qa', input: { name: 'Renamed' } })
+    ).rejects.toThrow(/pin, mute and hide/);
+    await t.request('agents.update', { agentId: 'qa', input: { muted: false } });
+    await until(() => qa()?.muted === false);
+  });
 });
