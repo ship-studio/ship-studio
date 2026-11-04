@@ -217,6 +217,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         attachments: Vec::new(),
         check_in: None,
         stopped: false,
+        mentions: Vec::new(),
     }
 }
 

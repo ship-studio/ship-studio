@@ -20,6 +20,7 @@ import {
   ArrowUpIcon,
   CheckIcon,
   ChevronIcon,
+  CollaboratorsIcon,
   HistoryIcon,
   HomeIcon,
   MicrophoneIcon,
@@ -44,6 +45,7 @@ import { listProjects } from '../../lib/project';
 import { ComposerAttachments, ComposerQuotes } from './AgentAttachments';
 import { toOutgoing, useComposerAttachments, useFileDrop } from './useComposerAttachments';
 import { useQuoteSelection } from './useQuoteSelection';
+import { useMentionPicker } from './AgentMentions';
 import { useCommands } from '../../commands/useCommands';
 import {
   AgentBubble,
@@ -59,13 +61,16 @@ import {
   answerApproval,
   buildChatItems,
   lastUserText,
+  mentionedAgents,
   needsYou,
   withQuotes,
   sendAgentMessage,
   sortAgents,
   stopAgent,
+  TEAM_ID,
   type Agent,
   type AgentMessage,
+  type AgentRef,
 } from '../../lib/agents';
 import {
   loadMessages,
@@ -94,10 +99,11 @@ interface Pending {
   ts: number;
   failed: boolean;
   id?: string;
+  mentions: AgentRef[];
 }
 
-function newPending(text: string): Pending {
-  return { key: `local-${crypto.randomUUID()}`, text, ts: Date.now(), failed: false };
+function newPending(text: string, mentions: AgentRef[]): Pending {
+  return { key: `local-${crypto.randomUUID()}`, text, ts: Date.now(), failed: false, mentions };
 }
 
 interface AgentChatProps extends AgentActions {
@@ -179,6 +185,15 @@ export function AgentChat({
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
+  // Who you can @mention here: everyone else on the team, in sidebar order.
+  const mentionable = useMemo(
+    () => sortAgents([...agentsById.values()]).filter((a) => !a.hidden && a.id !== agent.id),
+    [agentsById, agent.id]
+  );
+  const mentionPicker = useMentionPicker(mentionable, inputRef, setDraft);
+  const mentionsIn = (text: string): AgentRef[] =>
+    mentionedAgents(text, mentionable).map(({ id, name }) => ({ id, name }));
+
   useCommands(
     () => [
       {
@@ -259,7 +274,14 @@ export function AgentChat({
         aliases.set(match.id, p.key);
         continue;
       }
-      local.push({ id: p.key, agentId: agent.id, ts: p.ts, kind: 'user', text: p.text });
+      local.push({
+        id: p.key,
+        agentId: agent.id,
+        ts: p.ts,
+        kind: 'user',
+        text: p.text,
+        mentions: p.mentions,
+      });
       if (p.failed) failed.add(p.key);
     }
     // The reply being written sits after what's settled and before anything
@@ -269,6 +291,7 @@ export function AgentChat({
   }, [messages, pending, agent.id, streaming]);
 
   const keyOf = (id: string) => aliases.get(id) ?? id;
+  const colorOf = (id: string) => agentsById.get(id)?.color;
 
   const items = useMemo(() => buildChatItems(shown), [shown]);
   // Retry belongs to the newest failure only, and only if nothing was said since.
@@ -366,7 +389,8 @@ export function AgentChat({
 
   const deliver = async (entry: Pending) => {
     try {
-      const message = await sendAgentMessage(agent.id, entry.text);
+      const ids = entry.mentions.map((m) => m.id);
+      const message = await sendAgentMessage(agent.id, entry.text, [], ids);
       setPending((list) => list.map((p) => (p.key === entry.key ? { ...p, id: message.id } : p)));
       upsertMessage(message);
     } catch (error) {
@@ -381,7 +405,8 @@ export function AgentChat({
   const sendWithFiles = async (typed: string, quoted: string[], files: typeof staged) => {
     try {
       const outgoing = await toOutgoing(files);
-      upsertMessage(await sendAgentMessage(agent.id, withQuotes(quoted, typed), outgoing));
+      const ids = mentionsIn(typed).map((m) => m.id);
+      upsertMessage(await sendAgentMessage(agent.id, withQuotes(quoted, typed), outgoing, ids));
     } catch (error) {
       setDraft(typed);
       setQuotes(quoted);
@@ -393,7 +418,7 @@ export function AgentChat({
   /** Words alone: on screen at once, and in the sidebar's row. */
   const sendText = (text: string) => {
     atBottomRef.current = true;
-    const entry = newPending(text);
+    const entry = newPending(text, mentionsIn(text));
     setPending((list) => [...list, entry]);
     markSent(agent.id, text);
     void deliver(entry);
@@ -526,6 +551,12 @@ export function AgentChat({
                 </DropdownItem>
               ))}
             <DropdownDivider />
+            <DropdownItem
+              icon={<CollaboratorsIcon size={14} />}
+              onSelect={() => onOpenAgent(TEAM_ID)}
+            >
+              Team
+            </DropdownItem>
             <DropdownItem icon={<HomeIcon size={14} />} onSelect={compact.onGoHome}>
               Home
             </DropdownItem>
@@ -639,6 +670,7 @@ export function AgentChat({
                       arrived={arrived}
                       failed={failed.has(m.id)}
                       onRetry={() => retry(m.id)}
+                      colorOf={colorOf}
                     />
                   );
                 case 'agent':
@@ -730,6 +762,7 @@ export function AgentChat({
               send();
             }}
           >
+            {mentionPicker.menu}
             <ComposerQuotes quotes={quotes} onRemove={removeQuote} />
             <ComposerAttachments items={staged} onRemove={attachments.remove} />
             <TextArea
@@ -739,10 +772,15 @@ export function AgentChat({
               value={draft}
               placeholder={dictating ? 'Listening…' : `Message ${agent.name}`}
               readOnly={dictating}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                mentionPicker.sync();
+              }}
+              onSelect={mentionPicker.sync}
               onPaste={attachments.onPaste}
               onKeyDown={(e) => {
                 if (dictation.onComposerKeyDown(e)) return;
+                if (mentionPicker.onKeyDown(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   send();

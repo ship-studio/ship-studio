@@ -20,6 +20,7 @@ import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'r
 import {
   BellOffIcon,
   ChevronRightIcon,
+  CollaboratorsIcon,
   DownloadIcon,
   EditIcon,
   PinIcon,
@@ -33,7 +34,14 @@ import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
 import { useFlipReorder } from './useAgentMotion';
-import { needsYou, sortAgents, type Agent, type SearchHit } from '../../lib/agents';
+import {
+  needsYou,
+  sortAgents,
+  teamSubtitle,
+  TEAM_ID,
+  type Agent,
+  type SearchHit,
+} from '../../lib/agents';
 import { kbd } from '../../lib/shortcuts';
 
 interface AgentsSidebarProps extends AgentActions {
@@ -163,6 +171,11 @@ export function AgentsSidebar({
         <AgentsSearchResults query={query} field={searchRef} onOpen={onOpenHit} />
       ) : (
         <>
+          <TeamRow
+            agents={agents}
+            current={selectedId === TEAM_ID}
+            onSelect={() => onSelect(TEAM_ID)}
+          />
           {visible.map(row)}
           {hidden.length > 0 && (
             <button
@@ -180,6 +193,46 @@ export function AgentsSidebar({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The first row: the Team overview, what's in flight across every agent.
+ * Built like an agent row, with the team's badge in place of initials.
+ */
+function TeamRow({
+  agents,
+  current,
+  onSelect,
+}: {
+  agents: Agent[];
+  current: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      tabIndex={0}
+      className={`agents-list__row${current ? ' is-current' : ''}`}
+      data-agent-id={TEAM_ID}
+      aria-current={current ? 'true' : undefined}
+      title="Team: what's in flight"
+      onClick={onSelect}
+    >
+      <span
+        className={`agent-avatar agent-avatar--row agents-team__badge${current ? ' agent-avatar--selected' : ''}`}
+        aria-hidden
+      >
+        <CollaboratorsIcon size={14} />
+      </span>
+      <span className="agents-list__text">
+        <span className="agents-list__name">
+          <span className="agents-list__name-text">Team</span>
+        </span>
+        <span className="agents-list__preview">{teamSubtitle(agents)}</span>
+      </span>
+      <span className="agents-list__status" />
+    </button>
   );
 }
 

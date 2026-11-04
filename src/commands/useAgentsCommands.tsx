@@ -7,11 +7,17 @@
 
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { AgentsIcon, DownloadIcon, PlusIcon, SearchIcon } from '@/components/icons';
+import {
+  AgentsIcon,
+  CollaboratorsIcon,
+  DownloadIcon,
+  PlusIcon,
+  SearchIcon,
+} from '@/components/icons';
 import { useCommands } from './useCommands';
 import { useAgents } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
-import { AGENT_EVENTS } from '../lib/agents';
+import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
 
 type AgentsIntent =
   | { kind: 'new' }
@@ -86,6 +92,17 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
         keywords: ['agents', 'create', 'bot'],
         run: () => {
           requestAgentsIntent({ kind: 'new' });
+          setView('agents');
+        },
+      },
+      {
+        id: 'agents.team',
+        title: 'Team: what’s in flight',
+        icon: <CollaboratorsIcon size={14} />,
+        category: 'navigation',
+        keywords: ['agents', 'tasks', 'working', 'approvals', 'scheduled', 'overview', 'status'],
+        run: () => {
+          requestAgentsIntent({ kind: 'open', agentId: TEAM_ID });
           setView('agents');
         },
       },

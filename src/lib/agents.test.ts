@@ -22,6 +22,13 @@ import {
   type AgentMessage,
   type SearchHit,
   type UsageTotals,
+  mentionAt,
+  mentionCandidates,
+  mentionedAgents,
+  mentionRuns,
+  replyPreview,
+  summarizeTeam,
+  teamSubtitle,
 } from './agents';
 
 const msg = (id: string, kind: AgentMessage['kind'], ts: number, peer?: string): AgentMessage => ({
@@ -282,5 +289,97 @@ describe('lastUserText', () => {
     const list = [m('user', 'first'), m('agent', 'ok'), m('user', 'second'), m('error', 'x')];
     expect(lastUserText(list as never, 3)).toBe('second');
     expect(lastUserText(list as never, 0)).toBeNull();
+  });
+});
+
+describe('@mentions', () => {
+  const named = (id: string, name: string) => ({ id, name }) as Agent;
+  const team = [
+    named('chief', 'Chief of Staff'),
+    named('acme', 'Acme Site'),
+    named('fin', 'Finance'),
+  ];
+
+  it('finds the mention being typed at the caret', () => {
+    expect(mentionAt('ask @fin', 8)).toEqual({ start: 4, query: 'fin' });
+    expect(mentionAt('@', 1)).toEqual({ start: 0, query: '' });
+    expect(mentionAt('ask @Acme Si', 12)).toEqual({ start: 4, query: 'Acme Si' });
+    expect(mentionAt('mail me@example.com', 19)).toBeNull();
+    expect(mentionAt('@fin\nmore', 9)).toBeNull();
+    expect(mentionAt('@ fin', 5)).toBeNull();
+  });
+
+  it('matches names from the start, then any word', () => {
+    expect(mentionCandidates(team, 'fi').map((a) => a.id)).toEqual(['fin']);
+    expect(mentionCandidates(team, 's').map((a) => a.id)).toEqual(['chief', 'acme']);
+    expect(mentionCandidates(team, 'acme s').map((a) => a.id)).toEqual(['acme']);
+    expect(mentionCandidates(team, '').length).toBe(3);
+  });
+
+  it('reads which agents a message mentions, whole names only', () => {
+    const found = mentionedAgents('@Finance and @acme site, not @Fin or a@Finance', team);
+    expect(found.map((a) => a.id)).toEqual(['fin', 'acme']);
+    expect(mentionedAgents('@Financed', team)).toEqual([]);
+  });
+
+  it('splits a bubble around its recorded mentions', () => {
+    const runs = mentionRuns('Ask @Finance, then me', [{ id: 'fin', name: 'Finance' }]);
+    expect(runs).toEqual([
+      { text: 'Ask ' },
+      { text: '@Finance', mention: { id: 'fin', name: 'Finance' } },
+      { text: ', then me' },
+    ]);
+    expect(mentionRuns('plain')).toEqual([{ text: 'plain' }]);
+  });
+});
+
+describe('Team overview', () => {
+  const base = {
+    hidden: false,
+    pinned: false,
+    pendingApprovals: 0,
+    lastActivityAt: 0,
+    status: { state: 'idle', activity: null, since: null },
+  };
+  const make = (id: string, over: Partial<Agent> = {}) =>
+    ({ ...base, id, name: id, ...over }) as Agent;
+  const line = (id: string, agentId: string, kind: AgentMessage['kind'], ts: number, text = 'x') =>
+    ({ id, agentId, kind, ts, text }) as AgentMessage;
+
+  it('reads a reply as one plain line', () => {
+    expect(replyPreview('\n## **Done**: see [PR 12](https://x)\nmore')).toBe('Done: see PR 12');
+    expect(replyPreview('| a | b |\n1. `npm` ran')).toBe('npm ran');
+  });
+
+  it('sorts the team into working, needs-you, next and recent', () => {
+    const agents = [
+      make('a', { status: { state: 'working', activity: 'Editing x', since: 1 } }),
+      make('b', { pendingApprovals: 1 }),
+      make('c', {
+        checkIns: [
+          { id: 'late', note: 'n', nextAt: 30, createdAt: 0, paused: false },
+          { id: 'soon', note: 'n', nextAt: 10, createdAt: 0, paused: false },
+          { id: 'off', note: 'n', nextAt: 5, createdAt: 0, paused: true },
+        ],
+      }),
+      make('h', { hidden: true, status: { state: 'working', activity: null, since: 1 } }),
+    ];
+    const card = {
+      ...line('card', 'b', 'approval', 5),
+      approval: { requestId: 'r', title: 't', detail: '', status: 'pending' as const },
+    };
+    const summary = summarizeTeam(agents, {
+      a: [line('a1', 'a', 'agent', 3), line('a2', 'a', 'user', 9)],
+      b: [card, line('b1', 'b', 'agent', 7)],
+      h: [line('h1', 'h', 'agent', 99)],
+    });
+    expect(summary.working.map((a) => a.id)).toEqual(['a']);
+    expect(summary.needsYou.map((n) => [n.agent.id, n.approvals.map((m) => m.id)])).toEqual([
+      ['b', ['card']],
+    ]);
+    expect(summary.scheduled.map((s) => s.checkIn.id)).toEqual(['soon', 'late']);
+    expect(summary.replies.map((r) => r.message.id)).toEqual(['b1', 'a1']);
+    expect(teamSubtitle(agents)).toBe('1 working · 1 needs you');
+    expect(teamSubtitle([make('q')])).toBe('Nothing in flight');
   });
 });

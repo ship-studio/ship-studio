@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, attachments, import, mcp, notify, runner, schedule, search, store, usage,
+    self, attachments, import, mcp, notify, prompts, runner, schedule, search, store, usage,
 };
 use crate::errors::CommandError;
 
@@ -89,15 +89,28 @@ pub async fn agents_send(
     agent_id: String,
     text: String,
     attachments: Option<Vec<attachments::OutgoingAttachment>>,
+    mentions: Option<Vec<String>>,
 ) -> Result<store::AgentMessage, CommandError> {
     let text = text.trim().to_string();
     let incoming = attachments.unwrap_or_default();
     if text.is_empty() && incoming.is_empty() {
         return Err(agents::err_invalid("text", "Type a message first."));
     }
-    store::get(&agent_id)?;
+    let recipient = store::get(&agent_id)?;
     let home = store::agent_home(&agent_id)?;
     let mut message = runner::new_message(&agent_id, store::MessageKind::User, text.clone());
+    // Only real agents, other than the recipient, once each; anything else is dropped.
+    for id in mentions.unwrap_or_default() {
+        if id == agent_id || message.mentions.iter().any(|m| m.id == id) {
+            continue;
+        }
+        if let Ok(peer) = store::get(&id) {
+            message.mentions.push(store::AgentRef {
+                id: peer.id,
+                name: peer.name,
+            });
+        }
+    }
     let id = message.id.clone();
     message.attachments =
         tokio::task::spawn_blocking(move || attachments::save(&home, &id, incoming))
@@ -105,11 +118,12 @@ pub async fn agents_send(
             .map_err(agents::err_other)??;
     // The log keeps what the user typed; the agent also gets where the files are.
     let block = attachments::prompt_block(&store::agent_home(&agent_id)?, &message.attachments);
-    let prompt = match (text.is_empty(), block.is_empty()) {
-        (_, true) => text,
-        (true, false) => block,
-        (false, false) => format!("{text}\n\n{block}"),
-    };
+    let names: Vec<String> = message.mentions.iter().map(|m| m.name.clone()).collect();
+    let prompt = [text, prompts::mentions(&names, recipient.is_main), block]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let message = runner::record(&app, message)?;
     runner::enqueue(&app, &agent_id, prompt, runner::From::User);
     Ok(message)

@@ -1092,6 +1092,7 @@
 
 /* Same column as the messages, same field language as the sidebar search. */
 .agent-composer {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: calc(100% - (var(--spacing-xl) * 2));
@@ -1765,4 +1766,150 @@
   justify-content: flex-end;
   width: var(--spacing-lg);
   color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------ mentions */
+
+/* The app's menu surface, opening upward from the composer's left edge. The
+   field keeps focus, so the highlighted row is the list's own state. */
+.ss-dropdown__menu.agent-mention-menu {
+  top: auto;
+  bottom: calc(100% + var(--spacing-xs));
+  left: 0;
+  margin-top: 0;
+  min-width: 240px;
+}
+
+.agent-mention-menu__item[aria-selected='true'] {
+  background: var(--tint-subtle);
+}
+
+.agent-mention-menu__name {
+  flex: 0 0 auto;
+}
+
+.agent-mention-menu__role {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* An @name in your bubble: the agent's colour, at text weight, no pill. */
+.agent-mention {
+  font-weight: var(--font-weight-label);
+  color: color-mix(in srgb, var(--agents-tint, var(--text-secondary)) 70%, var(--text-primary));
+}
+
+/* ---------------------------------------------------------------- team */
+
+/* The team's badge: an agent badge's tile, neutral, with an icon. */
+.agents-team__badge {
+  color: var(--text-secondary);
+}
+
+.agents-team__badge.agent-avatar--selected {
+  color: var(--surface-app);
+  background: var(--text-primary);
+}
+
+/* The conversation's column and rhythm, as four quiet sections. */
+.agents-team__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+  width: 100%;
+  max-width: calc(var(--agents-chat-width) + (var(--spacing-xl) * 2));
+  margin: 0 auto;
+  padding: var(--spacing-xl);
+}
+
+.agents-team__section {
+  display: flex;
+  flex-direction: column;
+}
+
+.agents-team__heading {
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-compact);
+  color: var(--text-muted);
+}
+
+.agents-team__empty {
+  margin: 0;
+  padding: var(--spacing-sm) 0;
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+/* A sidebar row's anatomy at the column's width, on a hairline. */
+.agents-team__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: var(--size-sidebar-project-row);
+  padding: var(--spacing-sm);
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: var(--radius-control);
+}
+
+.agents-team__row:hover {
+  background: var(--tint-subtle);
+}
+
+.agents-team__row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
+}
+
+.agents-team__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.agents-team__name {
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-compact);
+  color: var(--text-primary);
+}
+
+.agents-team__line {
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agents-team__line[data-state='waiting'] {
+  color: var(--accent-warning);
+}
+
+.agents-team__meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* An approval answered here sits under its agent, indented to the text. */
+.agents-team__group > .agent-chat__row {
+  margin: var(--spacing-2xs) 0 var(--spacing-sm);
+  padding-left: calc(var(--size-sidebar-project-shortcut) + var(--spacing-sm) * 2);
 }

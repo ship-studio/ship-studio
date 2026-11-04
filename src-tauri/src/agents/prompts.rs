@@ -110,9 +110,44 @@ pub const CHIEF_NAME: &str = "Chief of Staff";
 pub const CHIEF_ROLE: &str = "Runs the other agents and keeps track of what's in flight.";
 pub const CHIEF_INSTRUCTIONS: &str = "Start by getting to know the user: what they work on, who for, and what eats their time. Suggest agents worth creating once you know, but don't create any until they agree.";
 
+/// The line a message with @mentions carries for its recipient. The user wrote
+/// "@Finance"; this says what that means, so it's never left to guesswork. For
+/// the Chief of Staff a mention is delegation.
+pub fn mentions(names: &[String], is_main: bool) -> String {
+    let list = match names {
+        [] => return String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    if is_main {
+        format!("[The user mentioned {list}: delegate this to them with message_agent, and tell the user you have.]")
+    } else {
+        format!("[The user mentioned {list}: involve them in this with message_agent.]")
+    }
+}
+
 /// How a message from another agent is presented to the recipient.
 pub fn from_agent(sender: &str, text: &str) -> String {
     format!(
         "[Message from {sender}, another agent — not the user]\n\n{text}\n\n[If {sender} needs the result, reply with message_agent. Your normal reply is shown to the user.]"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mentions_line_reads_as_delegation_for_the_chief() {
+        assert_eq!(mentions(&[], true), "");
+        let names = [
+            "Finance".to_string(),
+            "Acme Site".to_string(),
+            "Hiring".to_string(),
+        ];
+        assert!(
+            mentions(&names, true).contains("mentioned Finance, Acme Site and Hiring: delegate")
+        );
+        assert!(mentions(&names[..1], false).contains("mentioned Finance: involve them"));
+    }
 }
