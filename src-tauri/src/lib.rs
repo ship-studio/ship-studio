@@ -886,8 +886,8 @@ pub fn run() {
             // Remote access
             commands::remote_access::get_remote_access_status,
             commands::remote_access::get_remote_access_brief,
-            commands::remote_access::get_keep_awake,
-            commands::remote_access::set_keep_awake,
+            commands::remote_access::get_stay_on,
+            commands::remote_access::set_stay_on,
             commands::remote_access::copy_remote_link,
             commands::remote_access::set_remote_push_pin,
             commands::remote_access::clear_remote_push_pin,
@@ -1017,6 +1017,7 @@ pub fn run() {
             // Window / Compact Mode
             commands::window::set_always_on_top,
             commands::window::set_window_title,
+            commands::window::close_to_background,
             // Clipboard (Windows terminal paste)
             commands::clipboard::read_clipboard_text,
             commands::clipboard::stage_clipboard_image,
@@ -1024,6 +1025,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
+            // Dock icon clicked while every window is hidden (closed with
+            // "Keep running when windows close" on): bring them back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                commands::window::reopen_hidden_windows(_app);
+            }
             if let tauri::RunEvent::Exit = event {
                 // The quit path calls exit(0) after preventDefault() on the
                 // close request, so WindowEvent::Destroyed cleanup never runs.

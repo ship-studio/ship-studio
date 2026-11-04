@@ -367,36 +367,62 @@ mod tests {
     }
 }
 
-/// "Keep this Mac awake", apart from remote access: the same `caffeinate`
-/// assertion, held while Ship Studio is open. `active` is read back from the
-/// assertion itself, so it is also true while remote access holds it.
+/// What keeps agents going on this Mac, as offered in Agents: "Keep this Mac
+/// awake" (the same `caffeinate` assertion remote access holds), "Keep running
+/// when windows close", and "Open at login" (remote access's own LaunchAgent,
+/// one file shared by both). Each is read back from the thing itself.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KeepAwake {
-    /// macOS only; elsewhere there is nothing to hold.
+pub struct StayOn {
+    /// macOS only; elsewhere none of this is offered.
     pub supported: bool,
-    pub active: bool,
+    /// True while the assertion is held, including by remote access.
+    pub keep_awake: bool,
+    pub keep_running: bool,
+    pub open_at_login: bool,
+    /// False in a dev build, which has no app bundle to reopen.
+    pub open_at_login_available: bool,
 }
 
-fn keep_awake_now() -> KeepAwake {
-    KeepAwake {
+fn stay_on_now() -> StayOn {
+    StayOn {
         supported: cfg!(target_os = "macos"),
-        active: power::keep_awake_active(),
+        keep_awake: power::keep_awake_active(),
+        keep_running: crate::commands::window::keep_running_when_closed(),
+        open_at_login: power::open_at_login_active(),
+        open_at_login_available: power::app_bundle_path().is_some(),
     }
 }
 
 #[tauri::command]
 #[tracing::instrument]
-pub fn get_keep_awake() -> Result<KeepAwake, CommandError> {
-    Ok(keep_awake_now())
+pub fn get_stay_on() -> Result<StayOn, CommandError> {
+    Ok(stay_on_now())
 }
 
+/// Change any of the three; `None` leaves that one as it is.
 #[tauri::command]
 #[tracing::instrument]
-pub fn set_keep_awake(enabled: bool) -> Result<KeepAwake, CommandError> {
-    let mut state = crate::commands::setup::read_app_state();
-    state.keep_awake = Some(enabled);
-    crate::commands::setup::write_app_state(&state)?;
-    power::set_keep_awake_asked(enabled, remote_access::read_config().enabled)?;
-    Ok(keep_awake_now())
+pub fn set_stay_on(
+    keep_awake: Option<bool>,
+    keep_running: Option<bool>,
+    open_at_login: Option<bool>,
+) -> Result<StayOn, CommandError> {
+    if keep_awake.is_some() || keep_running.is_some() {
+        let mut state = crate::commands::setup::read_app_state();
+        if keep_awake.is_some() {
+            state.keep_awake = keep_awake;
+        }
+        if keep_running.is_some() {
+            state.keep_running_when_closed = keep_running;
+        }
+        crate::commands::setup::write_app_state(&state)?;
+    }
+    if let Some(enabled) = keep_awake {
+        power::set_keep_awake_asked(enabled, remote_access::read_config().enabled)?;
+    }
+    if let Some(enabled) = open_at_login {
+        power::set_open_at_login(enabled)?;
+    }
+    Ok(stay_on_now())
 }

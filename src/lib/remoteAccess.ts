@@ -126,18 +126,23 @@ export const clearRemotePushPin = () => invoke<RemoteAccessStatus>('clear_remote
 export const getRemoteAudit = (limit = 50) => invoke<AuditEntry[]>('get_remote_audit', { limit });
 
 /**
- * "Keep this Mac awake" on its own, apart from remote access: the same
- * keep-awake assertion remote access holds, kept while Ship Studio is open.
- * `active` is read back from the assertion, so it is true while remote access
- * holds it too.
+ * What keeps agents going on this Mac, offered in Agents apart from remote
+ * access: hold it awake (the same assertion remote access holds), keep
+ * running when windows close, and open at login (remote access's own login
+ * item). Each is read back from the thing itself; all macOS only.
  */
-export interface KeepAwake {
-  /** macOS only. */
+export interface StayOn {
   supported: boolean;
-  active: boolean;
+  /** True while the Mac is held awake, including by remote access. */
+  keepAwake: boolean;
+  keepRunning: boolean;
+  openAtLogin: boolean;
+  /** False in a dev build, which has no installed app to reopen. */
+  openAtLoginAvailable: boolean;
 }
-export const getKeepAwake = () => invoke<KeepAwake>('get_keep_awake');
-export const setKeepAwake = (enabled: boolean) => invoke<KeepAwake>('set_keep_awake', { enabled });
+export type StayOnChange = Partial<Pick<StayOn, 'keepAwake' | 'keepRunning' | 'openAtLogin'>>;
+export const getStayOn = () => invoke<StayOn>('get_stay_on');
+export const setStayOn = (change: StayOnChange) => invoke<StayOn>('set_stay_on', change);
 
 // ============================================================================
 // "Before you leave" — will the computer still be there?

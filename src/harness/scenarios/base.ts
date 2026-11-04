@@ -224,8 +224,21 @@ export const baseCommands: CommandMap = {
   get_remote_access_brief: remoteBrief(),
   get_remote_audit: [],
   // "Keep this Mac awake" (Agents): supported, not held — remote access is off.
-  get_keep_awake: { supported: true, active: false },
-  set_keep_awake: { supported: true, active: true },
+  get_stay_on: {
+    supported: true,
+    keepAwake: false,
+    keepRunning: false,
+    openAtLogin: false,
+    openAtLoginAvailable: true,
+  },
+  set_stay_on: {
+    supported: true,
+    keepAwake: true,
+    keepRunning: false,
+    openAtLogin: false,
+    openAtLoginAvailable: true,
+  },
+  close_to_background: false,
   list_claude_skills: [],
   list_env_files: [],
   list_mcp_servers: [],

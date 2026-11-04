@@ -11,6 +11,7 @@
  */
 
 import { exit } from '@tauri-apps/plugin-process';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { trackEvent } from './analytics';
 import { endProjectSession } from './session';
@@ -51,6 +52,12 @@ export function installAppLifecycleTracking(): () => void {
       quitInProgress = true;
       event.preventDefault();
       void (async () => {
+        // "Keep running when closed" (Agents, opt-in, macOS): the backend
+        // hides this window instead and Ship Studio keeps running.
+        if (await closeToBackground()) {
+          quitInProgress = false;
+          return;
+        }
         flushProjectSession();
         await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));
         try {
@@ -77,6 +84,16 @@ export function installAppLifecycleTracking(): () => void {
     if (unlistenClose) unlistenClose();
     installed = false;
   };
+}
+
+/** True when the backend hid the window rather than letting it quit. */
+async function closeToBackground(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('close_to_background');
+  } catch (err) {
+    logger.warn('[appLifecycle] close_to_background failed; quitting', { error: String(err) });
+    return false;
+  }
 }
 
 /**

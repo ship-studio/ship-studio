@@ -1043,12 +1043,20 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-first-run-awake',
-    title: 'Agents — first open, this Mac already kept awake',
+    title: 'Agents — first open, kept awake and running when closed',
     looksRightWhen:
-      'As agents-first-run, but the quiet note under the starters reads “This Mac stays awake while Ship Studio is open.” with no button, and the always-on line under it.',
+      'As agents-first-run, but the note reads “Closing the window keeps them going; quitting stops them, and sleep pauses them.”, “Keep this Mac awake” and “Keep running when closed” show ticked and pressed, and “Open at login” is not.',
     command: 'agents.open',
     requires: '.agents-stay-on',
-    commands: { get_keep_awake: { supported: true, active: true } },
+    commands: {
+      get_stay_on: {
+        supported: true,
+        keepAwake: true,
+        keepRunning: true,
+        openAtLogin: false,
+        openAtLoginAvailable: true,
+      },
+    },
   },
   {
     id: 'agents-new',
