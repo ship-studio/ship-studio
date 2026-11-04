@@ -401,6 +401,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
                 onToggleShowHidden={() => setShowHidden((v) => !v)}
                 onSelect={setSelectedId}
                 onNew={openNew}
+                onImport={openImport}
                 {...actions}
                 query={popoverSearch ? '' : query}
                 searchRef={searchRef}

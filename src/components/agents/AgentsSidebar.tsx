@@ -17,7 +17,7 @@
  */
 
 import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
-import { AddIcon, BellOffIcon, ChevronRightIcon, PinIcon } from '@/components/icons';
+import { AddIcon, BellOffIcon, ChevronRightIcon, DownloadIcon, PinIcon } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Button } from '../primitives/Button';
 import { AgentAvatar } from './AgentAvatar';
@@ -42,6 +42,8 @@ interface AgentsSidebarProps extends AgentActions {
   onToggleShowHidden: () => void;
   onSelect: (agentId: string) => void;
   onNew: () => void;
+  /** Opens Import agents (paste from Grok Bot or any assistant). */
+  onImport: () => void;
   /** The top field's query; while there is one, its results replace the list. */
   query: string;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -122,6 +124,7 @@ export function AgentsSidebar({
   onToggleShowHidden,
   onSelect,
   onNew,
+  onImport,
   query,
   searchRef,
   onOpenHit,
@@ -225,6 +228,17 @@ export function AgentsSidebar({
             >
               <AddIcon size={16} />
               <span>New agent</span>
+            </Button>
+            {/* Always here, not only on first run: people decide to bring their
+                agents over after they've tried it. */}
+            <Button
+              variant="ghost"
+              width="fill"
+              className="workspace-sidebar-add-project"
+              onClick={onImport}
+            >
+              <DownloadIcon size={16} />
+              <span>Import agents</span>
             </Button>
           </div>
         </>

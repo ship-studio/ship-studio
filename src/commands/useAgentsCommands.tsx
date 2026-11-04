@@ -15,6 +15,8 @@ import {
   SearchIcon,
 } from '@/components/icons';
 import { useCommands } from './useCommands';
+import { useOptionalToast } from '../contexts/ToastContext';
+import { setKeepAwake } from '../lib/remoteAccess';
 import { useAgents } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
 import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
@@ -65,6 +67,7 @@ export function useAgentsIntents(handlers: {
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
   const { agents } = useAgents();
+  const { showToast } = useOptionalToast();
   // A clicked notification (the backend already focused this window): open that agent.
   useEffect(() => {
     const unlisten = listen<string>(AGENT_EVENTS.open, (e) => {
@@ -137,6 +140,32 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
           setView('agents');
         },
       },
+      // Reachable any time, not only from the first-run screen. Agents run on
+      // this Mac, so they pause when it sleeps.
+      ...(['on', 'off'] as const).map((state) => ({
+        id: `agents.keepAwake.${state}`,
+        title: state === 'on' ? 'Keep this Mac awake for agents' : 'Let this Mac sleep again',
+        icon: <AgentsIcon size={14} />,
+        category: 'navigation' as const,
+        keywords: ['agents', 'awake', 'sleep', 'caffeinate', 'always on', 'background'],
+        run: async () => {
+          try {
+            const result = await setKeepAwake(state === 'on');
+            if (!result.supported) {
+              showToast('Keeping the Mac awake is only available on macOS', 'info');
+              return;
+            }
+            showToast(
+              result.active
+                ? 'This Mac stays awake while Ship Studio is open'
+                : 'This Mac can sleep again; agents pause while it sleeps',
+              'success'
+            );
+          } catch (err) {
+            showToast(`Couldn't change keep-awake: ${String(err)}`, 'error');
+          }
+        },
+      })),
       // One per agent, so typing its name in ⌘K opens it.
       ...agents.map((agent) => ({
         id: `agents.open.${agent.id}`,
@@ -150,6 +179,6 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
         },
       })),
     ],
-    [setView, agents]
+    [setView, agents, showToast]
   );
 }
