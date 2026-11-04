@@ -69,10 +69,13 @@ import {
   UserBubble,
   WorkingIndicator,
 } from './AgentChatItems';
+import { AgentProjectChip, ChangeCard } from './AgentProject';
 import {
   answerApproval,
   buildChatItems,
   createCheckIn,
+  drivingBriefId,
+  newestPeerGroups,
   interruptAgent,
   isQueued,
   lastUserMessage,
@@ -340,6 +343,8 @@ export function AgentChat({
   const colorOf = (id: string) => agentsById.get(id)?.color;
 
   const items = useMemo(() => buildChatItems(shown), [shown]);
+  const livePeerLines = useMemo(() => newestPeerGroups(items), [items]);
+  const drivingId = useMemo(() => drivingBriefId(items, agent), [items, agent]);
   // Retry belongs to the newest failure only, and only if nothing was said
   // since. It sends that message again whole: its words and its files.
   const retrySource = useMemo(() => {
@@ -647,7 +652,11 @@ export function AgentChat({
             onGoHome={compact.onGoHome}
           />
         ) : (
-          <div className="agent-chat__title">{title}</div>
+          <div className="agent-chat__title">
+            {title}
+            {/* Not in the compact switcher: it's a button already. */}
+            <AgentProjectChip agent={agent} />
+          </div>
         )}
         <div className="agent-chat__actions">
           {/* Nothing to schedule or pick a model for until Claude Code is here. */}
@@ -764,6 +773,8 @@ export function AgentChat({
                       onOpenPeer={onOpenAgent}
                       arrived={arrived}
                       reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
+                      live={livePeerLines.has(item.messages[0].id)}
+                      driving={item.messages[0].id === drivingId}
                     />
                   );
                 }
@@ -823,7 +834,16 @@ export function AgentChat({
                   case 'check_in':
                     return <CheckInLine key={m.id} message={m} arrived={arrived} />;
                   case 'note':
-                    return <NoteLine key={m.id} message={m} arrived={arrived} />;
+                    return (
+                      <NoteLine
+                        key={m.id}
+                        message={m}
+                        arrived={arrived}
+                        onOpenPeer={m.peer && agentsById.has(m.peer.id) ? onOpenAgent : undefined}
+                      />
+                    );
+                  case 'changes':
+                    return <ChangeCard key={m.id} message={m} arrived={arrived} />;
                   default:
                     return null;
                 }

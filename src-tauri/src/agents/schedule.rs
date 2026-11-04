@@ -1220,6 +1220,7 @@ mod tests {
             usage: Default::default(),
             permissions: Vec::new(),
             failure: None,
+            project: None,
         }
     }
 

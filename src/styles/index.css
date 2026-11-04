@@ -135,6 +135,7 @@
 @import './features/agents-motion.css';
 @import './features/agents-attachments.css';
 @import './features/agents-control.css';
+@import './features/agents-project.css';
 @import './features/team/base.css';
 @import './features/team/updates.css';
 @import './features/team/people.css';

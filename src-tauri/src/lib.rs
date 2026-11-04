@@ -566,6 +566,7 @@ pub fn run() {
             // Workflows & Inbox
             commands::agents::agents_overview,
             commands::agents::agents_messages,
+            commands::agents::agents_change_diff,
             commands::agents::agents_send,
             commands::agents::agents_inspect_files,
             commands::agents::agents_open_attachment,

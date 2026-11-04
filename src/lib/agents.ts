@@ -5,6 +5,7 @@
  */
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import type { FileDiff } from './git';
 
 /** Avatar colour keys. The CSS maps each to a feature token. */
 export const AGENT_COLORS = [
@@ -61,6 +62,8 @@ export interface Agent {
   home: string;
   /** The newest line in its chat is a failed turn; omitted otherwise. */
   failure?: Failure;
+  /** The project it works in (a path from `list_projects`); omitted when unbound. */
+  project?: string;
 }
 
 /** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
@@ -112,8 +115,10 @@ export type MessageKind =
   | 'approval'
   | 'error'
   | 'check_in'
-  /** A quiet line: an automatically allowed call, an interruption. */
-  | 'note';
+  /** A quiet line: an automatically allowed call, an interruption, what the Chief did. */
+  | 'note'
+  /** Files a project-bound agent's turn changed (`changes`). */
+  | 'changes';
 
 /** What "Always allow" covers; mirrors `permissions::Scope`. */
 export interface PermissionScope {
@@ -189,6 +194,30 @@ export interface AgentMessage {
   mentions?: AgentRef[];
   /** On an `error` line: what kind of failure. Absent on lines written before. */
   failure?: Failure;
+  /** On a `changes` line: what the turn changed in the project. */
+  changes?: ChangeSummary;
+}
+
+/** Mirrors `project::ChangedFile`: line counts are absent for a binary file. */
+export interface ChangedFile {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  added?: number;
+  removed?: number;
+}
+
+/** Mirrors `project::ChangeSummary`, read from git when the turn ended. */
+export interface ChangeSummary {
+  project: string;
+  /** Absent when HEAD was detached. */
+  branch?: string;
+  from: string;
+  to: string;
+  /** At most 50; `fileCount` counts them all. */
+  files: ChangedFile[];
+  fileCount: number;
+  added: number;
+  removed: number;
 }
 
 /** A file sent with a message, as kept in the agent's home. */
@@ -253,6 +282,8 @@ export interface NewAgentInput {
   role?: string;
   instructions?: string;
   model?: string;
+  /** A project path from `list_projects`. */
+  project?: string;
 }
 
 export interface UpdateAgentInput {
@@ -266,6 +297,8 @@ export interface UpdateAgentInput {
   muted?: boolean;
   /** An alias from AGENT_MODELS, or '' for Claude Code's default. */
   model?: string;
+  /** A project path from `list_projects`, or '' to unbind it. */
+  project?: string;
 }
 
 /**
@@ -402,6 +435,9 @@ export const updateAgent = (agentId: string, input: UpdateAgentInput) =>
   invoke<Omit<Agent, 'status' | 'home'>>('agents_update', { agentId, input });
 export const getAgentInstructions = (agentId: string) =>
   invoke<string>('agents_instructions', { agentId });
+/** One file of a change card, as this turn changed it. */
+export const getChangeDiff = (agentId: string, messageId: string, path: string) =>
+  invoke<FileDiff>('agents_change_diff', { agentId, messageId, path });
 export const deleteAgent = (agentId: string) => invoke<void>('agents_delete', { agentId });
 export const stopAgent = (agentId: string) => invoke<boolean>('agents_stop', { agentId });
 export const answerApproval = (
@@ -660,6 +696,82 @@ export function failureLine(failure: Failure, preview: string | null): string {
   const clause = (preview ?? '').split(/(?<=[.!?:])\s/)[0].replace(/[.:]$/, '');
   return clause ? `Didn’t finish: ${clause}` : 'Didn’t finish';
 }
+
+/**
+ * An agent's state as another chat shows it, beside its name on a
+ * delegation line. `failed` is only said when its newest line is known and is
+ * an error; otherwise an idle agent is idle.
+ */
+export type PeerState =
+  | { kind: 'working'; label: string }
+  | { kind: 'waiting'; label: string }
+  | { kind: 'failed'; label: string }
+  | { kind: 'idle'; label: string };
+
+export function peerState(agent: Agent, lastLine?: AgentMessage | null): PeerState {
+  if (needsYou(agent)) return { kind: 'waiting', label: 'needs your OK' };
+  if (agent.status.state === 'working') {
+    const activity = agent.status.activity?.trim();
+    return { kind: 'working', label: activity ? lowerFirst(activity) : 'working' };
+  }
+  if (failedTurn(agent) || lastLine?.kind === 'error')
+    return { kind: 'failed', label: "didn't finish" };
+  return { kind: 'idle', label: 'idle' };
+}
+
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** The newest line that says how an agent's last turn went (not a note or card). */
+export function lastOutcome(messages: AgentMessage[] | undefined): AgentMessage | null {
+  if (!messages) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const kind = messages[i].kind;
+    if (kind !== 'note' && kind !== 'changes') return messages[i];
+  }
+  return null;
+}
+
+/**
+ * The brief this agent is working on: while a turn runs, the newest
+ * agent-to-agent group that arrived before the turn began, if nothing of
+ * yours came after it. Its first line's id, or null.
+ */
+export function drivingBriefId(items: ChatItem[], agent: Agent): string | null {
+  const { state, since } = agent.status;
+  if (state === 'idle' || since == null) return null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === 'day') continue;
+    if (item.type === 'message') {
+      if (item.message.ts > since || item.message.kind === 'note') continue;
+      return null;
+    }
+    const last = item.messages[item.messages.length - 1];
+    if (last.ts > since) continue;
+    return last.kind === 'from_agent' ? item.messages[0].id : null;
+  }
+  return null;
+}
+
+/**
+ * The newest line where this agent handed work to each peer: the one that
+ * shows how that work is going. Lines that only brought work in carry none.
+ */
+export function newestPeerGroups(items: ChatItem[]): Set<string> {
+  const seen = new Set<string>();
+  const ids = new Set<string>();
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type !== 'peer-group' || seen.has(item.peer.id)) continue;
+    if (!item.messages.some((m) => m.kind === 'sent_to_agent')) continue;
+    seen.add(item.peer.id);
+    ids.add(item.messages[0].id);
+  }
+  return ids;
+}
+
+/** "acme" from "/Users/me/ShipStudio/acme/". */
+export const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? path;
 
 /** A run of consecutive agent-to-agent lines with the same peer collapses into one row. */
 export type ChatItem =

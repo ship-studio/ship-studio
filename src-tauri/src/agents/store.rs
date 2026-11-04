@@ -83,6 +83,11 @@ pub struct Agent {
     /// happened without reading the log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<super::failure::Failure>,
+    /// The Ship Studio project this agent works in (its path, as `list_projects`
+    /// gives it). A bound agent's turns run there, so the project's own
+    /// CLAUDE.md and settings load; `None` runs in its home, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -111,7 +116,10 @@ pub enum MessageKind {
     CheckIn,
     /// A quiet line about something Ship Studio did on the agent's behalf
     /// ("Allowed automatically: npm test · Always allowed", "Interrupted").
+    /// With `peer`, the line names that agent ("Created Finance").
     Note,
+    /// Files a project-bound agent's turn changed in its project (`changes`).
+    Changes,
 }
 
 impl MessageKind {
@@ -196,6 +204,8 @@ pub struct AgentMessage {
     /// On an `error` line: what kind of failure, for the remedy it offers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<super::failure::Failure>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<super::project::ChangeSummary>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -427,6 +437,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         usage: Default::default(),
         permissions: Vec::new(),
         failure: None,
+        project: None,
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -796,6 +807,7 @@ mod tests {
                 stopped: false,
                 mentions: Vec::new(),
                 failure: None,
+                changes: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

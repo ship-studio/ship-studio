@@ -92,8 +92,8 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
 | `list_projects` | all | Ship Studio projects and paths |
 | `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
-| `create_agent` | Chief | name, role, instructions, optional `first_task` |
-| `update_agent` | Chief | name / role / instructions (memory kept) |
+| `create_agent` | Chief | name, role, instructions, optional `project` and `first_task` |
+| `update_agent` | Chief | name / role / instructions / project (memory kept) |
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
 | `approve` | CLI only | the permission prompt tool (below) |
 
@@ -361,6 +361,53 @@ cards.
   (`.command`, `.app`, `.py`, `.webloc`…) are only revealed in Finder, never
   run. ⌘-click always reveals.
 
+## Agents that work in a project (`src-tauri/src/agents/project.rs`)
+
+An agent can be bound to one Ship Studio project (`Agent.project`, a path from
+`list_projects`), from the editor's **Works in** or by the Chief
+(`create_agent` / `update_agent` take `project`, a name or path; `"none"`
+unbinds). Unbound agents run exactly as before; nothing is migrated.
+
+- **The turn runs in the project** (cwd), so its CLAUDE.md, `.claude/` settings
+  and `.mcp.json` load. `--add-dir` gets the agent's home first, then the usual
+  folders.
+- **The identity comes in the appended system prompt**, with the home's path
+  so the agent can keep editing its memory. Verified on Claude Code 2.1.318: a
+  CLAUDE.md in an `--add-dir` folder is not loaded; with
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` it is, but so is every other
+  added folder's (every external project's rules would leak in). `--resume`
+  works across a cwd change, so binding keeps the conversation.
+- A bound folder that's gone fails the turn with an error naming it.
+- The header shows a quiet folder chip that opens the project.
+
+**Change cards.** Before a bound agent's turn the runner snapshots the
+project's working tree as a git tree object (through a throwaway copy of the
+index, so the user's staging is never touched); after the turn, however it
+ended, it snapshots again and diffs the two (`--numstat`, `--name-status`). If
+anything changed, a `changes` message records the files with +/- counts, the
+branch and both snapshot ids. Edits already present before the turn don't
+count; a commit mid-turn doesn't hide work. **View diff** opens the app's own
+diff modal on this turn's change only (`agents_change_diff`, which reads the
+project and snapshots from the stored card); **Open preview** opens the
+project. No deploy status: nothing here knows whether that commit deployed.
+Limits: another agent or the user editing the same project during the turn is
+counted too; the snapshots are unreferenced git objects, so after `git gc`
+prunes them the diff says it can't be shown.
+
+## The Chief's audit trail and live hand-offs
+
+- `create_agent`, `update_agent` and `delete_agent` leave a quiet note in the
+  Chief's chat ("Created Finance · Invoices and the books", "Updated Acme
+  Site's instructions", "Deleted Social Posts"), and creates and updates one in
+  the target's ("Created by Chief of Staff", "Instructions updated by Chief of
+  Staff"). The note's `peer` makes the name a link.
+- The newest line where an agent handed work to each peer shows that peer's
+  live state: working (with its activity), needs your OK, didn't finish (its
+  newest outcome line is an error, read from its chat or the last few lines of
+  its log), or idle.
+- In the receiving chat, the brief that started the turn in progress is open
+  until the turn ends (or you toggle it).
+
 ## Known limits / next
 
 - Claude Code only. The runner is CLI-specific in `run_turn`; Codex
@@ -381,5 +428,5 @@ cards.
 - `cargo test --lib agents::`: store, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `node scripts/harness-capture.mjs agents-`: team, Team overview, @mention menu, approval, first run, new
+- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, Team overview, @mention menu, approval, first run, new
   agent, import, Claude Code missing.

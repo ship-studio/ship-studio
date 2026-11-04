@@ -43,20 +43,31 @@ interface DiffModalProps {
   filePath: string;
   fileStatus: ChangeStatus;
   onClose: () => void;
+  /** Where the diff comes from; defaults to the uncommitted change (`get_file_diff`). */
+  loadDiff?: (projectPath: string, filePath: string) => Promise<FileDiff>;
 }
 
-export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffModalProps) {
+export function DiffModal({
+  projectPath,
+  filePath,
+  fileStatus,
+  onClose,
+  loadDiff: source = getFileDiff,
+}: DiffModalProps) {
   const isImage = isImageFile(filePath);
   const imageSrc = isImage ? convertFileSrc(`${projectPath}/${filePath}`) : null;
 
-  const fetchDiff = useCallback(async (proj: string, file: string) => {
-    try {
-      return await getFileDiff(proj, file);
-    } catch (e) {
-      trackError('diff_load', e, 'Workspace');
-      throw e;
-    }
-  }, []);
+  const fetchDiff = useCallback(
+    async (proj: string, file: string) => {
+      try {
+        return await source(proj, file);
+      } catch (e) {
+        trackError('diff_load', e, 'Workspace');
+        throw e;
+      }
+    },
+    [source]
+  );
   const {
     data: diff,
     isLoading,

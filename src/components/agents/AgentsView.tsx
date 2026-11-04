@@ -25,6 +25,7 @@ import { ClaudeSignInModal } from './ClaudeSignInModal';
 import { AgentChat } from './AgentChat';
 import { AgentsTeamView } from './AgentsTeamView';
 import { AgentEditorModal } from './AgentEditorModal';
+import { AgentProjectsProvider } from './AgentProject';
 import { ImportAgentsModal } from './ImportAgentsModal';
 import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { Spinner } from '../primitives/Spinner';
@@ -73,7 +74,16 @@ interface AgentsViewProps {
   sidebarProps: Omit<ComponentProps<typeof HomeSidebar>, 'activeNav' | 'listContent'>;
 }
 
-export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
+/** Leaving for a project (a chip, a change card) goes the way the sidebar's project rows do. */
+export function AgentsView(props: AgentsViewProps) {
+  return (
+    <AgentProjectsProvider onOpenProject={props.sidebarProps.onSelectProject}>
+      <AgentsModeView {...props} />
+    </AgentProjectsProvider>
+  );
+}
+
+function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const { agents, loaded, error, messages } = useAgents();
   const { showToast } = useOptionalToast();
   const [selectedId, setSelectedId] = useState<string | null>(readSelected);
