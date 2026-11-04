@@ -5222,7 +5222,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 434
+      "consumerCount": 433
     },
     {
       "name": "--spacing-lg",
@@ -5240,7 +5240,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 95
+      "consumerCount": 96
     },
     {
       "name": "--spacing-2xl",
