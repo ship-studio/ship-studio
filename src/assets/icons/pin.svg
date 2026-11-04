@@ -1,4 +1,7 @@
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M12 21.1666V15.8333" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M19 15.8333C18.8813 14.9013 18.576 13.4866 17.708 12C17.2613 11.2347 16.7706 10.6293 16.3333 10.1667V5.5C16.3333 4.02667 15.14 2.83334 13.6666 2.83334H10.3333C8.85999 2.83334 7.66666 4.02667 7.66666 5.5V10.1667C7.22799 10.6293 6.73733 11.2347 6.292 12C5.42533 13.4866 5.11867 14.9013 5 15.8333H19Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+<g transform="rotate(45 12 12)">
+<path d="M8.5 3H15.5C16.0523 3 16.5 3.44772 16.5 4C16.5 4.55228 16.0523 5 15.5 5H8.5C7.94772 5 7.5 4.55228 7.5 4C7.5 3.44772 7.94772 3 8.5 3Z" stroke="currentColor" stroke-linejoin="round"/>
+<path d="M9.5 5V10.5L6.5 14.5V15H17.5V14.5L14.5 10.5V5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12 15V21" stroke="currentColor" stroke-linecap="round"/>
+</g>
 </svg>

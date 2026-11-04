@@ -220,10 +220,10 @@
   color: var(--text-secondary);
 }
 
-/* The sidebar's attention grammar: the label goes green, the amber dot alone
-   carries the urgency (.sidebar-row.is-attention). */
+/* Waiting on you is attention, not success: the label takes the amber of its
+   dot, here and in the conversation header. */
 .agents-list__preview[data-state='waiting'] {
-  color: var(--accent-success);
+  color: var(--accent-warning);
 }
 
 /* Fixed status slot, like the project row's, so states never shift the text. */
@@ -375,7 +375,7 @@
 }
 
 .agent-chat__status[data-state='waiting'] {
-  color: var(--accent-success);
+  color: var(--accent-warning);
 }
 
 .agent-chat__header > .agent-chat__menu {
