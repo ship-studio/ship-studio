@@ -35,18 +35,21 @@ interface Options {
   getDraft: () => string;
   /** Must be stable (a useState setter). */
   setDraft: (text: string) => void;
-  /** Names worth recognising: agents, projects. */
-  vocabulary: string[];
+  /** Names worth recognising (agents, projects), read when dictation starts. */
+  getVocabulary: () => Promise<string[]>;
   meterRef: RefObject<HTMLElement | null>;
   enabled: boolean;
 }
 
-export function useDictation({ getDraft, setDraft, vocabulary, meterRef, enabled }: Options) {
+export function useDictation({ getDraft, setDraft, getVocabulary, meterRef, enabled }: Options) {
   const { showToast } = useOptionalToast();
   const [phase, setPhaseState] = useState<DictationPhase>('idle');
   const [blocked, setBlocked] = useState<DictationBlock | null>(null);
   const phaseRef = useRef<DictationPhase>('idle');
   const sessionRef = useRef<number | null>(null);
+  /** The draft as typed before dictation began; cancel puts it back. */
+  const originalRef = useRef('');
+  /** The draft plus every finished segment; partials are appended to it. */
   const baseRef = useRef('');
   /** A stop or cancel asked for before the session id came back. */
   const pendingRef = useRef<'stop' | 'cancel' | null>(null);
@@ -69,8 +72,13 @@ export function useDictation({ getDraft, setDraft, vocabulary, meterRef, enabled
       if (event.session !== sessionRef.current) return;
       switch (event.kind) {
         case 'partial':
-        case 'final':
           setDraft(joinDictation(baseRef.current, event.text));
+          break;
+        case 'final':
+          // A long dictation arrives as several segments; each final one
+          // becomes part of what the next is appended to.
+          baseRef.current = joinDictation(baseRef.current, event.text);
+          setDraft(baseRef.current);
           break;
         case 'level':
           setLevel(event.level);
@@ -80,7 +88,7 @@ export function useDictation({ getDraft, setDraft, vocabulary, meterRef, enabled
           break;
         case 'ended':
           if (event.cancelled && phaseRef.current !== 'finishing') {
-            setDraft(baseRef.current);
+            setDraft(originalRef.current);
           }
           sessionRef.current = null;
           holdingRef.current = false;
@@ -114,7 +122,7 @@ export function useDictation({ getDraft, setDraft, vocabulary, meterRef, enabled
     const session = sessionRef.current;
     if (session === null) return;
     sessionRef.current = null;
-    setDraft(baseRef.current);
+    setDraft(originalRef.current);
     setLevel(0);
     setPhase('idle');
     void cancelDictation(session);
@@ -122,11 +130,12 @@ export function useDictation({ getDraft, setDraft, vocabulary, meterRef, enabled
 
   const start = useCallback(async () => {
     if (!enabled || phaseRef.current !== 'idle') return;
-    baseRef.current = getDraft();
+    originalRef.current = baseRef.current = getDraft();
     pendingRef.current = null;
     setBlocked(null);
     setPhase('starting');
     try {
+      const vocabulary = await getVocabulary().catch(() => []);
       const result = await startDictation(vocabulary);
       if (result.status === 'blocked') {
         setBlocked(result.reason);
@@ -143,7 +152,7 @@ export function useDictation({ getDraft, setDraft, vocabulary, meterRef, enabled
       setPhase('idle');
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
-  }, [enabled, getDraft, vocabulary, setPhase, stop, cancel, showToast]);
+  }, [enabled, getDraft, getVocabulary, setPhase, stop, cancel, showToast]);
 
   const toggle = useCallback(() => {
     if (phaseRef.current === 'idle') void start();

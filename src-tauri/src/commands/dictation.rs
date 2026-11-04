@@ -13,10 +13,16 @@
 //! `stop_dictation` stops the microphone and lets the recognizer finish the
 //! last words; `cancel_dictation` throws the session away.
 //!
+//! Segments: a recognition task ends on its own (a final result, a pause it
+//! reports as "no speech", or the server's ~1 minute cap). While the user is
+//! still dictating, the microphone keeps running and a fresh request and task
+//! take over at once, so a session is several segments and only the user ends
+//! it. Each segment closes with one `final`; the webview appends them.
+//!
 //! Threading: every AppKit/Speech object lives on the main thread in
 //! `SESSION`. The recognizer delivers results on the main queue. Only the
 //! audio tap runs elsewhere (the audio I/O thread); it touches nothing but the
-//! request it captured and the event emitter.
+//! current request (behind a lock, swapped per segment) and the emitter.
 
 use crate::errors::CommandError;
 use serde::Serialize;
@@ -206,7 +212,7 @@ mod macos {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use tauri::Emitter;
     use tokio::sync::oneshot;
 
@@ -223,14 +229,37 @@ mod macos {
     const FINISH_TIMEOUT: Duration = Duration::from_secs(3);
     /// Level events per second.
     const LEVELS_PER_SECOND: f64 = 15.0;
+    /// A segment shorter than this that ends on its own counts as a failure;
+    /// this many in a row end the session instead of looping.
+    const QUICK_SEGMENT: Duration = Duration::from_secs(1);
+    const MAX_QUICK_SEGMENTS: u32 = 3;
 
     static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
+    /// An `SFSpeechAudioBufferRecognitionRequest`, shared between the main
+    /// thread (which swaps it per segment and ends it) and the audio thread
+    /// (which appends buffers, as Apple's own samples do from the tap).
+    struct SharedRequest(Retained<AnyObject>);
+    // SAFETY: only `appendAudioPCMBuffer:` and `endAudio` are sent to it from
+    // more than one thread, always under the slot's lock.
+    unsafe impl Send for SharedRequest {}
+
+    /// The request the audio tap feeds. Swapped when a segment rolls over.
+    type RequestSlot = Arc<Mutex<SharedRequest>>;
+
     struct Session {
         id: u64,
+        recognizer: Retained<AnyObject>,
+        contextual: Vec<String>,
         engine: Retained<AnyObject>,
-        request: Retained<AnyObject>,
+        request: RequestSlot,
         task: Option<Retained<AnyObject>>,
+        /// Which task's results count; older tasks are ignored.
+        segment: u64,
+        segment_started: Instant,
+        quick_segments: u32,
+        /// This segment's latest partial text, in case it ends without a final.
+        heard: String,
         capturing: bool,
     }
 
@@ -454,28 +483,16 @@ mod macos {
         }
     }
 
-    /// Main thread. Builds the request, starts the microphone, starts the
-    /// recognition task.
-    fn begin(app: &AppHandle, contextual: &[String]) -> Result<u64, String> {
-        // One session at a time: a new start replaces any old one.
-        if let Some(old) = SESSION.with(|s| s.borrow_mut().take()) {
-            teardown(app, old, true);
-        }
-
-        let rec = recognizer().ok_or("Speech recognition doesn't support this Mac's language.")?;
-        let id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
-
+    /// Main thread. A request configured for dictation.
+    fn new_request(rec: &AnyObject, contextual: &[String]) -> Result<Retained<AnyObject>, String> {
         unsafe {
-            let queue: *mut AnyObject = msg_send![class!(NSOperationQueue), mainQueue];
-            let _: () = msg_send![&*rec, setQueue: queue];
-
             let request_cls = AnyClass::get("SFSpeechAudioBufferRecognitionRequest")
                 .ok_or("Speech recognition isn't available on this Mac.")?;
             let request: Retained<AnyObject> = Retained::from_raw(msg_send![request_cls, new])
                 .ok_or("Couldn't create a request")?;
             let _: () = msg_send![&*request, setShouldReportPartialResults: true];
             let _: () = msg_send![&*request, setTaskHint: TASK_HINT_DICTATION];
-            let on_device: bool = msg_send![&*rec, supportsOnDeviceRecognition];
+            let on_device: bool = msg_send![rec, supportsOnDeviceRecognition];
             if on_device {
                 let _: () = msg_send![&*request, setRequiresOnDeviceRecognition: true];
             }
@@ -493,6 +510,52 @@ mod macos {
                 }
                 let _: () = msg_send![&*request, setContextualStrings: &*array];
             }
+            Ok(request)
+        }
+    }
+
+    /// Main thread. Starts recognising `request`; results arrive on the main
+    /// queue tagged with this session and segment.
+    fn new_task(
+        app: &AppHandle,
+        rec: &AnyObject,
+        request: &AnyObject,
+        id: u64,
+        segment: u64,
+    ) -> Option<Retained<AnyObject>> {
+        let result_app = app.clone();
+        let handler = block2::RcBlock::new(move |result: *mut AnyObject, error: *mut AnyObject| {
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                on_result(&result_app, id, segment, result, error)
+            }));
+        });
+        unsafe {
+            let task: *mut AnyObject = msg_send![
+                rec,
+                recognitionTaskWithRequest: request,
+                resultHandler: &*handler
+            ];
+            Retained::retain(task)
+        }
+    }
+
+    /// Main thread. Builds the request, starts the microphone, starts the
+    /// recognition task.
+    fn begin(app: &AppHandle, contextual: &[String]) -> Result<u64, String> {
+        // One session at a time: a new start replaces any old one.
+        if let Some(old) = SESSION.with(|s| s.borrow_mut().take()) {
+            teardown(app, old, true);
+        }
+
+        let rec = recognizer().ok_or("Speech recognition doesn't support this Mac's language.")?;
+        let id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
+
+        unsafe {
+            let queue: *mut AnyObject = msg_send![class!(NSOperationQueue), mainQueue];
+            let _: () = msg_send![&*rec, setQueue: queue];
+
+            let request = new_request(&rec, contextual)?;
+            let slot: RequestSlot = Arc::new(Mutex::new(SharedRequest(request)));
 
             let engine_cls =
                 AnyClass::get("AVAudioEngine").ok_or("Audio capture isn't available")?;
@@ -513,7 +576,7 @@ mod macos {
             }
 
             // Audio I/O thread. Feeds the recognizer and reports loudness.
-            let tap_request = request.clone();
+            let tap_request = Arc::clone(&slot);
             let tap_app = app.clone();
             let frames_per_level = (sample_rate / LEVELS_PER_SECOND) as u64;
             let frames = Cell::new(0u64);
@@ -524,7 +587,9 @@ mod macos {
                 }
                 let _ = catch_unwind(AssertUnwindSafe(|| {
                     objc2::rc::autoreleasepool(|_| {
-                        let _: () = msg_send![&*tap_request, appendAudioPCMBuffer: buffer];
+                        if let Ok(request) = tap_request.lock() {
+                            let _: () = msg_send![&*request.0, appendAudioPCMBuffer: buffer];
+                        }
                         let len: u32 = msg_send![buffer, frameLength];
                         let channels: *const *const f32 = msg_send![buffer, floatChannelData];
                         if channels.is_null() || len == 0 {
@@ -569,26 +634,23 @@ mod macos {
             }
 
             // Main queue (set above).
-            let result_app = app.clone();
-            let handler =
-                block2::RcBlock::new(move |result: *mut AnyObject, error: *mut AnyObject| {
-                    let _ = catch_unwind(AssertUnwindSafe(|| {
-                        on_result(&result_app, id, result, error)
-                    }));
-                });
-            let task: *mut AnyObject = msg_send![
-                &*rec,
-                recognitionTaskWithRequest: &*request,
-                resultHandler: &*handler
-            ];
-            let task = Retained::retain(task);
+            let task = {
+                let request = slot.lock().map_err(|_| "Dictation failed to start")?;
+                new_task(app, &rec, &request.0, id, 0)
+            };
 
             SESSION.with(|s| {
                 *s.borrow_mut() = Some(Session {
                     id,
+                    recognizer: rec,
+                    contextual: contextual.to_vec(),
                     engine,
-                    request,
+                    request: slot,
                     task,
+                    segment: 0,
+                    segment_started: Instant::now(),
+                    quick_segments: 0,
+                    heard: String::new(),
                     capturing: true,
                 })
             });
@@ -603,12 +665,23 @@ mod macos {
     }
 
     /// Main thread (the recognizer's queue).
-    fn on_result(app: &AppHandle, id: u64, result: *mut AnyObject, error: *mut AnyObject) {
-        let current = SESSION.with(|s| s.try_borrow().ok().and_then(|s| s.as_ref().map(|s| s.id)));
-        if current != Some(id) {
+    fn on_result(
+        app: &AppHandle,
+        id: u64,
+        segment: u64,
+        result: *mut AnyObject,
+        error: *mut AnyObject,
+    ) {
+        let current = SESSION.with(|s| {
+            s.try_borrow()
+                .ok()
+                .and_then(|s| s.as_ref().map(|s| (s.id, s.segment)))
+        });
+        if current != Some((id, segment)) {
             return;
         }
         let mut done = false;
+        let mut failed = false;
         unsafe {
             if !result.is_null() {
                 let best: *mut AnyObject = msg_send![result, bestTranscription];
@@ -619,6 +692,15 @@ mod macos {
                 }
                 .unwrap_or_default();
                 let is_final: bool = msg_send![result, isFinal];
+                SESSION.with(|s| {
+                    if let Some(s) = s.borrow_mut().as_mut() {
+                        s.heard = if is_final {
+                            String::new()
+                        } else {
+                            text.clone()
+                        };
+                    }
+                });
                 if is_final {
                     emit(app, DictationEvent::Final { session: id, text });
                     done = true;
@@ -632,6 +714,7 @@ mod macos {
                     let message = ns_to_string(msg_send![error, localizedDescription])
                         .unwrap_or_else(|| "Dictation stopped unexpectedly.".into());
                     tracing::warn!(code, %message, "Dictation error");
+                    failed = true;
                     emit(
                         app,
                         DictationEvent::Error {
@@ -643,11 +726,64 @@ mod macos {
                 done = true;
             }
         }
-        if done {
-            if let Some(session) = SESSION.with(|s| s.borrow_mut().take()) {
-                teardown(app, session, false);
-            }
+        if !done {
+            return;
         }
+        let Some(mut session) = SESSION.with(|s| s.borrow_mut().take()) else {
+            return;
+        };
+        // Ended on an error or a pause before saying final: keep what was heard.
+        let heard = std::mem::take(&mut session.heard);
+        if !heard.is_empty() {
+            emit(
+                app,
+                DictationEvent::Final {
+                    session: id,
+                    text: heard,
+                },
+            );
+        }
+        // The task ended by itself while the user is still talking: carry on.
+        if session.capturing && !failed && next_segment(app, &mut session) {
+            SESSION.with(|s| *s.borrow_mut() = Some(session));
+        } else {
+            teardown(app, session, false);
+        }
+    }
+
+    /// Main thread. Swaps in a fresh request and task under the running
+    /// microphone. False if it couldn't, or if segments keep ending at once.
+    fn next_segment(app: &AppHandle, session: &mut Session) -> bool {
+        if session.segment_started.elapsed() < QUICK_SEGMENT {
+            session.quick_segments += 1;
+            if session.quick_segments >= MAX_QUICK_SEGMENTS {
+                tracing::warn!("Dictation segments keep ending immediately; stopping");
+                return false;
+            }
+        } else {
+            session.quick_segments = 0;
+        }
+        let request = match new_request(&session.recognizer, &session.contextual) {
+            Ok(request) => request,
+            Err(error) => {
+                tracing::warn!(%error, "Couldn't continue dictation");
+                return false;
+            }
+        };
+        session.segment += 1;
+        session.segment_started = Instant::now();
+        session.task = new_task(
+            app,
+            &session.recognizer,
+            &request,
+            session.id,
+            session.segment,
+        );
+        match session.request.lock() {
+            Ok(mut slot) => *slot = SharedRequest(request),
+            Err(_) => return false,
+        }
+        session.task.is_some()
     }
 
     unsafe fn stop_capture(session: &mut Session) {
@@ -660,7 +796,9 @@ mod macos {
         if !input.is_null() {
             let _: () = msg_send![input, removeTapOnBus: 0usize];
         }
-        let _: () = msg_send![&*session.request, endAudio];
+        if let Ok(request) = session.request.lock() {
+            let _: () = msg_send![&*request.0, endAudio];
+        }
     }
 
     /// Main thread. The session must already be out of `SESSION`, because

@@ -20,7 +20,8 @@ import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import { useDictation } from './useDictation';
-import { blockedCopy, openPrivacySettings } from '../../lib/dictation';
+import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
+import { listProjects } from '../../lib/project';
 import {
   AgentBubble,
   ApprovalCard,
@@ -66,11 +67,18 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   }, [draft]);
   const micRef = useRef<HTMLButtonElement>(null);
   const getDraft = useCallback(() => draftRef.current, []);
-  const vocabulary = useMemo(() => [...agentsById.values()].map((a) => a.name), [agentsById]);
+  const getVocabulary = useCallback(
+    async () =>
+      dictationVocabulary(
+        [...agentsById.values()].map((a) => a.name),
+        (await listProjects().catch(() => [])).map((p) => p.name)
+      ),
+    [agentsById]
+  );
   const dictation = useDictation({
     getDraft,
     setDraft,
-    vocabulary,
+    getVocabulary,
     meterRef: micRef,
     enabled: engineReady,
   });

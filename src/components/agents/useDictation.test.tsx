@@ -29,7 +29,7 @@ function setup(initial = 'Hi') {
     useDictation({
       getDraft: () => draft,
       setDraft,
-      vocabulary: ['Finance'],
+      getVocabulary: () => Promise.resolve(['Finance']),
       meterRef: { current: null },
       enabled: true,
     })
@@ -47,7 +47,7 @@ describe('useDictation', () => {
     const { hook, draft } = setup();
     await act(async () => {
       hook.result.current.toggle();
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
     });
     expect(start).toHaveBeenCalledWith(['Finance']);
     expect(hook.result.current.phase).toBe('listening');
@@ -66,11 +66,29 @@ describe('useDictation', () => {
     expect(hook.result.current.phase).toBe('idle');
   });
 
+  it('keeps appending across segments until the user stops', async () => {
+    const { hook, draft } = setup();
+    await act(async () => {
+      hook.result.current.toggle();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    act(() => emit({ kind: 'final', session: 7, text: 'First part.' }));
+    expect(hook.result.current.phase).toBe('listening');
+    act(() => emit({ kind: 'partial', session: 7, text: 'and more' }));
+    expect(draft()).toBe('Hi First part. and more');
+    act(() => emit({ kind: 'final', session: 7, text: 'And more.' }));
+    expect(draft()).toBe('Hi First part. And more.');
+
+    // Cancel still restores what was typed, not the last segment.
+    act(() => hook.result.current.cancel());
+    expect(draft()).toBe('Hi');
+  });
+
   it('cancel puts the typed draft back', async () => {
     const { hook, draft } = setup();
     await act(async () => {
       hook.result.current.toggle();
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
     });
     act(() => emit({ kind: 'partial', session: 7, text: 'oops' }));
     act(() => hook.result.current.cancel());
@@ -84,7 +102,7 @@ describe('useDictation', () => {
     const { hook } = setup();
     await act(async () => {
       hook.result.current.toggle();
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
     });
     expect(hook.result.current.blocked).toBe('microphone');
     expect(hook.result.current.phase).toBe('idle');

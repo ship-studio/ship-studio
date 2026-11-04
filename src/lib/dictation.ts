@@ -27,6 +27,16 @@ export type DictationEvent =
   | { kind: 'error'; session: number; message: string }
   | { kind: 'ended'; session: number; cancelled: boolean };
 
+/**
+ * Names worth recognising: agents, and projects as they're said aloud
+ * ("acme-marketing" → "acme marketing"). Duplicates are dropped here; the
+ * backend trims and caps the list.
+ */
+export function dictationVocabulary(agentNames: string[], projectNames: string[]): string[] {
+  const spoken = projectNames.map((name) => name.replace(/[-_.]+/g, ' ').trim());
+  return [...new Set([...agentNames, ...spoken].filter(Boolean))];
+}
+
 export function startDictation(contextualStrings: string[]): Promise<DictationStart> {
   return invoke<DictationStart>('start_dictation', { contextualStrings });
 }
