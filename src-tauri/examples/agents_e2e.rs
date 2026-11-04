@@ -387,10 +387,11 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
     agents::runner::recover_after_restart(&h.app).await;
     let agent = store::get(id).map_err(|e| format!("registry unreadable: {e}"))?;
     // The queued two were handed back to the runner; nothing else runs.
-    ensure(runner::in_turn(id), "the queued messages weren't sent again")?;
+    ensure(
+        runner::in_turn(id),
+        "the queued messages weren't sent again",
+    )?;
     ensure(agent.pending_approvals == 0, "phantom pending approvals")?;
-    let inbox = store::agent_home(id).unwrap().join("inbox.json");
-    ensure(!inbox.exists(), "the queue was left on disk after recovery")?;
     // The cut-short turn ends like any failed turn: its change card, then a
     // tagged error line (Retry re-sends it); then a note naming the queued
     // messages being sent again.
@@ -419,8 +420,10 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
         format!("no change card for ada.txt before it: {:?}", tail[1].text),
     )?;
     ensure(agent.failure.is_some(), "agent not marked as failed")?;
-    // The queued two run once each.
+    // The queued two run once each, and then nothing is left queued on disk.
     h.turn(id).await?;
+    let inbox = store::agent_home(id).unwrap().join("inbox.json");
+    ensure(!inbox.exists(), "the queue was left on disk after it ran")?;
     let replies: String = of_kind(id, MessageKind::Agent)
         .iter()
         .map(|m| m.text.clone())
