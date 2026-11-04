@@ -2401,9 +2401,246 @@ pub(crate) fn not_a_flag(text: &str) -> String {
     }
 }
 
+// ============================================================================
+// Structured cores: the same reads as the tools above, as data
+// ============================================================================
+//
+// The phone (companion) shows projects and sessions as screens rather than
+// prose. These share the tools' own primitives (`sessions_for`, `tab_state`,
+// `agent_state`), so what the phone shows and what the assistant is told
+// cannot disagree. The MCP formatters above are unchanged.
+
+/// `SessionQuestion` in packages/companion-protocol.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QuestionView {
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    pub options: Vec<OptionView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub(crate) struct OptionView {
+    pub key: String,
+    pub label: String,
+    pub highlighted: bool,
+}
+
+/// `SessionSummary` in packages/companion-protocol.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionView {
+    pub session_id: String,
+    pub tab: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
+    pub state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question: Option<QuestionView>,
+    pub last_output_at: u64,
+}
+
+/// `ProjectSummary` in packages/companion-protocol.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProjectView {
+    pub path: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    pub dirty_files: usize,
+    pub sessions: Vec<SessionView>,
+}
+
+/// `SessionScreen` in packages/companion-protocol.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScreenView {
+    pub session: SessionView,
+    pub screen: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+}
+
+/// How many screen lines `session_screen` returns.
+const SCREEN_LINES: usize = 300;
+
+/// "1. Yes" → key "1"; an unnumbered menu's highlighted item → "enter".
+/// Options that can only be reached with the arrow keys get no key the phone
+/// could press, so they're shown but not offered.
+pub(crate) fn option_views(options: &[String]) -> Vec<OptionView> {
+    const MARK: &str = " (highlighted — enter picks it)";
+    options
+        .iter()
+        .filter_map(|o| {
+            if let Some(label) = o.strip_suffix(MARK) {
+                return Some(OptionView {
+                    key: "enter".into(),
+                    label: label.to_string(),
+                    highlighted: true,
+                });
+            }
+            let (n, label) = o.split_once(". ")?;
+            (!n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) && key_bytes(n).is_some()).then(
+                || OptionView {
+                    key: n.to_string(),
+                    label: label.to_string(),
+                    highlighted: false,
+                },
+            )
+        })
+        .collect()
+}
+
+/// One agent tab as data. `None` for a plain terminal: the phone can neither
+/// read nor type into one, so it isn't listed.
+fn session_view(n: usize, s: &SessionSummary) -> Option<(SessionView, Vec<String>)> {
+    if !is_agent_tab(s) {
+        return None;
+    }
+    let (state, lines) = if s.alive {
+        tab_state(s).unwrap_or((AgentState::Exited, Vec::new()))
+    } else {
+        (AgentState::Exited, Vec::new())
+    };
+    let (activity, question) = match &state {
+        AgentState::Working { activity } => (activity.clone(), None),
+        AgentState::NeedsDecision { question, options } => (
+            None,
+            Some(QuestionView {
+                question: question.clone(),
+                action: agent_state::decision_context(&lines),
+                options: option_views(options),
+            }),
+        ),
+        _ => (None, None),
+    };
+    Some((
+        SessionView {
+            session_id: s.session_id.clone(),
+            tab: n,
+            cli: s.agent_id.clone(),
+            state: state.keyword(),
+            activity,
+            question,
+            last_output_at: s.last_output_ms,
+        },
+        lines,
+    ))
+}
+
+/// Agent tabs, anything waiting on the user first, then by tab number.
+pub(crate) fn order_sessions(sessions: &mut [SessionView]) {
+    sessions.sort_by_key(|s| (s.state != "needs_decision", s.tab));
+}
+
+/// A project as data: its branch and uncommitted count (when git answers),
+/// and its agent tabs.
+pub(crate) async fn project_view(project: &str) -> ProjectView {
+    let mut sessions: Vec<SessionView> = sessions_for(project)
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| session_view(i + 1, s).map(|(v, _)| v))
+        .collect();
+    order_sessions(&mut sessions);
+    let (branch, status) = tokio::join!(
+        git(project, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        git(project, &["status", "--porcelain"])
+    );
+    ProjectView {
+        path: project.to_string(),
+        name: project_name(project).to_string(),
+        branch: branch
+            .ok()
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty()),
+        dirty_files: status
+            .map(|s| s.lines().filter(|l| !l.is_empty()).count())
+            .unwrap_or(0),
+        sessions,
+    }
+}
+
+/// Every project as data, in the order given.
+pub(crate) async fn project_views(projects: &[String]) -> Vec<ProjectView> {
+    futures_util::future::join_all(projects.iter().map(|p| project_view(p))).await
+}
+
+/// One agent tab's screen, read-only: the same render `read_agent` gives
+/// the assistant, plus the agent's latest reply on its own.
+pub(crate) fn session_screen(projects: &[String], session_id: &str) -> Result<ScreenView, String> {
+    for project in projects {
+        let sessions = sessions_for(project);
+        let Some((i, s)) = sessions
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.session_id == session_id)
+        else {
+            continue;
+        };
+        let (view, _) = session_view(i + 1, s)
+            .ok_or("That tab is a plain terminal; only agent tabs can be read from the phone.")?;
+        let snap = pty_session::session_snapshot(session_id).ok_or("That tab was closed.")?;
+        let lines = screen::render_tail(&snap.bytes, snap.rows, snap.cols, SCREEN_LINES);
+        let sent = run_for(session_id).map(|r| r.message);
+        let reply = agent_state::latest_reply(&lines, sent.as_deref(), 80).join("\n");
+        return Ok(ScreenView {
+            session: view,
+            screen: lines.join("\n"),
+            reply: (!reply.trim().is_empty()).then_some(reply),
+        });
+    }
+    Err("That session isn't open in Ship Studio any more.".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn options_become_keys_the_phone_can_press() {
+        let views = option_views(&[
+            "1. Yes".into(),
+            "2. Yes, and don't ask again".into(),
+            "Not numbered".into(),
+            "Trust this folder (highlighted — enter picks it)".into(),
+        ]);
+        let keys: Vec<(&str, &str, bool)> = views
+            .iter()
+            .map(|o| (o.key.as_str(), o.label.as_str(), o.highlighted))
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                ("1", "Yes", false),
+                ("2", "Yes, and don't ask again", false),
+                ("enter", "Trust this folder", true),
+            ]
+        );
+    }
+
+    #[test]
+    fn sessions_waiting_on_the_user_come_first() {
+        let view = |tab, state| SessionView {
+            session_id: format!("s{tab}"),
+            tab,
+            cli: Some("claude".into()),
+            state,
+            activity: None,
+            question: None,
+            last_output_at: 0,
+        };
+        let mut list = vec![
+            view(1, "working"),
+            view(3, "needs_decision"),
+            view(2, "finished"),
+        ];
+        order_sessions(&mut list);
+        assert_eq!(list.iter().map(|s| s.tab).collect::<Vec<_>>(), [3, 1, 2]);
+    }
 
     fn session(id: &str, agent: Option<&str>, alive: bool, last: u64) -> SessionSummary {
         SessionSummary {

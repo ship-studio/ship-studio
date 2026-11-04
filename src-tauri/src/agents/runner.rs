@@ -373,6 +373,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         failure: None,
         changes: None,
         session: None,
+        client_id: None,
     }
 }
 

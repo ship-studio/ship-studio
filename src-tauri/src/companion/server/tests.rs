@@ -192,6 +192,16 @@ async fn pair_chat_resume_and_audit_end_to_end() {
     assert_eq!(snapshot["overview"]["agents"][0]["id"], AGENT);
     assert!(snapshot["overview"]["agents"][0].get("usage").is_none());
     assert_eq!(snapshot["status"]["name"], "Julian’s MacBook Pro");
+    // P2: the projects and their agent tabs, waiting-on-you first.
+    assert_eq!(snapshot["projects"][0]["name"], "site");
+    assert_eq!(
+        snapshot["projects"][0]["sessions"][0]["state"],
+        "needs_decision"
+    );
+    assert_eq!(
+        snapshot["projects"][0]["sessions"][0]["question"]["options"][0],
+        json!({ "key": "1", "label": "Yes", "highlighted": false })
+    );
     assert_eq!(cursor0["epoch"], "epoch-test");
     assert!(c.is_connected(&device_id));
 
@@ -481,4 +491,262 @@ async fn sockets_per_device_are_capped() {
     let mut ws = connect(port).await;
     send(&mut ws, hello(&token, None)).await;
     assert_eq!(next(&mut ws).await["reason"], "too_many_connections");
+}
+
+// ============================================================================
+// Files over HTTP (P2)
+// ============================================================================
+
+fn png(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_pixel(w, h, image::Rgb([200, 40, 90]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+async fn put_blob(
+    port: u16,
+    token: Option<&str>,
+    name: &str,
+    mime: &str,
+    bytes: Vec<u8>,
+) -> reqwest::Response {
+    let mut req = reqwest::Client::new()
+        .put(format!("http://127.0.0.1:{port}/v1/blobs"))
+        .header("X-Name", urlencoding::encode(name).into_owned())
+        .header("Content-Type", mime)
+        .body(bytes);
+    if let Some(t) = token {
+        req = req.bearer_auth(t);
+    }
+    req.send().await.unwrap()
+}
+
+async fn get(port: u16, token: Option<&str>, path: &str) -> reqwest::Response {
+    let mut req = reqwest::Client::new().get(format!("http://127.0.0.1:{port}{path}"));
+    if let Some(t) = token {
+        req = req.bearer_auth(t);
+    }
+    req.send().await.unwrap()
+}
+
+fn other_phone() -> PairDevice {
+    PairDevice {
+        name: "Other Phone".into(),
+        ..phone()
+    }
+}
+
+#[tokio::test]
+async fn upload_send_and_download_a_photo_end_to_end() {
+    let (c, _stub) = Stub::companion();
+    let port = start(c.clone()).await;
+    let (_, token, _) = c.registry.add(&phone(), String::new(), 1).unwrap();
+
+    // Upload: a BlobRef with the cleaned name and the declared type.
+    let res = put_blob(
+        port,
+        Some(&token),
+        "my photo.png",
+        "image/png",
+        png(800, 400),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    let blob: Value = res.json().await.unwrap();
+    assert_eq!(blob["name"], "my photo.png");
+    assert_eq!(blob["mime"], "image/png");
+    let blob_id = blob["blobId"].as_str().unwrap().to_string();
+
+    // Send it, with no text: files alone are a message, as on the desk.
+    let (mut ws, ..) = open(port, &token, None).await;
+    let (events, res) = call(
+        &mut ws,
+        1,
+        "agents.send",
+        json!({ "agentId": AGENT, "text": "", "clientId": "c-photo", "attachments": [{ "blobId": blob_id }] }),
+    )
+    .await;
+    assert_eq!(res["ok"], true, "{res}");
+    let message = &res["result"];
+    assert_eq!(message["clientId"], "c-photo");
+    let attachment = &message["attachments"][0];
+    assert_eq!(attachment["name"], "my photo.png");
+    let mine = events
+        .iter()
+        .find(|e| {
+            e["event"]["type"] == "agents.message" && e["event"]["message"]["id"] == message["id"]
+        })
+        .expect("the user message is journaled");
+    assert_eq!(mine["event"]["message"]["clientId"], "c-photo");
+    // The staged blob was consumed by the send.
+    assert_eq!(
+        get(port, Some(&token), &format!("/v1/blobs/{blob_id}"))
+            .await
+            .status(),
+        404
+    );
+
+    // Download it whole, as a thumbnail, and in part.
+    let path = attachment["path"].as_str().unwrap();
+    let route = format!(
+        "/v1/agents/{AGENT}/{}",
+        path.split('/')
+            .map(|s| urlencoding::encode(s).into_owned())
+            .collect::<Vec<_>>()
+            .join("/")
+    );
+    let whole = get(port, Some(&token), &route).await;
+    assert_eq!(whole.status(), 200);
+    assert_eq!(whole.headers()["content-type"], "image/png");
+    assert_eq!(whole.headers()["accept-ranges"], "bytes");
+    assert!(whole.headers()["cache-control"]
+        .to_str()
+        .unwrap()
+        .starts_with("private"));
+    let thumb = get(port, Some(&token), &format!("{route}?w=200")).await;
+    assert_eq!(thumb.status(), 200);
+    assert_eq!(thumb.headers()["content-type"], "image/jpeg");
+    let img = image::load_from_memory(&thumb.bytes().await.unwrap()).unwrap();
+    assert_eq!((img.width(), img.height()), (200, 100));
+    let part = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}{route}"))
+        .bearer_auth(&token)
+        .header("Range", "bytes=0-7")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(part.status(), 206);
+    assert_eq!(
+        part.bytes().await.unwrap().as_ref(),
+        &png(1, 1)[..8],
+        "the PNG signature"
+    );
+
+    // Nothing outside the agent's attachments.
+    for bad in [
+        format!("/v1/agents/{AGENT}/attachments/..%2F..%2Fsecret"),
+        format!("/v1/agents/{AGENT}/attachments/../registry.json"),
+        format!("/v1/agents/{AGENT}/attachments/"),
+    ] {
+        assert_eq!(get(port, Some(&token), &bad).await.status(), 404, "{bad}");
+    }
+}
+
+#[tokio::test]
+async fn file_routes_need_a_live_token_and_keep_devices_apart() {
+    let (c, _stub) = Stub::companion();
+    let port = start(c.clone()).await;
+    let (record, token, _) = c.registry.add(&phone(), String::new(), 1).unwrap();
+    let (_, other, _) = c.registry.add(&other_phone(), String::new(), 1).unwrap();
+
+    assert_eq!(
+        put_blob(port, None, "a.txt", "text/plain", b"x".to_vec())
+            .await
+            .status(),
+        401
+    );
+    assert_eq!(
+        put_blob(
+            port,
+            Some(&"0".repeat(64)),
+            "a.txt",
+            "text/plain",
+            b"x".to_vec()
+        )
+        .await
+        .status(),
+        401
+    );
+    let blob: Value = put_blob(port, Some(&token), "a.txt", "text/plain", b"hello".to_vec())
+        .await
+        .json()
+        .await
+        .unwrap();
+    let blob_path = format!("/v1/blobs/{}", blob["blobId"].as_str().unwrap());
+    assert_eq!(get(port, None, &blob_path).await.status(), 401);
+    assert_eq!(
+        get(port, Some(&other), &blob_path).await.status(),
+        404,
+        "another phone's blob"
+    );
+
+    // Another phone can't send it either.
+    let (mut ws, ..) = open(port, &other, None).await;
+    let (_, res) = call(
+        &mut ws,
+        1,
+        "agents.send",
+        json!({ "agentId": AGENT, "text": "hi", "clientId": "c1", "attachments": [{ "blobId": blob["blobId"] }] }),
+    )
+    .await;
+    assert_eq!(res["ok"], false);
+
+    // Revoked: the token stops working for files too.
+    c.revoke(&record.id).unwrap();
+    assert_eq!(get(port, Some(&token), &blob_path).await.status(), 401);
+    assert_eq!(
+        put_blob(port, Some(&token), "a.txt", "text/plain", b"x".to_vec())
+            .await
+            .status(),
+        401
+    );
+}
+
+#[tokio::test]
+async fn uploads_over_the_desks_limit_are_refused() {
+    use crate::agents::attachments::MAX_FILE_BYTES;
+    let (c, _stub) = Stub::companion();
+    let port = start(c.clone()).await;
+    let (_, token, _) = c.registry.add(&phone(), String::new(), 1).unwrap();
+    let res = put_blob(
+        port,
+        Some(&token),
+        "big.bin",
+        "application/octet-stream",
+        vec![0u8; MAX_FILE_BYTES as usize + 1],
+    )
+    .await;
+    assert_eq!(res.status(), 413);
+    // Exactly the limit is fine.
+    let res = put_blob(
+        port,
+        Some(&token),
+        "big.bin",
+        "application/octet-stream",
+        vec![0u8; MAX_FILE_BYTES as usize],
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+}
+
+#[tokio::test]
+async fn an_oversized_chunked_upload_is_read_out_and_answered_413() {
+    use crate::agents::attachments::MAX_FILE_BYTES;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (c, _stub) = Stub::companion();
+    let port = start(c.clone()).await;
+    let (_, token, _) = c.registry.add(&phone(), String::new(), 1).unwrap();
+    let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let head = format!(
+        "PUT /v1/blobs HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nX-Name: big.bin\r\nTransfer-Encoding: chunked\r\n\r\n"
+    );
+    s.write_all(head.as_bytes()).await.unwrap();
+    let chunk = vec![0u8; 1024 * 1024];
+    let chunks = MAX_FILE_BYTES as usize / chunk.len() + 1;
+    for _ in 0..chunks {
+        s.write_all(format!("{:x}\r\n", chunk.len()).as_bytes())
+            .await
+            .unwrap();
+        s.write_all(&chunk).await.unwrap();
+        s.write_all(b"\r\n").await.unwrap();
+    }
+    s.write_all(b"0\r\n\r\n").await.unwrap();
+    let mut buf = vec![0u8; 64];
+    let n = tokio::time::timeout(Duration::from_secs(10), s.read(&mut buf))
+        .await
+        .unwrap()
+        .unwrap();
+    let line = String::from_utf8_lossy(&buf[..n]);
+    assert!(line.starts_with("HTTP/1.1 413"), "{line}");
 }

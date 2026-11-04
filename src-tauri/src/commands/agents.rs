@@ -91,6 +91,7 @@ pub async fn agents_send(
     text: String,
     attachments: Option<Vec<attachments::OutgoingAttachment>>,
     mentions: Option<Vec<String>>,
+    client_id: Option<String>,
 ) -> Result<store::AgentMessage, CommandError> {
     let text = text.trim().to_string();
     let incoming = attachments.unwrap_or_default();
@@ -100,6 +101,8 @@ pub async fn agents_send(
     let recipient = store::get(&agent_id)?;
     let home = store::agent_home(&agent_id)?;
     let mut message = runner::new_message(&agent_id, store::MessageKind::User, text.clone());
+    // A phone's send id, echoed so its optimistic bubble reconciles by id.
+    message.client_id = client_id.filter(|c| !c.is_empty());
     // Only real agents, other than the recipient, once each; anything else is dropped.
     for id in mentions.unwrap_or_default() {
         if id == agent_id || message.mentions.iter().any(|m| m.id == id) {

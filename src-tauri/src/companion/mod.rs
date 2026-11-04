@@ -18,7 +18,9 @@
 //!
 //! Full design: docs/mobile.md.
 
+pub mod blobs;
 pub mod desktop;
+pub mod files;
 #[cfg(test)]
 mod fixtures;
 pub mod hub;
@@ -318,6 +320,7 @@ pub struct Companion {
     pub pairing: pairing::Pairing,
     pub backend: Arc<dyn router::Backend>,
     pub sends: router::SendCache,
+    pub blobs: blobs::Blobs,
     conns: Mutex<HashMap<u64, Conn>>,
     next_conn: AtomicU64,
     requests: Mutex<HashMap<String, VecDeque<u64>>>,
@@ -335,8 +338,15 @@ impl Companion {
         backend: Arc<dyn router::Backend>,
         epoch: String,
     ) -> Self {
+        // Staged files live beside companion.json; an in-memory registry
+        // (tests) gets a temporary folder that goes with it.
+        let blobs = match registry.path.as_ref().and_then(|p| p.parent()) {
+            Some(dir) => blobs::Blobs::new(dir.join("companion-blobs")),
+            None => blobs::Blobs::temporary(),
+        };
         Companion {
             registry,
+            blobs,
             hub: hub::Hub::new(epoch),
             pairing: pairing::Pairing::default(),
             backend,
@@ -439,6 +449,7 @@ impl Companion {
     pub fn revoke(&self, device_id: &str) -> Result<Option<DeviceRecord>, CommandError> {
         let gone = self.registry.revoke(device_id)?;
         if let Some(d) = &gone {
+            self.blobs.forget_device(&d.id);
             self.hub.signal(hub::HubItem::Revoked {
                 device_id: d.id.clone(),
             });

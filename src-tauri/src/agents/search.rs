@@ -231,6 +231,7 @@ mod tests {
             failure: None,
             changes: None,
             session: None,
+            client_id: None,
         })
         .unwrap();
         id
@@ -300,6 +301,7 @@ mod tests {
                 failure: None,
                 changes: None,
                 session: None,
+                client_id: None,
             })
             .unwrap();
             let found = search_in(&store::list().unwrap(), "deploy", 50).unwrap();
@@ -364,6 +366,7 @@ mod tests {
             failure: None,
             changes: None,
             session: None,
+            client_id: None,
         };
         assert!(match_message(&message, &terms("müller")).is_some());
         assert!(match_message(&message, &terms("müller schmidt")).is_none());

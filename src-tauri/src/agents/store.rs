@@ -214,6 +214,10 @@ pub struct AgentMessage {
     pub changes: Option<super::project::ChangeSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<super::sessions::SessionMark>,
+    /// On a user message sent from a phone: its send's `clientId`, so the
+    /// phone swaps its optimistic bubble by id. Absent everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -903,6 +907,7 @@ mod tests {
                 failure: None,
                 changes: None,
                 session: None,
+                client_id: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();
@@ -942,6 +947,7 @@ mod tests {
             changes: None,
             failure: None,
             session: None,
+            client_id: None,
         }
     }
 

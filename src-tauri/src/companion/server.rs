@@ -1,4 +1,7 @@
-//! The companion's HTTP server: `POST /v1/pair` and the WebSocket at `/v1/ws`.
+//! The companion's HTTP server: `POST /v1/pair`, the WebSocket at `/v1/ws`,
+//! and files (`PUT /v1/blobs`, `GET /v1/blobs/:id`,
+//! `GET /v1/agents/:id/attachments/*`), which stay off the socket so a 25 MB
+//! upload never holds up a message.
 //!
 //! It binds loopback only. In P1 the one way in from the phone is
 //! `tailscale serve`, which terminates TLS with the tailnet's own
@@ -34,7 +37,7 @@ use super::wire::{
 };
 use super::{actor_for, now_ms, Auth, Companion};
 
-type Body = BoxBody<Bytes, hyper::Error>;
+pub(crate) type Body = BoxBody<Bytes, hyper::Error>;
 
 /// The largest frame either way, and the largest pair request.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -73,19 +76,19 @@ pub async fn serve(c: Arc<Companion>, listener: TcpListener, mut shutdown: onesh
     }
 }
 
-fn body(data: impl Into<Bytes>) -> Body {
+pub(crate) fn body(data: impl Into<Bytes>) -> Body {
     Full::new(data.into())
         .map_err(|never| match never {})
         .boxed()
 }
 
-fn status_only(status: StatusCode) -> Response<Body> {
+pub(crate) fn status_only(status: StatusCode) -> Response<Body> {
     let mut res = Response::new(body(Bytes::new()));
     *res.status_mut() = status;
     res
 }
 
-fn json_response(value: &impl serde::Serialize) -> Response<Body> {
+pub(crate) fn json_response(value: &impl serde::Serialize) -> Response<Body> {
     let mut res = Response::new(body(serde_json::to_vec(value).unwrap_or_default()));
     let h = res.headers_mut();
     h.insert(
@@ -100,9 +103,16 @@ fn json_response(value: &impl serde::Serialize) -> Response<Body> {
 }
 
 async fn handle(c: Arc<Companion>, req: Request<Incoming>) -> Response<Body> {
-    match (req.method(), req.uri().path()) {
+    let path = req.uri().path().to_string();
+    match (req.method(), path.as_str()) {
         (&Method::POST, "/v1/pair") => pair(c, req).await,
         (&Method::GET, "/v1/ws") => upgrade(c, req),
+        (&Method::PUT, "/v1/blobs") => super::files::upload(c, req).await,
+        (&Method::GET | &Method::HEAD, p)
+            if p.starts_with("/v1/blobs/") || p.starts_with("/v1/agents/") =>
+        {
+            super::files::download(c, req).await
+        }
         // Anything else, including a wrong path: a bare 404 says nothing.
         _ => status_only(StatusCode::NOT_FOUND),
     }
@@ -480,12 +490,15 @@ where
             let overview = c.backend.overview().await.unwrap_or(Value::Null);
             let status = c.backend.mac_status().await;
             c.remember_status(&status);
+            let projects = match c.backend.projects().await {
+                Ok(Value::Array(list)) => list,
+                _ => Vec::new(),
+            };
             let snapshot = Event::Snapshot {
                 cursor: cursor.clone(),
                 overview,
                 status,
-                // Projects arrive with P2's project methods.
-                projects: Vec::new(),
+                projects,
             };
             if !send(
                 ws,

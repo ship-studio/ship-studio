@@ -420,6 +420,14 @@ export const agentsMessages = {
     },
     {
       "agentId": "a1",
+      "attachments": [
+        {
+          "mime": "image/jpeg",
+          "name": "Desktop.jpg",
+          "path": "attachments/m17/Desktop.jpg",
+          "size": 184000
+        }
+      ],
       "id": "m17",
       "kind": "session",
       "session": {
@@ -428,6 +436,22 @@ export const agentsMessages = {
       },
       "text": "",
       "ts": 1762290017000
+    },
+    {
+      "agentId": "a1",
+      "attachments": [
+        {
+          "mime": "image/png",
+          "name": "logo.png",
+          "path": "attachments/m18/logo.png",
+          "size": 9000
+        }
+      ],
+      "clientId": "c_8f2a1b",
+      "id": "m18",
+      "kind": "user",
+      "text": "Here's the logo",
+      "ts": 1762290018000
     }
   ],
   "more": false
@@ -455,6 +479,167 @@ export const agentsSend = {
 } satisfies Result<'agents.send'>;
 export const agentsStop = false satisfies Result<'agents.stop'>;
 export const agentsAnswerApproval = null satisfies Result<'agents.answerApproval'>;
+export const agentsFiles = [
+  {
+    "from": "user",
+    "messageId": "m18",
+    "mime": "image/png",
+    "name": "logo.png",
+    "path": "attachments/m18/logo.png",
+    "size": 9000,
+    "ts": 1762290018000
+  },
+  {
+    "from": "user",
+    "messageId": "m01",
+    "mime": "application/pdf",
+    "name": "invoice.pdf",
+    "path": "attachments/m01/invoice.pdf",
+    "size": 52000,
+    "ts": 1762290001000
+  }
+] satisfies Result<'agents.files'>;
+export const agentsFetchPath = {
+  "blobId": "blob_0123456789abcdef0123456789abcdef",
+  "mime": "text/markdown",
+  "name": "report.md",
+  "size": 4
+} satisfies Result<'agents.fetchPath'>;
+export const agentsSearch = [
+  {
+    "agentColor": "green",
+    "agentId": "a1",
+    "agentName": "Finance",
+    "kind": "sent_to_agent",
+    "messageId": "m03",
+    "peerName": "Ops",
+    "snippet": "File these",
+    "ts": 1762290003000
+  },
+  {
+    "agentColor": "green",
+    "agentId": "a1",
+    "agentName": "Finance",
+    "kind": "user",
+    "messageId": "m01",
+    "snippet": "@Ops can you file these?",
+    "ts": 1762290001000
+  }
+] satisfies Result<'agents.search'>;
+export const schedulePreviewOnce = {
+  "nextAt": 1762297200000,
+  "repeat": null
+} satisfies Result<'agents.schedule.preview'>;
+export const schedulePreviewDays = {
+  "nextAt": 1762333200000,
+  "repeat": {
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "hour": 9,
+    "kind": "days",
+    "minute": 0
+  }
+} satisfies Result<'agents.schedule.preview'>;
+export const schedulePreviewEvery = {
+  "nextAt": 1762291800000,
+  "repeat": {
+    "kind": "every",
+    "minutes": 30
+  }
+} satisfies Result<'agents.schedule.preview'>;
+export const scheduleCreate = {
+  "createdAt": 1762290000000,
+  "id": "c9",
+  "nextAt": 1762333200000,
+  "note": "Check the invoices",
+  "paused": false,
+  "repeat": {
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "hour": 9,
+    "kind": "days",
+    "minute": 0
+  }
+} satisfies Result<'agents.schedule.create'>;
+export const scheduleUpdate = {
+  "createdAt": 1762200000000,
+  "id": "c1",
+  "nextAt": 1762291800000,
+  "note": "Look again",
+  "paused": false,
+  "repeat": {
+    "kind": "every",
+    "minutes": 30
+  }
+} satisfies Result<'agents.schedule.update'>;
+export const projectsList = [
+  {
+    "branch": "main",
+    "dirtyFiles": 3,
+    "name": "site",
+    "path": "/Users/julian/ShipStudio/site",
+    "sessions": [
+      {
+        "cli": "claude",
+        "lastOutputAt": 1762290000000,
+        "question": {
+          "action": "Bash(npm install)",
+          "options": [
+            {
+              "highlighted": false,
+              "key": "1",
+              "label": "Yes"
+            },
+            {
+              "highlighted": false,
+              "key": "2",
+              "label": "Yes, and don't ask again for npm install"
+            },
+            {
+              "highlighted": false,
+              "key": "3",
+              "label": "No"
+            }
+          ],
+          "question": "Do you want to proceed?"
+        },
+        "sessionId": "pty-2",
+        "state": "needs_decision",
+        "tab": 2
+      },
+      {
+        "activity": "Editing Header.tsx",
+        "cli": "codex",
+        "lastOutputAt": 1762290000000,
+        "sessionId": "pty-1",
+        "state": "working",
+        "tab": 1
+      }
+    ]
+  }
+] satisfies Result<'projects.list'>;
+export const sessionsRead = {
+  "reply": "Fixed the header's spacing.",
+  "screen": "> Fix the header\n\n⏺ Editing Header.tsx",
+  "session": {
+    "activity": "Editing Header.tsx",
+    "cli": "codex",
+    "lastOutputAt": 1762290000000,
+    "sessionId": "pty-1",
+    "state": "working",
+    "tab": 1
+  }
+} satisfies Result<'sessions.read'>;
 export const frames = [
   {
     "t": "welcome",
@@ -477,7 +662,18 @@ export const frames = [
       "agents.interrupt",
       "agents.answerApproval",
       "agents.focus",
-      "agents.markUnread"
+      "agents.markUnread",
+      "agents.files",
+      "agents.fetchPath",
+      "agents.search",
+      "agents.schedule.preview",
+      "agents.schedule.create",
+      "agents.schedule.update",
+      "agents.schedule.pause",
+      "agents.schedule.cancel",
+      "agents.schedule.runNow",
+      "projects.list",
+      "sessions.read"
     ]
   },
   {
@@ -1006,7 +1202,52 @@ export const frames = [
           }
         ]
       },
-      "projects": []
+      "projects": [
+        {
+          "branch": "main",
+          "dirtyFiles": 3,
+          "name": "site",
+          "path": "/Users/julian/ShipStudio/site",
+          "sessions": [
+            {
+              "cli": "claude",
+              "lastOutputAt": 1762290000000,
+              "question": {
+                "action": "Bash(npm install)",
+                "options": [
+                  {
+                    "highlighted": false,
+                    "key": "1",
+                    "label": "Yes"
+                  },
+                  {
+                    "highlighted": false,
+                    "key": "2",
+                    "label": "Yes, and don't ask again for npm install"
+                  },
+                  {
+                    "highlighted": false,
+                    "key": "3",
+                    "label": "No"
+                  }
+                ],
+                "question": "Do you want to proceed?"
+              },
+              "sessionId": "pty-2",
+              "state": "needs_decision",
+              "tab": 2
+            },
+            {
+              "activity": "Editing Header.tsx",
+              "cli": "codex",
+              "lastOutputAt": 1762290000000,
+              "sessionId": "pty-1",
+              "state": "working",
+              "tab": 1
+            }
+          ]
+        }
+      ]
     }
   },
   {

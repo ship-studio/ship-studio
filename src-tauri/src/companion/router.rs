@@ -16,8 +16,8 @@ use super::wire::{MacStatus, ProtocolCode, WireError};
 use super::{actor_for, now_ms, Companion};
 use crate::errors::CommandError;
 
-/// What P1 serves. `welcome.methods` lists exactly these, so the app hides
-/// everything else.
+/// What this Mac serves. `welcome.methods` lists exactly these, so the app
+/// hides everything else.
 pub const METHODS: &[&str] = &[
     "system.status",
     "devices.self",
@@ -30,14 +30,30 @@ pub const METHODS: &[&str] = &[
     "agents.answerApproval",
     "agents.focus",
     "agents.markUnread",
+    "agents.files",
+    "agents.fetchPath",
+    "agents.search",
+    "agents.schedule.preview",
+    "agents.schedule.create",
+    "agents.schedule.update",
+    "agents.schedule.pause",
+    "agents.schedule.cancel",
+    "agents.schedule.runNow",
+    "projects.list",
+    "sessions.read",
 ];
 
-/// `READ_ONLY_METHODS` in methods.ts (the P1 subset): not audited.
+/// `READ_ONLY_METHODS` in methods.ts (the served subset): not audited.
 pub const READ_ONLY_METHODS: &[&str] = &[
     "system.status",
     "devices.self",
     "agents.overview",
     "agents.messages",
+    "agents.files",
+    "agents.search",
+    "agents.schedule.preview",
+    "projects.list",
+    "sessions.read",
 ];
 
 /// How long a `clientId` is remembered.
@@ -45,6 +61,54 @@ const SEND_MEMORY_MS: u64 = 24 * 60 * 60 * 1000;
 const SEND_MEMORY_MAX: usize = 10_000;
 const MESSAGES_DEFAULT: usize = 400;
 const MESSAGES_MAX: usize = 1_000;
+
+/// A staged upload handed to `agents_send` as a file on disk, so the desk's
+/// own `attachments::save` copies it in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Staged {
+    pub name: String,
+    pub path: std::path::PathBuf,
+}
+
+/// What `agents.send` carries besides the text.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SendExtras {
+    pub mentions: Vec<String>,
+    pub attachments: Vec<Staged>,
+    pub client_id: Option<String>,
+}
+
+/// The schedule commands, one variant each.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScheduleOp {
+    Preview {
+        when: String,
+    },
+    Create {
+        agent_id: String,
+        when: String,
+        note: String,
+    },
+    Update {
+        agent_id: String,
+        id: String,
+        when: String,
+        note: String,
+    },
+    Pause {
+        agent_id: String,
+        id: String,
+        paused: bool,
+    },
+    Cancel {
+        agent_id: String,
+        id: String,
+    },
+    RunNow {
+        agent_id: String,
+        id: String,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApprovalAnswer {
@@ -73,7 +137,7 @@ pub trait Backend: Send + Sync + 'static {
         &self,
         agent_id: &str,
         text: String,
-        mentions: Vec<String>,
+        extras: SendExtras,
     ) -> Result<Value, CommandError>;
     async fn stop(&self, agent_id: &str) -> Result<bool, CommandError>;
     async fn interrupt(&self, agent_id: &str) -> Result<bool, CommandError>;
@@ -81,6 +145,27 @@ pub trait Backend: Send + Sync + 'static {
     /// `agents_focus` for a socket instead of a window.
     async fn focus(&self, label: &str, agent_id: Option<String>) -> Result<(), CommandError>;
     async fn mark_unread(&self, agent_id: &str) -> Result<(), CommandError>;
+    /// `agents_files`: everything shared in one conversation, newest first.
+    async fn files(&self, agent_id: &str) -> Result<Value, CommandError>;
+    /// A path from an agent's reply, resolved as `share_file` resolves it
+    /// (its home and the user's projects; folders refused).
+    async fn shareable_path(
+        &self,
+        agent_id: &str,
+        path: &str,
+    ) -> Result<std::path::PathBuf, CommandError>;
+    async fn search(&self, query: String) -> Result<Value, CommandError>;
+    async fn schedule(&self, op: ScheduleOp) -> Result<Value, CommandError>;
+    /// Every project as `ProjectSummary[]`.
+    async fn projects(&self) -> Result<Value, CommandError>;
+    /// One agent tab's screen as a `SessionScreen`.
+    async fn session_screen(&self, session_id: &str) -> Result<Value, CommandError>;
+    /// An attachment's file: `attachments::resolve` under the agent's home.
+    fn attachment_file(
+        &self,
+        agent_id: &str,
+        rel: &str,
+    ) -> Result<std::path::PathBuf, CommandError>;
     async fn mac_status(&self) -> MacStatus;
     fn server_name(&self) -> String;
     fn app_version(&self) -> String;
@@ -163,7 +248,44 @@ struct MessagesParams {
 #[derive(Deserialize)]
 struct BlobParam {
     #[serde(rename = "blobId")]
-    _blob_id: String,
+    blob_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PathParams {
+    agent_id: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct QueryParams {
+    query: String,
+}
+
+#[derive(Deserialize)]
+struct WhenParams {
+    when: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScheduleParams {
+    agent_id: String,
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    when: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    paused: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionParams {
+    session_id: String,
 }
 
 #[derive(Deserialize)]
@@ -218,6 +340,19 @@ pub fn audit_detail(method: &str, params: &Value) -> String {
             }
         }
         "devices.unpairSelf" => "forgot this Mac".into(),
+        "agents.fetchPath" => preview(field("path")),
+        "agents.schedule.create" | "agents.schedule.update" => {
+            preview(&format!("{} — {}", field("when"), field("note")))
+        }
+        "agents.schedule.pause" => {
+            let paused = params.get("paused").and_then(Value::as_bool) == Some(true);
+            format!(
+                "{} {}",
+                if paused { "pause" } else { "resume" },
+                field("id")
+            )
+        }
+        "agents.schedule.cancel" | "agents.schedule.runNow" => field("id").to_string(),
         _ => field("agentId").to_string(),
     }
 }
@@ -290,22 +425,33 @@ async fn run(
         }
         "agents.send" => {
             let p: SendParams = parse(params)?;
-            if !p.attachments.is_empty() {
-                return Err(bad_params(
-                    "This Mac can't take files from the phone yet. Update Ship Studio on the Mac.",
-                ));
-            }
-            let client_id = p.client_id.trim();
+            let client_id = p.client_id.trim().to_string();
             if client_id.is_empty() || client_id.len() > 128 {
                 return Err(bad_params("clientId is required (at most 128 characters)."));
             }
-            let text = crate::remote_access::tools::clean_agent_text(&p.text, "message")
-                .map_err(|reason| WireError::protocol(ProtocolCode::Refused, reason))?;
             let key = format!("{}:{client_id}", caller.device_id);
-            let (agent_id, mentions) = (p.agent_id, p.mentions);
+            let device = caller.device_id.clone();
             c.sends
                 .once(key, now_ms(), || async move {
-                    Ok(b.send(&agent_id, text, mentions).await?)
+                    let blob_ids: Vec<String> =
+                        p.attachments.into_iter().map(|a| a.blob_id).collect();
+                    let attachments = staged(c, &device, &blob_ids)?;
+                    // Files alone are a message, as on the desk; any text
+                    // still gets Remote Access's refusals.
+                    let text = if attachments.is_empty() || !p.text.trim().is_empty() {
+                        crate::remote_access::tools::clean_agent_text(&p.text, "message")
+                            .map_err(|reason| WireError::protocol(ProtocolCode::Refused, reason))?
+                    } else {
+                        String::new()
+                    };
+                    let extras = SendExtras {
+                        mentions: p.mentions,
+                        attachments,
+                        client_id: Some(client_id),
+                    };
+                    let sent = b.send(&p.agent_id, text, extras).await?;
+                    c.blobs.consume(&blob_ids);
+                    Ok(sent)
                 })
                 .await
         }
@@ -339,11 +485,100 @@ async fn run(
             b.mark_unread(&p.agent_id).await?;
             Ok(Value::Null)
         }
+        "agents.files" => {
+            let p: AgentParam = parse(params)?;
+            Ok(b.files(&p.agent_id).await?)
+        }
+        "agents.fetchPath" => {
+            let p: PathParams = parse(params)?;
+            let source = b.shareable_path(&p.agent_id, &p.path).await?;
+            let blob = c.blobs.produce(&caller.device_id, &source, now_ms())?;
+            Ok(to_value(&blob.as_ref()))
+        }
+        "agents.search" => {
+            let p: QueryParams = parse(params)?;
+            Ok(b.search(p.query).await?)
+        }
+        "agents.schedule.preview" => {
+            let p: WhenParams = parse(params)?;
+            Ok(b.schedule(ScheduleOp::Preview { when: p.when }).await?)
+        }
+        "agents.schedule.create"
+        | "agents.schedule.update"
+        | "agents.schedule.pause"
+        | "agents.schedule.cancel"
+        | "agents.schedule.runNow" => {
+            let p: ScheduleParams = parse(params)?;
+            let needs_id = method != "agents.schedule.create";
+            if needs_id && p.id.trim().is_empty() {
+                return Err(bad_params("id is required."));
+            }
+            let op = match method {
+                "agents.schedule.create" => ScheduleOp::Create {
+                    agent_id: p.agent_id,
+                    when: p.when,
+                    note: p.note,
+                },
+                "agents.schedule.update" => ScheduleOp::Update {
+                    agent_id: p.agent_id,
+                    id: p.id,
+                    when: p.when,
+                    note: p.note,
+                },
+                "agents.schedule.pause" => ScheduleOp::Pause {
+                    agent_id: p.agent_id,
+                    id: p.id,
+                    paused: p.paused,
+                },
+                "agents.schedule.cancel" => ScheduleOp::Cancel {
+                    agent_id: p.agent_id,
+                    id: p.id,
+                },
+                _ => ScheduleOp::RunNow {
+                    agent_id: p.agent_id,
+                    id: p.id,
+                },
+            };
+            Ok(b.schedule(op).await?)
+        }
+        "projects.list" => Ok(b.projects().await?),
+        "sessions.read" => {
+            let p: SessionParams = parse(params)?;
+            Ok(b.session_screen(&p.session_id).await?)
+        }
         _ => Err(WireError::protocol(
             ProtocolCode::UnknownMethod,
             format!("This Mac doesn't know {method}."),
         )),
     }
+}
+
+/// The staged uploads a send names, as files `attachments::save` can copy.
+/// Every id must be this device's and still staged.
+fn staged(c: &Companion, device_id: &str, ids: &[String]) -> Result<Vec<Staged>, WireError> {
+    use crate::agents::attachments::MAX_FILES;
+    if ids.len() > MAX_FILES {
+        return Err(CommandError::expected(format!(
+            "You can attach up to {MAX_FILES} files at a time."
+        ))
+        .into());
+    }
+    ids.iter()
+        .map(|id| {
+            c.blobs
+                .get(device_id, id, now_ms())
+                .map(|blob| Staged {
+                    name: blob.name,
+                    path: blob.path,
+                })
+                .ok_or_else(|| {
+                    CommandError::expected(
+                        "A file you attached didn't reach the Mac, or waited over an hour. Attach it again.",
+                    )
+                    .into()
+                })
+        })
+        .collect()
 }
 
 /// The Mac's status now, journaled when it changed so phones that weren't
@@ -384,6 +619,139 @@ mod tests {
             audit_detail("agents.stop", &json!({ "agentId": "a1" })),
             "a1"
         );
+    }
+
+    fn caller(device: &str) -> Caller {
+        Caller {
+            device_id: device.into(),
+            device_name: "Test Phone".into(),
+            label: format!("companion:{device}:1"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_send_echoes_its_client_id_and_a_retry_returns_the_same_message() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        let (mut rx, _) = c.hub.resume(None);
+        let me = caller("dev_a");
+        let params = json!({ "agentId": AGENT, "text": "hello", "clientId": "c-42" });
+        let first = dispatch(&c, &me, "agents.send", params.clone())
+            .await
+            .unwrap();
+        assert_eq!(first["clientId"], "c-42");
+        let again = dispatch(&c, &me, "agents.send", params).await.unwrap();
+        assert_eq!(first, again);
+        assert_eq!(stub.sends.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let mut journaled = None;
+        while let Ok(item) = rx.try_recv() {
+            if let super::super::hub::HubItem::Journaled {
+                event: super::super::wire::Event::Message { message },
+                ..
+            } = item
+            {
+                if message["id"] == first["id"] {
+                    journaled = Some(message);
+                }
+            }
+        }
+        assert_eq!(journaled.expect("journaled")["clientId"], "c-42");
+    }
+
+    #[tokio::test]
+    async fn attachments_must_be_this_devices_staged_blobs_and_few_enough() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, _) = Stub::companion();
+        let me = caller("dev_a");
+        let send = |ids: Vec<String>, client: &str| {
+            let attachments: Vec<Value> = ids.iter().map(|id| json!({ "blobId": id })).collect();
+            json!({ "agentId": AGENT, "text": "", "clientId": client, "attachments": attachments })
+        };
+        let unknown = dispatch(&c, &me, "agents.send", send(vec!["blob_nope".into()], "c1")).await;
+        assert!(unknown.unwrap_err().summary().contains("Attach it again"));
+
+        let theirs = c.blobs.put("dev_b", "a.txt", None, b"x", now_ms()).unwrap();
+        assert!(
+            dispatch(&c, &me, "agents.send", send(vec![theirs.id], "c2"))
+                .await
+                .is_err()
+        );
+
+        let eleven: Vec<String> = (0..11)
+            .map(|_| {
+                c.blobs
+                    .put("dev_a", "a.txt", None, b"x", now_ms())
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        let refused = dispatch(&c, &me, "agents.send", send(eleven, "c3")).await;
+        assert!(refused.unwrap_err().summary().contains("up to 10 files"));
+
+        // No files and no text is still refused.
+        let empty = dispatch(&c, &me, "agents.send", send(Vec::new(), "c4")).await;
+        assert!(empty.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetch_path_stages_a_file_for_this_device_and_refuses_folders() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        std::fs::write(stub.home.path().join("report.md"), "# Q3").unwrap();
+        std::fs::create_dir(stub.home.path().join("folder")).unwrap();
+        let me = caller("dev_a");
+        let blob = dispatch(
+            &c,
+            &me,
+            "agents.fetchPath",
+            json!({ "agentId": AGENT, "path": "report.md" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(blob["name"], "report.md");
+        assert_eq!(blob["mime"], "text/markdown");
+        assert_eq!(blob["size"], 4);
+        let id = blob["blobId"].as_str().unwrap();
+        assert!(c.blobs.get("dev_a", id, now_ms()).is_some());
+        assert!(c.blobs.get("dev_b", id, now_ms()).is_none());
+        for refused in ["folder", "/etc/hosts", "../outside.txt"] {
+            assert!(
+                dispatch(
+                    &c,
+                    &me,
+                    "agents.fetchPath",
+                    json!({ "agentId": AGENT, "path": refused })
+                )
+                .await
+                .is_err(),
+                "{refused}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn schedule_methods_need_an_id_except_create() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, _) = Stub::companion();
+        let me = caller("dev_a");
+        let missing = dispatch(
+            &c,
+            &me,
+            "agents.schedule.cancel",
+            json!({ "agentId": AGENT }),
+        )
+        .await;
+        assert!(missing.is_err());
+        let made = dispatch(
+            &c,
+            &me,
+            "agents.schedule.create",
+            json!({ "agentId": AGENT, "when": "every weekday at 9am", "note": "Check the invoices" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(made["note"], "Check the invoices");
+        assert_eq!(made["repeat"]["kind"], "days");
     }
 
     #[test]

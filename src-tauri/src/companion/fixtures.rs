@@ -163,7 +163,10 @@ fn frames() -> Vec<ServerFrame> {
                 cursor: cursor(5),
                 overview: testkit::overview(),
                 status: testkit::mac_status(),
-                projects: Vec::new(),
+                projects: testkit::projects()
+                    .iter()
+                    .map(|p| serde_json::to_value(p).unwrap())
+                    .collect(),
             },
         ),
         (None, Event::CaughtUp { cursor: cursor(5) }),
@@ -271,8 +274,14 @@ fn entry(name: &str, ts_type: &str, value: impl Serialize) -> String {
     format!("export const {name} = {json} satisfies {ts_type};\n")
 }
 
+/// A blob id is random; the fixture keeps its shape, not its value.
+fn normalize_blob(mut v: Value) -> Value {
+    v["blobId"] = json!("blob_0123456789abcdef0123456789abcdef");
+    v
+}
+
 async fn generate() -> String {
-    let (c, _stub) = Stub::companion();
+    let (c, stub) = Stub::companion();
     let caller = Caller {
         device_id: "dev_0123456789abcdef".into(),
         device_name: "Julian’s iPhone".into(),
@@ -332,6 +341,79 @@ async fn generate() -> String {
             json!({ "agentId": AGENT, "requestId": "q1", "allow": true, "always": true }),
         )
         .await,
+    );
+    out += &entry(
+        "agentsFiles",
+        "Result<'agents.files'>",
+        call("agents.files", json!({ "agentId": AGENT })).await,
+    );
+    std::fs::write(stub.home.path().join("report.md"), "# Q3").unwrap();
+    out += &entry(
+        "agentsFetchPath",
+        "Result<'agents.fetchPath'>",
+        normalize_blob(
+            call(
+                "agents.fetchPath",
+                json!({ "agentId": AGENT, "path": "report.md" }),
+            )
+            .await,
+        ),
+    );
+    out += &entry(
+        "agentsSearch",
+        "Result<'agents.search'>",
+        call("agents.search", json!({ "query": "file" })).await,
+    );
+    for (name, when) in [
+        ("schedulePreviewOnce", "in 2 hours"),
+        ("schedulePreviewDays", "every weekday at 9am"),
+        ("schedulePreviewEvery", "every 30 minutes"),
+    ] {
+        out += &entry(
+            name,
+            "Result<'agents.schedule.preview'>",
+            call("agents.schedule.preview", json!({ "when": when })).await,
+        );
+    }
+    out += &entry(
+        "scheduleCreate",
+        "Result<'agents.schedule.create'>",
+        call(
+            "agents.schedule.create",
+            json!({ "agentId": AGENT, "when": "every weekday at 9am", "note": "Check the invoices" }),
+        )
+        .await,
+    );
+    out += &entry(
+        "scheduleUpdate",
+        "Result<'agents.schedule.update'>",
+        call(
+            "agents.schedule.update",
+            json!({ "agentId": AGENT, "id": "c1", "when": "every 30 minutes", "note": "Look again" }),
+        )
+        .await,
+    );
+    for method in [
+        "agents.schedule.pause",
+        "agents.schedule.cancel",
+        "agents.schedule.runNow",
+    ] {
+        let value = call(
+            method,
+            json!({ "agentId": AGENT, "id": "c1", "paused": true }),
+        )
+        .await;
+        assert_eq!(value, Value::Null, "{method}");
+    }
+    out += &entry(
+        "projectsList",
+        "Result<'projects.list'>",
+        call("projects.list", json!({})).await,
+    );
+    out += &entry(
+        "sessionsRead",
+        "Result<'sessions.read'>",
+        call("sessions.read", json!({ "sessionId": "pty-1" })).await,
     );
     out += &entry("frames", "ServerFrame[]", frames());
     out += &entry("pairResponses", "PairResponse[]", pair_responses());

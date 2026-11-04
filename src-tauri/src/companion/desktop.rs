@@ -13,7 +13,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 use super::hub::HubItem;
-use super::router::{ApprovalAnswer, Backend};
+use super::router::{ApprovalAnswer, Backend, ScheduleOp, SendExtras};
 use super::wire::{ClaudeInfo, Event, Known, MacStatus, PowerInfo, Route, RouteKind};
 use super::{Companion, Registry, TAILNET_HTTPS_PORT};
 use crate::agents::{runner, store};
@@ -155,10 +155,31 @@ impl Backend for DesktopBackend {
         &self,
         agent_id: &str,
         text: String,
-        mentions: Vec<String>,
+        extras: SendExtras,
     ) -> Result<Value, CommandError> {
-        let mentions = (!mentions.is_empty()).then_some(mentions);
-        json(cmd::agents_send(self.app.clone(), agent_id.to_string(), text, None, mentions).await?)
+        let mentions = (!extras.mentions.is_empty()).then_some(extras.mentions);
+        let attachments = (!extras.attachments.is_empty()).then(|| {
+            extras
+                .attachments
+                .into_iter()
+                .map(|a| crate::agents::attachments::OutgoingAttachment {
+                    name: a.name,
+                    path: Some(a.path.display().to_string()),
+                    data: None,
+                })
+                .collect()
+        });
+        json(
+            cmd::agents_send(
+                self.app.clone(),
+                agent_id.to_string(),
+                text,
+                attachments,
+                mentions,
+                extras.client_id,
+            )
+            .await?,
+        )
     }
 
     async fn stop(&self, agent_id: &str) -> Result<bool, CommandError> {
@@ -187,6 +208,85 @@ impl Backend for DesktopBackend {
 
     async fn mark_unread(&self, agent_id: &str) -> Result<(), CommandError> {
         cmd::agents_mark_unread(self.app.clone(), agent_id.to_string()).await
+    }
+
+    async fn files(&self, agent_id: &str) -> Result<Value, CommandError> {
+        json(cmd::agents_files(agent_id.to_string()).await?)
+    }
+
+    async fn shareable_path(
+        &self,
+        agent_id: &str,
+        path: &str,
+    ) -> Result<std::path::PathBuf, CommandError> {
+        let home = store::agent_home(agent_id)?;
+        let mut roots = vec![home.clone()];
+        if let Ok(projects) = crate::commands::projects::list_projects().await {
+            roots.extend(
+                projects
+                    .into_iter()
+                    .map(|p| std::path::PathBuf::from(p.path)),
+            );
+        }
+        let path = path.to_string();
+        tokio::task::spawn_blocking(move || {
+            crate::agents::files::shareable(&path, &home, &roots).map_err(CommandError::expected)
+        })
+        .await
+        .map_err(crate::agents::err_other)?
+    }
+
+    async fn search(&self, query: String) -> Result<Value, CommandError> {
+        json(cmd::agents_search(query).await?)
+    }
+
+    async fn schedule(&self, op: ScheduleOp) -> Result<Value, CommandError> {
+        let app = self.app.clone();
+        match op {
+            ScheduleOp::Preview { when } => json(cmd::agents_schedule_preview(when).await?),
+            ScheduleOp::Create {
+                agent_id,
+                when,
+                note,
+            } => json(cmd::agents_schedule_create(app, agent_id, when, note).await?),
+            ScheduleOp::Update {
+                agent_id,
+                id,
+                when,
+                note,
+            } => json(cmd::agents_schedule_update(app, agent_id, id, when, note).await?),
+            ScheduleOp::Pause {
+                agent_id,
+                id,
+                paused,
+            } => json(cmd::agents_schedule_pause(app, agent_id, id, paused).await?),
+            ScheduleOp::Cancel { agent_id, id } => {
+                json(cmd::agents_schedule_cancel(app, agent_id, id).await?)
+            }
+            ScheduleOp::RunNow { agent_id, id } => {
+                json(cmd::agents_schedule_run_now(app, agent_id, id).await?)
+            }
+        }
+    }
+
+    async fn projects(&self) -> Result<Value, CommandError> {
+        json(crate::remote_access::tools::project_views(&all_projects().await).await)
+    }
+
+    async fn session_screen(&self, session_id: &str) -> Result<Value, CommandError> {
+        let projects = all_projects().await;
+        json(
+            crate::remote_access::tools::session_screen(&projects, session_id)
+                .map_err(CommandError::expected)?,
+        )
+    }
+
+    fn attachment_file(
+        &self,
+        agent_id: &str,
+        rel: &str,
+    ) -> Result<std::path::PathBuf, CommandError> {
+        crate::agents::attachments::resolve(&store::agent_home(agent_id)?, rel)
     }
 
     async fn mac_status(&self) -> MacStatus {
@@ -226,6 +326,15 @@ impl Backend for DesktopBackend {
     fn changed(&self) {
         let _ = self.app.emit(EVENT_CHANGED, ());
     }
+}
+
+/// Every Ship Studio project: what agents reach (the P1 decision), and so
+/// what the phone sees.
+async fn all_projects() -> Vec<String> {
+    crate::commands::projects::list_projects()
+        .await
+        .map(|list| list.into_iter().map(|p| p.path).collect())
+        .unwrap_or_default()
 }
 
 static COMPUTER_NAME: OnceLock<String> = OnceLock::new();
