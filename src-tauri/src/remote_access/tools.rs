@@ -101,7 +101,7 @@ const TOOLS: &[ToolDef] = &[
         title: "Import agents into Ship Studio",
         effect: Effect::Acts,
         open_world: false,
-        description: "Bring the user's agent setup from you into Ship Studio Agents, where the same agents run on Claude Code on this computer. Call it only when the user asks to import or move their agents/setup to Ship Studio. Send every agent: its name, a one-line role, its full instructions (as you were briefed), and what it remembers that it still needs, one fact per line. Mark the agent that manages the others is_main (it merges into Ship Studio's Chief of Staff). Never include passwords, API keys, tokens or card numbers. Safe to call again: same-named agents are updated, not duplicated. Imported agents don't start working until the user messages them.",
+        description: "Bring the user's agent setup from you into Ship Studio Agents, where the same agents run on Claude Code on this computer. Call it only when the user asks to import or move their agents/setup to Ship Studio. Send every agent: its name, a one-line role, its full instructions (as you were briefed), and what it remembers that it still needs, one fact per line. Mark the agent that manages the others is_main (it merges into Ship Studio's Chief of Staff). Include each agent's routines (anything it does on a schedule: automations, reminders, recurring check-ins) as {when, what}, with `when` in plain words such as \"every weekday at 9am\", \"every monday at 8:30am\", \"every 2 hours\" or \"friday at 2pm\". The reply lists any routine whose time Ship Studio couldn't read; tell the user about each one. Never include passwords, API keys, tokens or card numbers. Safe to call again: same-named agents are updated, not duplicated. Imported agents don't start working until the user messages them.",
         schema: || json!({
             "type": "object",
             "properties": {
@@ -115,7 +115,19 @@ const TOOLS: &[ToolDef] = &[
                             "role": { "type": "string" },
                             "instructions": { "type": "string" },
                             "memory": { "type": "string" },
-                            "is_main": { "type": "boolean" }
+                            "is_main": { "type": "boolean" },
+                            "routines": {
+                                "type": "array",
+                                "description": "What this agent does on its own on a schedule.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "when": { "type": "string", "description": "Plain words: \"every weekday at 9am\", \"every 2 hours\", \"friday at 2pm\"." },
+                                        "what": { "type": "string", "description": "What the agent does when it fires." }
+                                    },
+                                    "required": ["when", "what"]
+                                }
+                            }
                         },
                         "required": ["name"]
                     }
@@ -413,7 +425,7 @@ fn import_agents(app: &tauri::AppHandle, args: &Value) -> Value {
             Ok(list) => list,
             Err(e) => {
                 return error(format!(
-                "`agents` should be a list of {{name, role, instructions, memory, is_main}}: {e}"
+                "`agents` should be a list of {{name, role, instructions, memory, is_main, routines: [{{when, what}}]}}: {e}"
             ))
             }
         };

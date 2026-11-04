@@ -48,6 +48,18 @@ const PASTE_PREVIEW = {
       existing: false,
       instructionsChars: 2140,
       memoryLines: 18,
+      routines: [
+        {
+          when: 'every weekday at 8am',
+          what: 'Brief me on the day.',
+          schedule: 'every weekday at 08:00',
+        },
+        {
+          when: 'every sunday at 6pm',
+          what: 'Plan the week with me.',
+          schedule: 'every Sunday at 18:00',
+        },
+      ],
     },
     {
       name: 'Finance',
@@ -56,6 +68,13 @@ const PASTE_PREVIEW = {
       existing: true,
       instructionsChars: 1312,
       memoryLines: 9,
+      routines: [
+        {
+          when: 'whenever rent is due',
+          what: 'Remind me to pay rent.',
+          refused: 'Give it a day and a time.',
+        },
+      ],
     },
     {
       name: 'Travel',
@@ -64,6 +83,7 @@ const PASTE_PREVIEW = {
       existing: false,
       instructionsChars: 864,
       memoryLines: 6,
+      routines: [] as { when: string; what: string; schedule?: string; refused?: string }[],
     },
     {
       name: 'Inbox',
@@ -72,6 +92,7 @@ const PASTE_PREVIEW = {
       existing: false,
       instructionsChars: 1027,
       memoryLines: 0,
+      routines: [{ when: 'every 2 hours', what: 'Triage new email.', schedule: 'every 2 hours' }],
     },
   ],
   problems: [] as string[],
@@ -1130,7 +1151,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-import-paste-preview',
     title: 'Agents — import, a pasted reply previewed',
     looksRightWhen:
-      'Under the pasted reply: "4 agents from Grok Bot, in 2 parts", then one row per agent with its name, role and how much instruction and memory came across. The main one says it merges into Chief of Staff, Finance says it updates the existing agent, the rest are New. The primary button reads "Import 4 agents".',
+      'Under the pasted reply: "4 agents from Grok Bot, in 2 parts", then one row per agent with its name, role and how much instruction and memory came across. The main one says it merges into Chief of Staff, Finance says it updates the existing agent, the rest are New. Routines sit under their agent; Finance\'s "whenever rent is due" is in amber saying it won\'t be set and why, and the count line says 1 routine can\'t be set as written. The primary button reads "Import 4 agents".',
     // Steps run before a palette command, so these walk in: Agents mode, then
     // the first-run Import agents… starter.
     requires: '.agents-import__paste',

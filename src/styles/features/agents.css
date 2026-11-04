@@ -1672,8 +1672,42 @@
   white-space: nowrap;
 }
 
+/* Counts, not prose: wrap rather than cut off the routine count. */
 .agents-import__agent-detail {
   color: var(--text-muted);
+  white-space: normal;
+}
+
+.agents-import__routines {
+  display: flex;
+  flex-direction: column;
+  margin: var(--spacing-xs) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agents-import__routine {
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Wraps: the phrase and the reason are the whole point of showing it. */
+.agents-import__routine[data-refused] {
+  color: var(--warning);
+  white-space: normal;
+}
+
+.agents-import__done p {
+  margin: 0;
+}
+
+.agents-import__done {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
 }
 
 .agents-import__tag {
