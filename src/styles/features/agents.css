@@ -521,13 +521,13 @@
   gap: var(--spacing-2xs);
 }
 
-/* Two sizes in the column: --font-size-subhead for anything a person reads,
+/* Two sizes in the column: --font-size-subhead-lg for anything a person reads,
    --font-size-body-sm for metadata. */
 .agent-bubble {
   max-width: var(--agents-bubble-max);
   padding: var(--spacing-sm) var(--spacing-md);
-  font-size: var(--font-size-subhead);
-  line-height: var(--line-height-help);
+  font-size: var(--font-size-subhead-lg);
+  line-height: var(--line-height-reading);
   color: var(--text-primary);
   border-radius: var(--radius-lg);
   overflow-wrap: anywhere;
@@ -539,7 +539,6 @@
 .agent-bubble--agent {
   max-width: min(var(--agents-prose-measure), 100%);
   padding: 0;
-  line-height: var(--line-height-reading);
   border-radius: 0;
 }
 
@@ -548,7 +547,6 @@
 .agent-bubble--user {
   white-space: pre-wrap;
   background: var(--surface-selected);
-  box-shadow: var(--shadow-button);
 }
 
 /* A message and its quiet actions on one line: Copy and the time sit beside
@@ -675,7 +673,7 @@
 }
 
 .agent-markdown li + li {
-  margin-top: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
 }
 
 .agent-markdown li > ul,
@@ -704,10 +702,22 @@
 .agent-markdown h4,
 .agent-markdown h5,
 .agent-markdown h6 {
-  margin: var(--spacing-lg) 0 var(--spacing-xs);
+  margin: var(--spacing-xl) 0 var(--spacing-sm);
   font-size: inherit;
   font-weight: var(--font-weight-heading);
   line-height: var(--line-height-compact);
+}
+
+/* A heading opens a section: the top levels step up a size, and every level
+   takes more room above than a paragraph does. */
+.agent-markdown h1,
+.agent-markdown h2 {
+  font-size: var(--font-size-h4);
+}
+
+.agent-markdown > * + :is(h1, h2, h3, h4, h5, h6),
+.agent-markdown__prose > * + :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: var(--spacing-xl);
 }
 
 .agent-markdown code {
@@ -817,7 +827,7 @@
 }
 
 .agent-checkin__late {
-  color: var(--text-faint);
+  color: var(--text-secondary);
 }
 
 .agent-checkin__note {
@@ -828,7 +838,7 @@
   -webkit-box-orient: vertical;
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-help);
-  color: var(--text-faint);
+  color: var(--text-muted);
   text-align: center;
   white-space: pre-line;
 }
@@ -915,11 +925,16 @@
   color: var(--text-muted);
 }
 
+/* Who spoke: the other agent's words carry its name; yours to it read "To …". */
+.agent-peer__message[data-direction='from_agent'] .agent-peer__who {
+  color: var(--text-secondary);
+}
+
 .agent-peer__text {
   font-size: var(--font-size-subhead);
-  line-height: var(--line-height-help);
+  line-height: var(--line-height-reading);
   color: var(--text-secondary);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   user-select: text;
 }
 

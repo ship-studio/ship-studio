@@ -152,8 +152,27 @@ interface AgentBubbleProps extends Arrival {
   streaming?: boolean;
 }
 
+/** Markdown prose with code blocks, shared by replies and agent-to-agent threads. */
+function Prose({ text }: { text: string }) {
+  const segments = useMemo(() => toSegments(text), [text]);
+  return (
+    <>
+      {segments.map((segment, i) =>
+        segment.type === 'code' ? (
+          <CodeBlock key={i} text={segment.text} />
+        ) : (
+          <div
+            key={i}
+            className="agent-markdown__prose"
+            dangerouslySetInnerHTML={{ __html: segment.html }}
+          />
+        )
+      )}
+    </>
+  );
+}
+
 export function AgentBubble({ message, arrived, streaming }: AgentBubbleProps) {
-  const segments = useMemo(() => toSegments(message.text), [message.text]);
   const onClick = useExternalLinks();
   return (
     <div
@@ -168,17 +187,7 @@ export function AgentBubble({ message, arrived, streaming }: AgentBubbleProps) {
         aria-busy={streaming || undefined}
         onClick={onClick}
       >
-        {segments.map((segment, i) =>
-          segment.type === 'code' ? (
-            <CodeBlock key={i} text={segment.text} />
-          ) : (
-            <div
-              key={i}
-              className="agent-markdown__prose"
-              dangerouslySetInnerHTML={{ __html: segment.html }}
-            />
-          )
-        )}
+        <Prose text={message.text} />
       </div>
       {message.stopped && <span className="agent-bubble__stopped">Stopped</span>}
       {!streaming && <MessageActions text={message.text} ts={message.ts} />}
@@ -387,7 +396,9 @@ export function PeerGroup({
               <span className="agent-peer__who">
                 {m.kind === 'sent_to_agent' ? `To ${peer.name}` : peer.name}
               </span>
-              <span className="agent-peer__text">{m.text}</span>
+              <div className="agent-peer__text agent-markdown">
+                <Prose text={m.text} />
+              </div>
             </div>
           ))}
         </div>
