@@ -109,5 +109,12 @@ export interface Scenario {
    * relying on the app's default view happening to show it.
    */
   command?: string;
+  /**
+   * Deliver Tauri events between `emit` and `listen` (Tauri's own event
+   * mocking). Off by default so other scenarios keep today's behaviour; a
+   * fixture that streams backend events (dictation) turns it on and calls
+   * `emit` from `@tauri-apps/api/event`.
+   */
+  mockEvents?: boolean;
   commands: CommandMap;
 }

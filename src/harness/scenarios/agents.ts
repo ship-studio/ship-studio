@@ -3,6 +3,7 @@
  * truncation, ordering, badges and the agent-to-agent lines are reviewable.
  */
 
+import { emit } from '@tauri-apps/api/event';
 import type { Scenario } from '../types';
 
 const MIN = 60_000;
@@ -262,6 +263,19 @@ const messagesFor = (args: Record<string, unknown>) => {
   return sent;
 };
 
+/** Dictation mid-sentence: a partial in the draft, the meter at a speaking level. */
+const startListening = () => {
+  setTimeout(() => {
+    void emit('dictation://event', {
+      kind: 'partial',
+      session: 1,
+      text: 'Can you ask Finance to send the Northwind reminder',
+    });
+    void emit('dictation://event', { kind: 'level', session: 1, level: 0.55 });
+  }, 50);
+  return { status: 'listening', session: 1 };
+};
+
 export const agentsScenarios: Scenario[] = [
   {
     id: 'agents-team',
@@ -343,6 +357,39 @@ export const agentsScenarios: Scenario[] = [
     command: 'agents.import',
     requires: '.agents-import__prompt',
     commands: {},
+  },
+  {
+    id: 'agents-dictating',
+    title: 'Agents — dictating into the composer',
+    looksRightWhen:
+      'The words arriving sit in the composer in the secondary text colour, not yet settled. The mic is tinted and a soft halo behind it shows the voice level; the composer border is tinted to match. Nothing reads as an error, and Send is unchanged.',
+    // Steps run before a palette command, so walk in through the sidebar.
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agent-composer[data-dictation="listening"]',
+    steps: [{ click: '.agent-composer__mic' }],
+    mockEvents: true,
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      start_dictation: startListening,
+      cancel_dictation: null,
+      stop_dictation: null,
+    },
+  },
+  {
+    id: 'agents-dictation-blocked',
+    title: 'Agents — dictation without microphone access',
+    looksRightWhen:
+      'One quiet line above the composer says Ship Studio needs microphone access, with a link to open System Settings. The composer still works for typing.',
+    // Steps run before a palette command, so walk in through the sidebar.
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agent-composer__notice',
+    steps: [{ click: '.agent-composer__mic' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      start_dictation: { status: 'blocked', reason: 'microphone' },
+    },
   },
   {
     id: 'agents-no-engine',

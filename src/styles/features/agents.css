@@ -989,6 +989,70 @@
   color: var(--text-secondary);
 }
 
+/* ----------------------------------------------------------- dictation */
+
+/* The mic sits beside Send. While listening it brightens and a soft,
+   neutral halo behind it breathes with the input level (--dictation-level,
+   0..1, written by useDictation). Deliberately not red: listening is a calm
+   state, and red here read as an error. */
+.agent-composer__mic {
+  position: relative;
+  flex: 0 0 auto;
+  isolation: isolate;
+  --dictation-level: 0;
+}
+
+.agent-composer__mic::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: '';
+  background: var(--text-primary);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.agent-composer:not([data-dictation='idle']) .agent-composer__mic,
+.agent-composer:not([data-dictation='idle']) .agent-composer__mic:hover:not(:disabled) {
+  color: var(--text-primary);
+  /* The round halo is the state; a square hover plate on top muddies it. */
+  background: transparent;
+}
+
+.agent-composer[data-dictation='starting'] .agent-composer__mic::before {
+  opacity: 0.06;
+  transform: scale(0.85);
+}
+
+.agent-composer[data-dictation='listening'] .agent-composer__mic::before {
+  opacity: calc(0.12 + var(--dictation-level) * 0.14);
+  transform: scale(calc(0.9 + var(--dictation-level) * 0.35));
+}
+
+/* What arrives while listening reads as provisional until it settles. */
+.agent-composer[data-dictation='listening'] .agent-composer__input,
+.agent-composer[data-dictation='finishing'] .agent-composer__input {
+  color: var(--text-secondary);
+}
+
+.agent-composer[data-dictation='listening'],
+.agent-composer[data-dictation='finishing'] {
+  border-color: var(--border-strong);
+}
+
+.agent-composer__notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs) var(--spacing-md);
+  align-items: baseline;
+  width: calc(100% - (var(--spacing-xl) * 2));
+  max-width: var(--agents-chat-width);
+  margin: 0 auto var(--spacing-sm);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
 /* -------------------------------------------------------------- dialogs */
 
 .modal-frame-content.agent-editor {

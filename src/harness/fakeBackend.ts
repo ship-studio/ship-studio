@@ -75,23 +75,26 @@ export function installFakeBackend(scenario: Scenario): void {
 
   const commands: CommandMap = { ...baseCommands, ...scenario.commands };
 
-  mockIPC((cmd, args) => {
-    const payload = (args ?? {}) as Record<string, unknown>;
-    // Tauri's own event plumbing polls constantly; counting it would mean IPC
-    // never falls quiet.
-    if (!cmd.startsWith('plugin:')) lastCallAt = Date.now();
+  mockIPC(
+    (cmd, args) => {
+      const payload = (args ?? {}) as Record<string, unknown>;
+      // Tauri's own event plumbing polls constantly; counting it would mean IPC
+      // never falls quiet.
+      if (!cmd.startsWith('plugin:')) lastCallAt = Date.now();
 
-    if (cmd in commands) {
-      const value = commands[cmd];
-      return isHandler(value) ? value(payload) : value;
-    }
+      if (cmd in commands) {
+        const value = commands[cmd];
+        return isHandler(value) ? value(payload) : value;
+      }
 
-    if (cmd in PLUGIN_DEFAULTS) return PLUGIN_DEFAULTS[cmd];
+      if (cmd in PLUGIN_DEFAULTS) return PLUGIN_DEFAULTS[cmd];
 
-    // Tauri's internal plumbing — noise, not a missing fixture.
-    if (cmd.startsWith('plugin:')) return null;
+      // Tauri's internal plumbing — noise, not a missing fixture.
+      if (cmd.startsWith('plugin:')) return null;
 
-    recordUnhandled(cmd, payload);
-    return undefined;
-  });
+      recordUnhandled(cmd, payload);
+      return undefined;
+    },
+    { shouldMockEvents: scenario.mockEvents }
+  );
 }

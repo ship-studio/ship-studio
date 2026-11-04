@@ -16,6 +16,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   HomeIcon,
+  MicrophoneIcon,
   MoreHorizontalIcon,
   WarningIcon,
 } from '@/components/icons';
@@ -23,10 +24,14 @@ import { Button } from '../primitives/Button';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
+import { TextButton } from '../primitives/TextButton';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
+import { useDictation } from './useDictation';
+import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
+import { listProjects } from '../../lib/project';
 import {
   AgentBubble,
   ApprovalCard,
@@ -97,10 +102,36 @@ export function AgentChat({
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
-
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Mounted once per agent (keyed by id), so the draft starts empty.
-  useEffect(() => inputRef.current?.focus(), []);
+  const draftRef = useRef(draft);
+  useLayoutEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  const micRef = useRef<HTMLButtonElement>(null);
+  const getDraft = useCallback(() => draftRef.current, []);
+  const getVocabulary = useCallback(
+    async () =>
+      dictationVocabulary(
+        [...agentsById.values()].map((a) => a.name),
+        (await listProjects().catch(() => [])).map((p) => p.name)
+      ),
+    [agentsById]
+  );
+  const dictation = useDictation({
+    getDraft,
+    setDraft,
+    getVocabulary,
+    meterRef: micRef,
+    enabled: engineReady,
+  });
+  const dictating = dictation.phase !== 'idle';
+  const blocked = dictation.blocked ? blockedCopy(dictation.blocked) : null;
+
+  // Focus the composer on open (mounted once per agent, keyed by id, so the
+  // draft starts empty) and again when dictation ends, wherever it started.
+  useEffect(() => {
+    if (!dictating) inputRef.current?.focus();
+  }, [dictating]);
 
   // A pending bubble gives way as soon as its message is in the store, which
   // can be before the send call returns (the backend's event can win). The
@@ -179,7 +210,7 @@ export function AgentChat({
 
   const send = () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || dictating) return;
     setDraft('');
     atBottomRef.current = true;
     const entry = newPending(text);
@@ -396,9 +427,28 @@ export function AgentChat({
           />
         )}
 
+        {blocked && (
+          <p className="agent-composer__notice" role="alert">
+            <span>{blocked.message}</span>
+            {blocked.settings && (
+              <TextButton
+                variant="accent"
+                onClick={() => {
+                  const url = blocked.settings;
+                  if (url) void openPrivacySettings(url);
+                }}
+              >
+                Open System Settings
+              </TextButton>
+            )}
+            <TextButton onClick={dictation.dismissBlocked}>Dismiss</TextButton>
+          </p>
+        )}
+
         {engineReady ? (
           <form
             className="agent-composer"
+            data-dictation={dictation.phase}
             onSubmit={(e) => {
               e.preventDefault();
               send();
@@ -409,9 +459,11 @@ export function AgentChat({
               className="agent-composer__input"
               rows={1}
               value={draft}
-              placeholder={`Message ${agent.name}`}
+              placeholder={dictating ? 'Listening…' : `Message ${agent.name}`}
+              readOnly={dictating}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
+                if (dictation.onComposerKeyDown(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   send();
@@ -422,7 +474,20 @@ export function AgentChat({
               }}
               aria-label={`Message ${agent.name}`}
             />
-            {working && !draft.trim() ? (
+            <IconButton
+              ref={micRef}
+              variant="ghost"
+              className="agent-composer__mic"
+              icon={<MicrophoneIcon size={14} />}
+              onClick={dictation.toggle}
+              disabled={dictation.phase === 'finishing'}
+              aria-pressed={dictating}
+              aria-label={dictating ? 'Stop dictating' : 'Dictate'}
+              title={
+                dictating ? 'Stop dictating (Esc to discard)' : 'Dictate (⌘⇧D, or hold ⌥Space)'
+              }
+            />
+            {working && !draft.trim() && !dictating ? (
               <IconButton
                 variant="secondary"
                 className="agent-composer__stop"
@@ -434,10 +499,10 @@ export function AgentChat({
             ) : (
               <IconButton
                 type="submit"
-                variant={draft.trim() ? 'primary' : 'secondary'}
+                variant={draft.trim() && !dictating ? 'primary' : 'secondary'}
                 className="agent-composer__send"
                 icon={<ArrowUpIcon size={14} />}
-                disabled={!draft.trim()}
+                disabled={!draft.trim() || dictating}
                 aria-label="Send"
                 title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
               />

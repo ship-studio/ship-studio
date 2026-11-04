@@ -12,10 +12,19 @@
 
   Needed only by the opt-in Spotify widget
   (src-tauri/src/commands/spotify.rs). Do not remove.
+
+  NSMicrophoneUsageDescription and NSSpeechRecognitionUsageDescription are
+  for dictation in the Agents composer (src-tauri/src/commands/dictation.rs).
+  Asking for either permission without its string makes macOS kill the
+  process, so dictation.rs refuses to ask when they're missing.
 -->
 <plist version="1.0">
 <dict>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Ship Studio uses this to show and control what's playing in Spotify.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ship Studio listens only while you dictate a message to an agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Ship Studio turns your dictation into text on this Mac.</string>
 </dict>
 </plist>
