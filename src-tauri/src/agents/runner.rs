@@ -158,6 +158,18 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
         if counts_as_unread {
             agent.unread = agent.unread.saturating_add(1);
         }
+        match message.kind {
+            MessageKind::Error => {
+                agent.failure = Some(
+                    message
+                        .failure
+                        .clone()
+                        .unwrap_or(super::failure::Failure::OTHER),
+                )
+            }
+            MessageKind::Note => {}
+            _ => agent.failure = None,
+        }
     });
     let _ = app.emit(EVENT_MESSAGE, &message);
     let _ = app.emit(EVENT_REGISTRY, ());
@@ -232,6 +244,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         check_in: None,
         stopped: false,
         mentions: Vec::new(),
+        failure: None,
     }
 }
 
@@ -348,10 +361,10 @@ async fn drain(app: AppHandle, agent_id: String) {
             }
         };
         if let Err(err) = run_turn(&app, &agent_id, &prompt, true).await {
-            let _ = record(
-                &app,
-                new_message(&agent_id, MessageKind::Error, err.to_string()),
-            );
+            let (text, failure) = super::failure::describe_now(&err.to_string());
+            let mut line = new_message(&agent_id, MessageKind::Error, text);
+            line.failure = Some(failure);
+            let _ = record(&app, line);
         }
         notify::turn_ended(&app, &agent_id);
     }
@@ -715,10 +728,16 @@ async fn run_turn(
             let _ = record(app, new_message(agent_id, MessageKind::Note, line));
             return Ok(());
         }
-        // Stopped by the user: the cut-off reply already says so.
-        let note = note.or(cut_off.is_none().then_some("Stopped."));
-        if let Some(note) = note {
-            let _ = record(app, new_message(agent_id, MessageKind::Error, note));
+        // Stopped by the user is their doing, not a failure: a quiet line,
+        // unless the cut-off reply already says so. Our own stop is an error.
+        match note {
+            Some(note) => {
+                let _ = record(app, new_message(agent_id, MessageKind::Error, note));
+            }
+            None if cut_off.is_none() => {
+                let _ = record(app, new_message(agent_id, MessageKind::Note, "Stopped"));
+            }
+            None => {}
         }
         return Ok(());
     }

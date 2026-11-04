@@ -293,6 +293,7 @@ mod tests {
             check_ins: Vec::new(),
             usage: Default::default(),
             permissions: Vec::new(),
+            failure: None,
         }
     }
 
@@ -307,6 +308,7 @@ mod tests {
             input: None,
             always: None,
             always_allowed: false,
+            note: None,
         });
         message
     }

@@ -34,12 +34,7 @@ export function ImportAgentsModal({ isOpen, onClose }: ImportAgentsModalProps) {
   }, [isOpen]);
 
   return (
-    <ModalFrame
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Import your agents"
-      className="agents-import"
-    >
+    <ModalFrame isOpen={isOpen} onClose={onClose} title="Import agents" className="agents-import">
       <div className="agents-import__body">
         <p>
           Bring over the agents you already have in Grok Bot, or in any assistant connected to Ship

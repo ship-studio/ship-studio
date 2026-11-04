@@ -46,7 +46,8 @@ export function FileGlyph({ mime }: { mime: string }) {
 
 interface ComposerAttachmentsProps {
   items: DraftAttachment[];
-  onRemove: (id: string) => void;
+  /** Absent once they're on their way (a message still sending shows them as they were). */
+  onRemove?: (id: string) => void;
 }
 
 /** Staged files above the text, each removable until it's sent. */
@@ -76,14 +77,16 @@ export function ComposerAttachments({ items, onRemove }: ComposerAttachmentsProp
               </span>
             </>
           )}
-          <IconButton
-            variant="secondary"
-            size="compact"
-            className="agent-attachment-chip__remove"
-            icon={<CloseIcon size={12} />}
-            onClick={() => onRemove(item.id)}
-            aria-label={`Remove ${item.name}`}
-          />
+          {onRemove && (
+            <IconButton
+              variant="secondary"
+              size="compact"
+              className="agent-attachment-chip__remove"
+              icon={<CloseIcon size={12} />}
+              onClick={() => onRemove(item.id)}
+              aria-label={`Remove ${item.name}`}
+            />
+          )}
         </li>
       ))}
     </ul>

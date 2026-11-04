@@ -226,6 +226,7 @@ mod tests {
             check_in: None,
             stopped: false,
             mentions: Vec::new(),
+            failure: None,
         })
         .unwrap();
         id
@@ -292,6 +293,7 @@ mod tests {
                 check_in: None,
                 stopped: false,
                 mentions: Vec::new(),
+                failure: None,
             })
             .unwrap();
             let found = search_in(&store::list().unwrap(), "deploy", 50).unwrap();
@@ -353,6 +355,7 @@ mod tests {
             check_in: None,
             stopped: false,
             mentions: Vec::new(),
+            failure: None,
         };
         assert!(match_message(&message, &terms("müller")).is_some());
         assert!(match_message(&message, &terms("müller schmidt")).is_none());

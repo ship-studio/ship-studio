@@ -13,6 +13,7 @@ import {
   highlightRuns,
   hitSpeaker,
   searchAgents,
+  snippetAround,
   type SearchHit,
 } from '../../lib/agents';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -69,9 +70,11 @@ interface AgentsSearchResultsProps {
   query: string;
   field: RefObject<HTMLInputElement | null>;
   onOpen: (hit: SearchHit) => void;
+  /** The hit last opened: marked like the current row, so ↓ and Enter walk on from it. */
+  currentId?: string | null;
 }
 
-export function AgentsSearchResults({ query, field, onOpen }: AgentsSearchResultsProps) {
+export function AgentsSearchResults({ query, field, onOpen, currentId }: AgentsSearchResultsProps) {
   const trimmed = query.trim();
   const results = useSearch(trimmed);
   // Keep showing the last answer while the next one is on its way.
@@ -103,13 +106,14 @@ export function AgentsSearchResults({ query, field, onOpen }: AgentsSearchResult
                 key={hit.messageId}
                 type="button"
                 tabIndex={0}
-                className="agents-search__hit"
+                className={`agents-search__hit${hit.messageId === currentId ? ' is-current' : ''}`}
+                aria-current={hit.messageId === currentId || undefined}
                 onClick={() => onOpen(hit)}
               >
                 <span className="agents-search__snippet">
                   {speaker && <span className="agents-search__speaker">{speaker}: </span>}
-                  {highlightRuns(hit.snippet, results.query).map((run, i) =>
-                    run.match ? <mark key={i}>{run.text}</mark> : run.text
+                  {highlightRuns(snippetAround(hit.snippet, results.query), results.query).map(
+                    (run, i) => (run.match ? <mark key={i}>{run.text}</mark> : run.text)
                   )}
                 </span>
                 <span className="agents-search__time">{formatHitTime(hit.ts)}</span>

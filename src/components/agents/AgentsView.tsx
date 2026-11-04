@@ -7,9 +7,11 @@
  * Switching agents keeps the current conversation on screen until the next
  * one's messages are in, so a switch is one swap rather than a blank beat.
  *
- * Keys: ⌘N new agent; ⌥⌘↑ / ⌥⌘↓ or ⌘[ / ⌘] previous / next agent; ⌘F
- * search, Esc to put it away; Esc in an empty composer otherwise stops a
- * working agent (AgentChat); ⌘K "Open <agent>".
+ * Keys: ⌘N new agent; ⌥⌘↑ / ⌥⌘↓ or ⌘[ / ⌘] previous / next agent; ⌘J the
+ * next agent that needs you (a card, or a turn that didn't finish); ⌘F
+ * search, Esc to put it away; Esc twice in an empty composer stops a working
+ * agent (AgentChat); ⌘K "Open <agent>", "Stop <agent>", and Allow / Deny for
+ * the oldest card waiting on you.
  *
  * @module components/agents/AgentsView
  */
@@ -27,10 +29,14 @@ import { ImportAgentsModal } from './ImportAgentsModal';
 import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { Spinner } from '../primitives/Spinner';
 import {
+  answerApproval,
   deleteAgent,
   focusAgent,
   markAgentUnread,
+  needsAttention,
+  needsYou,
   sortAgents,
+  stopAgent,
   TEAM_ID,
   updateAgent,
   type Agent,
@@ -39,8 +45,10 @@ import {
 import { getAgentsSnapshot, loadMessages, refreshAgents, useAgents } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { useOpenModal } from '../../contexts/ModalContext';
 import { useAgentsIntents } from '../../commands/useAgentsCommands';
+import { useCommands } from '../../commands/useCommands';
+import { AgentsIcon, CheckIcon, CloseIcon } from '@/components/icons';
+import { kbd } from '../../lib/shortcuts';
 
 const SELECTED_KEY = 'shipstudio.agents.selected';
 
@@ -68,7 +76,6 @@ interface AgentsViewProps {
 export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const { agents, loaded, error, messages } = useAgents();
   const { showToast } = useOptionalToast();
-  const openModal = useOpenModal();
   const [selectedId, setSelectedId] = useState<string | null>(readSelected);
   const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null }>({
     open: false,
@@ -135,7 +142,11 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const popoverSearch = isCompact || sidebarProps.isSidebarHidden;
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [signingIn, setSigningIn] = useState(false);
+  /** Claude Code's terminal: installing (then signing in), or only signing in. */
+  const [claudeStep, setClaudeStep] = useState<'install' | 'sign-in' | null>(null);
+  /** The search hit last opened, marked in the results. */
+  const [currentHit, setCurrentHit] = useState<string | null>(null);
+  const [stopping, setStopping] = useState<Agent | null>(null);
   const searchOpen = query.trim().length > 0 || (popoverSearch && popoverOpen);
   const closeSearch = useCallback(() => {
     setPopoverOpen(false);
@@ -188,7 +199,10 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
     setJumpTo(messageId);
   }, []);
   const openHit = useCallback(
-    (hit: SearchHit) => openMessage(hit.agentId, hit.messageId),
+    (hit: SearchHit) => {
+      setCurrentHit(hit.messageId);
+      openMessage(hit.agentId, hit.messageId);
+    },
     [openMessage]
   );
   const clearJump = useCallback(() => setJumpTo(null), []);
@@ -201,9 +215,19 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   // The order you see in the sidebar, for previous / next.
   const order = sortAgents(agents).filter((a) => !a.hidden || showHidden || a.id === selected?.id);
-  const keys = useRef({ order, selected, openNew });
+  /** The next agent after the one open that needs you, wrapping; null if none does. */
+  const nextNeedingYou = useCallback((): Agent | null => {
+    const list = sortAgents(agents).filter((a) => !a.hidden);
+    const from = list.findIndex((a) => a.id === selected?.id);
+    for (let i = 1; i <= list.length; i++) {
+      const a = list[(from + i + list.length) % list.length];
+      if (needsAttention(a) && a.id !== selected?.id) return a;
+    }
+    return null;
+  }, [agents, selected?.id]);
+  const keys = useRef({ order, selected, openNew, nextNeedingYou });
   useEffect(() => {
-    keys.current = { order, selected, openNew };
+    keys.current = { order, selected, openNew, nextNeedingYou };
   });
 
   useEffect(() => {
@@ -211,10 +235,16 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
       if (!event.metaKey && !event.ctrlKey) return;
       // Leave every key alone while a dialog owns the keyboard.
       if (document.querySelector('[aria-modal="true"]')) return;
-      const { order, selected, openNew } = keys.current;
+      const { order, selected, openNew, nextNeedingYou } = keys.current;
       if (event.key.toLowerCase() === 'n' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         openNew();
+        return;
+      }
+      if (event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        const next = nextNeedingYou();
+        if (next) setSelectedId(next.id);
         return;
       }
       const step =
@@ -232,6 +262,85 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // The oldest card waiting on you, on the first agent (sidebar order) with one.
+  const waitingOn = sortAgents(agents).find((a) => !a.hidden && needsYou(a)) ?? null;
+  const topCard = waitingOn
+    ? (messages[waitingOn.id] ?? []).find((m) => m.approval?.status === 'pending')
+    : undefined;
+  useEffect(() => {
+    if (waitingOn && !getAgentsSnapshot().messages[waitingOn.id]) void loadMessages(waitingOn.id);
+  }, [waitingOn?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const answerTop = useCallback(
+    (allow: boolean) => {
+      if (!waitingOn || !topCard?.approval) return;
+      answerApproval(waitingOn.id, topCard.approval.requestId, allow).catch((err: unknown) =>
+        showToast(formatCommandError(asCommandError(err)), 'error')
+      );
+    },
+    [waitingOn, topCard, showToast]
+  );
+
+  useCommands(
+    () => [
+      {
+        id: 'agents.nextNeedingYou',
+        title: 'Open the next agent that needs you',
+        icon: <AgentsIcon size={14} />,
+        category: 'navigation',
+        shortcut: kbd('mod', 'J'),
+        keywords: ['agents', 'approval', 'waiting', 'failed', 'unread', 'jump'],
+        when: () => agents.some((a) => !a.hidden && needsAttention(a)),
+        run: () => {
+          const next = nextNeedingYou();
+          if (next) setSelectedId(next.id);
+        },
+      },
+      ...(waitingOn && topCard?.approval
+        ? [
+            {
+              id: 'agents.allowTop',
+              title: `Allow ${waitingOn.name}: ${topCard.approval.title}`,
+              icon: <CheckIcon size={14} />,
+              category: 'action' as const,
+              keywords: ['agents', 'approve', 'approval', 'yes', topCard.approval.detail],
+              run: () => answerTop(true),
+            },
+            {
+              id: 'agents.denyTop',
+              title: `Deny ${waitingOn.name}: ${topCard.approval.title}`,
+              icon: <CloseIcon size={14} />,
+              category: 'action' as const,
+              keywords: ['agents', 'decline', 'approval', 'no', topCard.approval.detail],
+              run: () => answerTop(false),
+            },
+          ]
+        : []),
+      ...agents
+        .filter((a) => a.status.state !== 'idle')
+        .map((a) => ({
+          id: `agents.stop.${a.id}`,
+          title: `Stop ${a.name}`,
+          icon: <CloseIcon size={14} />,
+          category: 'action' as const,
+          keywords: ['agents', 'cancel', 'halt', 'kill', 'interrupt'],
+          run: () => setStopping(a),
+        })),
+    ],
+    [agents, waitingOn, topCard, answerTop, nextNeedingYou]
+  );
+
+  const confirmStop = async () => {
+    if (!stopping) return;
+    const agent = stopping;
+    setStopping(null);
+    try {
+      await stopAgent(agent.id);
+    } catch (err) {
+      showToast(formatCommandError(asCommandError(err)), 'error');
+    }
+  };
 
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -286,6 +395,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
                 query={popoverSearch ? '' : query}
                 searchRef={searchRef}
                 onOpenHit={openHit}
+                currentHit={currentHit}
               />
             }
           />
@@ -306,7 +416,16 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
             <AgentsTeamView
               onOpenAgent={setSelectedId}
               onOpenMessage={openMessage}
-              onGoProjects={isCompact ? sidebarProps.onGoProjects : undefined}
+              onSignIn={() => setClaudeStep('sign-in')}
+              compact={
+                isCompact
+                  ? {
+                      agents,
+                      onGoHome: sidebarProps.onGoHome,
+                      onGoProjects: sidebarProps.onGoProjects,
+                    }
+                  : undefined
+              }
             />
           ) : !shown ? (
             <div className="agents-main__state">
@@ -318,8 +437,8 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
               agent={shown}
               agentsById={agentsById}
               onOpenAgent={setSelectedId}
-              onSetUpEngine={() => openModal('settings')}
-              onSignIn={() => setSigningIn(true)}
+              onSetUpEngine={() => setClaudeStep('install')}
+              onSignIn={() => setClaudeStep('sign-in')}
               onImport={openImport}
               onEscape={escapeSearch}
               compact={
@@ -352,7 +471,20 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
         onDelete={setDeleting}
       />
       <ImportAgentsModal isOpen={importOpen} onClose={() => setImportOpen(false)} />
-      {signingIn && <ClaudeSignInModal onClose={() => setSigningIn(false)} />}
+      {claudeStep && <ClaudeSignInModal start={claudeStep} onClose={() => setClaudeStep(null)} />}
+      {stopping && (
+        <ProjectActionConfirmModal
+          title={`Stop ${stopping.name}?`}
+          body={<p>What it’s doing now ends here, and anything queued for it is dropped.</p>}
+          hint="Its conversation is kept."
+          loading={false}
+          confirmLabel="Stop"
+          loadingLabel="Stopping…"
+          confirmVariant="danger"
+          onCancel={() => setStopping(null)}
+          onConfirm={() => void confirmStop()}
+        />
+      )}
       {deleting && (
         <ProjectActionConfirmModal
           title={`Delete ${deleting.name}?`}

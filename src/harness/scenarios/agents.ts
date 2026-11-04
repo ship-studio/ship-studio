@@ -58,6 +58,8 @@ const agent = (
 const TEAM = [
   agent('chief', 'Chief of Staff', {
     isMain: true,
+    // Created pinned: the one agent you're told to talk to doesn't move.
+    pinned: true,
     shape: 5,
     color: 'white',
     minutesAgo: 3,
@@ -578,21 +580,72 @@ const searchFor = (args: Record<string, unknown>) => {
     });
 };
 
+/** A usage limit that resets in two hours, as Claude Code reported it. */
+const RESETS_AT = Math.ceil((now + 2 * 60 * MIN) / (15 * MIN)) * 15 * MIN;
+const resetClock = new Date(RESETS_AT).toLocaleTimeString(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+});
+const usageLimit = (minutesAgo: number) =>
+  msg('error', `Claude Code’s usage limit is reached. It resets at ${resetClock}.`, minutesAgo, {
+    agentId: 'finance',
+    failure: { kind: 'usage_limit', resetsAt: RESETS_AT },
+  });
+
 const ERROR_CHAT = [
   msg('user', 'Send Northwind the firmer reminder.', 30, { agentId: 'finance' }),
-  msg(
-    'error',
-    'Claude Code hit its usage limit, so AI generation isn’t available right now. The limit resets automatically — try again later. (You’ve hit your session limit · resets 3:00 PM)',
-    29,
-    { agentId: 'finance' }
-  ),
+  usageLimit(29),
   msg('user', 'Try again now.', 5, { agentId: 'finance' }),
-  msg(
-    'error',
-    'Claude Code isn’t signed in anymore (its session expired). Open an agent terminal and sign in again — for Claude Code, run /login — then try again.',
-    4,
-    { agentId: 'finance' }
+  msg('error', 'Claude Code is signed out.', 4, {
+    agentId: 'finance',
+    failure: { kind: 'signed_out' },
+  }),
+];
+
+/** The newest line is the usage limit, with the files the failed message carried. */
+const LIMIT_CHAT = [
+  msg('user', 'Here are the March receipts: reconcile them against the ledger.', 6, {
+    agentId: 'finance',
+    attachments: [
+      {
+        name: 'receipts-march.pdf',
+        path: 'attachments/m-limit/receipts-march.pdf',
+        mime: 'application/pdf',
+        size: 482_000,
+      },
+    ],
+  }),
+  usageLimit(5),
+];
+
+/** Finance at its usage limit, Lead Gen's turn failed outright. */
+const failingOverview = () => ({
+  engineReady: true,
+  agents: TEAM.map((a) =>
+    a.id === 'finance'
+      ? {
+          ...a,
+          unread: 0,
+          preview: `Claude Code’s usage limit is reached. It resets at ${resetClock}.`,
+          failure: { kind: 'usage_limit', resetsAt: RESETS_AT },
+        }
+      : a.id === 'leadgen'
+        ? {
+            ...a,
+            pendingApprovals: 0,
+            status: status('idle'),
+            preview: 'Couldn’t start Claude Code: the agent’s folder is missing. Recreate it.',
+            failure: { kind: 'other' },
+          }
+        : a
   ),
+});
+const LEADGEN_FAILED = [
+  msg('user', 'Pull this week’s inbound leads into the sheet.', 3, { agentId: 'leadgen' }),
+  msg('error', 'Couldn’t start Claude Code: the agent’s folder is missing. Recreate it.', 2, {
+    agentId: 'leadgen',
+    failure: { kind: 'other' },
+  }),
 ];
 
 /** Acme Site mid-turn: a call it was always allowed, then one it asks about. */
@@ -734,7 +787,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-error',
     title: 'Agents — a usage limit, then an expired login',
     looksRightWhen:
-      'Finance’s chat: an older usage-limit error with its reset time and no buttons (something was said after it), then the newest error, an expired login, carrying “Sign in to Claude Code” and a quieter Retry.',
+      'Finance’s chat: an older usage-limit notice in quiet amber with its reset time and no buttons (something was said after it), then the newest error, “Claude Code is signed out.” in red, carrying “Sign in to Claude Code” and a quieter Retry.',
     requires: '.agent-bubble__remedy',
     openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="finance"]' }],
@@ -742,6 +795,49 @@ export const agentsScenarios: Scenario[] = [
       agents_overview: overview(),
       agents_messages: (args: Record<string, unknown>) =>
         args.agentId === 'finance' ? ERROR_CHAT : messagesFor(args),
+    },
+  },
+  {
+    id: 'agents-usage-limit',
+    title: 'Agents — a usage limit with a reset time Claude Code reported',
+    looksRightWhen:
+      'Finance’s chat ends in a quiet amber notice (not a red alarm): “Claude Code’s usage limit is reached. It resets at <time>.” with “Retry at <time>” and a ghost “Retry now”. Finance’s sidebar row reads “Usage limit · resets <time>” in muted text with an amber dot; Lead Gen’s row reads “Didn’t finish: …” in red with a red dot.',
+    requires: '.agent-bubble--error[data-failure="usage_limit"]',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: '[data-agent-id="finance"]' }],
+    commands: {
+      agents_overview: failingOverview,
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'finance'
+          ? LIMIT_CHAT
+          : args.agentId === 'leadgen'
+            ? LEADGEN_FAILED
+            : messagesFor(args),
+      agents_schedule_create: (args: Record<string, unknown>) => ({
+        id: 'retry',
+        note: String(args.note),
+        nextAt: RESETS_AT,
+        createdAt: now,
+        paused: false,
+      }),
+    },
+  },
+  {
+    id: 'agents-team-failures',
+    title: 'Agents — Team lists turns that didn’t finish',
+    looksRightWhen:
+      'The Team row says “1 working · 1 failed” (a usage limit heals on its own, so it isn’t counted). Needs you lists Lead Gen (“Didn’t finish: …”, red dot) with its error and Retry, and Finance (“Usage limit · resets <time>”, amber dot) with the quiet notice, “Retry at <time>” and “Retry now”. Each card spans from the name to the meta edge.',
+    openSelector: AGENTS_TAB,
+    requires: '.agents-team .agent-bubble--error',
+    steps: [{ click: '[data-agent-id="__team"]' }],
+    commands: {
+      agents_overview: failingOverview,
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'finance'
+          ? LIMIT_CHAT
+          : args.agentId === 'leadgen'
+            ? LEADGEN_FAILED
+            : messagesFor(args),
     },
   },
   {
@@ -941,7 +1037,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import my agents from another assistant). The composer is ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). The composer is ready.',
     command: 'agents.open',
     requires: '.agent-chat__empty',
     commands: {},

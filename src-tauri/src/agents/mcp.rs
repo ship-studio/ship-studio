@@ -58,10 +58,11 @@ fn take_grant(agent_id: &str, tool: &str, input: &Value) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Answer {
     Allowed,
-    Denied,
+    /// With what the user said, if they said why.
+    Denied(Option<String>),
     /// The user hasn't answered within the wait. The card stays live.
     NotYet,
 }
@@ -634,7 +635,13 @@ async fn ask_user(
 
     let answer = match tokio::time::timeout(APPROVAL_WAIT, rx).await {
         Ok(Ok(true)) => Answer::Allowed,
-        Ok(Ok(false)) => Answer::Denied,
+        // The command wrote the decision (and any note) before waking us.
+        Ok(Ok(false)) => Answer::Denied(
+            store::find_approval(&caller.id, &request_id)
+                .ok()
+                .flatten()
+                .and_then(|a| a.note),
+        ),
         _ => Answer::NotYet,
     };
     PENDING_APPROVALS
@@ -686,6 +693,7 @@ fn new_card(
         input: call.map(|(_, input)| input.clone()),
         always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
         always_allowed: false,
+        note: None,
     }
 }
 
@@ -898,8 +906,11 @@ async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
     let (title, detail) = describe_request(tool, &input);
     let answer = match ask_user(app, caller, title, detail, Some((tool, &input))).await {
         Answer::Allowed => allow,
-        Answer::Denied => {
+        Answer::Denied(None) => {
             json!({ "behavior": "deny", "message": "The user said no to this. Don't retry it; tell them what you were trying to do, or find another way." })
+        }
+        Answer::Denied(Some(note)) => {
+            json!({ "behavior": "deny", "message": format!("The user said no to this, and told you: \"{note}\". Don't retry it; do what they said instead.") })
         }
         Answer::NotYet => {
             json!({ "behavior": "deny", "message": "The user hasn't answered yet; they may be away. Don't retry and don't work around it. Stop here and tell them in one short line what you need approved and why. The request stays in their chat: if they allow it later, you'll be woken up to finish, and that exact call will go through." })
@@ -1023,6 +1034,7 @@ mod tests {
             check_ins: Vec::new(),
             usage: Default::default(),
             permissions: Vec::new(),
+            failure: None,
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

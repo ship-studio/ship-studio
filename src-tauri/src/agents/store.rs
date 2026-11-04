@@ -78,6 +78,11 @@ pub struct Agent {
     /// "Always allow" rules: calls matching one skip the approval card.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub permissions: Vec<super::permissions::Rule>,
+    /// The newest line in its chat is a failed turn: what kind. Cleared by
+    /// anything said after it, so the sidebar can show a failure where it
+    /// happened without reading the log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<super::failure::Failure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -158,6 +163,9 @@ pub struct Approval {
     /// another card and covering this one), not just once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub always_allowed: bool,
+    /// What the user said when they declined, handed to the agent with the No.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -185,6 +193,9 @@ pub struct AgentMessage {
     /// Agents the user @mentioned in this message, as they were named then.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<AgentRef>,
+    /// On an `error` line: what kind of failure, for the remedy it offers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<super::failure::Failure>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -401,7 +412,8 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         shape,
         color,
         is_main: new.is_main,
-        pinned: false,
+        // The one agent you're told to talk to stays put at the top; unpinnable.
+        pinned: new.is_main,
         hidden: false,
         session_id: None,
         created_at: now,
@@ -414,6 +426,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         check_ins: Vec::new(),
         usage: Default::default(),
         permissions: Vec::new(),
+        failure: None,
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -545,7 +558,22 @@ pub fn set_approval_status(
     request_id: &str,
     status: ApprovalStatus,
 ) -> Result<Option<AgentMessage>, CommandError> {
-    resolve_approval(agent_id, request_id, status, None)
+    resolve_approval(agent_id, request_id, status, None, None)
+}
+
+/// Decline a pending card with what the user said, which the agent is handed too.
+pub fn deny_with_note(
+    agent_id: &str,
+    request_id: &str,
+    note: &str,
+) -> Result<Option<AgentMessage>, CommandError> {
+    resolve_approval(
+        agent_id,
+        request_id,
+        ApprovalStatus::Denied,
+        None,
+        Some(note),
+    )
 }
 
 /// Allow a pending card under an "Always allow" rule, so it says so and
@@ -555,7 +583,13 @@ pub fn allow_always(
     request_id: &str,
     rule: &super::permissions::Scope,
 ) -> Result<Option<AgentMessage>, CommandError> {
-    resolve_approval(agent_id, request_id, ApprovalStatus::Allowed, Some(rule))
+    resolve_approval(
+        agent_id,
+        request_id,
+        ApprovalStatus::Allowed,
+        Some(rule),
+        None,
+    )
 }
 
 fn resolve_approval(
@@ -563,6 +597,7 @@ fn resolve_approval(
     request_id: &str,
     status: ApprovalStatus,
     rule: Option<&super::permissions::Scope>,
+    note: Option<&str>,
 ) -> Result<Option<AgentMessage>, CommandError> {
     let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_log(agent_id)?;
@@ -575,6 +610,7 @@ fn resolve_approval(
                     approval.always = Some(rule.clone());
                     approval.always_allowed = true;
                 }
+                approval.note = note.map(str::to_string);
                 changed = Some(message.clone());
             }
         }
@@ -753,11 +789,13 @@ mod tests {
                     input: None,
                     always: None,
                     always_allowed: false,
+                    note: None,
                 }),
                 attachments: Vec::new(),
                 check_in: None,
                 stopped: false,
                 mentions: Vec::new(),
+                failure: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

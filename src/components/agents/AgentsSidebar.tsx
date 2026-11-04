@@ -9,7 +9,7 @@
  * "Open project" closes the project list. The sidebar's top field searches
  * conversations here; while it has a query the results take the list's place.
  *
- * Right-click a row for Pin, Mark as unread, Mute notifications, Edit, Hide
+ * Right-click a row (or Shift+F10 on it) for Pin, Mark as unread, Mute notifications, Edit, Hide
  * and Delete; the conversation header's … menu has the same items for the
  * open agent.
  *
@@ -26,12 +26,14 @@ import {
 } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Button } from '../primitives/Button';
-import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
+import { AgentMark } from './AgentSwitcher';
 import { useFlipReorder } from './useAgentMotion';
 import {
+  failedTurn,
+  failureLine,
   needsYou,
   sortAgents,
   teamSubtitle,
@@ -52,12 +54,25 @@ interface AgentsSidebarProps extends AgentActions {
   query: string;
   searchRef: RefObject<HTMLInputElement | null>;
   onOpenHit: (hit: SearchHit) => void;
+  /** The hit last opened, marked as the row is. */
+  currentHit?: string | null;
 }
 
 function subtitle(agent: Agent): string {
   if (needsYou(agent)) return 'Needs your OK';
   if (agent.status.state === 'working') return agent.status.activity ?? 'Working…';
+  const failure = failedTurn(agent);
+  if (failure) return failureLine(failure, agent.preview);
   return agent.preview ?? agent.role ?? '';
+}
+
+/** The row's second line takes the colour of its state. */
+function lineState(agent: Agent): string | undefined {
+  if (needsYou(agent)) return 'waiting';
+  if (agent.status.state === 'working') return 'working';
+  const failure = failedTurn(agent);
+  if (failure) return failure.kind === 'usage_limit' ? 'limited' : 'failed';
+  return undefined;
 }
 
 /** The full name as a tooltip only when the row cuts it short. */
@@ -71,14 +86,40 @@ function tooltipIfTruncated(event: PointerEvent<HTMLElement>) {
   }
 }
 
-/** Up and down move between rows, the way they do in any list. */
+/**
+ * The list is one Tab stop (the current row's); up and down move between
+ * rows, Home and End to the ends. Shift+F10 or the context-menu key opens a
+ * row's menu, as a right-click does.
+ */
 function onListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(
+    '[data-agent-id]'
+  );
+  if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+    if (!row) return;
+    event.preventDefault();
+    const rect = row.getBoundingClientRect();
+    row.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.bottom,
+      })
+    );
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
   const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[data-agent-id]'));
-  const index = rows.indexOf(document.activeElement as HTMLElement);
+  const index = row ? rows.indexOf(row) : -1;
   if (index === -1) return;
   event.preventDefault();
-  const next = rows[index + (event.key === 'ArrowDown' ? 1 : -1)];
+  const next =
+    event.key === 'Home'
+      ? rows[0]
+      : event.key === 'End'
+        ? rows[rows.length - 1]
+        : rows[index + (event.key === 'ArrowDown' ? 1 : -1)];
   next?.focus();
 }
 
@@ -92,6 +133,7 @@ export function AgentsSidebar({
   query,
   searchRef,
   onOpenHit,
+  currentHit,
   ...actions
 }: AgentsSidebarProps) {
   const searching = query.trim().length > 0;
@@ -103,18 +145,20 @@ export function AgentsSidebar({
   const shown = showHidden ? [...visible, ...hidden] : visible;
   useFlipReorder(listRef, '[data-agent-id]', shown.map((a) => a.id).join(' '));
 
+  // The one row in the Tab order: the open one, else the first.
+  const tabStop = [TEAM_ID, ...shown.map((a) => a.id)].includes(selectedId ?? '')
+    ? selectedId
+    : TEAM_ID;
+
   const row = (agent: Agent) => {
     const current = agent.id === selectedId;
-    const waiting = needsYou(agent);
-    const working = agent.status.state === 'working' && !waiting;
-    const unread = !current && agent.unread > 0;
     return (
       <ContextMenu key={agent.id}>
         <ContextMenuTrigger asChild>
           {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
           <button
             type="button"
-            tabIndex={0}
+            tabIndex={agent.id === tabStop ? 0 : -1}
             className={`agents-list__row${current ? ' is-current' : ''}`}
             data-agent-id={agent.id}
             data-hidden={agent.hidden || undefined}
@@ -133,21 +177,13 @@ export function AgentsSidebar({
                   <BellOffIcon size={12} className="agents-list__pin" aria-label="Muted" />
                 )}
               </span>
-              <span
-                className="agents-list__preview"
-                data-state={waiting ? 'waiting' : working ? 'working' : undefined}
-              >
+              <span className="agents-list__preview" data-state={lineState(agent)}>
                 {subtitle(agent)}
               </span>
             </span>
             <span className="agents-list__status">
-              {working ? (
-                <PixelLoaderRings size="sm" label={`${agent.name} is working`} />
-              ) : waiting ? (
-                <span className="sidebar-row-dot dot-attention" aria-label="Needs your OK" />
-              ) : unread ? (
-                <span className="sidebar-row-dot dot-unread" aria-label="Unread" />
-              ) : null}
+              {/* Read already when it's the one open: no unread dot for it. */}
+              <AgentMark agent={current ? { ...agent, unread: 0 } : agent} />
             </span>
           </button>
         </ContextMenuTrigger>
@@ -167,12 +203,18 @@ export function AgentsSidebar({
       onKeyDown={onListKeyDown}
     >
       {searching ? (
-        <AgentsSearchResults query={query} field={searchRef} onOpen={onOpenHit} />
+        <AgentsSearchResults
+          query={query}
+          field={searchRef}
+          onOpen={onOpenHit}
+          currentId={currentHit}
+        />
       ) : (
         <>
           <TeamRow
             agents={agents}
             current={selectedId === TEAM_ID}
+            tabStop={tabStop === TEAM_ID}
             onSelect={() => onSelect(TEAM_ID)}
           />
           {visible.map(row)}
@@ -214,16 +256,18 @@ export function AgentsSidebar({
 function TeamRow({
   agents,
   current,
+  tabStop,
   onSelect,
 }: {
   agents: Agent[];
   current: boolean;
+  tabStop: boolean;
   onSelect: () => void;
 }) {
   return (
     <button
       type="button"
-      tabIndex={0}
+      tabIndex={tabStop ? 0 : -1}
       className={`agents-list__row${current ? ' is-current' : ''}`}
       data-agent-id={TEAM_ID}
       aria-current={current ? 'true' : undefined}
