@@ -96,12 +96,13 @@ export function ImportAgentsModal({ isOpen, onClose, onOpenAgent }: ImportAgents
   const openRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!isOpen) return;
-    const pointer = () => (byPointer.current = true);
+    // A click's count tells them apart, as in Dropdown: 0 is a keyboard click.
+    const click = (e: MouseEvent) => (byPointer.current = e.detail > 0);
     const key = () => (byPointer.current = false);
-    window.addEventListener('pointerdown', pointer, true);
+    window.addEventListener('click', click, true);
     window.addEventListener('keydown', key, true);
     return () => {
-      window.removeEventListener('pointerdown', pointer, true);
+      window.removeEventListener('click', click, true);
       window.removeEventListener('keydown', key, true);
     };
   }, [isOpen]);

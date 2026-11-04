@@ -46,8 +46,7 @@ describe('ImportAgentsModal done state', () => {
   it('opens quiet after a pointer import: focus on the body, not the button', () => {
     const finish = renderModal();
     act(() => {
-      fireEvent.pointerDown(finish);
-      fireEvent.click(finish);
+      fireEvent.click(finish, { detail: 1 });
     });
     const open = screen.getByRole('button', { name: 'Open Chief of Staff' });
     expect(open).not.toHaveFocus();
