@@ -154,6 +154,10 @@ pub struct Approval {
     /// permission prompts get one; Ship Studio's own confirmations never do.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub always: Option<super::permissions::Scope>,
+    /// Allowed by an "Always allow" rule (chosen on this card, or added on
+    /// another card and covering this one), not just once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub always_allowed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -538,6 +542,25 @@ pub fn set_approval_status(
     request_id: &str,
     status: ApprovalStatus,
 ) -> Result<Option<AgentMessage>, CommandError> {
+    resolve_approval(agent_id, request_id, status, None)
+}
+
+/// Allow a pending card under an "Always allow" rule, so it says so and
+/// names the rule (which may be broader than what the card itself offered).
+pub fn allow_always(
+    agent_id: &str,
+    request_id: &str,
+    rule: &super::permissions::Scope,
+) -> Result<Option<AgentMessage>, CommandError> {
+    resolve_approval(agent_id, request_id, ApprovalStatus::Allowed, Some(rule))
+}
+
+fn resolve_approval(
+    agent_id: &str,
+    request_id: &str,
+    status: ApprovalStatus,
+    rule: Option<&super::permissions::Scope>,
+) -> Result<Option<AgentMessage>, CommandError> {
     let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_log(agent_id)?;
     let mut changed = None;
@@ -545,6 +568,10 @@ pub fn set_approval_status(
         if let Some(approval) = message.approval.as_mut() {
             if approval.request_id == request_id && approval.status == ApprovalStatus::Pending {
                 approval.status = status;
+                if let Some(rule) = rule {
+                    approval.always = Some(rule.clone());
+                    approval.always_allowed = true;
+                }
                 changed = Some(message.clone());
             }
         }
@@ -590,6 +617,16 @@ pub fn find_approval(agent_id: &str, request_id: &str) -> Result<Option<Approval
         .into_iter()
         .filter_map(|m| m.approval)
         .find(|a| a.request_id == request_id))
+}
+
+/// The cards still waiting on an answer, oldest first.
+pub fn pending_approvals(agent_id: &str) -> Result<Vec<Approval>, CommandError> {
+    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(read_log(agent_id)?
+        .into_iter()
+        .filter_map(|m| m.approval)
+        .filter(|a| a.status == ApprovalStatus::Pending)
+        .collect())
 }
 
 /// On startup nothing is waiting on an approval any more: the process that
@@ -712,6 +749,7 @@ mod tests {
                     tool: None,
                     input: None,
                     always: None,
+                    always_allowed: false,
                 }),
                 attachments: Vec::new(),
                 check_in: None,

@@ -547,6 +547,29 @@ const ALWAYS_CHAT = [
   }),
 ];
 
+/** "Always allow" on one card, which also answered the other card it covers. */
+const ALWAYS_ALLOWED_CHAT = [
+  msg('user', 'Run the tests before you push the pricing fix.', 6, { agentId: 'acme' }),
+  ...[
+    ['req-3', 'npm test -- --run pricing', 4],
+    ['req-4', 'npm test -- --run checkout', 3],
+  ].map(([requestId, command, ago]) =>
+    msg('approval', '', ago as number, {
+      agentId: 'acme',
+      approval: {
+        requestId,
+        title: 'Run a command',
+        detail: command,
+        status: 'allowed',
+        tool: 'Bash',
+        input: { command },
+        always: { kind: 'command_prefix', value: 'npm test', label: 'npm test' },
+        alwaysAllowed: true,
+      },
+    })
+  ),
+];
+
 /** Earlier, an interruption; now a message queued behind the turn in progress. */
 const QUEUED_CHAT = [
   msg('user', 'Fix the pricing cards on mobile.', 30, { agentId: 'acme' }),
@@ -887,6 +910,20 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-always-allowed',
+    title: 'Agents — two cards answered by one Always allow',
+    looksRightWhen:
+      'Acme Site’s chat: two “Run a command” cards (npm test -- --run pricing, then npm test -- --run checkout), both resolved, each reading “Always allowed · npm test” with npm test in mono, where the buttons were.',
+    requires: '.agent-approval__outcome',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }],
+    commands: {
+      agents_overview: acmeWith({ status: status('working', 'Running npm test') }),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'acme' ? ALWAYS_ALLOWED_CHAT : messagesFor(args),
+    },
+  },
+  {
     id: 'agents-permissions',
     title: 'Agents — what an agent may do without asking',
     looksRightWhen:
@@ -923,7 +960,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-queued',
     title: 'Agents — a message queued while the agent works',
     looksRightWhen:
-      'Acme Site is Working. Earlier: a reply cut off with “Stopped”, a quiet centred “Interrupted to read your new message”, then the message that interrupted it and the reply. Last, your newest message, slightly dimmed, with “Queued, sends when Acme Site finishes · Interrupt and send now” under it. The composer holds a second message, and beside the mic a faint “↵ queues · ⌘↵ interrupts and sends now”.',
+      'Acme Site is Working. Earlier: a reply cut off with “Stopped”, a quiet centred “Interrupted to read your new message”, then the message that interrupted it and the reply. Then the working dots with “Editing PricingTable.tsx”, and only under them your newest message, slightly dimmed, with “Queued, sends when Acme Site finishes · Interrupt and send now” under it. The composer holds a second message, and beside the mic a faint “↵ queues · ⌘↵ interrupts and sends now”.',
     openSelector: '.workspace-sidebar-agents',
     requires: '.agent-chat__queued',
     steps: [

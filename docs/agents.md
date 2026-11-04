@@ -131,13 +131,19 @@ redirects, `$`, backticks, parentheses, backslashes and line breaks all ask
 again, so `npm test && rm -rf ~` never matches `npm test`. Rules are stored per
 agent (`Agent.permissions`); each auto-allowed call leaves a muted `note` line
 ("Allowed automatically: npm test · Always allowed"); the agent editor lists
-them under Permissions with Revoke.
+them under Permissions with Revoke. A card answered this way reads "Always
+allowed · npm test" (`Approval.alwaysAllowed`, with `always` set to the rule).
+Adding a rule also answers every other open card from the same agent that it
+covers (`mcp::covered_by`), through the same path as Allow: a live waiter is
+woken, and a card nobody waits on any more gets a late Allow that wakes the
+agent.
 
 ## Steering a working agent
 
 Sending mid-turn queues the message for the next turn (default). The newest
 queued bubble says "Queued, sends when <agent> finishes" with **Interrupt and
-send now**; ⌘↵ in the composer sends and interrupts at once. A message is
+send now**, and the working indicator sits above the run of queued messages
+at the end (what it's doing now, then what's waiting); ⌘↵ in the composer sends and interrupts at once. A message is
 queued when it was sent after the turn in progress began (`isQueued`: its `ts`
 is after `status.since`). `agents_interrupt` cancels the turn without dropping
 the queue (Stop drops it); the cut-off reply is kept as `stopped`, a note

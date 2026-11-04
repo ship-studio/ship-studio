@@ -306,6 +306,7 @@ mod tests {
             tool: None,
             input: None,
             always: None,
+            always_allowed: false,
         });
         message
     }

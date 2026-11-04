@@ -157,6 +157,8 @@ export interface Approval {
   input?: unknown;
   /** What "Always allow" would cover; only on cards that may offer it. */
   always?: PermissionScope;
+  /** Allowed by an "Always allow" rule rather than once. */
+  alwaysAllowed?: boolean;
 }
 
 export interface AgentMessage {

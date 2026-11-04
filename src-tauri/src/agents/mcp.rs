@@ -629,11 +629,16 @@ fn new_card(
         tool: call.map(|(tool, _)| tool.to_string()),
         input: call.map(|(_, input)| input.clone()),
         always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
+        always_allowed: false,
     }
 }
 
-/// The user chose "Always allow" on a card: keep its scope as a rule.
-pub fn always_allow(agent_id: &str, approval: &Approval) -> Result<(), CommandError> {
+/// The user chose "Always allow" on a card: keep its scope as a rule, and
+/// return it so the other cards it covers can be answered too.
+pub fn always_allow(
+    agent_id: &str,
+    approval: &Approval,
+) -> Result<permissions::Scope, CommandError> {
     let Some(scope) = approval.always.clone() else {
         return Err(CommandError::expected(
             "This one can't be always allowed. Allow it once instead.",
@@ -643,12 +648,25 @@ pub fn always_allow(agent_id: &str, approval: &Approval) -> Result<(), CommandEr
         if !a.permissions.iter().any(|r| r.scope == scope) {
             a.permissions.push(permissions::Rule {
                 id: store::new_id(),
-                scope,
+                scope: scope.clone(),
                 created_at: store::now_ms(),
             });
         }
     })?;
-    Ok(())
+    Ok(scope)
+}
+
+/// The other open cards a new rule covers: they'd go through without asking
+/// now, so they shouldn't sit there asking.
+pub fn covered_by(scope: &permissions::Scope, open: &[Approval], except: &str) -> Vec<String> {
+    open.iter()
+        .filter(|a| a.request_id != except && a.status == ApprovalStatus::Pending)
+        .filter(|a| match (&a.tool, &a.input) {
+            (Some(tool), Some(input)) => scope.matches(tool, input),
+            _ => false,
+        })
+        .map(|a| a.request_id.clone())
+        .collect()
 }
 
 /// What an automatically allowed call is, in one line: the command or the
@@ -853,6 +871,27 @@ mod tests {
         assert!(take_grant("agent-a", "Bash", &input));
         // Once.
         assert!(!take_grant("agent-a", "Bash", &input));
+    }
+
+    #[test]
+    fn a_new_rule_covers_other_open_cards_it_matches() {
+        let card = |id: &str, cmd: &str| {
+            new_card(
+                id.into(),
+                "Run a command".into(),
+                cmd.into(),
+                Some(("Bash", &json!({ "command": cmd }))),
+            )
+        };
+        let open = vec![
+            card("a", "npm test"),
+            card("b", "npm test -- --watch"),
+            card("c", "npm test && rm -rf build"),
+            card("d", "git push"),
+            new_card("e".into(), "Delete agent".into(), "Finance".into(), None),
+        ];
+        let scope = open[0].always.clone().unwrap();
+        assert_eq!(covered_by(&scope, &open, "a"), vec!["b".to_string()]);
     }
 
     #[test]

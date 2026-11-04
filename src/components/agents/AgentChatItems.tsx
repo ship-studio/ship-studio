@@ -554,7 +554,18 @@ export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: 
             className="agent-approval__outcome"
             data-resolved={(openedPending && !pending) || undefined}
           >
-            {STATUS_LABEL[approval.status as keyof typeof STATUS_LABEL]}
+            {approval.alwaysAllowed && approval.always ? (
+              <>
+                Always allowed ·{' '}
+                {approval.always.kind.startsWith('command') ? (
+                  <code>{approval.always.label}</code>
+                ) : (
+                  approval.always.label
+                )}
+              </>
+            ) : (
+              STATUS_LABEL[approval.status as keyof typeof STATUS_LABEL]
+            )}
           </div>
         )}
       </div>

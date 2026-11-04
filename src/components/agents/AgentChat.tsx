@@ -14,7 +14,15 @@
  * @module components/agents/AgentChat
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -292,6 +300,20 @@ export function AgentChat({
   // While words are arriving they are the sign of life; the dots and what
   // it's doing come back between text blocks, while tools run.
   const indicator = usePresence(working && !streaming);
+  // What it's doing now goes above what's waiting: the indicator sits before
+  // the run of queued messages at the end, not under them.
+  const queuedFrom = useMemo(() => {
+    let from = items.length;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.type === 'day') continue;
+      if (item.type === 'peer-group' || !isQueued(item.message, agent)) break;
+      from = i;
+    }
+    // Leave a day divider that opens the run above the indicator, with its day.
+    while (from < items.length && items[from].type === 'day') from++;
+    return from;
+  }, [items, agent]);
 
   // Only lines that arrive while the chat is open animate in.
   const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
@@ -632,87 +654,99 @@ export function AgentChat({
               )}
             </div>
           ) : (
-            items.map((item, index) => {
-              if (item.type === 'day')
-                return (
-                  <DayDivider
-                    key={`day-${item.ts}-${index}`}
-                    ts={item.ts}
-                    arrived={arrivedAt(index)}
-                  />
-                );
-              const arrived = arrivedAt(index);
-              if (item.type === 'peer-group') {
-                return (
-                  <PeerGroup
-                    key={item.messages[0].id}
-                    peer={item.peer}
-                    messages={item.messages}
-                    peerAgent={agentsById.get(item.peer.id)}
-                    onOpenPeer={onOpenAgent}
-                    arrived={arrived}
-                    reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
-                  />
-                );
-              }
-              const m = item.message;
-              switch (m.kind) {
-                case 'user':
+            withIndicatorAt(
+              queuedFrom,
+              items.map((item, index) => {
+                if (item.type === 'day')
                   return (
-                    <UserBubble
-                      key={keyOf(m.id)}
-                      message={m}
-                      agent={agent}
-                      arrived={arrived}
-                      failed={failed.has(m.id)}
-                      onRetry={() => retry(m.id)}
-                      queued={
-                        m.id === queuedId ? { onInterrupt: () => void interrupt() } : undefined
-                      }
+                    <DayDivider
+                      key={`day-${item.ts}-${index}`}
+                      ts={item.ts}
+                      arrived={arrivedAt(index)}
                     />
                   );
-                case 'agent':
+                const arrived = arrivedAt(index);
+                if (item.type === 'peer-group') {
                   return (
-                    <AgentBubble
-                      key={m.id}
-                      message={m}
+                    <PeerGroup
+                      key={item.messages[0].id}
+                      peer={item.peer}
+                      messages={item.messages}
+                      peerAgent={agentsById.get(item.peer.id)}
+                      onOpenPeer={onOpenAgent}
                       arrived={arrived}
-                      streaming={m === streaming}
+                      reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
                     />
                   );
-                case 'approval':
-                  return (
-                    <ApprovalCard
-                      key={m.id}
-                      message={m}
-                      agentName={agent.name}
-                      paused={agent.status.state === 'idle'}
-                      onAnswer={onAnswer}
-                      arrived={arrived}
-                    />
-                  );
-                case 'error':
-                  return (
-                    <ErrorLine
-                      key={m.id}
-                      message={m}
-                      arrived={arrived}
-                      onSignIn={onSignIn}
-                      onRetry={
-                        m.id === retryId && retryText ? () => sendText(retryText) : undefined
-                      }
-                    />
-                  );
-                case 'check_in':
-                  return <CheckInLine key={m.id} message={m} arrived={arrived} />;
-                case 'note':
-                  return <NoteLine key={m.id} message={m} arrived={arrived} />;
-                default:
-                  return null;
-              }
-            })
+                }
+                const m = item.message;
+                switch (m.kind) {
+                  case 'user':
+                    return (
+                      <UserBubble
+                        key={keyOf(m.id)}
+                        message={m}
+                        agent={agent}
+                        arrived={arrived}
+                        failed={failed.has(m.id)}
+                        onRetry={() => retry(m.id)}
+                        queued={
+                          m.id === queuedId ? { onInterrupt: () => void interrupt() } : undefined
+                        }
+                      />
+                    );
+                  case 'agent':
+                    return (
+                      <AgentBubble
+                        key={m.id}
+                        message={m}
+                        arrived={arrived}
+                        streaming={m === streaming}
+                      />
+                    );
+                  case 'approval':
+                    return (
+                      <ApprovalCard
+                        key={m.id}
+                        message={m}
+                        agentName={agent.name}
+                        paused={agent.status.state === 'idle'}
+                        onAnswer={onAnswer}
+                        arrived={arrived}
+                      />
+                    );
+                  case 'error':
+                    return (
+                      <ErrorLine
+                        key={m.id}
+                        message={m}
+                        arrived={arrived}
+                        onSignIn={onSignIn}
+                        onRetry={
+                          m.id === retryId && retryText ? () => sendText(retryText) : undefined
+                        }
+                      />
+                    );
+                  case 'check_in':
+                    return <CheckInLine key={m.id} message={m} arrived={arrived} />;
+                  case 'note':
+                    return <NoteLine key={m.id} message={m} arrived={arrived} />;
+                  default:
+                    return null;
+                }
+              }),
+              indicator.mounted && (
+                <WorkingIndicator
+                  key="working"
+                  activity={agent.status.activity}
+                  entering={indicator.entering}
+                  leaving={indicator.leaving}
+                  onExited={indicator.onExited}
+                />
+              )
+            )
           )}
-          {indicator.mounted && (
+          {items.length === 0 && indicator.mounted && (
             <WorkingIndicator
               activity={agent.status.activity}
               entering={indicator.entering}
@@ -894,4 +928,10 @@ export function AgentChat({
       </div>
     </section>
   );
+}
+
+/** The rows, with `extra` (if any) slotted in before row `at`. */
+function withIndicatorAt(at: number, rows: ReactNode[], extra: ReactNode): ReactNode[] {
+  if (!extra) return rows;
+  return [...rows.slice(0, at), extra, ...rows.slice(at)];
 }
