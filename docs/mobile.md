@@ -752,6 +752,64 @@ first.
 - Route 1: the EAS pipeline, TestFlight public link, APK on releases, OTA
   channels.
 
+### P2 desktop server: as built
+
+- **Methods served** (`router::METHODS`, and so `welcome.methods`): P1's,
+  plus `agents.files`, `agents.fetchPath`, `agents.search`,
+  `agents.schedule.preview|create|update|pause|cancel|runNow`, `projects.list`
+  and `sessions.read`. Not yet: `agents.create|update|delete|instructions|usage|
+  changeDiff|revokePermission`, the import methods, `sessions.send|key|start`
+  and `preview.screenshot`.
+- **`clientId`.** `agents_send` takes an optional `client_id` and stores it on
+  the user message, so the result and its `agents.message` event both carry
+  it. The desktop's own sends leave it out.
+- **Files** (`companion/blobs.rs`, `companion/files.rs`). Every route checks
+  `Authorization: Bearer`; an unknown or revoked token is a bare 401, and
+  another device's blob or a path outside the agent's `attachments/` is a
+  bare 404.
+  - `PUT /v1/blobs`: 413 at once on a declared `Content-Length` over 25 MB;
+    an undeclared body over it is read out (up to twice the limit) before
+    the 413, so the phone hears the answer rather than a reset. A 10-minute
+    overall timeout (408). A per-device staging budget of 30 files and
+    300 MB (429, with the sentence as a `CommandError` body). Staged in
+    `companion-blobs/` beside `companion.json` (0700, files 0600), swept
+    after an hour and cleared at launch and on revoke. The name goes through
+    `attachments::sanitize_name`; the type is the upload's `Content-Type`
+    when it's a plain `type/subtype`, else `mime_for(name)`.
+  - `agents.send` with blob ids: at most `MAX_FILES`, each the caller's and
+    still staged, handed to `agents_send` as `OutgoingAttachment{path}` so
+    `attachments::save` applies the desk's limits. Files alone are a message,
+    as on the desk. Blobs are consumed after the send succeeds.
+  - `GET /v1/blobs/:id` and `GET /v1/agents/:id/attachments/*` (also `HEAD`):
+    `Content-Type`, `Content-Length`, `Content-Disposition: inline;
+    filename*=…`, `X-Content-Type-Options: nosniff`, `Accept-Ranges: bytes`,
+    and `Cache-Control: private, max-age=86400` for attachments (they never
+    change) or `private, no-store` for blobs. One `Range: bytes=a-b|a-|-n`
+    gets a 206 with `Content-Range`; an impossible one a 416; several ranges
+    the whole file.
+  - `?w=` (clamped to 16–1024) returns a JPEG (quality 80) no wider than
+    that, never upscaled, for PNG, JPEG, GIF and WebP. SVG, HEIC and anything
+    that fails to decode are served as they are.
+  - `agents.fetchPath` resolves with `files::shareable` over the same roots as
+    `share_file` (the agent's home and every project), so folders and apps are
+    refused, then *copies* the file into the device's staging as a blob
+    (25 MB limit) and returns its `BlobRef`.
+- **Projects and sessions.** `remote_access/tools.rs` gained structured cores
+  (`project_views`, `session_screen`) built on the same `sessions_for`,
+  `tab_state` and `agent_state` the MCP tools use; the MCP text is unchanged.
+  The project list is every Ship Studio project, as agents get. Only agent
+  tabs are listed or readable: a plain terminal is left out rather than given
+  a state we can't read off it. Options become keys: `"1. Yes"` is key `1`;
+  an unnumbered menu's highlighted item is `enter`; items only reachable with
+  arrow keys aren't offered. `dirtyFiles` is 0 and `branch` absent when git
+  doesn't answer. `sessions.read` returns the last 300 rendered lines and the
+  agent's latest reply.
+- **`sync.snapshot.projects`** is filled. `projects.changed` isn't journaled
+  yet; the app re-reads `projects.list` while its Projects tab is showing.
+- **The Phone panel** shows each phone's latest action from the audit log
+  (presence, pairing and `agents.focus` lines skipped) and a "What a paired
+  phone can do" section derived from `router::METHODS`.
+
 ### P3: voice, search, import, polish
 
 - Dictation, search, paste import.
