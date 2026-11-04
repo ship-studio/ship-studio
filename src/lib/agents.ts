@@ -440,6 +440,8 @@ export const getChangeDiff = (agentId: string, messageId: string, path: string) 
   invoke<FileDiff>('agents_change_diff', { agentId, messageId, path });
 export const deleteAgent = (agentId: string) => invoke<void>('agents_delete', { agentId });
 export const stopAgent = (agentId: string) => invoke<boolean>('agents_stop', { agentId });
+/** How many agents are mid-turn (running or waiting for a slot). */
+export const agentsBusy = () => invoke<number>('agents_busy');
 export const answerApproval = (
   agentId: string,
   requestId: string,
@@ -927,13 +929,24 @@ export const resendable = (agent: Agent, message: AgentMessage): OutgoingAttachm
 /** A check-in's note is capped (`MAX_NOTE_CHARS` in schedule.rs). */
 const RETRY_NOTE_MAX = 560;
 
-/** What a "Retry at <reset>" check-in tells the agent when it fires. */
-export function retryNote(text: string): string {
+/**
+ * What a "Retry at <reset>" check-in tells the agent when it fires. A check-in
+ * carries words only, so the files that went with the ask are named by path
+ * (they stay in the agent's home); the ask gives way to them under the cap.
+ */
+export function retryNote(text: string, files: string[] = []): string {
   const ask = text.trim();
   const head = 'Claude Code’s usage limit has reset. Carry on with what I asked';
-  if (!ask) return `${head}.`;
-  const room = RETRY_NOTE_MAX - head.length - 4;
-  return `${head}: “${ask.length > room ? `${ask.slice(0, room - 1)}…` : ask}”`;
+  // At most half the note: as many paths as fit, then how many more.
+  let attached = '';
+  for (let n = files.length; n > 0 && !attached; n--) {
+    const more = n < files.length ? `, and ${files.length - n} more` : '';
+    const line = ` Files I attached: ${files.slice(0, n).join(', ')}${more}`;
+    if (line.length <= RETRY_NOTE_MAX / 2) attached = line;
+  }
+  if (!ask) return `${head}.${attached}`;
+  const room = RETRY_NOTE_MAX - head.length - 4 - attached.length;
+  return `${head}: “${ask.length > room ? `${ask.slice(0, room - 1)}…` : ask}”${attached}`;
 }
 
 /** `agents_schedule_create`'s `when` for a moment: whole minutes from now, rounded up. */

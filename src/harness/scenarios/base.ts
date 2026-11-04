@@ -151,6 +151,7 @@ export const baseCommands: CommandMap = {
 
   // ---- agents -------------------------------------------------------------
   // Base layer: the nav badge subscribes to the agents store on every screen.
+  agents_busy: 0,
   agents_overview: {
     engineReady: true,
     agents: [
