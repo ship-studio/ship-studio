@@ -272,9 +272,9 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     }
     return null;
   }, [agents, selected?.id]);
-  const keys = useRef({ order, selected, openNew, nextNeedingYou });
+  const keys = useRef({ order, selected, openNew, nextNeedingYou, showToast });
   useEffect(() => {
-    keys.current = { order, selected, openNew, nextNeedingYou };
+    keys.current = { order, selected, openNew, nextNeedingYou, showToast };
   });
 
   useEffect(() => {
@@ -282,7 +282,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       if (!event.metaKey && !event.ctrlKey) return;
       // Leave every key alone while a dialog owns the keyboard.
       if (document.querySelector('[aria-modal="true"]')) return;
-      const { order, selected, openNew, nextNeedingYou } = keys.current;
+      const { order, selected, openNew, nextNeedingYou, showToast } = keys.current;
       if (event.key.toLowerCase() === 'n' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         openNew();
@@ -291,7 +291,9 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       if (event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const next = nextNeedingYou();
+        // Said, so the key never seems broken.
         if (next) openAgent(next.id);
+        else showToast('No other agent needs you right now', 'info');
         return;
       }
       const step =
