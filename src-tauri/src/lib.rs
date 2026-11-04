@@ -577,6 +577,8 @@ pub fn run() {
             commands::agents::agents_delete,
             commands::agents::agents_stop,
             commands::agents::agents_answer_approval,
+            commands::agents::agents_interrupt,
+            commands::agents::agents_revoke_permission,
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,

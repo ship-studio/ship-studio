@@ -83,6 +83,12 @@ struct Runtime {
     cancel: Option<Arc<Notify>>,
     /// Hop count of the turn in progress (0 when the user started it).
     hop: u8,
+    /// What the turn in progress was asked, for the note an interruption leaves.
+    prompt: Option<String>,
+    /// The user asked to interrupt the turn in progress (see [`interrupt`]).
+    interrupt: bool,
+    /// Set when a turn was interrupted: what the next turn is told first.
+    interrupted: Option<String>,
 }
 
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
@@ -198,6 +204,7 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
         MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
+        MessageKind::Note => None,
     }
 }
 
@@ -255,6 +262,7 @@ pub fn stop(agent_id: &str) -> bool {
         return false;
     };
     runtime.queue.clear();
+    runtime.interrupt = false;
     match &runtime.cancel {
         Some(cancel) => {
             cancel.notify_one();
@@ -264,15 +272,53 @@ pub fn stop(agent_id: &str) -> bool {
     }
 }
 
+/// Stop the turn in progress so what's queued runs now, as the next turn.
+/// That turn is told what it was doing when it was cut off. Nothing queued,
+/// nothing to interrupt for: false.
+pub fn interrupt(agent_id: &str) -> bool {
+    let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(runtime) = runtimes.get_mut(agent_id) else {
+        return false;
+    };
+    if !runtime.running || runtime.queue.is_empty() {
+        return false;
+    }
+    let Some(cancel) = runtime.cancel.clone() else {
+        return false;
+    };
+    runtime.interrupt = true;
+    cancel.notify_one();
+    true
+}
+
+/// Called when a turn's cancel fired: whether it was an interruption, and if
+/// so, leave the next turn its preamble.
+fn take_interrupt(agent_id: &str) -> bool {
+    let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(runtime) = runtimes.get_mut(agent_id) else {
+        return false;
+    };
+    if !std::mem::take(&mut runtime.interrupt) {
+        return false;
+    }
+    let activity = runtime.status.as_ref().and_then(|s| s.activity.clone());
+    runtime.interrupted = Some(prompts::interrupted(
+        runtime.prompt.as_deref().unwrap_or(""),
+        activity.as_deref(),
+    ));
+    true
+}
+
 async fn drain(app: AppHandle, agent_id: String) {
     loop {
-        let batch: Vec<Inbound> = {
+        let prompt: String = {
             let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
             let runtime = runtimes.entry(agent_id.clone()).or_default();
             if runtime.queue.is_empty() {
                 runtime.running = false;
                 runtime.cancel = None;
                 runtime.hop = 0;
+                runtime.prompt = None;
                 drop(runtimes);
                 set_status(&app, &agent_id, Status::idle());
                 return;
@@ -293,9 +339,14 @@ async fn drain(app: AppHandle, agent_id: String) {
                     .unwrap_or(0)
             };
             runtime.cancel = Some(Arc::new(Notify::new()));
-            batch
+            runtime.interrupt = false;
+            let prompt = compose(&batch);
+            runtime.prompt = Some(prompt.clone());
+            match runtime.interrupted.take() {
+                Some(preamble) => format!("{preamble}{prompt}"),
+                None => prompt,
+            }
         };
-        let prompt = compose(&batch);
         if let Err(err) = run_turn(&app, &agent_id, &prompt, true).await {
             let _ = record(
                 &app,
@@ -659,6 +710,11 @@ async fn run_turn(
     });
 
     if let Some(note) = stopped {
+        if note.is_none() && take_interrupt(agent_id) {
+            let line = "Interrupted to read your new message";
+            let _ = record(app, new_message(agent_id, MessageKind::Note, line));
+            return Ok(());
+        }
         // Stopped by the user: the cut-off reply already says so.
         let note = note.or(cut_off.is_none().then_some("Stopped."));
         if let Some(note) = note {

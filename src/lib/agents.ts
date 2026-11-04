@@ -54,6 +54,8 @@ export interface Agent {
   muted: boolean;
   /** Omitted by the backend when there are none. */
   checkIns?: CheckIn[];
+  /** "Always allow" rules; omitted when there are none. */
+  permissions?: PermissionRule[];
   status: AgentStatus;
   /** The agent's home folder; attachment paths are relative to it. */
   home: string;
@@ -100,7 +102,46 @@ export type MessageKind =
   | 'from_agent'
   | 'approval'
   | 'error'
-  | 'check_in';
+  | 'check_in'
+  /** A quiet line: an automatically allowed call, an interruption. */
+  | 'note';
+
+/** What "Always allow" covers; mirrors `permissions::Scope`. */
+export interface PermissionScope {
+  kind: 'command_prefix' | 'command' | 'domain' | 'tool';
+  value: string;
+  /** The value in words: "npm test", "example.com", "Send an email · Gmail". */
+  label: string;
+}
+
+export interface PermissionRule extends PermissionScope {
+  id: string;
+  createdAt: number;
+}
+
+/** What a rule lets through, before its value: "Commands starting with". A tool's label says it all. */
+export const SCOPE_KIND_LABEL: Record<PermissionScope['kind'], string> = {
+  command_prefix: 'Commands starting with',
+  command: 'Exactly',
+  domain: 'Web pages on',
+  tool: '',
+};
+
+/** The tooltip on "Always allow": exactly what will stop asking. */
+export function describeScope(scope: PermissionScope, agentName: string): string {
+  const what =
+    scope.kind === 'command_prefix'
+      ? `Any command starting with “${scope.label}”`
+      : scope.kind === 'command'
+        ? `Exactly “${scope.label}”`
+        : scope.kind === 'domain'
+          ? `Opening pages on ${scope.label}`
+          : `“${scope.label}”`;
+  const chained = scope.kind.startsWith('command')
+    ? ' Commands chained with &&, ; or | still ask.'
+    : '';
+  return `${what} runs for ${agentName} without asking.${chained} Revoke it in ${agentName}’s settings.`;
+}
 
 export interface AgentRef {
   id: string;
@@ -114,6 +155,10 @@ export interface Approval {
   status: 'pending' | 'allowed' | 'denied' | 'expired';
   tool?: string;
   input?: unknown;
+  /** What "Always allow" would cover; only on cards that may offer it. */
+  always?: PermissionScope;
+  /** Allowed by an "Always allow" rule rather than once. */
+  alwaysAllowed?: boolean;
 }
 
 export interface AgentMessage {
@@ -346,8 +391,22 @@ export const getAgentInstructions = (agentId: string) =>
   invoke<string>('agents_instructions', { agentId });
 export const deleteAgent = (agentId: string) => invoke<void>('agents_delete', { agentId });
 export const stopAgent = (agentId: string) => invoke<boolean>('agents_stop', { agentId });
-export const answerApproval = (agentId: string, requestId: string, allow: boolean) =>
-  invoke<void>('agents_answer_approval', { agentId, requestId, allow });
+export const answerApproval = (
+  agentId: string,
+  requestId: string,
+  allow: boolean,
+  always = false
+) =>
+  invoke<void>('agents_answer_approval', {
+    agentId,
+    requestId,
+    allow,
+    always: always || undefined,
+  });
+/** Stop the turn in progress so what's queued sends now. */
+export const interruptAgent = (agentId: string) => invoke<boolean>('agents_interrupt', { agentId });
+export const revokePermission = (agentId: string, ruleId: string) =>
+  invoke<void>('agents_revoke_permission', { agentId, ruleId });
 export const focusAgent = (agentId: string | null) => invoke<void>('agents_focus', { agentId });
 export const markAgentUnread = (agentId: string) => invoke<void>('agents_mark_unread', { agentId });
 export const getImportPrompt = () => invoke<string>('agents_import_prompt');
@@ -533,6 +592,15 @@ export function sortAgents(agents: Agent[]): Agent[] {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return b.lastActivityAt - a.lastActivityAt;
   });
+}
+
+/**
+ * A message of yours the agent hasn't read yet: sent after the turn in
+ * progress began, so it is queued for the next one.
+ */
+export function isQueued(message: AgentMessage, agent: Agent): boolean {
+  const { state, since } = agent.status;
+  return message.kind === 'user' && state !== 'idle' && since != null && message.ts > since;
 }
 
 /** Waiting on you: mid-turn on a card, or paused with one still open. */

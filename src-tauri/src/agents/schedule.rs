@@ -1218,6 +1218,7 @@ mod tests {
             muted: false,
             check_ins,
             usage: Default::default(),
+            permissions: Vec::new(),
         }
     }
 

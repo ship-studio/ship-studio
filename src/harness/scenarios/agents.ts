@@ -594,6 +594,70 @@ const ERROR_CHAT = [
   ),
 ];
 
+/** Acme Site mid-turn: a call it was always allowed, then one it asks about. */
+const ALWAYS_CHAT = [
+  msg('user', 'Run the tests before you push the pricing fix.', 6, { agentId: 'acme' }),
+  msg('note', 'Allowed automatically: npm run lint · Always allowed', 5, { agentId: 'acme' }),
+  msg('approval', '', 4, {
+    agentId: 'acme',
+    approval: {
+      requestId: 'req-2',
+      title: 'Run a command',
+      detail: 'npm test -- --run pricing',
+      status: 'pending',
+      tool: 'Bash',
+      input: { command: 'npm test -- --run pricing' },
+      always: { kind: 'command_prefix', value: 'npm test', label: 'npm test' },
+    },
+  }),
+];
+
+/** "Always allow" on one card, which also answered the other card it covers. */
+const ALWAYS_ALLOWED_CHAT = [
+  msg('user', 'Run the tests before you push the pricing fix.', 6, { agentId: 'acme' }),
+  ...[
+    ['req-3', 'npm test -- --run pricing', 4],
+    ['req-4', 'npm test -- --run checkout', 3],
+  ].map(([requestId, command, ago]) =>
+    msg('approval', '', ago as number, {
+      agentId: 'acme',
+      approval: {
+        requestId,
+        title: 'Run a command',
+        detail: command,
+        status: 'allowed',
+        tool: 'Bash',
+        input: { command },
+        always: { kind: 'command_prefix', value: 'npm test', label: 'npm test' },
+        alwaysAllowed: true,
+      },
+    })
+  ),
+];
+
+/** Earlier, an interruption; now a message queued behind the turn in progress. */
+const QUEUED_CHAT = [
+  msg('user', 'Fix the pricing cards on mobile.', 30, { agentId: 'acme' }),
+  msg('agent', 'Looking at the grid now. The cards keep three columns below', 29, {
+    agentId: 'acme',
+    stopped: true,
+  }),
+  msg('note', 'Interrupted to read your new message', 29, { agentId: 'acme' }),
+  msg('user', 'Do the tablet layout first, the client is demoing on an iPad.', 29, {
+    agentId: 'acme',
+  }),
+  msg(
+    'agent',
+    'Tablet first, then. The cards now stack at 768px; I’ll carry on with mobile after.',
+    20,
+    { agentId: 'acme' }
+  ),
+  msg('user', 'Also check the footer links once that’s done.', 0.5, { agentId: 'acme' }),
+];
+
+const acmeWith = (over: Record<string, unknown>) =>
+  overview(TEAM.map((a) => (a.id === 'acme' ? { ...a, ...over } : a)));
+
 const totals = (turns: number, tokens: number, cost: number, minutes: number) => ({
   turns,
   inputTokens: Math.round(tokens * 0.01),
@@ -969,6 +1033,86 @@ export const agentsScenarios: Scenario[] = [
       agents_overview: overview(),
       agents_messages: messagesFor,
       start_dictation: { status: 'blocked', reason: 'microphone' },
+    },
+  },
+  {
+    id: 'agents-always-allow',
+    title: 'Agents — Always allow on an approval, and a call it allowed itself',
+    looksRightWhen:
+      'Acme Site’s chat: a quiet centred “Allowed automatically: npm run lint · Always allowed” line, then a “Run a command” card for npm test -- --run pricing. Deny and Allow sit on the right; on the left, apart and muted, “Always allow npm test” with npm test in mono. Its tooltip says any command starting with npm test runs without asking and that chained commands still ask.',
+    requires: '.agent-approval__always',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }],
+    commands: {
+      agents_overview: acmeWith({ status: status('waiting', 'Waiting for your OK') }),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'acme' ? ALWAYS_CHAT : messagesFor(args),
+      agents_answer_approval: null,
+    },
+  },
+  {
+    id: 'agents-always-allowed',
+    title: 'Agents — two cards answered by one Always allow',
+    looksRightWhen:
+      'Acme Site’s chat: two “Run a command” cards (npm test -- --run pricing, then npm test -- --run checkout), both resolved, each reading “Always allowed · npm test” with npm test in mono, where the buttons were.',
+    requires: '.agent-approval__outcome',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }],
+    commands: {
+      agents_overview: acmeWith({ status: status('working', 'Running npm test') }),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'acme' ? ALWAYS_ALLOWED_CHAT : messagesFor(args),
+    },
+  },
+  {
+    id: 'agents-permissions',
+    title: 'Agents — what an agent may do without asking',
+    looksRightWhen:
+      'Editing Acme Site, under usage: a Permissions group listing “Commands starting with npm test”, “Commands starting with npm run lint”, “Web pages on vercel.com” and “Send an email · Gmail”, hairline-separated, each with a quiet Revoke on the right.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agent-permissions__rule',
+    steps: [
+      { click: '[data-agent-id="acme"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(5)' },
+    ],
+    commands: {
+      agents_overview: acmeWith({
+        permissions: [
+          ['command_prefix', 'npm test'],
+          ['command_prefix', 'npm run lint'],
+          ['domain', 'vercel.com'],
+          ['tool', 'mcp__gmail__send_email', 'Send an email · Gmail'],
+        ].map(([kind, value, label], i) => ({
+          id: `rule-${i}`,
+          kind,
+          value,
+          label: label ?? value,
+          createdAt: now - i * MIN,
+        })),
+      }),
+      agents_messages: messagesFor,
+      agents_instructions: 'Owns the Acme marketing site.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_revoke_permission: null,
+    },
+  },
+  {
+    id: 'agents-queued',
+    title: 'Agents — a message queued while the agent works',
+    looksRightWhen:
+      'Acme Site is Working. Earlier: a reply cut off with “Stopped”, a quiet centred “Interrupted to read your new message”, then the message that interrupted it and the reply. Then the working dots with “Editing PricingTable.tsx”, and only under them your newest message, slightly dimmed, with “Queued, sends when Acme Site finishes · Interrupt and send now” under it. The composer holds a second message, and beside the mic a faint “↵ queues · ⌘↵ interrupts and sends now”.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agent-chat__queued',
+    steps: [
+      { click: '[data-agent-id="acme"]' },
+      { fill: '.agent-composer__input', value: 'And the 404 page.' },
+    ],
+    commands: {
+      agents_overview: acmeWith({ status: status('working', 'Editing PricingTable.tsx') }),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'acme' ? QUEUED_CHAT : messagesFor(args),
+      agents_interrupt: true,
     },
   },
   {

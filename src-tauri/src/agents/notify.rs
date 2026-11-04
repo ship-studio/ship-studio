@@ -292,6 +292,7 @@ mod tests {
             muted,
             check_ins: Vec::new(),
             usage: Default::default(),
+            permissions: Vec::new(),
         }
     }
 
@@ -304,6 +305,8 @@ mod tests {
             status: store::ApprovalStatus::Pending,
             tool: None,
             input: None,
+            always: None,
+            always_allowed: false,
         });
         message
     }

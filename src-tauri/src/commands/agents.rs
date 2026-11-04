@@ -342,6 +342,16 @@ pub async fn agents_stop(agent_id: String) -> Result<bool, CommandError> {
     Ok(runner::stop(&agent_id))
 }
 
+/// Stop the turn in progress so the messages queued behind it run now. The
+/// next turn is told what it was doing when it was cut off.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_interrupt(agent_id: String) -> Result<bool, CommandError> {
+    Ok(runner::interrupt(&agent_id))
+}
+
+/// `always`: allow, and keep allowing what the card offered to (its stored
+/// scope, never one the caller supplies).
 #[tauri::command]
 #[tracing::instrument(skip(app))]
 pub async fn agents_answer_approval(
@@ -349,6 +359,7 @@ pub async fn agents_answer_approval(
     agent_id: String,
     request_id: String,
     allow: bool,
+    always: Option<bool>,
 ) -> Result<(), CommandError> {
     let status = if allow {
         store::ApprovalStatus::Allowed
@@ -360,19 +371,70 @@ pub async fn agents_answer_approval(
     if approval.status != store::ApprovalStatus::Pending {
         return Err(CommandError::expected("That request was already answered."));
     }
+    let rule = if allow && always == Some(true) {
+        Some(mcp::always_allow(&agent_id, &approval)?)
+    } else {
+        None
+    };
     // Write the decision before waking the waiter, so the card can't be
     // overwritten by the waiter's own cleanup.
-    let updated = store::set_approval_status(&agent_id, &request_id, status)?;
+    let updated = if let Some(scope) = &rule {
+        store::allow_always(&agent_id, &request_id, scope)?
+    } else {
+        store::set_approval_status(&agent_id, &request_id, status)?
+    };
     if let Some(message) = updated {
         let _ = app.emit(runner::EVENT_MESSAGE, &message);
     }
     emit_registry(&app);
     notify::refresh_badge(&app);
-    if !mcp::answer_approval(&request_id, allow) {
-        // Nobody is waiting on it (the agent paused, or the app restarted):
-        // a late Allow grants that exact call and wakes the agent.
-        mcp::answer_late(&app, &agent_id, &approval, allow)?;
+    wake(&app, &agent_id, &approval, allow)?;
+
+    // The new rule answers the other open cards it covers, the same way.
+    if let Some(scope) = rule {
+        let open = store::pending_approvals(&agent_id)?;
+        for id in mcp::covered_by(&scope, &open, &request_id) {
+            let Some(card) = open.iter().find(|a| a.request_id == id) else {
+                continue;
+            };
+            if let Some(message) = store::allow_always(&agent_id, &id, &scope)? {
+                let _ = app.emit(runner::EVENT_MESSAGE, &message);
+            }
+            if let Err(e) = wake(&app, &agent_id, card, true) {
+                tracing::warn!(request_id = %id, error = %e, "covered card could not wake its agent");
+            }
+        }
+        emit_registry(&app);
+        notify::refresh_badge(&app);
     }
+    Ok(())
+}
+
+/// Hand an answer to whoever is waiting on the card. Nobody is waiting on it
+/// (the agent paused, or the app restarted): a late Allow grants that exact
+/// call and wakes the agent.
+fn wake(
+    app: &AppHandle,
+    agent_id: &str,
+    approval: &store::Approval,
+    allow: bool,
+) -> Result<(), CommandError> {
+    if !mcp::answer_approval(&approval.request_id, allow) {
+        mcp::answer_late(app, agent_id, approval, allow)?;
+    }
+    Ok(())
+}
+
+/// Take back an "Always allow" rule: matching calls ask again.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_revoke_permission(
+    app: AppHandle,
+    agent_id: String,
+    rule_id: String,
+) -> Result<(), CommandError> {
+    store::update(&agent_id, |a| a.permissions.retain(|r| r.id != rule_id))?;
+    emit_registry(&app);
     Ok(())
 }
 

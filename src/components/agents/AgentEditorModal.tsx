@@ -21,8 +21,11 @@ import {
   formatUsage,
   getAgentInstructions,
   getAgentUsage,
+  revokePermission,
+  SCOPE_KIND_LABEL,
   updateAgent,
   type Agent,
+  type PermissionRule,
   type UsageSummary,
 } from '../../lib/agents';
 import { asCommandError, formatCommandError } from '../../lib/errors';
@@ -40,6 +43,57 @@ function UsageLines({ usage }: { usage: UsageSummary | null }) {
       <dt>All time</dt>
       <dd>{allTime}</dd>
     </dl>
+  );
+}
+
+/**
+ * What this agent may do without asking, each with Revoke. Revoking is
+ * immediate, not part of Save: it's a permission, not a draft.
+ */
+function Permissions({ agent }: { agent: Agent }) {
+  const [rules, setRules] = useState<PermissionRule[]>(agent.permissions ?? []);
+  const [error, setError] = useState<string | null>(null);
+  const revoke = async (rule: PermissionRule) => {
+    setError(null);
+    try {
+      await revokePermission(agent.id, rule.id);
+      setRules((list) => list.filter((r) => r.id !== rule.id));
+    } catch (err) {
+      setError(formatCommandError(asCommandError(err)));
+    }
+  };
+  return (
+    <div className="agent-editor__label" role="group" aria-label="Permissions">
+      Permissions
+      {rules.length === 0 ? (
+        <p className="agent-editor__hint">
+          Nothing is always allowed. Choose “Always allow” on a request in the chat to add one.
+        </p>
+      ) : (
+        <ul className="agent-permissions">
+          {rules.map((rule) => (
+            <li key={rule.id} className="agent-permissions__rule">
+              <span className="agent-permissions__what">
+                {SCOPE_KIND_LABEL[rule.kind] && `${SCOPE_KIND_LABEL[rule.kind]} `}
+                {rule.kind.startsWith('command') ? <code>{rule.label}</code> : rule.label}
+              </span>
+              <TextButton
+                tabIndex={0}
+                className="agent-permissions__revoke"
+                onClick={() => void revoke(rule)}
+              >
+                Revoke
+              </TextButton>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && (
+        <p className="agent-editor__error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -192,6 +246,7 @@ export function AgentEditorModal({
               </p>
             )}
             <UsageLines usage={usage} />
+            {agent && <Permissions agent={agent} />}
           </div>
         ) : (
           <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>

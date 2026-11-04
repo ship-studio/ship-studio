@@ -130,9 +130,9 @@ export function AgentsTeamView({ onOpenAgent, onOpenMessage, onGoHome }: AgentsT
   const lines = useRecentLines(agents, messages);
   const team = useMemo(() => summarizeTeam(agents, lines), [agents, lines]);
 
-  const answer = async (agentId: string, requestId: string, allow: boolean) => {
+  const answer = async (agentId: string, requestId: string, allow: boolean, always?: boolean) => {
     try {
-      await answerApproval(agentId, requestId, allow);
+      await answerApproval(agentId, requestId, allow, always);
     } catch (error) {
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
@@ -175,8 +175,11 @@ export function AgentsTeamView({ onOpenAgent, onOpenMessage, onGoHome }: AgentsT
                   <ApprovalCard
                     key={m.id}
                     message={m}
+                    agentName={agent.name}
                     paused={agent.status.state === 'idle'}
-                    onAnswer={(requestId, allow) => answer(agent.id, requestId, allow)}
+                    onAnswer={(requestId, allow, always) =>
+                      answer(agent.id, requestId, allow, always)
+                    }
                     arrived={false}
                   />
                 ))}

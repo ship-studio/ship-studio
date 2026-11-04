@@ -14,7 +14,15 @@
  * @module components/agents/AgentChat
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -54,6 +62,7 @@ import {
   DayDivider,
   CheckInLine,
   ErrorLine,
+  NoteLine,
   PeerGroup,
   UserBubble,
   WorkingIndicator,
@@ -61,6 +70,8 @@ import {
 import {
   answerApproval,
   buildChatItems,
+  interruptAgent,
+  isQueued,
   lastUserText,
   mentionedAgents,
   needsYou,
@@ -310,12 +321,33 @@ export function AgentChat({
     return last?.kind === 'error' ? lastUserText(shown, shown.length - 1) : null;
   }, [shown]);
   const retryId = retryText ? shown[shown.length - 1].id : null;
+  // Mid-turn, what you send waits for the next turn. The newest waiting
+  // message says so and offers to interrupt instead.
+  const busy = agent.status.state !== 'idle';
+  const queuedId = useMemo(() => {
+    const waiting = shown.filter((m) => !failed.has(m.id) && isQueued(m, agent));
+    return waiting[waiting.length - 1]?.id ?? null;
+  }, [shown, failed, agent]);
   // A card left open after the turn ended is not "working": no dots, no Stop.
   const working = agent.status.state === 'working';
   // While words are arriving they are the sign of life; the dots and what
   // it's doing come back between text blocks, while tools run.
   const indicator = usePresence(working && !streaming);
   const jump = usePresence(!atBottom);
+  // What it's doing now goes above what's waiting: the indicator sits before
+  // the run of queued messages at the end, not under them.
+  const queuedFrom = useMemo(() => {
+    let from = items.length;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.type === 'day') continue;
+      if (item.type === 'peer-group' || !isQueued(item.message, agent)) break;
+      from = i;
+    }
+    // Leave a day divider that opens the run above the indicator, with its day.
+    while (from < items.length && items[from].type === 'day') from++;
+    return from;
+  }, [items, agent]);
 
   // Only lines that arrive while the chat is open animate in.
   const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
@@ -398,12 +430,22 @@ export function AgentChat({
   const staged = attachments.items;
   const canSend = draft.trim().length > 0 || staged.length > 0 || quotes.length > 0;
 
-  const deliver = async (entry: Pending) => {
+  const interrupt = async () => {
+    try {
+      await interruptAgent(agent.id);
+    } catch (error) {
+      showToast(formatCommandError(asCommandError(error)), 'error');
+    }
+  };
+
+  /** `now`: interrupt the turn in progress once it has the message (⌘↵). */
+  const deliver = async (entry: Pending, now = false) => {
     try {
       const ids = entry.mentions.map((m) => m.id);
       const message = await sendAgentMessage(agent.id, entry.text, [], ids);
       setPending((list) => list.map((p) => (p.key === entry.key ? { ...p, id: message.id } : p)));
       upsertMessage(message);
+      if (now) await interrupt();
     } catch (error) {
       setPending((list) => list.map((p) => (p.key === entry.key ? { ...p, failed: true } : p)));
       showToast(formatCommandError(asCommandError(error)), 'error');
@@ -413,11 +455,17 @@ export function AgentChat({
   // Words alone appear at once and retry in place. Files have to be copied
   // into the agent's home first, so that send waits, and a failure puts
   // everything back in the composer.
-  const sendWithFiles = async (typed: string, quoted: string[], files: typeof staged) => {
+  const sendWithFiles = async (
+    typed: string,
+    quoted: string[],
+    files: typeof staged,
+    now: boolean
+  ) => {
     try {
       const outgoing = await toOutgoing(files);
       const ids = mentionsIn(typed).map((m) => m.id);
       upsertMessage(await sendAgentMessage(agent.id, withQuotes(quoted, typed), outgoing, ids));
+      if (now) await interrupt();
     } catch (error) {
       setDraft(typed);
       setQuotes(quoted);
@@ -427,15 +475,16 @@ export function AgentChat({
   };
 
   /** Words alone: on screen at once, and in the sidebar's row. */
-  const sendText = (text: string) => {
+  const sendText = (text: string, now = false) => {
     atBottomRef.current = true;
     const entry = newPending(text, mentionsIn(text));
     setPending((list) => [...list, entry]);
     markSent(agent.id, text);
-    void deliver(entry);
+    void deliver(entry, now);
   };
 
-  const send = () => {
+  /** `now`: rather than queue behind the turn in progress, interrupt it. */
+  const send = (now = false) => {
     if (!canSend || dictating) return;
     const typed = draft.trim();
     setDraft('');
@@ -443,10 +492,10 @@ export function AgentChat({
     if (staged.length > 0) {
       atBottomRef.current = true;
       attachments.setItems([]);
-      void sendWithFiles(typed, quotes, staged);
+      void sendWithFiles(typed, quotes, staged, now && busy);
       return;
     }
-    sendText(withQuotes(quotes, typed));
+    sendText(withQuotes(quotes, typed), now && busy);
   };
 
   const retry = (key: string) => {
@@ -456,9 +505,9 @@ export function AgentChat({
     void deliver(entry);
   };
 
-  const onAnswer = async (requestId: string, allow: boolean) => {
+  const onAnswer = async (requestId: string, allow: boolean, always?: boolean) => {
     try {
-      await answerApproval(agent.id, requestId, allow);
+      await answerApproval(agent.id, requestId, allow, always);
     } catch (error) {
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
@@ -649,83 +698,101 @@ export function AgentChat({
               )}
             </div>
           ) : (
-            items.map((item, index) => {
-              if (item.type === 'day')
-                return (
-                  <DayDivider
-                    key={`day-${item.ts}-${index}`}
-                    ts={item.ts}
-                    arrived={arrivedAt(index)}
-                  />
-                );
-              const arrived = arrivedAt(index);
-              if (item.type === 'peer-group') {
-                return (
-                  <PeerGroup
-                    key={item.messages[0].id}
-                    peer={item.peer}
-                    messages={item.messages}
-                    peerAgent={agentsById.get(item.peer.id)}
-                    onOpenPeer={onOpenAgent}
-                    arrived={arrived}
-                    reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
-                  />
-                );
-              }
-              const m = item.message;
-              switch (m.kind) {
-                case 'user':
+            withIndicatorAt(
+              queuedFrom,
+              items.map((item, index) => {
+                if (item.type === 'day')
                   return (
-                    <UserBubble
-                      key={keyOf(m.id)}
-                      message={m}
-                      agent={agent}
-                      arrived={arrived}
-                      failed={failed.has(m.id)}
-                      onRetry={() => retry(m.id)}
-                      colorOf={colorOf}
+                    <DayDivider
+                      key={`day-${item.ts}-${index}`}
+                      ts={item.ts}
+                      arrived={arrivedAt(index)}
                     />
                   );
-                case 'agent':
+                const arrived = arrivedAt(index);
+                if (item.type === 'peer-group') {
                   return (
-                    <AgentBubble
-                      key={m.id}
-                      message={m}
+                    <PeerGroup
+                      key={item.messages[0].id}
+                      peer={item.peer}
+                      messages={item.messages}
+                      peerAgent={agentsById.get(item.peer.id)}
+                      onOpenPeer={onOpenAgent}
                       arrived={arrived}
-                      agent={agent}
-                      streaming={m === streaming}
+                      reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
                     />
                   );
-                case 'approval':
-                  return (
-                    <ApprovalCard
-                      key={m.id}
-                      message={m}
-                      paused={agent.status.state === 'idle'}
-                      onAnswer={onAnswer}
-                      arrived={arrived}
-                    />
-                  );
-                case 'error':
-                  return (
-                    <ErrorLine
-                      key={m.id}
-                      message={m}
-                      arrived={arrived}
-                      onSignIn={onSignIn}
-                      onRetry={
-                        m.id === retryId && retryText ? () => sendText(retryText) : undefined
-                      }
-                    />
-                  );
-                case 'check_in':
-                  return <CheckInLine key={m.id} message={m} arrived={arrived} />;
-                default:
-                  return null;
-              }
-            })
+                }
+                const m = item.message;
+                switch (m.kind) {
+                  case 'user':
+                    return (
+                      <UserBubble
+                        key={keyOf(m.id)}
+                        message={m}
+                        agent={agent}
+                        arrived={arrived}
+                        failed={failed.has(m.id)}
+                        onRetry={() => retry(m.id)}
+                        queued={
+                          m.id === queuedId ? { onInterrupt: () => void interrupt() } : undefined
+                        }
+                        colorOf={colorOf}
+                      />
+                    );
+                  case 'agent':
+                    return (
+                      <AgentBubble
+                        key={m.id}
+                        message={m}
+                        arrived={arrived}
+                        agent={agent}
+                        streaming={m === streaming}
+                      />
+                    );
+                  case 'approval':
+                    return (
+                      <ApprovalCard
+                        key={m.id}
+                        message={m}
+                        agentName={agent.name}
+                        paused={agent.status.state === 'idle'}
+                        onAnswer={onAnswer}
+                        arrived={arrived}
+                      />
+                    );
+                  case 'error':
+                    return (
+                      <ErrorLine
+                        key={m.id}
+                        message={m}
+                        arrived={arrived}
+                        onSignIn={onSignIn}
+                        onRetry={
+                          m.id === retryId && retryText ? () => sendText(retryText) : undefined
+                        }
+                      />
+                    );
+                  case 'check_in':
+                    return <CheckInLine key={m.id} message={m} arrived={arrived} />;
+                  case 'note':
+                    return <NoteLine key={m.id} message={m} arrived={arrived} />;
+                  default:
+                    return null;
+                }
+              }),
+              indicator.mounted && (
+                <WorkingIndicator
+                  key="working"
+                  activity={agent.status.activity}
+                  entering={indicator.entering}
+                  leaving={indicator.leaving}
+                  onExited={indicator.onExited}
+                />
+              )
+            )
           )}
-          {indicator.mounted && (
+          {items.length === 0 && indicator.mounted && (
             <WorkingIndicator
               activity={agent.status.activity}
               entering={indicator.entering}
@@ -800,7 +867,7 @@ export function AgentChat({
                 if (mentionPicker.onKeyDown(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  send();
+                  send(e.metaKey);
                 } else if (e.key === 'Escape' && onEscape?.()) {
                   e.preventDefault();
                 } else if (e.key === 'Escape' && working && !canSend) {
@@ -832,6 +899,11 @@ export function AgentChat({
                 />
               )}
               <div className="agent-composer__actions">
+                {busy && canSend && !dictating && (
+                  <span className="agent-composer__hint" aria-hidden>
+                    ↵ queues · ⌘↵ interrupts and sends now
+                  </span>
+                )}
                 <IconButton
                   ref={micRef}
                   tabIndex={0}
@@ -866,7 +938,9 @@ export function AgentChat({
                     disabled={!canSend || dictating}
                     aria-label="Send"
                     title={
-                      working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'
+                      busy
+                        ? `Queue it: ${agent.name} reads it when it finishes (↵). Interrupt and send now: ⌘↵`
+                        : 'Send'
                     }
                   />
                 )}
@@ -909,4 +983,10 @@ export function AgentChat({
       </div>
     </section>
   );
+}
+
+/** The rows, with `extra` (if any) slotted in before row `at`. */
+function withIndicatorAt(at: number, rows: ReactNode[], extra: ReactNode): ReactNode[] {
+  if (!extra) return rows;
+  return [...rows.slice(0, at), extra, ...rows.slice(at)];
 }
