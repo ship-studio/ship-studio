@@ -76,3 +76,19 @@ describe('remoteStep', () => {
     expect(remoteStep(show, { ...ready, terminalTabs: [] }, 2_000)).toEqual({ do: 'shown' });
   });
 });
+
+describe('remoteStep: Open session', () => {
+  const focus: RemoteRequest = {
+    kind: 'focus',
+    projectPath: '/p',
+    sessionId: 'b',
+    receivedAt: 1_000,
+  };
+  it('opens the project, then selects that session’s tab', () => {
+    expect(remoteStep(focus, { ...ready, inWorkspace: false }, 2_000)).toEqual({ do: 'wait' });
+    expect(remoteStep(focus, ready, 2_000)).toEqual({ do: 'focus', tabId: 2 });
+  });
+  it('still opens the project when the session has closed', () => {
+    expect(remoteStep({ ...focus, sessionId: 'gone' }, ready, 2_000)).toEqual({ do: 'shown' });
+  });
+});

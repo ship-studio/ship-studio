@@ -36,7 +36,7 @@ pub(crate) const PROBE_HEADER: &str = "x-shipstudio-probe";
 pub(crate) static PROBE_ID: LazyLock<String> = LazyLock::new(super::new_token);
 
 /// Tools left out of the audit log (see the call site).
-const READ_ONLY_TOOLS: &[&str] = &[
+pub(crate) const READ_ONLY_TOOLS: &[&str] = &[
     "computer_status",
     "list_projects",
     "read_agent",
@@ -76,7 +76,7 @@ fn allow_in_window(recent: &mut std::collections::VecDeque<u64>, now: u64, max: 
 
 /// What the audit log records about a call: what was typed, never more than
 /// a preview, and never a PIN.
-fn audit_detail(tool: &str, args: &Value) -> String {
+pub(crate) fn audit_detail(tool: &str, args: &Value) -> String {
     let field = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("");
     match tool {
         "message_agent" => super::preview(field("message")),

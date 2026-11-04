@@ -296,6 +296,7 @@ mod tests {
             permissions: Vec::new(),
             failure: None,
             project: None,
+            capabilities: None,
         }
     }
 

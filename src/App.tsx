@@ -40,6 +40,7 @@ import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
 import { AppViewRouter } from './components/AppViewRouter';
 import { useAgentDeliveries } from './hooks/useAgentDeliveries';
+import { useAgentsReturn } from './hooks/useAgentsReturn';
 import { useAccountSelectNavigation } from './hooks/useAccountSelectNavigation';
 import { useProjectRail } from './hooks/useProjectRail';
 import { useActiveAccount } from './hooks/useActiveAccount';
@@ -858,6 +859,8 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   const inWorkspace = view === 'workspace';
   useAgentDeliveries(inWorkspace, currentProject, terminalProps, showToast, handleSelectProject);
+  const goToAgents = useCallback(() => setView('agents'), []);
+  useAgentsReturn(view, currentProject?.path ?? null, goToAgents);
 
   const devServerProps = useMemo(
     () => ({

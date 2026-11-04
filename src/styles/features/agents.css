@@ -2149,3 +2149,8 @@
 .agents-team__line[data-state='failed'] {
   color: var(--accent-error-light);
 }
+
+/* "What <agent> can do": reads as prose, not figures. */
+.agent-editor__can-do {
+  font-variant-numeric: normal;
+}

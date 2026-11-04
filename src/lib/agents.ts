@@ -62,8 +62,10 @@ export interface Agent {
   home: string;
   /** The newest line in its chat is a failed turn; omitted otherwise. */
   failure?: Failure;
-  /** The project it works in (a path from `list_projects`); omitted when unbound. */
+  /** The project it works in (a path from `project_list`); omitted when unbound. */
   project?: string;
+  /** What its last turn could use; omitted before its first turn. */
+  capabilities?: Capabilities;
 }
 
 /** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
@@ -118,7 +120,40 @@ export type MessageKind =
   /** A quiet line: an automatically allowed call, an interruption, what the Chief did. */
   | 'note'
   /** Files a project-bound agent's turn changed (`changes`). */
-  | 'changes';
+  | 'changes'
+  /** The agent worked in a project's session (`session`). */
+  | 'session';
+
+/** Mirrors `sessions::SessionMark`: what an agent did in a project's session. */
+export interface SessionMark {
+  /** The project's path. */
+  project: string;
+  event: 'started' | 'sent' | 'reply' | 'screenshot';
+  /** The tab's PTY session id; absent on a screenshot. */
+  sessionId?: string;
+  /** Its number among the project's tabs then. */
+  tab?: number;
+  /** The tab's agent CLI id (`claude`, `codex`, …). */
+  cli?: string;
+}
+
+const CLI_NAMES: Record<string, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'Opencode',
+};
+
+/** "Claude Code 1": the tab as the project's tab bar would name it. */
+export function sessionLabel(mark: SessionMark): string {
+  const cli = (mark.cli && CLI_NAMES[mark.cli]) ?? mark.cli ?? 'Session';
+  return mark.tab ? `${cli} ${mark.tab}` : cli;
+}
+
+/** Mirrors `capabilities::Capabilities`, from the agent's last turn. */
+export interface Capabilities {
+  seenAt: number;
+  lines: { what: string; detail: string }[];
+}
 
 /** What "Always allow" covers; mirrors `permissions::Scope`. */
 export interface PermissionScope {
@@ -196,6 +231,8 @@ export interface AgentMessage {
   failure?: Failure;
   /** On a `changes` line: what the turn changed in the project. */
   changes?: ChangeSummary;
+  /** On a `session` line. */
+  session?: SessionMark;
 }
 
 /** Mirrors `project::ChangedFile`: line counts are absent for a binary file. */
@@ -779,7 +816,7 @@ export function lastOutcome(messages: AgentMessage[] | undefined): AgentMessage 
   if (!messages) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const kind = messages[i].kind;
-    if (kind !== 'note' && kind !== 'changes') return messages[i];
+    if (kind !== 'note' && kind !== 'changes' && kind !== 'session') return messages[i];
   }
   return null;
 }
@@ -796,7 +833,12 @@ export function drivingBriefId(items: ChatItem[], agent: Agent): string | null {
     const item = items[i];
     if (item.type === 'day') continue;
     if (item.type === 'message') {
-      if (item.message.ts > since || item.message.kind === 'note') continue;
+      if (
+        item.message.ts > since ||
+        item.message.kind === 'note' ||
+        item.message.kind === 'session'
+      )
+        continue;
       return null;
     }
     const last = item.messages[item.messages.length - 1];

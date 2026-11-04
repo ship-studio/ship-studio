@@ -18,6 +18,9 @@
  *   and tidies split panes. The last tab is never closed — the workspace
  *   always keeps one.
  *
+ * - **Focus** opens the project with one tab selected: "Open session" on an
+ *   agent's session card (`openAgentSession`). Same queue, same open.
+ *
  * Nobody is at the computer to see a failure here, so a failure is simply
  * not acting: the Rust side times out and tells the remote assistant, which
  * is the only place anyone is looking.
@@ -45,7 +48,16 @@ export type RemoteRequest =
     }
   | { kind: 'close'; projectPath: string; sessionId: string; receivedAt: number }
   /** Just bring the project up, so its preview can be screenshotted. */
-  | { kind: 'show'; projectPath: string; receivedAt: number };
+  | { kind: 'show'; projectPath: string; receivedAt: number }
+  /** Open the project with this session's tab selected. */
+  | { kind: 'focus'; projectPath: string; sessionId: string; receivedAt: number };
+
+/** "Open session" from an agent's chat: the project, with that tab showing. */
+const focusListeners = new Set<(request: RemoteRequest) => void>();
+export function openAgentSession(projectPath: string, sessionId: string): void {
+  const request: RemoteRequest = { kind: 'focus', projectPath, sessionId, receivedAt: Date.now() };
+  focusListeners.forEach((listener) => listener(request));
+}
 
 interface TabRef {
   id: number;
@@ -69,6 +81,7 @@ interface TerminalControls {
     options?: { initialPrompt?: string; projectPath?: string; sessionId?: string }
   ) => void;
   closeTerminalTab: (tabId: number) => void;
+  setActiveTerminalTab: (tabId: number) => void;
 }
 
 export type RemoteStep =
@@ -76,6 +89,7 @@ export type RemoteStep =
   | { do: 'wait' }
   | { do: 'start' }
   | { do: 'close'; tabId: number }
+  | { do: 'focus'; tabId: number }
   | { do: 'shown' }
   | { do: 'drop'; reason: 'expired' | 'no_room' | 'no_such_tab' | 'last_tab' };
 
@@ -106,6 +120,8 @@ export function remoteStep(
     return { do: 'start' };
   }
   const tab = tabs.find((t) => t.sessionId === pending.sessionId);
+  // A closed session still opens its project; there's just no tab to pick.
+  if (pending.kind === 'focus') return tab ? { do: 'focus', tabId: tab.id } : { do: 'shown' };
   if (!tab) return { do: 'drop', reason: 'no_such_tab' };
   if (tabs.length <= 1) return { do: 'drop', reason: 'last_tab' };
   return { do: 'close', tabId: tab.id };
@@ -114,7 +130,13 @@ export function remoteStep(
 export function useRemoteAgentControl(
   currentProjectPath: string | null,
   inWorkspace: boolean,
-  { terminalTabs, maxTerminalTabs, addTerminalTab, closeTerminalTab }: TerminalControls,
+  {
+    terminalTabs,
+    maxTerminalTabs,
+    addTerminalTab,
+    closeTerminalTab,
+    setActiveTerminalTab,
+  }: TerminalControls,
   openProject: (project: Project) => void | Promise<void>
 ): void {
   // A queue, not a slot: two requests can arrive while a project is still
@@ -148,7 +170,9 @@ export function useRemoteAgentControl(
       logger.info('[Remote] Asked to show a project', { projectPath });
       enqueue({ kind: 'show', projectPath, receivedAt: Date.now() });
     });
+    focusListeners.add(enqueue);
     return () => {
+      focusListeners.delete(enqueue);
       void unlistenStart.then((fn) => fn());
       void unlistenClose.then((fn) => fn());
       void unlistenShow.then((fn) => fn());
@@ -193,6 +217,9 @@ export function useRemoteAgentControl(
     } else if (step.do === 'close') {
       closeTerminalTab(step.tabId);
       finish(pending);
+    } else if (step.do === 'focus') {
+      setActiveTerminalTab(step.tabId);
+      finish(pending);
     } else if (step.do === 'shown') {
       finish(pending);
     } else if (step.do === 'drop') {
@@ -211,6 +238,7 @@ export function useRemoteAgentControl(
     maxTerminalTabs,
     addTerminalTab,
     closeTerminalTab,
+    setActiveTerminalTab,
   ]);
 
   // A request that is waiting needs something to re-check the clock even if

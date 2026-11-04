@@ -25,10 +25,10 @@ mod agent_state;
 mod deploy;
 pub mod power;
 pub mod screen;
-mod server;
+pub(crate) mod server;
 pub mod shots;
 pub mod tailscale;
-mod tools;
+pub(crate) mod tools;
 
 use crate::errors::CommandError;
 use serde::{Deserialize, Serialize};
@@ -212,6 +212,10 @@ pub struct AuditEntry {
     pub project: Option<String>,
     pub detail: String,
     pub ok: bool,
+    /// Who acted, when it wasn't the remote assistant: one of Ship Studio's
+    /// own agents, by name (`agents/sessions.rs`). Absent for remote access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
 }
 
 /// Keep the log to a size anyone would read: past this it is cut to its
@@ -236,12 +240,24 @@ pub(crate) fn preview(text: &str) -> String {
 }
 
 pub(crate) fn audit(tool: &str, project: Option<&str>, detail: String, ok: bool) {
+    audit_as(None, tool, project, detail, ok);
+}
+
+/// [`audit`], naming who acted. The same log and the same rules.
+pub(crate) fn audit_as(
+    actor: Option<&str>,
+    tool: &str,
+    project: Option<&str>,
+    detail: String,
+    ok: bool,
+) {
     let entry = AuditEntry {
         at_ms: now_ms(),
         tool: tool.to_string(),
         project: project.map(str::to_string),
         detail,
         ok,
+        actor: actor.map(str::to_string),
     };
     let Some(path) = audit_path() else { return };
     let Ok(_guard) = AUDIT_LOCK.lock() else {
@@ -275,14 +291,16 @@ pub(crate) fn audit(tool: &str, project: Option<&str>, detail: String, ok: bool)
     }
 }
 
-/// The newest `limit` entries, newest first.
+/// The newest `limit` remote-access entries, newest first. What Ship
+/// Studio's own agents did is in the same file, but isn't remote activity.
 pub fn read_audit(limit: usize) -> Vec<AuditEntry> {
     let Some(raw) = audit_path().and_then(|p| std::fs::read_to_string(p).ok()) else {
         return Vec::new();
     };
     raw.lines()
         .rev()
-        .filter_map(|l| serde_json::from_str(l).ok())
+        .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+        .filter(|e| e.actor.is_none())
         .take(limit)
         .collect()
 }

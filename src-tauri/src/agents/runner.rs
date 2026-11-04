@@ -260,8 +260,8 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
                         .unwrap_or(super::failure::Failure::OTHER),
                 )
             }
-            // A note or a change card says nothing after the failure.
-            MessageKind::Note | MessageKind::Changes => {}
+            // A note, a change card or a session line says nothing after the failure.
+            MessageKind::Note | MessageKind::Changes | MessageKind::Session => {}
             _ => agent.failure = None,
         }
     });
@@ -342,7 +342,7 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
         MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
-        MessageKind::Note | MessageKind::Changes => None,
+        MessageKind::Note | MessageKind::Changes | MessageKind::Session => None,
     }
 }
 
@@ -372,6 +372,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         mentions: Vec::new(),
         failure: None,
         changes: None,
+        session: None,
     }
 }
 
@@ -686,7 +687,12 @@ pub fn describe_activity(line: &str) -> Option<String> {
         Some("message_agent") => format!("Messaging {}", field("agent")),
         Some("create_agent") => format!("Creating {}", field("name")),
         Some("list_agents") => "Checking on the team".to_string(),
-        Some("list_projects") => "Looking at your projects".to_string(),
+        Some("project_list") => "Looking at your projects".to_string(),
+        Some("project_create") => format!("Creating {}", field("name")),
+        Some("session_message" | "session_start") => format!("Working in {}", field("project")),
+        Some("session_wait" | "session_progress") => format!("Following {}", field("project")),
+        Some("preview_screenshot") => format!("Looking at {}", field("project")),
+        Some("push") => format!("Pushing {}", field("project")),
         Some(other) => other.replace('_', " "),
         None => match name {
             "Edit" | "Write" | "MultiEdit" => {
@@ -745,6 +751,10 @@ fn turn_args(
         "stream-json",
         "--verbose",
         "--include-partial-messages",
+        // Claude in Chrome. Verified in --print on 2.1.318: its tools load and
+        // answer when the extension is connected. Its calls aren't allowed in
+        // advance, so they ask through `approve` like any other MCP tool.
+        "--chrome",
     ]
     .map(String::from)
     .to_vec();
@@ -916,6 +926,9 @@ async fn run_turn(
                 let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
                 match value.get("type").and_then(|t| t.as_str()) {
                     Some("system") => {
+                        if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {
+                            let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
+                        }
                         if !session_confirmed {
                             if let Some(sid) = value.get("session_id").and_then(|s| s.as_str()) {
                                 session_confirmed = true;
@@ -1123,6 +1136,7 @@ mod tests {
             "stream-json",
             "--verbose",
             "--include-partial-messages",
+            "--chrome",
             "--resume",
             "sid",
             "--permission-mode",
