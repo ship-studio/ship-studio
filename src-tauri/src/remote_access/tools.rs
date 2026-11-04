@@ -1174,7 +1174,7 @@ fn write(session_id: &str, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Validate text bound for an agent, the same way for a message and a prompt.
-fn clean_agent_text(raw: &str, what: &str) -> Result<String, String> {
+pub(crate) fn clean_agent_text(raw: &str, what: &str) -> Result<String, String> {
     let text = sanitize_message(raw);
     if text.trim().is_empty() {
         return Err(format!("The {what} is empty."));

@@ -4,6 +4,7 @@ import { AttachedLibrariesModal } from './dashboard/AttachedLibrariesModal';
 import { SettingsModal } from './dashboard/SettingsModal';
 import { MigrationModals } from './migration/MigrationModals';
 import { RemoteAccessModal } from './remote/RemoteAccessModal';
+import { PhoneModal } from './phone/PhoneModal';
 import { ToastList } from './primitives/ToastList';
 import { useModal } from '../contexts/ModalContext';
 import { usePaletteContext } from './CommandPalette/paletteContext';
@@ -39,6 +40,7 @@ function GlobalModalsBody() {
   const attachedLibraries = useModal('attachedLibraries');
   const settings = useModal('settings');
   const remoteAccess = useModal('remoteAccess');
+  const phone = useModal('phone');
   const { toasts, dismissToast } = useToast();
 
   return (
@@ -48,6 +50,7 @@ function GlobalModalsBody() {
       <AttachedLibrariesModal isOpen={attachedLibraries.isOpen} onClose={attachedLibraries.close} />
       <SettingsModal isOpen={settings.isOpen} onClose={settings.close} />
       <RemoteAccessModal isOpen={remoteAccess.isOpen} onClose={remoteAccess.close} />
+      <PhoneModal isOpen={phone.isOpen} onClose={phone.close} />
       <IssueReportModals />
       <MigrationModals />
       <ToastList toasts={toasts} onDismiss={dismissToast} />

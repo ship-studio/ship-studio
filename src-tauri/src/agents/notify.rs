@@ -143,7 +143,7 @@ fn showing_in(window: &str) -> Option<String> {
         .cloned()
 }
 
-/// Whether a focused window shows this agent right now.
+/// Whether a focused window (or a phone in the foreground) shows this agent right now.
 pub fn on_screen(app: &AppHandle, agent_id: &str) -> bool {
     let windows: Vec<String> = SHOWING
         .lock()
@@ -153,6 +153,10 @@ pub fn on_screen(app: &AppHandle, agent_id: &str) -> bool {
         .map(|(label, _)| label.clone())
         .collect();
     windows.iter().any(|label| {
+        // A phone counts while that socket is open with the app in front.
+        if label.starts_with("companion:") {
+            return crate::companion::is_showing(label);
+        }
         app.get_webview_window(label)
             .and_then(|w| w.is_focused().ok())
             .unwrap_or(false)

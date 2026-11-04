@@ -707,6 +707,40 @@ airplane-mode toggle and a Mac app restart with no missing or duplicated
 message. That last part is checked by a hub test which drops the socket at
 every point of a scripted turn.
 
+### P1 desktop server: as built
+
+Decisions taken for P1: Tailscale only (the LAN listener and pinning move
+to P2), every project reachable, no git push from the phone, TestFlight
+first.
+
+- **Turning it on.** Settings → Phone → Open, or Cmd+K "Pair a phone" /
+  "Paired phones". The Phone panel is its own modal (`src/components/phone/`)
+  rather than a Settings tab, like Remote access. It binds `127.0.0.1:<port>`
+  (the port is kept in `companion.json` so the serve handler stays valid),
+  then runs `tailscale serve --bg --https=47443 http://127.0.0.1:<port>`.
+  It reports the route as on only when `tailscale serve status --json` shows
+  that exact handler and the port isn't funnelled. Turning it off runs
+  `tailscale serve --https=47443 off`. Nothing else in the serve config is
+  touched.
+- **Methods served:** `system.status`, `devices.self`, `devices.unpairSelf`,
+  and `agents.` `overview`, `messages` (with `before` paging and `asOf`),
+  `send`, `stop`, `interrupt`, `answerApproval`, `focus` and `markUnread`.
+  `welcome.methods` lists exactly these. A send with attachments is refused
+  with `bad_params` until blobs land.
+- **Differences from the text above:**
+  - The `notify::set_showing` label is per socket
+    (`companion:<device>:<socket>`), so a stale socket closing can't clear a
+    newer one's chat. A phone counts as showing a chat only while that
+    socket is open and in the foreground.
+  - The overview drops each agent's lifetime `usage`: `Agent` doesn't declare
+    it, and the overview goes out on every registry change.
+  - `sync.snapshot.projects` is empty until the project methods arrive (P2).
+  - The `LiveSocket` notifier (`alert` events) isn't built yet.
+  - `serverPublicKey` is empty.
+- **Drift check:** `cargo test --lib companion::fixtures` writes
+  `fixtures.gen.ts`, and `pnpm typecheck` checks it. Method results in it go
+  through the real router.
+
 ### P2: everything else in the chat, and projects
 
 - Attachments both ways (blobs).

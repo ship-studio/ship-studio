@@ -633,10 +633,27 @@ fn read_log(agent_id: &str) -> Result<Vec<AgentMessage>, CommandError> {
 
 /// The newest `limit` messages, oldest first.
 pub fn messages(agent_id: &str, limit: usize) -> Result<Vec<AgentMessage>, CommandError> {
+    messages_page(agent_id, limit, None).map(|(page, _)| page)
+}
+
+/// A page of up to `limit` messages, oldest first, ending just before the
+/// message `before` (or at the newest), and whether older ones exist.
+pub fn messages_page(
+    agent_id: &str,
+    limit: usize,
+    before: Option<&str>,
+) -> Result<(Vec<AgentMessage>, bool), CommandError> {
     let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let all = read_log(agent_id)?;
-    let start = all.len().saturating_sub(limit);
-    Ok(all[start..].to_vec())
+    let end = match before {
+        None => all.len(),
+        Some(id) => all
+            .iter()
+            .position(|m| m.id == id)
+            .ok_or_else(|| super::err_invalid("before", "That message isn't in this chat."))?,
+    };
+    let start = end.saturating_sub(limit);
+    Ok((all[start..end].to_vec(), start > 0))
 }
 
 /// Set an approval's outcome. Rewrites the log; approvals are rare enough

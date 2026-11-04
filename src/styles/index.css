@@ -126,6 +126,7 @@
 @import './features/settings-forms.css';
 @import './features/attached-libraries.css';
 @import './features/remote-access.css';
+@import './features/phone.css';
 @import './features/project-rail.css';
 @import './features/shopify.css';
 @import './features/workflows.css';

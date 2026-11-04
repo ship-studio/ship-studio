@@ -11,6 +11,7 @@ import { checkIdeAvailability, openInIde, openInFinder } from '../lib/ide';
 import { logger } from '../lib/logger';
 import { kbd } from '../lib/shortcuts';
 import { basename } from '../lib/paths';
+import { requestPairOnOpen } from '../lib/companion';
 import { fileManagerName } from '../lib/setup';
 import {
   CodeIcon,
@@ -18,6 +19,7 @@ import {
   CursorIcon,
   FolderOpenIcon,
   GlobeIcon,
+  MobileIcon,
   HomeIcon,
   PanelLeftIcon,
   PlusIcon,
@@ -327,6 +329,25 @@ export function useAppCommands({
         category: 'settings',
         keywords: ['phone', 'grok', 'mobile', 'away', 'ssh', 'tailscale', 'control', 'connector'],
         run: () => openModal('remoteAccess'),
+      },
+      {
+        id: 'companion.pair',
+        title: 'Pair a phone',
+        icon: <MobileIcon size={14} />,
+        category: 'settings',
+        keywords: ['phone', 'mobile', 'iphone', 'android', 'qr', 'companion', 'pair'],
+        run: () => {
+          requestPairOnOpen();
+          openModal('phone');
+        },
+      },
+      {
+        id: 'companion.devices',
+        title: 'Paired phones',
+        icon: <MobileIcon size={14} />,
+        category: 'settings',
+        keywords: ['phone', 'mobile', 'devices', 'revoke', 'remove', 'companion'],
+        run: () => openModal('phone'),
       },
     ],
     [

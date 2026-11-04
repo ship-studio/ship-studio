@@ -4009,6 +4009,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
+
+[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5094,10 +5100,12 @@ name = "ship-studio"
 version = "1.7.0"
 dependencies = [
  "arboard",
+ "async-trait",
  "base64 0.22.1",
  "block2 0.5.1",
  "bytes",
  "chrono",
+ "data-encoding",
  "dirs 5.0.1",
  "dunce",
  "futures-util",
@@ -5115,6 +5123,7 @@ dependencies = [
  "objc2-foundation 0.2.2",
  "once_cell",
  "portable-pty",
+ "qrcodegen",
  "reqwest 0.12.28",
  "semver",
  "sentry",

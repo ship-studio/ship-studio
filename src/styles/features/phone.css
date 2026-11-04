@@ -1,0 +1,395 @@
+/* Phone access (mobile companion) — src/components/phone/ */
+
+/* A QR code is read most reliably dark-on-light, so its paper stays light in
+   both themes. */
+:root {
+  --phone-qr-paper: #ffffff;
+  --phone-qr-ink: #0b0b0c;
+}
+
+.phone-modal {
+  width: 520px;
+}
+
+.phone-access {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.phone-loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-xl) 0;
+}
+
+.phone-lede {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-body-md);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.phone-error,
+.phone-footnote,
+.phone-empty {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.phone-error {
+  color: var(--accent-error);
+  overflow-wrap: anywhere;
+}
+
+.phone-footnote {
+  margin-top: var(--spacing-sm);
+}
+
+.phone-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.phone-section__title {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.phone-dot {
+  flex: none;
+  width: 8px; /* css-ok: status dot */
+  height: 8px; /* css-ok: status dot */
+  border-radius: var(--radius-pill);
+  background: var(--accent-success);
+}
+
+/* ---- On ------------------------------------------------------------------- */
+
+.phone-onbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(var(--accent-success-rgb), 0.3);
+  background: rgba(var(--accent-success-rgb), 0.06);
+}
+
+.phone-onbar__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+}
+
+.phone-onbar__title {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.phone-onbar__url {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Not ready yet ------------------------------------------------------- */
+
+.phone-problem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background: var(--surface-recessed);
+}
+
+.phone-problem__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.phone-problem__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+}
+
+.phone-problem__detail {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.phone-problem__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.phone-problem__actions:empty {
+  display: none;
+}
+
+/* ---- Pair: offer, code, confirm ------------------------------------------ */
+
+.phone-offer {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+}
+
+.phone-offer__icon,
+.phone-confirm__icon,
+.phone-device__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+}
+
+.phone-offer__icon {
+  width: 36px; /* css-ok: icon tile */
+  height: 36px; /* css-ok: icon tile */
+}
+
+.phone-offer__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+}
+
+.phone-offer__title {
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+}
+
+.phone-offer__detail {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.phone-code {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xl);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+}
+
+.phone-qr {
+  flex: none;
+  display: block;
+  border-radius: var(--radius-lg);
+  background-color: var(--phone-qr-paper);
+  color: var(--phone-qr-ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.phone-code__side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.phone-code__title {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+}
+
+.phone-code__steps {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.phone-code__expiry {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-code__actions {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-2xs);
+  font-size: var(--font-size-body-sm);
+}
+
+.phone-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) var(--spacing-lg) var(--spacing-lg);
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(var(--accent-warning-rgb), 0.35);
+  background: rgba(var(--accent-warning-rgb), 0.05);
+  text-align: center;
+}
+
+.phone-confirm__icon {
+  width: 44px; /* css-ok: icon tile */
+  height: 44px; /* css-ok: icon tile */
+  margin-bottom: var(--spacing-2xs);
+  color: var(--text-primary);
+}
+
+.phone-confirm__title {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-body);
+  color: var(--text-primary);
+}
+
+.phone-confirm__title strong {
+  font-weight: var(--font-weight-heading);
+}
+
+.phone-confirm__device {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+.phone-confirm__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  max-width: 380px; /* css-ok: a readable measure for the warning */
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.45;
+  color: var(--accent-warning);
+  text-align: left;
+}
+
+.phone-confirm__warning svg {
+  flex: none;
+  margin-top: var(--spacing-3xs);
+}
+
+.phone-confirm__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+/* ---- Paired phones ------------------------------------------------------- */
+
+.phone-devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.phone-device {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-height: 52px; /* css-ok: one device row */
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md);
+}
+
+.phone-device + .phone-device {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.phone-device__icon {
+  width: 28px; /* css-ok: icon tile */
+  height: 28px; /* css-ok: icon tile */
+}
+
+.phone-device[data-connected] .phone-device__icon {
+  color: var(--accent-success);
+  background: rgba(var(--accent-success-rgb), 0.1);
+}
+
+.phone-device__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+}
+
+.phone-device__name {
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phone-device__meta {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phone-device__presence {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.phone-device__actions {
+  flex: none;
+  display: inline-flex;
+  gap: var(--spacing-2xs);
+}
+
+.phone-empty {
+  padding: var(--spacing-md);
+  border-radius: var(--radius-card);
+  border: 1px dashed var(--border-default);
+  text-align: center;
+}

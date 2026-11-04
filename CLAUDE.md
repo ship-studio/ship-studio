@@ -77,6 +77,7 @@ Single-file domains:
 - `assets.rs` - Assets panel file management (configurable root, default `/public`)
 - `attached_libraries.rs` - Shared libraries registry (per-workspace local folders surfaced to agent sessions via the agent's additional-dir flag, e.g. Claude Code `--add-dir`)
 - `claude.rs` - Claude Code binary detection and version checking
+- `companion.rs` - The Phone panel's commands (on/off, pairing code + QR, Allow/Deny, revoke). The mobile companion server itself is `src-tauri/src/companion/` (see `docs/mobile.md`)
 - `code.rs` - Code mode (in-app file browsing/editing)
 - `conflicts.rs` - Merge conflict detection, parsing, and resolution
 - `edit.rs` - Visual editor backend (mutations, committing edits back to source)

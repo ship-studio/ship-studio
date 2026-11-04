@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner,
-    schedule,
+    self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner, schedule,
     search, store, usage,
 };
 use crate::errors::CommandError;
@@ -513,13 +512,23 @@ pub async fn agents_focus(
     window: tauri::WebviewWindow,
     agent_id: Option<String>,
 ) -> Result<(), CommandError> {
-    notify::set_showing(window.label(), agent_id.clone());
+    focus_as(&app, window.label(), agent_id)
+}
+
+/// [`agents_focus`] for any surface with a label: a window, or a phone's
+/// socket (`companion:<device>:<socket>`, see `crate::companion`).
+pub(crate) fn focus_as(
+    app: &AppHandle,
+    label: &str,
+    agent_id: Option<String>,
+) -> Result<(), CommandError> {
+    notify::set_showing(label, agent_id.clone());
     if let Some(id) = agent_id {
         let before = store::get(&id)?;
         if before.unread > 0 {
             store::update(&id, |a| a.unread = 0)?;
-            emit_registry(&app);
-            notify::refresh_badge(&app);
+            emit_registry(app);
+            notify::refresh_badge(app);
         }
     }
     Ok(())

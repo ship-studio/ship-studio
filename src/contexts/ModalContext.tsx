@@ -47,7 +47,8 @@ export type ModalId =
   | 'worktreeCreate'
   | 'siteUrlImport'
   | 'migrationFidelity'
-  | 'remoteAccess';
+  | 'remoteAccess'
+  | 'phone';
 
 interface ModalContextValue {
   isOpen: (id: ModalId) => boolean;

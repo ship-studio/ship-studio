@@ -15,6 +15,7 @@ pub mod agent_bridge;
 pub mod agents;
 pub mod cache;
 pub mod commands;
+pub mod companion;
 pub mod error_reporting;
 pub mod errors;
 pub mod external_command;
@@ -197,6 +198,12 @@ pub fn run() {
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(remote_access::resume_on_launch(handle));
+            }
+
+            // Mobile companion: back on for paired phones if the user left it on.
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(companion::resume_on_launch(handle));
             }
 
             // Point the Android mirror bridge at the bundled scrcpy-server jar (its
@@ -895,6 +902,13 @@ pub fn run() {
             commands::agent_bridge::agent_bridge_attach,
             commands::agent_bridge::agent_bridge_respond,
             // Remote access
+            commands::companion::companion_status,
+            commands::companion::companion_set_enabled,
+            commands::companion::companion_retry_tailscale,
+            commands::companion::companion_pair_start,
+            commands::companion::companion_pair_cancel,
+            commands::companion::companion_pair_decide,
+            commands::companion::companion_revoke,
             commands::remote_access::get_remote_access_status,
             commands::remote_access::get_remote_access_brief,
             commands::remote_access::get_stay_on,

@@ -94,7 +94,7 @@ fn write_config(config: &RemoteConfig) -> Result<(), CommandError> {
 
 /// Write a file only its owner can read. Created 0600 rather than chmod-ed
 /// after, so the token is never briefly world-readable.
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::io::Write;

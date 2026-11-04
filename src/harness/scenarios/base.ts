@@ -11,6 +11,7 @@
  */
 
 import { remoteBrief, remoteStatus } from './remote';
+import { phoneStatus } from './phone';
 import type { CommandMap } from '../types';
 
 export const HARNESS_ROOT = '/Users/harness/ShipStudio';
@@ -235,6 +236,8 @@ export const baseCommands: CommandMap = {
   get_remote_access_status: remoteStatus(),
   get_remote_access_brief: remoteBrief(),
   get_remote_audit: [],
+  // Phone access off, nothing paired: the first-run state.
+  companion_status: phoneStatus(),
   // "Keep this Mac awake" (Agents): supported, not held — remote access is off.
   get_stay_on: {
     supported: true,

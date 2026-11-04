@@ -557,6 +557,25 @@ export function SettingsModal({
                 </div>
                 <div className="settings-row">
                   <div className="settings-row-info">
+                    <span className="settings-row-label">Phone</span>
+                    <span className="settings-row-description">
+                      Use your agents from your phone over Tailscale. Pair a phone, see which are
+                      connected, and remove them.
+                    </span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    data-settings-open="phone"
+                    onClick={() => {
+                      onClose();
+                      openModal('phone');
+                    }}
+                  >
+                    Open
+                  </Button>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
                     <span className="settings-row-label">Terminal GPU acceleration</span>
                     <span className="settings-row-description">
                       Use GPU rendering for faster, smoother terminals. Turn off if agent output

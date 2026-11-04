@@ -208,15 +208,21 @@ pub fn approval_url(output: &str) -> Option<String> {
 /// they arrive and stops as soon as it sees the link, the process exits, or
 /// the deadline passes; the child is killed on drop either way.
 pub async fn enable_funnel(port: u16) -> FunnelOutcome {
+    let target = format!("http://127.0.0.1:{port}");
+    let set_path = format!("--set-path={MOUNT_PATH}");
+    run_until_settled(&["funnel", "--bg", "--https=443", &set_path, &target]).await
+}
+
+/// Run a `serve`/`funnel` command that may stop to print an approval link
+/// and wait (see [`enable_funnel`]).
+async fn run_until_settled(args: &[&str]) -> FunnelOutcome {
     let Some(bin) = find_binary() else {
         return FunnelOutcome::Failed {
             detail: "Tailscale isn't installed.".to_string(),
         };
     };
-    let target = format!("http://127.0.0.1:{port}");
-    let set_path = format!("--set-path={MOUNT_PATH}");
     let mut cmd = cli_command(bin);
-    cmd.args(["funnel", "--bg", "--https=443", &set_path, &target])
+    cmd.args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -283,6 +289,86 @@ pub async fn disable_funnel() -> Result<(), CommandError> {
     }
     Err(CommandError::expected(format!(
         "Tailscale couldn't turn the link off: {}",
+        stderr.trim()
+    )))
+}
+
+// ============================================================================
+// Serve on the tailnet only (the mobile companion)
+// ============================================================================
+//
+// The companion is published with `tailscale serve` on its own HTTPS port,
+// tailnet only. It never touches the Funnel's port or mount, and only ever
+// edits its own port's handler.
+
+/// Is `https_port` on `dns_name` served to our loopback `port`, and *not*
+/// funnelled? The serve config shape is:
+///
+/// ```json
+/// { "TCP": { "47443": { "HTTPS": true } },
+///   "Web": { "host.ts.net:47443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:4321" } } } } }
+/// ```
+pub fn serve_routes_to(config: &Value, dns_name: &str, https_port: u16, port: u16) -> bool {
+    let host_port = format!("{dns_name}:{https_port}");
+    let funnelled = config
+        .get("AllowFunnel")
+        .and_then(|a| a.get(&host_port))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let proxy = config
+        .get("Web")
+        .and_then(|w| w.get(&host_port))
+        .and_then(|h| h.get("Handlers"))
+        .and_then(|h| h.get("/"))
+        .and_then(|h| h.get("Proxy"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim_end_matches('/');
+    !funnelled
+        && (proxy == format!("http://127.0.0.1:{port}")
+            || proxy == format!("http://localhost:{port}"))
+}
+
+/// Read back whether our serve handler is in place.
+pub async fn serve_active(dns_name: &str, https_port: u16, port: u16) -> bool {
+    let Ok(output) = run_cli(&["serve", "status", "--json"], 8).await else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&output.stdout)
+        .map(|config| serve_routes_to(&config, dns_name, https_port, port))
+        .unwrap_or(false)
+}
+
+/// Serve loopback `port` on the tailnet at `https://<machine>.ts.net:<https_port>`.
+/// Verified by reading the config back, never by the exit code alone.
+pub async fn enable_serve(https_port: u16, port: u16, dns_name: &str) -> FunnelOutcome {
+    let https = format!("--https={https_port}");
+    let target = format!("http://127.0.0.1:{port}");
+    let outcome = run_until_settled(&["serve", "--bg", &https, &target]).await;
+    if outcome == FunnelOutcome::On && !serve_active(dns_name, https_port, port).await {
+        return FunnelOutcome::Failed {
+            detail: "Tailscale accepted the command but isn't serving the port.".to_string(),
+        };
+    }
+    outcome
+}
+
+/// Remove our port's handler. Anything else served is left alone.
+pub async fn disable_serve(https_port: u16) -> Result<(), CommandError> {
+    let https = format!("--https={https_port}");
+    let output = run_cli(&["serve", &https, "off"], 10).await?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("not found")
+        || stderr.contains("does not exist")
+        || stderr.contains("not serving")
+    {
+        return Ok(());
+    }
+    Err(CommandError::expected(format!(
+        "Tailscale couldn't stop serving the phone port: {}",
         stderr.trim()
     )))
 }
@@ -512,6 +598,32 @@ mod tests {
         });
         assert!(!funnel_routes_to(&someone_elses_root, host, 4321));
         assert!(!funnel_routes_to(&json!({}), host, 4321));
+    }
+
+    #[test]
+    fn serve_is_on_only_for_our_port_and_never_funnelled() {
+        let dns = "mac.tail1.ts.net";
+        let config = json!({
+            "TCP": { "47443": { "HTTPS": true }, "443": { "HTTPS": true } },
+            "Web": {
+                "mac.tail1.ts.net:47443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:5000" } } },
+                "mac.tail1.ts.net:443": { "Handlers": { "/shipstudio": { "Proxy": "http://127.0.0.1:6000" } } }
+            },
+            "AllowFunnel": { "mac.tail1.ts.net:443": true }
+        });
+        assert!(serve_routes_to(&config, dns, 47443, 5000));
+        assert!(!serve_routes_to(&config, dns, 47443, 5001), "another port");
+        assert!(
+            !serve_routes_to(&config, dns, 443, 6000),
+            "the Funnel's mount isn't ours"
+        );
+        let mut funnelled = config.clone();
+        funnelled["AllowFunnel"]["mac.tail1.ts.net:47443"] = json!(true);
+        assert!(
+            !serve_routes_to(&funnelled, dns, 47443, 5000),
+            "a funnelled port is never reported as the tailnet-only route"
+        );
+        assert!(!serve_routes_to(&json!({}), dns, 47443, 5000));
     }
 
     #[test]

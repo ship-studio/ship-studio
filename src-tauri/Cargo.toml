@@ -83,6 +83,11 @@ vt100 = "0.16"
 getrandom = "0.2"
 tempfile = "3"
 tauri-plugin-notification = "2"
+# Mobile companion (src/companion/): pairing codes in base32, the pairing QR
+# code drawn by the Mac, and the backend seam the server is tested through.
+data-encoding = "2"
+qrcodegen = "1.8"
+async-trait = "0.1"
 
 [dev-dependencies]
 
