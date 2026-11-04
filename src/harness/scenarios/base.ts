@@ -170,6 +170,7 @@ export const baseCommands: CommandMap = {
         unread: 0,
         pendingApprovals: 0,
         model: null,
+        muted: false,
         status: { state: 'idle', activity: null, since: null },
       },
     ],

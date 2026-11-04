@@ -6,10 +6,12 @@
  */
 
 import { useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { AgentsIcon, DownloadIcon, PlusIcon } from '@/components/icons';
 import { useCommands } from './useCommands';
 import { useAgents } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
+import { AGENT_EVENTS } from '../lib/agents';
 
 type AgentsIntent = { kind: 'new' } | { kind: 'import' } | { kind: 'open'; agentId: string };
 let pendingIntent: AgentsIntent | null = null;
@@ -51,6 +53,15 @@ export function useAgentsIntents(handlers: {
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
   const { agents } = useAgents();
+  // A clicked notification (the backend already focused this window): open that agent.
+  useEffect(() => {
+    const unlisten = listen<string>(AGENT_EVENTS.open, (e) => {
+      requestAgentsIntent({ kind: 'open', agentId: e.payload });
+      setView('agents');
+    });
+    return () => void unlisten.then((off) => off());
+  }, [setView]);
+
   useCommands(
     () => [
       {

@@ -7,14 +7,22 @@
  * There is one group, so there is no group header: the Agents nav row above
  * it is the heading, and carries the + menu (`AgentsAddMenu`).
  *
- * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete; the
+ * Right-click a row for Pin, Mark as unread, Mute notifications, Edit, Hide
+ * and Delete; the
  * conversation header's … menu has the same items for the open agent.
  *
  * @module components/agents/AgentsSidebar
  */
 
 import { useRef, type KeyboardEvent } from 'react';
-import { ChevronRightIcon, DownloadIcon, EditIcon, PinIcon, PlusIcon } from '@/components/icons';
+import {
+  BellOffIcon,
+  ChevronRightIcon,
+  DownloadIcon,
+  EditIcon,
+  PinIcon,
+  PlusIcon,
+} from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
@@ -91,6 +99,9 @@ export function AgentsSidebar({
                 <span className="agents-list__name-text">{agent.name}</span>
                 {agent.pinned && (
                   <PinIcon size={12} className="agents-list__pin" aria-label="Pinned" />
+                )}
+                {agent.muted && (
+                  <BellOffIcon size={12} className="agents-list__pin" aria-label="Muted" />
                 )}
               </span>
               <span

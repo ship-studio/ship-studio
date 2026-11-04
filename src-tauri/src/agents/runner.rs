@@ -18,6 +18,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Notify;
 
+use super::notify;
 use super::prompts;
 use super::store::{self, AgentMessage, AgentRef, MessageKind};
 use crate::errors::CommandError;
@@ -77,8 +78,6 @@ struct Runtime {
 
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-/// The agent whose chat is on screen. Its messages don't count as unread.
-static FOCUSED: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 pub fn status_of(agent_id: &str) -> Status {
     RUNTIMES
@@ -98,12 +97,13 @@ pub fn current_hop(agent_id: &str) -> u8 {
         .unwrap_or(0)
 }
 
-pub fn set_focused(agent_id: Option<String>) {
-    *FOCUSED.lock().unwrap_or_else(|e| e.into_inner()) = agent_id;
-}
-
-fn is_focused(agent_id: &str) -> bool {
-    FOCUSED.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(agent_id)
+/// Whether a worker is draining this agent's inbox (a turn is running or about to).
+fn in_turn(agent_id: &str) -> bool {
+    RUNTIMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(agent_id)
+        .is_some_and(|r| r.running)
 }
 
 pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
@@ -129,13 +129,16 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
     store::append_message(&message)?;
-    let counts_as_unread = matches!(
+    // Anything the agent says while it isn't on screen notifies. Approvals
+    // aren't unread: they're counted as pending until answered.
+    let wants_user = matches!(
         message.kind,
         MessageKind::Agent | MessageKind::Approval | MessageKind::Error
-    ) && !is_focused(&message.agent_id);
+    ) && !notify::on_screen(app, &message.agent_id);
+    let counts_as_unread = wants_user && message.kind != MessageKind::Approval;
     let preview = preview_for(&message);
     let ts = message.ts;
-    let _ = store::update(&message.agent_id, |agent| {
+    let updated = store::update(&message.agent_id, |agent| {
         agent.last_activity_at = ts;
         if let Some(p) = preview {
             agent.preview = Some(p);
@@ -146,10 +149,16 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
     });
     let _ = app.emit(EVENT_MESSAGE, &message);
     let _ = app.emit(EVENT_REGISTRY, ());
+    if wants_user {
+        if let Ok(agent) = &updated {
+            notify::message_recorded(app, agent, &message, in_turn(&message.agent_id));
+        }
+        notify::refresh_badge(app);
+    }
     Ok(message)
 }
 
-fn preview_for(message: &AgentMessage) -> Option<String> {
+pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
     let line = |s: &str| {
         s.lines()
             .map(str::trim)
@@ -259,6 +268,7 @@ async fn drain(app: AppHandle, agent_id: String) {
                 new_message(&agent_id, MessageKind::Error, err.to_string()),
             );
         }
+        notify::turn_ended(&app, &agent_id);
     }
 }
 

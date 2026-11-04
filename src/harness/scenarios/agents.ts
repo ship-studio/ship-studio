@@ -36,6 +36,7 @@ const agent = (
     unread: 0,
     pendingApprovals: 0,
     model: null,
+    muted: false,
     status: status('idle'),
     ...rest,
   };
@@ -93,6 +94,7 @@ const TEAM = [
     shape: 7,
     color: 'red',
     minutesAgo: 60 * 50,
+    muted: true,
     role: 'Drafts posts in your voice. Never publishes.',
     preview: 'Three drafts for Thursday are ready.',
   }),

@@ -160,6 +160,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const actions = {
     onTogglePin: (a: Agent) => void run(() => updateAgent(a.id, { pinned: !a.pinned })),
     onToggleHidden: (a: Agent) => void run(() => updateAgent(a.id, { hidden: !a.hidden })),
+    onToggleMuted: (a: Agent) => void run(() => updateAgent(a.id, { muted: !a.muted })),
     onMarkUnread: (a: Agent) => {
       if (a.id === selected?.id) {
         // Step off it, or opening it again would mark it read straight away.

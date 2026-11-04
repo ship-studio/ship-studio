@@ -7,6 +7,7 @@
 //! - [`store`]: the registry and each agent's home (CLAUDE.md + chat log)
 //! - [`runner`]: per-agent inbox; each turn is one `claude --print --resume`
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
+//! - [`notify`]: macOS notifications and the Dock badge
 //! - [`import`]: bring an existing setup over from another assistant
 //! - [`prompts`]: voice and role
 //!
@@ -14,6 +15,7 @@
 
 pub mod import;
 pub mod mcp;
+pub mod notify;
 pub mod prompts;
 pub mod runner;
 pub mod store;

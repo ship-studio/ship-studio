@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::agents::{self, import, mcp, runner, store};
+use crate::agents::{self, import, mcp, notify, runner, store};
 use crate::errors::CommandError;
 
 #[derive(Serialize)]
@@ -134,6 +134,7 @@ pub struct UpdateAgentInput {
     pub instructions: Option<String>,
     pub pinned: Option<bool>,
     pub hidden: Option<bool>,
+    pub muted: Option<bool>,
 }
 
 #[tauri::command]
@@ -180,6 +181,9 @@ pub async fn agents_update(
         if let Some(h) = input.hidden {
             a.hidden = h;
         }
+        if let Some(m) = input.muted {
+            a.muted = m;
+        }
     })?;
     // The name and role are written into CLAUDE.md's heading, so any change
     // to them (or the instructions) rewrites it — memory is preserved.
@@ -191,6 +195,10 @@ pub async fn agents_update(
         store::write_instructions(&store::agent_home(&agent_id)?, &updated, &instructions)?;
     }
     emit_registry(&app);
+    // Hiding an agent takes its unread out of the badge, as it does the sidebar's.
+    if input.hidden.is_some() {
+        notify::refresh_badge(&app);
+    }
     Ok(updated)
 }
 
@@ -206,6 +214,7 @@ pub async fn agents_delete(app: AppHandle, agent_id: String) -> Result<(), Comma
     runner::stop(&agent_id);
     store::delete(&agent_id)?;
     emit_registry(&app);
+    notify::refresh_badge(&app);
     Ok(())
 }
 
@@ -240,6 +249,7 @@ pub async fn agents_answer_approval(
         let _ = app.emit(runner::EVENT_MESSAGE, &message);
     }
     emit_registry(&app);
+    notify::refresh_badge(&app);
     if !mcp::answer_approval(&request_id, allow) {
         // Nobody is waiting on it (the agent paused, or the app restarted):
         // a late Allow grants that exact call and wakes the agent.
@@ -248,26 +258,33 @@ pub async fn agents_answer_approval(
     Ok(())
 }
 
-/// The agent on screen: its messages don't count as unread, and opening it
-/// clears what had piled up.
+/// The agent this window shows (`None` once it leaves Agents mode). While the
+/// window has focus, that agent's messages don't count as unread and don't
+/// notify; opening it clears what had piled up.
 #[tauri::command]
-#[tracing::instrument(skip(app))]
-pub async fn agents_focus(app: AppHandle, agent_id: Option<String>) -> Result<(), CommandError> {
-    runner::set_focused(agent_id.clone());
+#[tracing::instrument(skip(app, window))]
+pub async fn agents_focus(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    agent_id: Option<String>,
+) -> Result<(), CommandError> {
+    notify::set_showing(window.label(), agent_id.clone());
     if let Some(id) = agent_id {
         let before = store::get(&id)?;
         if before.unread > 0 {
             store::update(&id, |a| a.unread = 0)?;
             emit_registry(&app);
+            notify::refresh_badge(&app);
         }
     }
     Ok(())
 }
 
 #[tauri::command]
-#[tracing::instrument]
-pub async fn agents_mark_unread(agent_id: String) -> Result<(), CommandError> {
+#[tracing::instrument(skip(app))]
+pub async fn agents_mark_unread(app: AppHandle, agent_id: String) -> Result<(), CommandError> {
     store::update(&agent_id, |a| a.unread = a.unread.max(1))?;
+    notify::refresh_badge(&app);
     Ok(())
 }
 
