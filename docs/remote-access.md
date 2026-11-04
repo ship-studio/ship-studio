@@ -159,9 +159,9 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
                                           │
                      ┌────────────────────┼──────────────────────┐
                      ▼                    ▼                      ▼
-          pty_session registry   remote-start-agent event   agent_bridge
-          (read screen, type)    → useRemoteAgentStart      (preview_screenshot)
-                                   → addTerminalTab(prompt)
+          pty_session registry   remote-start-agent event   headless Playwright
+          (read screen, type)    → startInBackground        (preview_screenshot)
+                                   → adopt into the tabs
 ```
 
 - **Reading a tab.** Backend PTY sessions record their project, agent id, size
@@ -171,9 +171,12 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
   frame together. "Quiet for 5 s" is the honest "finished or waiting for you"
   signal, and `wait_seconds` waits for it.
 - **New work.** `start_agent` emits `remote-start-agent` to the project's
-  window (or main). `useRemoteAgentStart` opens the project and adds a tab
-  whose CLI *starts with* the prompt — the Inbox's spawn-not-paste rule. Rust
-  reports success only once a new agent PTY actually exists.
+  window (or main). `useRemoteAgentControl` spawns the tab's PTY in the
+  background (`lib/backgroundSessions.ts`, with the same command builder as a
+  mounted tab, `lib/agentSpawn.ts`) whose CLI *starts with* the prompt — the
+  Inbox's spawn-not-paste rule — and the project's tab list adopts it without
+  the window changing. Rust reports success only once a new agent PTY
+  actually exists.
 - **Tailscale.** Mounted at `/shipstudio` so nothing else the user serves is
   touched. "On" means the serve config shows our mount proxying to our port
   with funnel allowed. First use needs the tailnet owner's approval: the CLI
@@ -268,13 +271,15 @@ the provider-returned address, and "no deployment yet" are never reported as
 a failure. It waits up to 40 s for a build in progress, and a failure brings
 the build log's likeliest error line. `confirm_push` ends with NEXT: call it.
 
-- **Nobody is at the desk to switch projects.** A screenshot of a shared
-  project that isn't showing used to fail with "switch Ship Studio over to the
-  project" — advice for someone who isn't there. Screenshots now emit
+- **Nobody is at the desk to switch projects.** A screenshot of a project
+  whose dev server is running is taken off-screen, in headless Chromium
+  against the server (found through its preview proxy), so nothing on the
+  screen moves. Only when no dev server is running does a screenshot emit
   `remote-show-project` (`useRemoteAgentControl` → the same open as a click),
   wait for the preview to attach to the agent bridge, and wait out a dev
-  server that is still starting (up to 90 s). `open_project` does the switch
-  on its own.
+  server that is still starting (up to 90 s) — advice to "switch over" would
+  be for someone who isn't there. Ship Studio's own agents never take that
+  fallback. `open_project` does the switch on its own.
 - **`create_project`** scaffolds a web starter the way the New Project form
   does (clone with `--depth 1`, drop the starter's history, gitignore
   `.shipstudio/`, tag the active workspace, `npm install`), then opens it. It
@@ -294,7 +299,8 @@ the build log's likeliest error line. `confirm_push` ends with NEXT: call it.
   backend chooses the new tab's session id and waits for exactly that tab —
   watching for "any new agent" once picked up a project's default tab.
 - **`close_agent`** is the tab's ×, through the owning window
-  (`useRemoteAgentControl` → `closeTerminalTab`); never the last tab.
+  (`useRemoteAgentControl` → `closeInBackground`), whichever project is
+  showing; never the last tab.
 - **Reporting is pictures, not code.** `show_progress` waits for the agent to
   finish its step and returns its state, what changed, and a screenshot; the
   instructions tell the assistant to answer in a sentence or two with it, and
@@ -364,5 +370,5 @@ haven't been recorded.
 - `src/lib/remoteAccess.ts`
 - `src/components/remote/` — modal, setup, live, parts, indicator
 - `src/styles/features/remote-access.css`
-- `src/hooks/useRemoteAgentStart.ts`
+- `src/hooks/useRemoteAgentControl.ts`, `src/lib/backgroundSessions.ts`, `src/lib/agentSpawn.ts`
 - `src/harness/scenarios/remote.ts`
