@@ -1,17 +1,31 @@
 /**
- * One agent's conversation: the floating name pill, the messages, and the
- * composer. Scroll sticks to the bottom while you're at the bottom, and stays
- * put when you've scrolled up to read.
+ * One agent's conversation: the header band, the messages, and the composer.
+ * Scroll sticks to the bottom while you're at the bottom, and stays put when
+ * you've scrolled up to read.
+ *
+ * What you send shows at once, before the backend has it: a pending bubble
+ * that the persisted message takes over in place (same React key, so it
+ * neither re-animates nor jumps), or that turns into "Not sent" if the send
+ * fails.
  *
  * @module components/agents/AgentChat
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownIcon, ArrowUpIcon, SettingsSlidersIcon } from '@/components/icons';
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  HomeIcon,
+  MoreHorizontalIcon,
+  WarningIcon,
+} from '@/components/icons';
+import { Button } from '../primitives/Button';
+import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
-import { Spinner } from '../primitives/Spinner';
+import { MenuButton } from '../primitives/MenuButton';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
+import { AgentActionItems, type AgentActions } from './AgentActions';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import {
   AgentBubble,
@@ -25,41 +39,96 @@ import {
 import {
   answerApproval,
   buildChatItems,
+  needsYou,
   sendAgentMessage,
+  sortAgents,
   stopAgent,
   type Agent,
+  type AgentMessage,
 } from '../../lib/agents';
-import { loadMessages, upsertMessage, useAgents } from '../../lib/agentsStore';
+import { upsertMessage, useAgents } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_THRESHOLD = 80;
 
-interface AgentChatProps {
+/** Something you sent from this chat; `id` once the backend has it. */
+interface Pending {
+  key: string;
+  text: string;
+  ts: number;
+  failed: boolean;
+  id?: string;
+}
+
+function newPending(text: string): Pending {
+  return { key: `local-${crypto.randomUUID()}`, text, ts: Date.now(), failed: false };
+}
+
+interface AgentChatProps extends AgentActions {
   agent: Agent;
   agentsById: Map<string, Agent>;
   onOpenAgent: (agentId: string) => void;
-  onEditAgent: (agent: Agent) => void;
+  onSetUpEngine: () => void;
+  /** Below the compact breakpoint the sidebar is gone; the header carries navigation. */
+  compact?: { agents: Agent[]; onGoHome: () => void };
 }
 
-export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: AgentChatProps) {
+function statusLabel(agent: Agent): string | null {
+  if (needsYou(agent)) return 'Needs your OK';
+  if (agent.status.state === 'working') return 'Working';
+  return null;
+}
+
+export function AgentChat({
+  agent,
+  agentsById,
+  onOpenAgent,
+  onSetUpEngine,
+  compact,
+  ...actions
+}: AgentChatProps) {
   const { messages: allMessages, engineReady } = useAgents();
   const messages = allMessages[agent.id];
   const { showToast } = useOptionalToast();
   const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState<Pending[]>([]);
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const atBottomRef = useRef(true);
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Mounted once per agent (keyed by id), so the draft starts empty.
-  useEffect(() => {
-    void loadMessages(agent.id);
-    inputRef.current?.focus();
-  }, [agent.id]);
+  useEffect(() => inputRef.current?.focus(), []);
 
-  const items = useMemo(() => buildChatItems(messages ?? []), [messages]);
+  // A pending bubble gives way as soon as its message is in the store, which
+  // can be before the send call returns (the backend's event can win). The
+  // persisted message then renders under the pending bubble's key.
+  const { shown, aliases, failed } = useMemo(() => {
+    const list = messages ?? [];
+    const aliases = new Map<string, string>();
+    const local: AgentMessage[] = [];
+    const failed = new Set<string>();
+    for (const p of pending) {
+      const match =
+        list.find((m) => m.id === p.id) ??
+        list.find(
+          (m) => m.kind === 'user' && m.text === p.text && m.ts >= p.ts - 5000 && !aliases.has(m.id)
+        );
+      if (match) {
+        aliases.set(match.id, p.key);
+        continue;
+      }
+      local.push({ id: p.key, agentId: agent.id, ts: p.ts, kind: 'user', text: p.text });
+      if (p.failed) failed.add(p.key);
+    }
+    return { shown: [...list, ...local], aliases, failed };
+  }, [messages, pending, agent.id]);
+
+  const keyOf = (id: string) => aliases.get(id) ?? id;
+
+  const items = useMemo(() => buildChatItems(shown), [shown]);
   // A card left open after the turn ended is not "working": no dots, no Stop.
   const working = agent.status.state === 'working';
   const indicator = usePresence(working);
@@ -67,7 +136,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   // Only lines that arrive while the chat is open animate in.
   const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
   const isArrived = useArrivals(messageIds);
-  const arrivedAt = (index: number) => {
+  const arrivedAt = (index: number): boolean => {
     const item = items[index];
     if (!item) return false;
     if (item.type === 'day') return arrivedAt(index + 1);
@@ -79,7 +148,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   const { follow, isGliding } = useFollowBottom(scrollRef, messagesRef, atBottomRef);
 
   // Follow new content only if the reader was already at the bottom: glide
-  // to a new line, jump on first load.
+  // to a new line, land on the bottom (before paint) on first render.
   useLayoutEffect(() => {
     if (atBottomRef.current) follow(newestArrived);
   }, [items, working, agent.status.activity, follow, newestArrived]);
@@ -97,18 +166,32 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
-  const send = async () => {
+  const deliver = async (entry: Pending) => {
+    try {
+      const message = await sendAgentMessage(agent.id, entry.text);
+      setPending((list) => list.map((p) => (p.key === entry.key ? { ...p, id: message.id } : p)));
+      upsertMessage(message);
+    } catch (error) {
+      setPending((list) => list.map((p) => (p.key === entry.key ? { ...p, failed: true } : p)));
+      showToast(formatCommandError(asCommandError(error)), 'error');
+    }
+  };
+
+  const send = () => {
     const text = draft.trim();
     if (!text) return;
     setDraft('');
     atBottomRef.current = true;
-    try {
-      const message = await sendAgentMessage(agent.id, text);
-      upsertMessage(message);
-    } catch (error) {
-      setDraft(text);
-      showToast(formatCommandError(asCommandError(error)), 'error');
-    }
+    const entry = newPending(text);
+    setPending((list) => [...list, entry]);
+    void deliver(entry);
+  };
+
+  const retry = (key: string) => {
+    const entry = pending.find((p) => p.key === key);
+    if (!entry) return;
+    setPending((list) => list.map((p) => (p.key === key ? { ...p, failed: false } : p)));
+    void deliver(entry);
   };
 
   const onAnswer = async (requestId: string, allow: boolean) => {
@@ -143,6 +226,19 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
     el.style.height = next;
   }, [draft]);
 
+  const status = statusLabel(agent);
+  const title = (
+    <>
+      <AgentAvatar name={agent.name} color={agent.color} selected />
+      <h2 className="agent-chat__name">{agent.name}</h2>
+      {status && (
+        <span className="agent-chat__status" data-state={needsYou(agent) ? 'waiting' : 'working'}>
+          {status}
+        </span>
+      )}
+    </>
+  );
+
   return (
     <section
       className="agent-chat"
@@ -150,34 +246,77 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
       aria-label={`Conversation with ${agent.name}`}
     >
       <header className="agent-chat__header">
-        <AgentAvatar name={agent.name} color={agent.color} size={24} selected />
-        <div className="agent-chat__title">
-          <h2 className="agent-chat__name">{agent.name}</h2>
-          {agent.role && <p className="agent-chat__role">{agent.role}</p>}
-        </div>
-        <IconButton
-          variant="ghost"
-          className="agent-chat__edit"
-          icon={<SettingsSlidersIcon size={14} />}
-          onClick={() => onEditAgent(agent)}
-          title="Edit agent"
-          aria-label={`Edit ${agent.name}`}
-        />
+        {compact && (
+          <IconButton
+            variant="ghost"
+            className="agent-chat__home"
+            icon={<HomeIcon size={14} />}
+            onClick={compact.onGoHome}
+            aria-label="Home"
+            title="Home"
+          />
+        )}
+        {compact ? (
+          <Dropdown
+            portal
+            className="agent-chat__switcher"
+            trigger={(p) => (
+              <MenuButton
+                {...p}
+                expanded={p['aria-expanded']}
+                variant="ghost"
+                className="agent-chat__title"
+                aria-label={`${agent.name}. Switch agent`}
+              >
+                {title}
+              </MenuButton>
+            )}
+          >
+            {sortAgents(compact.agents)
+              .filter((a) => !a.hidden || a.id === agent.id)
+              .map((a) => (
+                <DropdownItem
+                  key={a.id}
+                  active={a.id === agent.id}
+                  icon={<span className="agent-dot" data-color={a.color} />}
+                  onSelect={() => onOpenAgent(a.id)}
+                >
+                  {a.name}
+                  {needsYou(a) ? ' · needs your OK' : a.unread > 0 ? ' · new' : ''}
+                </DropdownItem>
+              ))}
+            <DropdownDivider />
+            <DropdownItem icon={<HomeIcon size={14} />} onSelect={compact.onGoHome}>
+              Home
+            </DropdownItem>
+          </Dropdown>
+        ) : (
+          <div className="agent-chat__title">{title}</div>
+        )}
+        <Dropdown
+          align="right"
+          portal
+          className="agent-chat__menu"
+          trigger={(p) => (
+            <IconButton
+              {...p}
+              tabIndex={0}
+              variant="ghost"
+              icon={<MoreHorizontalIcon size={14} />}
+              title="Agent actions"
+              aria-label={`Actions for ${agent.name}`}
+            />
+          )}
+        >
+          <AgentActionItems agent={agent} kind="dropdown" {...actions} />
+        </Dropdown>
       </header>
 
       <div className="agent-chat__scroll" ref={scrollRef} onScroll={onScroll}>
-        <div
-          className="agent-chat__messages"
-          ref={messagesRef}
-          data-state={messages === undefined ? 'loading' : 'ready'}
-        >
-          {messages === undefined ? (
-            <div className="agent-chat__loading">
-              <Spinner />
-            </div>
-          ) : items.length === 0 ? (
+        <div className="agent-chat__messages" ref={messagesRef}>
+          {items.length === 0 ? (
             <div className="agent-chat__empty">
-              <AgentAvatar name={agent.name} color={agent.color} size={48} selected />
+              <AgentAvatar name={agent.name} color={agent.color} size="hero" selected />
               <p className="agent-chat__empty-name">{agent.name}</p>
               {agent.role && <p className="agent-chat__empty-role">{agent.role}</p>}
             </div>
@@ -207,7 +346,15 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
               const m = item.message;
               switch (m.kind) {
                 case 'user':
-                  return <UserBubble key={m.id} message={m} arrived={arrived} />;
+                  return (
+                    <UserBubble
+                      key={keyOf(m.id)}
+                      message={m}
+                      arrived={arrived}
+                      failed={failed.has(m.id)}
+                      onRetry={() => retry(m.id)}
+                    />
+                  );
                 case 'agent':
                   return <AgentBubble key={m.id} message={m} arrived={arrived} />;
                 case 'approval':
@@ -238,63 +385,76 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
         </div>
       </div>
 
-      {!atBottom && (
-        <IconButton
-          variant="secondary"
-          className="agent-chat__jump"
-          icon={<ArrowDownIcon size={14} />}
-          onClick={scrollToBottom}
-          aria-label="Jump to latest"
-          title="Jump to latest"
-        />
-      )}
-
-      <form
-        className="agent-composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <TextArea
-          ref={inputRef}
-          className="agent-composer__input"
-          rows={1}
-          value={draft}
-          placeholder={
-            engineReady ? `Message ${agent.name}` : 'Install Claude Code to talk to your agents'
-          }
-          disabled={!engineReady}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          aria-label={`Message ${agent.name}`}
-        />
-        {working && !draft.trim() ? (
+      <div className="agent-chat__footer">
+        {!atBottom && (
           <IconButton
-            variant="secondary"
-            className="agent-composer__stop"
-            icon={<span className="agent-composer__stop-square" aria-hidden />}
-            onClick={() => void onStop()}
-            aria-label={`Stop ${agent.name}`}
-            title="Stop"
-          />
-        ) : (
-          <IconButton
-            type="submit"
-            variant="primary"
-            className="agent-composer__send"
-            icon={<ArrowUpIcon size={14} />}
-            disabled={!draft.trim() || !engineReady}
-            aria-label="Send"
-            title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
+            className="agent-chat__jump"
+            icon={<ArrowDownIcon size={14} />}
+            onClick={scrollToBottom}
+            aria-label="Jump to latest"
+            title="Jump to latest"
           />
         )}
-      </form>
+
+        {engineReady ? (
+          <form
+            className="agent-composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+          >
+            <TextArea
+              ref={inputRef}
+              className="agent-composer__input"
+              rows={1}
+              value={draft}
+              placeholder={`Message ${agent.name}`}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  send();
+                } else if (e.key === 'Escape' && working && !draft.trim()) {
+                  e.preventDefault();
+                  void onStop();
+                }
+              }}
+              aria-label={`Message ${agent.name}`}
+            />
+            {working && !draft.trim() ? (
+              <IconButton
+                variant="secondary"
+                className="agent-composer__stop"
+                icon={<span className="agent-composer__stop-square" aria-hidden />}
+                onClick={() => void onStop()}
+                aria-label={`Stop ${agent.name}`}
+                title="Stop (Esc)"
+              />
+            ) : (
+              <IconButton
+                type="submit"
+                variant={draft.trim() ? 'primary' : 'secondary'}
+                className="agent-composer__send"
+                icon={<ArrowUpIcon size={14} />}
+                disabled={!draft.trim()}
+                aria-label="Send"
+                title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
+              />
+            )}
+          </form>
+        ) : (
+          <div className="agent-composer agent-composer--blocked" role="status">
+            <WarningIcon size={14} className="agent-composer__blocked-icon" />
+            <span className="agent-composer__blocked-text">
+              Agents run on Claude Code, which isn&apos;t installed on this Mac yet.
+            </span>
+            <Button variant="primary" onClick={onSetUpEngine}>
+              Set up Claude Code
+            </Button>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

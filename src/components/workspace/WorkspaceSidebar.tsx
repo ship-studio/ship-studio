@@ -171,6 +171,8 @@ interface Props {
   onGoAgents?: () => void;
   /** Unread agent replies, rendered as a badge on the Agents button. */
   agentsUnreadCount?: number;
+  /** A trailing control on the Agents row while Agents mode is showing (its + menu). */
+  agentsNavAction?: ReactNode;
 
   // Projects
   /** Pinned projects (in pin order). Have live registry data. */
@@ -430,6 +432,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   inboxUnreadCount = 0,
   onGoAgents,
   agentsUnreadCount = 0,
+  agentsNavAction,
   listContent,
   onGoHome,
   onOpenProjectPicker,
@@ -1763,25 +1766,29 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           </button>
           {/* Agents is a mode, not a page: it takes over the window. It gets a
               row of its own because the nav row beside the traffic lights only
-              has room for four buttons. */}
+              has room for four buttons. While it is showing, the row is the
+              agent list's heading and carries its + menu. */}
           {onGoAgents && (
-            <button
-              type="button"
-              className={`workspace-sidebar-filter workspace-sidebar-agents${
-                activeNav === 'agents' ? ' is-active' : ''
-              }`}
-              onClick={onGoAgents}
-              disabled={activeNav === 'agents'}
-              aria-current={activeNav === 'agents' ? 'page' : undefined}
-              title="Agents"
-              aria-label={agentsUnreadCount > 0 ? `Agents — ${agentsUnreadCount} unread` : 'Agents'}
-            >
-              <AgentsIcon size={12} />
-              <span className="workspace-sidebar-filter-placeholder">Agents</span>
-              {agentsUnreadCount > 0 && activeNav !== 'agents' && (
-                <span className="workspace-sidebar-agents-badge" aria-hidden />
-              )}
-            </button>
+            <div className="workspace-sidebar-agents-row">
+              <button
+                type="button"
+                tabIndex={0}
+                className={`workspace-sidebar-agents${activeNav === 'agents' ? ' is-active' : ''}`}
+                onClick={onGoAgents}
+                aria-current={activeNav === 'agents' ? 'page' : undefined}
+                title="Agents"
+                aria-label={
+                  agentsUnreadCount > 0 ? `Agents — ${agentsUnreadCount} unread` : 'Agents'
+                }
+              >
+                <AgentsIcon size={12} />
+                <span className="workspace-sidebar-agents-label">Agents</span>
+                {agentsUnreadCount > 0 && activeNav !== 'agents' && (
+                  <span className="sidebar-row-dot dot-unread" aria-hidden />
+                )}
+              </button>
+              {activeNav === 'agents' && agentsNavAction}
+            </div>
           )}
         </div>
 

@@ -47,7 +47,7 @@ const TEAM = [
     shape: 5,
     color: 'white',
     minutesAgo: 3,
-    role: 'Runs the other agents, delegates work, and keeps track of everything in flight.',
+    role: 'Runs the other agents and keeps track of what’s in flight.',
     preview: 'Acme’s staging deploy is green. Want me to have Acme Site open the PR?',
   }),
   agent('acme', 'Acme Site', {
@@ -72,7 +72,7 @@ const TEAM = [
     minutesAgo: 90,
     role: 'Finds and qualifies agency leads.',
     status: status('waiting', 'Waiting for your OK'),
-    preview: 'Needs your OK: Use gmail: send email',
+    preview: 'Needs your OK: Send an email · Gmail',
   }),
   agent('native', 'Native App', {
     shape: 2,
@@ -169,7 +169,7 @@ const LEADGEN_CHAT = [
     agentId: 'leadgen',
     approval: {
       requestId: 'req-1',
-      title: 'Use gmail: send email',
+      title: 'Send an email · Gmail',
       detail:
         '{\n  "to": "hello@northwind.example",\n  "subject": "Your site, faster",\n  "body": "Hi Sam — I build marketing sites for studios like yours…"\n}',
       status: 'pending',
@@ -181,6 +181,38 @@ const LEADGEN_CHAT = [
       },
     },
   }),
+];
+
+const FINANCE_CHAT = [
+  msg('user', 'What’s outstanding this month?', 50, { agentId: 'finance' }),
+  msg(
+    'agent',
+    [
+      'Two invoices are overdue:',
+      '',
+      '| Client | Amount | Days late |',
+      '| --- | --- | --- |',
+      '| Northwind | $4,200 | 18 |',
+      '| Globex | $1,150 | 6 |',
+      '',
+      '> Northwind said last week the payment was “in the next run”.',
+      '',
+      'The reminder I drafted uses your usual template:',
+      '',
+      '```',
+      'Hi Sam, a quick nudge on invoice #1042 ($4,200), due Oct 17.',
+      'Let me know if anything is holding it up.',
+      '```',
+      '',
+      '---',
+      '',
+      '#### Next',
+      '- Send both reminders',
+      '- Re-check on Friday',
+    ].join('\n'),
+    40,
+    { agentId: 'finance' }
+  ),
 ];
 
 const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
@@ -224,6 +256,7 @@ const messagesFor = (args: Record<string, unknown>) => {
   const sent = SENT[String(args.agentId)] ?? [];
   if (args.agentId === 'chief') return [...CHIEF_CHAT, ...sent];
   if (args.agentId === 'leadgen') return [...LEADGEN_CHAT, ...sent];
+  if (args.agentId === 'finance') return [...FINANCE_CHAT, ...sent];
   return sent;
 };
 
@@ -232,7 +265,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-team',
     title: 'Agents — a working team, Chief of Staff open',
     looksRightWhen:
-      'Reads like Grok Bot: agent list with blob avatars on the left (pinned first, then most recent), Chief of Staff conversation on the right with the name pill on top. “2 messages with Acme Site” style lines sit centred between bubbles. Acme Site shows what it is doing; Lead Gen shows it needs your OK; Finance shows 2 unread.',
+      'Agent list under the Agents row (pinned first, then most recent), one hairline per row; the Chief of Staff conversation with its name centred in the header band. “2 messages with Acme Site” lines sit centred between bubbles. Acme Site shows what it is doing; Lead Gen shows it needs your OK; Finance shows unread.',
     command: 'agents.open',
     requires: '.agent-chat .agent-bubble--agent',
     commands: {
@@ -251,6 +284,32 @@ export const agentsScenarios: Scenario[] = [
     requires: '.agent-approval',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '[data-agent-id="leadgen"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-markdown',
+    title: 'Agents — a reply with a table, a quote and a code block',
+    looksRightWhen:
+      'The table has ruled rows and a quiet header; the quote has a rule on its left; the code block is recessed with Copy on hover; the rule is a hairline.',
+    requires: '.agent-code',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="finance"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-collapsed',
+    title: 'Agents — sidebar collapsed to the rail',
+    looksRightWhen:
+      'The rail shows each agent’s badge with its status on the corner; the conversation header’s name is clear of the floating nav row.',
+    requires: '.workspace-sidebar.is-hidden .agents-list__row',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '.workspace-sidebar-toggle' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
@@ -287,9 +346,9 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-no-engine',
     title: 'Agents — Claude Code not installed',
     looksRightWhen:
-      'A banner says agents need Claude Code and offers to set it up; the composer is disabled with a reason instead of letting a message fail.',
+      'The composer’s slot says agents need Claude Code and offers to set it up; the header band is undisturbed and there is no send button.',
     command: 'agents.open',
-    requires: '.agents-banner',
+    requires: '.agent-composer--blocked',
     commands: {
       agents_overview: { ...overview(TEAM.slice(0, 1)), engineReady: false },
     },

@@ -27,6 +27,8 @@ interface HomeSidebarProps {
   inboxUnreadCount: number;
   onGoAgents: () => void;
   agentsUnreadCount: number;
+  /** Agents mode's + menu, on the Agents row. */
+  agentsNavAction?: ReactNode;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
   onOpenProjectPicker: () => void;
@@ -51,6 +53,7 @@ export function HomeSidebar({
   inboxUnreadCount,
   onGoAgents,
   agentsUnreadCount,
+  agentsNavAction,
   listContent,
   isSidebarHidden,
   onToggleSidebar,
@@ -78,6 +81,7 @@ export function HomeSidebar({
       inboxUnreadCount={inboxUnreadCount}
       onGoAgents={onGoAgents}
       agentsUnreadCount={agentsUnreadCount}
+      agentsNavAction={agentsNavAction}
       listContent={listContent}
       onOpenProjectPicker={onOpenProjectPicker}
       isSidebarHidden={isSidebarHidden}

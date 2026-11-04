@@ -81,6 +81,12 @@
   animation: sidebar-pulse 1.6s ease-in-out infinite;
 }
 
+/* Something new to read. The one unread mark in the sidebar: the Agents row
+ * and every agent row use it, so "new" never has two colours. */
+.sidebar-row-dot.dot-unread {
+  background: var(--accent-active);
+}
+
 .sidebar-row-dot.dot-waiting {
   background: var(--accent-warning);
   box-shadow: 0 0 0 2px rgba(var(--accent-warning-rgb), 0.2);

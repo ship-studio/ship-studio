@@ -25,12 +25,6 @@
   }
 }
 
-@keyframes agents-motion-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
 @keyframes agents-motion-swap-in {
   from {
     opacity: 0;
@@ -113,18 +107,9 @@
   transform-origin: bottom center;
 }
 
-/* Opening an agent: its conversation fades in rather than snapping, which
-   is also what makes switching between two agents read as one motion. */
-.agent-chat__messages[data-state='ready'] {
-  animation: agents-motion-fade-in var(--transition-interaction) backwards;
-}
-
-/* A fast load shows nothing rather than flashing a spinner; a slow one
-   fades the spinner in. */
-.agent-chat__loading {
-  animation: agents-motion-fade-in var(--transition-interaction) var(--agents-motion-reveal-delay)
-    backwards;
-}
+/* Switching agents is a straight swap: AgentsView keeps the old
+   conversation up until the new one's messages are in, and the new one
+   lands already scrolled to its bottom, so there is nothing to fade over. */
 
 /* ----------------------------------------------- working indicator */
 
@@ -247,8 +232,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .agent-chat__messages > [data-arrived],
-  .agent-chat__messages[data-state='ready'],
-  .agent-chat__loading,
   .agent-chat__row--working[data-entering],
   .agent-chat__row--working[data-leaving],
   .agent-working__activity[data-changed],

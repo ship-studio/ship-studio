@@ -23,6 +23,12 @@
   --agents-tint-gray: #8a8a8a;
 
   --agents-header-height: calc(var(--control-height-standard) + (var(--spacing-sm) * 2));
+  /* The collapsed home rail floats its nav row over the top-left of the
+     window; the conversation header keeps clear of it. Four controls at
+     control height, the row's gaps, and its padding. */
+  --agents-rail-nav-width: calc(
+    (var(--control-height-standard) * 4) + (var(--button-gap) * 3) + (var(--space-08) * 2)
+  );
   --agents-chat-width: 720px;
   --agents-bubble-max: 80%;
 }
@@ -64,29 +70,57 @@
 /* ---------------------------------------------------------------- badge */
 
 /* Same tile as a project's badge, tinted. Solid when it's the agent you're
-   looking at, the way the current project's badge turns solid. */
+   looking at, the way the current project's badge turns solid. Sizes are
+   fixed steps on the type and radius scales, never computed. */
 .agent-avatar {
-  --agent-avatar-size: var(--control-height-standard);
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   width: var(--agent-avatar-size);
   height: var(--agent-avatar-size);
-  font-size: calc(var(--agent-avatar-size) * 0.4);
   font-weight: var(--font-weight-heading);
   line-height: 1;
   letter-spacing: 0;
-  color: var(--agents-tint, var(--text-secondary));
-  background: color-mix(in srgb, var(--agents-tint, var(--text-muted)) 16%, var(--surface-control));
-  border-radius: calc(var(--agent-avatar-size) * 0.27);
+  /* At rest the initials sit at a readable mix of the tint and the text
+     colour; 16% tint alone was under 4.5:1 for the darker hues. */
+  color: color-mix(in srgb, var(--agents-tint, var(--text-secondary)) 70%, var(--text-primary));
+  background: color-mix(in srgb, var(--agents-tint, var(--text-muted)) 24%, var(--surface-control));
   box-shadow: var(--shadow-button);
   user-select: none;
+}
+
+.agent-avatar--row {
+  --agent-avatar-size: var(--size-sidebar-project-shortcut);
+  font-size: var(--font-size-11);
+  border-radius: var(--radius-control);
+}
+
+.agent-avatar--field {
+  --agent-avatar-size: var(--control-height-standard);
+  font-size: var(--font-size-body-lg);
+  border-radius: var(--radius-control);
+}
+
+.agent-avatar--hero {
+  --agent-avatar-size: calc(var(--control-height-standard) + var(--spacing-lg));
+  font-size: var(--font-size-h4);
+  border-radius: var(--radius-lg);
 }
 
 .agent-avatar--selected {
   color: var(--surface-app);
   background: var(--agents-tint, var(--accent-active));
+}
+
+/* A colour where letters would be too small to read (the peer line, menus). */
+.agent-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--size-sidebar-status-indicator);
+  height: var(--size-sidebar-status-indicator);
+  background: var(--agents-tint, var(--text-muted));
+  border-radius: var(--radius-pill);
 }
 
 /* ---------------------------------------------------------- agent list */
@@ -96,39 +130,25 @@
   flex-direction: column;
 }
 
-/* The group header is the sidebar's own; it just carries a + at the end. */
-.agents-list__header {
-  cursor: default;
-}
-
-.agents-list__header:hover {
-  color: var(--text-faint);
-  background: transparent;
-}
-
-.agents-list__header .sidebar-group-count {
-  margin-left: auto;
-}
-
-.agents-list__new {
-  margin-right: calc(var(--spacing-tight) * -1);
-}
-
+/* The project row's band and hairline. The badge starts on the sidebar's
+   outer gutter (--space-08), the column the Search field and the Agents row
+   above start on; there is no disclosure chevron to make room for. */
 .agents-list__row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
   height: var(--size-sidebar-project-row);
-  padding: 0 var(--spacing-md);
+  padding: 0 var(--spacing-md) 0 var(--space-08);
   text-align: left;
   font: inherit;
   color: var(--text-primary);
   background: none;
   border: none;
+  border-bottom: var(--stroke-1) solid var(--border-subtle);
   border-radius: 0;
   cursor: pointer;
-  transition: background var(--transition-interaction-fast);
 }
 
 .agents-list__row:hover {
@@ -163,11 +183,17 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  overflow: hidden;
+  min-width: 0;
   font-size: var(--font-size-body-md);
   font-weight: var(--font-weight-label);
   line-height: var(--line-height-compact);
   color: var(--text-secondary);
+}
+
+/* The text ellipsises; the pin beside it never gets pushed out. */
+.agents-list__name-text {
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -178,7 +204,7 @@
 
 .agents-list__pin {
   flex: 0 0 auto;
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .agents-list__preview {
@@ -190,8 +216,14 @@
   text-overflow: ellipsis;
 }
 
+.agents-list__row.is-current .agents-list__preview {
+  color: var(--text-secondary);
+}
+
+/* The sidebar's attention grammar: the label goes green, the amber dot alone
+   carries the urgency (.sidebar-row.is-attention). */
 .agents-list__preview[data-state='waiting'] {
-  color: var(--accent-warning);
+  color: var(--accent-success);
 }
 
 /* Fixed status slot, like the project row's, so states never shift the text. */
@@ -205,15 +237,65 @@
   color: var(--accent-success);
 }
 
-.agents-list__unread {
-  width: var(--size-sidebar-status-indicator);
-  height: var(--size-sidebar-status-indicator);
-  background: var(--accent-focus);
-  border-radius: var(--radius-pill);
+/* "Hidden (2)": a quiet disclosure at the end of the list, not a footer. */
+.agents-list__hidden-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  height: var(--control-height-standard);
+  padding: 0 var(--spacing-md) 0 var(--space-08);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-bottom: var(--stroke-1) solid var(--border-subtle);
 }
 
-.agents-list__actions {
-  border-top: var(--border-width-default) solid var(--border-subtle);
+.agents-list__hidden-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.agents-list__hidden-toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
+}
+
+.agents-list__hidden-chevron {
+  transition: transform var(--transition-interaction-fast);
+}
+
+.agents-list__hidden-toggle[aria-expanded='true'] .agents-list__hidden-chevron {
+  transform: rotate(90deg);
+}
+
+/* Collapsed rail: badges only, centred like project badges, with the status
+   riding on the badge's corner so unread and needs-you still show. */
+.workspace-sidebar.is-hidden .agents-list__row {
+  justify-content: center;
+  height: calc(var(--control-height-standard) + (var(--space-08) * 2));
+  padding: var(--space-08);
+}
+
+.workspace-sidebar.is-hidden .agents-list__text,
+.workspace-sidebar.is-hidden .agents-list__hidden-toggle {
+  display: none;
+}
+
+.workspace-sidebar.is-hidden .agents-list__status {
+  position: absolute;
+  top: var(--space-06);
+  right: var(--space-06);
+  width: auto;
+  height: auto;
+}
+
+.workspace-sidebar.is-hidden .agents-list__status .sidebar-row-dot {
+  box-shadow: 0 0 0 var(--border-width-emphasis) var(--surface-panel);
 }
 
 /* ---------------------------------------------------------------- main */
@@ -237,19 +319,6 @@
   color: var(--text-muted);
 }
 
-.agents-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  font-size: var(--font-size-body-lg);
-  line-height: var(--line-height-help);
-  color: var(--text-secondary);
-  background: var(--surface-warning);
-  border-bottom: var(--border-width-default) solid var(--border-subtle);
-}
-
 /* ---------------------------------------------------------------- chat */
 
 .agent-chat {
@@ -261,43 +330,66 @@
 }
 
 /* Same height and hairline as the sidebar's nav row, so the two read as one
-   band across the window. */
+   band across the window. The name is centred, as the workspace centres its
+   title in the same band; the … menu sits at the trailing edge. */
 .agent-chat__header {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  justify-content: center;
   gap: var(--spacing-sm);
   height: var(--agents-header-height);
-  padding: 0 var(--spacing-sm) 0 var(--spacing-lg);
+  padding: 0 var(--spacing-sm);
   border-bottom: var(--border-width-default) solid var(--border-subtle);
 }
 
+.workspace-sidebar.is-hidden ~ .agents-main .agent-chat__header {
+  padding-inline: var(--agents-rail-nav-width);
+}
+
 .agent-chat__title {
-  display: flex;
-  flex: 1;
-  align-items: baseline;
+  display: inline-flex;
+  align-items: center;
   gap: var(--spacing-sm);
   min-width: 0;
 }
 
 .agent-chat__name {
-  flex: 0 0 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: var(--font-size-subhead);
   font-weight: var(--font-weight-heading);
   line-height: var(--line-height-compact);
   color: var(--text-primary);
-}
-
-.agent-chat__role {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  font-size: var(--font-size-body-md);
-  line-height: var(--line-height-compact);
-  color: var(--text-muted);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.agent-chat__status {
+  flex: 0 0 auto;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  color: var(--text-muted);
+}
+
+.agent-chat__status[data-state='waiting'] {
+  color: var(--accent-success);
+}
+
+.agent-chat__header > .agent-chat__menu {
+  position: absolute;
+  top: 50%;
+  right: var(--spacing-sm);
+  transform: translateY(-50%);
+}
+
+.agent-chat__home {
+  position: absolute;
+  top: 50%;
+  left: var(--spacing-sm);
+  transform: translateY(-50%);
 }
 
 .agent-chat__scroll {
@@ -328,17 +420,21 @@
   margin-top: auto;
 }
 
-/* Rhythm: a run from one speaker sits tight; a change of speaker breathes. */
+/* Rhythm: a run from one speaker sits tight; a change of speaker breathes.
+   A card is its own object, so it breathes even after its agent's bubble. */
 .agent-chat__messages > * + * {
   margin-top: var(--spacing-md);
 }
 
-.agent-chat__row--agent + .agent-chat__row--agent,
+.agent-chat__row--agent + .agent-chat__row--agent:not(.agent-chat__row--card),
 .agent-chat__row--user + .agent-chat__row--user {
   margin-top: var(--spacing-2xs);
 }
 
-.agent-chat__loading,
+.agent-chat__messages > .agent-chat__row--card {
+  margin-top: var(--spacing-sm);
+}
+
 .agent-chat__empty {
   display: flex;
   flex: 1;
@@ -360,7 +456,7 @@
 .agent-chat__empty-role {
   max-width: 400px;
   margin: 0;
-  font-size: var(--font-size-body-lg);
+  font-size: var(--font-size-subhead);
   line-height: var(--line-height-help);
   color: var(--text-muted);
 }
@@ -370,9 +466,12 @@
 }
 
 .agent-chat__row--user {
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
+/* Two sizes in the column: --font-size-subhead for anything a person reads,
+   --font-size-body-sm for metadata. */
 .agent-bubble {
   max-width: var(--agents-bubble-max);
   padding: var(--spacing-sm) var(--spacing-md);
@@ -388,39 +487,55 @@
   background: var(--surface-control);
 }
 
-/* Your bubble wears the agent's colour, deepened until white text is
-   comfortably legible on it. White and gray agents get a neutral bubble. */
+/* Yours is one neutral colour for every agent: identity lives in the badge,
+   and a tinted bubble borrowed the meaning of the app's status colours. */
 .agent-bubble--user {
   white-space: pre-wrap;
-  color: var(--text-white);
-  background: color-mix(in srgb, var(--agents-tint, var(--accent-active)) 55%, var(--surface-app));
-}
-
-.agent-chat:is([data-color='white'], [data-color='gray']) .agent-bubble--user {
-  color: var(--text-primary);
   background: var(--surface-selected);
 }
 
+.agent-chat__row--user[data-failed] .agent-bubble--user {
+  opacity: 0.6;
+}
+
+.agent-chat__failed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
+  color: var(--accent-error-light);
+}
+
 .agent-bubble--error {
-  font-size: var(--font-size-body-lg);
   color: var(--accent-error-light);
   background: rgba(var(--accent-error-rgb), 0.08);
   box-shadow: inset 0 0 0 var(--border-width-default) rgba(var(--accent-error-rgb), 0.25);
 }
 
-/* Agent prose: quiet markdown, a message rather than a document. */
-.agent-markdown > :first-child {
+/* Agent prose: quiet markdown, a message rather than a document. Rules
+   inside a bubble use --border-strong / --text-faint: the bubble is already
+   --surface-control, where --border-subtle disappears. */
+.agent-markdown > :first-child,
+.agent-markdown__prose > :first-child {
   margin-top: 0;
 }
 
-.agent-markdown > :last-child {
+.agent-markdown > :last-child,
+.agent-markdown__prose > :last-child {
   margin-bottom: 0;
+}
+
+.agent-markdown > * + * {
+  margin-top: var(--spacing-sm);
 }
 
 .agent-markdown p,
 .agent-markdown ul,
 .agent-markdown ol,
-.agent-markdown pre {
+.agent-markdown blockquote,
+.agent-markdown table,
+.agent-markdown hr {
   margin: 0 0 var(--spacing-sm);
 }
 
@@ -431,6 +546,11 @@
 
 .agent-markdown li + li {
   margin-top: var(--spacing-2xs);
+}
+
+.agent-markdown li > ul,
+.agent-markdown li > ol {
+  margin: var(--spacing-2xs) 0 0;
 }
 
 .agent-markdown strong {
@@ -448,32 +568,104 @@
   text-decoration-color: var(--text-secondary);
 }
 
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4,
+.agent-markdown h5,
+.agent-markdown h6 {
+  margin: var(--spacing-md) 0 var(--spacing-xs);
+  font-size: inherit;
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-compact);
+}
+
 .agent-markdown code {
   padding: 0 var(--spacing-xs);
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: var(--font-size-body-md);
   background: var(--surface-recessed);
   border-radius: var(--radius-sm);
 }
 
-.agent-markdown pre {
-  padding: var(--spacing-sm) var(--spacing-md);
+.agent-markdown blockquote {
+  padding-left: var(--spacing-md);
+  color: var(--text-secondary);
+  border-left: var(--border-width-emphasis) solid var(--text-faint);
+}
+
+.agent-markdown hr {
+  height: 0;
+  border: 0;
+  border-top: var(--border-width-default) solid var(--border-strong);
+}
+
+.agent-markdown table {
+  display: block;
+  max-width: 100%;
   overflow-x: auto;
+  font-size: var(--font-size-body-lg);
+  border-collapse: collapse;
+  scrollbar-width: thin;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: var(--border-width-default) solid var(--border-strong);
+}
+
+.agent-markdown th {
+  font-weight: var(--font-weight-heading);
+  color: var(--text-secondary);
+  border-bottom-color: var(--text-faint);
+}
+
+.agent-markdown th:first-child,
+.agent-markdown td:first-child {
+  padding-left: 0;
+}
+
+.agent-markdown tr:last-child td {
+  border-bottom: none;
+}
+
+/* A code block: recessed, its own scroll, and Copy on hover or focus. */
+.agent-code {
+  position: relative;
   background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
   border-radius: var(--radius-card);
 }
 
-.agent-markdown pre code {
+.agent-code pre {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  scrollbar-width: thin;
+}
+
+.agent-code pre code {
   padding: 0;
   background: none;
 }
 
-.agent-markdown h1,
-.agent-markdown h2,
-.agent-markdown h3 {
-  margin: var(--spacing-sm) 0 var(--spacing-xs);
-  font-size: inherit;
-  font-weight: var(--font-weight-heading);
+.agent-code__copy {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.agent-code:hover .agent-code__copy,
+.agent-code__copy:focus-visible {
+  opacity: 1;
 }
 
 .agent-chat__divider {
@@ -481,10 +673,10 @@
   padding-top: var(--spacing-sm);
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-compact);
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
-/* "Messaged FI Finance" */
+/* "› Messaged ● Finance" */
 .agent-peer {
   display: flex;
   flex-direction: column;
@@ -494,8 +686,8 @@
 .agent-peer__line {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-tight);
-  font-size: var(--font-size-body-md);
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
   line-height: var(--line-height-compact);
   color: var(--text-muted);
 }
@@ -504,16 +696,32 @@
 .agent-peer__name {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-tight);
+  gap: var(--spacing-xs);
   padding: 0;
   font: inherit;
   color: inherit;
   background: none;
   border: none;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
+.agent-peer__toggle:focus-visible,
+.agent-peer__name:focus-visible {
+  outline: var(--border-width-emphasis) solid var(--accent-focus);
+  outline-offset: var(--spacing-2xs);
+}
+
+.agent-peer__chevron {
+  transition: transform var(--transition-interaction-fast);
+}
+
+.agent-peer__toggle[aria-expanded='true'] .agent-peer__chevron {
+  transform: rotate(90deg);
+}
+
 .agent-peer__name {
+  font-weight: var(--font-weight-label);
   color: var(--text-secondary);
 }
 
@@ -551,34 +759,75 @@
 }
 
 .agent-peer__text {
-  font-size: var(--font-size-body-lg);
+  font-size: var(--font-size-subhead);
   line-height: var(--line-height-help);
   color: var(--text-secondary);
   white-space: pre-wrap;
   user-select: text;
 }
 
-/* Allow / Deny */
+/* Allow / Deny: the bubble's surface and radius, with the amber cue as a
+   leading icon rather than a border around the whole card. */
 .agent-approval {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  width: min(480px, var(--agents-bubble-max));
+  width: var(--agents-bubble-max);
   padding: var(--spacing-md);
-  background: var(--surface-panel);
-  border: var(--border-width-default) solid var(--border-default);
+  background: var(--surface-control);
   border-radius: var(--radius-lg);
 }
 
-.agent-approval[data-status='pending'] {
-  border-color: rgba(var(--accent-warning-rgb), 0.45);
-}
-
 .agent-approval__title {
-  font-size: var(--font-size-body-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-subhead);
   font-weight: var(--font-weight-heading);
   line-height: var(--line-height-compact);
   color: var(--text-primary);
+}
+
+.agent-approval__icon {
+  flex: 0 0 auto;
+  color: var(--accent-warning);
+}
+
+.agent-approval__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  max-height: 240px;
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  overflow: auto;
+  background: var(--surface-recessed);
+  border-radius: var(--radius-card);
+  scrollbar-width: thin;
+}
+
+.agent-approval__field {
+  display: grid;
+  grid-template-columns: 72px 1fr; /* css-ok: label column */
+  align-items: baseline;
+  gap: var(--spacing-md);
+}
+
+.agent-approval__field dt {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+.agent-approval__field dd {
+  margin: 0;
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-help);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .agent-approval__detail {
@@ -595,11 +844,12 @@
   background: var(--surface-recessed);
   border-radius: var(--radius-card);
   user-select: text;
+  scrollbar-width: thin;
 }
 
 .agent-approval__note {
   margin: 0;
-  font-size: var(--font-size-body-md);
+  font-size: var(--font-size-body-sm);
   line-height: var(--line-height-help);
   color: var(--text-muted);
 }
@@ -611,7 +861,7 @@
 }
 
 .agent-approval__outcome {
-  font-size: var(--font-size-body-md);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
@@ -619,7 +869,7 @@
   color: var(--accent-success);
 }
 
-/* Typing dots + what it's doing */
+/* Typing dots + what it's doing (the dots' motion is in agents-motion.css). */
 .agent-working {
   display: inline-flex;
   align-items: center;
@@ -641,55 +891,34 @@
   height: 5px; /* css-ok: typing-dot geometry */
   background: var(--text-muted);
   border-radius: var(--radius-pill);
-  animation: agents-typing 1.2s ease-in-out infinite;
-}
-
-.agent-working__dots span:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.agent-working__dots span:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes agents-typing {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-2px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-working__dots span {
-    animation: none;
-  }
 }
 
 .agent-working__activity {
   overflow: hidden;
-  font-size: var(--font-size-body-md);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+/* ------------------------------------------------------------ composer */
+
+/* The composer and the jump button share a positioned footer, so the
+   button always rides just above the composer at whatever height it grows. */
+.agent-chat__footer {
+  position: relative;
+  flex: 0 0 auto;
+}
+
 .agent-chat__jump {
   position: absolute;
-  bottom: calc(var(--agents-header-height) + var(--spacing-xl));
+  bottom: calc(100% + var(--spacing-sm));
   left: 50%;
   z-index: var(--z-sticky-band);
   transform: translateX(-50%);
 }
 
-/* ------------------------------------------------------------ composer */
-
-/* Same column as the messages, same field language as the dashboard search. */
+/* Same column as the messages, same field language as the sidebar search. */
 .agent-composer {
   display: flex;
   align-items: flex-end;
@@ -700,8 +929,7 @@
   padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-md);
   background: var(--surface-panel);
   border: var(--border-width-default) solid var(--border-default);
-  border-radius: var(--radius-lg);
-  transition: border-color var(--transition-interaction-fast);
+  border-radius: var(--radius-card);
 }
 
 .agent-composer:focus-within {
@@ -720,6 +948,7 @@
   background: transparent;
   border: none;
   box-shadow: none;
+  scrollbar-width: thin;
 }
 
 .agent-composer .agent-composer__input:focus,
@@ -739,6 +968,25 @@
   height: 8px; /* css-ok: stop glyph */
   background: currentColor;
   border-radius: var(--radius-sm);
+}
+
+/* No engine: the composer's slot says why, and offers the fix. */
+.agent-composer--blocked {
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.agent-composer__blocked-icon {
+  flex: 0 0 auto;
+  color: var(--accent-warning);
+}
+
+.agent-composer__blocked-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
 }
 
 /* -------------------------------------------------------------- dialogs */

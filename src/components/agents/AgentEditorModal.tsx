@@ -29,6 +29,13 @@ interface AgentEditorModalProps {
   agent?: Agent | null;
   onSaved: (agentId: string) => void;
   onDelete?: (agent: Agent) => void;
+  /** Colours other agents already wear, so a new one starts on a free one. */
+  takenColors?: string[];
+}
+
+/** The first colour nobody has yet; white and gray are left for the user to pick. */
+function freeColor(taken: string[] = []): string {
+  return AGENT_COLORS.find((c) => c !== 'white' && c !== 'gray' && !taken.includes(c)) ?? 'purple';
 }
 
 export function AgentEditorModal({
@@ -37,11 +44,12 @@ export function AgentEditorModal({
   agent,
   onSaved,
   onDelete,
+  takenColors,
 }: AgentEditorModalProps) {
   const editing = Boolean(agent);
   // Keyed by the caller per open, so these start fresh each time.
   const [name, setName] = useState(agent?.name ?? '');
-  const [color, setColor] = useState<string>(agent?.color ?? 'purple');
+  const [color, setColor] = useState<string>(() => agent?.color ?? freeColor(takenColors));
   const [role, setRole] = useState(agent?.role ?? '');
   const [instructions, setInstructions] = useState('');
   const [showBriefing, setShowBriefing] = useState(Boolean(agent));
@@ -93,7 +101,7 @@ export function AgentEditorModal({
         }}
       >
         <div className="agent-editor__identity">
-          <AgentAvatar name={name || '?'} color={color} size={36} selected />
+          <AgentAvatar name={name} color={color} size="field" selected />
           <TextField
             placeholder="Name"
             value={name}

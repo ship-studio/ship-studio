@@ -157,7 +157,7 @@ export const baseCommands: CommandMap = {
       {
         id: 'chief',
         name: 'Chief of Staff',
-        role: 'The user’s main agent: runs the other agents, delegates work, and keeps track of everything in flight.',
+        role: 'Runs the other agents and keeps track of what’s in flight.',
         shape: 5,
         color: 'white',
         isMain: true,

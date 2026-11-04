@@ -279,13 +279,47 @@
     color var(--transition-fast);
 }
 
-.workspace-sidebar-agents {
+/* The Agents row: a destination, not a field, so it doesn't borrow the
+   search trigger's input look. Transparent at rest, the control surface on
+   hover, and the selected surface while Agents mode is showing, like a
+   current project row. */
+.workspace-sidebar-agents-row {
+  position: relative;
   margin-top: var(--spacing-xs);
-  color: var(--text-secondary);
 }
 
-/* Agents mode is showing: the row reads as the current destination, the way
-   the current project row does. */
+.workspace-sidebar-agents {
+  display: flex;
+  align-items: center;
+  gap: var(--space-08);
+  width: 100%;
+  height: var(--control-height-standard);
+  margin: 0;
+  padding: 0 var(--space-06) 0 var(--space-09);
+  font: inherit;
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-card);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.workspace-sidebar-agents:hover {
+  color: var(--text-primary);
+  background: var(--surface-control);
+}
+
+.workspace-sidebar-agents:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
+}
+
 .workspace-sidebar-agents.is-active,
 .workspace-sidebar-agents.is-active:hover {
   color: var(--text-primary);
@@ -293,18 +327,39 @@
   cursor: default;
 }
 
-/* Unread replies: a quiet dot, not a count. */
-.workspace-sidebar-agents-badge {
-  width: var(--spacing-tight);
-  height: var(--spacing-tight);
-  margin-left: auto;
-  margin-right: var(--spacing-xs);
-  background: var(--accent-active);
-  border-radius: var(--radius-pill);
+.workspace-sidebar-agents-label {
+  flex: 1;
 }
 
-.workspace-sidebar.is-hidden .workspace-sidebar-agents-badge {
+.workspace-sidebar-agents .sidebar-row-dot {
+  margin-right: var(--spacing-xs);
+}
+
+/* The + menu rides at the row's trailing edge, inside its selected fill. */
+.workspace-sidebar-agents-row > .ss-dropdown,
+.workspace-sidebar-agents-row > .workspace-sidebar-agents-add {
+  position: absolute;
+  top: 50%;
+  right: var(--space-02);
+  transform: translateY(-50%);
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-agents {
+  justify-content: center;
+  padding: 0;
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-agents-label,
+.workspace-sidebar.is-hidden .workspace-sidebar-agents-row > .ss-dropdown {
   display: none;
+}
+
+/* In the rail the unread dot sits on the icon's corner. */
+.workspace-sidebar.is-hidden .workspace-sidebar-agents .sidebar-row-dot {
+  position: absolute;
+  top: var(--space-06);
+  right: var(--space-06);
+  margin: 0;
 }
 
 .workspace-sidebar-filter:hover {

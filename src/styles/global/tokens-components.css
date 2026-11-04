@@ -340,7 +340,6 @@
   --agents-motion-typing-period: var(--duration-loader-standard);
   --agents-motion-typing-easing: var(--pixel-loader-easing);
   --agents-motion-typing-stagger: var(--duration-standard);
-  --agents-motion-reveal-delay: var(--duration-slow);
 
   --editor-panel-w: 300px;
   --editor-panel-visual-w: 240px;
