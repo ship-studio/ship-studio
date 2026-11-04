@@ -1,0 +1,12 @@
+{
+  "name": "@shipstudio/companion-protocol",
+  "version": "0.1.0",
+  "description": "Wire types for the Ship Studio mobile companion: every request, response and event between the Mac and the phone",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "MIT"
+}

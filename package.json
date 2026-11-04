@@ -45,7 +45,7 @@
     "check:token-layers": "node scripts/token-inventory.mjs --check",
     "check:css-ownership": "node scripts/check-css-ownership.mjs",
     "check:inline-styles": "node scripts/check-inline-styles.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/companion-protocol",
     "rust:fmt": "cd src-tauri && cargo fmt",
     "rust:fmt:check": "cd src-tauri && cargo fmt -- --check",
     "rust:clippy": "cd src-tauri && cargo clippy -- -A clippy::uninlined_format_args",
