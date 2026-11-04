@@ -273,11 +273,11 @@
 
 /* ------------------------------------------------------ jump button */
 
-/* Seated in the transcript's bottom fade band, centred without a transform
+/* Floats a clear step above the composer, centred without a transform
    (agents.css centres it with translateX, which the button's own :active
    scale replaced, so a press threw it sideways). Leaves as it came. */
 .agent-chat__footer .agent-chat__jump {
-  bottom: calc(100% + (var(--agents-motion-edge-fade) - var(--control-height-compact)) / 2);
+  bottom: calc(100% + var(--spacing-md));
   right: 0;
   left: 0;
   margin-inline: auto;
