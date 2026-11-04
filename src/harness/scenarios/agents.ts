@@ -6,6 +6,7 @@
 import { emit } from '@tauri-apps/api/event';
 import type { Scenario } from '../types';
 import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
+import { remoteStatus } from './remote';
 
 export const MIN = 60_000;
 const DEMO_HOME = '/harness/agents-demo';
@@ -17,6 +18,63 @@ const tomorrowAt = (hour: number, minute = 0) => {
   d.setDate(d.getDate() + 1);
   d.setHours(hour, minute, 0, 0);
   return d.getTime();
+};
+
+const IMPORT_STARTER = '.agent-chat__starters > button:last-child';
+
+/** A reply Grok Bot might paste back: prose around two numbered blocks. */
+const PASTED_REPLY = [
+  'Here is everything, in two parts.',
+  '',
+  'Part 1 of 2',
+  '```json',
+  '{"source": "Grok Bot", "agents": [{"name": "Chief", "is_main": true, "role": "Runs my week"}]}',
+  '```',
+  '',
+  'Part 2 of 2',
+  '```json',
+  '{"source": "Grok Bot", "agents": [{"name": "Finance"}, {"name": "Travel"}, {"name": "Inbox"}]}',
+  '```',
+].join('\n');
+
+const PASTE_PREVIEW = {
+  source: 'Grok Bot',
+  blocks: 2,
+  agents: [
+    {
+      name: 'Chief',
+      role: 'Runs my week and keeps the others on track',
+      isMain: true,
+      existing: false,
+      instructionsChars: 2140,
+      memoryLines: 18,
+    },
+    {
+      name: 'Finance',
+      role: 'Tracks spending, invoices and rent',
+      isMain: false,
+      existing: true,
+      instructionsChars: 1312,
+      memoryLines: 9,
+    },
+    {
+      name: 'Travel',
+      role: 'Books flights and hotels within my rules',
+      isMain: false,
+      existing: false,
+      instructionsChars: 864,
+      memoryLines: 6,
+    },
+    {
+      name: 'Inbox',
+      role: 'Triages email and drafts replies for me to send',
+      isMain: false,
+      existing: false,
+      instructionsChars: 1027,
+      memoryLines: 0,
+    },
+  ],
+  problems: [] as string[],
 };
 
 export const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
@@ -1053,12 +1111,59 @@ export const agentsScenarios: Scenario[] = [
   },
   {
     id: 'agents-import',
-    title: 'Agents — import from Grok Bot',
+    title: 'Agents — import, remote access off (paste)',
     looksRightWhen:
-      'Explains the two steps (connect via Remote access, send the message), shows the exact message to send, and a Copy button.',
+      'Opens on the Paste tab because remote access is off. Two numbered steps: copy the message (its full text scrolls in a quiet box, Copy message beside the step) and paste the reply into an empty monospace field. Import is disabled until something valid is pasted.',
+    command: 'agents.import',
+    requires: '.agents-import__paste',
+    commands: {},
+  },
+  {
+    id: 'agents-import-paste-preview',
+    title: 'Agents — import, a pasted reply previewed',
+    looksRightWhen:
+      'Under the pasted reply: "4 agents from Grok Bot, in 2 parts", then one row per agent with its name, role and how much instruction and memory came across. The main one says it merges into Chief of Staff, Finance says it updates the existing agent, the rest are New. The primary button reads "Import 4 agents".',
+    // Steps run before a palette command, so these walk in: Agents mode, then
+    // the first-run Import agents… starter.
+    requires: '.agents-import__paste',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: IMPORT_STARTER }, { fill: '.agents-import__paste', value: PASTED_REPLY }],
+    commands: { agents_import_paste_preview: PASTE_PREVIEW },
+  },
+  {
+    id: 'agents-import-paste-problems',
+    title: 'Agents — import, a pasted reply with mistakes',
+    looksRightWhen:
+      'A calm error list under the paste, each line naming the block, the agent and the field (a trailing comma with its line, a missing name, is_main that is not true/false). The agents that did read fine are still listed below. Import stays disabled.',
+    // Steps run before a palette command, so these walk in: Agents mode, then
+    // the first-run Import agents… starter.
+    requires: '.agents-import__paste',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
+
+      { fill: '.agents-import__paste', value: '```json\n{"agents":[{"name":"Finance",},]}\n```' },
+    ],
+    commands: {
+      agents_import_paste_preview: {
+        ...PASTE_PREVIEW,
+        agents: PASTE_PREVIEW.agents.slice(0, 2),
+        problems: [
+          'Block 2 has a trailing comma at line 14 (a comma right before a } or ]). Delete that comma, or ask the assistant to send it again as valid JSON.',
+          'Agent 3 in block 1 has no "name".',
+          '\u201CTravel\u201D: "is_main" should be true or false, not text.',
+        ],
+      },
+    },
+  },
+  {
+    id: 'agents-import-connected',
+    title: 'Agents — import, remote access on (connected assistant)',
+    looksRightWhen:
+      'Opens on the Connected assistant tab because remote access is on: connect via Remote access, the one message to send, and Copy message. Paste is one click away on the left.',
     command: 'agents.import',
     requires: '.agents-import__prompt',
-    commands: {},
+    commands: { get_remote_access_status: remoteStatus({ enabled: true, serverRunning: true }) },
   },
   {
     id: 'agents-streaming',

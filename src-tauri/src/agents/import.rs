@@ -7,7 +7,7 @@
 //! agents. Re-importing is safe: an agent with the same name is updated, not
 //! duplicated, and the main agent is merged into the Chief of Staff.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use super::{runner, store};
@@ -30,7 +30,7 @@ pub struct ImportedAgent {
     pub color: Option<String>,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Serialize)]
 pub struct ImportSummary {
     pub created: Vec<String>,
     pub updated: Vec<String>,

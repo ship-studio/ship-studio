@@ -201,8 +201,21 @@ Staff. Re-importing updates same-named agents instead of duplicating them.
 Imported agents don't run until you message them. Every import is audited like
 any other remote-access action.
 
-The **Import agents** button in Agents mode shows the one message to send your
-assistant and links to Remote access setup.
+The **Import agents** button in Agents mode offers two paths, as tabs:
+
+- **Paste** (the default while remote access is off; needs nothing set up).
+  Copy a message into the other assistant (`PASTE_PROMPT` in
+  `src-tauri/src/agents/paste.rs`) asking for every agent as a ```json block
+  in the same `{source, agents}` shape, in full and with no credentials, split
+  into numbered whole-agent blocks if it's long. Paste the whole reply back:
+  every ```json block (or bare JSON) is found and merged, and the preview lists
+  each agent and whether it is new, updates an existing one, or merges into the
+  Chief. Anything wrong (a trailing comma and its line, a cut-off block, a
+  missing name, a non-text field, a duplicate, two mains) is listed by block,
+  agent and field and blocks the import; nothing is repaired except curly
+  quotes used as JSON quotes. Import runs the same `import::import()`.
+- **Connected assistant** (the default once remote access is on): the one
+  message that makes it call `import_agents`, and a link to Remote access setup.
 
 What doesn't come across: the other platform's own connectors (its Gmail,
 Calendar…). Here, agents use what this Mac and Claude Code are connected to.

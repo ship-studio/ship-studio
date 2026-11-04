@@ -1565,6 +1565,126 @@
   gap: var(--spacing-sm);
 }
 
+/* Paste / Connected assistant: an underline pair under the title, the
+   divider doubling as the header's bottom edge. */
+.agents-import__tabs {
+  display: flex;
+  width: 100%;
+  padding: 0 var(--spacing-xl);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* The paste prompt is long; it scrolls in place so the steps stay in view. */
+.agents-import__prompt--long {
+  margin-top: var(--spacing-sm);
+  max-height: calc(var(--font-size-body-md) * var(--line-height-help) * 7);
+  overflow-y: auto;
+  font-size: var(--font-size-body-md);
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+.agents-import__step-label {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+}
+
+.agents-import__paste {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  resize: vertical;
+}
+
+.agents-import__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agents-import__found {
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+.agents-import__list {
+  display: flex;
+  flex-direction: column;
+  /* About three rows; a long team scrolls inside the list, not the dialog. */
+  max-height: calc(var(--spacing-xl) * 9);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.agents-import__agent {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.agents-import__agent + .agents-import__agent {
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agents-import__agent-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agents-import__agent-name {
+  color: var(--text-primary);
+}
+
+.agents-import__agent-role,
+.agents-import__agent-detail {
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-import__agent-detail {
+  color: var(--text-muted);
+}
+
+.agents-import__tag {
+  flex-shrink: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+.agents-import__tag[data-main] {
+  color: var(--text-primary);
+}
+
+.agents-import__problems,
+.agents-import__error {
+  font-size: var(--font-size-body-md);
+  color: var(--accent-error-light);
+}
+
+/* Only the heading is red; the reasons read as instructions, not alarms. */
+.agents-import__problems ul {
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: var(--spacing-xs) 0 0;
+  padding-left: var(--spacing-xl);
+}
+
+.agents-import__done {
+  color: var(--text-primary);
+}
+
 /* -------------------------------------------------------------- search */
 
 /* Agents mode's top field: the palette trigger's place and look (the app
