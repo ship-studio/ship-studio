@@ -1,7 +1,8 @@
 # Agents — roadmap and gaps vs. Grok Bot
 
 Planning doc, not a spec. Companion to [agents.md](agents.md) (what exists).
-Researched 2026-11-03 against the `feature/agents` worktree and Grok Bot's
+Researched 2026-11-03 against the `feature/agents` worktree (statuses
+updated 2026-11-04) and Grok Bot's
 desktop bundle (`/Applications/Grok Bot.app`, `app.asar`, Oct 27 build).
 
 **How the evidence was gathered.** Grok Bot capabilities come from (a) the
@@ -22,13 +23,13 @@ Grok Bot user) would feel its absence.
 
 | Capability | Grok Bot evidence | Ship Studio today | Impact |
 | --- | --- | --- | --- |
-| Dictation into composer | mic button in composer (screenshot); `action_button_dictation`, `dictating`, `dictation_active`, `transcribeAudio` | **missing** — no audio code anywhere in `src/` or `src-tauri/src/`; no mic usage string or entitlement | **high** |
+| Dictation into composer | mic button in composer (screenshot); `action_button_dictation`, `dictating`, `dictation_active`, `transcribeAudio` | **have** — mic button in the composer, on-device macOS speech recognition (SFSpeech) | **high** |
 | Hands-free voice mode | waveform button (screenshot); `voice_chat`, `sand_voice_call`, `sand_voice_resumption`, `barge_in_overlap_ms_*`, `first_audio`, `audioworklet`, `cartesia`, `elevenlabs` | **missing** | **high** |
-| Attachments (files, images) | `+` in composer (screenshot); `attachments`, `stageAttachmentPath/Bytes`, `readAttachmentImage`, `maxStagedAttachments`, `attachment_too_large`, `prepareImageForModel` | **missing** (agents.md "Known limits") | **high** |
+| Attachments (files, images) | `+` in composer (screenshot); `attachments`, `stageAttachmentPath/Bytes`, `readAttachmentImage`, `maxStagedAttachments`, `attachment_too_large`, `prepareImageForModel` | **have** — files and images in both directions, Files list per conversation | **high** |
 | Quote selection into composer | "Add to chat ⌘L" hover on selected text (screenshot); `replyQuote`, `pinned_selection` | **missing** | med |
 | Reply-to / threads off a message | `createThreadFromMessage`, `replyQuote` | **missing** | low |
 | Reactions | `reactToMessage`, `reaction`, `reactionAck` | **missing** | low |
-| Interrupt / steer a running turn | `interruptAgentRun`, `user_interrupt`, `steer` | **partial** — Stop kills the turn and drops the queue; new messages queue for the *next* turn, no mid-turn steer | med |
+| Interrupt / steer a running turn | `interruptAgentRun`, `user_interrupt`, `steer` | **have** — Stop keeps the partial reply; "Interrupt and send now" cuts the turn and runs the queued message next, told what it was doing; Stop and interrupt end the whole process tree | med |
 | Offline / queued send | `queued_offline`, `clientQueuedSend*` | **have** (local inbox queue; no network dependency) | — |
 | Slash commands / @mentions | `sand_hide_slash_commands`, `sand_hide_at_mentions` (flags to *hide* them, so they exist) | **partial**: @mentions to involve/delegate to agents; no slash commands | med (`@Finance` to route is natural) |
 | Message link hover cards | `sand_message_link_hover_cards` | **missing** | low |
@@ -45,7 +46,7 @@ Grok Bot user) would feel its absence.
 | Auto titles / activity recency | `sand_agent_titles`, `sand_sidebar_activity_recency`, `sand_attention_pill` | **partial** — activity line + "Needs your OK"; sort by recency *unverified* | low |
 | Templates / sharing | `createAgentFromTemplate`, `publishBotTemplate`, `bot_template_share`, `setBotTemplateVisibility`, `sand_search_browse_shared_bots` | **missing** (import from another assistant only) | med |
 | Group chats / multiplayer / teammates | `grok_bot_group_chats`, `grok_bot_multiplayer`, `sand_invite_teammates`, `grok_bot_team_*` | **missing** | low now (single user) |
-| Per-agent model choice | `switchModel`, `requestedModel`, `sand_side_model_status` | **partial** — `Agent.model` exists and `runner.rs:384` passes `--model`, but no UI sets it | med |
+| Per-agent model choice | `switchModel`, `requestedModel`, `sand_side_model_status` | **have** — model menu per agent (`--model`) | med |
 | Memory | `add_to_memory`, `grok_bot_memory_import`, `folderMemory` | **have** (`## Memory` in each agent's CLAUDE.md, self-maintained) | — |
 | Tasks page | `sand_tasks`, `sand_tasks_page` | **have** (Team view: needs you, working, scheduled next, recent replies) | med |
 
@@ -53,11 +54,11 @@ Grok Bot user) would feel its absence.
 
 | Capability | Grok Bot evidence | Ship Studio today | Impact |
 | --- | --- | --- | --- |
-| Routines (scheduled agent runs) | `routines`, `listGrokBotAgentRoutines`, `setGrokBotAgentRoutineEnabled`, `sand_enable_page_routine_buttons` | **missing** for agents (workflow scheduler exists for project workflows) | **high** |
+| Routines (scheduled agent runs) | `routines`, `listGrokBotAgentRoutines`, `setGrokBotAgentRoutineEnabled`, `sand_enable_page_routine_buttons` | **have** — check-ins and routines (`agents::schedule`), only while the app is open | **high** |
 | Reminders | `reminders`, `ios_read/write_reminders` | **missing** (only via whatever MCP the user has) | med |
-| OS notifications + sounds | `notifications`, `setAgentNotifyOnUpdates`, `sand_notification_sounds`, `sand_notifications_enable_card`, `grok_bot_hold_push_until_desktop_inactive` | **missing** — no notification plugin in `Cargo.toml`/`package.json`; unread badge only | **high** |
+| OS notifications + sounds | `notifications`, `setAgentNotifyOnUpdates`, `sand_notification_sounds`, `sand_notifications_enable_card`, `grok_bot_hold_push_until_desktop_inactive` | **have** — macOS notifications and the Dock badge, per-agent mute (`agents::notify`); click-through unverified in a signed build | **high** |
 | Menu-bar tray / pop-out chat | `sand_menubar_tray`, `sand_chat_popout` | **missing** | med |
-| Search across conversations | search button (screenshot); `search_conversations`, `conversationSearchArgs`, `grok_bot_pages_search` | **partial** — sidebar filters agents by name only | **high** |
+| Search across conversations | search button (screenshot); `search_conversations`, `conversationSearchArgs`, `grok_bot_pages_search` | **have** — search across every conversation, snippet shows the match (`agents::search`) | **high** |
 | Mobile app + phone tools | `sand_mobile_local_tools`, `mobile_read_calendar/contacts`, `mobile_tool_permission`, `car_session`, `carplay` | **partial** — Remote Access exposes agents to a phone assistant over MCP; no native app | med (planned) |
 | Messaging (SMS/iMessage) | `grok_bot_messaging`, `sand_messages_tools`, `messages_contacts_denied` | **missing** (only via user's MCP) | low |
 | Agent email inbox | `grok_bot_agent_mail`, `..._multiple_inboxes` | **missing** | low |
@@ -69,11 +70,11 @@ Grok Bot user) would feel its absence.
 | Connectors marketplace (OAuth) | `connectors`, `connectorAuth`, `connector_card`, `sand_custom_connector_entrypoint`, `grok_bot_marketplace_*` | **partial** — inherits the user's Claude Code MCP servers; no in-app connect UI for agents (Ship Studio has an MCP modal for projects) | med |
 | Local computer use | `sand_enable_local_cua`, `computer_use_*`, `computer_click/type/screenshot` | **partial** — Claude Code can shell out; no GUI control | low |
 | Browser | `browser_view`, `browserView` | **partial** (WebFetch; agent bridge preview tools are project-scoped) | low |
-| Approval cards | `approval_card`, `grok_bot_publish_confirm_card`, `grok_bot_spend_approval_passkey` | **have** (Allow/Deny, 30-min timeout) | — |
-| Permissions panel / tool allowlist | `sand_permissions_panel`, `sand_tool_allowlist`, `sand_auto_review_selector` | **missing** (no "always allow this" per agent) | med |
+| Approval cards | `approval_card`, `grok_bot_publish_confirm_card`, `grok_bot_spend_approval_passkey` | **have** (Allow, Deny with note, Always allow; a late Allow after the wait still works) | — |
+| Permissions panel / tool allowlist | `sand_permissions_panel`, `sand_tool_allowlist`, `sand_auto_review_selector` | **have** — "Always allow" per agent with scopes (command prefix, exact command, domain, tool), revocable in Edit agent | med |
 | Secrets vault | `grok_bot_vault`, `grok_bot_secure_values_any_site` | **missing** | low |
-| Usage / spend limits | `grok_bot_check_subscription_usage`, `usageWarning`, `setSpendLimit`, `configureSpendLimit` | **missing** — `result` event's cost/usage fields are not read (`runner.rs:492`) | med |
-| Library / pages / canvas | `grok_bot_library_pages`, `grok_bot_documents_ui`, `grok_bot_canvas_design_mode`, `grok_bot_files_in_agent_store` | **missing** (agent home folder exists but isn't surfaced) | med |
+| Usage / spend limits | `grok_bot_check_subscription_usage`, `usageWarning`, `setSpendLimit`, `configureSpendLimit` | **partial** — tokens and cost per agent from each `result` event; usage-limit failures offer "Retry at <reset>"; no spend limit or global usage view | med |
+| Library / pages / canvas | `grok_bot_library_pages`, `grok_bot_documents_ui`, `grok_bot_canvas_design_mode`, `grok_bot_files_in_agent_store` | **partial** — Files list per conversation; no pages or canvas | med |
 | Appearance / accent theming | `sand_appearance_picker_card`, `grok_bot_all_bots_color_theming` | **have** (avatar shape + colour) | — |
 
 ---

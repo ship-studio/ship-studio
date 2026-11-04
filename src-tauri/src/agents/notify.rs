@@ -297,6 +297,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            extra: Default::default(),
         }
     }
 

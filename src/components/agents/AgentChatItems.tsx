@@ -8,9 +8,11 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from 'react';
@@ -28,6 +30,7 @@ import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
 import { TextField } from '../primitives/TextField';
+import { Tooltip } from '../primitives/Tooltip';
 import { ComposerAttachments, MessageAttachments } from './AgentAttachments';
 import type { DraftAttachment } from './useComposerAttachments';
 import { MentionText } from './AgentMentions';
@@ -414,7 +417,7 @@ interface ErrorLineProps extends Arrival {
   /** Send the last thing you said again; only on the newest failure. */
   onRetry?: () => void;
   /** A usage limit with a reset time Claude Code reported: retry then. */
-  onRetryAt?: (at: number) => void;
+  onRetryAt?: (at: number) => void | Promise<void>;
   /** A retry already waits for that reset (a check-in at that time). */
   retryScheduled?: boolean;
   onSignIn?: () => void;
@@ -438,6 +441,18 @@ export const ErrorLine = memo(function ErrorLine({
   // Offered only while the reset is still ahead (as of when the line was shown).
   const [shownAt] = useState(Date.now);
   const retryAt = onRetry && resetsAt && resetsAt > shownAt ? resetsAt : undefined;
+  // One check-in per click, however fast the second click comes.
+  const [scheduling, setScheduling] = useState(false);
+  const schedulingRef = useRef(false);
+  const scheduleRetry = (at: number) => {
+    if (schedulingRef.current) return;
+    schedulingRef.current = true;
+    setScheduling(true);
+    void Promise.resolve(onRetryAt?.(at)).finally(() => {
+      schedulingRef.current = false;
+      setScheduling(false);
+    });
+  };
   const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
@@ -471,9 +486,11 @@ export const ErrorLine = memo(function ErrorLine({
                   tabIndex={0}
                   size="compact"
                   variant="secondary"
-                  onClick={() => onRetryAt?.(retryAt)}
+                  disabled={scheduling}
+                  aria-busy={scheduling || undefined}
+                  onClick={() => scheduleRetry(retryAt)}
                 >
-                  Retry at {formatClock(retryAt)}
+                  {scheduling ? 'Scheduling…' : `Retry at ${formatClock(retryAt)}`}
                 </Button>
               ))}
             {onRetry && (
@@ -543,8 +560,10 @@ export const NoteLine = memo(function NoteLine({
       ) : (
         <>
           {message.text.slice(0, at)}
+          {/* Not a Tab stop: an audit trail of links is a long walk to the
+              composer, and every agent is in the sidebar. */}
           <TextButton
-            tabIndex={0}
+            tabIndex={-1}
             className="agent-note__link"
             onClick={() => onOpenPeer?.(message.peer!.id)}
           >
@@ -607,13 +626,23 @@ export const PeerGroup = memo(function PeerGroup({
   const setOpen = (toggle: (v: boolean) => boolean) => setChosen(toggle(open));
   const threadRef = useRef<HTMLDivElement>(null);
   const threadShown = useHeightReveal(threadRef, open);
+  // One Tab stop per line: the toggle. ← / → reach the peer's name beside it.
+  const onLineKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+    const at = buttons.indexOf(event.target as Element);
+    const next = buttons[at + (event.key === 'ArrowRight' ? 1 : -1)] as HTMLElement | undefined;
+    if (at < 0 || !next) return;
+    event.preventDefault();
+    next.focus();
+  };
   return (
     <div
       className="agent-peer"
       data-arrived={arrived || undefined}
       data-message-ids={messages.map((m) => m.id).join(' ')}
     >
-      <div className="agent-peer__line">
+      <div className="agent-peer__line" onKeyDown={onLineKeyDown}>
         <button
           type="button"
           tabIndex={0}
@@ -624,18 +653,19 @@ export const PeerGroup = memo(function PeerGroup({
           <ChevronRightIcon size={10} className="agent-peer__chevron" />
           {peerGroupLabel(messages)}
         </button>
-        <button
-          type="button"
-          tabIndex={0}
-          className="agent-peer__name"
-          onClick={() => peerAgent && onOpenPeer(peerAgent.id)}
-          disabled={!peerAgent}
-          title={peerAgent ? `Open ${peer.name}` : `${peer.name} was deleted`}
-        >
-          {peerAgent && <span className="agent-peer__dot" data-color={peerAgent.color} />}
-          {peer.name}
-          {live && peerAgent && <AgentPeerStatus agent={peerAgent} />}
-        </button>
+        <Tooltip content={peerAgent ? `Open ${peer.name}` : `${peer.name} was deleted`}>
+          <button
+            type="button"
+            tabIndex={-1}
+            className="agent-peer__name"
+            onClick={() => peerAgent && onOpenPeer(peerAgent.id)}
+            disabled={!peerAgent}
+          >
+            {peerAgent && <span className="agent-peer__dot" data-color={peerAgent.color} />}
+            {peer.name}
+            {live && peerAgent && <AgentPeerStatus agent={peerAgent} />}
+          </button>
+        </Tooltip>
       </div>
       {threadShown && (
         <div ref={threadRef} className="agent-peer__thread" onClick={onProseClick}>
@@ -732,9 +762,20 @@ export const ApprovalCard = memo(function ApprovalCard({
 }: ApprovalCardProps) {
   const approval = message.approval;
   const [busy, setBusy] = useState(false);
-  // "Deny with note…": the actions give way to one line saying what to do instead.
+  // Deny opens one line for what to do instead; sent empty, it's a plain deny.
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState('');
+  const denyRef = useRef<HTMLButtonElement>(null);
+  const refocusDeny = useRef(false);
+  useEffect(() => {
+    if (noting || !refocusDeny.current) return;
+    refocusDeny.current = false;
+    denyRef.current?.focus();
+  }, [noting]);
+  const cancelNote = () => {
+    refocusDeny.current = true;
+    setNoting(false);
+  };
   const [showAll, setShowAll] = useState(!compact);
   // Answered while on screen, so the buttons resolve into the outcome;
   // a card that loads already answered just shows it.
@@ -797,7 +838,7 @@ export const ApprovalCard = memo(function ApprovalCard({
             className="agent-approval__deny-note"
             onSubmit={(e) => {
               e.preventDefault();
-              void answer(false, false, note);
+              void answer(false, false, note.trim() || undefined);
             }}
           >
             <TextField
@@ -805,17 +846,17 @@ export const ApprovalCard = memo(function ApprovalCard({
               value={note}
               maxLength={500}
               disabled={busy}
-              placeholder={`Tell ${agentName} what to do instead`}
-              aria-label={`Tell ${agentName} what to do instead`}
+              placeholder={`What should ${agentName} do instead? (optional)`}
+              aria-label={`What ${agentName} should do instead (optional)`}
               onChange={(e) => setNote(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Escape') return;
                 e.preventDefault();
                 e.stopPropagation();
-                setNoting(false);
+                cancelNote();
               }}
             />
-            <Button tabIndex={0} variant="ghost" disabled={busy} onClick={() => setNoting(false)}>
+            <Button tabIndex={0} variant="ghost" disabled={busy} onClick={cancelNote}>
               Cancel
             </Button>
             <Button tabIndex={0} type="submit" variant="secondary" disabled={busy}>
@@ -825,39 +866,35 @@ export const ApprovalCard = memo(function ApprovalCard({
         ) : pending ? (
           <div className="agent-approval__actions">
             {approval.always && (
-              <TextButton
-                tabIndex={0}
-                className="agent-approval__always"
-                disabled={busy}
-                onClick={() => void answer(true, true)}
-                title={describeScope(approval.always, agentName)}
-              >
-                Always allow{' '}
-                {approval.always.kind.startsWith('command') ? (
-                  <code>{approval.always.label}</code>
-                ) : (
-                  approval.always.label
-                )}
-              </TextButton>
+              <Tooltip content={describeScope(approval.always, agentName)}>
+                <TextButton
+                  tabIndex={0}
+                  className="agent-approval__always"
+                  disabled={busy}
+                  onClick={() => void answer(true, true)}
+                >
+                  Always allow{' '}
+                  {approval.always.kind.startsWith('command') ? (
+                    <code>{approval.always.label}</code>
+                  ) : (
+                    approval.always.label
+                  )}
+                </TextButton>
+              </Tooltip>
             )}
-            <TextButton
-              tabIndex={0}
-              className="agent-approval__deny-with-note"
-              disabled={busy}
-              onClick={() => setNoting(true)}
-              title={`Decline, and tell ${agentName} what to do instead`}
-            >
-              Deny with note…
-            </TextButton>
             {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
-            <Button
-              tabIndex={0}
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void answer(false)}
-            >
-              Deny
-            </Button>
+            <Tooltip content={`Decline; you can tell ${agentName} what to do instead`}>
+              <Button
+                ref={denyRef}
+                tabIndex={0}
+                variant="secondary"
+                className="agent-approval__deny"
+                disabled={busy}
+                onClick={() => setNoting(true)}
+              >
+                Deny…
+              </Button>
+            </Tooltip>
             <Button
               tabIndex={0}
               variant="primary"

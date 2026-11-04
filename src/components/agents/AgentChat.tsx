@@ -181,7 +181,10 @@ const unsentText = new Map<string, string>();
 
 function statusLabel(agent: Agent): string | null {
   if (needsYou(agent)) return 'Needs your OK';
-  if (agent.status.state === 'working') return 'Working';
+  // Queued behind the cap on concurrent turns: working, but not started (no `since`).
+  if (agent.status.state === 'working') {
+    return agent.status.since == null ? 'Waiting for a free slot' : 'Working';
+  }
   return null;
 }
 
@@ -613,10 +616,12 @@ export function AgentChat({
     });
   };
 
-  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked. */
+  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked and its files. */
   const retryAt = async (at: number) => {
+    // A check-in carries words only: its files are named by where they are.
+    const files = retrySource ? resendable(agent, retrySource).flatMap((f) => f.path ?? []) : [];
     try {
-      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? ''));
+      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? '', files));
       await refreshAgents();
     } catch (error) {
       showToast(formatCommandError(asCommandError(error)), 'error');
@@ -656,7 +661,7 @@ export function AgentChat({
   });
   const interruptNow = useStableEvent(() => void interrupt());
   const retryLast = useStableEvent(retryFailed);
-  const retryLater = useStableEvent((at: number) => void retryAt(at));
+  const retryLater = useStableEvent(retryAt);
   const onAnswer = useStableEvent(
     async (requestId: string, allow: boolean, always?: boolean, note?: string) => {
       try {
@@ -1088,7 +1093,7 @@ export function AgentChat({
               )}
               <div className="agent-composer__actions">
                 {escArmed && working && !canSend && !dictating ? (
-                  <span className="agent-composer__hint" role="status">
+                  <span className="agent-composer__hint" data-armed role="status">
                     Esc again to stop {agent.name}
                   </span>
                 ) : (
@@ -1119,6 +1124,7 @@ export function AgentChat({
                     tabIndex={0}
                     variant="secondary"
                     className="agent-composer__stop"
+                    data-armed={escArmed || undefined}
                     icon={<span className="agent-composer__stop-square" aria-hidden />}
                     onClick={() => void onStop()}
                     aria-label={`Stop ${agent.name}`}

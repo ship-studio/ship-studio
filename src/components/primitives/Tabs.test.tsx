@@ -83,6 +83,28 @@ describe('Tabs', () => {
     expect(last).toHaveFocus();
   });
 
+  it('with manual activation, arrows move focus and Enter or a click selects', () => {
+    const onValueChange = vi.fn();
+    render(
+      <Tabs mode="navigation" activation="manual" value="projects" onValueChange={onValueChange}>
+        <TabsList aria-label="Mode">
+          <TabsTab value="projects">Projects</TabsTab>
+          <TabsTab value="agents">Agents</TabsTab>
+        </TabsList>
+      </Tabs>
+    );
+    const projects = screen.getByRole('tab', { name: 'Projects' });
+    const agents = screen.getByRole('tab', { name: 'Agents' });
+
+    projects.focus();
+    fireEvent.keyDown(projects, { key: 'ArrowRight' });
+    expect(agents).toHaveFocus();
+    expect(onValueChange).not.toHaveBeenCalled();
+
+    fireEvent.click(agents);
+    expect(onValueChange).toHaveBeenCalledWith('agents');
+  });
+
   it('can keep stateful panels mounted while making inactive content inert', () => {
     render(
       <Tabs defaultValue="first">

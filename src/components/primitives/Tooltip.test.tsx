@@ -50,6 +50,32 @@ describe('Tooltip', () => {
     expect(trigger).not.toHaveAttribute('title');
   });
 
+  it('follows a promoted title that changes after promotion', async () => {
+    function Copy() {
+      const [copied, setCopied] = useState(false);
+      return (
+        <button title={copied ? 'Copied' : 'Copy'} onClick={() => setCopied(true)}>
+          Copy it
+        </button>
+      );
+    }
+    render(
+      <TooltipProvider>
+        <Copy />
+      </TooltipProvider>
+    );
+    const trigger = screen.getByRole('button', { name: 'Copy it' });
+    expect(trigger).toHaveAttribute('data-tooltip-content', 'Copy');
+
+    await act(async () => {
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    expect(trigger).toHaveAttribute('data-tooltip-content', 'Copied');
+    expect(trigger).not.toHaveAttribute('title');
+  });
+
   it('supports explicit content without changing the trigger element', () => {
     render(
       <TooltipProvider>

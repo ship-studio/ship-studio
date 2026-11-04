@@ -99,6 +99,13 @@ function readTooltipContent(anchor: Element): TooltipContent | null {
 
   const explicit = anchor.getAttribute('data-tooltip-content');
   const title = anchor.getAttribute('title');
+  // A promoted title that React has since changed ("Copy" → "Copied", a
+  // label that loads late) is the new text, not a stale duplicate.
+  if (explicit && title && title !== explicit && anchor.hasAttribute('data-tooltip-promoted')) {
+    anchor.setAttribute('data-tooltip-content', title);
+    anchor.removeAttribute('title');
+    return { content: title, text: title };
+  }
   if (explicit) {
     // React can restore a title attribute during a rerender after the custom
     // tooltip has already claimed this anchor. Always remove it, even when
@@ -116,6 +123,7 @@ function readTooltipContent(anchor: Element): TooltipContent | null {
   // title-based affordance. Removing the attribute prevents the OS tooltip from
   // competing with the app tooltip on the same hover.
   anchor.setAttribute('data-tooltip-content', title);
+  anchor.setAttribute('data-tooltip-promoted', '');
   anchor.setAttribute('aria-describedby', TOOLTIP_ID);
   anchor.removeAttribute('title');
   return { content: title, text: title };

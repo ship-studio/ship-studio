@@ -143,6 +143,7 @@ export function ChangedFilesSection({ changedFiles, projectPath }: ChangedFilesS
           projectPath={projectPath}
           filePath={selectedFile.path}
           fileStatus={selectedFile.status}
+          files={changedFiles}
           onClose={() => setSelectedFile(null)}
         />
       )}

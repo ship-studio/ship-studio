@@ -14,6 +14,7 @@ import {
   type UpdateHandle,
   type UpdateInfo,
 } from '../lib/updater';
+import { agentsBusy } from '../lib/agents';
 import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError } from '../lib/errors';
@@ -131,6 +132,7 @@ export function UpdateBanner() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [deferred, setDeferred] = useState(false);
+  const [waitingForAgents, setWaitingForAgents] = useState(false);
 
   const check = useCallback(async () => {
     try {
@@ -185,7 +187,8 @@ export function UpdateBanner() {
     }
   }, [availableUpdate]);
 
-  const handleRestart = useCallback(async () => {
+  const restart = useCallback(async () => {
+    setWaitingForAgents(false);
     try {
       const result = await restartApp();
       if (result === 'simulated') {
@@ -200,6 +203,23 @@ export function UpdateBanner() {
       setError(`Couldn't restart the app: ${detail}. Please quit and reopen Ship Studio manually.`);
     }
   }, []);
+
+  // A restart mid-turn cuts an agent off, so the update waits for working
+  // agents to finish. Clicking again while it waits restarts now.
+  const handleRestart = useCallback(async () => {
+    if (!waitingForAgents && (await agentsBusy().catch(() => 0)) > 0) {
+      setWaitingForAgents(true);
+      return;
+    }
+    await restart();
+  }, [restart, waitingForAgents]);
+
+  usePolling(
+    async () => {
+      if ((await agentsBusy()) === 0) await restart();
+    },
+    { intervalMs: 3000, enabled: waitingForAgents, name: 'update-wait-for-agents' }
+  );
 
   const handleLater = useCallback(() => {
     if (!availableUpdate) return;
@@ -219,7 +239,9 @@ export function UpdateBanner() {
     status === 'downloading'
       ? 'Downloading…'
       : status === 'ready'
-        ? 'Click to restart'
+        ? waitingForAgents
+          ? 'After agents finish'
+          : 'Click to restart'
         : status === 'error'
           ? 'Update needs attention'
           : 'Update available';
@@ -266,7 +288,9 @@ export function UpdateBanner() {
             disabled={status === 'downloading'}
             aria-label={
               status === 'ready'
-                ? `Restart to apply version ${version}`
+                ? waitingForAgents
+                  ? `Restarting for version ${version} once agents finish. Restart now`
+                  : `Restart to apply version ${version}`
                 : status === 'downloading'
                   ? `Downloading version ${version}`
                   : status === 'error'

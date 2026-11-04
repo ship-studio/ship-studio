@@ -56,7 +56,7 @@ import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useAgentsIntents } from '../../commands/useAgentsCommands';
 import { useCommands } from '../../commands/useCommands';
-import { AgentsIcon, CheckIcon, CloseIcon } from '@/components/icons';
+import { AgentsModeIcon, CheckIcon, CloseIcon } from '@/components/icons';
 import { kbd } from '../../lib/shortcuts';
 
 const SELECTED_KEY = 'shipstudio.agents.selected';
@@ -315,7 +315,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       {
         id: 'agents.nextNeedingYou',
         title: 'Open the next agent that needs you',
-        icon: <AgentsIcon size={14} />,
+        icon: <AgentsModeIcon size={14} />,
         category: 'navigation',
         shortcut: kbd('mod', 'J'),
         keywords: ['agents', 'approval', 'waiting', 'failed', 'unread', 'jump'],

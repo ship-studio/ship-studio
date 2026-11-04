@@ -7,7 +7,9 @@
 //!   agents.json              the registry (every agent's identity and state)
 //!   <agent-id>/              the agent's home: its working directory
 //!     CLAUDE.md              instructions + memory; Claude Code loads it every turn
-//!     messages.jsonl         the conversation as the user sees it
+//!     messages.jsonl         the conversation as the user sees it (append-only)
+//!     approvals.jsonl        how its approval cards were answered
+//!     turn.json, inbox.json  a turn in flight and what's queued behind it
 //! ```
 //!
 //! The chat log is ours, not Claude Code's session file. It records exactly
@@ -16,9 +18,10 @@
 //! reconstruct a conversation from a tool transcript it doesn't own.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::errors::CommandError;
 
@@ -91,6 +94,11 @@ pub struct Agent {
     /// What its last turn could use, as Claude Code itself listed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<super::capabilities::Capabilities>,
+    /// Fields a newer Ship Studio wrote that this build doesn't know: kept
+    /// and written back as they were, so running an older build never
+    /// strips what a newer one saved.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -216,18 +224,59 @@ pub struct AgentMessage {
     pub session: Option<super::sessions::SessionMark>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// `agents.json`. Read and written losslessly: an entry this build can't
+/// read (a newer build's, or a bad hand edit) is hidden but written back
+/// untouched, and so are top-level keys it doesn't know. An older build must
+/// never delete an agent a newer one saved.
+#[derive(Debug, Default)]
 struct Registry {
-    #[serde(default)]
     agents: Vec<Agent>,
+    unreadable: Vec<serde_json::Value>,
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Registry {
+    /// `None` when the JSON isn't a registry at all.
+    fn from_value(value: serde_json::Value) -> Option<Registry> {
+        let serde_json::Value::Object(mut extra) = value else {
+            return None;
+        };
+        let entries = match extra.remove("agents") {
+            None => Vec::new(),
+            Some(serde_json::Value::Array(entries)) => entries,
+            Some(_) => return None,
+        };
+        let mut registry = Registry {
+            extra,
+            ..Registry::default()
+        };
+        for entry in entries {
+            match serde_json::from_value::<Agent>(entry.clone()) {
+                Ok(agent) => registry.agents.push(agent),
+                Err(e) => {
+                    tracing::warn!("[Agents] keeping an agent entry this build can't read: {e}");
+                    registry.unreadable.push(entry);
+                }
+            }
+        }
+        Some(registry)
+    }
+
+    fn to_value(&self) -> Result<serde_json::Value, CommandError> {
+        let mut entries = Vec::with_capacity(self.agents.len() + self.unreadable.len());
+        for agent in &self.agents {
+            entries.push(serde_json::to_value(agent).map_err(|e| super::err_other(e.to_string()))?);
+        }
+        entries.extend(self.unreadable.iter().cloned());
+        let mut out = self.extra.clone();
+        out.insert("agents".into(), serde_json::Value::Array(entries));
+        Ok(serde_json::Value::Object(out))
+    }
 }
 
 /// One lock around every registry read-modify-write. The registry is small
 /// and written rarely; serialising access is simpler than being clever.
 static REGISTRY_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-/// Same for chat logs (appends from concurrent turns must not interleave).
-static LOG_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// Test hook: point the store somewhere disposable.
 static ROOT_OVERRIDE: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
@@ -293,31 +342,29 @@ fn read_registry() -> Result<Registry, CommandError> {
         Err(e) => return Err(super::err_io(e.to_string())),
     };
     match serde_json::from_str(&raw) {
-        Ok(registry) => Ok(registry),
-        Err(e) => recover_registry(&path, &raw, &e.to_string()),
+        Ok(value) => match Registry::from_value(value) {
+            Some(registry) => Ok(registry),
+            None => recover_registry(&path, "not an agents registry"),
+        },
+        Err(e) => recover_registry(&path, &e.to_string()),
     }
 }
 
-/// The registry didn't parse (a crash or a full disk mid-write, or a bad hand
-/// edit). Load what can still be read, rather than every agent vanishing: the
-/// entries that parse one by one, else the copy kept beside it on every write.
-/// The damaged file is kept aside first, because the recovered one replaces it.
-fn recover_registry(path: &Path, raw: &str, why: &str) -> Result<Registry, CommandError> {
-    let backup = std::fs::read_to_string(path.with_extension("json.bak"))
+/// The registry isn't JSON (a crash or a full disk mid-write, or a bad hand
+/// edit). Load the copy kept beside it on every write, rather than every
+/// agent vanishing. (Valid JSON with an entry this build can't read is not
+/// damage: see [`Registry`].) The damaged file is kept aside first, because
+/// the recovered one replaces it.
+fn recover_registry(path: &Path, why: &str) -> Result<Registry, CommandError> {
+    let Some(recovered) = std::fs::read_to_string(path.with_extension("json.bak"))
         .ok()
-        .and_then(|b| serde_json::from_str::<Registry>(&b).ok());
-    let salvaged = salvage_entries(raw);
-    // Whichever kept more agents: a parse that dropped a bad entry, or the last good copy.
-    let recovered = match (salvaged, backup) {
-        (Some(s), Some(b)) if b.agents.len() > s.agents.len() => b,
-        (Some(s), _) => s,
-        (None, Some(b)) => b,
-        (None, None) => {
-            return Err(super::err_other(format!(
-                "The agents registry at {} is unreadable: {why}",
-                path.display()
-            )))
-        }
+        .and_then(|b| serde_json::from_str(&b).ok())
+        .and_then(Registry::from_value)
+    else {
+        return Err(super::err_other(format!(
+            "The agents registry at {} is unreadable: {why}",
+            path.display()
+        )));
     };
     let aside = path.with_extension(format!("json.corrupt-{}", now_ms()));
     std::fs::copy(path, &aside).map_err(|e| super::err_io(e.to_string()))?;
@@ -328,18 +375,6 @@ fn recover_registry(path: &Path, raw: &str, why: &str) -> Result<Registry, Comma
     );
     write_registry(&recovered)?;
     Ok(recovered)
-}
-
-/// Every entry of a registry that is valid JSON but has a bad agent in it.
-fn salvage_entries(raw: &str) -> Option<Registry> {
-    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
-    let agents = value
-        .get("agents")?
-        .as_array()?
-        .iter()
-        .filter_map(|a| serde_json::from_value(a.clone()).ok())
-        .collect();
-    Some(Registry { agents })
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommandError> {
@@ -356,7 +391,8 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommandError> {
 /// Written twice: the copy is what [`recover_registry`] falls back on if the
 /// main file is ever torn.
 fn write_registry(registry: &Registry) -> Result<(), CommandError> {
-    let json = serde_json::to_vec_pretty(registry).map_err(|e| super::err_other(e.to_string()))?;
+    let json = serde_json::to_vec_pretty(&registry.to_value()?)
+        .map_err(|e| super::err_other(e.to_string()))?;
     let path = registry_path()?;
     write_atomic(&path, &json)?;
     if let Err(e) = write_atomic(&path.with_extension("json.bak"), &json) {
@@ -499,6 +535,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         failure: None,
         project: None,
         capabilities: None,
+        extra: Default::default(),
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -584,27 +621,78 @@ fn log_path(agent_id: &str) -> Result<PathBuf, CommandError> {
     Ok(agent_home(agent_id)?.join("messages.jsonl"))
 }
 
-pub fn append_message(message: &AgentMessage) -> Result<(), CommandError> {
-    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let path = log_path(&message.agent_id)?;
+/// How approval cards were answered, one line per answer, beside the log
+/// (`approvals.jsonl`). The log itself is only ever appended to: answering a
+/// card used to rewrite every message the agent had, under a lock every
+/// other agent's appends waited on.
+fn answers_path(agent_id: &str) -> Result<PathBuf, CommandError> {
+    Ok(agent_home(agent_id)?.join("approvals.jsonl"))
+}
+
+/// One agent's log lock. Appends from concurrent turns of the *same* agent
+/// must not interleave; different agents never wait on each other.
+fn log_lock(agent_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    LOCKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(agent_id.to_string())
+        .or_default()
+        .clone()
+}
+
+/// An answer to an approval card, applied over the card when the log is read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Answer {
+    request_id: String,
+    status: ApprovalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    always: Option<super::permissions::Scope>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    always_allowed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
+
+impl Answer {
+    fn apply(&self, approval: &mut Approval) {
+        approval.status = self.status;
+        if self.always.is_some() {
+            approval.always = self.always.clone();
+        }
+        approval.always_allowed |= self.always_allowed;
+        approval.note = self.note.clone();
+    }
+}
+
+/// Append one JSON line, never fused onto a torn last line.
+fn append_line<T: Serialize>(path: &Path, value: &T) -> Result<(), CommandError> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| super::err_io(e.to_string()))?;
     }
-    let mut line = serde_json::to_string(message).map_err(|e| super::err_other(e.to_string()))?;
+    let mut line = serde_json::to_string(value).map_err(|e| super::err_other(e.to_string()))?;
     line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .read(true)
-        .open(&path)
+        .open(path)
         .map_err(|e| super::err_io(e.to_string()))?;
     // A crash mid-append leaves a last line with no newline. Appending straight
-    // after it would fuse this message into that broken line and lose it too.
+    // after it would fuse this line into that broken one and lose it too.
     if !ends_with_newline(&mut file) {
         line.insert(0, '\n');
     }
     file.write_all(line.as_bytes())
         .map_err(|e| super::err_io(e.to_string()))
+}
+
+pub fn append_message(message: &AgentMessage) -> Result<(), CommandError> {
+    let lock = log_lock(&message.agent_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    append_line(&log_path(&message.agent_id)?, message)
 }
 
 /// True for an empty file, or one whose last byte is a newline.
@@ -617,17 +705,119 @@ fn ends_with_newline(file: &mut std::fs::File) -> bool {
     file.read_exact(&mut last).is_err() || last[0] == b'\n'
 }
 
-fn read_log(agent_id: &str) -> Result<Vec<AgentMessage>, CommandError> {
-    let path = log_path(agent_id)?;
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(raw) => raw,
+fn read_text(path: &Path) -> Result<String, CommandError> {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => Ok(raw),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(super::err_io(e.to_string())),
+    }
+}
+
+/// Messages read from the end of the log backwards, oldest first, until
+/// `enough` is satisfied by what has been read or the log runs out. Opening a
+/// long chat, or paging back through it, costs what it shows, not the whole
+/// history. A torn line is skipped. Answers are not applied here.
+fn read_back(
+    path: &Path,
+    mut enough: impl FnMut(&[AgentMessage]) -> bool,
+) -> Result<Vec<AgentMessage>, CommandError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(super::err_io(e.to_string())),
     };
-    // A torn last line (crash mid-append) is skipped rather than failing the chat.
-    Ok(raw
+    let mut start = file
+        .metadata()
+        .map_err(|e| super::err_io(e.to_string()))?
+        .len();
+    let mut chunk_len: u64 = 64 * 1024;
+    // Bytes before the first newline read so far: a line cut by the chunk edge.
+    let mut carry: Vec<u8> = Vec::new();
+    let mut read: Vec<AgentMessage> = Vec::new();
+    while start > 0 {
+        let from = start.saturating_sub(chunk_len);
+        let mut buf = vec![0u8; (start - from) as usize];
+        file.seek(SeekFrom::Start(from))
+            .and_then(|_| file.read_exact(&mut buf))
+            .map_err(|e| super::err_io(e.to_string()))?;
+        buf.extend_from_slice(&carry);
+        start = from;
+        // Unless this reaches the file's start, its first line may be cut.
+        let whole_from = if start == 0 {
+            0
+        } else {
+            match buf.iter().position(|b| *b == b'\n') {
+                Some(at) => at + 1,
+                None => {
+                    carry = buf;
+                    chunk_len = chunk_len.saturating_mul(2);
+                    continue;
+                }
+            }
+        };
+        carry = buf[..whole_from].to_vec();
+        let text = String::from_utf8_lossy(&buf[whole_from..]);
+        let mut older: Vec<AgentMessage> = text
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        older.append(&mut read);
+        read = older;
+        if enough(&read) {
+            break;
+        }
+        chunk_len = chunk_len.saturating_mul(2);
+    }
+    Ok(read)
+}
+
+fn read_answers(agent_id: &str) -> Result<HashMap<String, Answer>, CommandError> {
+    Ok(read_text(&answers_path(agent_id)?)?
         .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
+        .filter_map(|l| serde_json::from_str::<Answer>(l).ok())
+        .map(|a| (a.request_id.clone(), a))
+        .collect())
+}
+
+/// Parse log lines (a torn one is skipped rather than failing the chat) and
+/// apply the answers given since each card was written.
+fn parse_log<'a>(
+    agent_id: &str,
+    lines: impl Iterator<Item = &'a str>,
+) -> Result<Vec<AgentMessage>, CommandError> {
+    let mut log: Vec<AgentMessage> = lines.filter_map(|l| serde_json::from_str(l).ok()).collect();
+    apply_answers(agent_id, &mut log)?;
+    Ok(log)
+}
+
+/// Apply `approvals.jsonl` over the cards among `log`.
+fn apply_answers(agent_id: &str, log: &mut [AgentMessage]) -> Result<(), CommandError> {
+    if log.iter().any(|m| m.approval.is_some()) {
+        let answers = read_answers(agent_id)?;
+        for approval in log.iter_mut().filter_map(|m| m.approval.as_mut()) {
+            if let Some(answer) = answers.get(&approval.request_id) {
+                answer.apply(approval);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The approval cards in an agent's log, answers applied. Only lines that
+/// can be cards are parsed.
+fn cards(agent_id: &str, request_id: Option<&str>) -> Result<Vec<AgentMessage>, CommandError> {
+    let raw = read_text(&log_path(agent_id)?)?;
+    let lines = raw
+        .lines()
+        .filter(|l| l.contains("\"requestId\"") && request_id.is_none_or(|id| l.contains(id)));
+    Ok(parse_log(agent_id, lines)?
+        .into_iter()
+        .filter(|m| {
+            m.approval
+                .as_ref()
+                .is_some_and(|a| request_id.is_none_or(|id| a.request_id == id))
+        })
         .collect())
 }
 
@@ -640,18 +830,36 @@ pub fn messages(agent_id: &str, limit: usize) -> Result<Vec<AgentMessage>, Comma
 /// id `before` (all of them if it's absent), reaching further back to include
 /// `through` when that is older, but never more than `cap` in all. A `before`
 /// that isn't in the log yields nothing rather than a page from elsewhere.
+/// Read from the log's end, only as far back as the page needs.
 pub fn messages_page(
     agent_id: &str,
     limit: usize,
     before: Option<&str>,
     through: Option<(&str, usize)>,
 ) -> Result<Vec<AgentMessage>, CommandError> {
-    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut all = read_log(agent_id)?;
-    let end = match before {
-        Some(id) => all.iter().position(|m| m.id == id).unwrap_or(0),
-        None => all.len(),
+    let lock = log_lock(agent_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let path = log_path(agent_id)?;
+    let end_of = |read: &[AgentMessage]| match before {
+        Some(id) => read.iter().position(|m| m.id == id),
+        None => Some(read.len()),
     };
+    let mut all = if limit == usize::MAX {
+        let raw = read_text(&path)?;
+        raw.lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect()
+    } else {
+        read_back(&path, |read| {
+            let Some(end) = end_of(read) else {
+                return false;
+            };
+            // A `through` further back than the cap still caps the page at
+            // `cap`, but only once it's known to be there: read back to it.
+            end >= limit && through.is_none_or(|(id, _)| read[..end].iter().any(|m| m.id == id))
+        })?
+    };
+    let end = end_of(&all).unwrap_or(0);
     let mut start = end.saturating_sub(limit);
     if let Some((id, cap)) = through {
         if let Some(at) = all[..start].iter().position(|m| m.id == id) {
@@ -659,11 +867,12 @@ pub fn messages_page(
         }
     }
     all.truncate(end);
-    Ok(all.split_off(start))
+    let mut page = all.split_off(start);
+    apply_answers(agent_id, &mut page)?;
+    Ok(page)
 }
 
-/// Set an approval's outcome. Rewrites the log; approvals are rare enough
-/// that this is cheaper than a second file of updates.
+/// Set an approval's outcome.
 pub fn set_approval_status(
     agent_id: &str,
     request_id: &str,
@@ -703,6 +912,8 @@ pub fn allow_always(
     )
 }
 
+/// Answer a card once: an answer line is appended, the log isn't touched.
+/// Returns the card as it now reads, or `None` if it was already answered.
 fn resolve_approval(
     agent_id: &str,
     request_id: &str,
@@ -710,32 +921,30 @@ fn resolve_approval(
     rule: Option<&super::permissions::Scope>,
     note: Option<&str>,
 ) -> Result<Option<AgentMessage>, CommandError> {
-    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut all = read_log(agent_id)?;
+    let lock = log_lock(agent_id);
+    let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut all = cards(agent_id, None)?;
     let mut changed = None;
-    for message in all.iter_mut() {
+    if let Some(message) = all.iter_mut().find(|m| {
+        m.approval
+            .as_ref()
+            .is_some_and(|a| a.request_id == request_id && a.status == ApprovalStatus::Pending)
+    }) {
+        let answer = Answer {
+            request_id: request_id.to_string(),
+            status,
+            always: rule.cloned(),
+            always_allowed: rule.is_some(),
+            note: note.map(str::to_string),
+        };
+        append_line(&answers_path(agent_id)?, &answer)?;
         if let Some(approval) = message.approval.as_mut() {
-            if approval.request_id == request_id && approval.status == ApprovalStatus::Pending {
-                approval.status = status;
-                if let Some(rule) = rule {
-                    approval.always = Some(rule.clone());
-                    approval.always_allowed = true;
-                }
-                approval.note = note.map(str::to_string);
-                changed = Some(message.clone());
-            }
+            answer.apply(approval);
         }
-    }
-    if changed.is_some() {
-        let mut out = String::new();
-        for m in &all {
-            out.push_str(&serde_json::to_string(m).map_err(|e| super::err_other(e.to_string()))?);
-            out.push('\n');
-        }
-        write_atomic(&log_path(agent_id)?, out.as_bytes())?;
+        changed = Some(message.clone());
     }
     let pending = count_pending(&all);
-    drop(_guard);
+    drop(guard);
     let _ = update(agent_id, |a| a.pending_approvals = pending);
     Ok(changed)
 }
@@ -753,8 +962,9 @@ fn count_pending(log: &[AgentMessage]) -> u32 {
 /// Recount an agent's pending cards (after one is added).
 pub fn refresh_pending(agent_id: &str) {
     let pending = {
-        let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        read_log(agent_id)
+        let lock = log_lock(agent_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        cards(agent_id, None)
             .map(|log| count_pending(&log))
             .unwrap_or(0)
     };
@@ -762,17 +972,18 @@ pub fn refresh_pending(agent_id: &str) {
 }
 
 pub fn find_approval(agent_id: &str, request_id: &str) -> Result<Option<Approval>, CommandError> {
-    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(read_log(agent_id)?
+    let lock = log_lock(agent_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(cards(agent_id, Some(request_id))?
         .into_iter()
-        .filter_map(|m| m.approval)
-        .find(|a| a.request_id == request_id))
+        .find_map(|m| m.approval))
 }
 
 /// The cards still waiting on an answer, oldest first.
 pub fn pending_approvals(agent_id: &str) -> Result<Vec<Approval>, CommandError> {
-    let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(read_log(agent_id)?
+    let lock = log_lock(agent_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(cards(agent_id, None)?
         .into_iter()
         .filter_map(|m| m.approval)
         .filter(|a| a.status == ApprovalStatus::Pending)
@@ -785,18 +996,14 @@ pub fn pending_approvals(agent_id: &str) -> Result<Vec<Approval>, CommandError> 
 pub fn expire_stale_approvals() {
     let Ok(agents) = list() else { return };
     for agent in agents {
-        let Ok(log) = messages(&agent.id, usize::MAX) else {
+        // Permission cards stay answerable across restarts (a late Allow
+        // re-wakes the agent); only Ship Studio's own confirmations lose
+        // their meaning when the asker is gone.
+        let Ok(stale) = pending_approvals(&agent.id) else {
             continue;
         };
-        for m in log {
-            if let Some(a) = m.approval {
-                // Permission cards stay answerable across restarts (a late
-                // Allow re-wakes the agent); only Ship Studio's own
-                // confirmations lose their meaning when the asker is gone.
-                if a.status == ApprovalStatus::Pending && a.tool.is_none() {
-                    let _ = set_approval_status(&agent.id, &a.request_id, ApprovalStatus::Expired);
-                }
-            }
+        for a in stale.into_iter().filter(|a| a.tool.is_none()) {
+            let _ = set_approval_status(&agent.id, &a.request_id, ApprovalStatus::Expired);
         }
     }
 }
@@ -885,6 +1092,91 @@ mod tests {
             assert!(messages_page(&a.id, 3, Some("gone"), None)
                 .unwrap()
                 .is_empty());
+        });
+    }
+
+    #[test]
+    fn pages_read_from_the_end_carry_their_answers() {
+        with_root(|| {
+            let a = create(new("Finance")).unwrap();
+            // Long enough to span several read chunks; every 50th line a card.
+            let filler = "x".repeat(300);
+            for i in 0..2000 {
+                let mut line = note(&a.id, &format!("{i} {filler}"));
+                line.id = format!("m{i}");
+                if i % 50 == 0 {
+                    line.kind = MessageKind::Approval;
+                    line.approval = Some(Approval {
+                        request_id: format!("r{i}"),
+                        title: "Run a command".into(),
+                        detail: "ls".into(),
+                        status: ApprovalStatus::Pending,
+                        tool: None,
+                        input: None,
+                        always: None,
+                        always_allowed: false,
+                        note: None,
+                    });
+                }
+                append_message(&line).unwrap();
+            }
+            set_approval_status(&a.id, "r100", ApprovalStatus::Allowed)
+                .unwrap()
+                .unwrap();
+            deny_with_note(&a.id, "r150", "use the staging bucket")
+                .unwrap()
+                .unwrap();
+            set_approval_status(&a.id, "r1950", ApprovalStatus::Denied)
+                .unwrap()
+                .unwrap();
+
+            let full = messages(&a.id, usize::MAX).unwrap();
+            assert_eq!(full.len(), 2000);
+            let ids = |v: &[AgentMessage]| v.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+            let status = |v: &[AgentMessage], rid: &str| {
+                v.iter()
+                    .filter_map(|m| m.approval.as_ref())
+                    .find(|c| c.request_id == rid)
+                    .map(|c| (c.status, c.note.clone()))
+            };
+
+            // The newest page: the answer is applied.
+            let newest = messages(&a.id, 60).unwrap();
+            assert_eq!(ids(&newest), ids(&full[1940..]));
+            assert_eq!(
+                status(&newest, "r1950"),
+                Some((ApprovalStatus::Denied, None))
+            );
+
+            // Paged far back from the end: same lines a full read gives, answers applied.
+            let page = messages_page(&a.id, 80, Some("m180"), None).unwrap();
+            assert_eq!(ids(&page), ids(&full[100..180]));
+            assert_eq!(status(&page, "r100"), Some((ApprovalStatus::Allowed, None)));
+            assert_eq!(
+                status(&page, "r150"),
+                Some((
+                    ApprovalStatus::Denied,
+                    Some("use the staging bucket".into())
+                ))
+            );
+            assert_eq!(status(&page, "r50"), None);
+            assert_eq!(
+                page.iter().find(|m| m.id == "m100"),
+                full.iter().find(|m| m.id == "m100")
+            );
+
+            // Reaching back to a search hit, capped.
+            let reach = messages_page(&a.id, 10, Some("m1990"), Some(("m150", 5000))).unwrap();
+            assert_eq!(ids(&reach), ids(&full[150..1990]));
+            assert_eq!(
+                status(&reach, "r150"),
+                Some((
+                    ApprovalStatus::Denied,
+                    Some("use the staging bucket".into())
+                ))
+            );
+            let capped = messages_page(&a.id, 10, Some("m1990"), Some(("m150", 300))).unwrap();
+            assert_eq!(ids(&capped), ids(&full[1690..1990]));
         });
     }
 
@@ -1033,6 +1325,259 @@ mod tests {
                 .map(|m| m.text)
                 .collect();
             assert_eq!(texts, ["one", "two"]);
+        });
+    }
+
+    #[test]
+    fn answering_a_card_appends_and_never_rewrites_the_log() {
+        with_root(|| {
+            let a = create(new("Finance")).unwrap();
+            append_message(&note(&a.id, "before")).unwrap();
+            let mut card = note(&a.id, "");
+            card.kind = MessageKind::Approval;
+            card.approval = Some(Approval {
+                request_id: "r9".into(),
+                title: "Run a command".into(),
+                detail: "ls".into(),
+                status: ApprovalStatus::Pending,
+                tool: Some("Bash".into()),
+                input: None,
+                always: None,
+                always_allowed: false,
+                note: None,
+            });
+            append_message(&card).unwrap();
+            let raw = std::fs::read(log_path(&a.id).unwrap()).unwrap();
+            let answered = deny_with_note(&a.id, "r9", "not now").unwrap().unwrap();
+            assert_eq!(
+                answered.approval.as_ref().unwrap().status,
+                ApprovalStatus::Denied
+            );
+            assert_eq!(std::fs::read(log_path(&a.id).unwrap()).unwrap(), raw);
+            let found = find_approval(&a.id, "r9").unwrap().unwrap();
+            assert_eq!(found.note.as_deref(), Some("not now"));
+            assert!(pending_approvals(&a.id).unwrap().is_empty());
+            assert_eq!(get(&a.id).unwrap().pending_approvals, 0);
+            let shown = messages(&a.id, 1).unwrap();
+            assert_eq!(
+                shown[0].approval.as_ref().unwrap().status,
+                ApprovalStatus::Denied
+            );
+        });
+    }
+
+    #[test]
+    fn a_long_log_is_read_from_its_end() {
+        with_root(|| {
+            let a = create(new("Finance")).unwrap();
+            // Long enough to span several read chunks.
+            let filler = "x".repeat(3000);
+            for i in 0..400 {
+                append_message(&note(&a.id, &format!("{i} {filler}"))).unwrap();
+            }
+            let last: Vec<String> = messages(&a.id, 3)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.text.split(' ').next().unwrap().to_string())
+                .collect();
+            assert_eq!(last, ["397", "398", "399"]);
+            assert_eq!(messages(&a.id, 1000).unwrap().len(), 400);
+            assert_eq!(messages(&a.id, usize::MAX).unwrap().len(), 400);
+        });
+    }
+
+    /* ---------------------------------------------- backwards compatibility */
+
+    // Data users already have on disk must load in every future release.
+    // The fixtures are frozen: never edit them to make a test pass; add new
+    // ones for new formats.
+    const COMPAT_REGISTRY: &str = include_str!("testdata/compat/agents.json");
+    const COMPAT_LOG: &str = include_str!("testdata/compat/messages.jsonl");
+    const CHIEF: &str = "c0ffee00-0000-4000-8000-000000000001";
+
+    /// Every key of `old` is in `new` with a value that covers it (an
+    /// absent key may come back as its default; a null may be left out).
+    fn covers(new: Option<&serde_json::Value>, old: &serde_json::Value) -> bool {
+        use serde_json::Value;
+        match (new, old) {
+            (None, Value::Null) => true,
+            (Some(Value::Object(n)), Value::Object(o)) => {
+                o.iter().all(|(k, v)| covers(n.get(k), v))
+            }
+            (Some(Value::Array(n)), Value::Array(o)) => {
+                n.len() == o.len() && n.iter().zip(o).all(|(n, o)| covers(Some(n), o))
+            }
+            (Some(n), o) => n == o,
+            (None, _) => false,
+        }
+    }
+
+    fn registry_on_disk() -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(registry_path().unwrap()).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn registries_from_every_release_load_and_survive_a_write() {
+        with_root(|| {
+            std::fs::create_dir_all(agents_root().unwrap()).unwrap();
+            std::fs::write(registry_path().unwrap(), COMPAT_REGISTRY).unwrap();
+            let agents = list().unwrap();
+            let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
+            assert_eq!(names, ["Chief of Staff", "Builder", "Finance", "Scout"]);
+            let chief = &agents[0];
+            assert!(chief.is_main && chief.pinned);
+            assert_eq!(chief.check_ins.len(), 3);
+            assert_eq!(chief.permissions.len(), 4);
+            assert_eq!(chief.usage.all_time.turns, 41);
+            assert_eq!(chief.usage.days.len(), 1);
+            assert_eq!(chief.model.as_deref(), Some("opus"));
+            assert!(chief.failure.as_ref().unwrap().resets_at.is_some());
+            assert_eq!(
+                agents[1].project.as_deref(),
+                Some("/Users/someone/ShipStudio/site")
+            );
+            // The oldest shape: only the original fields.
+            let scout = &agents[3];
+            assert!(scout.role.is_empty() && !scout.pinned && scout.check_ins.is_empty());
+
+            // A write (any update) keeps everything that was there.
+            update(&agents[3].id, |a| a.unread = 1).unwrap();
+            let old: serde_json::Value = serde_json::from_str(COMPAT_REGISTRY).unwrap();
+            let mut new = registry_on_disk();
+            new["agents"][3]["unread"] = serde_json::json!(0);
+            assert!(covers(Some(&new), &old), "a write dropped data:\n{new:#}");
+        });
+    }
+
+    #[test]
+    fn an_older_build_keeps_what_a_newer_one_wrote() {
+        with_root(|| {
+            let mut future: serde_json::Value = serde_json::from_str(COMPAT_REGISTRY).unwrap();
+            future["formatVersion"] = serde_json::json!(9);
+            future["agents"][0]["voice"] = serde_json::json!({ "name": "Ava", "speed": 1.1 });
+            future["agents"][0]["checkIns"][0]["quietHours"] = serde_json::json!([22, 7]);
+            future["agents"][0]["permissions"][0]["expiresAt"] =
+                serde_json::json!(1799999999999i64);
+            // A whole entry this build can't read (a repeat it has no word for).
+            let mut newer = future["agents"][3].clone();
+            newer["id"] = serde_json::json!("c0ffee00-0000-4000-8000-000000000005");
+            newer["name"] = serde_json::json!("Monthly");
+            newer["checkIns"] = serde_json::json!([{ "id": "x", "note": "n", "repeat": { "kind": "monthly", "day": 1 }, "nextAt": 1, "createdAt": 1 }]);
+            future["agents"].as_array_mut().unwrap().push(newer);
+            std::fs::create_dir_all(agents_root().unwrap()).unwrap();
+            std::fs::write(registry_path().unwrap(), future.to_string()).unwrap();
+
+            assert_eq!(list().unwrap().len(), 4, "the unreadable entry is hidden");
+            update(CHIEF, |a| a.unread = 7).unwrap();
+            let chief = get(CHIEF).unwrap();
+            assert_eq!(chief.extra["voice"]["name"], "Ava");
+            let mut on_disk = registry_on_disk();
+            on_disk["agents"][0]["unread"] = future["agents"][0]["unread"].clone();
+            assert!(
+                covers(Some(&on_disk), &future),
+                "a write dropped newer data:\n{on_disk:#}"
+            );
+            // Nothing was treated as damage.
+            let aside = std::fs::read_dir(agents_root().unwrap())
+                .unwrap()
+                .flatten()
+                .any(|e| e.file_name().to_string_lossy().contains("corrupt"));
+            assert!(!aside);
+        });
+    }
+
+    /// Every kind of chat line, so a new kind can't ship without a fixture:
+    /// this match stops compiling until it is listed (and added to the log).
+    fn fixture_line_for(kind: MessageKind) -> &'static str {
+        match kind {
+            MessageKind::User => "m01",
+            MessageKind::SentToAgent => "m02",
+            MessageKind::FromAgent => "m03",
+            MessageKind::Agent => "m04",
+            MessageKind::Approval => "m05",
+            MessageKind::Note => "m09",
+            MessageKind::CheckIn => "m13",
+            MessageKind::Changes => "m14",
+            MessageKind::Error => "m16",
+            MessageKind::Session => "s01",
+        }
+    }
+
+    #[test]
+    fn chat_logs_from_every_release_load_in_full() {
+        with_root(|| {
+            std::fs::create_dir_all(agents_root().unwrap()).unwrap();
+            std::fs::write(registry_path().unwrap(), COMPAT_REGISTRY).unwrap();
+            let home = agent_home(CHIEF).unwrap();
+            std::fs::create_dir_all(&home).unwrap();
+            // Plus lines a newer build might write: a kind and a field this one doesn't know.
+            let future_kind = r#"{"id":"m21","agentId":"c0ffee00-0000-4000-8000-000000000001","ts":1762200000021,"kind":"voice_memo","text":"hi"}"#;
+            let future_field = r#"{"id":"m22","agentId":"c0ffee00-0000-4000-8000-000000000001","ts":1762200000022,"kind":"agent","text":"ok","reactions":["👍"]}"#;
+            let raw = format!("{COMPAT_LOG}{future_kind}\n{future_field}\n");
+            std::fs::write(home.join("messages.jsonl"), &raw).unwrap();
+
+            let log = messages(CHIEF, usize::MAX).unwrap();
+            let ids: Vec<&str> = log.iter().map(|m| m.id.as_str()).collect();
+            let expected: Vec<String> = (1..=20)
+                .map(|n| format!("m{n:02}"))
+                .chain((1..=4).map(|n| format!("s{n:02}")))
+                .chain(["m22".into()])
+                .collect();
+            assert_eq!(ids, expected, "a line was dropped");
+            for kind in [
+                MessageKind::User,
+                MessageKind::Agent,
+                MessageKind::SentToAgent,
+                MessageKind::FromAgent,
+                MessageKind::Approval,
+                MessageKind::Error,
+                MessageKind::CheckIn,
+                MessageKind::Note,
+                MessageKind::Changes,
+                MessageKind::Session,
+            ] {
+                let id = fixture_line_for(kind);
+                assert!(log.iter().any(|m| m.id == id && m.kind == kind), "{kind:?}");
+            }
+            let status = |rid: &str| {
+                log.iter()
+                    .filter_map(|m| m.approval.as_ref())
+                    .find(|a| a.request_id == rid)
+                    .unwrap()
+                    .status
+            };
+            assert_eq!(status("req-pending"), ApprovalStatus::Pending);
+            assert_eq!(status("req-allowed"), ApprovalStatus::Allowed);
+            assert_eq!(status("req-denied"), ApprovalStatus::Denied);
+            assert_eq!(status("req-expired"), ApprovalStatus::Expired);
+            let by_id = |id: &str| log.iter().find(|m| m.id == id).unwrap();
+            assert_eq!(by_id("m01").attachments.len(), 1);
+            assert_eq!(by_id("m01").mentions.len(), 1);
+            assert_eq!(by_id("m04").attachments[0].name, "october.csv");
+            assert!(by_id("m11").stopped);
+            assert!(by_id("m13").check_in.as_ref().unwrap().late);
+            assert_eq!(by_id("m14").changes.as_ref().unwrap().files.len(), 3);
+            assert!(by_id("m15").changes.as_ref().unwrap().branch.is_none());
+            assert!(by_id("m16").failure.as_ref().unwrap().resets_at.is_some());
+            assert!(by_id("m18").failure.is_none());
+            use super::super::sessions::SessionEvent;
+            let event = |id: &str| by_id(id).session.as_ref().unwrap().event;
+            assert_eq!(event("s01"), SessionEvent::Started);
+            assert_eq!(event("s02"), SessionEvent::Sent);
+            assert_eq!(event("s03"), SessionEvent::Reply);
+            assert_eq!(event("s04"), SessionEvent::Screenshot);
+            assert_eq!(by_id("s01").session.as_ref().unwrap().tab, Some(1));
+            assert_eq!(by_id("s04").attachments.len(), 1);
+            assert_eq!(messages(CHIEF, 3).unwrap().len(), 3);
+
+            // Answering a card and appending leave every existing line as it was.
+            set_approval_status(CHIEF, "req-pending", ApprovalStatus::Allowed)
+                .unwrap()
+                .unwrap();
+            append_message(&note(CHIEF, "after")).unwrap();
+            let now = std::fs::read_to_string(home.join("messages.jsonl")).unwrap();
+            assert!(now.starts_with(&raw), "the log was rewritten");
+            assert_eq!(get(CHIEF).unwrap().pending_approvals, 0);
         });
     }
 

@@ -86,6 +86,11 @@ pub struct CheckIn {
     pub created_at: i64,
     #[serde(default)]
     pub paused: bool,
+    /// Fields a newer Ship Studio wrote that this build doesn't know: kept
+    /// and written back as they were, so running an older build never
+    /// strips what a newer one saved.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Stored on the chat line a firing leaves, so the UI can say when it was for.
@@ -740,6 +745,7 @@ where
         next_at,
         created_at: now,
         paused: false,
+        extra: Default::default(),
     };
     let mut refused: Option<Refused> = None;
     let candidate = check_in.clone();
@@ -1273,6 +1279,7 @@ mod tests {
             next_at,
             created_at: 0,
             paused: false,
+            extra: Default::default(),
         }
     }
 
@@ -1385,6 +1392,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            extra: Default::default(),
         }
     }
 

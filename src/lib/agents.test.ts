@@ -340,6 +340,14 @@ describe('failure lines', () => {
   it('a retry note keeps the ask and fits a check-in', () => {
     expect(retryNote('Send the invoices')).toContain('“Send the invoices”');
     expect(retryNote('x'.repeat(2000)).length).toBeLessThanOrEqual(600);
+    const files = ['/home/a/report.pdf', '/home/a/shot.png'];
+    expect(retryNote('Send the invoices', files)).toContain(
+      'Files I attached: /home/a/report.pdf, /home/a/shot.png'
+    );
+    const many = Array.from({ length: 40 }, (_, i) => `/Users/me/agents/finance/files/${i}.pdf`);
+    const note = retryNote('x'.repeat(2000), many);
+    expect(note.length).toBeLessThanOrEqual(600);
+    expect(note).toMatch(/and \d+ more$/);
   });
   it('schedules a retry in whole minutes, never in the past', () => {
     expect(whenAt(10 * 60_000 + 1, 0)).toBe('in 11 minutes');

@@ -48,6 +48,16 @@ async fn engine_ready() -> bool {
     ready
 }
 
+/// Store work (file reads and writes) on a blocking thread, off the async
+/// workers every other command and turn share.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, CommandError> + Send + 'static,
+) -> Result<T, CommandError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(agents::err_other)?
+}
+
 fn emit_registry(app: &AppHandle) {
     let _ = app.emit(runner::EVENT_REGISTRY, ());
 }
@@ -83,12 +93,15 @@ pub async fn agents_messages(
     through: Option<String>,
 ) -> Result<Vec<store::AgentMessage>, CommandError> {
     const MAX: usize = 5000;
-    store::messages_page(
-        &agent_id,
-        limit.unwrap_or(400).min(MAX),
-        before.as_deref(),
-        through.as_deref().map(|id| (id, MAX)),
-    )
+    blocking(move || {
+        store::messages_page(
+            &agent_id,
+            limit.unwrap_or(400).min(MAX),
+            before.as_deref(),
+            through.as_deref().map(|id| (id, MAX)),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -359,7 +372,9 @@ pub async fn agents_change_diff(
     message_id: String,
     path: String,
 ) -> Result<crate::types::FileDiff, CommandError> {
-    let summary = store::messages(&agent_id, usize::MAX)?
+    let id = agent_id.clone();
+    let summary = blocking(move || store::messages(&id, usize::MAX))
+        .await?
         .into_iter()
         .find(|m| m.id == message_id)
         .and_then(|m| m.changes)
@@ -385,6 +400,13 @@ pub async fn agents_delete(app: AppHandle, agent_id: String) -> Result<(), Comma
     emit_registry(&app);
     notify::refresh_badge(&app);
     Ok(())
+}
+
+/// How many agents are mid-turn: an update waits for them before restarting.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_busy() -> Result<usize, CommandError> {
+    Ok(runner::busy_count())
 }
 
 #[tauri::command]
@@ -413,6 +435,17 @@ pub async fn agents_answer_approval(
     always: Option<bool>,
     note: Option<String>,
 ) -> Result<(), CommandError> {
+    blocking(move || answer_card(&app, &agent_id, &request_id, allow, always, note)).await
+}
+
+fn answer_card(
+    app: &AppHandle,
+    agent_id: &str,
+    request_id: &str,
+    allow: bool,
+    always: Option<bool>,
+    note: Option<String>,
+) -> Result<(), CommandError> {
     let note = note
         .map(|n| n.trim().chars().take(MAX_DENY_NOTE).collect::<String>())
         .filter(|n| !allow && !n.is_empty());
@@ -421,48 +454,48 @@ pub async fn agents_answer_approval(
     } else {
         store::ApprovalStatus::Denied
     };
-    let approval = store::find_approval(&agent_id, &request_id)?
+    let approval = store::find_approval(agent_id, request_id)?
         .ok_or_else(|| CommandError::expected("That request no longer exists."))?;
     if approval.status != store::ApprovalStatus::Pending {
         return Err(CommandError::expected("That request was already answered."));
     }
     let rule = if allow && always == Some(true) {
-        Some(mcp::always_allow(&agent_id, &approval)?)
+        Some(mcp::always_allow(agent_id, &approval)?)
     } else {
         None
     };
     // Write the decision before waking the waiter, so the card can't be
     // overwritten by the waiter's own cleanup.
     let updated = if let Some(scope) = &rule {
-        store::allow_always(&agent_id, &request_id, scope)?
+        store::allow_always(agent_id, request_id, scope)?
     } else if let Some(note) = &note {
-        store::deny_with_note(&agent_id, &request_id, note)?
+        store::deny_with_note(agent_id, request_id, note)?
     } else {
-        store::set_approval_status(&agent_id, &request_id, status)?
+        store::set_approval_status(agent_id, request_id, status)?
     };
     if let Some(message) = updated {
         let _ = app.emit(runner::EVENT_MESSAGE, &message);
     }
-    emit_registry(&app);
-    notify::refresh_badge(&app);
-    wake(&app, &agent_id, &approval, allow, note.as_deref())?;
+    emit_registry(app);
+    notify::refresh_badge(app);
+    wake(app, agent_id, &approval, allow, note.as_deref())?;
 
     // The new rule answers the other open cards it covers, the same way.
     if let Some(scope) = rule {
-        let open = store::pending_approvals(&agent_id)?;
-        for id in mcp::covered_by(&scope, &open, &request_id) {
+        let open = store::pending_approvals(agent_id)?;
+        for id in mcp::covered_by(&scope, &open, request_id) {
             let Some(card) = open.iter().find(|a| a.request_id == id) else {
                 continue;
             };
-            if let Some(message) = store::allow_always(&agent_id, &id, &scope)? {
+            if let Some(message) = store::allow_always(agent_id, &id, &scope)? {
                 let _ = app.emit(runner::EVENT_MESSAGE, &message);
             }
-            if let Err(e) = wake(&app, &agent_id, card, true, None) {
+            if let Err(e) = wake(app, agent_id, card, true, None) {
                 tracing::warn!(request_id = %id, error = %e, "covered card could not wake its agent");
             }
         }
-        emit_registry(&app);
-        notify::refresh_badge(&app);
+        emit_registry(app);
+        notify::refresh_badge(app);
     }
     Ok(())
 }

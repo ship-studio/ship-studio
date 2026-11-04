@@ -86,6 +86,10 @@ tauri-plugin-notification = "2"
 
 [dev-dependencies]
 
+# Unix: signals for a process group (agents::procs stops a turn's whole tree).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Windows: Job Objects, so a spawned command's whole process tree can be
 # closed together (commands/pty/job.rs).
 [target.'cfg(windows)'.dependencies]
