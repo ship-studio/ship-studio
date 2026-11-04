@@ -235,6 +235,8 @@ export interface AgentMessage {
   changes?: ChangeSummary;
   /** On a `session` line. */
   session?: SessionMark;
+  /** On a user message sent from the phone: the `clientId` of its send (docs/mobile.md). */
+  clientId?: string;
 }
 
 /** Mirrors `project::ChangedFile`: line counts are absent for a binary file. */

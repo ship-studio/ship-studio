@@ -150,6 +150,12 @@ export interface AgentMessage {
   failure?: Failure;
   changes?: ChangeSummary;
   session?: SessionMark;
+  /**
+   * On a user message sent from a phone: the `clientId` its `agents.send`
+   * carried, so the phone's optimistic bubble is replaced by id, not by text.
+   * Absent on everything else; older clients ignore it.
+   */
+  clientId?: string;
 }
 
 export interface ChangedFile {

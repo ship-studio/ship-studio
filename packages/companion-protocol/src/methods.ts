@@ -61,6 +61,8 @@ export interface Methods {
    * `clientId` returns the original message instead of sending twice.
    * Text gets Remote Access's refusal rules (no control characters, no
    * leading `!`, `/` commands from the allowlist only, 20k characters).
+   * The message it returns, and its `agents.message` event, carry the same
+   * `clientId`, so the phone swaps its optimistic bubble by id.
    */
   'agents.send': {
     params: {
