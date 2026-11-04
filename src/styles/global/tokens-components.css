@@ -343,6 +343,11 @@
   --agents-motion-typing-period: var(--duration-loader-standard);
   --agents-motion-typing-easing: var(--pixel-loader-easing);
   --agents-motion-typing-stagger: var(--duration-standard);
+  /* The working pill's height (agents.css, .agent-working). A reply's first
+     streamed line holds this height so the pill hands off in place. */
+  --agents-motion-working-height: calc(var(--font-size-subhead) * 1.4 + var(--spacing-sm) * 2);
+  /* The soft fade at the transcript's top and bottom edges. */
+  --agents-motion-edge-fade: var(--spacing-xl);
 
   --editor-panel-w: 300px;
   --editor-panel-visual-w: 240px;

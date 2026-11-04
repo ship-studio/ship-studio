@@ -839,7 +839,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--context-menu-animation-easing",
@@ -848,7 +848,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--context-menu-destructive-hover-surface",
@@ -2036,7 +2036,7 @@
       "owner": "Control",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 18
+      "consumerCount": 19
     },
     {
       "name": "--control-checkbox-size",
@@ -2846,7 +2846,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 10
+      "consumerCount": 12
     },
     {
       "name": "--agents-motion-flash",
@@ -2864,7 +2864,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 4
+      "consumerCount": 5
     },
     {
       "name": "--agents-motion-typing-period",
@@ -2892,6 +2892,24 @@
       "status": "canonical",
       "pluginStable": false,
       "consumerCount": 2
+    },
+    {
+      "name": "--agents-motion-working-height",
+      "definitionFile": "src/styles/global/tokens-components.css",
+      "layer": "components",
+      "owner": "global/component",
+      "status": "canonical",
+      "pluginStable": false,
+      "consumerCount": 3
+    },
+    {
+      "name": "--agents-motion-edge-fade",
+      "definitionFile": "src/styles/global/tokens-components.css",
+      "layer": "components",
+      "owner": "global/component",
+      "status": "canonical",
+      "pluginStable": false,
+      "consumerCount": 3
     },
     {
       "name": "--editor-panel-w",
@@ -5060,7 +5078,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 47
+      "consumerCount": 48
     },
     {
       "name": "--transition-interaction",
@@ -5069,7 +5087,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 69
+      "consumerCount": 73
     },
     {
       "name": "--transition-interaction-slow",
@@ -5204,7 +5222,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 499
+      "consumerCount": 500
     },
     {
       "name": "--spacing-sm",
@@ -5330,7 +5348,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 4
     },
     {
       "name": "--overlay-30",

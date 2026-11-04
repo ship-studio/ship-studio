@@ -305,6 +305,7 @@ export function AgentChat({
   // While words are arriving they are the sign of life; the dots and what
   // it's doing come back between text blocks, while tools run.
   const indicator = usePresence(working && !streaming);
+  const jump = usePresence(!atBottom);
 
   // Only lines that arrive while the chat is open animate in.
   const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
@@ -723,10 +724,13 @@ export function AgentChat({
       </div>
 
       <div className="agent-chat__footer">
-        {!atBottom && (
+        {jump.mounted && (
           <IconButton
             tabIndex={0}
+            size="compact"
             className="agent-chat__jump"
+            data-leaving={jump.leaving || undefined}
+            onAnimationEnd={jump.leaving ? jump.onExited : undefined}
             icon={<ArrowDownIcon size={14} />}
             onClick={scrollToBottom}
             aria-label="Jump to latest"
