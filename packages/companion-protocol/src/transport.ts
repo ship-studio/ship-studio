@@ -26,7 +26,11 @@ export interface Transport {
   /** Every event in order. Returns an unsubscribe. */
   onEvent(listener: (event: CompanionEvent, cursor?: Cursor) => void): () => void;
   onState(listener: (state: LinkState) => void): () => void;
-  upload(file: { uri: string; name: string; mime: string }): Promise<BlobRef>;
+  /** `PUT /v1/blobs`. `onProgress` gets the fraction sent, 0 to 1. */
+  upload(
+    file: { uri: string; name: string; mime: string },
+    onProgress?: (fraction: number) => void
+  ): Promise<BlobRef>;
   /** A local file URI for a blob or attachment, downloaded (and cached) on demand. */
   download(source: { blobId: string } | { agentId: string; path: string }): Promise<string>;
   setForeground(foreground: boolean): void;
