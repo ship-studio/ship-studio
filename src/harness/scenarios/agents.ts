@@ -213,6 +213,12 @@ const ACME_CHAT = [
     49,
     { agentId: 'acme' }
   ),
+  msg(
+    'user',
+    '> The cards overlap below 400px because the grid keeps three columns\n\nStack them below 640px too. The tablet layout breaks the same way.',
+    48,
+    { agentId: 'acme' }
+  ),
   msg('user', '', 20, {
     agentId: 'acme',
     attachments: [
@@ -333,7 +339,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-attachments',
     title: 'Agents — attachments sent and staged',
     looksRightWhen:
-      'Acme Site’s chat: a user message carrying three screenshots as a right-aligned thumbnail row above its text, then a files-only message as two chips (PDF, CSV) with type and size. The composer holds one staged image thumbnail and one file chip above the text field, with the paperclip on the left and Send enabled.',
+      'Acme Site’s chat: a user message carrying three screenshots as a right-aligned thumbnail row above its text, then a reply that quotes the agent (a quote bar inside the bubble above the user’s words), then a files-only message as two same-height chips (PDF, CSV) side by side against the right edge. The composer holds one staged image thumbnail and one file chip of the same height above the text field, with the paperclip and Send on the same bottom line.',
     requires: '.agent-composer__attachments',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-composer__attach' }],
@@ -342,6 +348,7 @@ export const agentsScenarios: Scenario[] = [
       agents_messages: messagesFor,
       agents_inspect_files: inspectFiles,
       'plugin:dialog|open': PICKED,
+      agents_send: sendMessage,
     },
   },
   {

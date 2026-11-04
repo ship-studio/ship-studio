@@ -737,6 +737,15 @@
   box-shadow: none;
 }
 
+/* Everything right of the text ([mic] [send]) sits in one bottom-aligned group. */
+.agent-composer__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-2xs);
+}
+
+.agent-composer__attach,
 .agent-composer__send,
 .agent-composer__stop {
   flex: 0 0 auto;

@@ -84,6 +84,34 @@ export function ComposerAttachments({ items, onRemove }: ComposerAttachmentsProp
   );
 }
 
+interface ComposerQuotesProps {
+  quotes: string[];
+  onRemove: (index: number) => void;
+}
+
+/** Passages quoted from replies, waiting to be sent ahead of the text. */
+export function ComposerQuotes({ quotes, onRemove }: ComposerQuotesProps) {
+  if (quotes.length === 0) return null;
+  return (
+    <ul className="agent-composer__quotes" aria-label="Quoted">
+      {quotes.map((quote, index) => (
+        <li key={`${index}-${quote.slice(0, 24)}`} className="agent-quote-chip">
+          <span className="agent-quote-chip__text">{quote}</span>
+          <IconButton
+            variant="ghost"
+            size="compact"
+            className="agent-quote-chip__remove"
+            icon={<CloseIcon size={12} />}
+            onClick={() => onRemove(index)}
+            aria-label="Remove quote"
+            title="Remove quote"
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 interface MessageAttachmentsProps {
   agent: Agent;
   attachments: Attachment[];

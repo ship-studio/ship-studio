@@ -14,7 +14,7 @@ import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
-import { ComposerAttachments } from './AgentAttachments';
+import { ComposerAttachments, ComposerQuotes } from './AgentAttachments';
 import { toOutgoing, useComposerAttachments, useFileDrop } from './useComposerAttachments';
 import { useQuoteSelection } from './useQuoteSelection';
 import { useCommands } from '../../commands/useCommands';
@@ -30,7 +30,7 @@ import {
 import {
   answerApproval,
   buildChatItems,
-  quoteText,
+  withQuotes,
   sendAgentMessage,
   stopAgent,
   type Agent,
@@ -73,16 +73,17 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
     pick().catch((error: unknown) => toastError(String(error)));
   }, [pick, toastError]);
 
-  // Quote into the composer: after what's already typed, cursor at the end.
+  // Quotes wait above the text as chips; each ⌘L adds one. They're sent as
+  // Markdown blockquotes ahead of what was typed.
+  const [quotes, setQuotes] = useState<string[]>([]);
   const insertQuote = useCallback((text: string) => {
-    setDraft((current) => (current.trim() ? `${current.trimEnd()}\n\n` : '') + quoteText(text));
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    });
+    setQuotes((current) => [...current, text]);
+    requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
+  const removeQuote = useCallback(
+    (index: number) => setQuotes((current) => current.filter((_, i) => i !== index)),
+    []
+  );
   const quoting = useQuoteSelection(scrollRef, sectionRef, insertQuote);
 
   useCommands(
@@ -145,19 +146,24 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   };
 
   const staged = attachments.items;
-  const canSend = (draft.trim().length > 0 || staged.length > 0) && engineReady;
+  const canSend =
+    (draft.trim().length > 0 || staged.length > 0 || quotes.length > 0) && engineReady;
 
   const send = async () => {
-    const text = draft.trim();
+    const typed = draft.trim();
+    const quoted = quotes;
     if (!canSend) return;
     setDraft('');
+    setQuotes([]);
     attachments.setItems([]);
     atBottomRef.current = true;
     try {
+      const text = withQuotes(quoted, typed);
       const message = await sendAgentMessage(agent.id, text, await toOutgoing(staged));
       upsertMessage(message);
     } catch (error) {
-      setDraft(text);
+      setDraft(typed);
+      setQuotes(quoted);
       attachments.setItems(staged);
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
@@ -319,8 +325,10 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
 
       <div className="agent-chat__drop" aria-hidden={!dropping}>
         <div className="agent-chat__drop-label">
-          <PaperclipIcon size={16} />
-          Drop to attach
+          <span className="agent-chat__drop-icon">
+            <PaperclipIcon size={18} />
+          </span>
+          Drop to attach for {agent.name}
         </div>
       </div>
 
@@ -332,6 +340,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
           void send();
         }}
       >
+        <ComposerQuotes quotes={quotes} onRemove={removeQuote} />
         <ComposerAttachments items={staged} onRemove={attachments.remove} />
         <div className="agent-composer__row">
           <IconButton
@@ -362,26 +371,28 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
             }}
             aria-label={`Message ${agent.name}`}
           />
-          {working && !canSend ? (
-            <IconButton
-              variant="secondary"
-              className="agent-composer__stop"
-              icon={<span className="agent-composer__stop-square" aria-hidden />}
-              onClick={() => void onStop()}
-              aria-label={`Stop ${agent.name}`}
-              title="Stop"
-            />
-          ) : (
-            <IconButton
-              type="submit"
-              variant="primary"
-              className="agent-composer__send"
-              icon={<ArrowUpIcon size={14} />}
-              disabled={!canSend}
-              aria-label="Send"
-              title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
-            />
-          )}
+          <div className="agent-composer__actions">
+            {working && !canSend ? (
+              <IconButton
+                variant="secondary"
+                className="agent-composer__stop"
+                icon={<span className="agent-composer__stop-square" aria-hidden />}
+                onClick={() => void onStop()}
+                aria-label={`Stop ${agent.name}`}
+                title="Stop"
+              />
+            ) : (
+              <IconButton
+                type="submit"
+                variant="primary"
+                className="agent-composer__send"
+                icon={<ArrowUpIcon size={14} />}
+                disabled={!canSend}
+                aria-label="Send"
+                title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
+              />
+            )}
+          </div>
         </div>
       </form>
     </section>

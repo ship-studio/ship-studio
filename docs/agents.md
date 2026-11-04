@@ -157,7 +157,10 @@ cards.
   against the chat (lib/dropTarget). The DOM drag handlers cover the browser
   harness and are inert in the app.
 - Select text in an agent's reply and press ⌘L (or the Quote button that
-  appears above it) to quote it into the composer as Markdown `> ` lines.
+  appears above it) to quote it. Each quote waits above the text as a chip
+  (removable; more ⌘L presses add more) and is sent as a Markdown blockquote
+  ahead of what you typed. User bubbles show those blockquotes as quote bars
+  (`splitQuotes`); nothing else in a user's text is read as Markdown.
 
 ## Known limits / next
 

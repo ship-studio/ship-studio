@@ -24,6 +24,7 @@ interface Arrival {
 import {
   formatDivider,
   peerGroupLabel,
+  splitQuotes,
   type Agent,
   type AgentMessage,
   type AgentRef,
@@ -66,7 +67,21 @@ export function UserBubble({
   return (
     <div className="agent-chat__row agent-chat__row--user" data-arrived={arrived || undefined}>
       {attachments.length > 0 && <MessageAttachments agent={agent} attachments={attachments} />}
-      {message.text && <div className="agent-bubble agent-bubble--user">{message.text}</div>}
+      {message.text && (
+        <div className="agent-bubble agent-bubble--user">
+          {splitQuotes(message.text).map((part, i) =>
+            part.kind === 'quote' ? (
+              <blockquote key={i} className="agent-bubble__quote">
+                {part.text}
+              </blockquote>
+            ) : (
+              <p key={i} className="agent-bubble__text">
+                {part.text}
+              </p>
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,8 @@
    image view) and quoting a selection into the composer. */
 
 :root {
-  --agents-attachment-thumb: 56px; /* css-ok: staged image chip */
+  /* One height for every attachment chip, staged or sent, image or file. */
+  --agents-attachment-chip: 44px; /* css-ok: chip and thumb share it */
   --agents-attachment-chip-max: 220px; /* css-ok: file chip name truncation */
   --agents-attachment-image-max: 240px; /* css-ok: a lone sent image */
   --agents-attachment-image-tile: 120px; /* css-ok: one of several sent images */
@@ -10,34 +11,43 @@
 
 /* ------------------------------------------------------ composer chips */
 
-.agent-composer__attachments {
+.agent-composer__attachments,
+.agent-composer__quotes {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--spacing-xs);
   margin: 0;
   padding: var(--spacing-2xs) var(--spacing-2xs) var(--spacing-xs);
   list-style: none;
 }
 
+.agent-composer__quotes {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .agent-attachment-chip {
   position: relative;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--spacing-sm);
-  height: var(--agents-attachment-thumb);
+  height: var(--agents-attachment-chip);
   max-width: var(--agents-attachment-chip-max);
-  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
+  padding: 0 var(--spacing-md) 0 var(--spacing-2xs);
   font: inherit;
   text-align: left;
   color: var(--text-primary);
   background: var(--surface-control);
   border: var(--border-width-default) solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  /* Concentric with the composer's corner, one padding in. */
+  border-radius: var(--radius-card);
   animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
 }
 
 .agent-attachment-chip[data-kind='image'] {
-  width: var(--agents-attachment-thumb);
+  width: var(--agents-attachment-chip);
   padding: 0;
   overflow: hidden;
 }
@@ -64,6 +74,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  line-height: var(--line-height-compact);
 }
 
 .agent-attachment-chip__name {
@@ -83,9 +94,9 @@
   position: absolute;
   top: var(--spacing-3xs);
   right: var(--spacing-3xs);
-  width: var(--spacing-xl);
+  width: var(--spacing-lg);
   min-width: 0;
-  height: var(--spacing-xl);
+  height: var(--spacing-lg);
   min-height: 0;
   padding: 0;
   border-radius: var(--radius-pill);
@@ -98,14 +109,51 @@
   opacity: 1;
 }
 
+/* A quoted passage: a muted bar edged in the agent's colour. */
+.agent-quote-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-2xs) var(--spacing-xs) var(--spacing-sm);
+  background: var(--surface-control);
+  border-left: var(--border-width-emphasis) solid var(--agents-tint, var(--accent-active));
+  border-radius: var(--radius-sm) var(--radius-card) var(--radius-card) var(--radius-sm);
+  animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
+}
+
+.agent-quote-chip__text {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.agent-quote-chip .agent-quote-chip__remove {
+  flex: 0 0 auto;
+  width: var(--spacing-xl);
+  min-width: 0;
+  height: var(--spacing-xl);
+  min-height: 0;
+  padding: 0;
+  color: var(--text-muted);
+}
+
 /* ------------------------------------------------- on a sent message */
 
+/* As wide as a bubble may be, so the rows inside can wrap against the right
+   edge; a shrink-wrapped column would measure a wrapping row as one item. */
 .agent-attachments {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: var(--spacing-2xs);
-  max-width: var(--agents-bubble-max);
+  width: var(--agents-bubble-max);
 }
 
 .agent-attachments__files {
@@ -162,8 +210,10 @@
   height: var(--agents-attachment-image-tile);
 }
 
+/* Sent file chips share the sent images' corner. */
 .agent-attachment-chip--sent {
   cursor: pointer;
+  border-radius: var(--radius-lg);
   animation: none;
   transition:
     background var(--transition-interaction-fast),
@@ -180,43 +230,73 @@
   outline-offset: var(--spacing-3xs);
 }
 
+/* A quote inside the user's own bubble. */
+.agent-bubble__quote,
+.agent-bubble__text {
+  margin: 0;
+}
+
+.agent-bubble__quote {
+  padding-left: var(--spacing-sm);
+  font-size: var(--font-size-body-md);
+  opacity: 0.75;
+  border-left: var(--border-width-emphasis) solid currentColor;
+}
+
+.agent-bubble__quote + .agent-bubble__quote,
+.agent-bubble__quote + .agent-bubble__text,
+.agent-bubble__text + .agent-bubble__quote {
+  margin-top: var(--spacing-xs);
+}
+
 /* ----------------------------------------------------------- drop zone */
 
-/* Always mounted so it can fade both ways; only visible while dragging. */
+/* A calm sheet over the conversation, inset from its edges. Always mounted so
+   it can fade both ways; only visible while dragging. */
 .agent-chat__drop {
   position: absolute;
-  inset: var(--agents-header-height) var(--spacing-md) var(--spacing-md);
+  inset: calc(var(--agents-header-height) + var(--spacing-sm)) var(--spacing-sm) var(--spacing-sm);
   z-index: var(--z-sticky-band);
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  background: rgba(var(--accent-active-rgb), 0.06);
-  border: var(--border-width-emphasis) dashed rgba(var(--accent-active-rgb), 0.5);
+  background: color-mix(in srgb, var(--surface-app) 84%, transparent);
+  border: var(--border-width-default) solid var(--border-subtle);
   border-radius: var(--radius-lg);
+  backdrop-filter: blur(2px); /* css-ok: soften the chat behind */
   opacity: 0;
-  transform: scale(0.99);
-  transition:
-    opacity var(--transition-interaction),
-    transform var(--transition-interaction);
-}
-
-.agent-chat[data-dropping] .agent-chat__drop {
-  opacity: 1;
-  transform: none;
+  transition: opacity var(--transition-interaction);
 }
 
 .agent-chat__drop-label {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-md);
-  font-size: var(--font-size-body-md);
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-body-lg);
   color: var(--text-primary);
-  background: var(--surface-panel);
-  border: var(--border-width-default) solid var(--border-default);
+  transform: scale(0.96);
+  transition: transform var(--agents-motion-enter);
+}
+
+.agent-chat__drop-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-large);
+  height: var(--control-height-large);
+  color: color-mix(in srgb, var(--agents-tint, var(--accent-active)) 80%, var(--text-primary));
+  background: color-mix(in srgb, var(--agents-tint, var(--accent-active)) 14%, transparent);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-sm);
+}
+
+.agent-chat[data-dropping] .agent-chat__drop {
+  opacity: 1;
+}
+
+.agent-chat[data-dropping] .agent-chat__drop-label {
+  transform: none;
 }
 
 /* --------------------------------------------------------------- quote */
@@ -260,12 +340,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .agent-attachment-chip,
+  .agent-quote-chip,
   .agent-chat .agent-chat__quote {
     animation: none;
   }
 
-  .agent-chat__drop {
+  .agent-chat__drop-label {
     transform: none;
-    transition: opacity var(--transition-interaction-fast);
+    transition: none;
   }
 }
