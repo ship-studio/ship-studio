@@ -37,18 +37,46 @@ const PASTED_REPLY = [
   '```',
 ].join('\n');
 
+type PreviewRoutine = { when: string; what: string; schedule?: string; refused?: string };
+
+/** One agent as `agents_import_paste_preview` describes it. */
+const previewAgent = (
+  name: string,
+  role: string,
+  color: string,
+  routines: PreviewRoutine[] = [],
+  over: { isMain?: boolean; existing?: boolean; memory?: string[]; instructions?: string } = {}
+) => {
+  const instructions =
+    over.instructions ??
+    `You are my ${name.toLowerCase()} agent. ${role}.\n\nKeep replies short, ask before spending money or sending anything on my behalf, and tell me when something needs a decision.`;
+  const memory = over.memory ?? [
+    'Prefers mornings for anything that needs focus',
+    'Lives in Lisbon',
+  ];
+  return {
+    name,
+    role,
+    isMain: over.isMain ?? false,
+    existing: over.existing ?? false,
+    instructionsChars: instructions.length,
+    memoryLines: memory.length,
+    routines,
+    color,
+    instructions,
+    memory,
+  };
+};
+
 const PASTE_PREVIEW = {
   source: 'Grok Bot',
   blocks: 2,
   agents: [
-    {
-      name: 'Chief',
-      role: 'Runs my week and keeps the others on track',
-      isMain: true,
-      existing: false,
-      instructionsChars: 2140,
-      memoryLines: 18,
-      routines: [
+    previewAgent(
+      'Chief',
+      'Runs my week and keeps the others on track',
+      'white',
+      [
         {
           when: 'every weekday at 8am',
           what: 'Brief me on the day.',
@@ -60,43 +88,109 @@ const PASTE_PREVIEW = {
           schedule: 'every Sunday at 18:00',
         },
       ],
-    },
-    {
-      name: 'Finance',
-      role: 'Tracks spending, invoices and rent',
-      isMain: false,
-      existing: true,
-      instructionsChars: 1312,
-      memoryLines: 9,
-      routines: [
+      {
+        isMain: true,
+        memory: [
+          'Week starts Monday; protect Friday afternoons',
+          'Partner is Ana; her birthday is 12 March',
+          'Hates long meeting invites without an agenda',
+        ],
+      }
+    ),
+    previewAgent(
+      'Finance',
+      'Tracks spending, invoices and rent',
+      'teal',
+      [
         {
           when: 'whenever rent is due',
           what: 'Remind me to pay rent.',
           refused: 'Give it a day and a time.',
         },
       ],
-    },
-    {
-      name: 'Travel',
-      role: 'Books flights and hotels within my rules',
-      isMain: false,
-      existing: false,
-      instructionsChars: 864,
-      memoryLines: 6,
-      routines: [] as { when: string; what: string; schedule?: string; refused?: string }[],
-    },
-    {
-      name: 'Inbox',
-      role: 'Triages email and drafts replies for me to send',
-      isMain: false,
-      existing: false,
-      instructionsChars: 1027,
-      memoryLines: 0,
-      routines: [{ when: 'every 2 hours', what: 'Triage new email.', schedule: 'every 2 hours' }],
-    },
+      { existing: true }
+    ),
+    previewAgent('Travel', 'Books flights and hotels within my rules', 'blue'),
+    previewAgent(
+      'Inbox',
+      'Triages email and drafts replies for me to send',
+      'orange',
+      [{ when: 'every 2 hours', what: 'Triage new email.', schedule: 'every 2 hours' }],
+      { memory: [] }
+    ),
   ],
   problems: [] as string[],
 };
+
+/** A big team: twelve agents, most with routines, two that can't be set. */
+const LONG_PREVIEW = {
+  source: 'Grok Bot',
+  blocks: 3,
+  agents: [
+    PASTE_PREVIEW.agents[0],
+    PASTE_PREVIEW.agents[1],
+    ...(
+      [
+        ['Travel', 'Books flights and hotels within my rules', 'blue'],
+        ['Inbox', 'Triages email and drafts replies for me to send', 'orange'],
+        ['Health', 'Keeps my training plan and appointments', 'green'],
+        ['Research', 'Digs into anything I ask and cites sources', 'purple'],
+        ['Home', 'Bills, repairs and the cleaner’s schedule', 'brown'],
+        ['Writing', 'Edits drafts in my voice', 'pink'],
+        ['Investor Updates', 'Drafts the monthly update from the metrics', 'amber'],
+        ['Hiring', 'Screens candidates and books interviews', 'red'],
+        ['Reading List', 'Saves and summarises long reads for the weekend', 'gray'],
+        ['Family', 'Birthdays, school dates and gifts', 'teal'],
+      ] as const
+    ).map(([name, role, color], i) =>
+      previewAgent(
+        name,
+        role,
+        color,
+        i % 3 === 2
+          ? [
+              {
+                when: 'when it feels right',
+                what: 'Check in.',
+                refused: 'Give it a day and a time.',
+              },
+            ]
+          : [
+              {
+                when: 'every friday at 5pm',
+                what: 'Weekly recap.',
+                schedule: 'every Friday at 17:00',
+              },
+            ]
+      )
+    ),
+  ],
+  problems: [] as string[],
+};
+
+const IMPORTED = {
+  created: ['Travel', 'Inbox'],
+  updated: ['Chief of Staff', 'Finance'],
+  skipped: [] as [string, string][],
+  routinesSet: [
+    {
+      agent: 'Chief of Staff',
+      when: 'every weekday at 8am',
+      what: 'Brief me on the day.',
+      detail: 'every weekday at 08:00',
+    },
+    {
+      agent: 'Chief of Staff',
+      when: 'every sunday at 6pm',
+      what: 'Plan the week with me.',
+      detail: 'every Sunday at 18:00',
+    },
+    { agent: 'Inbox', when: 'every 2 hours', what: 'Triage new email.', detail: 'every 2 hours' },
+  ],
+  routinesRefused: [] as { agent: string; when: string; what: string; detail: string }[],
+};
+
+const IMPORT_BUTTON = '.agents-import__footer .button--primary:not(:disabled)';
 
 export const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
   state,
@@ -1150,35 +1244,72 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-import',
     title: 'Agents — import, remote access off (paste)',
     looksRightWhen:
-      'Opens on the Paste tab because remote access is off. Two numbered steps: copy the message (its full text scrolls in a quiet box, Copy message beside the step) and paste the reply into an empty monospace field. Import is disabled until something valid is pasted.',
+      'Opens on “Paste a reply” because remote access is off. One line of lede, then two steps on the Remote access rail: step 1 is current (green ring) with the message in a quiet scrolling box and a green primary “Copy message” under it; step 2 is a muted number over a tall, dashed, empty paste field inviting a big paste. The footer stays at the bottom: a muted note on the left, Cancel and a disabled Import on the right.',
     command: 'agents.import',
     requires: '.agents-import__paste',
+    clipSelector: '.agents-import',
+    commands: {},
+  },
+  {
+    id: 'agents-import-copied',
+    title: 'Agents — import, message copied',
+    looksRightWhen:
+      'After Copy message: the button reads “Copied” with a check, the hint beside it says to paste it into a chat with your assistant, step 1’s marker is a green check and step 2’s number is ringed green.',
+    openSelector: AGENTS_TAB,
+    requires: '.agents-import-message__copy[data-copied]',
+    clipSelector: '.agents-import',
+    steps: [{ click: IMPORT_STARTER }, { click: '.agents-import-message__copy' }],
     commands: {},
   },
   {
     id: 'agents-import-paste-preview',
     title: 'Agents — import, a pasted reply previewed',
     looksRightWhen:
-      'Under the pasted reply: "4 agents from Grok Bot, in 2 parts", then one row per agent with its name, role and how much instruction and memory came across. The main one says it merges into Chief of Staff, Finance says it updates the existing agent, the rest are New. Routines sit under their agent; Finance\'s "whenever rent is due" is in amber saying it won\'t be set and why, and the count line says 1 routine can\'t be set as written. The primary button reads "Import 4 agents".',
+      'Step 1 has folded to a ticked line with “Show message”; the paste field is shorter. Under it: “4 agents from Grok Bot, in 2 parts · 1 routine can’t be set as written” (the tail amber). One sidebar-style row per agent: its badge in the colour it will have (the main one wears the Chief of Staff’s badge), the name with a chip (Merges into Chief of Staff, Updates, New in green), the role, and compact counts (2.1k chars of instructions · 3 memories · 2 routines). Finance’s counts end in amber “1 won’t be set”. Each row has a chevron. The primary button reads “Import 4 agents”.',
     // Steps run before a palette command, so these walk in: Agents mode, then
     // the first-run Import agents… starter.
-    requires: '.agents-import__paste',
+    requires: '.agents-import-agent',
+    clipSelector: '.agents-import',
     openSelector: AGENTS_TAB,
     steps: [{ click: IMPORT_STARTER }, { fill: '.agents-import__paste', value: PASTED_REPLY }],
     commands: { agents_import_paste_preview: PASTE_PREVIEW },
   },
   {
-    id: 'agents-import-paste-problems',
-    title: 'Agents — import, a pasted reply with mistakes',
+    id: 'agents-import-paste-expanded',
+    title: 'Agents — import, reading what came across',
     looksRightWhen:
-      'A calm error list under the paste, each line naming the block, the agent and the field (a trailing comma with its line, a missing name, is_main that is not true/false). The agents that did read fine are still listed below. Import stays disabled.',
-    // Steps run before a palette command, so these walk in: Agents mode, then
-    // the first-run Import agents… starter.
-    requires: '.agents-import__paste',
+      'Finance’s row is open (chevron turned down): under its name, small uppercase Instructions, Memory and Routines headings, the instructions word for word in a recessed box, memory as a dotted list, and the routine in amber with a warning mark: Won’t be set: “whenever rent is due”. Give it a day and a time.',
+    requires: '.agents-import-agent[data-open]',
+    clipSelector: '.agents-import',
     openSelector: AGENTS_TAB,
     steps: [
       { click: IMPORT_STARTER },
-
+      { fill: '.agents-import__paste', value: PASTED_REPLY },
+      { click: '.agents-import-agent:nth-child(2) .agents-import-agent__row' },
+    ],
+    commands: { agents_import_paste_preview: PASTE_PREVIEW },
+  },
+  {
+    id: 'agents-import-long',
+    title: 'Agents — import, a twelve-agent team with routines',
+    looksRightWhen:
+      '“12 agents from Grok Bot, in 3 parts · 4 routines can’t be set as written”. The list shows about five rows and scrolls inside itself; the dialog does not grow past the window and the footer with “Import 12 agents” stays in view.',
+    requires: '.agents-import-agent',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: IMPORT_STARTER }, { fill: '.agents-import__paste', value: PASTED_REPLY }],
+    commands: { agents_import_paste_preview: LONG_PREVIEW },
+  },
+  {
+    id: 'agents-import-paste-problems',
+    title: 'Agents — import, a pasted reply with mistakes',
+    looksRightWhen:
+      'A calm amber-edged note under the paste, not a red wall: a warning mark, “3 things to fix before this can come across”, each line naming the block, the agent and the field, and a muted last line saying the easiest fix is to send these to the assistant. The agents that did read fine are still listed below. Import stays disabled.',
+    requires: '.agents-import-problems',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
       { fill: '.agents-import__paste', value: '```json\n{"agents":[{"name":"Finance",},]}\n```' },
     ],
     commands: {
@@ -1188,7 +1319,56 @@ export const agentsScenarios: Scenario[] = [
         problems: [
           'Block 2 has a trailing comma at line 14 (a comma right before a } or ]). Delete that comma, or ask the assistant to send it again as valid JSON.',
           'Agent 3 in block 1 has no "name".',
-          '\u201CTravel\u201D: "is_main" should be true or false, not text.',
+          '“Travel”: "is_main" should be true or false, not text.',
+        ],
+      },
+    },
+  },
+  {
+    id: 'agents-import-done',
+    title: 'Agents — import, done',
+    looksRightWhen:
+      'The tabs and steps are gone. Centred: a green check in a soft green circle, “Your team is here”, one muted line “2 new agents · 2 updated · 3 routines set”, the four agents as pills with their badges (the main one as Chief of Staff), and “Say hi to your team.” with when they start. The footer: Close, and a primary “Open Chief of Staff”.',
+    requires: '.agents-import-done',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
+      { fill: '.agents-import__paste', value: PASTED_REPLY },
+      { click: IMPORT_BUTTON },
+    ],
+    commands: { agents_import_paste_preview: PASTE_PREVIEW, agents_import_paste: IMPORTED },
+  },
+  {
+    id: 'agents-import-done-refused',
+    title: 'Agents — import, done with routines that weren’t set',
+    looksRightWhen:
+      'As agents-import-done, plus the same calm amber note as a pasted mistake: “A few things didn’t come across”, one line per routine naming the agent, its phrase and why, and a muted last line asking Finance and Inbox to schedule them in plain words.',
+    requires: '.agents-import-done .agents-import-problems',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
+      { fill: '.agents-import__paste', value: PASTED_REPLY },
+      { click: IMPORT_BUTTON },
+    ],
+    commands: {
+      agents_import_paste_preview: PASTE_PREVIEW,
+      agents_import_paste: {
+        ...IMPORTED,
+        routinesRefused: [
+          {
+            agent: 'Finance',
+            when: 'whenever rent is due',
+            what: 'Remind me to pay rent.',
+            detail: 'Give it a day and a time.',
+          },
+          {
+            agent: 'Inbox',
+            when: 'whenever something urgent arrives',
+            what: 'Ping me.',
+            detail: 'Give it a day and a time.',
+          },
         ],
       },
     },
@@ -1197,10 +1377,24 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-import-connected',
     title: 'Agents — import, remote access on (connected assistant)',
     looksRightWhen:
-      'Opens on the Connected assistant tab because remote access is on: connect via Remote access, the one message to send, and Copy message. Paste is one click away on the left.',
+      'Opens on Connected assistant because remote access is on: step 1 “Connect it to Ship Studio” is a ticked line with “Remote access is on”; step 2 is current with the message and a primary Copy message. Footer: a muted note and Done.',
     command: 'agents.import',
-    requires: '.agents-import__prompt',
+    requires: '.agents-import-message',
+    clipSelector: '.agents-import',
     commands: { get_remote_access_status: remoteStatus({ enabled: true, serverRunning: true }) },
+  },
+  {
+    id: 'agents-import-nudge',
+    title: 'Agents — the import note at the foot of the agent list',
+    looksRightWhen:
+      'Under the last row, on the rows’ grid: a neutral icon tile in the badge column, then a short bold-ish title, one muted line, and a green “Import agents →” text action, all starting where the names above start. A faint × at the top right. A hairline under it like a row’s; no card, no fill. New agent and Import agents follow.',
+    openSelector: AGENTS_TAB,
+    requires: '.agents-import-nudge',
+    clipSelector: '.agents-list',
+    commands: {
+      agents_overview: overview([TEAM[0], TEAM.find((a) => a.id === 'finance') ?? TEAM[1]]),
+      agents_messages: messagesFor,
+    },
   },
   {
     id: 'agents-streaming',

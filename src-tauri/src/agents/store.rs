@@ -365,6 +365,17 @@ fn write_registry(registry: &Registry) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// The colour an agent created as the registry's `index`-th entry gets: the
+/// one it asked for if it's in the palette, otherwise the next spread colour.
+/// The paste preview calls this too, so its badges are the ones import makes.
+pub fn color_for(requested: Option<&str>, index: usize) -> String {
+    match requested {
+        Some(c) if COLORS.contains(&c) => c.to_string(),
+        // Spread new agents across the palette instead of making them all purple.
+        _ => COLORS[(index * 7 + 3) % COLORS.len()].to_string(),
+    }
+}
+
 pub fn list() -> Result<Vec<Agent>, CommandError> {
     let _guard = REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     Ok(read_registry()?.agents)
@@ -465,11 +476,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         return Err(CommandError::expected("There's already a Chief of Staff."));
     }
     let index = registry.agents.len();
-    let color = match new.color {
-        Some(c) if COLORS.contains(&c.as_str()) => c,
-        // Spread new agents across the palette instead of making them all purple.
-        _ => COLORS[(index * 7 + 3) % COLORS.len()].to_string(),
-    };
+    let color = color_for(new.color.as_deref(), index);
     let shape = new
         .shape
         .filter(|s| *s < SHAPE_COUNT)

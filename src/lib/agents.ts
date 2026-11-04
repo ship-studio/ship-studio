@@ -509,6 +509,11 @@ export interface PasteImportAgent {
   instructionsChars: number;
   memoryLines: number;
   routines: PasteImportRoutine[];
+  /** The badge colour it has or will be given here; null only before a Chief of Staff exists. */
+  color: string | null;
+  /** What came across, word for word. */
+  instructions: string;
+  memory: string[];
 }
 
 /**

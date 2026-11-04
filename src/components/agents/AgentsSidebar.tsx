@@ -23,7 +23,7 @@ import { Button } from '../primitives/Button';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
-import { ImportNudge } from './ImportNudge';
+import { ImportNudge, useImportNudge } from './ImportNudge';
 import { AgentMark } from './AgentSwitcher';
 import { useFlipReorder } from './useAgentMotion';
 import {
@@ -133,6 +133,7 @@ export function AgentsSidebar({
   ...actions
 }: AgentsSidebarProps) {
   const searching = query.trim().length > 0;
+  const nudge = useImportNudge(agents.length);
   const sorted = sortAgents(agents);
   const visible = sorted.filter((a) => !a.hidden || a.id === selectedId);
   const hidden = sorted.filter((a) => a.hidden && a.id !== selectedId);
@@ -219,7 +220,7 @@ export function AgentsSidebar({
             </button>
           )}
           {showHidden && hidden.map(row)}
-          <ImportNudge agentCount={agents.length} onImport={onImport} />
+          {nudge.visible && <ImportNudge onImport={onImport} onDismiss={nudge.dismiss} />}
           <div className="workspace-sidebar-active-actions">
             <Button
               variant="ghost"
@@ -231,17 +232,20 @@ export function AgentsSidebar({
               <AddIcon size={16} />
               <span>New agent</span>
             </Button>
-            {/* Always here, not only on first run: people decide to bring their
-                agents over after they've tried it. */}
-            <Button
-              variant="ghost"
-              width="fill"
-              className="workspace-sidebar-add-project"
-              onClick={onImport}
-            >
-              <DownloadIcon size={16} />
-              <span>Import agents</span>
-            </Button>
+            {/* Here for good once the note above is gone: people decide to
+                bring their agents over after they've tried it. While the note
+                shows, it is the way in, and a second button would only echo it. */}
+            {!nudge.visible && (
+              <Button
+                variant="ghost"
+                width="fill"
+                className="workspace-sidebar-add-project"
+                onClick={onImport}
+              >
+                <DownloadIcon size={16} />
+                <span>Import agents</span>
+              </Button>
+            )}
           </div>
         </>
       )}
