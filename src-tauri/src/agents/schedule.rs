@@ -1392,6 +1392,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
             extra: Default::default(),
         }
     }

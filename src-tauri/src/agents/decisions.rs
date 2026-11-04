@@ -192,6 +192,7 @@ pub(crate) fn card(
         always: None,
         always_allowed: false,
         note: None,
+        secret: None,
         prompt: Some(SessionPrompt {
             kind,
             project: project.to_string(),

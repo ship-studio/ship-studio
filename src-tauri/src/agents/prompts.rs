@@ -181,6 +181,7 @@ pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
         identity,
         VOICE.to_string(),
         WORK.to_string(),
+        super::secrets::RULES.to_string(),
         PROJECTS.to_string(),
         FILES.to_string(),
         TEAM.to_string(),
@@ -268,6 +269,17 @@ mod tests {
         assert!(bound.contains("### /h/CLAUDE.md"));
         assert!(bound.contains("- Deploys go through Sam."));
         assert!(!bound.contains("Your working directory is your home"));
+    }
+
+    #[test]
+    fn every_agent_is_told_to_ask_for_credentials_through_the_card() {
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Finance", "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap();
+        let prompt = system_prompt(&agent, None);
+        assert!(prompt.contains("ask with `request_secret`"));
+        assert!(prompt.contains("Never ask the user to paste a credential in chat"));
     }
 
     #[test]

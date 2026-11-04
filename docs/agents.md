@@ -137,6 +137,7 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
 | `project_*`, `session_*`, `preview_screenshot`, `git_status`, `push`, `deploy_status` | all | working on projects, below |
 | `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
+| `request_secret` | all | a secure input card for a password, key, token or login; the agent gets `$VAR` and a reference, never the value (below) |
 | `create_agent` | Chief | name, role, instructions, optional `project` and `first_task` |
 | `update_agent` | Chief | name / role / instructions / project (memory kept) |
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
@@ -312,6 +313,47 @@ Adding a rule also answers every other open card from the same agent that it
 covers (`mcp::covered_by`), through the same path as Allow: a live waiter is
 woken, and a card nobody waits on any more gets a late Allow that wakes the
 agent.
+
+## Secrets (`src-tauri/src/agents/secrets.rs`)
+
+`request_secret {name, purpose, kind, fields?}` puts a secure input card in
+the agent's chat: what it wants, why, a masked field per part, Save / Deny.
+It's an approval card (`Approval.secret`), so it counts as "Needs your OK",
+notifies, and shows in What's in flight; nothing waits on it, so it survives
+restarts and can be answered whenever. Save (`agents_save_secret`) sends the
+value from the webview to the macOS Keychain, service
+`ship-studio-agent-<agent id>`, one item per variable, and wakes the agent
+with the variable's name and the reference (`secret:finance/stripe_key`).
+Deny wakes it with a plain refusal (or the user's note). The registry keeps
+names, purpose, reference, created and last-used only.
+
+**Use: environment variables.** Each turn is a fresh `claude` process, so
+that agent's turns (and no other's) start with its secrets as variables
+(`$STRIPE_KEY`; a login's fields as `$BANK_USERNAME`, `$BANK_PASSWORD`), and
+the turn's prompt lists which it has. Chosen over a `use_secret`
+substitution tool because it needs no command runner of our own, works for
+scripts and SDKs that read the environment, and an approval card shows the
+command with `$STRIPE_KEY` unexpanded. Variables that change the shell,
+Claude Code, the linker or git (`PATH`, `CLAUDE*`, `DYLD_*`, `GIT_*`…) are
+refused as names. "Last used" is the last turn started with it; whether the
+agent read it isn't known.
+
+**Redaction** (defence in depth): every known value (loaded at launch, and on
+save or injection; 6+ characters) becomes `[secret:…]` in every line the
+store appends (chat log, card answers), the queue, recorded and emitted
+messages (a session's question card included: its question, options and
+the answer picked, in every chat that holds it), drafts, the activity line,
+the prompt piped to the next turn, and the remote/agents audit log. Not covered: a turn that prints the variable
+sends it to Claude as tool output and into Claude Code's own transcript; the
+prompt forbids printing one.
+
+Every agent is told to ask with `request_secret` and never to ask for a
+credential in chat. If the composer holds something key-shaped (Stripe,
+GitHub, OpenAI, Anthropic, AWS, Slack, Google, JWT, `password=…`), a quiet
+line offers "Store it securely" (`agents_add_secret`), which replaces it in
+the draft with its variable; it never blocks sending. Edit agent → Secrets
+lists them with Revoke, which deletes the Keychain items; deleting an agent
+deletes its items too. macOS only, like workspace credentials.
 
 ## Steering a working agent
 
@@ -739,5 +781,5 @@ prunes them the diff says it can't be shown.
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
-- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
+- `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
   agent, import, Claude Code missing.

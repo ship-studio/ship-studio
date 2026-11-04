@@ -35,6 +35,7 @@ import { ComposerAttachments, MessageAttachments } from './AgentAttachments';
 import type { DraftAttachment } from './useComposerAttachments';
 import { MentionText } from './AgentMentions';
 import { AgentPeerStatus } from './AgentPeerStatus';
+import { SecretCard } from './AgentSecretCard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
@@ -803,6 +804,11 @@ export const ApprovalCard = memo(function ApprovalCard({
         arrived={arrived}
         compact={compact}
       />
+    );
+  }
+  if (approval.secret) {
+    return (
+      <SecretCard message={message} agentName={agentName} onAnswer={onAnswer} arrived={arrived} />
     );
   }
   const pending = approval.status === 'pending';

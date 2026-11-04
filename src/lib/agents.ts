@@ -6,6 +6,7 @@
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import type { FileDiff } from './git';
+import type { AgentSecret, SecretRequest } from './agentSecrets';
 
 /** Avatar colour keys. The CSS maps each to a feature token. */
 export const AGENT_COLORS = [
@@ -66,6 +67,8 @@ export interface Agent {
   project?: string;
   /** What its last turn could use; omitted before its first turn. */
   capabilities?: Capabilities;
+  /** Secrets it has in the Keychain (names only); omitted when none. */
+  secrets?: AgentSecret[];
 }
 
 /** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
@@ -212,6 +215,8 @@ export interface Approval {
   alwaysAllowed?: boolean;
   /** What you told the agent when you declined. */
   note?: string;
+  /** A secure input card: what the agent asked for. */
+  secret?: SecretRequest;
   /** A question a project session is waiting on, answered with keys sent to it. */
   prompt?: SessionPrompt;
   /** The option picked on a `prompt` card. */

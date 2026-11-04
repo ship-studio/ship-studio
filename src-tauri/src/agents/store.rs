@@ -94,6 +94,10 @@ pub struct Agent {
     /// What its last turn could use, as Claude Code itself listed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<super::capabilities::Capabilities>,
+    /// Secrets it asked for and the user saved: names and references only.
+    /// The values are in the Keychain (see `secrets`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets: Vec<super::secrets::Secret>,
     /// Fields a newer Ship Studio wrote that this build doesn't know: kept
     /// and written back as they were, so running an older build never
     /// strips what a newer one saved.
@@ -196,6 +200,10 @@ pub struct Approval {
     /// The option the user picked on a `prompt` card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub choice: Option<String>,
+    /// A secure input card (`request_secret`): what it asks for. Saving it
+    /// sends the value to the Keychain, never into this log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<super::secrets::Request>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -550,6 +558,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         failure: None,
         project: None,
         capabilities: None,
+        secrets: Vec::new(),
         extra: Default::default(),
     };
     let home = agents_root()?.join(&agent.id);
@@ -622,6 +631,7 @@ pub fn delete(id: &str) -> Result<Agent, CommandError> {
     }
     let removed = registry.agents.remove(index);
     write_registry(&registry)?;
+    super::secrets::forget_all(&removed);
     // The home goes with it: its memory and chat are the agent.
     let home = agents_root()?.join(&removed.id);
     if home.exists() {
@@ -692,7 +702,10 @@ fn append_line<T: Serialize>(path: &Path, value: &T) -> Result<(), CommandError>
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| super::err_io(e.to_string()))?;
     }
-    let mut line = serde_json::to_string(value).map_err(|e| super::err_other(e.to_string()))?;
+    // Every line goes through redaction: a secret's value never lands on disk.
+    let mut value = serde_json::to_value(value).map_err(|e| super::err_other(e.to_string()))?;
+    super::secrets::redact_value(&mut value);
+    let mut line = serde_json::to_string(&value).map_err(|e| super::err_other(e.to_string()))?;
     line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -1036,7 +1049,11 @@ pub fn expire_stale_approvals() {
         let Ok(stale) = pending_approvals(&agent.id) else {
             continue;
         };
-        for a in stale.into_iter().filter(|a| a.tool.is_none()) {
+        // A secure input card needs nobody waiting: saving it later still works.
+        for a in stale
+            .into_iter()
+            .filter(|a| a.tool.is_none() && a.secret.is_none())
+        {
             let _ = set_approval_status(&agent.id, &a.request_id, ApprovalStatus::Expired);
         }
     }
@@ -1152,6 +1169,7 @@ mod tests {
                         note: None,
                         prompt: None,
                         choice: None,
+                        secret: None,
                     });
                 }
                 append_message(&line).unwrap();
@@ -1295,6 +1313,7 @@ mod tests {
                     note: None,
                     prompt: None,
                     choice: None,
+                    secret: None,
                 }),
                 attachments: Vec::new(),
                 check_in: None,
@@ -1385,6 +1404,7 @@ mod tests {
                 note: None,
                 prompt: None,
                 choice: None,
+                secret: None,
             });
             append_message(&card).unwrap();
             let raw = std::fs::read(log_path(&a.id).unwrap()).unwrap();
@@ -1561,6 +1581,7 @@ mod tests {
             let expected: Vec<String> = (1..=20)
                 .map(|n| format!("m{n:02}"))
                 .chain((1..=4).map(|n| format!("s{n:02}")))
+                .chain((1..=4).map(|n| format!("p{n:02}")))
                 .chain(["m22".into()])
                 .collect();
             assert_eq!(ids, expected, "a line was dropped");
@@ -1608,6 +1629,21 @@ mod tests {
             assert_eq!(event("s04"), SessionEvent::Screenshot);
             assert_eq!(by_id("s01").session.as_ref().unwrap().tab, Some(1));
             assert_eq!(by_id("s04").attachments.len(), 1);
+            // Secure input cards (`request_secret`) and a session's question.
+            let card = |id: &str| by_id(id).approval.as_ref().unwrap();
+            let saved = card("p01").secret.as_ref().unwrap();
+            assert_eq!(saved.fields[0].env, "STRIPE");
+            assert_eq!(card("p02").secret.as_ref().unwrap().fields.len(), 2);
+            assert_eq!(
+                card("p02").note.as_deref(),
+                Some("Use the CSV export instead")
+            );
+            let trust = card("p03").prompt.as_ref().unwrap();
+            assert_eq!(trust.kind, super::super::decisions::PromptKind::Trust);
+            assert_eq!(trust.chats.len(), 2);
+            assert_eq!(card("p03").choice.as_deref(), Some("Yes, proceed"));
+            assert_eq!(status("req-prompt-expired"), ApprovalStatus::Expired);
+            assert_eq!(card("p04").prompt.as_ref().unwrap().options.len(), 3);
             assert_eq!(messages(CHIEF, 3).unwrap().len(), 3);
 
             // Answering a card and appending leave every existing line as it was.

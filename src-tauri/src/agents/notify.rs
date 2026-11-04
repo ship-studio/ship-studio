@@ -314,6 +314,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
             extra: Default::default(),
         }
     }
@@ -332,6 +333,7 @@ mod tests {
             note: None,
             prompt: None,
             choice: None,
+            secret: None,
         });
         message
     }
