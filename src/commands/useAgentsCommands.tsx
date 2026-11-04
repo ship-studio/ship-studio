@@ -6,11 +6,13 @@
  */
 
 import { useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { AgentsIcon, DownloadIcon, PlusIcon } from '@/components/icons';
 import { useCommands } from './useCommands';
 import type { AppView } from '../lib/types';
+import { AGENT_EVENTS } from '../lib/agents';
 
-type AgentsIntent = 'new' | 'import';
+type AgentsIntent = 'new' | 'import' | { open: string };
 let pendingIntent: AgentsIntent | null = null;
 const intentListeners = new Set<(intent: AgentsIntent) => void>();
 
@@ -24,10 +26,19 @@ export function requestAgentsIntent(intent: AgentsIntent) {
 }
 
 /** Agents mode consumes intents with this. */
-export function useAgentsIntents(handlers: { onNewAgent: () => void; onImportAgents: () => void }) {
-  const { onNewAgent, onImportAgents } = handlers;
+export function useAgentsIntents(handlers: {
+  onNewAgent: () => void;
+  onImportAgents: () => void;
+  onOpenAgent: (agentId: string) => void;
+}) {
+  const { onNewAgent, onImportAgents, onOpenAgent } = handlers;
   useEffect(() => {
-    const listener = (intent: AgentsIntent) => (intent === 'new' ? onNewAgent() : onImportAgents());
+    const listener = (intent: AgentsIntent) =>
+      intent === 'new'
+        ? onNewAgent()
+        : intent === 'import'
+          ? onImportAgents()
+          : onOpenAgent(intent.open);
     intentListeners.add(listener);
     if (pendingIntent) {
       const intent = pendingIntent;
@@ -37,10 +48,19 @@ export function useAgentsIntents(handlers: { onNewAgent: () => void; onImportAge
     return () => {
       intentListeners.delete(listener);
     };
-  }, [onNewAgent, onImportAgents]);
+  }, [onNewAgent, onImportAgents, onOpenAgent]);
 }
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
+  // A clicked notification (the backend already focused this window): open that agent.
+  useEffect(() => {
+    const unlisten = listen<string>(AGENT_EVENTS.open, (e) => {
+      requestAgentsIntent({ open: e.payload });
+      setView('agents');
+    });
+    return () => void unlisten.then((off) => off());
+  }, [setView]);
+
   useCommands(
     () => [
       {

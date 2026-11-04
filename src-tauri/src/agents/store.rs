@@ -66,6 +66,9 @@ pub struct Agent {
     /// Explicit model override (`--model`); `None` uses Claude Code's default.
     #[serde(default)]
     pub model: Option<String>,
+    /// No OS notifications for this agent. Unread and the Dock badge still count it.
+    #[serde(default)]
+    pub muted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -340,6 +343,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         unread: 0,
         pending_approvals: 0,
         model: None,
+        muted: false,
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;

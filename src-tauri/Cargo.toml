@@ -81,6 +81,7 @@ vt100 = "0.16"
 # Remote access tokens: 256 bits straight from the OS CSPRNG.
 getrandom = "0.2"
 tempfile = "3"
+tauri-plugin-notification = "2"
 
 [dev-dependencies]
 

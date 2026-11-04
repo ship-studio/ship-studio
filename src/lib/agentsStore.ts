@@ -142,10 +142,10 @@ export function useAgents(): AgentsState {
   return useSyncExternalStore(subscribeAgents, getAgentsSnapshot);
 }
 
-/** Total unread across agents, for the sidebar nav badge. */
+/** Unread plus pending approvals across agents: the sidebar nav badge, same as the Dock's. */
 export function useAgentsUnread(): number {
   const { agents } = useAgents();
-  return agents.reduce((sum, a) => sum + (a.hidden ? 0 : a.unread), 0);
+  return agents.reduce((sum, a) => sum + (a.hidden ? 0 : a.unread + (a.pendingApprovals ?? 0)), 0);
 }
 
 /** Test hook. */

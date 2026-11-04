@@ -4,7 +4,8 @@
  * header, the full-bleed row, the badge, the status slot, the ghost
  * "Open project" action — so it reads as the same sidebar, not a second app.
  *
- * Right-click a row for Pin, Mark as unread, Edit, Hide and Delete.
+ * Right-click a row for Pin, Mark as unread, Mute notifications, Edit, Hide
+ * and Delete.
  *
  * @module components/agents/AgentsSidebar
  */
@@ -12,6 +13,7 @@
 import {
   AgentsIcon,
   BellIcon,
+  BellOffIcon,
   DownloadIcon,
   EditIcon,
   EyeIcon,
@@ -45,6 +47,7 @@ interface AgentsSidebarProps {
   onImport: () => void;
   onTogglePin: (agent: Agent) => void;
   onToggleHidden: (agent: Agent) => void;
+  onToggleMuted: (agent: Agent) => void;
   onMarkUnread: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
   onDelete: (agent: Agent) => void;
@@ -71,6 +74,7 @@ export function AgentsSidebar({
   onImport,
   onTogglePin,
   onToggleHidden,
+  onToggleMuted,
   onMarkUnread,
   onEdit,
   onDelete,
@@ -121,6 +125,9 @@ export function AgentsSidebar({
                   <span className="agents-list__name">
                     {agent.name}
                     {agent.pinned && <PinIcon size={10} className="agents-list__pin" />}
+                    {agent.muted && (
+                      <BellOffIcon size={10} className="agents-list__pin" aria-label="Muted" />
+                    )}
                   </span>
                   <span
                     className="agents-list__preview"
@@ -146,6 +153,10 @@ export function AgentsSidebar({
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => onMarkUnread(agent)}>
                 <BellIcon size={12} /> Mark as unread
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => onToggleMuted(agent)}>
+                {agent.muted ? <BellIcon size={12} /> : <BellOffIcon size={12} />}{' '}
+                {agent.muted ? 'Unmute notifications' : 'Mute notifications'}
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => onEdit(agent)}>
                 <EditIcon size={12} /> Edit agent…

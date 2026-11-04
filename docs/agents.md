@@ -112,6 +112,18 @@ tool and input are stored on the card. Ship Studio's own confirmations (delete
 an agent) do expire, since they only mean something while asked. The sidebar
 shows "Needs your OK" while any card is open (`pendingApprovals`).
 
+## Notifications (`src-tauri/src/agents/notify.rs`)
+
+The backend decides, since it knows when a message is recorded and when a turn ends.
+
+- **On screen** = a *focused* window is showing that agent (`agents_focus` reports which agent each window shows; focus is asked of the window at that moment). Messages on screen neither notify nor count as unread.
+- A reply or error off screen notifies with the agent's name and the first line. Inside a turn they are held and posted once when it ends, with the latest text. An approval posts at once, with a sound.
+- Bursts across agents are capped (3 per 20s); the rest stay silent but still count.
+- **Mute** (row context menu) stops OS notifications for that agent; a bell-off mark shows in its row. Unread and the badge still count it.
+- **Dock badge** and the sidebar nav badge = unread + pending approvals across non-hidden agents. Approval cards don't add to unread; they count as pending until answered.
+- Clicking a notification focuses a window and emits `agents://open`; the app switches to Agents and opens that agent. Focusing a window clears the unread of the agent it shows.
+- Uses `tauri-plugin-notification` (2.8, click reporting on macOS). Not verified in a real build yet: the dev binary posts under another app's identity, so click-through should be checked in a signed build.
+
 ## Import from Grok Bot (or any connected assistant)
 
 Only the other assistant knows its own agents, instructions and memory, so the

@@ -1,6 +1,7 @@
 import SuccessAlertSvg from '../../assets/icons/success-alert.svg?react';
 import ErrorAlertSvg from '../../assets/icons/error-alert.svg?react';
 import AlertSvg from '../../assets/icons/alert.svg?react';
+import BellOffSvg from '../../assets/icons/bell-off.svg?react';
 import ActiveSvg from '../../assets/icons/active.svg?react';
 import HistorySvg from '../../assets/icons/history.svg?react';
 import ShieldTickSvg from '../../assets/icons/shield-tick.svg?react';
@@ -26,6 +27,13 @@ export const ErrorIcon = createIcon(ErrorAlertSvg, {
 export const BellIcon = createIcon(AlertSvg, {
   name: 'BellIcon',
   source: 'icons/alert.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const BellOffIcon = createIcon(BellOffSvg, {
+  name: 'BellOffIcon',
+  source: 'icons/bell-off.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',

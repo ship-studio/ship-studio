@@ -49,6 +49,8 @@ export interface Agent {
   /** Approval cards still waiting on the user, including ones the agent paused on. */
   pendingApprovals: number;
   model: string | null;
+  /** No OS notifications; unread and the Dock badge still count it. */
+  muted: boolean;
   status: AgentStatus;
 }
 
@@ -99,12 +101,15 @@ export interface UpdateAgentInput {
   instructions?: string;
   pinned?: boolean;
   hidden?: boolean;
+  muted?: boolean;
 }
 
 export const AGENT_EVENTS = {
   message: 'agents://message',
   status: 'agents://status',
   registry: 'agents://registry',
+  /** A notification was clicked; payload is the agent id to open. */
+  open: 'agents://open',
 } as const;
 
 export const getAgentsOverview = () => invoke<AgentsOverview>('agents_overview');

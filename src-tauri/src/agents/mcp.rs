@@ -488,6 +488,7 @@ async fn ask_user(
     });
     let _ = runner::record(app, card);
     store::refresh_pending(&caller.id);
+    super::notify::refresh_badge(app);
     let before = runner::status_of(&caller.id);
     runner::set_status(
         app,
@@ -519,6 +520,7 @@ async fn ask_user(
         }
     }
     let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+    super::notify::refresh_badge(app);
     runner::set_status(
         app,
         &caller.id,
@@ -753,6 +755,7 @@ mod tests {
             unread: 0,
             pending_approvals: 0,
             model: None,
+            muted: false,
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

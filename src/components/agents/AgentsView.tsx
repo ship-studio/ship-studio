@@ -98,7 +98,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openNew = useCallback(() => setEditor({ open: true, agent: null }), []);
   const openImport = useCallback(() => setImportOpen(true), []);
-  useAgentsIntents({ onNewAgent: openNew, onImportAgents: openImport });
+  useAgentsIntents({ onNewAgent: openNew, onImportAgents: openImport, onOpenAgent: setSelectedId });
 
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -128,6 +128,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
                 onImport={openImport}
                 onTogglePin={(a) => void run(() => updateAgent(a.id, { pinned: !a.pinned }))}
                 onToggleHidden={(a) => void run(() => updateAgent(a.id, { hidden: !a.hidden }))}
+                onToggleMuted={(a) => void run(() => updateAgent(a.id, { muted: !a.muted }))}
                 onMarkUnread={(a) => {
                   if (a.id === selectedId) setSelectedId(null);
                   void run(() => markAgentUnread(a.id));

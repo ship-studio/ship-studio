@@ -144,6 +144,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|_app| {
             // Teach the user's own agent about workflows, and start the tick
             // that fires the armed ones. The skill install is the discovery
@@ -157,9 +158,15 @@ pub fn run() {
                 });
             }
 
-            // Agents: a card still "pending" from the last run has nobody
-            // waiting on it any more.
-            tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals);
+            // Agents: notification clicks open the agent. A card still
+            // "pending" from the last run has nobody waiting on it any more;
+            // the Dock badge starts from what's left once those expire.
+            agents::notify::init(_app.handle());
+            let badge_app = _app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                agents::store::expire_stale_approvals();
+                agents::notify::refresh_badge(&badge_app);
+            });
 
             // Start the agent preview bridge (global loopback MCP server) at
             // launch so it's listening before any agent session spawns —
@@ -454,8 +461,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(true) = event {
+                let (app, label) = (window.app_handle().clone(), window.label().to_string());
+                tauri::async_runtime::spawn_blocking(move || {
+                    agents::notify::window_focused(&app, &label)
+                });
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
+                agents::notify::forget_window(&label);
                 tracing::info!("Window {} destroyed, cleaning up", label);
 
                 // Stop preview proxy and static server for this window (the
