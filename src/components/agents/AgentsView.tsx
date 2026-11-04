@@ -21,6 +21,7 @@ import { AgentsNavActions, AgentsSidebar } from './AgentsSidebar';
 import { AgentsSearchPopover, AgentsTopSearch } from './AgentsSearchBox';
 import { ClaudeSignInModal } from './ClaudeSignInModal';
 import { AgentChat } from './AgentChat';
+import { AgentsTeamView } from './AgentsTeamView';
 import { AgentEditorModal } from './AgentEditorModal';
 import { ImportAgentsModal } from './ImportAgentsModal';
 import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
@@ -30,6 +31,7 @@ import {
   focusAgent,
   markAgentUnread,
   sortAgents,
+  TEAM_ID,
   updateAgent,
   type Agent,
   type SearchHit,
@@ -81,12 +83,14 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [jumpTo, setJumpTo] = useState<string | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-  // The last agent you had open, else the Chief of Staff.
-  const selected =
-    (selectedId && agentsById.get(selectedId)) ||
-    agents.find((a) => a.isMain) ||
-    sortAgents(agents)[0] ||
-    null;
+  // The Team overview, else the last agent you had open, else the Chief of Staff.
+  const teamOpen = selectedId === TEAM_ID;
+  const selected = teamOpen
+    ? null
+    : (selectedId && agentsById.get(selectedId)) ||
+      agents.find((a) => a.isMain) ||
+      sortAgents(agents)[0] ||
+      null;
 
   // The conversation on screen: the selected one once its messages are in,
   // until then whichever was there before.
@@ -96,11 +100,18 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
   const shown = (shownId && agentsById.get(shownId)) || null;
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      // On the Team view no conversation is on screen, so replies still count as unread.
+      if (teamOpen) {
+        writeSelected(TEAM_ID);
+        void focusAgent(null);
+      }
+      return;
+    }
     writeSelected(selected.id);
     void focusAgent(selected.id);
     if (!getAgentsSnapshot().messages[selected.id]) void loadMessages(selected.id);
-  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.id, teamOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Leaving Agents mode: nothing is on screen any more, so new replies count as unread.
   useEffect(() => () => void focusAgent(null), []);
@@ -172,10 +183,14 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
     return true;
   }, []);
 
-  const openHit = useCallback((hit: SearchHit) => {
-    setSelectedId(hit.agentId);
-    setJumpTo(hit.messageId);
+  const openMessage = useCallback((agentId: string, messageId: string) => {
+    setSelectedId(agentId);
+    setJumpTo(messageId);
   }, []);
+  const openHit = useCallback(
+    (hit: SearchHit) => openMessage(hit.agentId, hit.messageId),
+    [openMessage]
+  );
   const clearJump = useCallback(() => setJumpTo(null), []);
   useAgentsIntents({
     onNewAgent: openNew,
@@ -263,7 +278,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
             listContent={
               <AgentsSidebar
                 agents={agents}
-                selectedId={selected?.id ?? null}
+                selectedId={teamOpen ? TEAM_ID : (selected?.id ?? null)}
                 showHidden={showHidden}
                 onToggleShowHidden={() => setShowHidden((v) => !v)}
                 onSelect={setSelectedId}
@@ -287,6 +302,12 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
           )}
           {error && !loaded ? (
             <div className="agents-main__state">{error}</div>
+          ) : teamOpen ? (
+            <AgentsTeamView
+              onOpenAgent={setSelectedId}
+              onOpenMessage={openMessage}
+              onGoHome={isCompact ? sidebarProps.onGoHome : undefined}
+            />
           ) : !shown ? (
             <div className="agents-main__state">
               <Spinner />

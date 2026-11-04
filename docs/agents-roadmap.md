@@ -30,7 +30,7 @@ Grok Bot user) would feel its absence.
 | Reactions | `reactToMessage`, `reaction`, `reactionAck` | **missing** | low |
 | Interrupt / steer a running turn | `interruptAgentRun`, `user_interrupt`, `steer` | **partial** — Stop kills the turn and drops the queue; new messages queue for the *next* turn, no mid-turn steer | med |
 | Offline / queued send | `queued_offline`, `clientQueuedSend*` | **have** (local inbox queue; no network dependency) | — |
-| Slash commands / @mentions | `sand_hide_slash_commands`, `sand_hide_at_mentions` (flags to *hide* them, so they exist) | **missing** | med (`@Finance` to route is natural) |
+| Slash commands / @mentions | `sand_hide_slash_commands`, `sand_hide_at_mentions` (flags to *hide* them, so they exist) | **partial**: @mentions to involve/delegate to agents; no slash commands | med (`@Finance` to route is natural) |
 | Message link hover cards | `sand_message_link_hover_cards` | **missing** | low |
 | Visualizations / widgets inline | `sand_enable_visualizations`, `sand_enable_page_widgets`, `sand_media` | **missing** (text bubbles only) | med |
 
@@ -47,7 +47,7 @@ Grok Bot user) would feel its absence.
 | Group chats / multiplayer / teammates | `grok_bot_group_chats`, `grok_bot_multiplayer`, `sand_invite_teammates`, `grok_bot_team_*` | **missing** | low now (single user) |
 | Per-agent model choice | `switchModel`, `requestedModel`, `sand_side_model_status` | **partial** — `Agent.model` exists and `runner.rs:384` passes `--model`, but no UI sets it | med |
 | Memory | `add_to_memory`, `grok_bot_memory_import`, `folderMemory` | **have** (`## Memory` in each agent's CLAUDE.md, self-maintained) | — |
-| Tasks page | `sand_tasks`, `sand_tasks_page` | **missing** (no cross-agent "what's in flight" view) | med |
+| Tasks page | `sand_tasks`, `sand_tasks_page` | **have** (Team view: needs you, working, scheduled next, recent replies) | med |
 
 ### Proactivity, notifications, reach
 

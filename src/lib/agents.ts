@@ -129,6 +129,8 @@ export interface AgentMessage {
   checkIn?: CheckInMark;
   /** A reply cut off by Stop: what had streamed by then. */
   stopped?: boolean;
+  /** Agents you @mentioned in this message, as they were named then. */
+  mentions?: AgentRef[];
 }
 
 /** A file sent with a message, as kept in the agent's home. */
@@ -268,12 +270,14 @@ export const getAgentMessages = (agentId: string, limit?: number) =>
 export const sendAgentMessage = (
   agentId: string,
   text: string,
-  attachments: OutgoingAttachment[] = []
+  attachments: OutgoingAttachment[] = [],
+  mentions: string[] = []
 ) =>
   invoke<AgentMessage>('agents_send', {
     agentId,
     text,
     attachments: attachments.length ? attachments : undefined,
+    mentions: mentions.length ? mentions : undefined,
   });
 export const inspectFiles = (paths: string[]) =>
   invoke<FileInfo[]>('agents_inspect_files', { paths });
@@ -622,4 +626,151 @@ export function lastUserText(messages: AgentMessage[], index: number): string | 
     if (messages[i].kind === 'user') return messages[i].text.trim() || null;
   }
   return null;
+}
+
+/** The longest a name being typed after @ can run before it's just text. */
+const MENTION_MAX = 40;
+
+/**
+ * The @mention being typed at the caret, if any: an @ at the start or after
+ * whitespace, with no line break between it and the caret. Names have
+ * spaces ("Acme Site"), so the query may too.
+ */
+export function mentionAt(text: string, caret: number): { start: number; query: string } | null {
+  const before = text.slice(0, caret);
+  const at = before.lastIndexOf('@');
+  if (at === -1 || (at > 0 && !/\s/.test(before[at - 1]))) return null;
+  const query = before.slice(at + 1);
+  if (query.length > MENTION_MAX || /[\n@]/.test(query) || /^\s/.test(query)) return null;
+  return { start: at, query };
+}
+
+/** Agents whose name matches what's typed after @: name starts first, then any word. */
+export function mentionCandidates(agents: Agent[], query: string): Agent[] {
+  const q = query.toLowerCase();
+  const starts = (a: Agent) => a.name.toLowerCase().startsWith(q);
+  const words = (a: Agent) =>
+    a.name
+      .toLowerCase()
+      .split(/\s+/)
+      .some((w) => w.startsWith(q));
+  return [...agents.filter(starts), ...agents.filter((a) => !starts(a) && words(a))];
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** An "@Name" for each agent, standing alone (not the start of a longer word). */
+function mentionPattern(names: string[]): RegExp | null {
+  if (names.length === 0) return null;
+  const alternatives = [...names]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join('|');
+  return new RegExp(`(?<=^|\\s)@(${alternatives})(?![\\w])`, 'gi');
+}
+
+/** The agents a message @mentions, in the order they first appear. */
+export function mentionedAgents(text: string, agents: Agent[]): Agent[] {
+  const pattern = mentionPattern(agents.map((a) => a.name));
+  if (!pattern) return [];
+  const found: Agent[] = [];
+  for (const match of text.matchAll(pattern)) {
+    const agent = agents.find((a) => a.name.toLowerCase() === match[1].toLowerCase());
+    if (agent && !found.includes(agent)) found.push(agent);
+  }
+  return found;
+}
+
+/** Text split around the @mentions a message recorded, for tinting them. */
+export function mentionRuns(
+  text: string,
+  mentions: AgentRef[] = []
+): { text: string; mention?: AgentRef }[] {
+  const pattern = mentionPattern(mentions.map((m) => m.name));
+  if (!pattern) return [{ text }];
+  const runs: { text: string; mention?: AgentRef }[] = [];
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > last) runs.push({ text: text.slice(last, index) });
+    const mention = mentions.find((m) => m.name.toLowerCase() === match[1].toLowerCase());
+    runs.push({ text: match[0], mention });
+    last = index + match[0].length;
+  }
+  if (last < text.length) runs.push({ text: text.slice(last) });
+  return runs;
+}
+
+/** The Team overview's place in the selection, beside agent ids. */
+export const TEAM_ID = '__team';
+
+/** A reply's first line as plain words, for a one-line row. */
+export function replyPreview(text: string): string {
+  const line =
+    text
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l && !/^(```|\||---)/.test(l)) ?? '';
+  return line
+    .replace(/^(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|`|~~)/g, '');
+}
+
+/** What the Team view lists; everything is read from the store, nothing inferred. */
+export interface TeamSummary {
+  working: Agent[];
+  needsYou: { agent: Agent; approvals: AgentMessage[] }[];
+  scheduled: { agent: Agent; checkIn: CheckIn }[];
+  replies: { agent: Agent; message: AgentMessage }[];
+}
+
+export const TEAM_SCHEDULED_MAX = 5;
+export const TEAM_REPLIES_MAX = 6;
+
+/**
+ * The overview from the agents and whatever chat lines are loaded for them.
+ * Hidden agents are left out, as they are from the badge. Paused routines
+ * aren't "next", so they're left out too.
+ */
+export function summarizeTeam(
+  agents: Agent[],
+  messages: Record<string, AgentMessage[] | undefined>
+): TeamSummary {
+  const shown = sortAgents(agents.filter((a) => !a.hidden));
+  const scheduled = shown
+    .flatMap((agent) =>
+      (agent.checkIns ?? []).filter((c) => !c.paused).map((checkIn) => ({ agent, checkIn }))
+    )
+    .sort((a, b) => a.checkIn.nextAt - b.checkIn.nextAt)
+    .slice(0, TEAM_SCHEDULED_MAX);
+  const replies = shown
+    .flatMap((agent) =>
+      (messages[agent.id] ?? [])
+        .filter((m) => m.kind === 'agent' && m.text.trim())
+        .map((message) => ({ agent, message }))
+    )
+    .sort((a, b) => b.message.ts - a.message.ts)
+    .slice(0, TEAM_REPLIES_MAX);
+  return {
+    working: shown.filter((a) => a.status.state === 'working' && !needsYou(a)),
+    needsYou: shown.filter(needsYou).map((agent) => ({
+      agent,
+      approvals: (messages[agent.id] ?? []).filter((m) => m.approval?.status === 'pending'),
+    })),
+    scheduled,
+    replies,
+  };
+}
+
+/** The Team row's second line: "2 working · 1 needs you", or quiet. */
+export function teamSubtitle(agents: Agent[]): string {
+  const shown = agents.filter((a) => !a.hidden);
+  const waiting = shown.filter(needsYou).length;
+  const working = shown.filter((a) => a.status.state === 'working' && !needsYou(a)).length;
+  const parts = [
+    working > 0 ? `${working} working` : '',
+    waiting > 0 ? `${waiting} ${waiting === 1 ? 'needs' : 'need'} you` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Nothing in flight';
 }

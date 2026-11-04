@@ -167,7 +167,14 @@ const CHIEF_CHAT = [
     'Nothing’s on fire. Three things need you today:\n\n1. **Finance** found two overdue invoices, $5,350 total. It has reminder emails drafted.\n2. **Acme Site** is fixing the pricing table on mobile; the client flagged it yesterday.\n3. **Lead Gen** wants to email 12 new leads and is waiting for your OK on the first one.',
     189
   ),
-  msg('user', 'Get Acme to also check the footer links, the client said a couple are dead.', 70),
+  msg(
+    'user',
+    'Get @Acme Site to also check the footer links, the client said a couple are dead.',
+    70,
+    {
+      mentions: [{ id: 'acme', name: 'Acme Site' }],
+    }
+  ),
   msg('agent', 'On it. I’ve added the footer to Acme Site’s list.', 69),
   msg(
     'sent_to_agent',
@@ -370,7 +377,12 @@ let lastSend: { agentId: string; at: number } | null = null;
 
 const sendMessage = (args: Record<string, unknown>) => {
   const agentId = String(args.agentId);
-  const sent = { ...msg('user', String(args.text), 0, { agentId }), ts: Date.now() };
+  // As the backend does: the mentioned agents, by the names they have now.
+  const mentions = ((args.mentions as string[] | undefined) ?? []).flatMap((id) => {
+    const found = TEAM.find((a) => a.id === id);
+    return found ? [{ id, name: found.name }] : [];
+  });
+  const sent = { ...msg('user', String(args.text), 0, { agentId, mentions }), ts: Date.now() };
   (SENT[agentId] ??= []).push(sent);
   lastSend = { agentId, at: Date.now() };
   return sent;
@@ -795,6 +807,32 @@ export const agentsScenarios: Scenario[] = [
       ),
       agents_messages: (args: Record<string, unknown>) =>
         args.agentId === 'chief' ? streamMessages() : messagesFor(args),
+    },
+  },
+  {
+    id: 'agents-team-overview',
+    title: 'Agents — Team: what’s in flight',
+    looksRightWhen:
+      'The Team row heads the agent list, selected, saying “1 working · 1 needs you”. The main column shows four sections in a fixed order: Needs you (Lead Gen, with its Gmail card answerable in place), Working now (Acme Site, “Editing PricingTable.tsx”, with the loader), Scheduled next (Finance’s two active check-ins, soonest first, the paused one absent), Recent replies (newest first, one plain line each, with times). Rows share the sidebar’s badge and type.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agents-team .agent-approval',
+    steps: [{ click: '[data-agent-id="__team"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-mention',
+    title: 'Agents — @ in the composer offers the team',
+    looksRightWhen:
+      'Typing “@fi” opens the app’s menu surface upward from the composer’s left edge: Finance first (its name starts with “fi”), each row a mini badge, the name, and the role muted. The first row is highlighted; the field keeps focus. Earlier in the chat, “@Acme Site” in your bubble is tinted green.',
+    openSelector: '.workspace-sidebar-agents',
+    requires: '.agent-mention-menu',
+    steps: [{ fill: '.agent-composer__input', value: 'Can you ask @fi' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
     },
   },
   {

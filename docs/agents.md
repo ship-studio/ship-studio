@@ -236,6 +236,33 @@ cards.
   ahead of what you typed. User bubbles show those blockquotes as quote bars
   (`splitQuotes`); nothing else in a user's text is read as Markdown.
 
+## @mentions and Team
+
+- **@mentions.** Typing `@` in the composer opens a small menu of your other
+  agents (the app's menu surface; the field keeps focus: ↑ ↓, Return or Tab,
+  Esc). Picking one writes `@Name`. `agents_send` takes the mentioned ids,
+  keeps only real agents other than the recipient, records them on the
+  message as `mentions: [{id, name}]`, and adds one line to the prompt
+  (`prompts::mentions`): for the Chief, "delegate this to them with
+  message_agent"; for anyone else, "involve them". No new routing: the
+  recipient does it with `message_agent`. The bubble tints each recorded
+  `@Name` in that agent's colour. A name typed without the menu still counts
+  if it matches an agent exactly.
+- **Team** (first row of the list, or ⌘K → "Team: what's in flight") shows,
+  in a fixed order and present even when empty: who needs you (with their
+  pending approval cards, answerable in place), who is working (their
+  activity line), the next five active check-ins, and the six latest
+  replies. Every row opens that chat; a reply opens it at that line. It
+  reads only the store: statuses and check-ins from the registry, cards and
+  replies from each chat's recent lines (live for chats open this session,
+  otherwise the last 20 lines, re-read when that agent's row changes; a
+  chat with an open card reads a page). Hidden agents are left out. While
+  Team is open no chat is on screen, so replies keep counting as unread.
+- **Sections** (user-made groups in the list) are not built: they need a
+  persisted field, a naming flow, collapse state, and a story for how they
+  sit with the recency sort. Worth doing as its own slice once the list is
+  long enough to want them.
+
 ## Known limits / next
 
 - Claude Code only. The runner is CLI-specific in `run_turn`; Codex
@@ -258,5 +285,5 @@ cards.
 - `cargo test --lib agents::`: store, prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `node scripts/harness-capture.mjs agents-`: team, approval, first run, new
+- `node scripts/harness-capture.mjs agents-`: team, Team overview, @mention menu, approval, first run, new
   agent, import, Claude Code missing.

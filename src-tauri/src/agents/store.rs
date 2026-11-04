@@ -168,6 +168,9 @@ pub struct AgentMessage {
     /// streamed by then, kept rather than thrown away.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
+    /// Agents the user @mentioned in this message, as they were named then.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<AgentRef>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -704,6 +707,7 @@ mod tests {
                 attachments: Vec::new(),
                 check_in: None,
                 stopped: false,
+                mentions: Vec::new(),
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

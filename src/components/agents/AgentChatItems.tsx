@@ -20,6 +20,7 @@ import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
 import { MessageAttachments } from './AgentAttachments';
+import { MentionText } from './AgentMentions';
 import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
@@ -193,10 +194,12 @@ interface UserBubbleProps extends Arrival {
   /** Sending failed; offer to try again. */
   failed?: boolean;
   onRetry?: () => void;
+  /** An agent's colour, for tinting the names you @mentioned. */
+  colorOf: (agentId: string) => string | undefined;
 }
 
 /** Attachments sit above the words, both against the right edge, as one message. */
-export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBubbleProps) {
+export function UserBubble({ message, agent, arrived, failed, onRetry, colorOf }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
   const actions = !failed && <MessageActions text={message.text} ts={message.ts} />;
   return (
@@ -224,7 +227,7 @@ export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBub
                 </blockquote>
               ) : (
                 <p key={i} className="agent-bubble__text">
-                  {part.text}
+                  <MentionText text={part.text} mentions={message.mentions} colorOf={colorOf} />
                 </p>
               )
             )}
