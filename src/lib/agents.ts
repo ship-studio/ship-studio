@@ -5,6 +5,7 @@
  */
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import type { FileDiff } from './git';
 
 /** Avatar colour keys. The CSS maps each to a feature token. */
 export const AGENT_COLORS = [
@@ -59,6 +60,17 @@ export interface Agent {
   status: AgentStatus;
   /** The agent's home folder; attachment paths are relative to it. */
   home: string;
+  /** The newest line in its chat is a failed turn; omitted otherwise. */
+  failure?: Failure;
+  /** The project it works in (a path from `list_projects`); omitted when unbound. */
+  project?: string;
+}
+
+/** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
+export interface Failure {
+  kind: 'usage_limit' | 'signed_out' | 'other';
+  /** When the usage limit resets (epoch ms), only when Claude Code said so. */
+  resetsAt?: number;
 }
 
 /** How a routine repeats; mirrors `schedule::Repeat`. Days are 0 = Sunday. */
@@ -103,8 +115,10 @@ export type MessageKind =
   | 'approval'
   | 'error'
   | 'check_in'
-  /** A quiet line: an automatically allowed call, an interruption. */
-  | 'note';
+  /** A quiet line: an automatically allowed call, an interruption, what the Chief did. */
+  | 'note'
+  /** Files a project-bound agent's turn changed (`changes`). */
+  | 'changes';
 
 /** What "Always allow" covers; mirrors `permissions::Scope`. */
 export interface PermissionScope {
@@ -140,7 +154,7 @@ export function describeScope(scope: PermissionScope, agentName: string): string
   const chained = scope.kind.startsWith('command')
     ? ' Commands chained with &&, ; or | still ask.'
     : '';
-  return `${what} runs for ${agentName} without asking.${chained} Revoke it in ${agentName}’s settings.`;
+  return `${what} runs for ${agentName} without asking.${chained} Revoke it in Edit agent → Permissions.`;
 }
 
 export interface AgentRef {
@@ -159,6 +173,8 @@ export interface Approval {
   always?: PermissionScope;
   /** Allowed by an "Always allow" rule rather than once. */
   alwaysAllowed?: boolean;
+  /** What you told the agent when you declined. */
+  note?: string;
 }
 
 export interface AgentMessage {
@@ -176,6 +192,32 @@ export interface AgentMessage {
   stopped?: boolean;
   /** Agents you @mentioned in this message, as they were named then. */
   mentions?: AgentRef[];
+  /** On an `error` line: what kind of failure. Absent on lines written before. */
+  failure?: Failure;
+  /** On a `changes` line: what the turn changed in the project. */
+  changes?: ChangeSummary;
+}
+
+/** Mirrors `project::ChangedFile`: line counts are absent for a binary file. */
+export interface ChangedFile {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  added?: number;
+  removed?: number;
+}
+
+/** Mirrors `project::ChangeSummary`, read from git when the turn ended. */
+export interface ChangeSummary {
+  project: string;
+  /** Absent when HEAD was detached. */
+  branch?: string;
+  from: string;
+  to: string;
+  /** At most 50; `fileCount` counts them all. */
+  files: ChangedFile[];
+  fileCount: number;
+  added: number;
+  removed: number;
 }
 
 /** A file sent with a message, as kept in the agent's home. */
@@ -240,6 +282,8 @@ export interface NewAgentInput {
   role?: string;
   instructions?: string;
   model?: string;
+  /** A project path from `list_projects`. */
+  project?: string;
 }
 
 export interface UpdateAgentInput {
@@ -253,6 +297,8 @@ export interface UpdateAgentInput {
   muted?: boolean;
   /** An alias from AGENT_MODELS, or '' for Claude Code's default. */
   model?: string;
+  /** A project path from `list_projects`, or '' to unbind it. */
+  project?: string;
 }
 
 /**
@@ -389,19 +435,24 @@ export const updateAgent = (agentId: string, input: UpdateAgentInput) =>
   invoke<Omit<Agent, 'status' | 'home'>>('agents_update', { agentId, input });
 export const getAgentInstructions = (agentId: string) =>
   invoke<string>('agents_instructions', { agentId });
+/** One file of a change card, as this turn changed it. */
+export const getChangeDiff = (agentId: string, messageId: string, path: string) =>
+  invoke<FileDiff>('agents_change_diff', { agentId, messageId, path });
 export const deleteAgent = (agentId: string) => invoke<void>('agents_delete', { agentId });
 export const stopAgent = (agentId: string) => invoke<boolean>('agents_stop', { agentId });
 export const answerApproval = (
   agentId: string,
   requestId: string,
   allow: boolean,
-  always = false
+  always = false,
+  note?: string
 ) =>
   invoke<void>('agents_answer_approval', {
     agentId,
     requestId,
     allow,
     always: always || undefined,
+    note: note?.trim() || undefined,
   });
 /** Stop the turn in progress so what's queued sends now. */
 export const interruptAgent = (agentId: string) => invoke<boolean>('agents_interrupt', { agentId });
@@ -497,6 +548,23 @@ export function sortCheckIns(checkIns: CheckIn[]): CheckIn[] {
 export const searchAgents = (query: string) => invoke<SearchHit[]>('agents_search', { query });
 export const getAgentUsage = (agentId: string) => invoke<UsageSummary>('agents_usage', { agentId });
 
+/**
+ * A hit's snippet cut to start a few words before its first match, so the
+ * match survives a two-line clamp. The backend leads with more context than
+ * a narrow sidebar can show.
+ */
+export function snippetAround(snippet: string, query: string, lead = 14): string {
+  const runs = highlightRuns(snippet, query);
+  const first = runs.findIndex((r) => r.match);
+  if (first < 0) return snippet;
+  const at = runs.slice(0, first).reduce((n, r) => n + r.text.length, 0);
+  if (at <= lead + 1) return snippet;
+  // Start at a word boundary inside the lead, so no word is cut in half.
+  const space = snippet.indexOf(' ', at - lead);
+  const start = space >= 0 && space < at ? space + 1 : at;
+  return `…${snippet.slice(start).replace(/^…/, '')}`;
+}
+
 /** Hits grouped by agent, groups in the order their newest hit appears. */
 export function groupHits(hits: SearchHit[]): { agentId: string; hits: SearchHit[] }[] {
   const groups = new Map<string, SearchHit[]>();
@@ -584,8 +652,9 @@ export function highlightRuns(text: string, query: string): { text: string; matc
 
 /**
  * Sidebar order: pinned first, then most recently active. The Chief of Staff
- * sorts like everyone else, as it does in Grok Bot; it's identified by its
- * avatar and name, not by being nailed to the top.
+ * is created pinned (it's the one agent you're told to talk to, so it
+ * shouldn't move under you), but it's an ordinary pin: unpin it and it sorts
+ * by recency like everyone else.
  */
 export function sortAgents(agents: Agent[]): Agent[] {
   return [...agents].sort((a, b) => {
@@ -607,6 +676,102 @@ export function isQueued(message: AgentMessage, agent: Agent): boolean {
 export function needsYou(agent: Agent): boolean {
   return agent.status.state === 'waiting' || (agent.pendingApprovals ?? 0) > 0;
 }
+
+/** Its last turn failed, and nothing has been said since. Not while it works again. */
+export function failedTurn(agent: Agent): Failure | null {
+  return agent.failure && agent.status.state === 'idle' ? agent.failure : null;
+}
+
+/** Needs you, or its last turn didn't finish: what the "next needing you" key visits. */
+export const needsAttention = (agent: Agent) => needsYou(agent) || failedTurn(agent) !== null;
+
+/** The text of a failure's first clause: "Didn't finish: Couldn't start Claude Code". */
+export function failureLine(failure: Failure, preview: string | null): string {
+  if (failure.kind === 'usage_limit') {
+    return failure.resetsAt
+      ? `Usage limit · resets ${formatClock(failure.resetsAt)}`
+      : 'Usage limit reached';
+  }
+  if (failure.kind === 'signed_out') return 'Claude Code is signed out';
+  const clause = (preview ?? '').split(/(?<=[.!?:])\s/)[0].replace(/[.:]$/, '');
+  return clause ? `Didn’t finish: ${clause}` : 'Didn’t finish';
+}
+
+/**
+ * An agent's state as another chat shows it, beside its name on a
+ * delegation line. `failed` is only said when its newest line is known and is
+ * an error; otherwise an idle agent is idle.
+ */
+export type PeerState =
+  | { kind: 'working'; label: string }
+  | { kind: 'waiting'; label: string }
+  | { kind: 'failed'; label: string }
+  | { kind: 'idle'; label: string };
+
+export function peerState(agent: Agent, lastLine?: AgentMessage | null): PeerState {
+  if (needsYou(agent)) return { kind: 'waiting', label: 'needs your OK' };
+  if (agent.status.state === 'working') {
+    const activity = agent.status.activity?.trim();
+    return { kind: 'working', label: activity ? lowerFirst(activity) : 'working' };
+  }
+  if (failedTurn(agent) || lastLine?.kind === 'error')
+    return { kind: 'failed', label: "didn't finish" };
+  return { kind: 'idle', label: 'idle' };
+}
+
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** The newest line that says how an agent's last turn went (not a note or card). */
+export function lastOutcome(messages: AgentMessage[] | undefined): AgentMessage | null {
+  if (!messages) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const kind = messages[i].kind;
+    if (kind !== 'note' && kind !== 'changes') return messages[i];
+  }
+  return null;
+}
+
+/**
+ * The brief this agent is working on: while a turn runs, the newest
+ * agent-to-agent group that arrived before the turn began, if nothing of
+ * yours came after it. Its first line's id, or null.
+ */
+export function drivingBriefId(items: ChatItem[], agent: Agent): string | null {
+  const { state, since } = agent.status;
+  if (state === 'idle' || since == null) return null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === 'day') continue;
+    if (item.type === 'message') {
+      if (item.message.ts > since || item.message.kind === 'note') continue;
+      return null;
+    }
+    const last = item.messages[item.messages.length - 1];
+    if (last.ts > since) continue;
+    return last.kind === 'from_agent' ? item.messages[0].id : null;
+  }
+  return null;
+}
+
+/**
+ * The newest line where this agent handed work to each peer: the one that
+ * shows how that work is going. Lines that only brought work in carry none.
+ */
+export function newestPeerGroups(items: ChatItem[]): Set<string> {
+  const seen = new Set<string>();
+  const ids = new Set<string>();
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type !== 'peer-group' || seen.has(item.peer.id)) continue;
+    if (!item.messages.some((m) => m.kind === 'sent_to_agent')) continue;
+    seen.add(item.peer.id);
+    ids.add(item.messages[0].id);
+  }
+  return ids;
+}
+
+/** "acme" from "/Users/me/ShipStudio/acme/". */
+export const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? path;
 
 /** A run of consecutive agent-to-agent lines with the same peer collapses into one row. */
 export type ChatItem =
@@ -730,12 +895,14 @@ export function formatExactTime(ts: number): string {
 }
 
 /**
- * What a failed turn's one next step is. Sign-in is matched on Claude Code's
- * own wordings and on the app's classified message (commands/ai.rs), never
- * on a bare "sign in", which turns up in ordinary prose.
+ * What a failed turn's one next step is. The backend tags new lines; older
+ * ones are matched on Claude Code's own wordings and on the app's classified
+ * message (commands/ai.rs), never on a bare "sign in", which turns up in
+ * ordinary prose.
  */
-export function errorRemedy(text: string): 'sign-in' | null {
-  const lower = text.toLowerCase();
+export function errorRemedy(message: Pick<AgentMessage, 'text' | 'failure'>): 'sign-in' | null {
+  if (message.failure) return message.failure.kind === 'signed_out' ? 'sign-in' : null;
+  const lower = message.text.toLowerCase();
   return /isn't signed in anymore|please run \/login|oauth token has expired|invalid api key|not logged in|session expired/.test(
     lower
   )
@@ -743,13 +910,35 @@ export function errorRemedy(text: string): 'sign-in' | null {
     : null;
 }
 
-/** The words of the last thing you sent before `index`, to send again. */
-export function lastUserText(messages: AgentMessage[], index: number): string | null {
+/** The last thing you sent before `index`, words and files, to send again. */
+export function lastUserMessage(messages: AgentMessage[], index: number): AgentMessage | null {
   for (let i = index - 1; i >= 0; i--) {
-    if (messages[i].kind === 'user') return messages[i].text.trim() || null;
+    const m = messages[i];
+    if (m.kind !== 'user') continue;
+    return m.text.trim() || m.attachments?.length ? m : null;
   }
   return null;
 }
+
+/** A message's files as `agents_send` takes them: copied again from the agent's home. */
+export const resendable = (agent: Agent, message: AgentMessage): OutgoingAttachment[] =>
+  (message.attachments ?? []).map((a) => ({ name: a.name, path: `${agent.home}/${a.path}` }));
+
+/** A check-in's note is capped (`MAX_NOTE_CHARS` in schedule.rs). */
+const RETRY_NOTE_MAX = 560;
+
+/** What a "Retry at <reset>" check-in tells the agent when it fires. */
+export function retryNote(text: string): string {
+  const ask = text.trim();
+  const head = 'Claude Code’s usage limit has reset. Carry on with what I asked';
+  if (!ask) return `${head}.`;
+  const room = RETRY_NOTE_MAX - head.length - 4;
+  return `${head}: “${ask.length > room ? `${ask.slice(0, room - 1)}…` : ask}”`;
+}
+
+/** `agents_schedule_create`'s `when` for a moment: whole minutes from now, rounded up. */
+export const whenAt = (ts: number, now = Date.now()) =>
+  `in ${Math.max(1, Math.ceil((ts - now) / 60_000))} minutes`;
 
 /** The longest a name being typed after @ can run before it's just text. */
 const MENTION_MAX = 40;
@@ -843,7 +1032,8 @@ export function replyPreview(text: string): string {
 /** What the Team view lists; everything is read from the store, nothing inferred. */
 export interface TeamSummary {
   working: Agent[];
-  needsYou: { agent: Agent; approvals: AgentMessage[] }[];
+  /** Cards to answer, or the failed turn's line (newest in its chat) to act on. */
+  needsYou: { agent: Agent; approvals: AgentMessage[]; failure: AgentMessage | null }[];
   scheduled: { agent: Agent; checkIn: CheckIn }[];
   replies: { agent: Agent; message: AgentMessage }[];
 }
@@ -877,23 +1067,34 @@ export function summarizeTeam(
     .slice(0, TEAM_REPLIES_MAX);
   return {
     working: shown.filter((a) => a.status.state === 'working' && !needsYou(a)),
-    needsYou: shown.filter(needsYou).map((agent) => ({
-      agent,
-      approvals: (messages[agent.id] ?? []).filter((m) => m.approval?.status === 'pending'),
-    })),
+    needsYou: shown.filter(needsAttention).map((agent) => {
+      const lines = messages[agent.id] ?? [];
+      const last = lines[lines.length - 1];
+      return {
+        agent,
+        approvals: lines.filter((m) => m.approval?.status === 'pending'),
+        failure: failedTurn(agent) && last?.kind === 'error' ? last : null,
+      };
+    }),
     scheduled,
     replies,
   };
 }
 
-/** The Team row's second line: "2 working · 1 needs you", or quiet. */
+/** The Team row's second line: "2 working · 1 needs you · 1 failed", or quiet. */
 export function teamSubtitle(agents: Agent[]): string {
   const shown = agents.filter((a) => !a.hidden);
   const waiting = shown.filter(needsYou).length;
   const working = shown.filter((a) => a.status.state === 'working' && !needsYou(a)).length;
+  // A usage limit isn't counted: it heals on its own, and its row says so.
+  const failed = shown.filter((a) => {
+    const failure = failedTurn(a);
+    return failure !== null && failure.kind !== 'usage_limit';
+  }).length;
   const parts = [
     working > 0 ? `${working} working` : '',
     waiting > 0 ? `${waiting} ${waiting === 1 ? 'needs' : 'need'} you` : '',
+    failed > 0 ? `${failed} failed` : '',
   ].filter(Boolean);
   return parts.length ? parts.join(' · ') : 'Nothing in flight';
 }

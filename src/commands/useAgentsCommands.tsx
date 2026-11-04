@@ -119,7 +119,7 @@ export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => 
       },
       {
         id: 'agents.import',
-        title: 'Import agents from Grok Bot…',
+        title: 'Import agents…',
         icon: <DownloadIcon size={14} />,
         category: 'navigation',
         keywords: ['agents', 'migrate', 'grok', 'bring over', 'setup'],

@@ -88,11 +88,46 @@ briefing a new hire. Then hand it its first task with `message_agent`.
 doing it yourself, and tell the user who has it.
 - Keep track of what's in flight across agents. When the user asks \"what's \
 going on\", summarise who is doing what.
-- `update_agent` changes an agent's name, role or instructions. \
+- An agent that owns one project (a client site, an app) should work in it: \
+pass `project` (its name from `list_projects`) to `create_agent` or \
+`update_agent`. Its turns then run inside that project, with the project's own \
+CLAUDE.md and settings.
+- `update_agent` changes an agent's name, role, instructions or project. \
 `delete_agent` removes one; the user confirms that in the chat.
 - For quick questions, just answer yourself.";
 
-pub fn system_prompt(agent: &Agent) -> String {
+/// Where a project-bound agent's identity lives, and what it says right now.
+pub struct Bound<'a> {
+    pub home: &'a str,
+    pub project: &'a str,
+    /// Its CLAUDE.md as the turn began. Claude Code doesn't load a CLAUDE.md
+    /// from an `--add-dir` folder (see `project`), so it comes in here.
+    pub identity: &'a str,
+}
+
+fn bound_sections(b: &Bound) -> [String; 2] {
+    [
+        format!(
+            "## Your project\n\nYou work in `{project}`. It is your working directory, so its own \
+CLAUDE.md and settings apply: follow them. Code work for the user happens here. \
+Commit locally when it helps; the user sees a card listing the files you changed \
+in this chat after each turn.",
+            project = b.project
+        ),
+        format!(
+            "## Memory\n\nYour home is `{home}`. Its CLAUDE.md holds your instructions and a \
+`## Memory` section, shown below as they were when this turn began. When you learn \
+something durable (a preference, a standing rule, who someone is, where something \
+lives), add one line to that section of `{home}/CLAUDE.md`. When it changes, edit \
+the line. Don't log events there; it is memory, not a diary.\n\n\
+### {home}/CLAUDE.md\n\n{identity}",
+            home = b.home,
+            identity = b.identity.trim()
+        ),
+    ]
+}
+
+pub fn system_prompt(agent: &Agent, bound: Option<&Bound>) -> String {
     let identity = if agent.role.is_empty() {
         format!("You are {}, an agent in Ship Studio.", agent.name)
     } else {
@@ -107,8 +142,11 @@ pub fn system_prompt(agent: &Agent) -> String {
         WORK.to_string(),
         FILES.to_string(),
         TEAM.to_string(),
-        MEMORY.to_string(),
     ];
+    match bound {
+        None => sections.push(MEMORY.to_string()),
+        Some(b) => sections.extend(bound_sections(b)),
+    }
     if agent.is_main {
         sections.push(CHIEF.to_string());
     }
@@ -163,6 +201,29 @@ pub fn interrupted(previous: &str, activity: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bound_agent_is_told_its_project_and_carries_its_own_claude_md() {
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Acme Site", "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap();
+        let unbound = system_prompt(&agent, None);
+        assert!(unbound.contains("Your working directory is your home"));
+        assert!(!unbound.contains("## Your project"));
+        let bound = system_prompt(
+            &agent,
+            Some(&Bound {
+                home: "/h",
+                project: "/p/acme",
+                identity: "# Acme Site\n\n## Memory\n\n- Deploys go through Sam.",
+            }),
+        );
+        assert!(bound.contains("You work in `/p/acme`"));
+        assert!(bound.contains("### /h/CLAUDE.md"));
+        assert!(bound.contains("- Deploys go through Sam."));
+        assert!(!bound.contains("Your working directory is your home"));
+    }
 
     #[test]
     fn mentions_line_reads_as_delegation_for_the_chief() {

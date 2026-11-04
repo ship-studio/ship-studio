@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, attachments, files, import, mcp, notify, prompts, runner, schedule, search, store, usage,
+    self, attachments, files, import, mcp, notify, project, prompts, runner, schedule, search,
+    store, usage,
 };
 use crate::errors::CommandError;
 
@@ -202,6 +203,9 @@ pub struct CreateAgentInput {
     /// `--model`; omitted or empty uses Claude Code's default.
     #[serde(default)]
     pub model: Option<String>,
+    /// A project path from `list_projects`; omitted or empty leaves it unbound.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 #[tauri::command]
@@ -216,6 +220,10 @@ pub async fn agents_create(
         .map(store::normalize_model)
         .transpose()?
         .flatten();
+    let project = match input.project.as_deref() {
+        Some(p) => project::resolve(p).await?.map(|p| p.path),
+        None => None,
+    };
     let agent = store::create(store::NewAgent {
         name: input.name,
         role: input.role,
@@ -224,9 +232,13 @@ pub async fn agents_create(
         color: input.color,
         is_main: false,
     })?;
-    let agent = match model {
-        Some(model) => store::update(&agent.id, |a| a.model = Some(model))?,
-        None => agent,
+    let agent = if model.is_some() || project.is_some() {
+        store::update(&agent.id, |a| {
+            a.model = model;
+            a.project = project;
+        })?
+    } else {
+        agent
     };
     emit_registry(&app);
     Ok(agent)
@@ -245,6 +257,8 @@ pub struct UpdateAgentInput {
     pub muted: Option<bool>,
     /// `--model`; an empty string goes back to Claude Code's default.
     pub model: Option<String>,
+    /// A project path from `list_projects`; an empty string unbinds it.
+    pub project: Option<String>,
 }
 
 #[tauri::command]
@@ -277,6 +291,10 @@ pub async fn agents_update(
         .as_deref()
         .map(store::normalize_model)
         .transpose()?;
+    let project = match input.project.as_deref() {
+        Some(p) => Some(project::resolve(p).await?.map(|p| p.path)),
+        None => None,
+    };
     let updated = store::update(&agent_id, |a| {
         if let Some(n) = name {
             a.name = n;
@@ -302,6 +320,9 @@ pub async fn agents_update(
         if let Some(m) = model {
             a.model = m;
         }
+        if let Some(p) = project {
+            a.project = p;
+        }
     })?;
     // The name and role are written into CLAUDE.md's heading, so any change
     // to them (or the instructions) rewrites it — memory is preserved.
@@ -318,6 +339,28 @@ pub async fn agents_update(
         notify::refresh_badge(&app);
     }
     Ok(updated)
+}
+
+/// One file of a change card, as the diff modal shows it: this turn's change
+/// only, between the snapshots the card recorded. The project and snapshots
+/// come from the stored card, never from the caller.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_change_diff(
+    agent_id: String,
+    message_id: String,
+    path: String,
+) -> Result<crate::types::FileDiff, CommandError> {
+    let summary = store::messages(&agent_id, usize::MAX)?
+        .into_iter()
+        .find(|m| m.id == message_id)
+        .and_then(|m| m.changes)
+        .ok_or_else(|| CommandError::expected("That change card no longer exists."))?;
+    if !summary.files.iter().any(|f| f.path == path) {
+        return Err(agents::err_invalid("path", "not a file in this change"));
+    }
+    let dir = crate::utils::validate_project_path(&summary.project)?;
+    project::file_diff(&dir, &summary.from, &summary.to, &path).await
 }
 
 #[tauri::command]
@@ -360,7 +403,11 @@ pub async fn agents_answer_approval(
     request_id: String,
     allow: bool,
     always: Option<bool>,
+    note: Option<String>,
 ) -> Result<(), CommandError> {
+    let note = note
+        .map(|n| n.trim().chars().take(MAX_DENY_NOTE).collect::<String>())
+        .filter(|n| !allow && !n.is_empty());
     let status = if allow {
         store::ApprovalStatus::Allowed
     } else {
@@ -380,6 +427,8 @@ pub async fn agents_answer_approval(
     // overwritten by the waiter's own cleanup.
     let updated = if let Some(scope) = &rule {
         store::allow_always(&agent_id, &request_id, scope)?
+    } else if let Some(note) = &note {
+        store::deny_with_note(&agent_id, &request_id, note)?
     } else {
         store::set_approval_status(&agent_id, &request_id, status)?
     };
@@ -388,7 +437,7 @@ pub async fn agents_answer_approval(
     }
     emit_registry(&app);
     notify::refresh_badge(&app);
-    wake(&app, &agent_id, &approval, allow)?;
+    wake(&app, &agent_id, &approval, allow, note.as_deref())?;
 
     // The new rule answers the other open cards it covers, the same way.
     if let Some(scope) = rule {
@@ -400,7 +449,7 @@ pub async fn agents_answer_approval(
             if let Some(message) = store::allow_always(&agent_id, &id, &scope)? {
                 let _ = app.emit(runner::EVENT_MESSAGE, &message);
             }
-            if let Err(e) = wake(&app, &agent_id, card, true) {
+            if let Err(e) = wake(&app, &agent_id, card, true, None) {
                 tracing::warn!(request_id = %id, error = %e, "covered card could not wake its agent");
             }
         }
@@ -412,18 +461,33 @@ pub async fn agents_answer_approval(
 
 /// Hand an answer to whoever is waiting on the card. Nobody is waiting on it
 /// (the agent paused, or the app restarted): a late Allow grants that exact
-/// call and wakes the agent.
+/// call and wakes the agent; a late No with a note hands the agent the note.
 fn wake(
     app: &AppHandle,
     agent_id: &str,
     approval: &store::Approval,
     allow: bool,
+    note: Option<&str>,
 ) -> Result<(), CommandError> {
     if !mcp::answer_approval(&approval.request_id, allow) {
         mcp::answer_late(app, agent_id, approval, allow)?;
+        if let Some(note) = note {
+            runner::enqueue(
+                app,
+                agent_id,
+                format!(
+                    "[The user declined what you asked for earlier: {} — {}. They said: \"{note}\". Do that instead.]",
+                    approval.title, approval.detail
+                ),
+                runner::From::User,
+            );
+        }
     }
     Ok(())
 }
+
+/// A "Deny with note…" is a steer, not an essay.
+const MAX_DENY_NOTE: usize = 500;
 
 /// Take back an "Always allow" rule: matching calls ask again.
 #[tauri::command]

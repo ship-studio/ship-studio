@@ -2,6 +2,7 @@
 
 import type { Scenario } from '../types';
 import { agentsScenarios } from './agents';
+import { agentsProjectScenarios } from './agentsProject';
 import { appScenarios } from './app';
 import { featureScenarios } from './features';
 import { hostingScenarios } from './hosting';
@@ -14,6 +15,7 @@ import { teamScenarios } from './team';
 
 export const scenarios: Scenario[] = [
   ...agentsScenarios,
+  ...agentsProjectScenarios,
   ...appScenarios,
   ...featureScenarios,
   ...hostingScenarios,

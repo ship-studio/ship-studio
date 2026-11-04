@@ -10,9 +10,11 @@
 //! - [`permissions`]: "Always allow" rules and how narrowly they match
 //! - [`notify`]: macOS notifications and the Dock badge
 //! - [`attachments`]: files sent with a message, copied into the agent's home
+//! - [`failure`]: a failed turn in Agents' own words (usage limit, signed out)
 //! - [`files`]: files an agent shares back, the Files list, paths in prose
 //! - [`import`]: bring an existing setup over from another assistant
 //! - [`schedule`]: check-ins and routines that wake an agent on time
+//! - [`project`]: binding an agent to a project, and what its turns changed there
 //! - [`prompts`]: voice and role
 //! - [`search`]: find a message across every conversation
 //! - [`stream`]: a reply while it is being written (drafts)
@@ -21,11 +23,13 @@
 //! Full design: docs/agents.md.
 
 pub mod attachments;
+pub mod failure;
 pub mod files;
 pub mod import;
 pub mod mcp;
 pub mod notify;
 pub mod permissions;
+pub mod project;
 pub mod prompts;
 pub mod runner;
 pub mod schedule;

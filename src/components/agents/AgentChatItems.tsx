@@ -5,7 +5,7 @@
  * @module components/agents/AgentChatItems
  */
 
-import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Marked, type Token, type Tokens, type TokensList } from 'marked';
 import DOMPurify from 'dompurify';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -19,8 +19,11 @@ import {
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
-import { MessageAttachments } from './AgentAttachments';
+import { TextField } from '../primitives/TextField';
+import { ComposerAttachments, MessageAttachments } from './AgentAttachments';
+import type { DraftAttachment } from './useComposerAttachments';
 import { MentionText } from './AgentMentions';
+import { AgentPeerStatus } from './AgentPeerStatus';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
@@ -41,6 +44,7 @@ import {
   type Agent,
   type AgentMessage,
   type AgentRef,
+  type Approval,
 } from '../../lib/agents';
 
 /**
@@ -173,6 +177,8 @@ function CodeBlock({ text }: { text: string }) {
 /**
  * Copy and the time, on hover or keyboard focus. They keep their space, so
  * nothing shifts under the pointer; the exact time is the time's tooltip.
+ * Copy isn't a Tab stop (a long chat would put dozens between you and the
+ * composer): a clicked message takes focus, and ⌘C copies it (`copyOnKey`).
  */
 function MessageActions({ text, ts }: { text: string; ts: number }) {
   const { copy, isCopied } = useCopyToClipboard();
@@ -180,7 +186,7 @@ function MessageActions({ text, ts }: { text: string; ts: number }) {
     <div className="agent-message__actions">
       {text && (
         <IconButton
-          tabIndex={0}
+          tabIndex={-1}
           variant="ghost"
           size="compact"
           icon={isCopied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
@@ -198,6 +204,21 @@ function MessageActions({ text, ts }: { text: string; ts: number }) {
       </time>
     </div>
   );
+}
+
+/**
+ * ⌘C on a focused message with nothing selected copies the whole message, as
+ * its Copy button would.
+ */
+function useCopyOnKey(text: string) {
+  const { copy } = useCopyToClipboard();
+  return (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'c' || !text) return;
+    if (event.target !== event.currentTarget) return;
+    if (window.getSelection()?.toString()) return;
+    event.preventDefault();
+    void copy(text);
+  };
 }
 
 interface AgentBubbleProps extends Arrival {
@@ -233,8 +254,11 @@ export function AgentBubble({ message, agent, arrived, streaming }: AgentBubbleP
   const onClick = useProseLinks(agent.id);
   const attachments = message.attachments ?? [];
   const actions = !streaming && <MessageActions text={message.text} ts={message.ts} />;
+  const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       className="agent-chat__row agent-chat__row--agent"
       data-arrived={arrived || undefined}
       data-stopped={message.stopped || undefined}
@@ -278,6 +302,8 @@ interface UserBubbleProps extends Arrival {
    * and offers to interrupt that turn to send it now.
    */
   queued?: { onInterrupt: () => void };
+  /** Still copying its files in: the files as staged, shown while it sends. */
+  sending?: DraftAttachment[];
 }
 
 /** Attachments sit above the words, both against the right edge, as one message. */
@@ -289,17 +315,28 @@ export function UserBubble({
   onRetry,
   colorOf,
   queued,
+  sending,
 }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
-  const actions = !failed && <MessageActions text={message.text} ts={message.ts} />;
+  const actions = !failed && !sending && <MessageActions text={message.text} ts={message.ts} />;
+  const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       className="agent-chat__row agent-chat__row--user"
       data-arrived={arrived || undefined}
       data-failed={failed || undefined}
-      data-attachments={attachments.length > 0 || undefined}
+      data-sending={sending ? '' : undefined}
+      aria-busy={sending ? true : undefined}
+      data-attachments={attachments.length > 0 || Boolean(sending?.length) || undefined}
       data-message-ids={message.id}
     >
+      {sending && sending.length > 0 && (
+        <div className="agent-chat__line">
+          <ComposerAttachments items={sending} />
+        </div>
+      )}
       {attachments.length > 0 && (
         <div className="agent-chat__line">
           {!message.text && actions}
@@ -322,6 +359,11 @@ export function UserBubble({
               )
             )}
           </div>
+        </div>
+      )}
+      {sending && (
+        <div className="agent-chat__queued" role="status">
+          Sending…
         </div>
       )}
       {queued && !failed && (
@@ -355,19 +397,45 @@ interface ErrorLineProps extends Arrival {
   message: AgentMessage;
   /** Send the last thing you said again; only on the newest failure. */
   onRetry?: () => void;
+  /** A usage limit with a reset time Claude Code reported: retry then. */
+  onRetryAt?: (at: number) => void;
+  /** A retry already waits for that reset (a check-in at that time). */
+  retryScheduled?: boolean;
   onSignIn?: () => void;
 }
 
-/** A failed turn, with its one next step: sign in again, or try again. */
-export function ErrorLine({ message, arrived, onRetry, onSignIn }: ErrorLineProps) {
-  const signIn = errorRemedy(message.text) === 'sign-in' && onSignIn;
+/**
+ * A failed turn, with its one next step: sign in again, or try again (now,
+ * or when the usage limit resets). A usage limit is expected and heals on its
+ * own, so it reads as a notice, not an alarm.
+ */
+export function ErrorLine({
+  message,
+  arrived,
+  onRetry,
+  onRetryAt,
+  retryScheduled,
+  onSignIn,
+}: ErrorLineProps) {
+  const signIn = errorRemedy(message) === 'sign-in' && onSignIn;
+  const resetsAt = message.failure?.kind === 'usage_limit' ? message.failure.resetsAt : undefined;
+  // Offered only while the reset is still ahead (as of when the line was shown).
+  const [shownAt] = useState(Date.now);
+  const retryAt = onRetry && resetsAt && resetsAt > shownAt ? resetsAt : undefined;
+  const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       className="agent-chat__row agent-chat__row--agent agent-chat__row--card"
       data-arrived={arrived || undefined}
       data-message-ids={message.id}
     >
-      <div className="agent-bubble agent-bubble--error" role="alert">
+      <div
+        className="agent-bubble agent-bubble--error"
+        data-failure={message.failure?.kind}
+        role={message.failure?.kind === 'usage_limit' ? 'status' : 'alert'}
+      >
         <p className="agent-bubble__text">{message.text}</p>
         {(signIn || onRetry) && (
           <div className="agent-bubble__remedy">
@@ -376,14 +444,30 @@ export function ErrorLine({ message, arrived, onRetry, onSignIn }: ErrorLineProp
                 Sign in to Claude Code
               </Button>
             )}
+            {retryAt &&
+              (retryScheduled ? (
+                <span className="agent-bubble__scheduled">
+                  <HistoryIcon size={12} />
+                  Retries at {formatClock(retryAt)}
+                </span>
+              ) : (
+                <Button
+                  tabIndex={0}
+                  size="compact"
+                  variant="secondary"
+                  onClick={() => onRetryAt?.(retryAt)}
+                >
+                  Retry at {formatClock(retryAt)}
+                </Button>
+              ))}
             {onRetry && (
               <Button
                 tabIndex={0}
                 size="compact"
-                variant={signIn ? 'ghost' : 'secondary'}
+                variant={signIn || retryAt ? 'ghost' : 'secondary'}
                 onClick={onRetry}
               >
-                Retry
+                {retryAt ? 'Retry now' : 'Retry'}
               </Button>
             )}
           </div>
@@ -423,10 +507,31 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
  * Something Ship Studio did for the agent, said quietly so it never happens
  * invisibly: "Allowed automatically: npm test · Always allowed".
  */
-export function NoteLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+export function NoteLine({
+  message,
+  arrived,
+  onOpenPeer,
+}: { message: AgentMessage; onOpenPeer?: (agentId: string) => void } & Arrival) {
+  // "Created Finance": the agent it names is a link, while that agent exists.
+  const name = message.peer?.name;
+  const at = name && onOpenPeer ? message.text.indexOf(name) : -1;
   return (
     <div className="agent-note" data-arrived={arrived || undefined} data-message-ids={message.id}>
-      {message.text}
+      {at < 0 || !message.peer ? (
+        message.text
+      ) : (
+        <>
+          {message.text.slice(0, at)}
+          <TextButton
+            tabIndex={0}
+            className="agent-note__link"
+            onClick={() => onOpenPeer?.(message.peer!.id)}
+          >
+            {name}
+          </TextButton>
+          {message.text.slice(at + name!.length)}
+        </>
+      )}
     </div>
   );
 }
@@ -447,6 +552,10 @@ interface PeerGroupProps extends Arrival {
   onOpenPeer: (agentId: string) => void;
   /** A search jumped to a line inside: open the thread to show it. */
   reveal?: boolean;
+  /** The newest line with this peer: show the peer's live state beside its name. */
+  live?: boolean;
+  /** The brief this agent is working on right now: open until the turn ends. */
+  driving?: boolean;
 }
 
 /**
@@ -461,15 +570,20 @@ export function PeerGroup({
   onOpenPeer,
   arrived,
   reveal,
+  live,
+  driving,
 }: PeerGroupProps) {
   // Links in the thread open like a reply's, never inside the app webview.
   const onProseClick = useProseLinks(peer.id);
-  const [open, setOpen] = useState(Boolean(reveal));
+  // Until the user toggles it, it follows whether it's the brief in progress.
+  const [chosen, setChosen] = useState<boolean | null>(reveal ? true : null);
   const [revealed, setRevealed] = useState(reveal);
   if (reveal !== revealed) {
     setRevealed(reveal);
-    if (reveal) setOpen(true);
+    if (reveal) setChosen(true);
   }
+  const open = chosen ?? Boolean(driving);
+  const setOpen = (toggle: (v: boolean) => boolean) => setChosen(toggle(open));
   const threadRef = useRef<HTMLDivElement>(null);
   const threadShown = useHeightReveal(threadRef, open);
   return (
@@ -499,6 +613,7 @@ export function PeerGroup({
         >
           {peerAgent && <span className="agent-peer__dot" data-color={peerAgent.color} />}
           {peer.name}
+          {live && peerAgent && <AgentPeerStatus agent={peerAgent} />}
         </button>
       </div>
       {threadShown && (
@@ -531,7 +646,12 @@ interface ApprovalCardProps extends Arrival {
   agentName: string;
   /** The agent stopped waiting (its turn ended). Allowing wakes it to finish. */
   paused: boolean;
-  onAnswer: (requestId: string, allow: boolean, always?: boolean) => Promise<void>;
+  onAnswer: (requestId: string, allow: boolean, always?: boolean, note?: string) => Promise<void>;
+  /**
+   * Team's compact form: field values clamp to two lines with "Show all",
+   * and the outcome says what happens next.
+   */
+  compact?: boolean;
 }
 
 /** "subject" → "Subject", "cc_list" → "Cc list". */
@@ -559,30 +679,68 @@ function approvalFields(tool: string | undefined, input: unknown): [string, stri
   return fields.length ? fields : null;
 }
 
-export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: ApprovalCardProps) {
+/** What the card resolved to; Team says what happens next, since the chat isn't in view. */
+function outcomeText(approval: Approval, agentName: string, compact: boolean): ReactNode {
+  if (approval.alwaysAllowed && approval.always) {
+    return (
+      <>
+        Always allowed ·{' '}
+        {approval.always.kind.startsWith('command') ? (
+          <code>{approval.always.label}</code>
+        ) : (
+          approval.always.label
+        )}
+      </>
+    );
+  }
+  if (approval.status === 'denied' && approval.note) {
+    return <>Declined · “{approval.note}”</>;
+  }
+  const label = STATUS_LABEL[approval.status as keyof typeof STATUS_LABEL];
+  if (compact && approval.status === 'allowed') return `${label} · ${agentName} is carrying on`;
+  return label;
+}
+
+export function ApprovalCard({
+  message,
+  agentName,
+  paused,
+  onAnswer,
+  arrived,
+  compact = false,
+}: ApprovalCardProps) {
   const approval = message.approval;
   const [busy, setBusy] = useState(false);
+  // "Deny with note…": the actions give way to one line saying what to do instead.
+  const [noting, setNoting] = useState(false);
+  const [note, setNote] = useState('');
+  const [showAll, setShowAll] = useState(!compact);
   // Answered while on screen, so the buttons resolve into the outcome;
   // a card that loads already answered just shows it.
   const [openedPending] = useState(approval?.status === 'pending');
   if (!approval) return null;
   const pending = approval.status === 'pending';
   const fields = approvalFields(approval.tool, approval.input);
-  const answer = async (allow: boolean, always = false) => {
+  const answer = async (allow: boolean, always = false, why?: string) => {
     setBusy(true);
     try {
-      await onAnswer(approval.requestId, allow, always);
+      await onAnswer(approval.requestId, allow, always, why);
     } finally {
       setBusy(false);
     }
   };
+  const long = compact && fields?.some(([, v]) => v.length > 120 || v.includes('\n'));
   return (
     <div
       className="agent-chat__row agent-chat__row--agent agent-chat__row--card"
       data-arrived={arrived || undefined}
       data-message-ids={message.id}
     >
-      <div className="agent-approval" data-status={approval.status}>
+      <div
+        className="agent-approval"
+        data-status={approval.status}
+        data-clamped={(long && !showAll) || undefined}
+      >
         <div className="agent-approval__title">
           {pending && <WarningIcon size={14} className="agent-approval__icon" />}
           {approval.title}
@@ -599,12 +757,51 @@ export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: 
         ) : (
           approval.detail && <pre className="agent-approval__detail">{approval.detail}</pre>
         )}
+        {long && (
+          <TextButton
+            tabIndex={0}
+            className="agent-approval__show-all"
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? 'Show less' : 'Show all'}
+          </TextButton>
+        )}
         {pending && paused && (
           <p className="agent-approval__note">
             It paused here for you. Allow it and it picks up where it left off.
           </p>
         )}
-        {pending ? (
+        {pending && noting ? (
+          <form
+            className="agent-approval__deny-note"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void answer(false, false, note);
+            }}
+          >
+            <TextField
+              autoFocus
+              value={note}
+              maxLength={500}
+              disabled={busy}
+              placeholder={`Tell ${agentName} what to do instead`}
+              aria-label={`Tell ${agentName} what to do instead`}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return;
+                e.preventDefault();
+                e.stopPropagation();
+                setNoting(false);
+              }}
+            />
+            <Button tabIndex={0} variant="ghost" disabled={busy} onClick={() => setNoting(false)}>
+              Cancel
+            </Button>
+            <Button tabIndex={0} type="submit" variant="secondary" disabled={busy}>
+              Deny
+            </Button>
+          </form>
+        ) : pending ? (
           <div className="agent-approval__actions">
             {approval.always && (
               <TextButton
@@ -622,6 +819,15 @@ export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: 
                 )}
               </TextButton>
             )}
+            <TextButton
+              tabIndex={0}
+              className="agent-approval__deny-with-note"
+              disabled={busy}
+              onClick={() => setNoting(true)}
+              title={`Decline, and tell ${agentName} what to do instead`}
+            >
+              Deny with note…
+            </TextButton>
             {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
             <Button
               tabIndex={0}
@@ -634,6 +840,7 @@ export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: 
             <Button
               tabIndex={0}
               variant="primary"
+              data-allow
               disabled={busy}
               onClick={() => void answer(true)}
             >
@@ -645,18 +852,7 @@ export function ApprovalCard({ message, agentName, paused, onAnswer, arrived }: 
             className="agent-approval__outcome"
             data-resolved={(openedPending && !pending) || undefined}
           >
-            {approval.alwaysAllowed && approval.always ? (
-              <>
-                Always allowed ·{' '}
-                {approval.always.kind.startsWith('command') ? (
-                  <code>{approval.always.label}</code>
-                ) : (
-                  approval.always.label
-                )}
-              </>
-            ) : (
-              STATUS_LABEL[approval.status as keyof typeof STATUS_LABEL]
-            )}
+            {outcomeText(approval, agentName, compact)}
           </div>
         )}
       </div>

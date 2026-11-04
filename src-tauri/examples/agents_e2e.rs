@@ -231,6 +231,59 @@ fn session_files(home: &Path, session: &str) -> Vec<PathBuf> {
     found
 }
 
+/// A git project under ~/ShipStudio with one commit and one edit already
+/// pending, so a change card that lists that edit took the wrong baseline.
+fn git_project(h: &H, name: &str) -> PathBuf {
+    let dir = h.home.join("ShipStudio").join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=e2e", "-c", "user.email=e2e@example.com"])
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    std::fs::write(dir.join("README.md"), "# site\n").unwrap();
+    std::fs::write(dir.join("package.json"), "{\"name\":\"site\"}\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "init"]);
+    std::fs::write(dir.join("README.md"), "# site, edited before the turn\n").unwrap();
+    dir
+}
+
+/// Puts the fake `claude` first on PATH; returns the PATH to restore.
+fn fake_cli(h: &H) -> String {
+    let bin = h.home.join("fakebin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = bin.join("claude");
+    std::fs::write(&script, FAKE_CLAUDE).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let real_path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var("PATH", format!("{}:{real_path}", bin.display()));
+    real_path
+}
+
+async fn bound_agent(h: &H, name: &str, project: &str) -> Result<store::Agent, String> {
+    let input: cmd::CreateAgentInput = serde_json::from_value(serde_json::json!({
+        "name": name,
+        "role": "Works on the site",
+        "instructions": "Answer in as few words as possible.",
+        "model": "haiku",
+        "project": project,
+    }))
+    .unwrap();
+    let a = cmd::agents_create(h.app.clone(), input)
+        .await
+        .map_err(|e| format!("create bound agent: {e}"))?;
+    Ok(store::update(&a.id, |a| a.muted = true).unwrap())
+}
+
 /* ---------------------------------------------------------------- scenarios */
 
 /// (1) The first turn creates a session; the second resumes it and remembers.
@@ -304,15 +357,18 @@ async fn restart(h: &H) -> Check {
 }
 
 async fn restart_phase_a(h: &H) {
-    let a = h.agent("Keeper", "Writes stories", "");
+    let dir = git_project(h, "harbour");
+    let a = bound_agent(h, "Keeper", "harbour").await.unwrap();
     h.send(
         &a.id,
-        "Write a 700-word story about a lighthouse keeper named Ada. No preamble.",
+        "First create a file named ada.txt in the current directory containing exactly: Ada. Then, in your reply, write a 700-word story about a lighthouse keeper named Ada. No preamble.",
     )
     .await
     .unwrap();
     let _ = h
-        .until("a draft", Duration::from_secs(90), || h.drafting(&a.id, 40))
+        .until("a draft after ada.txt", Duration::from_secs(120), || {
+            dir.join("ada.txt").exists() && h.drafting(&a.id, 40)
+        })
         .await;
     println!("WORKING {}", a.id);
     tokio::time::sleep(Duration::from_secs(600)).await;
@@ -326,15 +382,37 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
     ensure(runner::status_of(id).state == "idle", "status not idle")?;
     ensure(!runner::in_turn(id), "a turn is running at launch")?;
     ensure(agent.pending_approvals == 0, "phantom pending approvals")?;
-    let notes = of_kind(id, MessageKind::Note);
+    // The cut-short turn ends like any failed turn: its change card, then a
+    // tagged error line (Retry re-sends it).
+    let tail: Vec<AgentMessage> = log(id).into_iter().rev().take(2).collect();
     ensure(
-        notes.iter().any(|n| n.text.contains("closed")),
-        "the interrupted turn left no trace in the chat",
+        tail.len() == 2
+            && tail[0].kind == MessageKind::Error
+            && tail[0].text.contains("closed")
+            && tail[0].failure.is_some(),
+        "the interrupted turn left no tagged error line",
     )?;
+    ensure(
+        tail[1].kind == MessageKind::Changes
+            && tail[1]
+                .changes
+                .as_ref()
+                .is_some_and(|c| c.files.iter().map(|f| f.path.as_str()).eq(["ada.txt"])),
+        format!("no change card for ada.txt before it: {:?}", tail[1].text),
+    )?;
+    ensure(agent.failure.is_some(), "agent not marked as failed")?;
+    let errors_before = of_kind(id, MessageKind::Error).len();
     h.send(id, "Who was the story about? Reply with just the name.")
         .await?;
     h.turn(id).await?;
-    no_errors(id)?;
+    ensure(
+        of_kind(id, MessageKind::Error).len() == errors_before,
+        "the follow-up turn failed",
+    )?;
+    ensure(
+        store::get(id).unwrap().failure.is_none(),
+        "failure not cleared by the next reply",
+    )?;
     ensure(
         last_reply(id).contains("Ada"),
         format!("lost the thread: {:?}", last_reply(id)),
@@ -529,7 +607,7 @@ async fn approvals_scenario(h: &H) -> Check {
         runner::status_of(&a.id).state == "waiting",
         "row doesn't say waiting",
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None)
+    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
         .await
         .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
@@ -553,7 +631,7 @@ async fn approvals_scenario(h: &H) -> Check {
         store::get(&a.id).unwrap().pending_approvals == 1,
         "pending count off",
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None)
+    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
         .await
         .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
@@ -571,9 +649,16 @@ async fn approvals_scenario(h: &H) -> Check {
         c.always.is_some(),
         format!("card offers no Always allow: {:?}", c.detail),
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, Some(true))
-        .await
-        .map_err(|e| e.to_string())?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        Some(true),
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
     ensure(
         !store::get(&a.id).unwrap().permissions.is_empty(),
@@ -597,6 +682,27 @@ async fn approvals_scenario(h: &H) -> Check {
         store::get(&a.id).unwrap().pending_approvals == 0,
         "cards left pending",
     )?;
+
+    // Deny with a note: the command doesn't run and the agent reads the note.
+    h.send(&a.id, "Run: python3 -c 'open(\"denied.txt\",\"w\")'")
+        .await?;
+    let c = card(h, &a.id, 3).await?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        false,
+        None,
+        Some("Don't run it. Reply with just the word: understood".into()),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(!home.join("denied.txt").exists(), "the denied command ran")?;
+    ensure(
+        last_reply(&a.id).to_lowercase().contains("understood"),
+        format!("deny note not read: {:?}", last_reply(&a.id)),
+    )?;
     no_errors(&a.id)
 }
 
@@ -617,6 +723,11 @@ case "$FAKE_CLAUDE_MODE" in
     echo '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}'
     echo '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Here is the first half of my answer"}}}'
     kill -SEGV $$ ;;
+  edit-then-fail)
+    cat > /dev/null
+    echo "half done" > half.txt
+    echo '{"type":"system","subtype":"init","session_id":"0f0f0f0f-0000-4000-8000-000000000002"}'
+    exit 1 ;;
   error-result)
     cat > /dev/null
     echo '{"type":"result","subtype":"error_during_execution","is_error":true}'
@@ -624,16 +735,96 @@ case "$FAKE_CLAUDE_MODE" in
 esac
 "#;
 
+/// (7) A bound agent runs in its project and leaves a change card listing
+/// only what it changed; a turn that edits then fails still gets its card,
+/// before the error line that tags the agent's failure.
+async fn project_agent(h: &H) -> Check {
+    let dir = git_project(h, "site");
+    let a = bound_agent(h, "Builder", "site").await?;
+    ensure(
+        a.project.as_deref() == Some(dir.to_str().unwrap()),
+        format!("bound to {:?}, not {}", a.project, dir.display()),
+    )?;
+    h.send(
+        &a.id,
+        "Create a file named hello.txt in the current directory containing exactly: hi. Then run pwd and reply with just its output.",
+    )
+    .await?;
+    h.turn(&a.id).await?;
+    no_errors(&a.id)?;
+    let hello = std::fs::read_to_string(dir.join("hello.txt")).unwrap_or_default();
+    ensure(
+        hello.trim() == "hi",
+        format!("hello.txt in the project: {hello:?}"),
+    )?;
+    ensure(
+        last_reply(&a.id).contains(dir.to_str().unwrap()),
+        format!("didn't run in the project: {:?}", last_reply(&a.id)),
+    )?;
+    let cards = of_kind(&a.id, MessageKind::Changes);
+    let card = cards.last().ok_or("no change card")?;
+    let summary = card.changes.as_ref().ok_or("card without a summary")?;
+    let paths: Vec<&str> = summary.files.iter().map(|f| f.path.as_str()).collect();
+    ensure(
+        cards.len() == 1 && summary.file_count == 1 && paths == ["hello.txt"],
+        format!("card lists {paths:?} ({} cards)", cards.len()),
+    )?;
+    ensure(
+        summary.files[0].status == "added",
+        format!("hello.txt is {:?}", summary.files[0].status),
+    )?;
+    ensure(
+        card.text == "Changed 1 file in site",
+        format!("card text {:?}", card.text),
+    )?;
+
+    // A turn that changes a file and then fails: card, then the error line.
+    let real_path = fake_cli(h);
+    std::env::set_var("FAKE_CLAUDE_MODE", "edit-then-fail");
+    let failed = async {
+        h.send(&a.id, "Do the other half.").await?;
+        h.turn(&a.id).await
+    }
+    .await;
+    std::env::remove_var("FAKE_CLAUDE_MODE");
+    std::env::set_var("PATH", real_path);
+    failed?;
+    let tail: Vec<AgentMessage> = log(&a.id).into_iter().rev().take(2).collect();
+    ensure(
+        tail.len() == 2
+            && tail[0].kind == MessageKind::Error
+            && tail[1].kind == MessageKind::Changes
+            && tail[1]
+                .changes
+                .as_ref()
+                .is_some_and(|c| c.files.iter().map(|f| f.path.as_str()).eq(["half.txt"])),
+        format!(
+            "failed turn ended {:?}",
+            tail.iter().map(|m| (&m.kind, &m.text)).collect::<Vec<_>>()
+        ),
+    )?;
+    human(&tail[0].text)?;
+    ensure(tail[0].failure.is_some(), "error line not tagged")?;
+    ensure(
+        store::get(&a.id).unwrap().failure.is_some(),
+        "agent not marked as failed",
+    )?;
+    // The bogus session from the fake must not stick, and a good turn clears the failure.
+    h.send(&a.id, "Reply with just: ok").await?;
+    h.turn(&a.id).await?;
+    ensure(
+        last_reply(&a.id).to_lowercase().contains("ok"),
+        format!("no recovery: {:?}", last_reply(&a.id)),
+    )?;
+    ensure(
+        store::get(&a.id).unwrap().failure.is_none(),
+        "failure not cleared by the next reply",
+    )
+}
+
 /// (8) Malformed output, a crash, a bare error code: a clean error, nothing stuck.
 async fn cli_failures(h: &H) -> Check {
-    let bin = h.home.join("fakebin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let script = bin.join("claude");
-    std::fs::write(&script, FAKE_CLAUDE).unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let real_path = std::env::var("PATH").unwrap_or_default();
-    std::env::set_var("PATH", format!("{}:{real_path}", bin.display()));
+    let real_path = fake_cli(h);
 
     let a = h.agent(
         "Fragile",
@@ -834,10 +1025,11 @@ async fn burst(h: &H) -> Check {
 
 /* --------------------------------------------------------------------- main */
 
-const ALL: [&str; 9] = [
+const ALL: [&str; 10] = [
     "memory",
     "restart",
     "lost-session",
+    "project",
     "delegation",
     "stop",
     "approvals",
@@ -930,6 +1122,7 @@ fn main() {
                 "memory" => memory(&h).await,
                 "restart" => restart(&h).await,
                 "lost-session" => lost_session(&h).await,
+                "project" => project_agent(&h).await,
                 "delegation" => delegation(&h).await,
                 "stop" => stop(&h).await,
                 "approvals" => approvals_scenario(&h).await,

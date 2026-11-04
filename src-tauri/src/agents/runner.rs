@@ -123,10 +123,29 @@ pub fn in_turn(agent_id: &str) -> bool {
 
 /// A turn in flight, on disk (`<home>/turn.json`) from spawn until the turn
 /// ends. Still there at launch means Ship Studio quit or crashed mid-turn.
-#[derive(Serialize, serde::Deserialize)]
+#[derive(Serialize, serde::Deserialize, Default)]
 struct TurnMark {
+    /// Claude Code's process, once spawned.
     pid: Option<u32>,
+    #[serde(default)]
     session: String,
+    /// A bound agent's project and its snapshot from before the turn, for
+    /// the change card if the turn never gets to record one.
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    tree: Option<String>,
+}
+
+fn read_mark(agent_id: &str) -> Option<TurnMark> {
+    let raw = std::fs::read_to_string(mark_path(agent_id)?).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_mark(agent_id: &str, mark: TurnMark) {
+    if let (Some(path), Ok(json)) = (mark_path(agent_id), serde_json::to_vec(&mark)) {
+        let _ = std::fs::write(path, json);
+    }
 }
 
 fn mark_path(agent_id: &str) -> Option<std::path::PathBuf> {
@@ -151,19 +170,25 @@ pub async fn recover_after_restart(app: &AppHandle) {
         let Some(path) = mark_path(&agent.id) else {
             continue;
         };
-        let Ok(raw) = std::fs::read_to_string(&path) else {
+        if !path.exists() {
             continue;
-        };
-        if let Ok(TurnMark {
-            pid: Some(pid),
-            session,
-        }) = serde_json::from_str(&raw)
-        {
-            stop_orphan(pid, &session).await;
+        }
+        let mark = read_mark(&agent.id).unwrap_or_default();
+        if let Some(pid) = mark.pid {
+            if !mark.session.is_empty() {
+                stop_orphan(pid, &mark.session).await;
+            }
         }
         let _ = std::fs::remove_file(&path);
-        let line = "Ship Studio closed while this agent was working, so that turn stopped. Send a message to pick it back up.";
-        let _ = record(app, new_message(&agent.id, MessageKind::Note, line));
+        // Same order as a turn that ends: its changes, then its error line,
+        // which tags the agent as needing you (Retry re-sends).
+        if let (Some(project), Some(tree)) = (mark.project, mark.tree) {
+            record_changes(app, &agent.id, project.into(), tree).await;
+        }
+        let text = "Ship Studio closed while this agent was working, so that turn didn't finish. Retry to send it again.";
+        let mut line = new_message(&agent.id, MessageKind::Error, text);
+        line.failure = Some(super::failure::Failure::OTHER);
+        let _ = record(app, line);
     }
 }
 
@@ -225,6 +250,19 @@ pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, Co
         }
         if counts_as_unread {
             agent.unread = agent.unread.saturating_add(1);
+        }
+        match message.kind {
+            MessageKind::Error => {
+                agent.failure = Some(
+                    message
+                        .failure
+                        .clone()
+                        .unwrap_or(super::failure::Failure::OTHER),
+                )
+            }
+            // A note or a change card says nothing after the failure.
+            MessageKind::Note | MessageKind::Changes => {}
+            _ => agent.failure = None,
         }
     });
     let _ = app.emit(EVENT_MESSAGE, &message);
@@ -304,7 +342,7 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
         MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
-        MessageKind::Note => None,
+        MessageKind::Note | MessageKind::Changes => None,
     }
 }
 
@@ -332,6 +370,8 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         check_in: None,
         stopped: false,
         mentions: Vec::new(),
+        failure: None,
+        changes: None,
     }
 }
 
@@ -447,16 +487,67 @@ async fn drain(app: AppHandle, agent_id: String) {
                 None => prompt,
             }
         };
-        let outcome = run_turn(&app, &agent_id, &prompt, true).await;
+        // A bound agent's project, as it stood before the turn touched it.
+        // On disk too, so a turn cut short by a quit still gets its card.
+        let start = turn_start(&agent_id).await;
+        write_mark(
+            &agent_id,
+            TurnMark {
+                pid: None,
+                session: String::new(),
+                project: start
+                    .as_ref()
+                    .map(|(p, _)| p.to_string_lossy().into_owned()),
+                tree: start.as_ref().map(|(_, t)| t.clone()),
+            },
+        );
+        let result = run_turn(&app, &agent_id, &prompt, true).await;
         clear_mark(&agent_id);
-        if let Err(err) = outcome {
-            let _ = record(
-                &app,
-                new_message(&agent_id, MessageKind::Error, err.to_string()),
-            );
+        // What the turn changed goes before its failure, so a failed turn still
+        // ends on its error line (Retry and the sidebar's failure read the newest line).
+        if let Some((project, from)) = start {
+            record_changes(&app, &agent_id, project, from).await;
+        }
+        if let Err(err) = result {
+            let (text, failure) = super::failure::describe_now(&err.to_string());
+            let mut line = new_message(&agent_id, MessageKind::Error, text);
+            line.failure = Some(failure);
+            let _ = record(&app, line);
         }
         notify::turn_ended(&app, &agent_id);
     }
+}
+
+/// For a bound agent whose project is a git repository: the project and a
+/// snapshot of its working tree, taken before the turn starts.
+async fn turn_start(agent_id: &str) -> Option<(std::path::PathBuf, String)> {
+    let project = std::path::PathBuf::from(store::get(agent_id).ok()?.project?);
+    let tree = super::project::snapshot(&project).await?;
+    Some((project, tree))
+}
+
+/// After the turn: if it changed files in the project, one card saying which.
+/// Runs however the turn ended; edits made before a Stop are still made.
+async fn record_changes(
+    app: &AppHandle,
+    agent_id: &str,
+    project: std::path::PathBuf,
+    from: String,
+) {
+    let Some(summary) = super::project::summary(&project, &from).await else {
+        return;
+    };
+    let files = match summary.file_count {
+        1 => "1 file".to_string(),
+        n => format!("{n} files"),
+    };
+    let text = format!(
+        "Changed {files} in {}",
+        super::project::folder_name(&summary.project)
+    );
+    let mut message = new_message(agent_id, MessageKind::Changes, text);
+    message.changes = Some(summary);
+    let _ = record(app, message);
 }
 
 fn compose(batch: &[Inbound]) -> String {
@@ -614,6 +705,72 @@ pub fn describe_activity(line: &str) -> Option<String> {
     })
 }
 
+/// The system prompt for a turn. A bound agent's own CLAUDE.md is carried
+/// in it, because its working directory is the project, not its home.
+fn system_prompt_for(
+    agent: &store::Agent,
+    home: &std::path::Path,
+    layout: &super::project::Layout,
+) -> String {
+    let Some(project) = &layout.project else {
+        return prompts::system_prompt(agent, None);
+    };
+    let identity: String = std::fs::read_to_string(home.join("CLAUDE.md"))
+        .unwrap_or_default()
+        .chars()
+        .take(40_000)
+        .collect();
+    prompts::system_prompt(
+        agent,
+        Some(&prompts::Bound {
+            home: &home.to_string_lossy(),
+            project: &project.to_string_lossy(),
+            identity: &identity,
+        }),
+    )
+}
+
+/// Every argument a turn's `claude` process gets. The prompt goes on stdin.
+fn turn_args(
+    agent: &store::Agent,
+    session_id: &str,
+    resuming: bool,
+    url: &str,
+    system_prompt: &str,
+    add_dirs: &[String],
+) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+    ]
+    .map(String::from)
+    .to_vec();
+    let session_flag = if resuming { "--resume" } else { "--session-id" };
+    args.extend([session_flag.to_string(), session_id.to_string()]);
+    args.extend([
+        "--permission-mode".into(),
+        "acceptEdits".into(),
+        "--permission-prompt-tool".into(),
+        prompts::approval_tool_id(),
+        "--mcp-config".into(),
+        mcp_config(url),
+        "--allowedTools".into(),
+        format!("mcp__{}", prompts::SERVER_KEY),
+        "--append-system-prompt".into(),
+        system_prompt.to_string(),
+    ]);
+    for dir in add_dirs {
+        args.extend(["--add-dir".to_string(), dir.clone()]);
+    }
+    if let Some(model) = &agent.model {
+        args.extend(["--model".to_string(), model.clone()]);
+    }
+    args
+}
+
 /// Run one turn. `retry_fresh` lets a vanished session be replaced once.
 async fn run_turn(
     app: &AppHandle,
@@ -637,25 +794,26 @@ async fn run_turn(
         None => (uuid::Uuid::new_v4().to_string(), false),
     };
 
+    let layout = super::project::layout(&agent, &home, work_dirs());
+    if let Some(project) = &layout.project {
+        if !project.is_dir() {
+            return Err(CommandError::expected(format!(
+                "{} works in {}, which isn't there any more. Pick another project in Edit agent, or clear it.",
+                agent.name,
+                project.display()
+            )));
+        }
+    }
+    let system_prompt = system_prompt_for(&agent, &home, &layout);
     let mut cmd = crate::utils::create_command(&binary);
-    cmd.args(["--print", "--output-format", "stream-json", "--verbose"])
-        .arg("--include-partial-messages");
-    if resuming {
-        cmd.args(["--resume", &session_id]);
-    } else {
-        cmd.args(["--session-id", &session_id]);
-    }
-    cmd.args(["--permission-mode", "acceptEdits"])
-        .args(["--permission-prompt-tool", &prompts::approval_tool_id()])
-        .args(["--mcp-config", &mcp_config(&url)])
-        .args(["--allowedTools", &format!("mcp__{}", prompts::SERVER_KEY)])
-        .args(["--append-system-prompt", &prompts::system_prompt(&agent)]);
-    for dir in work_dirs() {
-        cmd.args(["--add-dir", &dir]);
-    }
-    if let Some(model) = &agent.model {
-        cmd.args(["--model", model]);
-    }
+    cmd.args(turn_args(
+        &agent,
+        &session_id,
+        resuming,
+        &url,
+        &system_prompt,
+        &layout.add_dirs,
+    ));
     // A Ship Studio launched from inside a Claude Code session (a terminal
     // running `claude`, or a dev build started by one) inherits that
     // session's variables. With them, each agent runs as a nested child
@@ -682,7 +840,7 @@ async fn run_turn(
             "MCP_TOOL_TIMEOUT",
             ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
         )
-        .current_dir(&home);
+        .current_dir(&layout.cwd);
 
     let mut cmd = tokio::process::Command::from(cmd);
     cmd.stdin(std::process::Stdio::piped())
@@ -693,15 +851,10 @@ async fn run_turn(
         .spawn()
         .map_err(|e| CommandError::expected(format!("Couldn't start Claude Code: {e}")))?;
 
-    if let Some(path) = mark_path(agent_id) {
-        let mark = TurnMark {
-            pid: child.id(),
-            session: session_id.clone(),
-        };
-        if let Ok(json) = serde_json::to_vec(&mark) {
-            let _ = std::fs::write(path, json);
-        }
-    }
+    let mut mark = read_mark(agent_id).unwrap_or_default();
+    mark.pid = child.id();
+    mark.session = session_id.clone();
+    write_mark(agent_id, mark);
 
     // A CLI that dies on startup closes stdin before reading it. Its exit
     // status and stderr say why; a "Broken pipe" here would only hide that.
@@ -844,10 +997,16 @@ async fn run_turn(
             let _ = record(app, new_message(agent_id, MessageKind::Note, line));
             return Ok(());
         }
-        // Stopped by the user: the cut-off reply already says so.
-        let note = note.or(cut_off.is_none().then_some("Stopped."));
-        if let Some(note) = note {
-            let _ = record(app, new_message(agent_id, MessageKind::Error, note));
+        // Stopped by the user is their doing, not a failure: a quiet line,
+        // unless the cut-off reply already says so. Our own stop is an error.
+        match note {
+            Some(note) => {
+                let _ = record(app, new_message(agent_id, MessageKind::Error, note));
+            }
+            None if cut_off.is_none() => {
+                let _ = record(app, new_message(agent_id, MessageKind::Note, "Stopped"));
+            }
+            None => {}
         }
         return Ok(());
     }
@@ -937,6 +1096,87 @@ mod tests {
         let bare =
             serde_json::json!({"type":"result","is_error":true,"subtype":"error_during_execution"});
         assert!(!result_error_text(&bare).contains("error_during_execution"));
+    }
+
+    fn test_agent(model: Option<&str>) -> store::Agent {
+        let mut agent: store::Agent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "Finance", "shape": 0, "color": "red", "createdAt": 0
+        }))
+        .unwrap();
+        agent.model = model.map(str::to_string);
+        agent
+    }
+
+    #[test]
+    fn an_unbound_agents_command_line_is_unchanged() {
+        let agent = test_agent(Some("opus"));
+        let dirs = vec!["/u/ShipStudio".to_string(), "/ext/site".to_string()];
+        let layout =
+            super::super::project::layout(&agent, std::path::Path::new("/h"), dirs.clone());
+        assert_eq!(layout.cwd, std::path::PathBuf::from("/h"));
+        let prompt = system_prompt_for(&agent, std::path::Path::new("/h"), &layout);
+        assert_eq!(prompt, prompts::system_prompt(&agent, None));
+        let args = turn_args(&agent, "sid", true, "http://x", &prompt, &layout.add_dirs);
+        let expected: Vec<String> = [
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--resume",
+            "sid",
+            "--permission-mode",
+            "acceptEdits",
+            "--permission-prompt-tool",
+            "mcp__shipstudio_agents__approve",
+            "--mcp-config",
+            r#"{"mcpServers":{"shipstudio_agents":{"type":"http","url":"http://x"}}}"#,
+            "--allowedTools",
+            "mcp__shipstudio_agents",
+            "--append-system-prompt",
+            &prompt,
+            "--add-dir",
+            "/u/ShipStudio",
+            "--add-dir",
+            "/ext/site",
+            "--model",
+            "opus",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn a_bound_agent_runs_in_its_project_and_carries_its_identity() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            home.path().join("CLAUDE.md"),
+            "# Finance\n\n## Memory\n\n- Sam pays.",
+        )
+        .unwrap();
+        let mut agent = test_agent(None);
+        agent.project = Some("/ext/site".into());
+        let layout = super::super::project::layout(
+            &agent,
+            home.path(),
+            vec!["/u/ShipStudio".into(), "/ext/site".into()],
+        );
+        assert_eq!(layout.cwd, std::path::PathBuf::from("/ext/site"));
+        let prompt = system_prompt_for(&agent, home.path(), &layout);
+        assert!(prompt.contains("- Sam pays."));
+        assert!(prompt.contains("You work in `/ext/site`"));
+        let args = turn_args(&agent, "sid", false, "http://x", &prompt, &layout.add_dirs);
+        let dirs: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "--add-dir")
+            .map(|w| w[1].as_str())
+            .collect();
+        assert_eq!(dirs, vec![home.path().to_str().unwrap(), "/u/ShipStudio"]);
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--session-id" && w[1] == "sid"));
+        assert!(!args.contains(&"--model".to_string()));
     }
 
     #[test]

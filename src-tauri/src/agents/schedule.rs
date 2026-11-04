@@ -1219,6 +1219,8 @@ mod tests {
             check_ins,
             usage: Default::default(),
             permissions: Vec::new(),
+            failure: None,
+            project: None,
         }
     }
 

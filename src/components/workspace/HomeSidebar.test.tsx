@@ -140,7 +140,7 @@ describe('HomeSidebar', () => {
       const agents = screen.getByRole('tab', { name: 'Agents, Lead Gen needs your OK · 1 unread' });
       expect(agents.querySelector('.mode-toggle__dot')).not.toBeNull();
       expect(agents).toHaveAttribute(
-        'title',
+        'data-tooltip-content',
         `Lead Gen needs your OK · 1 unread (${kbd('mod', 'shift', 'A')})`
       );
     });

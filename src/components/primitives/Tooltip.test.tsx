@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { Tooltip, TooltipProvider } from './Tooltip';
 
 describe('Tooltip', () => {
@@ -140,6 +141,40 @@ describe('Tooltip', () => {
     });
 
     expect(screen.getByRole('tooltip')).toHaveTextContent('Second tooltip');
+  });
+
+  it('never shows a tooltip for an anchor that has left the page', () => {
+    function Swap() {
+      const [on, setOn] = useState(true);
+      return on ? (
+        <Tooltip content="Agents (⌘⇧A)">
+          <button onClick={() => setOn(false)}>Agents</button>
+        </Tooltip>
+      ) : (
+        <p>Swapped</p>
+      );
+    }
+    render(
+      <TooltipProvider>
+        <Swap />
+      </TooltipProvider>
+    );
+
+    // Hover shows it, then a click swaps the view out from under it: the
+    // detached anchor measures 0,0, which used to park the tooltip in the
+    // window's top-left corner under the traffic lights.
+    const trigger = screen.getByRole('button', { name: 'Agents' });
+    fireEvent.pointerOver(trigger);
+    void act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    void act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
   it('suppresses the custom tooltip for the embedded preview iframe', () => {

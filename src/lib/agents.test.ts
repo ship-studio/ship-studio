@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentInitials } from '../components/agents/AgentAvatar';
+import { agentInitials, distinctInitials } from '../components/agents/AgentAvatar';
 import {
   buildChatItems,
   describeScope,
@@ -7,7 +7,11 @@ import {
   filterFiles,
   isCodePath,
   isQueued,
-  lastUserText,
+  lastUserMessage,
+  failureLine,
+  retryNote,
+  whenAt,
+  snippetAround,
   localPathFromHref,
   PROSE_PATH,
   describeCheckInTime,
@@ -266,6 +270,16 @@ describe('formatUsage', () => {
   });
 });
 
+describe('distinctInitials', () => {
+  it('lets the earlier agent keep its initials', () => {
+    const names = ['Chief of Staff', 'Finance', 'Client Sites QA'];
+    expect(distinctInitials('Chief of Staff', names)).toBe('CS');
+    expect(distinctInitials('Client Sites QA', names)).toBe('CL');
+    expect(distinctInitials('Finance', names)).toBe('FI');
+    expect(distinctInitials('Cool Stuff', names)).toBe('CL');
+  });
+});
+
 describe('agentInitials', () => {
   it('takes two words, skipping filler', () => {
     expect(agentInitials('Chief of Staff')).toBe('CS');
@@ -280,22 +294,68 @@ describe('agentInitials', () => {
 });
 
 describe('errorRemedy', () => {
+  const line = (text: string) => ({ text });
   it('offers sign-in for expired logins only', () => {
     expect(
-      errorRemedy("Claude Code isn't signed in anymore (its session expired). Open an agent")
+      errorRemedy(line("Claude Code isn't signed in anymore (its session expired). Open an agent"))
     ).toBe('sign-in');
-    expect(errorRemedy('Invalid API key · Please run /login')).toBe('sign-in');
-    expect(errorRemedy('You should sign in again to Stripe')).toBeNull();
-    expect(errorRemedy('Stopped.')).toBeNull();
+    expect(errorRemedy(line('Invalid API key · Please run /login'))).toBe('sign-in');
+    expect(errorRemedy(line('You should sign in again to Stripe'))).toBeNull();
+    expect(errorRemedy(line('Stopped.'))).toBeNull();
+  });
+  it('trusts the backend’s tag over the words', () => {
+    expect(
+      errorRemedy({ text: 'Claude Code is signed out.', failure: { kind: 'signed_out' } })
+    ).toBe('sign-in');
+    expect(errorRemedy({ text: 'please run /login', failure: { kind: 'other' } })).toBeNull();
   });
 });
 
-describe('lastUserText', () => {
-  const m = (kind: string, text: string) => ({ id: text, agentId: 'a', ts: 0, kind, text });
-  it('finds the last thing you sent before a line', () => {
-    const list = [m('user', 'first'), m('agent', 'ok'), m('user', 'second'), m('error', 'x')];
-    expect(lastUserText(list as never, 3)).toBe('second');
-    expect(lastUserText(list as never, 0)).toBeNull();
+describe('lastUserMessage', () => {
+  const m = (kind: string, text: string, extra = {}) => ({
+    id: text,
+    agentId: 'a',
+    ts: 0,
+    kind,
+    text,
+    ...extra,
+  });
+  it('finds the last thing you sent before a line, files and all', () => {
+    const files = [{ name: 'a.png', path: 'attachments/x/a.png', mime: 'image/png', size: 1 }];
+    const list = [m('user', 'first'), m('agent', 'ok'), m('user', '', { attachments: files })];
+    expect(lastUserMessage([...list, m('error', 'x')] as never, 3)?.attachments).toBe(files);
+    expect(lastUserMessage(list as never, 0)).toBeNull();
+    expect(lastUserMessage([m('user', ' '), m('error', 'x')] as never, 1)).toBeNull();
+  });
+});
+
+describe('failure lines', () => {
+  it('says what kind of failure, in the row’s few words', () => {
+    expect(failureLine({ kind: 'signed_out' }, 'x')).toBe('Claude Code is signed out');
+    expect(failureLine({ kind: 'usage_limit' }, 'x')).toBe('Usage limit reached');
+    expect(failureLine({ kind: 'other' }, "Couldn't start Claude Code: no such file. More")).toBe(
+      "Didn’t finish: Couldn't start Claude Code"
+    );
+  });
+  it('a retry note keeps the ask and fits a check-in', () => {
+    expect(retryNote('Send the invoices')).toContain('“Send the invoices”');
+    expect(retryNote('x'.repeat(2000)).length).toBeLessThanOrEqual(600);
+  });
+  it('schedules a retry in whole minutes, never in the past', () => {
+    expect(whenAt(10 * 60_000 + 1, 0)).toBe('in 11 minutes');
+    expect(whenAt(0, 5)).toBe('in 1 minutes');
+  });
+});
+
+describe('snippetAround', () => {
+  it('starts a few words before the match', () => {
+    const s = '… table fixed on mobile and the two dead footer links that pointed nowhere';
+    const cut = snippetAround(s, 'footer');
+    expect(cut.startsWith('…')).toBe(true);
+    expect(cut.indexOf('footer')).toBeLessThan(20);
+  });
+  it('leaves a snippet whose match is already near the start', () => {
+    expect(snippetAround('The footer links', 'footer')).toBe('The footer links');
   });
 });
 
@@ -388,6 +448,23 @@ describe('Team overview', () => {
     expect(summary.replies.map((r) => r.message.id)).toEqual(['b1', 'a1']);
     expect(teamSubtitle(agents)).toBe('1 working · 1 needs you');
     expect(teamSubtitle([make('q')])).toBe('Nothing in flight');
+  });
+
+  it('lists a failed turn under Needs you, with its line, and counts it', () => {
+    const failed = make('f', { failure: { kind: 'other' } });
+    const limited = make('l', { failure: { kind: 'usage_limit' } });
+    const retrying = make('r', {
+      failure: { kind: 'other' },
+      status: { state: 'working', activity: null, since: 1 },
+    });
+    const summary = summarizeTeam([failed, limited, retrying], {
+      f: [line('f1', 'f', 'user', 1), line('f2', 'f', 'error', 2)],
+    });
+    expect(summary.needsYou.map((n) => [n.agent.id, n.failure?.id ?? null])).toEqual([
+      ['f', 'f2'],
+      ['l', null],
+    ]);
+    expect(teamSubtitle([failed, limited, retrying])).toBe('1 working · 1 failed');
   });
 });
 

@@ -96,32 +96,6 @@ async fn run_gh_with_timeout(args: &[&str], timeout_secs: u64) -> Option<std::pr
     }
 }
 
-/// Run `vercel whoami` (optionally with an explicit token) with a network
-/// timeout. `None` on any failure — not signed in, spawn error, or timeout.
-async fn run_vercel_whoami(vercel_path: &Path, token: Option<&str>) -> Option<String> {
-    let mut std_cmd = create_command(vercel_path);
-    std_cmd.args(["whoami"]);
-    if let Some(t) = token {
-        std_cmd.env("VERCEL_TOKEN", t);
-    }
-    let mut cmd = tokio::process::Command::from(std_cmd);
-    cmd.kill_on_drop(true);
-    match run_with_timeout(cmd, "vercel whoami", NETWORK_PROBE_TIMEOUT_SECS).await {
-        Ok(output) if output.status.success() => {
-            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        }
-        Ok(_) => None,
-        Err(err) => {
-            tracing::warn!(
-                cmd = "vercel whoami",
-                error = %err,
-                "setup status: vercel probe failed; treating Vercel as not authenticated"
-            );
-            None
-        }
-    }
-}
-
 /// Get full setup status for all items
 #[tauri::command]
 #[tracing::instrument]
@@ -352,10 +326,10 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
             Some(p) => {
                 if let Some(ref token) = account_vercel_token {
                     // Account has an explicit token → verify it and get username
-                    run_vercel_whoami(p, Some(token)).await
+                    super::vercel_whoami(p, Some(token)).await
                 } else if active_account_id == DEFAULT_ACCOUNT_ID {
                     // Default account → use global CLI session (browser-based login)
-                    run_vercel_whoami(p, None).await
+                    super::vercel_whoami(p, None).await
                 } else {
                     // Non-default account without a token → not connected for this workspace
                     None

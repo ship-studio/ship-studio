@@ -35,12 +35,14 @@ mod auth;
 mod install;
 mod state;
 mod status;
+mod vercel_whoami;
 
 pub use agents::*;
 pub use auth::*;
 pub use install::*;
 pub use state::*;
 pub use status::*;
+pub use vercel_whoami::{invalidate_vercel_whoami_cache, vercel_whoami};
 
 use crate::errors::CommandError;
 use crate::types::AppState;
