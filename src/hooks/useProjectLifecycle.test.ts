@@ -20,6 +20,8 @@ vi.mock('../lib/project', () => ({
   detectWorkspaces: vi.fn().mockResolvedValue([]),
   getWorkspaceSubpath: vi.fn().mockResolvedValue(''),
   setWorkspaceSubpath: vi.fn().mockResolvedValue(undefined),
+  getGenericDevCommand: vi.fn().mockResolvedValue({ custom: null, packageScript: null }),
+  resolveWorkspacePath: vi.fn((root: string) => root),
 }));
 vi.mock('../lib/github', () => ({
   getProjectGitHubStatus: vi.fn().mockResolvedValue(null),
@@ -55,6 +57,8 @@ vi.mock('../lib/window', () => ({
   findAndReservePort: vi.fn().mockResolvedValue(3000),
   getProjectWindow: vi.fn().mockResolvedValue(null),
   focusWindowByLabel: vi.fn().mockResolvedValue(undefined),
+  clearStoredAutoOpenProject: vi.fn(),
+  markAutoOpenDismissed: vi.fn(),
 }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -80,6 +84,7 @@ vi.mock('../lib/session', () => ({
 
 import { invoke } from '@tauri-apps/api/core';
 import { registerExternalProject } from '../lib/external-projects';
+import { getGenericDevCommand } from '../lib/project';
 import { logger } from '../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
@@ -253,5 +258,53 @@ describe('handleSelectProject — folder-gone toast routing (#640)', () => {
     const [message, type] = vi.mocked(params.showToast).mock.calls[0];
     expect(message).toContain("isn't a recognized project location");
     expect(type).toBe('error');
+  });
+});
+
+describe('handleSelectProject — leaving mid-open (stuck spinner)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+  });
+
+  it('does not re-enter the workspace after the user went home during the dev-command lookup', async () => {
+    let finishLookup!: (v: { custom: string | null; packageScript: string | null }) => void;
+    const lookupStarted = new Promise<void>((started) => {
+      vi.mocked(getGenericDevCommand).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+            started();
+          })
+      );
+    });
+    const params = createParams({
+      startServerForProject: vi.fn().mockResolvedValue('generic'),
+    });
+    const { result } = renderHook(() => useProjectLifecycle(params));
+
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.handleSelectProject({
+        name: 'tools',
+        path: '/x/tools',
+        thumbnail: null,
+      });
+    });
+    await act(async () => {
+      await lookupStarted;
+    });
+
+    act(() => {
+      result.current.handleBackToProjects();
+    });
+    await act(async () => {
+      finishLookup({ custom: null, packageScript: null });
+      await opening;
+    });
+
+    const views = vi.mocked(params.setView).mock.calls.map(([v]) => v);
+    expect(views[views.length - 1]).toBe('projects');
+    expect(views.slice(views.lastIndexOf('projects'))).not.toContain('workspace');
   });
 });

@@ -380,6 +380,42 @@ pub fn spawn_with_pressure_retry<T>(
     })
 }
 
+/// Stack size for helper threads that shuttle process output or wait on a
+/// child. They hold no deep call stacks, and std's 2 MiB default multiplies
+/// across every open terminal and dev server.
+pub const HELPER_THREAD_STACK_SIZE: usize = 512 * 1024;
+
+/// Spawn a named helper thread with a small stack, returning the OS failure
+/// instead of panicking. `std::thread::spawn` panics when the OS refuses a new
+/// thread (Windows `ERROR_NO_SYSTEM_RESOURCES`, os error 1450; Unix EAGAIN);
+/// pair with [`thread_spawn_error`] to surface that as a command error.
+pub fn spawn_helper_thread<F, T>(name: String, f: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(name)
+        .stack_size(HELPER_THREAD_STACK_SIZE)
+        .spawn(f)
+}
+
+/// Map a failed thread spawn into a `CommandError`. Windows resource
+/// exhaustion (1450/1455/8) and Unix EAGAIN keep their existing friendly,
+/// `Expected` messages; anything else stays a labeled `Io` error.
+pub fn thread_spawn_error(label: &str, io_err: &std::io::Error) -> CommandError {
+    warn!(cmd = %label, error = %io_err, "couldn't spawn helper thread");
+    if let Some(err) = crate::errors::windows_out_of_memory(io_err, Some(label)) {
+        return err;
+    }
+    if is_spawn_resource_pressure(&io_err.to_string()) {
+        return spawn_resource_pressure_error(label);
+    }
+    CommandError::Io {
+        message: format!("`{label}`: couldn't start a background thread: {io_err}"),
+    }
+}
+
 /// Cap on CLI output forwarded into user-facing error messages (and thus into
 /// telemetry). A crashing subprocess can dump arbitrarily much — a Go runtime
 /// stack trace, a full agent session transcript — and nothing past the head is

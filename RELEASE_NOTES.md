@@ -6,6 +6,20 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.7.0
+
+- **CSS Editor: edit the CSS you actually wrote** - Rules and variables now show which stylesheet they come from, and one click opens that file at the right line in Code view, including styles inside Astro components. Edit or split shared selectors, and review safe merges of duplicate rules before anything is changed (Martin Crandon)
+- **CSS Editor: scoped variables** - Edit a CSS variable where it's scoped, not just at the root, with the colour picker for colours. Ship Studio refuses rather than guesses when a value could belong to more than one rule (Martin Crandon)
+- **CSS Editor: steadier controls** - Value fields, animation headers and Add step stay put when you start editing, across Style, Settings, Animate and Variables (Martin Crandon)
+- **Balanced Focus mode** - Focus now opens Agent and Preview (or Code) side by side at an even 50/50 split and remembers your split per project. Other panels no longer float over the Agent panel while you're focused (Martin Crandon)
+- **One status light per project** - The workspace sidebar shows a single status light per project (error, then waiting, working, then dev server) instead of two side by side, and every status dot now has the same look (Martin Crandon)
+- **Fixed** - On Windows, long sessions could crash with "os error 1450"
+- **Fixed** - Leaving a project while it was still opening could leave a full-window spinner stuck on screen
+- **Fixed** - Checking out a pull request could fail with a bare "too many open files"; it now retries, and explains the problem if it still can't
+- **Fixed** - The animation name chip in the Animate tab could be cut off at "@keyfra"; it now always shows "@keyframes" and the full name, shortening only very long names
+- **Fixed** - Deleting a shared rule or a rule inside a media query now asks first
+- **Fixed** - If the app fails to start, the error now says more about why
+
 ## What's New in v1.6.5
 
 - **Remote access reports back** - Message an agent from your phone and your assistant now waits and tells you when it's finished (its reply, the files it changed and a screenshot), or asks you when the agent needs a decision, instead of stopping at "sent"

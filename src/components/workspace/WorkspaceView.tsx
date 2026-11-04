@@ -13,7 +13,15 @@ export type { WorkspaceViewProps } from './workspaceViewTypes';
  * @module components/WorkspaceView
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
@@ -63,7 +71,10 @@ import '../../styles/features/notifications.css';
  */
 export const WorkspaceView = memo(function WorkspaceView(props: WorkspaceViewProps) {
   return (
-    <PanelDockProvider projectPath={props.currentProject.path}>
+    <PanelDockProvider
+      projectPath={props.currentProject.path}
+      focusMode={props.layout.isPreviewHidden}
+    >
       <WorkspaceViewInner {...props} />
     </PanelDockProvider>
   );
@@ -234,10 +245,16 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
 
   // Jump-to-code: when set, the Code tab opens this file and highlights the line.
   // Driven by openInCode (e.g. the visual editor's source links / usage modal).
-  const [codeTarget, setCodeTarget] = useState<{ file: string; line: number } | null>(null);
+  const [codeTarget, setCodeTarget] = useState<{
+    file: string;
+    line: number;
+    requestId: number;
+  } | null>(null);
+  const codeRequestIdRef = useRef(0);
   const openInCode = useCallback(
     (file: string, line: number) => {
-      setCodeTarget({ file, line });
+      codeRequestIdRef.current += 1;
+      setCodeTarget({ file, line, requestId: codeRequestIdRef.current });
       setWorkspaceTab('code');
     },
     [setWorkspaceTab]
@@ -533,7 +550,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     hasPreview,
     projectTypeResolved,
     setIsPreviewHidden,
-    setIsAgentPanelHidden,
     setWorkspaceTab,
     togglePreviewLogs,
     onSelectPreview: handleSelectPreview,
@@ -702,7 +718,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
       isPreviewHidden={isPreviewHidden}
       workspaceTab={workspaceTab}
       setIsPreviewHidden={setIsPreviewHidden}
-      setIsAgentPanelHidden={setIsAgentPanelHidden}
       setWorkspaceTab={setWorkspaceTab}
       onSelectPreview={handleSelectPreview}
     />
@@ -722,6 +737,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     compactWorkspaceToolbarEnabled,
     onOpenAssetsPanel: assetsPanelModal.open,
     assetsPanelVisible: assetsPanelModal.isOpen,
+    isFocusMode: isPreviewHidden,
     elementTreeVisible: elementTreePanelVisible,
     elementTreeAvailable,
     onToggleElementTree: toggleElementTree,
@@ -915,7 +931,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                     appears: each one's placeholder is portaled into whichever
                     rail slot the layout gives it. This is just the tree. */}
                 <WorkspaceDock
-                  previewHidden={isPreviewHidden}
+                  focusMode={isPreviewHidden}
                   preview={
                     <WorkspacePreviewPane
                       activeCommentAgentId={activeTerminalTab}

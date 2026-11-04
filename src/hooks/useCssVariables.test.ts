@@ -86,6 +86,83 @@ describe('useCssVariables', () => {
     );
   });
 
+  it('saves same-name scoped definitions independently and carries source identity to preview', async () => {
+    vi.mocked(getCssVariables).mockResolvedValue([
+      {
+        name: '--surface',
+        value: 'white',
+        selector: '.theme-light',
+        file: 'src/theme.css',
+        line: 8,
+      },
+      {
+        name: '--surface',
+        value: 'black',
+        selector: '.theme-dark',
+        file: 'src/theme.css',
+        line: 8,
+      },
+    ]);
+    const { result, postMessage } = setup();
+    await waitFor(() => expect(result.current.variables).toHaveLength(2));
+    const [light, dark] = result.current.variables;
+    vi.useFakeTimers();
+
+    act(() => {
+      result.current.setValue(light, 'ivory');
+      result.current.setValue(dark, 'charcoal');
+    });
+    await act(() => vi.advanceTimersByTimeAsync(500));
+
+    expect(setCssVariable).toHaveBeenNthCalledWith(
+      1,
+      '/proj',
+      'src/theme.css',
+      '.theme-light',
+      8,
+      '--surface',
+      'ivory'
+    );
+    expect(setCssVariable).toHaveBeenNthCalledWith(
+      2,
+      '/proj',
+      'src/theme.css',
+      '.theme-dark',
+      8,
+      '--surface',
+      'charcoal'
+    );
+    const setMessages = postMessage.mock.calls
+      .map(([message]) => message as { type?: string; identity?: { selector?: string } })
+      .filter((message) => message.type === 'ss:setVar');
+    expect(setMessages.map((message) => message.identity?.selector)).toEqual([
+      '.theme-light',
+      '.theme-dark',
+    ]);
+    expect(setMessages[0]?.identity).toMatchObject({
+      file: 'src/theme.css',
+      line: 8,
+      name: '--surface',
+    });
+    expect(
+      postMessage.mock.calls
+        .map(([message]) => message as { type?: string; identity?: { selector?: string } })
+        .filter((message) => message.type === 'ss:clearVar')
+        .map((message) => message.identity?.selector)
+    ).toEqual(['.theme-light', '.theme-dark']);
+  });
+
+  it('marks repeated file, selector, line, and name identities read-only', async () => {
+    vi.mocked(getCssVariables).mockResolvedValue([
+      { name: '--surface', value: 'white', selector: '.theme', file: 'src/theme.css', line: 8 },
+      { name: '--surface', value: 'black', selector: '.theme', file: 'src/theme.css', line: 8 },
+    ]);
+    const { result } = setup();
+
+    await waitFor(() => expect(result.current.variables).toHaveLength(2));
+    expect(result.current.variables.map((variable) => variable.editable)).toEqual([false, false]);
+  });
+
   it('uses the dedicated variable writer when adding a token', async () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.variables).toHaveLength(1));
@@ -192,7 +269,15 @@ describe('useCssVariables', () => {
 
     expect(reorderCssVariables).not.toHaveBeenCalled();
     expect(onToast).toHaveBeenCalledOnce();
-    expect(postMessage).toHaveBeenCalledWith({ type: 'ss:clearVar', name: '--existing' }, '*');
+    const clearMessage = postMessage.mock.calls
+      .map(([message]) => message as { type?: string; identity?: Record<string, unknown> })
+      .find((message) => message.type === 'ss:clearVar');
+    expect(clearMessage?.identity).toMatchObject({
+      file: 'styles.css',
+      selector: ':root',
+      line: 1,
+      name: '--existing',
+    });
     expect(result.current.variables[0]?.value).toBe('red');
   });
 });

@@ -7,7 +7,7 @@
  * @module hooks/useFileTree
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   listProjectFiles,
   readProjectFile,
@@ -55,6 +55,22 @@ function isExpectedFileAccessError(message: string): boolean {
   );
 }
 
+/** Return the expanded directory paths leading to a file, or null if absent. */
+function findFileAncestors(
+  nodes: readonly FileTreeNode[],
+  path: string,
+  ancestors: string[] = []
+): { ancestors: string[]; isDirectory: boolean } | null {
+  for (const node of nodes) {
+    if (node.path === path) return { ancestors, isDirectory: node.isDirectory };
+    if (node.isDirectory) {
+      const match = findFileAncestors(node.children, path, [...ancestors, node.path]);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
 /** The project folder vanished outside Ship Studio, or the backend otherwise
  *  classified the failure Expected — not a bug (issues #1021/#1022). */
 function isGoneOrExpected(err: unknown): boolean {
@@ -83,6 +99,8 @@ interface UseFileTreeResult {
   fileError: string | null;
   toggleDirectory: (path: string) => void;
   selectFile: (path: string) => void;
+  /** Expand the real file-tree ancestors and select a known file path. */
+  revealFile: (path: string) => boolean;
   refreshTree: () => void;
   // Inline editing of the selected file.
   isEditing: boolean;
@@ -108,6 +126,7 @@ interface UseFileTreeResult {
 
 export function useFileTree(projectPath: string): UseFileTreeResult {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [loadedTreeProjectPath, setLoadedTreeProjectPath] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const selectedFileRef = useRef(selectedFilePath);
   useEffect(() => {
@@ -135,7 +154,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     error: treeErrorObj,
     execute: executeLoadTree,
   } = useAsyncState<FileTreeNode[], [string]>(fetchTree, { initial: [] });
-  const tree = treeData ?? [];
+  const tree = useMemo(() => treeData ?? [], [treeData]);
   const treeError = treeErrorObj ? treeErrorObj.message : null;
 
   const fetchFile = useCallback(async (proj: string, path: string) => {
@@ -220,7 +239,16 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     projectPathRef.current = projectPath;
   }, [projectPath]);
 
-  const loadTree = useCallback(() => executeLoadTree(projectPath), [executeLoadTree, projectPath]);
+  const loadTree = useCallback(async () => {
+    const requestedProjectPath = projectPath;
+    try {
+      return await executeLoadTree(requestedProjectPath);
+    } finally {
+      if (projectPathRef.current === requestedProjectPath) {
+        setLoadedTreeProjectPath(requestedProjectPath);
+      }
+    }
+  }, [executeLoadTree, projectPath]);
 
   // Load tree on mount / project change
   useEffect(() => {
@@ -266,6 +294,25 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       await loadFileIntoViewer(path);
     },
     [loadFileIntoViewer]
+  );
+
+  const revealFile = useCallback(
+    (path: string) => {
+      const found = findFileAncestors(tree, path);
+      if (found?.isDirectory) return false;
+      if (found) {
+        setExpandedPaths((previous) => {
+          const next = new Set(previous);
+          found.ancestors.forEach((ancestor) => next.add(ancestor));
+          return next;
+        });
+      }
+      // Source-linked files may be ignored by the project tree while remaining
+      // readable by the backend. The file read decides whether to open them.
+      void selectFile(path);
+      return true;
+    },
+    [selectFile, tree]
   );
 
   const refreshTree = useCallback(() => {
@@ -386,12 +433,13 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     expandedPaths,
     selectedFilePath,
     fileContent,
-    isLoadingTree,
+    isLoadingTree: isLoadingTree || loadedTreeProjectPath !== projectPath,
     isLoadingFile,
     treeError,
     fileError,
     toggleDirectory,
     selectFile: (path: string) => void selectFile(path),
+    revealFile,
     refreshTree,
     isEditing,
     draft,

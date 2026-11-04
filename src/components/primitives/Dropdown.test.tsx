@@ -170,6 +170,112 @@ describe('Dropdown', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('supports an anchored dialog popover with normal tab controls and Escape focus return', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dropdown
+        presentation="popover"
+        ariaLabel="Review safe CSS consolidations"
+        portal
+        trigger={(props) => <TestTrigger {...props}>Review consolidations</TestTrigger>}
+      >
+        <details>
+          <summary>src/styles/site.css</summary>
+          <button type="button">Apply consolidation</button>
+        </details>
+      </Dropdown>
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Review consolidations' });
+    await user.click(trigger);
+
+    const popover = screen.getByRole('dialog', { name: 'Review safe CSS consolidations' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(screen.getByText('src/styles/site.css')).toHaveFocus();
+    expect(popover.parentElement).toBe(document.body);
+
+    fireEvent.keyDown(popover, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('focuses portaled content only after the popover is visible', () => {
+    const focusVisibility: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called below with the focused element as its receiver
+    const originalFocus = HTMLElement.prototype.focus;
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (
+      this: HTMLElement,
+      options?: FocusOptions
+    ) {
+      const menu = this.closest<HTMLElement>('.ss-dropdown__menu');
+      if (menu) focusVisibility.push(menu.style.visibility === 'hidden' ? 'hidden' : 'visible');
+      originalFocus.call(this, options);
+    });
+
+    try {
+      render(
+        <Dropdown
+          presentation="popover"
+          ariaLabel="Visible popover"
+          portal
+          trigger={(props) => <TestTrigger {...props}>Open visible popover</TestTrigger>}
+        >
+          <button type="button">First control</button>
+        </Dropdown>
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open visible popover' }));
+
+      expect(screen.getByRole('button', { name: 'First control' })).toHaveFocus();
+      expect(focusVisibility).toEqual(['visible']);
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
+  it('does not reset focus when an open portal is repositioned', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dropdown
+        presentation="popover"
+        ariaLabel="Review safe CSS consolidations"
+        portal
+        trigger={(props) => <TestTrigger {...props}>Open repositioned popover</TestTrigger>}
+      >
+        <details>
+          <summary>src/styles/site.css</summary>
+          <button type="button">Apply consolidation</button>
+        </details>
+      </Dropdown>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open repositioned popover' }));
+    const apply = screen.getByRole('button', { name: 'Apply consolidation' });
+    expect(screen.getByText('src/styles/site.css')).toHaveFocus();
+
+    apply.focus();
+    fireEvent.scroll(window);
+    fireEvent.resize(window);
+
+    expect(apply).toHaveFocus();
+  });
+
+  it('rejects an unnamed dialog popover', () => {
+    const unlabeledPopover = (
+      // @ts-expect-error A dialog popover must provide its accessible name.
+      <Dropdown
+        presentation="popover"
+        trigger={(props) => <TestTrigger {...props}>Open unnamed popover</TestTrigger>}
+      >
+        <button type="button">Control</button>
+      </Dropdown>
+    );
+
+    expect(() => render(unlabeledPopover)).toThrow(
+      'Dropdown presentation="popover" requires a non-empty ariaLabel.'
+    );
+  });
+
   it('leaves focus where a pointer put it on outside dismissal', async () => {
     const user = userEvent.setup();
     renderMenu();

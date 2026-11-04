@@ -78,6 +78,7 @@
 @import './features/visual-editor-image.css';
 @import './features/visual-editor-classes.css';
 @import './features/css-cascade/main.css';
+@import './features/css-cascade/cards.css';
 @import './features/css-cascade/chips.css';
 @import './features/css-cascade/popovers.css';
 @import './features/css-cascade/declarations.css';

@@ -1,6 +1,6 @@
 [package]
 name = "ship-studio"
-version = "1.6.5"
+version = "1.7.0"
 description = "Ship Studio — a desktop app for shipping web projects with AI coding agents."
 authors = ["Julian Galluzzo", "Ship Studio contributors"]
 license = "MIT"
@@ -84,6 +84,11 @@ tempfile = "3"
 tauri-plugin-notification = "2"
 
 [dev-dependencies]
+
+# Windows: Job Objects, so a spawned command's whole process tree can be
+# closed together (commands/pty/job.rs).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 # macOS-specific dependencies for WebKit JavaScript evaluation
 [target.'cfg(target_os = "macos")'.dependencies]

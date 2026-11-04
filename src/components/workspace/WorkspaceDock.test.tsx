@@ -1,4 +1,7 @@
 import { render, screen, act } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { JSDOM } from 'jsdom';
 import { useEffect } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceDock } from './WorkspaceDock';
@@ -10,7 +13,8 @@ import {
 } from '../../contexts/PanelDockContext';
 import { type PanelId } from '../../lib/workspaceLayout';
 import { readProjectLayout } from '../../lib/workspaceLayoutStore';
-import dockStyles from '../../styles/features/workspace/dock.css?raw';
+
+const dockStyles = readFileSync(resolve('src/styles/features/workspace/dock.css'), 'utf8');
 
 const PROJECT = '/Users/dev/ShipStudio/site';
 const resizeObserverInstances: ResizeObserverMock[] = [];
@@ -90,10 +94,10 @@ function v2Layout(columns: unknown[], floating: PanelId[] = []) {
   };
 }
 
-function railTree(panels: PanelId[], previewHidden: boolean) {
+function railTree(panels: PanelId[], focusMode: boolean) {
   return (
-    <PanelDockProvider projectPath={PROJECT}>
-      <WorkspaceDock previewHidden={previewHidden} preview={<div data-testid="preview" />}>
+    <PanelDockProvider projectPath={PROJECT} focusMode={focusMode}>
+      <WorkspaceDock focusMode={focusMode} preview={<div data-testid="preview" />}>
         {panels.map((panel) => (
           <TestPanel key={panel} panel={panel} />
         ))}
@@ -102,9 +106,9 @@ function railTree(panels: PanelId[], previewHidden: boolean) {
   );
 }
 
-function renderRail(panels: PanelId[], layout: unknown, previewHidden = false) {
+function renderRail(panels: PanelId[], layout: unknown, focusMode = false) {
   localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
-  return render(railTree(panels, previewHidden));
+  return render(railTree(panels, focusMode));
 }
 
 function dragHeader(panel: PanelId, to: { x: number; y: number }) {
@@ -458,7 +462,7 @@ describe('two-dimensional dragging', () => {
 });
 
 describe('focus and body portals', () => {
-  it('stretches the agent temporarily without changing the saved layout', async () => {
+  it('projects the agent beside the preview without changing the saved layout', async () => {
     renderRail(
       ['agent', 'navigator'],
       v2Layout(
@@ -468,35 +472,13 @@ describe('focus and body portals', () => {
       true
     );
     await act(async () => Promise.resolve());
-    expect(screen.getByTestId('preview').parentElement).toHaveAttribute('hidden');
-    expect(screen.queryByRole('separator', { name: 'Resize Agent column' })).toBeNull();
+    expect(screen.getByTestId('preview').parentElement).not.toHaveAttribute('hidden');
+    expect(screen.getByRole('separator', { name: 'Resize Agent column' })).toBeInTheDocument();
     expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
     const saved = readProjectLayout(PROJECT);
     dragHeader('agent', { x: 150, y: 700 });
     expect(readProjectLayout(PROJECT)).toEqual(saved);
     expect(readProjectLayout(PROJECT).floating).toContain('agent');
-  });
-
-  it('actually hides the preview column in focus, despite its display rule (#1147)', async () => {
-    const style = document.createElement('style');
-    style.textContent = dockStyles;
-    document.head.appendChild(style);
-    try {
-      renderRail(
-        ['agent'],
-        v2Layout([
-          { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
-          { kind: 'preview' },
-        ]),
-        true
-      );
-      await act(async () => Promise.resolve());
-      const center = screen.getByTestId('preview').parentElement as HTMLElement;
-      expect(center).toHaveAttribute('hidden');
-      expect(getComputedStyle(center).display).toBe('none');
-    } finally {
-      style.remove();
-    }
   });
 
   it('hides other docked panels in focus and restores them on exit (#1147)', async () => {
@@ -635,5 +617,99 @@ describe('focus and body portals', () => {
     const afterChildren = [...rail.children];
     expect(afterChildren[beforeIndex]).toBe(preview);
     expect(getComputedStyle(preview).order).not.toBe(beforeVisualOrder);
+  });
+});
+
+describe('preview gutter adjacency', () => {
+  it.each([
+    {
+      name: 'left',
+      panels: ['agent'] as PanelId[],
+      layout: v2Layout([
+        { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+        { kind: 'preview' },
+      ]),
+      focusMode: false,
+      expected: 'left',
+    },
+    {
+      name: 'right',
+      panels: ['agent'] as PanelId[],
+      layout: v2Layout([
+        { kind: 'preview' },
+        { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+      ]),
+      focusMode: false,
+      expected: 'right',
+    },
+    {
+      name: 'both',
+      panels: ['agent', 'navigator'] as PanelId[],
+      layout: v2Layout([
+        { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+        { kind: 'preview' },
+        { kind: 'panels', panels: [{ panel: 'navigator', weight: 1 }] },
+      ]),
+      focusMode: false,
+      expected: 'left right',
+    },
+    {
+      name: 'empty',
+      panels: [] as PanelId[],
+      layout: v2Layout([{ kind: 'preview' }]),
+      focusMode: false,
+      expected: null,
+    },
+    {
+      name: 'Focus projection',
+      panels: ['agent'] as PanelId[],
+      layout: v2Layout([
+        { kind: 'preview' },
+        { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
+      ]),
+      focusMode: true,
+      expected: 'left',
+    },
+  ])('marks the $name preview edge(s)', ({ panels, layout, focusMode, expected }) => {
+    renderRail(panels, layout, focusMode);
+    const preview = document.querySelector('.workspace-dock__center');
+    if (expected) {
+      expect(preview).toHaveAttribute('data-preview-adjacent', expected);
+    } else {
+      expect(preview).not.toHaveAttribute('data-preview-adjacent');
+    }
+  });
+
+  it.each([
+    {
+      name: 'full-width frame',
+      frameClass: 'preview-frame-grid preview-frame-grid--full-width',
+    },
+    {
+      name: 'constrained Desktop breakpoint frame',
+      frameClass: 'preview-frame-grid',
+    },
+  ])('includes a gutter paint rule beside a $name', ({ frameClass }) => {
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
+    const testDocument = dom.window.document;
+    const style = testDocument.createElement('style');
+    style.textContent = dockStyles;
+    testDocument.head.append(style);
+
+    const center = testDocument.createElement('div');
+    center.className = 'workspace-dock__center';
+    center.dataset.previewAdjacent = 'left';
+    const viewport = testDocument.createElement('div');
+    viewport.className = 'preview-viewport';
+    const frame = testDocument.createElement('div');
+    frame.className = frameClass;
+    viewport.append(frame);
+    center.append(viewport);
+    testDocument.body.append(center);
+
+    const backgroundImage = dom.window.getComputedStyle(viewport).backgroundImage;
+    dom.window.close();
+
+    expect(backgroundImage).toContain('linear-gradient');
   });
 });

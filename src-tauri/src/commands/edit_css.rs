@@ -24,6 +24,9 @@
 //!
 //! See `docs/visual-editor-css-mode.md` for the full design and phasing.
 
+use super::css_rule_mutations::{
+    self, CssConsolidationCandidate, CssConsolidationReview, CssRuleSourceIdentity,
+};
 use crate::commands::edit::Location;
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
@@ -61,8 +64,8 @@ impl SheetIndex {
         // Normalize once per snapshot, not every rule for every clicked element.
         let mut selectors: HashMap<String, Vec<usize>> = HashMap::new();
         for (index, rule) in rules.iter().enumerate() {
-            for part in split_selector_group(&rule.selector) {
-                let entries = selectors.entry(norm_selector(part)).or_default();
+            for part in normalized_selector_parts(&rule.selector) {
+                let entries = selectors.entry(part).or_default();
                 // A repeated member in a selector group still names just one rule.
                 if entries.last() != Some(&index) {
                     entries.push(index);
@@ -81,6 +84,11 @@ impl SheetIndex {
 #[allow(clippy::type_complexity)]
 static SHEET_CACHE: LazyLock<Mutex<HashMap<PathBuf, (Instant, Arc<Vec<SheetIndex>>)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Serializes CSS snapshot validation and write-back across this CSS mutation command path.
+/// External editors do not participate in this lock, so the filesystem still cannot
+/// provide a universal compare-and-write guarantee here.
+static EDITABLE_CSS_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// Parsed, cached stylesheets for `root`. Returns a cheap `Arc` clone on a hit;
 /// only a cold miss walks + parses.
@@ -259,8 +267,9 @@ pub struct MatchedRuleQuery {
     /// (or any) media variant resolves to its OWN rule, not the base one.
     #[serde(default)]
     pub media_text: Option<String>,
-    /// The served stylesheet URL (`rule.parentStyleSheet.href`), used only as a
-    /// basename tie-breaker when the same selector lives in several files.
+    /// The served stylesheet URL (`rule.parentStyleSheet.href`) or Vite's
+    /// `data-vite-dev-id`. Full local paths and embedded Astro style indexes are
+    /// used as identity; remote and unsupported URL schemes remain read-only.
     #[serde(default)]
     pub href: Option<String>,
     /// The enclosing `@layer` name, if the rule is inside one. Distinguishes the same
@@ -273,6 +282,31 @@ pub struct MatchedRuleQuery {
     /// The enclosing `@supports` condition, if any — same disambiguation role as `layer`.
     #[serde(default)]
     pub supports: Option<String>,
+    /// The exact CSSOM selector-list member matched by this element.
+    #[serde(default)]
+    pub selector_member_index: Option<usize>,
+    /// Full enclosing at-rule path; `Some([])` proves a top-level rule.
+    #[serde(default)]
+    pub context_path: Option<Vec<String>>,
+    /// CSSOM-serialized declarations from this exact CSSRule.
+    #[serde(default)]
+    pub identity_declarations: Option<Vec<Declaration>>,
+    /// Browser-only CSSOM path and fingerprint used by exact preview targeting.
+    #[serde(default)]
+    pub runtime_identity: Option<CssRulePreviewIdentity>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CssRulePreviewIdentity {
+    pub stylesheet_index: usize,
+    pub rule_path: Vec<usize>,
+    pub href: Option<String>,
+    #[serde(default)]
+    pub root_href: Option<String>,
+    pub selector_list: String,
+    pub selector_member_index: usize,
+    pub declarations: Vec<Declaration>,
 }
 
 /// Where a cascade rule lives in source — the editable seam for the code panel.
@@ -289,41 +323,63 @@ pub enum RuleLocation {
         line: usize,
         /// Verbatim source between the rule's braces.
         inner_text: String,
+        /// Present only when the backend verified this rule against an authored module
+        /// and the exact generated stylesheet that serves it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        generated_css_output: Option<String>,
+        /// Exact authored occurrence identity, required by all source mutations.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_identity: Option<CssRuleSourceIdentity>,
     },
     /// The selector resolves to more than one source rule — read-only (we never
-    /// guess which one the browser painted).
-    Multiple { files: Vec<String> },
-    /// No authored `.css` rule backs this match (UA / framework-injected / inline /
-    /// unmappable scoped style) — read-only.
+    /// guess which one the browser painted). `files` is the distinct set of
+    /// source references; `candidates` retains each matching rule for navigation.
+    Multiple {
+        files: Vec<String>,
+        rule_count: usize,
+        candidates: Vec<RuleSourceCandidate>,
+    },
+    /// No unique safe project source maps to this match (for example UA, inline,
+    /// or a generated rule without an exact authored-module counterpart) — read-only.
     NotFound,
+}
+
+/// One possible source rule for an ambiguous cascade match. Its line is the
+/// physical host-file line where that rule starts, when the file is still readable.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RuleSourceCandidate {
+    pub file: String,
+    pub line: Option<usize>,
 }
 
 /// One located style rule and the byte span of its declaration block.
 #[derive(Debug, Clone, PartialEq)]
-struct RuleSpan {
+pub(super) struct RuleSpan {
     /// Full selector prelude, trimmed (may be a comma group).
-    selector: String,
+    pub(super) selector: String,
     /// `@media` prelude (e.g. `(min-width: 768px)`) if nested, else `None`.
-    media: Option<String>,
+    pub(super) media: Option<String>,
     /// Byte range of the enclosing `@media` condition text (for editing the at-rule),
     /// if the rule is inside one.
-    media_prelude: Option<(usize, usize)>,
+    pub(super) media_prelude: Option<(usize, usize)>,
     /// The name of the enclosing `@layer` (innermost), if any. Distinguishes the same
     /// selector declared in different cascade layers so locate doesn't collide them.
-    layer: Option<String>,
+    pub(super) layer: Option<String>,
     /// The enclosing `@container` condition (innermost), if any — same disambiguation role.
-    container: Option<String>,
+    pub(super) container: Option<String>,
     /// The enclosing `@supports` condition (innermost), if any — same disambiguation role.
-    supports: Option<String>,
+    pub(super) supports: Option<String>,
+    /// Complete enclosing grouping-rule chain, including contexts without a control.
+    pub(super) context_path: Vec<String>,
     /// Byte offset of the first significant byte of the selector (for delete/wrap,
     /// which need the rule's start, not just its block).
-    selector_start: usize,
+    pub(super) selector_start: usize,
     /// Byte offset just inside the opening `{`.
-    block_inner_start: usize,
+    pub(super) block_inner_start: usize,
     /// Byte offset of the closing `}`.
-    block_inner_end: usize,
+    pub(super) block_inner_end: usize,
     /// 1-based line of the selector.
-    selector_line: usize,
+    pub(super) selector_line: usize,
 }
 
 /// A located declaration within a rule's block, with byte offsets into the
@@ -347,7 +403,7 @@ struct DeclSpan {
 // ───────────────────────── Low-level helpers ─────────────────────────
 
 /// Leading whitespace of the line containing `pos`.
-fn indent_of_line(src: &str, pos: usize) -> String {
+pub(super) fn indent_of_line(src: &str, pos: usize) -> String {
     let bytes = src.as_bytes();
     let mut start = pos.min(bytes.len());
     while start > 0 && bytes[start - 1] != b'\n' {
@@ -454,7 +510,46 @@ fn media_matches(media: &Option<String>, bp: Option<u32>) -> bool {
 /// agreement; a naive `split(',')` would shred a functional pseudo-class into
 /// non-matching fragments (`.x:is(.a` + ` .b)`), the root of several "read-only on
 /// modern CSS" misses.
-fn split_selector_group(sel: &str) -> Vec<&str> {
+pub(super) fn css_selector_escape_end(sel: &str, index: usize, end: usize) -> usize {
+    let bytes = sel.as_bytes();
+    let mut next = (index + 1).min(end);
+    if next >= end {
+        return end;
+    }
+    if bytes[next].is_ascii_hexdigit() {
+        let mut digits = 0;
+        while next < end && digits < 6 && bytes[next].is_ascii_hexdigit() {
+            next += 1;
+            digits += 1;
+        }
+        if next < end && bytes[next].is_ascii_whitespace() {
+            if bytes[next] == b'\r' && bytes.get(next + 1) == Some(&b'\n') {
+                next += 2;
+            } else {
+                next += 1;
+            }
+        }
+        return next;
+    }
+    if bytes[next] == b'\r' && bytes.get(next + 1) == Some(&b'\n') {
+        return (next + 2).min(end);
+    }
+    let first = bytes[next];
+    let width = if first < 0x80 {
+        1
+    } else if first < 0xE0 {
+        2
+    } else if first < 0xF0 {
+        3
+    } else {
+        4
+    };
+    (next + width).min(end)
+}
+
+/// Split a grouped selector on top-level commas while keeping escaped identifiers,
+/// functional pseudos, attribute strings, and CSS comments intact.
+pub(super) fn split_selector_group(sel: &str) -> Vec<&str> {
     let bytes = sel.as_bytes();
     let mut parts: Vec<&str> = Vec::new();
     let mut depth = 0i32;
@@ -465,7 +560,7 @@ fn split_selector_group(sel: &str) -> Vec<&str> {
         let c = bytes[i];
         if quote != 0 {
             if c == b'\\' {
-                i += 2;
+                i = css_selector_escape_end(sel, i, bytes.len());
                 continue;
             }
             if c == quote {
@@ -473,6 +568,17 @@ fn split_selector_group(sel: &str) -> Vec<&str> {
             }
             i += 1;
             continue;
+        }
+        if c == b'\\' {
+            i = css_selector_escape_end(sel, i, bytes.len());
+            continue;
+        }
+        if c == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            if let Some(end) = sel[i + 2..].find("*/") {
+                i += end + 4;
+                continue;
+            }
+            break;
         }
         match c {
             b'"' | b'\'' => quote = c,
@@ -494,20 +600,170 @@ fn split_selector_group(sel: &str) -> Vec<&str> {
     parts
 }
 
-fn selector_has_part(selector: &str, target: &str) -> bool {
-    split_selector_group(selector)
-        .iter()
-        .any(|p| p.trim() == target)
+/// Validate selector-list structure before the exact source prelude is replaced.
+/// CSS grammar support still comes from the project's browser/parser; this check keeps
+/// malformed delimiters and block/statement injection out of the source mutation path.
+pub(super) fn validate_selector_list(selector: &str) -> Result<(), CommandError> {
+    let invalid = || CommandError::Validation {
+        field: "selector".into(),
+        reason:
+            "enter a valid CSS selector or selector list without braces, semicolons, or comments"
+                .into(),
+    };
+    if selector.trim().is_empty() {
+        return Err(invalid());
+    }
+    let bytes = selector.as_bytes();
+    let mut stack = Vec::new();
+    let mut quote = 0u8;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if quote != 0 {
+            if byte == b'\\' {
+                index = css_selector_escape_end(selector, index, bytes.len());
+                continue;
+            }
+            if byte == quote {
+                quote = 0;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'\\' {
+            let escaped = css_selector_escape_end(selector, index, bytes.len());
+            if escaped == index + 1 {
+                return Err(invalid());
+            }
+            index = escaped;
+            continue;
+        }
+        if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            return Err(invalid());
+        }
+        match byte {
+            b'"' | b'\'' => quote = byte,
+            b'(' => stack.push(b')'),
+            b'[' => stack.push(b']'),
+            b')' | b']' if stack.pop() != Some(byte) => return Err(invalid()),
+            b'{' | b'}' | b';' => return Err(invalid()),
+            _ => {}
+        }
+        index += 1;
+    }
+    if quote != 0
+        || !stack.is_empty()
+        || split_selector_group(selector)
+            .iter()
+            .any(|member| member.trim().is_empty())
+    {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
-/// Normalize a selector for cross-source comparison: collapse runs of whitespace
-/// to one space, drop the spaces around descendant combinators so an authored
-/// `.a>.b` matches the browser-serialized `.a > .b`, and canonicalize the spacing
-/// around commas *inside* functional pseudo-classes so `:is(.a,.b)` (source) matches
-/// `:is(.a, .b)` (browser-serialized). Comparison-only — never written back to source,
-/// so flattening whitespace inside an attribute string is harmless (both sides flatten).
-fn norm_selector(s: &str) -> String {
-    let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ");
+/// Unwrap Astro's `:global(...)` authoring syntax for comparisons with the
+/// compiled selector text exposed by CSSOM. The returned flag is true only when all
+/// wrappers were balanced; malformed input is kept verbatim and cannot accidentally
+/// become a match. This is comparison-only — edits still target the original source
+/// selector and its declaration-block span.
+fn unwrap_astro_global(s: &str) -> (String, bool) {
+    let mut out = String::with_capacity(s.len());
+    let mut parens: Vec<bool> = Vec::new();
+    let mut quote = None;
+    let mut bracket_depth = 0usize;
+    let mut saw_global = false;
+    let mut i = 0usize;
+
+    while i < s.len() {
+        if quote.is_none()
+            && bracket_depth == 0
+            && s[i..]
+                .get(..8)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(":global("))
+        {
+            parens.push(true);
+            saw_global = true;
+            i += 8;
+            continue;
+        }
+
+        // CSS comments can contain selector-looking text; preserve them without
+        // treating a `:global(` inside a comment as authoring syntax.
+        if quote.is_none() && s[i..].starts_with("/*") {
+            if let Some(end) = s[i + 2..].find("*/") {
+                let end = i + 2 + end + 2;
+                out.push_str(&s[i..end]);
+                i = end;
+                continue;
+            }
+            out.push_str(&s[i..]);
+            break;
+        }
+
+        let ch = s[i..].chars().next().expect("i is a character boundary");
+        let next = i + ch.len_utf8();
+
+        if ch == '\\' {
+            out.push(ch);
+            i = next;
+            if i < s.len() {
+                let escaped = s[i..].chars().next().expect("i is a character boundary");
+                out.push(escaped);
+                i += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        if let Some(delimiter) = quote {
+            out.push(ch);
+            if ch == delimiter {
+                quote = None;
+            }
+            i = next;
+            continue;
+        }
+
+        match ch {
+            '\'' | '"' => {
+                quote = Some(ch);
+                out.push(ch);
+            }
+            '[' => {
+                bracket_depth += 1;
+                out.push(ch);
+            }
+            ']' => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                out.push(ch);
+            }
+            '(' => {
+                parens.push(false);
+                out.push(ch);
+            }
+            ')' => match parens.pop() {
+                Some(true) => {}
+                Some(false) | None => out.push(ch),
+            },
+            _ => out.push(ch),
+        }
+        i = next;
+    }
+
+    if parens.iter().any(|is_global| *is_global) {
+        (s.to_string(), false)
+    } else {
+        (out, saw_global)
+    }
+}
+
+/// Normalize selectors for cross-source comparison: collapse whitespace, drop spaces
+/// around combinators, canonicalize functional-pseudo comma spacing, and unwrap Astro
+/// `:global(...)` wrappers because CSSOM reports the compiled selector without them.
+/// Comparison-only — the original source prelude is never rewritten by this normalizer.
+pub(super) fn norm_selector(s: &str) -> String {
+    let (unwrapped, _) = unwrap_astro_global(s);
+    let collapsed = unwrapped.split_whitespace().collect::<Vec<_>>().join(" ");
     collapsed
         .replace(" > ", ">")
         .replace(" + ", "+")
@@ -516,13 +772,31 @@ fn norm_selector(s: &str) -> String {
         .replace(" ,", ",")
 }
 
-/// Like [`selector_has_part`] but whitespace/combinator-insensitive — used to match
-/// a browser-reported compound selector against an authored rule's selector group.
-fn rule_selector_matches(rule_selector: &str, target: &str) -> bool {
-    let t = norm_selector(target);
-    split_selector_group(rule_selector)
+/// Split source selectors after unwrapping Astro globals. This also exposes commas
+/// that were inside a `:global(...)` wrapper as top-level selector-list separators.
+pub(super) fn normalized_selector_parts(selector: &str) -> Vec<String> {
+    let (unwrapped, _) = unwrap_astro_global(selector);
+    split_selector_group(&unwrapped)
+        .into_iter()
+        .map(norm_selector)
+        .collect()
+}
+
+/// Does a source selector list contain `target` as one normalized member?
+fn selector_has_part(selector: &str, target: &str) -> bool {
+    let target = norm_selector(target);
+    normalized_selector_parts(selector)
         .iter()
-        .any(|p| norm_selector(p) == t)
+        .any(|part| part == &target)
+}
+
+/// Like [`selector_has_part`] but documented for the browser's compound-selector
+/// query. Both sides are normalized through the same Astro and whitespace rules.
+fn rule_selector_matches(rule_selector: &str, target: &str) -> bool {
+    let target = norm_selector(target);
+    normalized_selector_parts(rule_selector)
+        .iter()
+        .any(|part| part == &target)
 }
 
 /// Whether a rule's `@media` prelude equals the browser-reported condition text
@@ -538,10 +812,161 @@ fn norm_cond(s: &str) -> String {
         .collect()
 }
 
+/// Find the closing parenthesis for one media-query group, respecting quoted strings
+/// and comments. Nested groups are returned as a whole so only simple feature groups
+/// are eligible for legacy width-range canonicalization.
+fn media_group_end(condition: &str, start: usize) -> Option<usize> {
+    let bytes = condition.as_bytes();
+    let mut depth = 0usize;
+    let mut quote = 0u8;
+    let mut index = start;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if quote != 0 {
+            if byte == b'\\' {
+                index += 2;
+                continue;
+            }
+            if byte == quote {
+                quote = 0;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            index += 2;
+            while index + 1 < bytes.len() && !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
+                index += 1;
+            }
+            if index + 1 >= bytes.len() {
+                return None;
+            }
+            index += 2;
+            continue;
+        }
+
+        match byte {
+            b'\'' | b'"' => quote = byte,
+            b'(' => depth += 1,
+            b')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    None
+}
+
+/// A small CSS dimension grammar for the exact feature forms handled below.
+/// Functions, percentages, and unitless values stay untouched and therefore fail
+/// closed if CSSOM serializes them differently.
+fn is_simple_css_dimension(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0usize;
+    if matches!(bytes.first().copied(), Some(b'+') | Some(b'-')) {
+        index += 1;
+    }
+
+    let mut has_integer_digits = false;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        has_integer_digits = true;
+        index += 1;
+    }
+
+    let mut has_fraction_digits = false;
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            has_fraction_digits = true;
+            index += 1;
+        }
+    }
+    if !has_integer_digits && !has_fraction_digits {
+        return false;
+    }
+
+    if matches!(bytes.get(index).copied(), Some(b'e') | Some(b'E')) {
+        index += 1;
+        if matches!(bytes.get(index).copied(), Some(b'+') | Some(b'-')) {
+            index += 1;
+        }
+        let exponent_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == exponent_start {
+            return false;
+        }
+    }
+
+    index < bytes.len() && bytes[index..].iter().all(u8::is_ascii_alphabetic)
+}
+
+/// Convert only legacy width features whose CSS meaning is exactly an inclusive
+/// range: `max-width: Nunit` ↔ `width <= Nunit`, and the corresponding lower bound.
+/// Media types, logical operators, strict comparisons, values, and units are preserved.
+fn canonical_width_feature(group: &str) -> Option<String> {
+    let (value, operator) = if let Some(value) = group.strip_prefix("max-width:") {
+        (value, "<=")
+    } else if let Some(value) = group.strip_prefix("min-width:") {
+        (value, ">=")
+    } else {
+        return None;
+    };
+
+    is_simple_css_dimension(value).then(|| format!("width{operator}{value}"))
+}
+
+/// Normalize media-query text for CSSOM/source comparison. Besides whitespace and
+/// ASCII case, canonicalize only simple inclusive legacy width features. This is
+/// comparison-only: source writes continue to use the authored prelude verbatim.
+fn norm_media_cond(condition: &str) -> String {
+    let compact = norm_cond(condition);
+    let mut normalized = String::with_capacity(compact.len());
+    let bytes = compact.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'(' {
+            if let Some(end) = media_group_end(&compact, index) {
+                let group = &compact[index + 1..end];
+                if let Some(range) = canonical_width_feature(group) {
+                    normalized.push('(');
+                    normalized.push_str(&range);
+                    normalized.push(')');
+                } else {
+                    normalized.push_str(&compact[index..=end]);
+                }
+                index = end + 1;
+                continue;
+            }
+        }
+
+        let character = compact[index..]
+            .chars()
+            .next()
+            .expect("index is a character boundary");
+        normalized.push(character);
+        index += character.len_utf8();
+    }
+
+    normalized
+}
+
 fn media_text_matches(rule_media: &Option<String>, query: &Option<String>) -> bool {
-    let r = rule_media.as_deref().map(norm_cond).unwrap_or_default();
-    let q = query.as_deref().map(norm_cond).unwrap_or_default();
-    r == q
+    let rule = rule_media
+        .as_deref()
+        .map(norm_media_cond)
+        .unwrap_or_default();
+    let query = query.as_deref().map(norm_media_cond).unwrap_or_default();
+    rule == query
 }
 
 /// Whether braces in an edited rule body are balanced (comment/string-aware) — the
@@ -599,28 +1024,828 @@ fn braces_balanced(s: &str) -> bool {
     depth == 0 && quote == 0
 }
 
-/// The filename component of a served stylesheet URL (`…/styles.css?v=3` → `styles.css`).
-fn href_basename(href: &str) -> Option<String> {
-    let no_q = href.split(['?', '#']).next().unwrap_or(href);
-    no_q.rsplit('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+/// A source identity carried by a stylesheet URL or Vite style element id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CssSourceIdentity {
+    /// Project-relative POSIX path without the embedded-style query.
+    path: String,
+    /// Astro/Vite style index or Ship Studio's `?style=N` index, when present.
+    style_index: Option<usize>,
 }
 
-/// The filename component of a project-relative POSIX path, minus any `?style=N`
-/// embedded-block suffix (`src/Foo.astro?style=0` → `Foo.astro`).
-fn rel_basename(rel: &str) -> &str {
-    let name = rel.rsplit('/').next().unwrap_or(rel);
-    name.split('?').next().unwrap_or(name)
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CssSourceHint {
+    /// No path identity was supplied, so selector-only matching may run.
+    Unavailable,
+    /// The identity maps to an indexed source path and can restrict candidates.
+    Project(CssSourceIdentity),
+    /// A generated public bundle maps to its authored modules; rule bodies must also match.
+    Generated {
+        output_path: String,
+        source_paths: Vec<String>,
+    },
+    /// A path-shaped identity was present but could not map to an indexed source.
+    /// Do not fall back to an unrelated selector hit.
+    Unmapped,
+}
+
+/// Percent-decode a URL path without interpreting `+` as a space.
+fn percent_decode_path(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = *bytes.get(index + 1)?;
+            let low = *bytes.get(index + 2)?;
+            let digit = |byte: u8| match byte {
+                b'0'..=b'9' => Some(byte - b'0'),
+                b'a'..=b'f' => Some(byte - b'a' + 10),
+                b'A'..=b'F' => Some(byte - b'A' + 10),
+                _ => None,
+            };
+            decoded.push(digit(high)? * 16 + digit(low)?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
+/// Normalize a relative source path while rejecting attempts to walk above the project.
+fn normalize_project_rel_path(path: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    let normalized = path.replace('\\', "/");
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ if parts.is_empty() && part.ends_with(':') => return None,
+            _ => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn absolute_project_rel_path(root: &Path, path: &str) -> Option<String> {
+    let path = path
+        .strip_prefix('/')
+        .filter(|path| is_windows_absolute_path(path))
+        .unwrap_or(path);
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let candidate = Path::new(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
+    let relative = candidate.strip_prefix(&root).ok()?;
+    normalize_project_rel_path(&relative.to_string_lossy())
+}
+
+fn sheet_matches_source_identity(rel: &str, identity: &CssSourceIdentity) -> bool {
+    let (path, style_index) = parse_style_ref(rel);
+    path == identity.path
+        && identity
+            .style_index
+            .map_or(true, |expected| style_index == Some(expected))
+}
+
+fn is_generated_public_site(root: &Path, output_path: &str) -> bool {
+    const OUTPUT_PATH: &str = "public/styles/site.css";
+    const GENERATED_HEADER: &str =
+        "/* Generated by scripts/build-styles.mjs. Edit the source modules instead. */";
+
+    if output_path != OUTPUT_PATH {
+        return false;
+    }
+    safe_join(root, OUTPUT_PATH)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .is_some_and(|content| content.starts_with(GENERATED_HEADER))
+}
+
+fn generated_public_site_sources(
+    root: &Path,
+    sheets: &[SheetIndex],
+    output_path: &str,
+) -> Option<Vec<String>> {
+    const OUTPUT_PATH: &str = "public/styles/site.css";
+    const GENERATED_HEADER: &str =
+        "/* Generated by scripts/build-styles.mjs. Edit the source modules instead. */";
+    const LEGACY_SOURCE_MANIFEST: &str = "const sourceFiles = [";
+    const CURRENT_SOURCE_MANIFEST: &str = "export const SOURCE_FILES = Object.freeze([";
+    const LEGACY_REQUIRED_SCRIPT_FRAGMENTS: &[&str] = &[
+        "const stylesDirectory = new URL('../public/styles/', import.meta.url);",
+        "const stylesheet = [",
+        "  '/* Generated by scripts/build-styles.mjs. Edit the source modules instead. */',",
+        "  ...sourceFiles.map((file) => readFileSync(new URL(file, stylesDirectory), 'utf8').trim()),",
+        "].join('\\n\\n') + '\\n';",
+        "writeFileSync(new URL('site.css', stylesDirectory), stylesheet);",
+    ];
+    const CURRENT_REQUIRED_SCRIPT_FRAGMENTS: &[&str] = &[
+        "export const STYLES_DIRECTORY = fileURLToPath(new URL('../public/styles/', import.meta.url));",
+        "export function buildStyles(stylesDirectory = STYLES_DIRECTORY) {",
+        "const stylesheet = [",
+        "'/* Generated by scripts/build-styles.mjs. Edit the source modules instead. */',",
+        "...SOURCE_FILES.map((file) => readFileSync(resolve(stylesDirectory, file), 'utf8').trim()),",
+        "].join('\\n\\n') + '\\n';",
+        "writeFileSync(resolve(stylesDirectory, 'site.css'), stylesheet);",
+    ];
+
+    if output_path != OUTPUT_PATH {
+        return None;
+    }
+    let script_path = safe_join(root, "scripts/build-styles.mjs").ok()?;
+    let script = std::fs::read_to_string(script_path).ok()?;
+    // Recognize the original self-running script and the current exported builder shape.
+    // Any other generator stays unmapped until its output contract is verified here.
+    let (manifest_start, manifest_end, required_fragments) = match (
+        script.matches(LEGACY_SOURCE_MANIFEST).count(),
+        script.matches(CURRENT_SOURCE_MANIFEST).count(),
+    ) {
+        (1, 0) => (
+            LEGACY_SOURCE_MANIFEST,
+            "];",
+            LEGACY_REQUIRED_SCRIPT_FRAGMENTS,
+        ),
+        (0, 1) => (
+            CURRENT_SOURCE_MANIFEST,
+            "]);",
+            CURRENT_REQUIRED_SCRIPT_FRAGMENTS,
+        ),
+        _ => return None,
+    };
+    if required_fragments
+        .iter()
+        .any(|fragment| !script.contains(fragment))
+    {
+        return None;
+    }
+
+    let source_list = script.split_once(manifest_start)?.1;
+    let (entries, _) = source_list.split_once(manifest_end)?;
+    let mut source_paths = Vec::new();
+    let mut seen = HashSet::new();
+    for line in entries
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let name = line.strip_prefix('\'')?.strip_suffix("',")?;
+        if !name.ends_with(".css")
+            || name == "site.css"
+            || name.contains("..")
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+            || !seen.insert(name.to_string())
+        {
+            return None;
+        }
+        source_paths.push(format!("public/styles/{name}"));
+    }
+    if source_paths.is_empty() {
+        return None;
+    }
+
+    let output_sheet = sheets.iter().find(|sheet| sheet.rel == OUTPUT_PATH)?;
+    let output_file = safe_join(root, OUTPUT_PATH).ok()?;
+    let output_content = std::fs::read_to_string(output_file).ok()?;
+    if output_content != output_sheet.content || !output_content.starts_with(GENERATED_HEADER) {
+        return None;
+    }
+
+    for source_path in &source_paths {
+        let source_sheet = sheets.iter().find(|sheet| sheet.rel == *source_path)?;
+        let source_file = safe_join(root, source_path).ok()?;
+        let source_content = std::fs::read_to_string(source_file).ok()?;
+        if source_content != source_sheet.content {
+            return None;
+        }
+    }
+    Some(source_paths)
+}
+
+fn source_hint_for_identity(
+    root: Option<&Path>,
+    sheets: &[SheetIndex],
+    identity: CssSourceIdentity,
+) -> CssSourceHint {
+    if identity.style_index.is_none() {
+        if let Some(root) = root {
+            if is_generated_public_site(root, &identity.path) {
+                if let Some(source_paths) =
+                    generated_public_site_sources(root, sheets, &identity.path)
+                {
+                    return CssSourceHint::Generated {
+                        output_path: identity.path,
+                        source_paths,
+                    };
+                }
+                return CssSourceHint::Unmapped;
+            }
+        }
+    }
+    CssSourceHint::Project(identity)
+}
+
+/// Extract the exact project path and embedded style index from a browser or Vite source id.
+/// Query cache keys such as `?t=...` are ignored; Astro's `index=N` maps to the same original
+/// style-block index used in the virtual sheet id.
+fn css_source_hint(root: Option<&Path>, sheets: &[SheetIndex], href: &str) -> CssSourceHint {
+    let href = href.trim();
+    if href.is_empty() {
+        return CssSourceHint::Unavailable;
+    }
+    let no_fragment = href.split('#').next().unwrap_or(href);
+
+    let (raw_path, query, served_url, file_url, vite_fs_path, trusted_origin) = if let Some(rest) =
+        no_fragment
+            .strip_prefix("http://")
+            .or_else(|| no_fragment.strip_prefix("https://"))
+    {
+        let path_start = rest.find('/').unwrap_or(rest.len());
+        let host = &rest[..path_start];
+        let path_query = if path_start == rest.len() {
+            "/"
+        } else {
+            &rest[path_start..]
+        };
+        let (path, query) = path_query.split_once('?').unwrap_or((path_query, ""));
+        (
+            path,
+            query,
+            true,
+            false,
+            path.starts_with("/@fs/"),
+            is_local_dev_host(host),
+        )
+    } else if let Some(rest) = no_fragment.strip_prefix("file://") {
+        let local_path = match rest.strip_prefix("localhost") {
+            Some("") => "",
+            Some(path) if path.starts_with('/') || path.starts_with('?') => path,
+            _ => rest,
+        };
+        let (path, query) = local_path.split_once('?').unwrap_or((local_path, ""));
+        (path, query, false, true, false, false)
+    } else if no_fragment.contains("://")
+        || no_fragment.starts_with("data:")
+        || no_fragment.starts_with("blob:")
+    {
+        // An explicit non-project scheme is evidence that this stylesheet did not
+        // come from one of the indexed project paths. Never let its basename select
+        // an unrelated local rule.
+        return CssSourceHint::Unmapped;
+    } else {
+        let (path, query) = no_fragment.split_once('?').unwrap_or((no_fragment, ""));
+        (path, query, false, false, path.starts_with("/@fs/"), false)
+    };
+
+    if served_url && !trusted_origin {
+        return CssSourceHint::Unmapped;
+    }
+
+    let style_index = match css_style_index(query) {
+        Ok(index) => index,
+        Err(()) => return CssSourceHint::Unmapped,
+    };
+    let Some(decoded_path) = percent_decode_path(raw_path) else {
+        return CssSourceHint::Unmapped;
+    };
+
+    let path = if vite_fs_path {
+        let Some(root) = root else {
+            return CssSourceHint::Unmapped;
+        };
+        let fs_path = decoded_path.strip_prefix("/@fs/").unwrap_or(&decoded_path);
+        let fs_path = if is_windows_absolute_path(fs_path) {
+            fs_path.to_string()
+        } else {
+            format!("/{fs_path}")
+        };
+        let Some(relative) = absolute_project_rel_path(root, &fs_path) else {
+            return CssSourceHint::Unmapped;
+        };
+        relative
+    } else if file_url
+        || root.is_some_and(|root| absolute_project_rel_path(root, &decoded_path).is_some())
+        || is_windows_absolute_path(&decoded_path)
+        || (!served_url && looks_like_absolute_filesystem_path(&decoded_path))
+    {
+        let Some(root) = root else {
+            return CssSourceHint::Unmapped;
+        };
+        let Some(relative) = absolute_project_rel_path(root, &decoded_path) else {
+            return CssSourceHint::Unmapped;
+        };
+        relative
+    } else {
+        // A leading slash in a served Vite URL or bare Vite module id is rooted at
+        // the project's dev-server URL, not at the host filesystem root.
+        let relative = decoded_path.strip_prefix('/').unwrap_or(&decoded_path);
+        let Some(relative) = normalize_project_rel_path(relative) else {
+            return CssSourceHint::Unmapped;
+        };
+        relative
+    };
+
+    let identity = CssSourceIdentity { path, style_index };
+    let direct_match = sheets
+        .iter()
+        .any(|sheet| sheet_matches_source_identity(&sheet.rel, &identity));
+    // Vite/Astro serve files in `public/` from the URL root, omitting that source
+    // directory from the browser URL. Consider this alias only for ordinary local
+    // HTTP stylesheet URLs (not `/@fs/`, file URLs, or embedded Astro block IDs).
+    let public_identity = if served_url
+        && !file_url
+        && !vite_fs_path
+        && identity.style_index.is_none()
+        && !identity.path.starts_with("public/")
+    {
+        normalize_project_rel_path(&format!("public/{}", identity.path)).map(|path| {
+            CssSourceIdentity {
+                path,
+                style_index: None,
+            }
+        })
+    } else {
+        None
+    };
+    let public_match = public_identity.as_ref().is_some_and(|public| {
+        sheets
+            .iter()
+            .any(|sheet| sheet_matches_source_identity(&sheet.rel, public))
+    });
+
+    match (direct_match, public_match) {
+        (true, false) => source_hint_for_identity(root, sheets, identity),
+        (false, true) => {
+            source_hint_for_identity(root, sheets, public_identity.expect("matched public path"))
+        }
+        // If both on-disk paths could have produced the same browser URL, the URL
+        // alone cannot safely choose a write target. Keep it read-only.
+        (true, true) | (false, false) => {
+            // A full, path-shaped id without one exact indexed source is evidence
+            // against the selector-only result, not permission to pick another file.
+            CssSourceHint::Unmapped
+        }
+    }
+}
+
+fn looks_like_absolute_filesystem_path(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    [
+        "/Users/",
+        "/home/",
+        "/private/",
+        "/var/",
+        "/tmp/",
+        "/Volumes/",
+        "/opt/",
+        "/workspace/",
+        "/mnt/",
+    ]
+    .iter()
+    .any(|prefix| path.starts_with(prefix))
+        || is_windows_absolute_path(&path)
+}
+
+fn is_windows_absolute_path(path: &str) -> bool {
+    let path = path.strip_prefix('/').unwrap_or(path);
+    path.len() >= 3
+        && path.as_bytes()[0].is_ascii_alphabetic()
+        && path.as_bytes()[1] == b':'
+        && matches!(path.as_bytes()[2], b'/' | b'\\')
+}
+
+fn is_local_dev_host(authority: &str) -> bool {
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if authority.starts_with('[') {
+        authority
+            .find(']')
+            .map(|end| &authority[1..end])
+            .unwrap_or(authority)
+    } else {
+        authority.split(':').next().unwrap_or(authority)
+    };
+    let host = host.to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(address)) => {
+            address.is_loopback() || address.is_private() || address.is_link_local()
+        }
+        Ok(std::net::IpAddr::V6(address)) => {
+            address.is_loopback() || (address.segments()[0] & 0xfe00 == 0xfc00)
+        }
+        Err(_) => false,
+    }
+}
+
+fn css_style_index(query: &str) -> Result<Option<usize>, ()> {
+    let mut style_ref = None;
+    let mut astro_index = None;
+    let astro_style_request = query.split('&').any(|part| part == "astro")
+        && query.split('&').any(|part| part == "type=style");
+    for pair in query.split('&').filter(|part| !part.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "style" => {
+                let index = value.parse::<usize>().map_err(|_| ())?;
+                if style_ref.is_some_and(|previous| previous != index) {
+                    return Err(());
+                }
+                style_ref = Some(index);
+            }
+            "index" if astro_style_request => {
+                let index = value.parse::<usize>().map_err(|_| ())?;
+                if astro_index.is_some_and(|previous| previous != index) {
+                    return Err(());
+                }
+                astro_index = Some(index);
+            }
+            _ => {}
+        }
+    }
+    match (style_ref, astro_index) {
+        (Some(a), Some(b)) if a != b => Err(()),
+        (Some(index), _) | (_, Some(index)) => Ok(Some(index)),
+        _ => Ok(None),
+    }
 }
 
 /// Map one cascade match to its source rule across the pre-indexed sheets.
 fn locate_rule(sheets: &[SheetIndex], q: &MatchedRuleQuery) -> RuleLocation {
-    let resolved = |rel: &str, content: &str, rule: &RuleSpan| RuleLocation::Resolved {
-        file: rel.to_string(),
-        line: rule.selector_line,
-        inner_text: content[rule.block_inner_start..rule.block_inner_end].to_string(),
+    locate_rule_with_root(None, sheets, q)
+}
+
+fn locate_rule_in_project(
+    root: &Path,
+    sheets: &[SheetIndex],
+    q: &MatchedRuleQuery,
+) -> RuleLocation {
+    locate_rule_with_root(Some(root), sheets, q)
+}
+
+fn context_path_matches(source: &[String], runtime: Option<&[String]>) -> bool {
+    let Some(runtime) = runtime else { return true };
+    source.len() == runtime.len()
+        && source.iter().zip(runtime).all(|(source, runtime)| {
+            let source = source.trim();
+            let runtime = runtime.trim();
+            let source_kind = source.split_whitespace().next().unwrap_or("");
+            let runtime_kind = runtime.split_whitespace().next().unwrap_or("");
+            if !source_kind.eq_ignore_ascii_case(runtime_kind) {
+                return false;
+            }
+            if source_kind.eq_ignore_ascii_case("@media") {
+                let source_query = source.strip_prefix(source_kind).unwrap_or("").trim();
+                let runtime_query = runtime.strip_prefix(runtime_kind).unwrap_or("").trim();
+                media_text_matches(
+                    &Some(source_query.to_string()),
+                    &Some(runtime_query.to_string()),
+                )
+            } else {
+                norm_cond(source) == norm_cond(runtime)
+            }
+        })
+}
+
+fn normalized_evidence_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut quote = None;
+    let mut pending_space = false;
+    let mut escape_next = false;
+    for character in value.trim().chars() {
+        if escape_next {
+            out.push(character);
+            escape_next = false;
+            continue;
+        }
+        if let Some(delimiter) = quote {
+            out.push(character);
+            if character == '\\' {
+                escape_next = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\\' => {
+                if pending_space && !out.is_empty() {
+                    out.push(' ');
+                }
+                pending_space = false;
+                out.push(character);
+                escape_next = true;
+            }
+            '\'' | '"' => {
+                if pending_space && !out.is_empty() {
+                    out.push(' ');
+                }
+                pending_space = false;
+                quote = Some(character);
+                out.push(character);
+            }
+            c if c.is_whitespace() => pending_space = true,
+            _ => {
+                if pending_space && !out.is_empty() {
+                    out.push(' ');
+                }
+                pending_space = false;
+                out.push(character);
+            }
+        }
+    }
+    out
+}
+
+fn css_wide_keyword(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "inherit" => Some("inherit"),
+        "initial" => Some("initial"),
+        "unset" => Some("unset"),
+        "revert" => Some("revert"),
+        "revert-layer" => Some("revert-layer"),
+        _ => None,
+    }
+}
+
+fn is_font_evidence_property(property: &str) -> bool {
+    property.starts_with("font-") || property == "line-height"
+}
+
+fn is_known_font_longhand(property: &str) -> bool {
+    matches!(
+        property,
+        "font-style"
+            | "font-variant"
+            | "font-variant-alternates"
+            | "font-variant-caps"
+            | "font-variant-east-asian"
+            | "font-variant-emoji"
+            | "font-variant-ligatures"
+            | "font-variant-numeric"
+            | "font-variant-position"
+            | "font-weight"
+            | "font-stretch"
+            | "font-width"
+            | "font-size"
+            | "line-height"
+            | "font-family"
+            | "font-size-adjust"
+            | "font-kerning"
+            | "font-feature-settings"
+            | "font-optical-sizing"
+            | "font-variation-settings"
+    )
+}
+
+/// Collapse the CSSOM's expanded font longhands only when they are a complete,
+/// contiguous CSS-wide font value. The core font members must all be present;
+/// optional longhands vary with WebKit support, while mixed values, priorities,
+/// duplicate/unknown properties, or interrupted groups remain unmatched.
+fn normalize_font_cssom_evidence(declarations: &[Declaration]) -> Option<Vec<Declaration>> {
+    let font_indices: Vec<_> = declarations
+        .iter()
+        .enumerate()
+        .filter_map(|(index, declaration)| {
+            is_font_evidence_property(&declaration.property.to_ascii_lowercase()).then_some(index)
+        })
+        .collect();
+
+    let Some(&first) = font_indices.first() else {
+        let mut normalized = declarations.to_vec();
+        for declaration in &mut normalized {
+            if declaration.property.eq_ignore_ascii_case("font") {
+                if let Some(keyword) = css_wide_keyword(&declaration.value) {
+                    declaration.value = keyword.to_string();
+                }
+            }
+        }
+        return Some(normalized);
+    };
+    let last = *font_indices.last()?;
+    if font_indices.len() != last - first + 1 {
+        return None;
+    }
+
+    let mut seen = HashSet::new();
+    let mut keyword = None;
+    let mut important = None;
+    for declaration in &declarations[first..=last] {
+        let property = declaration.property.to_ascii_lowercase();
+        if !is_font_evidence_property(&property) || !is_known_font_longhand(&property) {
+            return None;
+        }
+        let canonical_property = match property.as_str() {
+            // `font-width` is the modern name for the same longhand as
+            // `font-stretch`; a browser should expose one spelling, never both.
+            "font-stretch" => "font-width".to_string(),
+            _ => property.clone(),
+        };
+        if !seen.insert(canonical_property) {
+            return None;
+        }
+        let current_keyword = css_wide_keyword(&declaration.value)?;
+        if keyword.is_some_and(|previous| previous != current_keyword)
+            || important.is_some_and(|previous| previous != declaration.important)
+        {
+            return None;
+        }
+        keyword = Some(current_keyword);
+        important = Some(declaration.important);
+    }
+
+    for required in [
+        "font-style",
+        "font-weight",
+        "font-size",
+        "line-height",
+        "font-family",
+    ] {
+        if !seen.contains(required) {
+            return None;
+        }
+    }
+
+    let mut normalized = Vec::with_capacity(declarations.len() - (last - first));
+    normalized.extend_from_slice(&declarations[..first]);
+    normalized.push(Declaration {
+        property: "font".into(),
+        value: keyword?.into(),
+        important: important?,
+    });
+    normalized.extend_from_slice(&declarations[last + 1..]);
+    Some(normalized)
+}
+
+fn authored_declaration_evidence(css: &str, rule: &RuleSpan) -> Vec<Declaration> {
+    declarations_in(css, rule)
+        .into_iter()
+        .flat_map(|declaration| {
+            let property = declaration.property.to_ascii_lowercase();
+            let value = normalized_evidence_value(&declaration.value);
+            if property == "white-space" {
+                let (collapse, wrapping) = match value.as_str() {
+                    "normal" => ("collapse", "wrap"),
+                    "nowrap" => ("collapse", "nowrap"),
+                    "pre" => ("preserve", "nowrap"),
+                    "pre-wrap" => ("preserve", "wrap"),
+                    "pre-line" => ("preserve-breaks", "wrap"),
+                    "break-spaces" => ("break-spaces", "wrap"),
+                    _ => return Vec::new(),
+                };
+                vec![
+                    Declaration {
+                        property: "white-space-collapse".into(),
+                        value: collapse.into(),
+                        important: declaration.important,
+                    },
+                    Declaration {
+                        property: "text-wrap-mode".into(),
+                        value: wrapping.into(),
+                        important: declaration.important,
+                    },
+                ]
+            } else {
+                let value = if property == "font" {
+                    css_wide_keyword(&value).unwrap_or(&value).to_string()
+                } else {
+                    value
+                };
+                vec![Declaration {
+                    property,
+                    value,
+                    important: declaration.important,
+                }]
+            }
+        })
+        .collect()
+}
+
+fn declaration_evidence_matches(
+    css: &str,
+    rule: &RuleSpan,
+    runtime: Option<&[Declaration]>,
+) -> bool {
+    let Some(runtime) = runtime else { return true };
+    let authored = authored_declaration_evidence(css, rule);
+    let declarations_match = |left: &[Declaration], right: &[Declaration]| {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                left.property.eq_ignore_ascii_case(&right.property)
+                    && normalized_evidence_value(&left.value)
+                        == normalized_evidence_value(&right.value)
+                    && left.important == right.important
+            })
+    };
+    if declarations_match(&authored, runtime) {
+        return true;
+    }
+    let Some(runtime) = normalize_font_cssom_evidence(runtime) else {
+        return false;
+    };
+    declarations_match(&authored, &runtime)
+}
+
+/// Use declaration evidence to narrow structurally safe candidates only when it
+/// identifies at least one. CSSOM can expand shorthands or serialize values
+/// differently, so no evidence match is not proof that a unique source rule is absent.
+/// Ambiguous candidates remain ambiguous when their evidence cannot distinguish them.
+fn prefer_declaration_evidence<'a>(
+    hits: Vec<(&'a str, &'a str, &'a RuleSpan)>,
+    runtime: Option<&[Declaration]>,
+) -> Vec<(&'a str, &'a str, &'a RuleSpan)> {
+    let Some(runtime) = runtime else { return hits };
+    let matching: Vec<_> = hits
+        .iter()
+        .copied()
+        .filter(|(_, css, rule)| declaration_evidence_matches(css, rule, Some(runtime)))
+        .collect();
+    if matching.is_empty() {
+        hits
+    } else {
+        matching
+    }
+}
+
+fn matched_member_index(rule: &RuleSpan, query: &MatchedRuleQuery) -> Option<usize> {
+    let parts = normalized_selector_parts(&rule.selector);
+    if let Some(index) = query.selector_member_index {
+        return (parts.get(index).map(String::as_str)
+            == Some(norm_selector(&query.selector).as_str()))
+        .then_some(index);
+    }
+    let target = norm_selector(&query.selector);
+    let matches: Vec<_> = parts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, part)| (part == &target).then_some(index))
+        .collect();
+    if matches.len() == 1 {
+        Some(matches[0])
+    } else {
+        None
+    }
+}
+
+fn rule_matches_query(rule: &RuleSpan, query: &MatchedRuleQuery) -> bool {
+    let parts = normalized_selector_parts(&rule.selector);
+    if let Some(index) = query.selector_member_index {
+        return parts.get(index).map(String::as_str)
+            == Some(norm_selector(&query.selector).as_str());
+    }
+    let target = norm_selector(&query.selector);
+    parts.iter().any(|part| part == &target)
+}
+
+fn candidate_line_offset(root: Option<&Path>, file: &str, cached_content: &str) -> Option<usize> {
+    let Some(root) = root else {
+        return Some(0);
+    };
+    let editable = load_editable_css(root, file).ok()?;
+    if editable.css != cached_content {
+        return None;
+    }
+    Some(
+        editable
+            .prefix
+            .as_bytes()
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count(),
+    )
+}
+
+fn locate_rule_with_root(
+    root: Option<&Path>,
+    sheets: &[SheetIndex],
+    q: &MatchedRuleQuery,
+) -> RuleLocation {
+    let resolved = |rel: &str,
+                    content: &str,
+                    rule: &RuleSpan,
+                    generated_css_output: Option<String>| {
+        let Some(member_index) = matched_member_index(rule, q) else {
+            return RuleLocation::NotFound;
+        };
+        let Some(source_identity) =
+            css_rule_mutations::identity_for_rule(rel, content, rule, member_index, &q.selector)
+        else {
+            return RuleLocation::NotFound;
+        };
+        RuleLocation::Resolved {
+            file: rel.to_string(),
+            line: rule.selector_line,
+            inner_text: content[rule.block_inner_start..rule.block_inner_end].to_string(),
+            generated_css_output,
+            source_identity: Some(source_identity),
+        }
     };
 
     let mut hits: Vec<(&str, &str, &RuleSpan)> = Vec::new();
@@ -631,9 +1856,122 @@ fn locate_rule(sheets: &[SheetIndex], q: &MatchedRuleQuery) -> RuleLocation {
         };
         for &index in indices {
             let rule = &sheet.rules[index];
-            if media_text_matches(&rule.media, &q.media_text) {
+            if media_text_matches(&rule.media, &q.media_text)
+                && rule_matches_query(rule, q)
+                && q.context_path.as_deref().map_or(true, |path| {
+                    context_path_matches(&rule.context_path, Some(path))
+                })
+            {
                 hits.push((sheet.rel.as_str(), sheet.content.as_str(), rule));
             }
+        }
+    }
+
+    let source_hint = q
+        .href
+        .as_deref()
+        .map(|href| css_source_hint(root, sheets, href))
+        .unwrap_or(CssSourceHint::Unavailable);
+    if q.runtime_identity
+        .as_ref()
+        .is_some_and(|runtime| runtime.href != q.href)
+        || (q.runtime_identity.is_some() && matches!(&source_hint, CssSourceHint::Unavailable))
+    {
+        return RuleLocation::NotFound;
+    }
+    match &source_hint {
+        CssSourceHint::Project(identity) => {
+            hits.retain(|(rel, _, _)| sheet_matches_source_identity(rel, identity));
+            hits = prefer_declaration_evidence(hits, q.identity_declarations.as_deref());
+        }
+        CssSourceHint::Generated {
+            output_path,
+            source_paths,
+        } => {
+            let output_hits: Vec<_> = hits
+                .iter()
+                .copied()
+                .filter(|(rel, _, _)| *rel == output_path.as_str())
+                .collect();
+            let output_hits =
+                prefer_declaration_evidence(output_hits, q.identity_declarations.as_deref());
+            if output_hits.is_empty() {
+                return RuleLocation::NotFound;
+            }
+
+            let same_context = |a: &Option<String>, b: &Option<String>| match (a, b) {
+                (Some(left), Some(right)) => norm_cond(left) == norm_cond(right),
+                (None, None) => true,
+                _ => false,
+            };
+            let source_hits: Vec<_> = hits
+                .iter()
+                .copied()
+                .filter(|(rel, _, _)| {
+                    source_paths
+                        .iter()
+                        .any(|source_path| *rel == source_path.as_str())
+                })
+                .collect();
+            let source_hits =
+                prefer_declaration_evidence(source_hits, q.identity_declarations.as_deref());
+            let mut mapped_hits = Vec::new();
+            let mut seen = HashSet::new();
+            for (_, output_content, output_rule) in output_hits.iter().copied() {
+                for (source_path, source_content, source_rule) in source_hits.iter().copied() {
+                    let same_rule = output_rule.selector == source_rule.selector
+                        && media_text_matches(&output_rule.media, &source_rule.media)
+                        && same_context(&output_rule.layer, &source_rule.layer)
+                        && same_context(&output_rule.container, &source_rule.container)
+                        && same_context(&output_rule.supports, &source_rule.supports)
+                        && output_content
+                            [output_rule.block_inner_start..output_rule.block_inner_end]
+                            == source_content
+                                [source_rule.block_inner_start..source_rule.block_inner_end];
+                    if same_rule
+                        && seen.insert((source_path.to_string(), source_rule.selector_start))
+                    {
+                        mapped_hits.push((source_path, source_content, source_rule));
+                    }
+                }
+            }
+
+            match mapped_hits.len() {
+                0 => return RuleLocation::NotFound,
+                1 => {
+                    let (rel, content, rule) = mapped_hits[0];
+                    return resolved(rel, content, rule, Some(output_path.clone()));
+                }
+                _ => {
+                    let mut line_offsets = HashMap::new();
+                    let candidates: Vec<_> = mapped_hits
+                        .iter()
+                        .map(|(rel, content, rule)| {
+                            let offset = *line_offsets
+                                .entry((*rel).to_string())
+                                .or_insert_with(|| candidate_line_offset(root, rel, content));
+                            RuleSourceCandidate {
+                                file: (*rel).to_string(),
+                                line: offset.map(|offset| offset + rule.selector_line),
+                            }
+                        })
+                        .collect();
+                    return RuleLocation::Multiple {
+                        files: mapped_hits
+                            .iter()
+                            .map(|(rel, _, _)| rel.to_string())
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .collect(),
+                        rule_count: mapped_hits.len(),
+                        candidates,
+                    };
+                }
+            }
+        }
+        CssSourceHint::Unmapped => return RuleLocation::NotFound,
+        CssSourceHint::Unavailable => {
+            hits = prefer_declaration_evidence(hits, q.identity_declarations.as_deref());
         }
     }
 
@@ -641,15 +1979,13 @@ fn locate_rule(sheets: &[SheetIndex], q: &MatchedRuleQuery) -> RuleLocation {
         0 => RuleLocation::NotFound,
         1 => {
             let (rel, content, rule) = hits[0];
-            resolved(rel, content, rule)
+            resolved(rel, content, rule, None)
         }
         _ => {
-            // Several rules share this selector + media. Break the tie — as a tie-break,
-            // never a hard filter, so a single-hit locate can't regress. First by at-rule
-            // CONTEXT (layer / container / supports — the same selector in a different
-            // cascade layer or condition is genuinely a distinct rule), then by the served
-            // href's basename (same selector across files). Resolve only if exactly one
-            // survives; otherwise it's honestly ambiguous → read-only.
+            // Several rules share this selector + media. The exact source path/style index
+            // above is the strongest evidence. A basename is only retained as a legacy
+            // fallback when no usable path identity was available. At-rule context can
+            // distinguish genuinely separate authored rules; unresolved ties stay read-only.
             let cond_eq = |a: &Option<String>, b: &Option<String>| match (a, b) {
                 (Some(x), Some(y)) => norm_cond(x) == norm_cond(y),
                 (None, None) => true,
@@ -667,26 +2003,35 @@ fn locate_rule(sheets: &[SheetIndex], q: &MatchedRuleQuery) -> RuleLocation {
             let pool = if by_ctx.len() == 1 {
                 return {
                     let (rel, content, rule) = by_ctx[0];
-                    resolved(rel, content, rule)
+                    resolved(rel, content, rule, None)
                 };
             } else if !by_ctx.is_empty() && by_ctx.len() < hits.len() {
                 by_ctx
             } else {
                 hits.clone()
             };
-            if let Some(base) = q.href.as_deref().and_then(href_basename) {
-                let narrowed: Vec<_> = pool
-                    .iter()
-                    .copied()
-                    .filter(|(rel, _, _)| rel_basename(rel) == base)
-                    .collect();
-                if narrowed.len() == 1 {
-                    let (rel, content, rule) = narrowed[0];
-                    return resolved(rel, content, rule);
-                }
-            }
+            let mut line_offsets = HashMap::new();
+            let candidates = pool
+                .iter()
+                .map(|(rel, content, rule)| {
+                    let offset = *line_offsets
+                        .entry((*rel).to_string())
+                        .or_insert_with(|| candidate_line_offset(root, rel, content));
+                    RuleSourceCandidate {
+                        file: (*rel).to_string(),
+                        line: offset.map(|offset| offset + rule.selector_line),
+                    }
+                })
+                .collect();
             RuleLocation::Multiple {
-                files: pool.iter().map(|(rel, _, _)| rel.to_string()).collect(),
+                files: pool
+                    .iter()
+                    .map(|(rel, _, _)| rel.to_string())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                rule_count: pool.len(),
+                candidates,
             }
         }
     }
@@ -855,6 +2200,60 @@ fn remove_rule_from_source(
     Ok(out)
 }
 
+/// True when an Astro `:global(...)` wrapper spans one entire selector-list member.
+fn astro_global_wraps_entire_group(group: &str) -> bool {
+    let group = group.trim();
+    if !group
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(":global("))
+    {
+        return false;
+    }
+
+    let bytes = group.as_bytes();
+    let mut depth = 1i32;
+    let mut quote = 0u8;
+    let mut i = 8usize;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if quote != 0 {
+            if byte == b'\\' {
+                i += 2;
+                continue;
+            }
+            if byte == quote {
+                quote = 0;
+            }
+            i += 1;
+            continue;
+        }
+        if byte == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 >= bytes.len() {
+                return false;
+            }
+            i += 2;
+            continue;
+        }
+        match byte {
+            b'\'' | b'"' => quote = byte,
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return group[i + 1..].trim().is_empty();
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Replace the matching rule's selector with `new_selector` (drift-guarded against
 /// `old_inner`). Lets the user change a rule to any selector — combinators, pseudo
 /// classes, attributes — the only constraint is no `{`/`}`. Testable core of
@@ -869,10 +2268,30 @@ fn rename_selector_in_source(
     validate_selector(new_selector)?;
     let rules = index_rules(src);
     let rule = locate_one_editable(&rules, src, selector, media_text, old_inner)?;
+    let source_parts = split_selector_group(&rule.selector);
+    let has_global = source_parts.iter().any(|part| unwrap_astro_global(part).1);
+    let all_parts_are_global = source_parts
+        .iter()
+        .all(|part| astro_global_wraps_entire_group(part));
+    let replacement = if has_global {
+        if !all_parts_are_global {
+            return Err(CommandError::Validation {
+                field: "selector".into(),
+                reason: "this Astro selector mixes :global() and scoped parts; rename it in source to preserve Astro scoping".into(),
+            });
+        }
+        if unwrap_astro_global(new_selector).1 {
+            new_selector.trim().to_string()
+        } else {
+            format!(":global({})", new_selector.trim())
+        }
+    } else {
+        new_selector.trim().to_string()
+    };
     let brace = rule.block_inner_start - 1; // the opening `{`
-    let mut out = String::with_capacity(src.len() + new_selector.len());
+    let mut out = String::with_capacity(src.len() + replacement.len());
     out.push_str(&src[..rule.selector_start]);
-    out.push_str(new_selector.trim());
+    out.push_str(&replacement);
     out.push(' ');
     out.push_str(&src[brace..]); // `{ … }`
     Ok(out)
@@ -959,7 +2378,7 @@ fn wrap_rule_in_source(
 /// the grouping at-rules `@layer`/`@supports`/`@container` (descended into). Comments,
 /// strings, `;`-statements (`@import`/`@charset`), `@keyframes`/`@font-face`/`@page`
 /// inner blocks, and CSS-nested child rules are skipped rather than mis-read as rules.
-fn index_rules(css: &str) -> Vec<RuleSpan> {
+pub(super) fn index_rules(css: &str) -> Vec<RuleSpan> {
     enum Frame {
         /// `@media` block — condition string + byte range of the condition text.
         Media(String, usize, usize),
@@ -981,6 +2400,8 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
         Supports(String),
         /// Anonymous `@layer { }` — descended but carries no discriminator.
         Anonymous,
+        /// `@scope` is retained in source identity, even though its editing UI is limited.
+        Scope(String),
     }
 
     /// The nearest enclosing `@media` condition + its byte range, if any.
@@ -1014,6 +2435,29 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
             Frame::Group(GroupKind::Supports(c)) => Some(c.clone()),
             _ => None,
         })
+    }
+
+    fn enclosing_context_path(stack: &[Frame]) -> Vec<String> {
+        stack
+            .iter()
+            .filter_map(|frame| match frame {
+                Frame::Media(media, ..) => Some(format!("@media {media}")),
+                Frame::Group(GroupKind::Layer(name)) => Some(if name.is_empty() {
+                    "@layer".to_string()
+                } else {
+                    format!("@layer {name}")
+                }),
+                Frame::Group(GroupKind::Container(condition)) => {
+                    Some(format!("@container {condition}"))
+                }
+                Frame::Group(GroupKind::Supports(condition)) => {
+                    Some(format!("@supports {condition}"))
+                }
+                Frame::Group(GroupKind::Scope(condition)) => Some(format!("@scope {condition}")),
+                Frame::Group(GroupKind::Anonymous) => Some("@layer".to_string()),
+                Frame::Rule(_) | Frame::Other => None,
+            })
+            .collect()
     }
 
     let bytes = css.as_bytes();
@@ -1052,6 +2496,13 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
                 i += 1;
             }
             i = (i + 1).min(n);
+            continue;
+        }
+
+        // Escaped CSS punctuation is part of an identifier/string token, not a
+        // structural delimiter in the stylesheet scanner.
+        if c == b'\\' {
+            i = css_selector_escape_end(css, i, n);
             continue;
         }
 
@@ -1121,7 +2572,7 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
                         "layer" => GroupKind::Layer(cond.to_string()),
                         "container" => GroupKind::Container(cond.to_string()),
                         "supports" => GroupKind::Supports(cond.to_string()),
-                        _ => GroupKind::Anonymous, // @scope — descend; no disambiguator yet
+                        _ => GroupKind::Scope(cond.to_string()),
                     };
                     stack.push(Frame::Group(kind));
                 } else if name.ends_with("keyframes") {
@@ -1146,6 +2597,7 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
                         layer,
                         container,
                         supports,
+                        context_path: enclosing_context_path(&stack),
                         selector_start,
                         block_inner_start: i + 1,
                         block_inner_end: i + 1,
@@ -1170,6 +2622,7 @@ fn index_rules(css: &str) -> Vec<RuleSpan> {
                     layer,
                     container,
                     supports,
+                    context_path: enclosing_context_path(&stack),
                     selector_start,
                     block_inner_start: i + 1,
                     block_inner_end: i + 1,
@@ -1677,8 +3130,8 @@ fn add_custom_property_to_source(
 }
 
 /// Update one existing custom-property definition, pinned to the selector line
-/// returned by `get_css_variables`. This remains unambiguous when a stylesheet
-/// contains several rules with the same selector (commonly multiple `:root`s).
+/// returned by `get_css_variables`. When several same-selector rules share a line,
+/// the property name must still identify exactly one declaration across them.
 fn set_custom_property_in_source(
     src: &str,
     selector: &str,
@@ -1690,26 +3143,24 @@ fn set_custom_property_in_source(
         .into_iter()
         .filter(|rule| rule.selector_line == line && rule.selector == selector)
         .collect();
-    let Some(rule) = rules.first() else {
-        return Err(CommandError::Validation {
-            field: "variable".into(),
-            reason: "definition moved or changed — reload the variables panel and try again".into(),
-        });
-    };
-
-    let definitions: Vec<DeclSpan> =
-        locate_declarations(src, rule.block_inner_start, rule.block_inner_end)
+    let mut definitions = Vec::new();
+    for rule in &rules {
+        for definition in locate_declarations(src, rule.block_inner_start, rule.block_inner_end)
             .into_iter()
             .filter(|declaration| declaration.property == property)
-            .collect();
+        {
+            definitions.push((rule, definition));
+        }
+    }
     if definitions.len() != 1 {
         return Err(CommandError::Validation {
             field: "variable".into(),
-            reason: "definition is missing or duplicated in its source rule — not editable".into(),
+            reason: "definition is missing or ambiguous at its source location — not editable"
+                .into(),
         });
     }
 
-    let definition = &definitions[0];
+    let (rule, definition) = &definitions[0];
     let existing = src[definition.value_start..definition.value_end].trim_end();
     let keep_important = existing.to_ascii_lowercase().ends_with("!important")
         && !value.to_ascii_lowercase().contains("!important");
@@ -2287,20 +3738,16 @@ fn prepare_css_variable_deletion(
                 .expect("a whole-file stylesheet update must contain one entry");
             updated_host = updated;
         } else {
-            let blocks = astro_style_blocks(&updated_host);
             updates.sort_unstable_by_key(|(block, _)| block.unwrap_or(0));
             for (block, updated_css) in updates.into_iter().rev() {
                 let index = block.expect("Astro updates always carry a style-block index");
-                let (start, end) =
-                    blocks
-                        .get(index)
-                        .copied()
-                        .ok_or_else(|| CommandError::Validation {
-                            field: "file".into(),
-                            reason:
-                                "a <style> block changed while preparing the deletion — try again"
-                                    .into(),
-                        })?;
+                let (start, end) = astro_style_block(&updated_host, index).ok_or_else(|| {
+                    CommandError::Validation {
+                        field: "file".into(),
+                        reason: "a <style> block changed while preparing the deletion — try again"
+                            .into(),
+                    }
+                })?;
                 updated_host.replace_range(start..end, &updated_css);
             }
         }
@@ -2394,14 +3841,15 @@ fn discover_stylesheets(root: &Path) -> Vec<(String, String)> {
         if is_css {
             out.push((rel, content));
         } else {
-            // One virtual sheet per non-empty CSS `<style>` block; the index must
-            // match `astro_style_blocks` order so `?style=N` round-trips on write.
-            for (i, (s, e)) in astro_style_blocks(&content).into_iter().enumerate() {
+            // One virtual sheet per non-empty plain-CSS `<style>` block. Preserve
+            // Astro's original index (including gaps for preprocessor blocks) so
+            // Vite's `index=N` maps back to the same host block.
+            for (style_index, (s, e)) in astro_style_blocks_with_indices(&content) {
                 let css = &content[s..e];
                 if css.trim().is_empty() {
                     continue;
                 }
-                out.push((format!("{rel}?style={i}"), css.to_string()));
+                out.push((format!("{rel}?style={style_index}"), css.to_string()));
             }
         }
     }
@@ -2429,7 +3877,7 @@ fn safe_join(root: &Path, file: &str) -> Result<std::path::PathBuf, CommandError
 //
 // A "file" the editor writes to is usually a standalone `.css`, but it can also be
 // a `<style>` block embedded in an `.astro` component — addressed as
-// `path/to/Foo.astro?style=N` (the Nth *CSS* block in that file). The CSS engine
+// `path/to/Foo.astro?style=N` (Astro's original compiled-style index). The CSS engine
 // (index/edit/drift-guard) operates purely on a CSS string, so the only thing that
 // differs is reading the right sub-range out of the host file and splicing the edit
 // back into it. `EditableCss` captures that splice context.
@@ -2469,13 +3917,29 @@ fn style_tag_is_non_css(open_tag: &str) -> bool {
         })
 }
 
-/// The inner byte ranges (between `>` and `</style`) of every plain-CSS `<style>`
-/// block in an Astro file, in document order. Non-CSS (`lang="scss"`) blocks are
-/// skipped, so the Nth entry here is the Nth addressable CSS block (`?style=N`).
-fn astro_style_blocks(src: &str) -> Vec<(usize, usize)> {
+/// Whether Astro leaves this block inline instead of adding it to the compiled
+/// CSS modules. Inline blocks have no Vite `index=N` virtual stylesheet.
+fn style_tag_is_inline(open_tag: &str) -> bool {
+    let lower = open_tag.to_ascii_lowercase();
+    lower
+        .strip_prefix("<style")
+        .unwrap_or(&lower)
+        .trim_end_matches('>')
+        .split_whitespace()
+        .any(|attribute| {
+            let attribute = attribute.trim_end_matches('/');
+            attribute == "is:inline" || attribute.starts_with("is:inline=")
+        })
+}
+
+/// The original Astro style index and inner byte range for every addressable
+/// plain-CSS `<style>` block. Preprocessor blocks consume an Astro index and
+/// inline blocks do not, so returned indexes can have gaps.
+fn astro_style_blocks_with_indices(src: &str) -> Vec<(usize, (usize, usize))> {
     let lower = src.to_ascii_lowercase(); // ASCII-lowercase preserves byte offsets
     let mut out = Vec::new();
     let mut search = astro_frontmatter_end(src);
+    let mut style_index = 0usize;
     while let Some(rel) = lower[search..].find("<style") {
         let tag_start = search + rel;
         let after = tag_start + "<style".len();
@@ -2498,18 +3962,40 @@ fn astro_style_blocks(src: &str) -> Vec<(usize, usize)> {
             break;
         };
         let inner_end = inner_start + close;
-        if !style_tag_is_non_css(&src[tag_start..=open_end]) {
-            out.push((inner_start, inner_end));
+        let open_tag = &src[tag_start..=open_end];
+        if !style_tag_is_inline(open_tag) {
+            let current_index = style_index;
+            style_index += 1;
+            if !style_tag_is_non_css(open_tag) {
+                out.push((current_index, (inner_start, inner_end)));
+            }
         }
         search = inner_end + "</style".len();
     }
     out
 }
 
+/// CSS-only style ranges in document order, kept for callers that don't need
+/// Astro's source-block index (for example, parser-focused unit tests).
+fn astro_style_blocks(src: &str) -> Vec<(usize, usize)> {
+    astro_style_blocks_with_indices(src)
+        .into_iter()
+        .map(|(_, range)| range)
+        .collect()
+}
+
+fn astro_style_block(src: &str, style_index: usize) -> Option<(usize, usize)> {
+    astro_style_blocks_with_indices(src)
+        .into_iter()
+        .find_map(|(index, range)| (index == style_index).then_some(range))
+}
+
 /// A loaded editable CSS source plus how to write it back: either a whole `.css`
 /// file, or a sub-range of an `.astro` host file (the rest preserved verbatim).
 struct EditableCss {
     abs: std::path::PathBuf,
+    /// Complete host-file snapshot verified again immediately before write-back.
+    original_host: String,
     /// The CSS text the engine operates on (whole file, or the block's inner text).
     css: String,
     /// Host-file bytes before / after the block (empty for a whole `.css` file).
@@ -2523,6 +4009,18 @@ impl EditableCss {
     fn write_back(&self, root: &Path, new_css: &str) -> Result<(), CommandError> {
         if new_css == self.css {
             return Ok(());
+        }
+        let _write_guard = EDITABLE_CSS_WRITE_LOCK
+            .lock()
+            .map_err(|_| CommandError::Other {
+                message: "CSS write coordination lock was poisoned".into(),
+            })?;
+        let current_host = std::fs::read_to_string(&self.abs).map_err(CommandError::from)?;
+        if current_host != self.original_host {
+            return Err(CommandError::Validation {
+                field: "css".into(),
+                reason: "source changed before the edit could be written — reselect to edit".into(),
+            });
         }
         let out = if self.whole_file {
             new_css.to_string()
@@ -2544,26 +4042,93 @@ fn load_editable_css(root: &Path, file: &str) -> Result<EditableCss, CommandErro
     match block {
         None => Ok(EditableCss {
             abs,
+            original_host: host.clone(),
             css: host,
             prefix: String::new(),
             suffix: String::new(),
             whole_file: true,
         }),
         Some(idx) => {
-            let (s, e) = astro_style_blocks(&host).get(idx).copied().ok_or_else(|| {
-                CommandError::Validation {
-                    field: "file".into(),
-                    reason: "the <style> block no longer exists — reselect the element".into(),
-                }
+            let (s, e) = astro_style_block(&host, idx).ok_or_else(|| CommandError::Validation {
+                field: "file".into(),
+                reason: "the <style> block no longer exists — reselect the element".into(),
             })?;
             Ok(EditableCss {
                 abs,
+                original_host: host.clone(),
                 css: host[s..e].to_string(),
                 prefix: host[..s].to_string(),
                 suffix: host[e..].to_string(),
                 whole_file: false,
             })
         }
+    }
+}
+
+/// Resolve a cascade match inside one exact source file and convert the parsed
+/// CSS line into a physical host-file line for embedded Astro style blocks.
+fn resolve_css_source_line_in_file(
+    root: &Path,
+    file: &str,
+    matched: &MatchedRuleQuery,
+) -> Result<usize, CommandError> {
+    resolve_css_source_line_in_file_at_source_line(root, file, matched, None)
+}
+
+/// Resolve a CSS rule at its indexed source line when the caller has an exact
+/// source identity (for example, a custom-property definition). This avoids
+/// choosing another same-selector rule when a Variables row already carries
+/// the rule's line. The returned line is still translated to the physical host
+/// line for an embedded Astro style block.
+fn resolve_css_source_line_in_file_at_source_line(
+    root: &Path,
+    file: &str,
+    matched: &MatchedRuleQuery,
+    source_line: Option<usize>,
+) -> Result<usize, CommandError> {
+    let editable = load_editable_css(root, file)?;
+    let prefix_line_count = editable
+        .prefix
+        .as_bytes()
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count();
+    let sheet = SheetIndex::parse(file.to_string(), editable.css);
+
+    if let Some(source_line) = source_line {
+        let selector = norm_selector(&matched.selector);
+        let source_rule_exists = sheet.rules.iter().any(|rule| {
+            rule.selector_line == source_line && norm_selector(&rule.selector) == selector
+        });
+        return if source_rule_exists {
+            Ok(prefix_line_count + source_line)
+        } else {
+            Err(CommandError::Validation {
+                field: "matched".into(),
+                reason: format!(
+                    "No matching CSS rule was found at line {source_line} in {file}; the source may have changed."
+                ),
+            })
+        };
+    }
+
+    let mut pinned_match = matched.clone();
+    pinned_match.href = None;
+    pinned_match.runtime_identity = None;
+    match locate_rule_in_project(root, &[sheet], &pinned_match) {
+        RuleLocation::Resolved { line, .. } => Ok(prefix_line_count + line),
+        RuleLocation::Multiple { .. } => Err(CommandError::Validation {
+            field: "matched".into(),
+            reason: format!(
+                "More than one matching rule remains in {file}; its exact source line cannot be pinned. Reselect the element and try again."
+            ),
+        }),
+        RuleLocation::NotFound => Err(CommandError::Validation {
+            field: "matched".into(),
+            reason: format!(
+                "No matching CSS rule was found in {file}; the source may have changed. Reselect the element and try again."
+            ),
+        }),
     }
 }
 
@@ -2818,6 +4383,22 @@ pub fn delete_css_variable(
         });
     }
 
+    let _write_guard = EDITABLE_CSS_WRITE_LOCK
+        .lock()
+        .map_err(|_| CommandError::Other {
+            message: "CSS write coordination lock was poisoned".into(),
+        })?;
+    for change in &changes {
+        let current = std::fs::read_to_string(&change.path).map_err(CommandError::from)?;
+        if current != change.original {
+            return Err(CommandError::Validation {
+                field: "css".into(),
+                reason: "source changed before the edit could be written — review the impact again"
+                    .into(),
+            });
+        }
+    }
+
     let mut written = Vec::new();
     for change in &changes {
         if let Err(error) = std::fs::write(&change.path, &change.updated) {
@@ -2850,7 +4431,7 @@ pub fn create_css_class(
     declarations: Vec<Declaration>,
     breakpoint_min_px: Option<u32>,
     at_prelude: Option<String>,
-) -> Result<(), CommandError> {
+) -> Result<CssRuleSourceIdentity, CommandError> {
     validate_selector(&selector)?;
     for d in &declarations {
         validate_declaration(&d.property, Some(&d.value))?;
@@ -2887,8 +4468,23 @@ pub fn create_css_class(
     }
     out.push_str(&rule);
     out.push('\n');
+    let target = norm_selector(&selector);
+    let identity = index_rules(&out)
+        .into_iter()
+        .filter(|candidate| candidate.selector_start >= ec.css.len())
+        .find_map(|candidate| {
+            let members = normalized_selector_parts(&candidate.selector);
+            if members.len() != 1 || members.first() != Some(&target) {
+                return None;
+            }
+            css_rule_mutations::identity_for_rule(&file, &out, &candidate, 0, &selector)
+        })
+        .ok_or_else(|| CommandError::Validation {
+            field: "selector".into(),
+            reason: "new rules must use one selector-list member so later edits stay pinned".into(),
+        })?;
     ec.write_back(&root, &out)?;
-    Ok(())
+    Ok(identity)
 }
 
 /// List hand-authored stylesheets in the project (project-relative POSIX
@@ -3043,9 +4639,9 @@ pub struct CssVariableDef {
 }
 
 /// Every custom-property definition across the project's stylesheets, in document
-/// order (so the UI can keep last-wins semantics). `:root` tokens are the common,
-/// editable case; ones scoped to other selectors are surfaced too (the UI groups
-/// them by scope). Powers the Variables editor.
+/// order (so the UI can keep last-wins semantics). `:root` and selector-scoped
+/// definitions can be edited by exact source identity; structural actions stay
+/// with root definitions in the Variables editor.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn get_css_variables(project_path: String) -> Result<Vec<CssVariableDef>, CommandError> {
@@ -3082,12 +4678,38 @@ pub async fn locate_css_rules(
     // Filesystem discovery and parsing must not block Tauri's UI thread.
     tokio::task::spawn_blocking(move || {
         let sheets = cached_sheets(&root);
-        matched.iter().map(|q| locate_rule(&sheets, q)).collect()
+        matched
+            .iter()
+            .map(|q| locate_rule_in_project(&root, &sheets, q))
+            .collect()
     })
     .await
     .map_err(|e| CommandError::Other {
         message: format!("CSS rule lookup task failed: {e}"),
     })
+}
+
+/// Resolve one displayed cascade match in a specific candidate source file.
+/// Embedded Astro CSS returns the selector's physical line in the `.astro` host.
+#[tauri::command]
+#[tracing::instrument(
+    skip(matched),
+    fields(project = %project_path, file = %file, selector = %matched.selector)
+)]
+pub async fn resolve_css_source_line(
+    project_path: String,
+    file: String,
+    matched: MatchedRuleQuery,
+    source_line: Option<usize>,
+) -> Result<usize, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    tokio::task::spawn_blocking(move || {
+        resolve_css_source_line_in_file_at_source_line(&root, &file, &matched, source_line)
+    })
+    .await
+    .map_err(|e| CommandError::Other {
+        message: format!("CSS source line lookup task failed: {e}"),
+    })?
 }
 
 /// Replace one rule's body with the user's edited source CSS, written verbatim and
@@ -3107,7 +4729,8 @@ pub fn apply_css_rule_text(
     media_text: Option<String>,
     old_inner: String,
     new_inner: String,
-) -> Result<(), CommandError> {
+    source_identity: CssRuleSourceIdentity,
+) -> Result<CssRuleSourceIdentity, CommandError> {
     // Braces are allowed (nested CSS) as long as they're balanced — an unbalanced
     // body could break out of the rule and corrupt the file.
     if !braces_balanced(&new_inner) {
@@ -3118,10 +4741,27 @@ pub fn apply_css_rule_text(
     }
     let root = validate_project_path(&project_path)?;
     let ec = load_editable_css(&root, &file)?;
-    let updated =
-        apply_rule_text_to_source(&ec.css, &selector, &media_text, &old_inner, &new_inner)?;
+    if source_identity.inner_text != old_inner
+        || norm_selector(&selector) != source_identity.matched_selector
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected rule identity changed — reselect to edit".into(),
+        });
+    }
+    let target = css_rule_mutations::resolve_identity(&file, &ec.css, &source_identity)?;
+    if !rule_selector_matches(&target.selector, &selector)
+        || !media_text_matches(&target.media, &media_text)
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected source occurrence no longer matches this rule".into(),
+        });
+    }
+    let (updated, next_identity) =
+        css_rule_mutations::apply_body(&file, &ec.css, &source_identity, &new_inner)?;
     ec.write_back(&root, &updated)?;
-    Ok(())
+    Ok(next_identity)
 }
 
 /// Delete the whole rule for `selector`+`media_text` from its stylesheet,
@@ -3134,11 +4774,50 @@ pub fn delete_css_rule(
     selector: String,
     media_text: Option<String>,
     old_inner: String,
+    source_identity: CssRuleSourceIdentity,
+    remove_member_only: bool,
 ) -> Result<(), CommandError> {
     let root = validate_project_path(&project_path)?;
     let ec = load_editable_css(&root, &file)?;
-    let updated = remove_rule_from_source(&ec.css, &selector, &media_text, &old_inner)?;
+    if source_identity.inner_text != old_inner
+        || norm_selector(&selector) != source_identity.matched_selector
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected rule identity changed — reselect to edit".into(),
+        });
+    }
+    let target = css_rule_mutations::resolve_identity(&file, &ec.css, &source_identity)?;
+    if !rule_selector_matches(&target.selector, &selector)
+        || !media_text_matches(&target.media, &media_text)
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected source occurrence no longer matches this rule".into(),
+        });
+    }
+    let updated = if remove_member_only {
+        css_rule_mutations::remove_member(&file, &ec.css, &source_identity)?.0
+    } else {
+        css_rule_mutations::delete_rule(&file, &ec.css, &source_identity)?
+    };
     ec.write_back(&root, &updated)?;
+    Ok(())
+}
+
+/// Delete an exact batch from one unchanged sheet snapshot. A media-group delete
+/// is one atomic source edit so each member identity is validated before offsets move.
+#[tauri::command]
+#[tracing::instrument(skip(source_identities), fields(project = %project_path, file = %file))]
+pub fn delete_css_rules(
+    project_path: String,
+    file: String,
+    source_identities: Vec<CssRuleSourceIdentity>,
+) -> Result<(), CommandError> {
+    let root = validate_project_path(&project_path)?;
+    let editable = load_editable_css(&root, &file)?;
+    let updated = css_rule_mutations::delete_rules(&file, &editable.css, &source_identities)?;
+    editable.write_back(&root, &updated)?;
     Ok(())
 }
 
@@ -3153,16 +4832,34 @@ pub fn wrap_css_rule(
     media_text: Option<String>,
     at_prelude: String,
     old_inner: String,
-) -> Result<(), CommandError> {
+    source_identity: CssRuleSourceIdentity,
+) -> Result<CssRuleSourceIdentity, CommandError> {
     let root = validate_project_path(&project_path)?;
     let ec = load_editable_css(&root, &file)?;
-    let updated = wrap_rule_in_source(&ec.css, &selector, &media_text, &at_prelude, &old_inner)?;
+    if source_identity.inner_text != old_inner
+        || norm_selector(&selector) != source_identity.matched_selector
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected rule identity changed — reselect to edit".into(),
+        });
+    }
+    let target = css_rule_mutations::resolve_identity(&file, &ec.css, &source_identity)?;
+    if !rule_selector_matches(&target.selector, &selector)
+        || !media_text_matches(&target.media, &media_text)
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected source occurrence no longer matches this rule".into(),
+        });
+    }
+    let (updated, next_identity) =
+        css_rule_mutations::wrap_rule(&file, &ec.css, &source_identity, &at_prelude)?;
     ec.write_back(&root, &updated)?;
-    Ok(())
+    Ok(next_identity)
 }
 
-/// Change the selector of the rule for `selector`+`media_text` to `new_selector`,
-/// drift-guarded against `old_inner`.
+/// Change the full selector list of the exact rule, drift-guarded against its source identity.
 #[tauri::command]
 #[tracing::instrument(skip(old_inner), fields(project = %project_path, file = %file, selector = %selector, new = %new_selector))]
 pub fn rename_css_selector(
@@ -3172,13 +4869,31 @@ pub fn rename_css_selector(
     media_text: Option<String>,
     old_inner: String,
     new_selector: String,
-) -> Result<(), CommandError> {
+    source_identity: CssRuleSourceIdentity,
+) -> Result<CssRuleSourceIdentity, CommandError> {
     let root = validate_project_path(&project_path)?;
     let ec = load_editable_css(&root, &file)?;
-    let updated =
-        rename_selector_in_source(&ec.css, &selector, &media_text, &old_inner, &new_selector)?;
+    if source_identity.inner_text != old_inner
+        || norm_selector(&selector) != source_identity.matched_selector
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected rule identity changed — reselect to edit".into(),
+        });
+    }
+    let target = css_rule_mutations::resolve_identity(&file, &ec.css, &source_identity)?;
+    if !rule_selector_matches(&target.selector, &selector)
+        || !media_text_matches(&target.media, &media_text)
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected source occurrence no longer matches this rule".into(),
+        });
+    }
+    let (updated, next_identity) =
+        css_rule_mutations::replace_selector_list(&file, &ec.css, &source_identity, &new_selector)?;
     ec.write_back(&root, &updated)?;
-    Ok(())
+    Ok(next_identity)
 }
 
 /// Change the `@media` condition enclosing the rule for `selector`+`media_text` to
@@ -3192,12 +4907,122 @@ pub fn rename_css_at_rule(
     media_text: Option<String>,
     old_inner: String,
     new_media: String,
-) -> Result<(), CommandError> {
+    source_identity: CssRuleSourceIdentity,
+) -> Result<css_rule_mutations::CssAtRuleRenameResult, CommandError> {
     let root = validate_project_path(&project_path)?;
     let ec = load_editable_css(&root, &file)?;
-    let updated =
-        rename_at_rule_in_source(&ec.css, &selector, &media_text, &old_inner, &new_media)?;
+    if source_identity.inner_text != old_inner
+        || norm_selector(&selector) != source_identity.matched_selector
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected rule identity changed — reselect to edit".into(),
+        });
+    }
+    let target = css_rule_mutations::resolve_identity(&file, &ec.css, &source_identity)?;
+    if !rule_selector_matches(&target.selector, &selector)
+        || !media_text_matches(&target.media, &media_text)
+    {
+        return Err(CommandError::Validation {
+            field: "css".into(),
+            reason: "the selected source occurrence no longer matches this rule".into(),
+        });
+    }
+    let (updated, rename_result) =
+        css_rule_mutations::rename_media(&file, &ec.css, &source_identity, &new_media)?;
     ec.write_back(&root, &updated)?;
+    Ok(rename_result)
+}
+
+/// Separate one selector-list member into an adjacent rule with the same body and context.
+#[tauri::command]
+#[tracing::instrument(skip(source_identity), fields(project = %project_path, file = %file, selector = %selector))]
+pub fn make_css_selector_independent(
+    project_path: String,
+    file: String,
+    selector: String,
+    source_identity: CssRuleSourceIdentity,
+) -> Result<CssRuleSourceIdentity, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    let editable = load_editable_css(&root, &file)?;
+    if norm_selector(&selector) != source_identity.matched_selector {
+        return Err(CommandError::Validation {
+            field: "selector".into(),
+            reason: "the selected selector changed — reselect to edit".into(),
+        });
+    }
+    let (updated, identity) =
+        css_rule_mutations::make_independent(&file, &editable.css, &source_identity)?;
+    editable.write_back(&root, &updated)?;
+    Ok(identity)
+}
+
+/// Split every selector in one exact selector list into adjacent source rules.
+#[tauri::command]
+#[tracing::instrument(skip(source_identity), fields(project = %project_path, file = %file))]
+pub fn split_css_selector_list(
+    project_path: String,
+    file: String,
+    source_identity: CssRuleSourceIdentity,
+) -> Result<css_rule_mutations::CssRuleSelectorListSplitResult, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    let editable = load_editable_css(&root, &file)?;
+    let (updated, result) =
+        css_rule_mutations::split_selector_list(&file, &editable.css, &source_identity)?;
+    editable.write_back(&root, &updated)?;
+    Ok(result)
+}
+
+/// Prepare safe, reviewable adjacent-rule consolidations for plain CSS files.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub fn review_css_consolidations(
+    project_path: String,
+) -> Result<CssConsolidationReview, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    let sheets = cached_sheets(&root);
+    let mut candidates = Vec::new();
+    for sheet in sheets.iter() {
+        if !sheet.rel.ends_with(".css")
+            || sheet.rel.contains('?')
+            || is_generated_public_site(&root, &sheet.rel)
+        {
+            continue;
+        }
+        candidates.extend(
+            css_rule_mutations::review_consolidations(&sheet.rel, &sheet.content).candidates,
+        );
+    }
+    let unavailable_reason = candidates.is_empty().then(|| {
+        "No safe adjacent rules were found. Review supports only exact selector lists in plain, unlayered stylesheets with declaration-only bodies.".to_string()
+    });
+    Ok(CssConsolidationReview {
+        candidates,
+        unavailable_reason,
+    })
+}
+
+/// Atomically apply one reviewed consolidation after revalidating its complete source snapshot.
+#[tauri::command]
+#[tracing::instrument(skip(candidate), fields(project = %project_path, file = %candidate.file))]
+pub fn apply_css_consolidation(
+    project_path: String,
+    candidate: CssConsolidationCandidate,
+) -> Result<(), CommandError> {
+    let root = validate_project_path(&project_path)?;
+    if !candidate.file.ends_with(".css")
+        || candidate.file.contains('?')
+        || is_generated_public_site(&root, &candidate.file)
+    {
+        return Err(CommandError::Validation {
+            field: "file".into(),
+            reason: "safe consolidation is available only for authored plain CSS files".into(),
+        });
+    }
+    let editable = load_editable_css(&root, &candidate.file)?;
+    let updated =
+        css_rule_mutations::apply_consolidation(&candidate.file, &editable.css, &candidate)?;
+    editable.write_back(&root, &updated)?;
     Ok(())
 }
 
@@ -3232,6 +5057,46 @@ mod tests {
         list.into_iter()
             .map(|(r, c)| SheetIndex::parse(r, c))
             .collect()
+    }
+
+    fn encode_url_path(path: &str) -> String {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        let mut encoded = String::with_capacity(path.len());
+        for byte in path.bytes() {
+            if byte.is_ascii_alphanumeric()
+                || matches!(byte, b'/' | b':' | b'-' | b'_' | b'.' | b'~')
+            {
+                encoded.push(char::from(byte));
+            } else {
+                encoded.push('%');
+                encoded.push(char::from(HEX[(byte >> 4) as usize]));
+                encoded.push(char::from(HEX[(byte & 0x0f) as usize]));
+            }
+        }
+        encoded
+    }
+
+    fn vite_fs_href(path: &Path, port: u16, query: &str) -> String {
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        let url_path = if is_windows_absolute_path(&normalized) {
+            format!("/{normalized}")
+        } else {
+            normalized
+        };
+        format!(
+            "http://localhost:{port}/@fs{}?{query}",
+            encode_url_path(&url_path)
+        )
+    }
+
+    fn file_href(path: &Path) -> String {
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        let url_path = if is_windows_absolute_path(&normalized) {
+            format!("/{normalized}")
+        } else {
+            normalized
+        };
+        format!("file://{}", encode_url_path(&url_path))
     }
 
     #[test]
@@ -3675,6 +5540,10 @@ mod tests {
             layer: None,
             container: None,
             supports: None,
+            selector_member_index: None,
+            context_path: None,
+            identity_declarations: None,
+            runtime_identity: None,
         };
         assert!(matches!(
             locate_rule(&sheets, &q),
@@ -3788,6 +5657,51 @@ mod tests {
         assert!(out.contains("--first: red;"));
         assert!(out.contains("--second: transparent;"));
         assert!(!out.contains("--second: white;"));
+    }
+
+    #[test]
+    fn updates_a_scoped_variable_in_its_pinned_media_rule() {
+        let css = ".theme { --surface: white; }\n\
+                   @media (prefers-color-scheme: dark) {\n\
+                     .theme { --surface: black; }\n\
+                   }";
+        let dark_rule = index_rules(css)
+            .into_iter()
+            .find(|rule| rule.selector == ".theme" && rule.selector_line > 1)
+            .unwrap();
+        let out = set_custom_property_in_source(
+            css,
+            ".theme",
+            dark_rule.selector_line,
+            "--surface",
+            "#101010",
+        )
+        .unwrap();
+
+        assert!(out.contains(".theme { --surface: white; }"));
+        assert!(out.contains(".theme { --surface: #101010; }"));
+        assert!(!out.contains("--surface: black;"));
+    }
+
+    #[test]
+    fn refuses_to_update_same_line_duplicate_selector_rules() {
+        let css = ".theme { --surface: white; } .theme { --surface: black; }";
+        let line = index_rules(css)[0].selector_line;
+        let error =
+            set_custom_property_in_source(css, ".theme", line, "--surface", "blue").unwrap_err();
+
+        assert!(matches!(error, CommandError::Validation { field, .. } if field == "variable"));
+        assert!(css.contains("--surface: white;") && css.contains("--surface: black;"));
+    }
+
+    #[test]
+    fn distinguishes_different_properties_in_same_line_selector_rules() {
+        let css = ".theme { --light: white; } .theme { --dark: black; }";
+        let line = index_rules(css)[0].selector_line;
+        let out = set_custom_property_in_source(css, ".theme", line, "--dark", "charcoal").unwrap();
+
+        assert!(out.contains(".theme { --light: white; }"));
+        assert!(out.contains(".theme { --dark: charcoal; }"));
     }
 
     #[test]
@@ -4264,6 +6178,10 @@ mod tests {
             layer: None,
             container: None,
             supports: None,
+            selector_member_index: None,
+            context_path: None,
+            identity_declarations: None,
+            runtime_identity: None,
         }
     }
 
@@ -4278,6 +6196,7 @@ mod tests {
                 file,
                 line,
                 inner_text,
+                ..
             } => {
                 assert_eq!(file, "styles.css");
                 assert_eq!(line, 1);
@@ -4318,6 +6237,469 @@ mod tests {
     }
 
     #[test]
+    fn cssom_declaration_evidence_is_a_conservative_tiebreaker() {
+        let declaration = |property: &str, value: &str, important| Declaration {
+            property: property.into(),
+            value: value.into(),
+            important,
+        };
+
+        // Value whitespace outside strings is normalized, while meaningful quoted
+        // whitespace and escaped quotes remain part of the evidence.
+        let whitespace_css = ".text { font-family:  'Geist  Mono'   ,   sans-serif; }\n";
+        let whitespace_rule = index_rules(whitespace_css).remove(0);
+        assert!(declaration_evidence_matches(
+            whitespace_css,
+            &whitespace_rule,
+            Some(&[declaration(
+                "font-family",
+                "'Geist  Mono' , sans-serif",
+                false,
+            )]),
+        ));
+        let escaped_css = r#".escaped { content: 'a\'  b'; }"#;
+        let escaped_rule = index_rules(escaped_css).remove(0);
+        assert!(declaration_evidence_matches(
+            escaped_css,
+            &escaped_rule,
+            Some(&[declaration("content", r#"'a\'  b'"#, false)]),
+        ));
+
+        // The CSSOM may expand a shorthand such as `font` into a longer longhand
+        // list. A unique selector/context candidate still resolves without inventing
+        // a property-specific expansion table.
+        let font_css = ".font { font: italic 400 16px/1.5 Geist, sans-serif; }\n";
+        let font_runtime = vec![
+            declaration("font-style", "italic", false),
+            declaration("font-weight", "400", false),
+            declaration("font-size", "16px", false),
+            declaration("line-height", "1.5", false),
+            declaration("font-family", "Geist, sans-serif", false),
+        ];
+        let font_rule = index_rules(font_css).remove(0);
+        assert!(!declaration_evidence_matches(
+            font_css,
+            &font_rule,
+            Some(&font_runtime),
+        ));
+        let mut font_query = query(".font", None, None);
+        font_query.selector_member_index = Some(0);
+        font_query.context_path = Some(Vec::new());
+        font_query.identity_declarations = Some(font_runtime);
+        assert!(matches!(
+            locate_rule(
+                &idx(vec![("font.css".into(), font_css.into())]),
+                &font_query
+            ),
+            RuleLocation::Resolved { .. }
+        ));
+
+        // Evidence still distinguishes duplicates when it matches a real candidate,
+        // including the important bit; if it matches none, identical structural
+        // candidates remain read-only instead of choosing by order.
+        let priority_css = ".priority { color: red; }\n.priority { color: red !important; }\n";
+        let mut priority_query = query(".priority", None, None);
+        priority_query.selector_member_index = Some(0);
+        priority_query.context_path = Some(Vec::new());
+        priority_query.identity_declarations = Some(vec![declaration("color", "red", true)]);
+        assert!(matches!(
+            locate_rule(
+                &idx(vec![("priority.css".into(), priority_css.into())]),
+                &priority_query
+            ),
+            RuleLocation::Resolved { line: 2, .. }
+        ));
+        priority_query.identity_declarations = Some(vec![declaration("color", "blue", false)]);
+        assert!(matches!(
+            locate_rule(
+                &idx(vec![("priority.css".into(), priority_css.into())]),
+                &priority_query
+            ),
+            RuleLocation::Multiple { rule_count: 2, .. }
+        ));
+
+        // A selector-list member index is preserved independently of which rule's
+        // declaration evidence wins the duplicate-selector tie.
+        let grouped_css = ".item, .peer { color: red; }\n.item { color: blue; }\n";
+        let mut item_query = query(".item", None, None);
+        item_query.selector_member_index = Some(0);
+        item_query.context_path = Some(Vec::new());
+        item_query.identity_declarations = Some(vec![declaration("color", "blue", false)]);
+        let grouped_sheet = idx(vec![("grouped.css".into(), grouped_css.into())]);
+        let item_identity = match locate_rule(&grouped_sheet, &item_query) {
+            RuleLocation::Resolved {
+                source_identity: Some(identity),
+                ..
+            } => identity,
+            other => panic!("matching declarations should identify the .item rule, got {other:?}"),
+        };
+        assert_eq!(
+            item_identity.selector_offset,
+            grouped_css.rfind(".item").unwrap()
+        );
+        assert_eq!(item_identity.selector_member_index, 0);
+
+        let mut peer_query = query(".peer", None, None);
+        peer_query.selector_member_index = Some(1);
+        peer_query.context_path = Some(Vec::new());
+        peer_query.identity_declarations = Some(vec![declaration("color", "red", false)]);
+        let peer_identity = match locate_rule(&grouped_sheet, &peer_query) {
+            RuleLocation::Resolved {
+                source_identity: Some(identity),
+                ..
+            } => identity,
+            other => panic!("the indexed selector-list member should resolve, got {other:?}"),
+        };
+        assert_eq!(peer_identity.selector_member_index, 1);
+        assert_eq!(peer_identity.selector_members, vec![".item", ".peer"]);
+
+        // An all-mismatch shorthand family with two exact selector/context hits is
+        // deliberately ambiguous, not NotFound and not an arbitrary source choice.
+        let duplicate_gap_css = ".top-stack { gap: 100px; }\n.top-stack { gap: 100px; }\n";
+        let mut gap_query = query(".top-stack", None, None);
+        gap_query.selector_member_index = Some(0);
+        gap_query.context_path = Some(Vec::new());
+        gap_query.identity_declarations = Some(vec![
+            declaration("row-gap", "100px", false),
+            declaration("column-gap", "100px", false),
+        ]);
+        assert!(matches!(
+            locate_rule(
+                &idx(vec![("duplicate-gap.css".into(), duplicate_gap_css.into())]),
+                &gap_query
+            ),
+            RuleLocation::Multiple { rule_count: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn cssom_inherited_font_evidence_selects_the_exact_grouped_source_rule() {
+        const SELECTOR_LIST: &str = ".su-button, .su-input, .su-textarea, .su-select, .su-checkbox, .su-radio, .su-switch, .su-tab, .su-dialog__close";
+        const CSSOM_FONT_LONGHANDS: &[&str] = &[
+            "font-style",
+            "font-variant-caps",
+            "font-weight",
+            "font-width",
+            "font-size",
+            "line-height",
+            "font-family",
+            "font-size-adjust",
+            "font-kerning",
+            "font-variant-alternates",
+            "font-variant-ligatures",
+            "font-variant-numeric",
+            "font-variant-east-asian",
+            "font-feature-settings",
+            "font-optical-sizing",
+            "font-variation-settings",
+        ];
+        let runtime_evidence: Vec<_> = CSSOM_FONT_LONGHANDS
+            .iter()
+            .map(|property| Declaration {
+                property: (*property).into(),
+                value: "inherit".into(),
+                important: false,
+            })
+            .collect();
+        let source = concat!(
+            "@import \"@somacra/tokens/styles.css\";\n\n",
+            ".su-button, .su-input, .su-textarea, .su-select, .su-checkbox, .su-radio, .su-switch, .su-tab, .su-dialog__close { font: inherit; }\n",
+            ".su-button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid transparent; border-radius: var(--radius-sm); line-height: 1; text-decoration: none; cursor: pointer; transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast); }\n",
+        );
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let source_path = root.join("packages/ui/src/styles folder/styles.css");
+        std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        std::fs::write(&source_path, source).unwrap();
+        let href = vite_fs_href(&source_path, 43127, "direct");
+        let mut matched = query(".su-button", None, Some(&href));
+        matched.selector_member_index = Some(0);
+        matched.context_path = Some(Vec::new());
+        matched.identity_declarations = Some(runtime_evidence.clone());
+
+        let sheets = idx(discover_stylesheets(root));
+        let identity = match locate_rule_in_project(root, &sheets, &matched) {
+            RuleLocation::Resolved {
+                file,
+                line,
+                inner_text,
+                source_identity: Some(identity),
+                ..
+            } => {
+                assert_eq!(file, "packages/ui/src/styles folder/styles.css");
+                assert_eq!(line, 3);
+                assert_eq!(inner_text, " font: inherit; ");
+                identity
+            }
+            other => panic!(
+                "the CSSOM font expansion should select the grouped source rule, got {other:?}"
+            ),
+        };
+        assert_eq!(identity.selector, SELECTOR_LIST);
+        assert_eq!(identity.selector_member_index, 0);
+        assert_eq!(identity.matched_selector, ".su-button");
+
+        // Property enumeration order may vary, and browsers can omit optional font
+        // longhands. The core font members remain required and every observed member
+        // must still carry the same CSS-wide value and priority.
+        let grouped_rule = index_rules(source)
+            .into_iter()
+            .find(|rule| rule.selector == SELECTOR_LIST)
+            .unwrap();
+        let mut reordered = runtime_evidence.clone();
+        reordered.reverse();
+        assert!(declaration_evidence_matches(
+            source,
+            &grouped_rule,
+            Some(&reordered)
+        ));
+        let without_optional: Vec<_> = runtime_evidence
+            .iter()
+            .filter(|declaration| {
+                !matches!(
+                    declaration.property.as_str(),
+                    "font-size-adjust" | "font-variant-alternates"
+                )
+            })
+            .cloned()
+            .collect();
+        assert!(declaration_evidence_matches(
+            source,
+            &grouped_rule,
+            Some(&without_optional)
+        ));
+        let mut wrong_priority = runtime_evidence.clone();
+        wrong_priority[0].important = true;
+        assert!(!declaration_evidence_matches(
+            source,
+            &grouped_rule,
+            Some(&wrong_priority)
+        ));
+        let mut all_important = runtime_evidence.clone();
+        for declaration in &mut all_important {
+            declaration.important = true;
+        }
+        let important_source = ".font { font: inherit !important; }";
+        let important_rule = index_rules(important_source).remove(0);
+        assert!(declaration_evidence_matches(
+            important_source,
+            &important_rule,
+            Some(&all_important)
+        ));
+        let explicit_longhands = concat!(
+            ".font { font-style: inherit; font-weight: inherit; font-size: inherit; ",
+            "line-height: inherit; font-family: inherit; }"
+        );
+        let explicit_rule = index_rules(explicit_longhands).remove(0);
+        assert!(!declaration_evidence_matches(
+            explicit_longhands,
+            &explicit_rule,
+            Some(&runtime_evidence)
+        ));
+        let without_core: Vec<_> = runtime_evidence
+            .iter()
+            .filter(|declaration| declaration.property != "font-family")
+            .cloned()
+            .collect();
+        assert!(!declaration_evidence_matches(
+            source,
+            &grouped_rule,
+            Some(&without_core)
+        ));
+
+        // Matching declaration evidence still cannot choose between identical source
+        // occurrences in the exact same stylesheet.
+        let duplicate_source = format!(
+            "@import \"@somacra/tokens/styles.css\";\n\n{SELECTOR_LIST} {{ font: inherit; }}\n{SELECTOR_LIST} {{ font: inherit; }}\n"
+        );
+        std::fs::write(&source_path, duplicate_source).unwrap();
+        let duplicate_sheets = idx(discover_stylesheets(root));
+        assert!(matches!(
+            locate_rule_in_project(root, &duplicate_sheets, &matched),
+            RuleLocation::Multiple { rule_count: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn cssom_media_condition_maps_and_mutates_authored_astro_width_rule() {
+        let same_media = |source: &str, browser: &str| {
+            media_text_matches(&Some(source.into()), &Some(browser.into()))
+        };
+
+        // CSSOM serializes this authored inclusive upper bound as a modern range.
+        assert!(same_media("(max-width: 720px)", "(width <= 720px)"));
+        assert!(same_media(
+            "screen and (max-width: 720px)",
+            "screen and (width <= 720px)"
+        ));
+        assert!(same_media("(min-width: 400px)", "(width >= 400px)"));
+
+        // The canonical form keeps strictness, direction, media type, logic, bounds,
+        // and units distinct; it does not interpret or reorder arbitrary queries.
+        assert!(!same_media("(max-width: 720px)", "(width < 720px)"));
+        assert!(!same_media("(max-width: 720px)", "(width >= 720px)"));
+        assert!(!same_media("(min-width: 720px)", "(width <= 720px)"));
+        assert!(!same_media("(max-width: 720px)", "(width <= 721px)"));
+        assert!(!same_media("(max-width: 720px)", "(width <= 720em)"));
+        assert!(!same_media(
+            "(min-width: 400px) and (max-width: 720px)",
+            "(min-width: 500px) and (max-width: 720px)"
+        ));
+        assert!(!same_media(
+            "screen and (max-width: 720px)",
+            "print and (width <= 720px)"
+        ));
+        assert!(!same_media(
+            "screen and (max-width: 720px)",
+            "screen or (width <= 720px)"
+        ));
+        assert!(!same_media(
+            "not screen and (max-width: 720px)",
+            "screen and (width <= 720px)"
+        ));
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let page = root.join("src/pages/index.astro");
+        std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+        let source = concat!(
+            "---\n",
+            "const pageTitle = \"Personal site\";\n",
+            "---\n",
+            "<section class=\"intro\">\n",
+            "  <div class=\"intro-copy\"></div>\n",
+            "</section>\n",
+            "<style>\n",
+            "  .intro-copy { display: flex; flex-direction: column; align-items: center; gap: 32px; width: 100%; font-size: 22px; line-height: normal; letter-spacing: -0.66px; text-align: center; }\n",
+            "  @media (max-width: 720px) {\n",
+            "    .intro-copy { gap: 26px; font-size: clamp(18px, 4.8vw, 22px); }\n",
+            "  }\n",
+            "</style>\n"
+        );
+        std::fs::write(&page, source).unwrap();
+
+        let sheets = idx(discover_stylesheets(root));
+        let browser_match = query(".intro-copy", Some("(width <= 720px)"), None);
+        let (file, original_inner) = match locate_rule_in_project(root, &sheets, &browser_match) {
+            RuleLocation::Resolved {
+                file, inner_text, ..
+            } => (file, inner_text),
+            other => panic!("expected the Astro media rule to resolve, got {other:?}"),
+        };
+        assert_eq!(file, "src/pages/index.astro?style=0");
+        assert!(original_inner.contains("gap: 26px;"));
+        assert!(original_inner.contains("font-size: clamp(18px, 4.8vw, 22px);"));
+
+        // Source navigation returns the selector's physical line in the Astro host.
+        let expected_line = source
+            .lines()
+            .position(|line| line.contains(".intro-copy { gap: 26px;"))
+            .unwrap()
+            + 1;
+        assert_eq!(
+            resolve_css_source_line_in_file(root, &file, &browser_match).unwrap(),
+            expected_line
+        );
+
+        let authored = load_editable_css(root, &file).unwrap();
+        let media = browser_match.media_text.clone();
+        let edited_inner = original_inner.replace("gap: 26px", "gap: 30px");
+        let edited_css = apply_rule_text_to_source(
+            &authored.css,
+            &browser_match.selector,
+            &media,
+            &original_inner,
+            &edited_inner,
+        )
+        .unwrap();
+        assert!(edited_css.contains("@media (max-width: 720px)"));
+        assert!(edited_css.contains("gap: 32px;"));
+        assert!(edited_css.contains("gap: 30px;"));
+        assert!(!edited_css.contains("gap: 26px;"));
+
+        // Re-locating the saved rule with the old browser string succeeds, and stale
+        // editor text is still rejected by the backend's body drift guard.
+        assert!(matches!(
+            apply_rule_text_to_source(
+                &edited_css,
+                &browser_match.selector,
+                &media,
+                &original_inner,
+                &edited_inner
+            ),
+            Err(CommandError::Validation { reason, .. }) if reason.contains("source changed")
+        ));
+        authored.write_back(root, &edited_css).unwrap();
+        let saved_host = std::fs::read_to_string(&page).unwrap();
+        assert!(saved_host.contains("@media (max-width: 720px)"));
+        assert!(saved_host.contains("gap: 32px;"));
+        assert!(saved_host.contains("gap: 30px;"));
+
+        let reloaded = load_editable_css(root, &file).unwrap();
+        let saved_sheet = SheetIndex::parse(file.clone(), reloaded.css.clone());
+        match locate_rule_in_project(root, &[saved_sheet], &browser_match) {
+            RuleLocation::Resolved { inner_text, .. } => assert!(inner_text.contains("gap: 30px;")),
+            other => panic!("expected the edited Astro rule to remain locatable, got {other:?}"),
+        }
+        assert_eq!(
+            resolve_css_source_line_in_file(root, &file, &browser_match).unwrap(),
+            expected_line
+        );
+
+        // The same condition pin reaches delete, selector rename, wrapper, and media
+        // rename paths. Each edit targets the responsive rule and keeps source syntax.
+        let deleted = remove_rule_from_source(
+            &authored.css,
+            &browser_match.selector,
+            &media,
+            &original_inner,
+        )
+        .unwrap();
+        assert!(deleted.contains("gap: 32px;"));
+        assert!(!deleted.contains("@media (max-width: 720px)"));
+
+        let renamed = rename_selector_in_source(
+            &authored.css,
+            &browser_match.selector,
+            &media,
+            &original_inner,
+            ".intro-copy-mobile",
+        )
+        .unwrap();
+        assert!(renamed.contains("@media (max-width: 720px)"));
+        assert!(renamed.contains(".intro-copy-mobile { gap: 26px;"));
+        assert!(renamed.contains(".intro-copy { display: flex;"));
+
+        let wrapped = wrap_rule_in_source(
+            &authored.css,
+            &browser_match.selector,
+            &media,
+            "@supports (display: flex)",
+            &original_inner,
+        )
+        .unwrap();
+        assert!(wrapped.contains("@media (max-width: 720px)"));
+        assert!(wrapped.contains("@supports (display: flex)"));
+        assert!(index_rules(&wrapped).iter().any(|rule| {
+            rule_selector_matches(&rule.selector, ".intro-copy")
+                && media_text_matches(&rule.media, &media)
+                && rule.supports.as_deref() == Some("(display: flex)")
+        }));
+
+        let renamed_media = rename_at_rule_in_source(
+            &authored.css,
+            &browser_match.selector,
+            &media,
+            &original_inner,
+            "(max-width: 680px)",
+        )
+        .unwrap();
+        assert!(renamed_media.contains("@media (max-width: 680px)"));
+        assert!(renamed_media.contains("gap: 32px;"));
+        assert!(renamed_media.contains("gap: 26px;"));
+    }
+
+    #[test]
     fn reports_not_found_for_unmapped_match() {
         let sheets = idx(vec![("s.css".into(), ".a { color: red; }".into())]);
         assert_eq!(
@@ -4337,7 +6719,7 @@ mod tests {
             locate_rule(&sheets, &query(".dup", None, None)),
             RuleLocation::Multiple { .. }
         ));
-        // The served href's basename pins exactly one file.
+        // The served href's exact project-relative URL pins exactly one file.
         match locate_rule(
             &sheets,
             &query(".dup", None, Some("http://localhost:5173/nested/b.css?v=9")),
@@ -4345,6 +6727,727 @@ mod tests {
             RuleLocation::Resolved { file, .. } => assert_eq!(file, "nested/b.css"),
             other => panic!("expected resolved via href, got {other:?}"),
         }
+        // An unsupported URL scheme is an explicit external identity. It must not
+        // select a local rule merely because the basename happens to be unique.
+        assert_eq!(
+            locate_rule(
+                &sheets,
+                &query(".dup", None, Some("legacy://dev/cache/b.css")),
+            ),
+            RuleLocation::NotFound
+        );
+    }
+
+    #[test]
+    fn source_identity_uses_full_paths_astro_indexes_and_keeps_rule_ambiguity() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/a")).unwrap();
+        std::fs::create_dir_all(root.join("src/b")).unwrap();
+        std::fs::create_dir_all(root.join("src/components")).unwrap();
+        std::fs::write(root.join("src/a/Theme.css"), ".dup { color: red; }\n").unwrap();
+        std::fs::write(root.join("src/b/Theme.css"), ".dup { color: blue; }\n").unwrap();
+        std::fs::write(
+            root.join("src/repeated.css"),
+            ".repeat { color: red; }\n.repeat { color: blue; }\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/other.css"), ".other { color: green; }\n").unwrap();
+        std::fs::write(
+            root.join("src/components/Page.astro"),
+            concat!(
+                "<style lang=\"scss\">.ignored { color: red; }</style>\n",
+                "<style>.astro { color: red; }</style>\n",
+                "<style>.astro { color: blue; }</style>\n"
+            ),
+        )
+        .unwrap();
+
+        let sheets = idx(discover_stylesheets(root));
+        let served = query(
+            ".dup",
+            None,
+            Some("http://localhost:5173/src/b/Theme.css?t=123&direct"),
+        );
+        match locate_rule_in_project(root, &sheets, &served) {
+            RuleLocation::Resolved { file, .. } => assert_eq!(file, "src/b/Theme.css"),
+            other => panic!("expected exact served path to resolve b/Theme.css, got {other:?}"),
+        }
+
+        let absolute = root.join("src/a/Theme.css").to_string_lossy().into_owned();
+        match locate_rule_in_project(root, &sheets, &query(".dup", None, Some(&absolute))) {
+            RuleLocation::Resolved { file, .. } => assert_eq!(file, "src/a/Theme.css"),
+            other => panic!("expected absolute project path to resolve a/Theme.css, got {other:?}"),
+        }
+
+        let conflicting = query(
+            ".dup",
+            None,
+            Some("http://localhost:5173/src/other.css?t=456"),
+        );
+        assert_eq!(
+            locate_rule_in_project(root, &sheets, &conflicting),
+            RuleLocation::NotFound,
+            "a full identity for another local source must not fall back to the selector hit"
+        );
+
+        let conflicting_style_indexes = vite_fs_href(
+            &root.join("src/components/Page.astro"),
+            5173,
+            "astro&type=style&index=1&index=2&lang.css",
+        );
+        assert_eq!(
+            locate_rule_in_project(
+                root,
+                &sheets,
+                &query(".astro", None, Some(&conflicting_style_indexes)),
+            ),
+            RuleLocation::NotFound,
+            "conflicting repeated Astro indexes must not choose the last style block"
+        );
+
+        let external = query(
+            ".dup",
+            None,
+            Some("https://cdn.example.test/src/a/Theme.css?t=42&direct"),
+        );
+        assert_eq!(
+            locate_rule_in_project(root, &sheets, &external),
+            RuleLocation::NotFound,
+            "a remote stylesheet path is not evidence for a local source file"
+        );
+
+        let astro_href = vite_fs_href(
+            &root.join("src/components/Page.astro"),
+            5173,
+            "astro&type=style&index=2&lang.css",
+        );
+        match locate_rule_in_project(root, &sheets, &query(".astro", None, Some(&astro_href))) {
+            RuleLocation::Resolved { file, .. } => {
+                assert_eq!(file, "src/components/Page.astro?style=2")
+            }
+            other => panic!("expected Astro style index 2 to resolve exactly, got {other:?}"),
+        }
+
+        let unaddressable_preprocessor = vite_fs_href(
+            &root.join("src/components/Page.astro"),
+            5173,
+            "astro&type=style&index=0&lang.scss",
+        );
+        assert_eq!(
+            locate_rule_in_project(
+                root,
+                &sheets,
+                &query(".astro", None, Some(&unaddressable_preprocessor)),
+            ),
+            RuleLocation::NotFound,
+            "the preprocessor block index must not drift onto an editable CSS block"
+        );
+
+        match locate_rule(&sheets, &query(".repeat", None, None)) {
+            RuleLocation::Multiple {
+                files,
+                rule_count,
+                candidates,
+            } => {
+                assert_eq!(files, vec!["src/repeated.css"]);
+                assert_eq!(rule_count, 2);
+                assert_eq!(candidates.len(), 2);
+                assert_eq!(candidates[0].file, "src/repeated.css");
+                assert_eq!(candidates[1].file, "src/repeated.css");
+                assert_ne!(candidates[0].line, candidates[1].line);
+            }
+            other => panic!("expected two same-file rules to stay ambiguous, got {other:?}"),
+        }
+
+        let repeated_href = "http://localhost:5173/src/repeated.css?t=789";
+        match locate_rule_in_project(root, &sheets, &query(".repeat", None, Some(repeated_href))) {
+            RuleLocation::Multiple {
+                files, rule_count, ..
+            } => {
+                assert_eq!(files, vec!["src/repeated.css"]);
+                assert_eq!(rule_count, 2);
+            }
+            other => panic!("an exact file identity must not pick one of two rules, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_identity_decodes_encoded_vite_and_file_urls() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let source_path = root.join("src/CSS Sources/Theme #1.css");
+        std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        std::fs::write(&source_path, ".encoded { color: rebeccapurple; }\n").unwrap();
+        let sheets = idx(discover_stylesheets(root));
+
+        for href in [
+            vite_fs_href(&source_path, 5173, "direct"),
+            file_href(&source_path),
+        ] {
+            match locate_rule_in_project(root, &sheets, &query(".encoded", None, Some(&href))) {
+                RuleLocation::Resolved { file, .. } => {
+                    assert_eq!(file, "src/CSS Sources/Theme #1.css")
+                }
+                other => panic!("expected encoded source URL to resolve exactly, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn windows_source_path_syntax_normalizes_on_any_host() {
+        assert!(is_windows_absolute_path(
+            r"C:\Users\Build User\app\src\site.css"
+        ));
+        assert!(is_windows_absolute_path(
+            "/C:/Users/Build%20User/app/src/site.css"
+        ));
+        assert_eq!(
+            percent_decode_path("/C:/Users/Build%20User/app/src/Theme%23Dark.css").as_deref(),
+            Some("/C:/Users/Build User/app/src/Theme#Dark.css")
+        );
+        assert_eq!(
+            normalize_project_rel_path(r"src\components\Page.astro"),
+            Some("src/components/Page.astro".into())
+        );
+    }
+
+    #[test]
+    fn cssom_mapping_resolves_real_astro_global_and_generated_public_css_sources() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let astro_dir = root.join("src/pages");
+        let public_styles = root.join("public/styles");
+        let public_css_dir = root.join("public/css");
+        std::fs::create_dir_all(&astro_dir).unwrap();
+        std::fs::create_dir_all(&public_styles).unwrap();
+        std::fs::create_dir_all(&public_css_dir).unwrap();
+        std::fs::write(
+            public_css_dir.join("theme.css"),
+            ".public-theme { color: olive; }\n",
+        )
+        .unwrap();
+
+        let astro_path = astro_dir.join("index.astro");
+        let astro_source = concat!(
+            "---\nconst pageTitle = 'home';\n---\n",
+            "<div class=\"brand-link\"><span class=\"brand-label\"></span></div>\n",
+            "<style>\n",
+            ":global(*) { box-sizing: border-box; }\n",
+            ".top-stack { display: flex; flex-direction: column; align-items: center; gap: 100px; width: 100%; }\n",
+            "@media (max-width: 720px) {\n  .top-stack { gap: 72px; }\n}\n",
+            ".brand-label { text-box-trim: trim-both; }\n",
+            ":global(.brand-link .brand-label) { text-decoration: underline; }\n",
+            ":global(.brand-link:hover .brand-label), :global(.brand-link:focus-visible .brand-label) { text-decoration-color: currentcolor; }\n",
+            "</style>\n"
+        );
+        std::fs::write(&astro_path, astro_source).unwrap();
+
+        let base_css = ".shared { color: red; }\n";
+        let project_css = concat!(
+            "h1 {\n",
+            "  font-size: 5rem;\n",
+            "  font-weight: 300;\n",
+            "  line-height: 1.2;\n",
+            "  margin-top: 20px;\n",
+            "  margin-bottom: 10px;\n",
+            "}\n\n",
+            ".hero-title {\n",
+            "  letter-spacing: -.25rem;\n",
+            "  background-image: none;\n",
+            "  margin-top: 1px;\n",
+            "  margin-bottom: 0;\n",
+            "  padding-top: 18px;\n",
+            "  padding-bottom: 18px;\n",
+            "  font-family: Neurial Grotesk;\n",
+            "  font-size: 8vw;\n",
+            "  font-weight: 400;\n",
+            "  line-height: 1.1;\n",
+            "  display: block;\n",
+            "}\n\n",
+            ".shared { color: red; }\n\n",
+            "@media screen and (max-width: 767px) {\n",
+            "  h1 {\n",
+            "    font-size: 56px;\n",
+            "  }\n",
+            "}\n"
+        );
+        let module_contents = [
+            (
+                "normalise.css",
+                "/* normalize module */\n* { box-sizing: border-box; }\n",
+            ),
+            ("base.css", base_css),
+            ("project.css", project_css),
+            ("platform.css", "/* platform module */\n"),
+            ("page-overrides.css", "/* page override module */\n"),
+            ("cms.css", "/* cms module */\n"),
+        ];
+        for &(name, contents) in &module_contents {
+            std::fs::write(public_styles.join(name), contents).unwrap();
+        }
+        let build_script = r#"import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+export const STYLES_DIRECTORY = fileURLToPath(new URL('../public/styles/', import.meta.url));
+
+export const SOURCE_FILES = Object.freeze([
+  'normalise.css',
+  'base.css',
+  'project.css',
+  'platform.css',
+  'page-overrides.css',
+  'cms.css',
+]);
+
+export function buildStyles(stylesDirectory = STYLES_DIRECTORY) {
+  const stylesheet = [
+    '/* Generated by scripts/build-styles.mjs. Edit the source modules instead. */',
+    ...SOURCE_FILES.map((file) => readFileSync(resolve(stylesDirectory, file), 'utf8').trim()),
+  ].join('\n\n') + '\n';
+
+  writeFileSync(resolve(stylesDirectory, 'site.css'), stylesheet);
+  return stylesheet;
+}
+
+const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
+if (invokedPath === import.meta.url) buildStyles();
+"#;
+        std::fs::create_dir_all(root.join("scripts")).unwrap();
+        std::fs::write(root.join("scripts/build-styles.mjs"), build_script).unwrap();
+        let mut generated_parts = vec![
+            "/* Generated by scripts/build-styles.mjs. Edit the source modules instead. */"
+                .to_string(),
+        ];
+        generated_parts.extend(
+            module_contents
+                .iter()
+                .map(|(_, contents)| contents.trim().to_string()),
+        );
+        let site_css = format!("{}\n", generated_parts.join("\n\n"));
+        std::fs::write(public_styles.join("site.css"), &site_css).unwrap();
+
+        let sheets = idx(discover_stylesheets(root));
+        assert!(sheets
+            .iter()
+            .any(|sheet| sheet.rel == "public/styles/site.css"));
+        assert!(sheets
+            .iter()
+            .any(|sheet| sheet.rel == "public/styles/project.css"));
+
+        let public_theme = query(
+            ".public-theme",
+            None,
+            Some("http://localhost:43127/css/theme.css"),
+        );
+        assert!(matches!(
+            locate_rule_in_project(root, &sheets, &public_theme),
+            RuleLocation::Resolved { file, .. } if file == "public/css/theme.css"
+        ));
+
+        let astro_href = vite_fs_href(&astro_path, 4321, "astro&type=style&index=0&lang.css");
+        let universal = query("*", None, Some(&astro_href));
+        match locate_rule_in_project(root, &sheets, &universal) {
+            RuleLocation::Resolved { file, .. } => {
+                assert_eq!(file, "src/pages/index.astro?style=0")
+            }
+            other => {
+                panic!("expected :global(*) to resolve to the Astro style block, got {other:?}")
+            }
+        }
+
+        let declaration = |property: &str, value: &str, important| Declaration {
+            property: property.into(),
+            value: value.into(),
+            important,
+        };
+        let gap_evidence = |gap: &str| {
+            vec![
+                declaration("display", "flex", false),
+                declaration("flex-direction", "column", false),
+                declaration("align-items", "center", false),
+                declaration("row-gap", gap, false),
+                declaration("column-gap", gap, false),
+                declaration("width", "100%", false),
+            ]
+        };
+        let scoped_selector = ".top-stack[data-astro-cid-a1b2]";
+        let preview_identity =
+            |rule_path: Vec<usize>, declarations: Vec<Declaration>| CssRulePreviewIdentity {
+                stylesheet_index: 0,
+                rule_path,
+                href: Some(astro_href.clone()),
+                root_href: Some(astro_href.clone()),
+                selector_list: scoped_selector.into(),
+                selector_member_index: 0,
+                declarations,
+            };
+        let astro_sheet = sheets
+            .iter()
+            .find(|sheet| sheet.rel == "src/pages/index.astro?style=0")
+            .expect("the exact Astro style index is discovered");
+        let base_declarations = gap_evidence("100px");
+        let base_source_rule = astro_sheet
+            .rules
+            .iter()
+            .find(|rule| rule.selector == ".top-stack" && rule.media.is_none())
+            .expect("the real base .top-stack rule is indexed");
+        assert!(
+            !declaration_evidence_matches(
+                &astro_sheet.content,
+                base_source_rule,
+                Some(&base_declarations)
+            ),
+            "the authored gap shorthand and CSSOM row/column-gap evidence differ"
+        );
+        let mut base_query = query(".top-stack", None, Some(&astro_href));
+        base_query.selector_member_index = Some(0);
+        base_query.context_path = Some(Vec::new());
+        base_query.identity_declarations = Some(base_declarations.clone());
+        base_query.runtime_identity = Some(preview_identity(vec![1], base_declarations));
+        let (base_identity, base_inner) = match locate_rule_in_project(root, &sheets, &base_query) {
+            RuleLocation::Resolved {
+                file,
+                inner_text,
+                source_identity: Some(identity),
+                ..
+            } => {
+                assert_eq!(file, "src/pages/index.astro?style=0");
+                (identity, inner_text)
+            }
+            other => panic!("the unique base .top-stack source rule must resolve, got {other:?}"),
+        };
+        assert!(base_inner.contains("gap: 100px"));
+        assert_eq!(base_identity.selector_member_index, 0);
+
+        let media_declarations = gap_evidence("72px");
+        let media_source_rule = astro_sheet
+            .rules
+            .iter()
+            .find(|rule| rule.selector == ".top-stack" && rule.media.is_some())
+            .expect("the real media .top-stack rule is indexed");
+        assert!(
+            !declaration_evidence_matches(
+                &astro_sheet.content,
+                media_source_rule,
+                Some(&media_declarations)
+            ),
+            "the mobile authored gap shorthand and CSSOM row/column-gap evidence differ"
+        );
+        let mut media_query = query(".top-stack", Some("(width <= 720px)"), Some(&astro_href));
+        media_query.selector_member_index = Some(0);
+        media_query.context_path = Some(vec!["@media (width <= 720px)".into()]);
+        media_query.identity_declarations = Some(media_declarations.clone());
+        media_query.runtime_identity = Some(preview_identity(vec![2, 0], media_declarations));
+        let (media_identity, media_inner) =
+            match locate_rule_in_project(root, &sheets, &media_query) {
+                RuleLocation::Resolved {
+                    file,
+                    inner_text,
+                    source_identity: Some(identity),
+                    ..
+                } => {
+                    assert_eq!(file, "src/pages/index.astro?style=0");
+                    (identity, inner_text)
+                }
+                other => {
+                    panic!("the unique media .top-stack source rule must resolve, got {other:?}")
+                }
+            };
+        assert!(media_inner.contains("gap: 72px"));
+        assert_eq!(
+            media_identity.context_path,
+            vec!["@media (max-width: 720px)"]
+        );
+
+        let file = "src/pages/index.astro?style=0";
+        let (saved_css, saved_identity) = css_rule_mutations::apply_body(
+            file,
+            &astro_sheet.content,
+            &base_identity,
+            "\n  gap: 104px;\n",
+        )
+        .unwrap();
+        assert_eq!(saved_identity.inner_text, "\n  gap: 104px;\n");
+        css_rule_mutations::resolve_identity(file, &saved_css, &saved_identity)
+            .expect("the saved exact source identity is current");
+        assert!(css_rule_mutations::resolve_identity(file, &saved_css, &base_identity).is_err());
+
+        let (renamed_css, renamed_media) = css_rule_mutations::rename_media(
+            file,
+            &astro_sheet.content,
+            &media_identity,
+            "(max-width: 700px)",
+        )
+        .unwrap();
+        assert_eq!(
+            renamed_media.selected.context_path,
+            vec!["@media (max-width: 700px)"]
+        );
+        css_rule_mutations::resolve_identity(file, &renamed_css, &renamed_media.selected)
+            .expect("the renamed media rule has a refreshed exact identity");
+        assert!(css_rule_mutations::resolve_identity(file, &renamed_css, &media_identity).is_err());
+
+        let deleted_css =
+            css_rule_mutations::delete_rule(file, &astro_sheet.content, &media_identity).unwrap();
+        assert!(deleted_css.contains("gap: 100px"));
+        assert!(!deleted_css.contains("gap: 72px"));
+        assert!(css_rule_mutations::resolve_identity(file, &deleted_css, &media_identity).is_err());
+
+        let mut stale_style_identity = base_query.clone();
+        let stale_href = vite_fs_href(&astro_path, 4321, "astro&type=style&index=1&lang.css");
+        stale_style_identity.href = Some(stale_href.clone());
+        stale_style_identity.runtime_identity.as_mut().unwrap().href = Some(stale_href);
+        assert_eq!(
+            locate_rule_in_project(root, &sheets, &stale_style_identity),
+            RuleLocation::NotFound,
+            "a stale Astro style index must not fall back to the unique selector"
+        );
+        let mut stale_runtime_identity = base_query.clone();
+        stale_runtime_identity
+            .runtime_identity
+            .as_mut()
+            .unwrap()
+            .href =
+            Some("http://localhost:4321/src/pages/other.astro?astro&type=style&index=0".into());
+        assert_eq!(
+            locate_rule_in_project(root, &sheets, &stale_runtime_identity),
+            RuleLocation::NotFound,
+            "preview identity drift must remain fail-closed"
+        );
+        let mut external_source_identity = base_query.clone();
+        let external_href =
+            "https://cdn.example.test/src/pages/index.astro?astro&type=style&index=0&lang.css";
+        external_source_identity.href = Some(external_href.into());
+        external_source_identity
+            .runtime_identity
+            .as_mut()
+            .unwrap()
+            .href = Some(external_href.into());
+        assert_eq!(
+            locate_rule_in_project(root, &sheets, &external_source_identity),
+            RuleLocation::NotFound,
+            "an external stylesheet identity must not fall back to the local selector"
+        );
+
+        assert!(matches!(
+            resolve_in_sheets(&sheets, &sig("brand-label"), None),
+            CssResolution::Resolved { file, .. } if file == "src/pages/index.astro?style=0"
+        ));
+
+        let brand = query(".brand-link .brand-label", None, Some(&astro_href));
+        let (brand_file, brand_inner) = match locate_rule_in_project(root, &sheets, &brand) {
+            RuleLocation::Resolved {
+                file, inner_text, ..
+            } => (file, inner_text),
+            other => panic!("expected global descendant selector to resolve, got {other:?}"),
+        };
+        assert_eq!(brand_file, "src/pages/index.astro?style=0");
+        let brand_source_line = resolve_css_source_line_in_file(root, &brand_file, &brand).unwrap();
+        assert_eq!(
+            brand_source_line,
+            astro_source
+                .lines()
+                .position(|line| line.contains(":global(.brand-link .brand-label)"))
+                .unwrap()
+                + 1
+        );
+
+        let editable_astro = load_editable_css(root, &brand_file).unwrap();
+        let saved_astro = apply_rule_text_to_source(
+            &editable_astro.css,
+            &brand.selector,
+            &brand.media_text,
+            &brand_inner,
+            " text-decoration: underline; text-decoration-color: transparent; ",
+        )
+        .unwrap();
+        editable_astro.write_back(root, &saved_astro).unwrap();
+        let saved_host = std::fs::read_to_string(&astro_path).unwrap();
+        assert!(saved_host.contains(
+            ":global(.brand-link .brand-label) { text-decoration: underline; text-decoration-color: transparent; }"
+        ));
+
+        let astro_css = &sheets
+            .iter()
+            .find(|sheet| sheet.rel == "src/pages/index.astro?style=0")
+            .unwrap()
+            .content;
+        let updated_control = apply_declaration_to_source(
+            astro_css,
+            &brand.selector,
+            None,
+            "text-decoration-color",
+            Some("currentcolor"),
+        )
+        .unwrap();
+        assert!(updated_control.contains(":global(.brand-link .brand-label) {"));
+        assert!(updated_control.contains("text-decoration-color: currentcolor;"));
+
+        let renamed = rename_selector_in_source(
+            astro_css,
+            &brand.selector,
+            &brand.media_text,
+            &brand_inner,
+            ".brand-link .brand-label.is-active",
+        )
+        .unwrap();
+        assert!(renamed.contains(":global(.brand-link .brand-label.is-active) {"));
+        let partially_scoped = ":global(.brand-link) .brand-label { color: red; }";
+        assert!(rename_selector_in_source(
+            partially_scoped,
+            ".brand-link .brand-label",
+            &None,
+            " color: red; ",
+            ".brand-link .brand-label.is-active",
+        )
+        .is_err());
+
+        let hover = query(".brand-link:hover .brand-label", None, Some(&astro_href));
+        let hover_inner = match locate_rule_in_project(root, &sheets, &hover) {
+            RuleLocation::Resolved { inner_text, .. } => inner_text,
+            other => panic!("expected Astro hover selector to resolve, got {other:?}"),
+        };
+        let after_delete =
+            remove_rule_from_source(astro_css, &hover.selector, &hover.media_text, &hover_inner)
+                .unwrap();
+        assert!(!after_delete.contains(":global(.brand-link:hover .brand-label)"));
+        assert!(after_delete.contains(".brand-label { text-box-trim: trim-both; }"));
+
+        let sheet_href = "http://localhost:43127/styles/site.css";
+        let base_heading = query("h1", None, Some(sheet_href));
+        let (source_file, base_line) = match locate_rule_in_project(root, &sheets, &base_heading) {
+            RuleLocation::Resolved {
+                file,
+                line,
+                generated_css_output,
+                ..
+            } => {
+                assert_eq!(
+                    generated_css_output.as_deref(),
+                    Some("public/styles/site.css")
+                );
+                (file, line)
+            }
+            other => panic!("expected public site.css h1 to resolve exactly, got {other:?}"),
+        };
+        assert_eq!(source_file, "public/styles/project.css");
+        assert_eq!(
+            base_line,
+            project_css.lines().position(|line| line == "h1 {").unwrap() + 1
+        );
+        assert_eq!(
+            resolve_css_source_line_in_file(root, &source_file, &base_heading).unwrap(),
+            base_line
+        );
+
+        let responsive = query(
+            "h1",
+            Some("screen and (max-width: 767px)"),
+            Some(sheet_href),
+        );
+        match locate_rule_in_project(root, &sheets, &responsive) {
+            RuleLocation::Resolved { file, .. } => assert_eq!(file, "public/styles/project.css"),
+            other => panic!("expected public responsive h1 rule to resolve, got {other:?}"),
+        }
+        let hero = query(".hero-title", None, Some(sheet_href));
+        match locate_rule_in_project(root, &sheets, &hero) {
+            RuleLocation::Resolved {
+                file,
+                generated_css_output,
+                ..
+            } => {
+                assert_eq!(file, "public/styles/project.css");
+                assert_eq!(
+                    generated_css_output.as_deref(),
+                    Some("public/styles/site.css")
+                );
+            }
+            other => panic!("expected public hero-title rule to resolve, got {other:?}"),
+        }
+        let universal = query("*", None, Some(sheet_href));
+        match locate_rule_in_project(root, &sheets, &universal) {
+            RuleLocation::Resolved {
+                file,
+                generated_css_output,
+                ..
+            } => {
+                assert_eq!(file, "public/styles/normalise.css");
+                assert_eq!(
+                    generated_css_output.as_deref(),
+                    Some("public/styles/site.css")
+                );
+            }
+            other => panic!("expected public universal rule to resolve, got {other:?}"),
+        }
+        let duplicated = query(".shared", None, Some(sheet_href));
+        match locate_rule_in_project(root, &sheets, &duplicated) {
+            RuleLocation::Multiple {
+                files,
+                rule_count,
+                candidates,
+            } => {
+                assert_eq!(
+                    files,
+                    vec![
+                        "public/styles/base.css".to_string(),
+                        "public/styles/project.css".to_string(),
+                    ]
+                );
+                assert_eq!(rule_count, 2);
+                assert_eq!(candidates.len(), 2);
+            }
+            other => {
+                panic!("expected duplicate generated rules to remain ambiguous, got {other:?}")
+            }
+        }
+
+        let generated_only_css =
+            format!("{site_css}\n.generated-only {{ color: rebeccapurple; }}\n");
+        std::fs::write(public_styles.join("site.css"), &generated_only_css).unwrap();
+        let generated_only_sheets = idx(discover_stylesheets(root));
+        let generated_only = query(".generated-only", None, Some(sheet_href));
+        assert_eq!(
+            locate_rule_in_project(root, &generated_only_sheets, &generated_only),
+            RuleLocation::NotFound,
+            "an output-only rule must stay read-only even when the generator manifest is valid"
+        );
+        std::fs::write(public_styles.join("site.css"), &site_css).unwrap();
+
+        let editable_project = load_editable_css(root, &source_file).unwrap();
+        let updated_project = apply_declaration_to_source(
+            &editable_project.css,
+            "h1",
+            None,
+            "font-size",
+            Some("4rem"),
+        )
+        .unwrap();
+        editable_project.write_back(root, &updated_project).unwrap();
+        assert!(std::fs::read_to_string(public_styles.join("project.css"))
+            .unwrap()
+            .contains("font-size: 4rem;"));
+        assert!(!std::fs::read_to_string(public_styles.join("site.css"))
+            .unwrap()
+            .contains("font-size: 4rem;"));
+        // If indexed source content drifted from disk, the generated output is no
+        // longer safe to map from this snapshot and must not itself become writable.
+        assert_eq!(
+            locate_rule_in_project(root, &sheets, &hero),
+            RuleLocation::NotFound
+        );
+
+        // If a root-level and public asset both fit the same URL, the locator
+        // refuses to guess which one the dev server served.
+        let root_styles = root.join("styles");
+        std::fs::create_dir_all(&root_styles).unwrap();
+        std::fs::write(root_styles.join("site.css"), "h1 { font-size: 3rem; }\n").unwrap();
+        let ambiguous_sheets = idx(discover_stylesheets(root));
+        assert_eq!(
+            locate_rule_in_project(root, &ambiguous_sheets, &base_heading),
+            RuleLocation::NotFound
+        );
     }
 
     #[test]
@@ -4674,23 +7777,6 @@ mod tests {
     }
 
     #[test]
-    fn rel_basename_drops_dir_and_style_query() {
-        assert_eq!(
-            rel_basename("src/components/Foo.astro?style=0"),
-            "Foo.astro"
-        );
-        assert_eq!(rel_basename("styles/main.css"), "main.css");
-    }
-
-    #[test]
-    fn href_basename_matches_vite_dev_id_of_an_astro_block() {
-        // The Vite dev-id we now pass as `href` for injected <style> tags.
-        let dev_id =
-            "/@fs/Users/me/app/src/components/Hero.astro?astro&type=style&index=0&lang.css";
-        assert_eq!(href_basename(dev_id).as_deref(), Some("Hero.astro"));
-    }
-
-    #[test]
     fn astro_style_blocks_finds_inner_ranges() {
         let src = "---\nconst x = 1;\n---\n<h1>hi</h1>\n<style>\n.a { color: red; }\n</style>\n";
         let blocks = astro_style_blocks(src);
@@ -4712,10 +7798,24 @@ mod tests {
     fn astro_style_blocks_skips_non_css_lang() {
         let src = "<style lang=\"scss\">.a{ .b{} }</style>\n<style>.c{}</style>";
         let blocks = astro_style_blocks(src);
-        // Only the plain-CSS block is addressable; the scss one is skipped, so the
-        // plain block is index 0 (matching `discover_stylesheets`' enumerate order).
+        // Only the plain-CSS range is addressable, but its source identity retains
+        // Astro's index so the preceding preprocessor block leaves a gap.
         assert_eq!(blocks.len(), 1);
         assert_eq!(&src[blocks[0].0..blocks[0].1], ".c{}");
+        let indexed = astro_style_blocks_with_indices(src);
+        assert_eq!(indexed.len(), 1);
+        assert_eq!(indexed[0].0, 1);
+    }
+
+    #[test]
+    fn astro_inline_style_blocks_do_not_consume_a_compiled_style_index() {
+        let src =
+            "<style is:inline>.inline { color: red; }</style>\n<style>.compiled { color: blue; }</style>";
+        let indexed = astro_style_blocks_with_indices(src);
+        assert_eq!(indexed.len(), 1);
+        assert_eq!(indexed[0].0, 0);
+        let (start, end) = indexed[0].1;
+        assert_eq!(&src[start..end], ".compiled { color: blue; }");
     }
 
     #[test]
@@ -4724,6 +7824,92 @@ mod tests {
         let blocks = astro_style_blocks(src);
         assert_eq!(blocks.len(), 1);
         assert_eq!(&src[blocks[0].0..blocks[0].1], ".real{}");
+    }
+
+    #[test]
+    fn source_line_resolution_maps_astro_rules_to_physical_host_lines() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let source = concat!(
+            "---\r\n",
+            "const style = \"<style>.fake {}</style>\";\r\n",
+            "---\r\n",
+            "<style lang=\"scss\">.ignored { color: red; }</style>\r\n",
+            "<div />\r\n",
+            "<style>\r\n",
+            ".before { color: red; }\r\n",
+            "</style><style>\n",
+            ".after { color: blue; }\n",
+            "</style>"
+        );
+        std::fs::write(root.join("Page.astro"), source).unwrap();
+
+        assert_eq!(
+            resolve_css_source_line_in_file(
+                root,
+                "Page.astro?style=1",
+                &query(".before", None, None)
+            )
+            .unwrap(),
+            7
+        );
+        assert_eq!(
+            resolve_css_source_line_in_file(
+                root,
+                "Page.astro?style=2",
+                &query(".after", None, None)
+            )
+            .unwrap(),
+            9
+        );
+    }
+
+    #[test]
+    fn source_line_resolution_returns_plain_css_selector_line() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("site.css"),
+            "/* header */\r\n.before { color: red; }\r\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_css_source_line_in_file(root, "site.css", &query(".before", None, None))
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn source_line_resolution_pins_a_variables_rule_to_its_exact_astro_line() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let source = concat!(
+            "---\n",
+            "---\n",
+            "<main />\n",
+            "<style>\n",
+            ":root { --tone: red; }\n",
+            ":root { --tone: blue; }\n",
+            "</style>\n",
+        );
+        std::fs::write(root.join("Page.astro"), source).unwrap();
+        let matched = query(":root", None, None);
+
+        // Selector-only resolution is ambiguous, while the source line from the
+        // Variables row pins the second virtual CSS rule to its host-file line.
+        assert!(resolve_css_source_line_in_file(root, "Page.astro?style=0", &matched).is_err());
+        assert_eq!(
+            resolve_css_source_line_in_file_at_source_line(
+                root,
+                "Page.astro?style=0",
+                &matched,
+                Some(3),
+            )
+            .unwrap(),
+            6
+        );
     }
 
     #[test]
@@ -5011,6 +8197,10 @@ mod tests {
             layer: None,
             container: container.map(|s| s.into()),
             supports: supports.map(|s| s.into()),
+            selector_member_index: None,
+            context_path: None,
+            identity_declarations: None,
+            runtime_identity: None,
         };
         // base
         match locate_rule(&sheets, &q(None, None)) {
@@ -5053,6 +8243,10 @@ mod tests {
             layer: Some("base".into()),
             container: None,
             supports: None,
+            selector_member_index: None,
+            context_path: None,
+            identity_declarations: None,
+            runtime_identity: None,
         };
         match locate_rule(&sheets, &q_base) {
             RuleLocation::Resolved { inner_text, .. } => assert!(inner_text.contains("blue")),
@@ -5065,6 +8259,10 @@ mod tests {
             layer: Some("theme".into()),
             container: None,
             supports: None,
+            selector_member_index: None,
+            context_path: None,
+            identity_declarations: None,
+            runtime_identity: None,
         };
         match locate_rule(&sheets, &q_theme) {
             RuleLocation::Resolved { inner_text, .. } => assert!(inner_text.contains("red")),
@@ -5120,5 +8318,634 @@ mod tests {
             assert!(css.contains(cond), "lost condition {cond}");
         }
         assert_eq!(css.matches("gap: 1px;").count(), CONDITIONS.len());
+    }
+
+    #[test]
+    fn css_rule_identity_shared_member_and_consolidation_regression() {
+        let long_selector = ".bio-line > span:not(.brand):not(.muted-dark):not(.hyperculture-word)";
+        let source = format!(
+            "{long_selector} {{ white-space: nowrap; }}\n{long_selector}, .location-name {{ text-box-trim: trim-both; text-box-edge: cap alphabetic; }}\n"
+        );
+        let sheet = SheetIndex::parse("index.astro?style=0".into(), source.clone());
+        let query =
+            |selector: &str, member: usize, declarations: Vec<Declaration>| MatchedRuleQuery {
+                selector: selector.into(),
+                media_text: None,
+                href: None,
+                layer: None,
+                container: None,
+                supports: None,
+                selector_member_index: Some(member),
+                context_path: Some(Vec::new()),
+                identity_declarations: Some(declarations),
+                runtime_identity: None,
+            };
+        // CSSOM exposes this authored shorthand as the two equivalent longhands.
+        let white_space_evidence = vec![
+            Declaration {
+                property: "white-space-collapse".into(),
+                value: "collapse".into(),
+                important: false,
+            },
+            Declaration {
+                property: "text-wrap-mode".into(),
+                value: "nowrap".into(),
+                important: false,
+            },
+        ];
+        let first_query = query(long_selector, 0, white_space_evidence);
+        let first_identity = match locate_rule(&[sheet.clone()], &first_query) {
+            RuleLocation::Resolved {
+                source_identity: Some(identity),
+                inner_text,
+                ..
+            } => {
+                assert_eq!(inner_text.trim(), "white-space: nowrap;");
+                identity
+            }
+            result => panic!("the exact shorthand occurrence should resolve, got {result:?}"),
+        };
+        assert_eq!(
+            first_identity.selector_offset,
+            source.find(long_selector).unwrap()
+        );
+        assert_eq!(first_identity.selector_member_index, 0);
+
+        let grouped_query = query(
+            ".location-name",
+            1,
+            vec![
+                Declaration {
+                    property: "text-box-trim".into(),
+                    value: "trim-both".into(),
+                    important: false,
+                },
+                Declaration {
+                    property: "text-box-edge".into(),
+                    value: "cap alphabetic".into(),
+                    important: false,
+                },
+            ],
+        );
+        let grouped_identity = match locate_rule(&[sheet], &grouped_query) {
+            RuleLocation::Resolved {
+                source_identity: Some(identity),
+                ..
+            } => identity,
+            result => panic!("the grouped member should resolve separately, got {result:?}"),
+        };
+        assert_eq!(grouped_identity.selector_member_index, 1);
+        assert_eq!(
+            grouped_identity.selector_members,
+            vec![norm_selector(long_selector), ".location-name".to_string()]
+        );
+
+        let media_source = "@media (min-width: 600px) {\n  .one { color: red; }\n  @media (max-width: 400px) {\n    .inner { color: green; }\n  }\n  @layer a {\n    .two { color: blue; }\n  }\n}\n@media (min-width: 600px) {\n  .one { color: red; }\n}\n";
+        let media_rules = index_rules(media_source);
+        let selected_media_rule = media_rules
+            .iter()
+            .find(|rule| rule.selector == ".one")
+            .unwrap();
+        let selected_media_identity = css_rule_mutations::identity_for_rule(
+            "media.css",
+            media_source,
+            selected_media_rule,
+            0,
+            ".one",
+        )
+        .unwrap();
+        let (renamed_media, media_rename) = css_rule_mutations::rename_media(
+            "media.css",
+            media_source,
+            &selected_media_identity,
+            "(min-width: 700px)",
+        )
+        .unwrap();
+        assert_eq!(
+            renamed_media,
+            "@media (min-width: 700px) {\n  .one { color: red; }\n  @media (max-width: 400px) {\n    .inner { color: green; }\n  }\n  @layer a {\n    .two { color: blue; }\n  }\n}\n@media (min-width: 600px) {\n  .one { color: red; }\n}\n"
+        );
+        assert_eq!(
+            media_rename.selected.context_path,
+            vec!["@media (min-width: 700px)".to_string()]
+        );
+        let nested_old_offset = media_source.find(".two").unwrap();
+        let nested_refresh = media_rename
+            .remapped_rules
+            .iter()
+            .find(|remap| {
+                remap.old_selector_offset == nested_old_offset && remap.selector_member_index == 0
+            })
+            .expect("the exact nested sibling in the renamed wrapper is mapped");
+        assert_eq!(
+            nested_refresh.identity.context_path,
+            vec![
+                "@media (min-width: 700px)".to_string(),
+                "@layer a".to_string()
+            ]
+        );
+        css_rule_mutations::resolve_identity("media.css", &renamed_media, &nested_refresh.identity)
+            .expect("the nested sibling maps to its exact new source occurrence");
+        let inner_old_offset = media_source.find(".inner").unwrap();
+        let inner_refresh = media_rename
+            .remapped_rules
+            .iter()
+            .find(|remap| remap.old_selector_offset == inner_old_offset)
+            .expect("nested media descendants are mapped with their exact outer wrapper");
+        assert_eq!(
+            inner_refresh.identity.context_path,
+            vec![
+                "@media (min-width: 700px)".to_string(),
+                "@media (max-width: 400px)".to_string()
+            ]
+        );
+        css_rule_mutations::resolve_identity("media.css", &renamed_media, &inner_refresh.identity)
+            .expect("nested media descendant maps to its exact new source occurrence");
+        let untouched_media_offset = media_source.rfind(".one").unwrap();
+        assert!(!media_rename
+            .remapped_rules
+            .iter()
+            .any(|remap| remap.old_selector_offset == untouched_media_offset));
+
+        let renamed = css_rule_mutations::rename_member(
+            "index.astro?style=0",
+            &source,
+            &grouped_identity,
+            ".location-alt",
+        )
+        .unwrap()
+        .0;
+        assert!(renamed.contains(&format!("{long_selector}, .location-alt {{")));
+        assert!(renamed.contains(&format!("{long_selector} {{ white-space: nowrap; }}")));
+
+        let removed =
+            css_rule_mutations::remove_member("index.astro?style=0", &source, &grouped_identity)
+                .unwrap()
+                .0;
+        let remaining = index_rules(&removed);
+        assert_eq!(remaining.len(), 2);
+        assert_eq!(
+            normalized_selector_parts(&remaining[1].selector),
+            vec![norm_selector(long_selector)]
+        );
+        let expected_removed = format!(
+            "{long_selector} {{ white-space: nowrap; }}\n{long_selector} {{ text-box-trim: trim-both; text-box-edge: cap alphabetic; }}\n"
+        );
+        assert_eq!(
+            removed, expected_removed,
+            "member removal must alter only its selector list"
+        );
+        assert!(removed.contains("text-box-edge: cap alphabetic;"));
+
+        let (split, independent_identity) =
+            css_rule_mutations::make_independent("index.astro?style=0", &source, &grouped_identity)
+                .unwrap();
+        let split_rules = index_rules(&split);
+        assert_eq!(split_rules.len(), 3);
+        assert_eq!(
+            normalized_selector_parts(&split_rules[1].selector),
+            vec![norm_selector(long_selector)]
+        );
+        assert_eq!(split_rules[2].selector, ".location-name");
+        assert_eq!(
+            &split[split_rules[1].block_inner_start..split_rules[1].block_inner_end],
+            &split[split_rules[2].block_inner_start..split_rules[2].block_inner_end]
+        );
+        css_rule_mutations::resolve_identity("index.astro?style=0", &split, &independent_identity)
+            .expect("the returned identity should pin the new adjacent rule");
+        let expected_split = format!(
+            "{long_selector} {{ white-space: nowrap; }}\n{long_selector} {{ text-box-trim: trim-both; text-box-edge: cap alphabetic; }}\n.location-name {{ text-box-trim: trim-both; text-box-edge: cap alphabetic; }}\n"
+        );
+        assert_eq!(
+            split, expected_split,
+            "split must preserve all non-target source text"
+        );
+        assert!(css_rule_mutations::resolve_identity(
+            "index.astro?style=0",
+            &source.replace("white-space: nowrap", "white-space: normal"),
+            &first_identity,
+        )
+        .is_err());
+
+        // Astro global wrappers survive a member split in source, including the
+        // selected member's wrapper and original declarations.
+        let global_source = ":global(.a, .b) { color: red; }\n";
+        let global_rule = index_rules(global_source).remove(0);
+        let global_identity = css_rule_mutations::identity_for_rule(
+            "Component.astro?style=0",
+            global_source,
+            &global_rule,
+            1,
+            ".b",
+        )
+        .unwrap();
+        let (global_split, _) = css_rule_mutations::make_independent(
+            "Component.astro?style=0",
+            global_source,
+            &global_identity,
+        )
+        .unwrap();
+        assert!(global_split.contains(":global(.a) { color: red; }"));
+        assert!(global_split.contains(":global(.b) { color: red; }"));
+        let (global_removed, _) = css_rule_mutations::remove_member(
+            "Component.astro?style=0",
+            global_source,
+            &global_identity,
+        )
+        .unwrap();
+        assert_eq!(global_removed, ":global(.a) { color: red; }\n");
+
+        let commented_group_source =
+            ".keep, .remaining /* preserve this note */ {\n  color: red;\n}\n/* outside remains */\n";
+        let commented_rule = index_rules(commented_group_source).remove(0);
+        let commented_identity = css_rule_mutations::identity_for_rule(
+            "comments.css",
+            commented_group_source,
+            &commented_rule,
+            0,
+            ".keep",
+        )
+        .unwrap();
+        let (commented_removed, _) = css_rule_mutations::remove_member(
+            "comments.css",
+            commented_group_source,
+            &commented_identity,
+        )
+        .unwrap();
+        assert_eq!(
+            commented_removed,
+            ".remaining /* preserve this note */ {\n  color: red;\n}\n/* outside remains */\n"
+        );
+        let (commented_split, _) = css_rule_mutations::make_independent(
+            "comments.css",
+            commented_group_source,
+            &commented_identity,
+        )
+        .unwrap();
+        assert_eq!(
+            commented_split,
+            ".remaining /* preserve this note */ {\n  color: red;\n}\n.keep {\n  color: red;\n}\n/* outside remains */\n"
+        );
+
+        let partial_global_source = ".other, :global(.a) > .child { color: red; }";
+        let partial_global_rule = index_rules(partial_global_source).remove(0);
+        let partial_global_identity = css_rule_mutations::identity_for_rule(
+            "Component.astro?style=0",
+            partial_global_source,
+            &partial_global_rule,
+            1,
+            ".a > .child",
+        )
+        .unwrap();
+        assert!(css_rule_mutations::rename_member(
+            "Component.astro?style=0",
+            partial_global_source,
+            &partial_global_identity,
+            ".renamed > .child",
+        )
+        .is_err());
+
+        let wrap_source =
+            "/* preserved same-line prefix */ .wrap-me { color: red; }\n.keep { color: blue; }\n";
+        let wrap_rule = index_rules(wrap_source).remove(0);
+        let wrap_identity = css_rule_mutations::identity_for_rule(
+            "wrap.css",
+            wrap_source,
+            &wrap_rule,
+            0,
+            ".wrap-me",
+        )
+        .unwrap();
+        let (wrapped, wrapped_identity) = css_rule_mutations::wrap_rule(
+            "wrap.css",
+            wrap_source,
+            &wrap_identity,
+            "@media (min-width: 600px)",
+        )
+        .unwrap();
+        assert_eq!(
+            wrapped,
+            "/* preserved same-line prefix */ @media (min-width: 600px) {\n  .wrap-me { color: red; }\n}\n.keep { color: blue; }\n"
+        );
+        assert_eq!(
+            wrapped_identity.selector_offset,
+            wrapped.find(".wrap-me").unwrap()
+        );
+        css_rule_mutations::resolve_identity("wrap.css", &wrapped, &wrapped_identity)
+            .expect("wrapped source identity must resolve at its new line and offset");
+
+        let indented_wrap_source = "\t.indented { color: red; }\r\n";
+        let indented_rule = index_rules(indented_wrap_source).remove(0);
+        let indented_identity = css_rule_mutations::identity_for_rule(
+            "indented.css",
+            indented_wrap_source,
+            &indented_rule,
+            0,
+            ".indented",
+        )
+        .unwrap();
+        let (indented_wrapped, indented_wrapped_identity) = css_rule_mutations::wrap_rule(
+            "indented.css",
+            indented_wrap_source,
+            &indented_identity,
+            "@supports (display: grid)",
+        )
+        .unwrap();
+        assert_eq!(
+            indented_wrapped,
+            "\t@supports (display: grid) {\r\n\t  .indented { color: red; }\r\n\t}\r\n"
+        );
+        assert_eq!(
+            indented_wrapped_identity.selector_offset,
+            indented_wrapped.find(".indented").unwrap()
+        );
+        css_rule_mutations::resolve_identity(
+            "indented.css",
+            &indented_wrapped,
+            &indented_wrapped_identity,
+        )
+        .expect("indented CRLF wrapper identity must resolve");
+
+        let same_line_rules = ".before { color: black; } .wrap { color: red; }";
+        let same_line_rule = index_rules(same_line_rules).remove(1);
+        let same_line_identity = css_rule_mutations::identity_for_rule(
+            "same-line.css",
+            same_line_rules,
+            &same_line_rule,
+            0,
+            ".wrap",
+        )
+        .unwrap();
+        assert!(css_rule_mutations::wrap_rule(
+            "same-line.css",
+            same_line_rules,
+            &same_line_identity,
+            "@media (min-width: 600px)",
+        )
+        .is_err());
+
+        let duplicate_css = ".x { color: red; }\n.x { color: red; }";
+        let duplicate_sheet = SheetIndex::parse("duplicate.css".into(), duplicate_css.into());
+        let duplicate_query = query(
+            ".x",
+            0,
+            vec![Declaration {
+                property: "color".into(),
+                value: "red".into(),
+                important: false,
+            }],
+        );
+        assert!(matches!(
+            locate_rule(&[duplicate_sheet], &duplicate_query),
+            RuleLocation::Multiple { rule_count: 2, .. }
+        ));
+
+        let consolidation_source =
+            ".x { color: red; color: blue; }\n\n.x { color: green !important; color: purple; }\n";
+        let review = css_rule_mutations::review_consolidations("safe.css", consolidation_source);
+        assert_eq!(review.candidates.len(), 1);
+        let candidate = &review.candidates[0];
+        assert!(
+            candidate.after.find("color: red").unwrap()
+                < candidate.after.find("color: blue").unwrap()
+        );
+        assert!(
+            candidate.after.find("color: blue").unwrap()
+                < candidate.after.find("color: green !important").unwrap()
+        );
+        let consolidated =
+            css_rule_mutations::apply_consolidation("safe.css", consolidation_source, candidate)
+                .unwrap();
+        assert_eq!(index_rules(&consolidated).len(), 1);
+        assert!(css_rule_mutations::apply_consolidation(
+            "safe.css",
+            &consolidation_source.replace("green", "orange"),
+            candidate,
+        )
+        .is_err());
+
+        let stale_snapshot_root = tempfile::TempDir::new().unwrap();
+        let stale_snapshot_file = stale_snapshot_root.path().join("snapshot.css");
+        let before_write = ".snapshot { color: red; }\n";
+        let first_write = ".snapshot { color: blue; }\n";
+        let stale_write = ".snapshot { color: green; }\n";
+        std::fs::write(&stale_snapshot_file, before_write).unwrap();
+        let first_snapshot = load_editable_css(stale_snapshot_root.path(), "snapshot.css").unwrap();
+        let stale_snapshot = load_editable_css(stale_snapshot_root.path(), "snapshot.css").unwrap();
+        first_snapshot
+            .write_back(stale_snapshot_root.path(), first_write)
+            .unwrap();
+        assert!(matches!(
+            stale_snapshot.write_back(stale_snapshot_root.path(), stale_write),
+            Err(CommandError::Validation { reason, .. }) if reason.contains("source changed")
+        ));
+        assert_eq!(
+            std::fs::read_to_string(stale_snapshot_file).unwrap(),
+            first_write
+        );
+
+        let concurrent_root = tempfile::TempDir::new().unwrap();
+        let concurrent_file = concurrent_root.path().join("concurrent.css");
+        std::fs::write(&concurrent_file, before_write).unwrap();
+        let concurrent_first = load_editable_css(concurrent_root.path(), "concurrent.css").unwrap();
+        let concurrent_second =
+            load_editable_css(concurrent_root.path(), "concurrent.css").unwrap();
+        let first_root = concurrent_root.path().to_path_buf();
+        let second_root = first_root.clone();
+        let first_write_result = std::thread::spawn(move || {
+            concurrent_first
+                .write_back(&first_root, first_write)
+                .is_ok()
+        });
+        let second_write_result = std::thread::spawn(move || {
+            concurrent_second
+                .write_back(&second_root, stale_write)
+                .is_ok()
+        });
+        let successes = [
+            first_write_result.join().unwrap(),
+            second_write_result.join().unwrap(),
+        ]
+        .into_iter()
+        .filter(|success| *success)
+        .count();
+        assert_eq!(
+            successes, 1,
+            "in-process writes from one source snapshot must serialize and reject the stale writer"
+        );
+        let concurrent_result = std::fs::read_to_string(concurrent_file).unwrap();
+        assert!(
+            concurrent_result == ".snapshot { color: blue; }\n"
+                || concurrent_result == ".snapshot { color: green; }\n",
+            "the serialized result must be exactly one writer's complete edit"
+        );
+
+        for unsafe_css in [
+            ".x { color: red; }\n.gap { color: black; }\n.x { color: blue; }",
+            "@media (max-width: 600px) { .x { color: red; } .x { color: blue; } }",
+            ".x, .y { color: red; }\n.x { color: blue; }",
+            ".x { @apply p-2; }\n.x { color: blue; }",
+        ] {
+            let unsafe_review = css_rule_mutations::review_consolidations("unsafe.css", unsafe_css);
+            assert!(
+                unsafe_review.candidates.is_empty(),
+                "unexpected safe merge for {unsafe_css}"
+            );
+            assert!(unsafe_review.unavailable_reason.is_some());
+        }
+    }
+
+    #[test]
+    fn css_selector_list_edit_and_split_preserves_exact_source_identity() {
+        let file = "src/styles/selectors.css";
+        let rename_source = "/* before */\n.old { color: red; }\n.after { display: block; }\n";
+        let old_rule = index_rules(rename_source)
+            .into_iter()
+            .find(|rule| rule.selector == ".old")
+            .unwrap();
+        let old_identity =
+            css_rule_mutations::identity_for_rule(file, rename_source, &old_rule, 0, ".old")
+                .unwrap();
+        let grouped_selector =
+            r#".new:is(.one, .two):not([data-label="a,b"]):has(.child), .escaped\,comma, #\31 foo"#;
+        let (grouped_source, grouped_identity) = css_rule_mutations::replace_selector_list(
+            file,
+            rename_source,
+            &old_identity,
+            grouped_selector,
+        )
+        .unwrap();
+        assert_eq!(
+            grouped_identity.selector_members,
+            vec![
+                r#".new:is(.one,.two):not([data-label="a,b"]):has(.child)"#,
+                r#".escaped\,comma"#,
+                r#"#\31 foo"#,
+            ]
+        );
+        assert!(!grouped_identity.selector_list_split_safe);
+        assert!(grouped_source.starts_with("/* before */\n"));
+        assert!(grouped_source.ends_with("\n.after { display: block; }\n"));
+
+        let (single_source, single_identity) = css_rule_mutations::replace_selector_list(
+            file,
+            &grouped_source,
+            &grouped_identity,
+            ".single",
+        )
+        .unwrap();
+        assert_eq!(single_identity.selector, ".single");
+        assert_eq!(single_identity.selector_members, vec![".single"]);
+        assert!(single_source.contains(".single { color: red; }"));
+        assert!(!single_source.contains(".escaped\\,comma"));
+        assert!(css_rule_mutations::replace_selector_list(
+            file,
+            &single_source.replace("color: red", "color: blue"),
+            &old_identity,
+            ".stale",
+        )
+        .is_err());
+
+        let split_source = ".before { color: black; }\n@media (min-width: 600px) {\n  :global(.astro-one, .astro-two), .third { color: red; }\n}\n.after { color: blue; }\n/* untouched tail */\n";
+        let original_split_source = split_source.to_string();
+        let split_rules = index_rules(split_source);
+        let before = split_rules
+            .iter()
+            .find(|rule| rule.selector == ".before")
+            .unwrap();
+        let target = split_rules
+            .iter()
+            .find(|rule| rule.selector.starts_with(":global("))
+            .unwrap();
+        let after = split_rules
+            .iter()
+            .find(|rule| rule.selector == ".after")
+            .unwrap();
+        let before_identity =
+            css_rule_mutations::identity_for_rule(file, split_source, before, 0, ".before")
+                .unwrap();
+        let target_identity =
+            css_rule_mutations::identity_for_rule(file, split_source, target, 2, ".third").unwrap();
+        let original_target_body =
+            split_source[target.block_inner_start..target.block_inner_end].to_string();
+        let original_prefix = split_source[..target.selector_start].to_string();
+        let original_context = target.context_path.clone();
+        let after_identity =
+            css_rule_mutations::identity_for_rule(file, split_source, after, 0, ".after").unwrap();
+        assert!(target_identity.selector_list_split_safe);
+        let unsafe_rule = index_rules("#important, .ordinary { color: red; }")
+            .into_iter()
+            .next()
+            .unwrap();
+        assert!(
+            !css_rule_mutations::identity_for_rule(
+                file,
+                "#important, .ordinary { color: red; }",
+                &unsafe_rule,
+                0,
+                "#important",
+            )
+            .unwrap()
+            .selector_list_split_safe
+        );
+
+        let (split_source, split_result) =
+            css_rule_mutations::split_selector_list(file, split_source, &target_identity).unwrap();
+        let split_rules = index_rules(&split_source);
+        assert_eq!(split_rules.len(), 5);
+        let target_rules = split_rules
+            .iter()
+            .filter(|rule| rule.context_path == original_context)
+            .collect::<Vec<_>>();
+        assert_eq!(target_rules.len(), 3);
+        assert_eq!(
+            target_rules
+                .iter()
+                .map(|rule| rule.selector.as_str())
+                .collect::<Vec<_>>(),
+            vec![":global(.astro-one)", ":global(.astro-two)", ".third"]
+        );
+        for rule in &target_rules {
+            assert_eq!(
+                &split_source[rule.block_inner_start..rule.block_inner_end],
+                original_target_body.as_str()
+            );
+            assert_eq!(rule.context_path, original_context);
+        }
+        assert!(split_source.starts_with(&original_prefix));
+        assert!(original_split_source.starts_with(&original_prefix));
+        assert!(split_source.ends_with("}\n.after { color: blue; }\n/* untouched tail */\n"));
+        assert_eq!(split_result.selected.matched_selector, ".third");
+        assert_eq!(
+            split_result
+                .remapped_rules
+                .iter()
+                .filter(|mapping| mapping.old_selector_offset == target_identity.selector_offset)
+                .count(),
+            3
+        );
+        for old in [&before_identity, &target_identity, &after_identity] {
+            let mapping = split_result
+                .remapped_rules
+                .iter()
+                .find(|mapping| {
+                    mapping.old_selector_offset == old.selector_offset
+                        && mapping.selector_member_index == old.selector_member_index
+                })
+                .expect("each original rule member receives an exact refreshed identity");
+            css_rule_mutations::resolve_identity(file, &split_source, &mapping.identity)
+                .expect("every source member maps to its current selector and source snapshot");
+        }
+        assert!(css_rule_mutations::split_selector_list(
+            file,
+            &split_source.replace("color: red", "color: green"),
+            &target_identity,
+        )
+        .is_err());
+        assert!(super::validate_selector_list(
+            r#":is(.one, .two), [data-label="a,b"], .escaped\,comma"#
+        )
+        .is_ok());
+        assert!(super::validate_selector_list(".one,, .two").is_err());
     }
 }

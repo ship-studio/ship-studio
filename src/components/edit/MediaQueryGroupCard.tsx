@@ -1,14 +1,11 @@
 import { Children, useState, type ReactNode } from 'react';
 import { ChevronIcon, WarningIcon } from '@/components/icons';
 import { FileTextIcon, TrashIcon } from '@/components/icons';
+import { cascadeSourceFileLabel } from '../../lib/cascadePresentation';
 import { isMediaQueryComplete } from '../../lib/mediaQueries';
 import { MediaQueryChips } from './MediaQueryChips';
-
-function fileLabel(path: string): string {
-  const [file, query] = path.split('?style=');
-  const name = file.split('/').pop() ?? file;
-  return query ? `${name} › style` : name;
-}
+import { Button } from '../primitives/Button';
+import { ModalFrame } from '../primitives/ModalFrame';
 
 interface Props {
   condition: string;
@@ -41,6 +38,7 @@ export function MediaQueryGroupCard({
   children,
 }: Props) {
   const [localCollapsed, setLocalCollapsed] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const controlled = onToggleCollapse != null;
   const collapsed = controlled ? (controlledCollapsed ?? false) : localCollapsed;
   const toggleCollapse = () => {
@@ -49,7 +47,7 @@ export function MediaQueryGroupCard({
   };
   const sources = file ? [file] : [...new Set(sourceFiles)];
   const sourceTitle = sources.join('\n');
-  const sourceLabel = sources.map(fileLabel).join(', ');
+  const sourceLabel = sources.map(cascadeSourceFileLabel).join(', ');
   const selectorCount = Children.count(children);
   const incomplete = onRename != null && !isMediaQueryComplete(condition);
 
@@ -126,7 +124,7 @@ export function MediaQueryGroupCard({
                     className="ss-cascade-card__trash ss-media-query-group__trash"
                     title="Delete media query"
                     aria-label="Delete media query"
-                    onClick={onDelete}
+                    onClick={() => setConfirmDelete(true)}
                   >
                     <TrashIcon size={12} />
                   </button>
@@ -149,6 +147,34 @@ export function MediaQueryGroupCard({
           </div>
         </div>
       )}
+      <ModalFrame
+        isOpen={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete rules in this media group?"
+        showCloseButton
+        className="ss-media-query-delete-modal"
+      >
+        <div className="ss-cascade-shared-delete-modal__body">
+          <p>
+            This removes the editable rules shown in <code>@media {condition}</code>. Any shared
+            selector-list rule is deleted for all of its members.
+          </p>
+          <div className="modal-actions">
+            <Button variant="secondary" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmDelete(false);
+                onDelete?.();
+              }}
+            >
+              Delete rules
+            </Button>
+          </div>
+        </div>
+      </ModalFrame>
     </section>
   );
 }
