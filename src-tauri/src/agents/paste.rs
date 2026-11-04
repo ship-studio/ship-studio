@@ -76,6 +76,12 @@ pub struct PreviewAgent {
     pub instructions_chars: usize,
     pub memory_lines: usize,
     pub routines: Vec<PreviewRoutine>,
+    /// The badge colour it will have here: its own if it exists, else what
+    /// import gives it. None only if there's no Chief of Staff yet.
+    pub color: Option<String>,
+    /// What came across, word for word, for the preview to show on request.
+    pub instructions: String,
+    pub memory: Vec<String>,
 }
 
 /// One routine as the preview lists it: what it becomes, or why it won't be set.
@@ -489,16 +495,53 @@ pub fn parse(text: &str) -> Parsed {
 /// What importing this paste would do, for the modal to show before it does it.
 pub fn preview(text: &str) -> Result<Preview, CommandError> {
     let parsed = parse(text);
+    let team = store::list()?;
+    // Import creates new agents in paste order, each taking the next registry
+    // slot; a name repeated in the paste updates the one created before it.
+    let mut created: Vec<(String, String)> = Vec::new();
     let mut agents = Vec::with_capacity(parsed.agents.len());
     for a in &parsed.agents {
+        let here = |name: &str| {
+            team.iter()
+                .find(|t| {
+                    if a.is_main {
+                        t.is_main
+                    } else {
+                        t.name.eq_ignore_ascii_case(name)
+                    }
+                })
+                .map(|t| t.color.clone())
+        };
+        let earlier = created
+            .iter()
+            .find(|(n, _)| !a.is_main && n.eq_ignore_ascii_case(a.name.trim()))
+            .map(|(_, c)| c.clone());
+        let (existing, color) = match (here(a.name.trim()), earlier) {
+            (Some(c), _) => (!a.is_main, Some(c)),
+            (None, Some(c)) => (true, Some(c)),
+            (None, None) if a.is_main => (false, None),
+            (None, None) => {
+                let c = store::color_for(a.color.as_deref(), team.len() + created.len());
+                created.push((a.name.trim().to_string(), c.clone()));
+                (false, Some(c))
+            }
+        };
         agents.push(PreviewAgent {
-            existing: !a.is_main && store::find(&a.name)?.is_some(),
+            existing,
             name: a.name.clone(),
             role: a.role.trim().to_string(),
             is_main: a.is_main,
             instructions_chars: a.instructions.trim().chars().count(),
             memory_lines: a.memory.lines().filter(|l| !l.trim().is_empty()).count(),
             routines: preview_routines(&a.routines),
+            color,
+            instructions: a.instructions.trim().to_string(),
+            memory: a
+                .memory
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect(),
         });
     }
     Ok(Preview {
@@ -703,6 +746,12 @@ mod tests {
         let before = preview(&reply).unwrap();
         assert!(!before.agents[1].existing);
         assert_eq!(before.agents[1].memory_lines, 2);
+        assert_eq!(before.agents[1].color.as_deref(), Some("teal"));
+        assert_eq!(
+            before.agents[1].memory,
+            ["Accountant is Sam", "Pays rent on the 1st"]
+        );
+        assert_eq!(before.agents[1].instructions, "Log every expense.");
 
         let (agents, source) = for_import(&reply).unwrap();
         let summary = import::import(agents, &source).unwrap();
@@ -721,6 +770,20 @@ mod tests {
         let again = import::import(agents, &source).unwrap();
         assert!(again.created.is_empty());
         assert_eq!(store::list().unwrap().len(), 2);
+
+        // A new agent with no colour of its own: the preview shows the badge import gives it.
+        let more = "```json\n{\"agents\":[{\"name\":\"Travel\"},{\"name\":\"Inbox\"}]}\n```";
+        let shown: Vec<_> = preview(more)
+            .unwrap()
+            .agents
+            .into_iter()
+            .map(|a| a.color)
+            .collect();
+        let (agents, source) = for_import(more).unwrap();
+        import::import(agents, &source).unwrap();
+        for (name, color) in ["Travel", "Inbox"].iter().zip(shown) {
+            assert_eq!(Some(store::find(name).unwrap().unwrap().color), color);
+        }
 
         // Anything wrong blocks the whole import.
         assert!(for_import("```json\n{\"agents\":[{\"name\":\"A\"},]}\n```").is_err());

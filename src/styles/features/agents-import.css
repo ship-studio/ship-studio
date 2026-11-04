@@ -1,0 +1,724 @@
+/* Agents — Import agents (ImportAgentsModal, ImportPastePanel, ImportParts)
+ * and the "Coming from another assistant?" note in the agent list
+ * (ImportNudge).
+ *
+ * The steps use Remote access setup's rail: 24px numbered markers joined by a
+ * hairline, green when done, accent-ringed when current. Rows in the preview
+ * are the sidebar's rows: the same badge, name and muted second line. Motion
+ * reuses agents-motion's keyframes and its enter curve. */
+
+:root {
+  /* The rail and its marker: shared geometry with Remote access setup. */
+  --agents-import-marker: var(--size-sidebar-project-shortcut);
+  /* Room for the reply someone just pasted, before the preview takes over. */
+  --agents-import-detail-max: calc(var(--font-size-body-md) * var(--line-height-help) * 9);
+}
+
+.modal-frame-content.agents-import {
+  width: min(560px, 92vw); /* css-ok: dialog width, like the other wide modals */
+}
+
+.agents-import__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+}
+
+.agents-import__body p {
+  margin: 0;
+}
+
+/* The done state's quiet focus target: holds focus without a ring. */
+.agents-import__body:focus {
+  outline: none;
+}
+
+.agents-import__lede {
+  color: var(--text-secondary);
+}
+
+/* Paste a reply / Connected assistant: an underline pair under the title,
+   the divider doubling as the header's bottom edge. */
+.agents-import__tabs {
+  display: flex;
+  width: 100%;
+  padding: 0 var(--spacing-xl);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agents-import__inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-body-md);
+}
+
+.agents-import__error {
+  font-size: var(--font-size-body-md);
+  color: var(--accent-error-light);
+}
+
+/* The footer stays in reach however long the preview gets. */
+.agents-import__footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-xl);
+  background: var(--surface-panel);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* The celebration is centred and has no form under it: no rule, centred pair. */
+.agents-import__footer--done {
+  justify-content: center;
+  padding-top: 0;
+  padding-bottom: var(--spacing-xl);
+  border-top: none;
+}
+
+.agents-import__note {
+  flex: 1;
+  min-width: 0;
+  margin: 0 var(--spacing-md) 0 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------- steps */
+
+.agents-import-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agents-import-step {
+  position: relative;
+  padding-bottom: var(--spacing-lg);
+}
+
+.agents-import-step:last-child {
+  padding-bottom: 0;
+}
+
+/* The hairline joining one marker to the next. */
+.agents-import-step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--agents-import-marker) + var(--spacing-xs));
+  bottom: var(--spacing-xs);
+  left: calc(var(--agents-import-marker) / 2);
+  width: var(--border-width-default);
+  background: var(--border-default);
+}
+
+.agents-import-step__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-height: var(--agents-import-marker);
+}
+
+.agents-import-step__marker {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--agents-import-marker);
+  height: var(--agents-import-marker);
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color var(--transition-interaction),
+    background var(--transition-interaction),
+    border-color var(--transition-interaction);
+}
+
+.agents-import-step[data-state='current'] .agents-import-step__marker {
+  color: var(--accent-active);
+  border-color: var(--accent-active);
+}
+
+.agents-import-step[data-state='done'] .agents-import-step__marker {
+  color: var(--accent-success);
+  background: rgba(var(--accent-success-rgb), 0.16);
+  border-color: transparent;
+}
+
+.agents-import-step[data-state='done'] .agents-import-step__marker > svg {
+  animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
+}
+
+.agents-import-step__title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.agents-import-step[data-state='current'] .agents-import-step__title {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.agents-import-step[data-state='done'] .agents-import-step__title {
+  color: var(--text-secondary);
+}
+
+.agents-import-step__aside {
+  flex: none;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+.agents-import-step__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin: var(--spacing-sm) 0 0 calc(var(--agents-import-marker) + var(--spacing-md));
+  animation: agents-motion-swap-in var(--agents-motion-enter) backwards;
+}
+
+/* ----------------------------------------------------------- message */
+
+.agents-import-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+/* The long paste prompt scrolls in place so the steps stay in view. The box
+   carries the edge; the text inside it fades out at the bottom rather than
+   being cut through a line, and its padding lets the last line clear the fade. */
+.agents-import-message__box {
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.agents-import-message__text {
+  max-height: calc(var(--font-size-body-md) * var(--line-height-help) * 7);
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-xl);
+  overflow-y: auto;
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  border-radius: var(--radius-card);
+  user-select: text;
+  mask-image: linear-gradient(
+    to bottom,
+    var(--surface-panel) calc(100% - var(--spacing-xl)),
+    transparent
+  );
+}
+
+.agents-import-message__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.agents-import-message__copy {
+  flex: none;
+}
+
+.agents-import-message__copy[data-copied] .button__icon {
+  animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
+}
+
+.agents-import-message__hint {
+  min-width: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------- paste */
+
+.agents-import__paste {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  resize: vertical;
+}
+
+/* An empty field asks for a big paste: a dashed drop-zone edge until it's in. */
+.agents-import__paste:placeholder-shown {
+  font-family: inherit;
+  font-size: var(--font-size-body-md);
+  background: var(--surface-recessed);
+  border-style: dashed;
+}
+
+/* ----------------------------------------------------------- preview */
+
+.agents-import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  animation: agents-motion-swap-in var(--agents-motion-enter) backwards;
+}
+
+.agents-import-preview__found {
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+.agents-import-preview__found strong {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.agents-import-preview__list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.agents-import-agent + .agents-import-agent {
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agents-import-agent__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) var(--spacing-sm);
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  transition: background var(--transition-interaction-fast);
+}
+
+.agents-import-agent__row:hover {
+  background: var(--surface-control);
+}
+
+.agents-import-agent__row:focus-visible {
+  outline: var(--border-width-emphasis) solid var(--accent-focus);
+  outline-offset: calc(var(--border-width-emphasis) * -1);
+}
+
+.agents-import-agent__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+}
+
+.agents-import-agent__name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-compact);
+  color: var(--text-primary);
+}
+
+.agents-import-agent__name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-import-agent__role,
+.agents-import-agent__counts {
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-import-agent__role {
+  color: var(--text-secondary);
+}
+
+.agents-import-agent__counts {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.agents-import-agent__warn {
+  color: var(--accent-warning);
+}
+
+.agents-import-agent__chevron {
+  flex: none;
+  align-self: center;
+  color: var(--text-muted);
+  transition: transform var(--transition-interaction);
+}
+
+.agents-import-agent__row[aria-expanded='true'] .agents-import-agent__chevron {
+  transform: rotate(90deg);
+}
+
+/* "Merges into Chief of Staff" / "Updates" / "New". */
+.agents-import-chip {
+  flex: none;
+  padding: var(--spacing-3xs) var(--spacing-tight);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-compact);
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border-radius: var(--radius-pill);
+}
+
+.agents-import-chip[data-kind='new'] {
+  color: var(--accent-success);
+  background: rgba(var(--accent-success-rgb), 0.12);
+}
+
+.agents-import-chip[data-kind='main'] {
+  color: var(--text-primary);
+  background: var(--surface-selected);
+}
+
+/* Open/close by animating the row track, so the list below slides rather than jumps. */
+.agents-import-agent__reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--transition-interaction-slow);
+}
+
+.agents-import-agent[data-open] .agents-import-agent__reveal {
+  grid-template-rows: 1fr;
+}
+
+.agents-import-agent__reveal > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agents-import-agent__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-md)
+    calc(var(--spacing-sm) * 2 + var(--size-sidebar-project-shortcut));
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+}
+
+.agents-import-agent__detail h4 {
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  letter-spacing: var(--tracking-control);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.agents-import-agent__instructions {
+  max-height: var(--agents-import-detail-max);
+  padding: var(--spacing-sm) var(--spacing-md);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  background: var(--surface-recessed);
+  border-radius: var(--radius-control);
+  user-select: text;
+}
+
+.agents-import-agent__none {
+  color: var(--text-muted);
+}
+
+.agents-import-agent__memory,
+.agents-import-agent__routines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  user-select: text;
+}
+
+.agents-import-agent__memory li {
+  padding-left: var(--spacing-md);
+  text-indent: calc(var(--spacing-md) * -1);
+}
+
+.agents-import-agent__memory li::before {
+  content: '·';
+  display: inline-block;
+  width: var(--spacing-md);
+  text-indent: 0;
+  color: var(--text-muted);
+}
+
+.agents-import-agent__routines li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.agents-import-agent__routines li > svg {
+  flex: none;
+  color: var(--accent-success);
+  transform: translateY(var(--spacing-3xs));
+}
+
+.agents-import-agent__routines li[data-refused] {
+  color: var(--accent-warning);
+}
+
+.agents-import-agent__routines li[data-refused] > svg {
+  color: var(--accent-warning);
+}
+
+.agents-import-agent__routines strong {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------- problems */
+
+/* Calm: an amber mark and a plain list, no red wall. Each line already says
+   where the problem is and what to do. */
+.agents-import-problems {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+  background: rgba(var(--accent-warning-rgb), 0.06);
+  border: var(--border-width-default) solid rgba(var(--accent-warning-rgb), 0.24);
+  border-radius: var(--radius-card);
+  animation: agents-motion-swap-in var(--agents-motion-enter) backwards;
+}
+
+.agents-import-problems__icon {
+  flex: none;
+  margin-top: var(--spacing-3xs);
+  color: var(--accent-warning);
+}
+
+.agents-import-problems__title {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.agents-import-problems ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: var(--spacing-xs) 0 0;
+  padding-left: var(--spacing-lg);
+  list-style: disc;
+}
+
+.agents-import-problems strong {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.agents-import-problems li:has(> .agents-import-problems__hint) {
+  margin-top: var(--spacing-xs);
+  margin-left: calc(var(--spacing-lg) * -1);
+  list-style: none;
+}
+
+.agents-import-problems__hint {
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------------------------- done */
+
+.agents-import-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  text-align: center;
+}
+
+.agents-import-done__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--agents-import-marker) * 2);
+  height: calc(var(--agents-import-marker) * 2);
+  margin-bottom: var(--spacing-xs);
+  color: var(--accent-success);
+  background: rgba(var(--accent-success-rgb), 0.14);
+  border-radius: var(--radius-pill);
+  animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
+}
+
+.agents-import-done__title {
+  margin: 0;
+  font-size: var(--font-size-h4);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+  animation: agents-motion-rise var(--agents-motion-enter) backwards;
+  animation-delay: var(--agents-motion-stagger);
+}
+
+.agents-import-done__line {
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.agents-import-done__team {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  margin: var(--spacing-xs) 0;
+  padding: 0;
+  list-style: none;
+  animation: agents-motion-rise var(--agents-motion-enter) backwards;
+  animation-delay: calc(var(--agents-motion-stagger) * 2);
+}
+
+.agents-import-done__team li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-tight);
+  padding: var(--spacing-3xs) var(--spacing-sm) var(--spacing-3xs) var(--spacing-3xs);
+  font-size: var(--font-size-body-md);
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border-radius: var(--radius-pill);
+}
+
+.agents-import-done .agents-import-problems {
+  align-self: stretch;
+  text-align: left;
+}
+
+.agents-import-done__next {
+  max-width: 40ch;
+  color: var(--text-secondary);
+}
+
+.agents-import-done__next strong {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+/* ------------------------------------------------------------- nudge */
+
+/* "Coming from another assistant?" at the foot of the agent list. It sits on
+   the rows' grid: its icon in the badge column, its text on the names' edge,
+   a hairline under it like a row's. A note, not a banner. */
+.agents-import-nudge {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) var(--spacing-sm);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+  animation: agents-motion-fade-in var(--agents-motion-enter) backwards;
+}
+
+.agents-import-nudge__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-sidebar-project-shortcut);
+  height: var(--size-sidebar-project-shortcut);
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border-radius: var(--radius-control);
+}
+
+.agents-import-nudge__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+  padding-right: var(--spacing-lg);
+}
+
+.agents-import-nudge__title,
+.agents-import-nudge__body {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
+}
+
+.agents-import-nudge__title {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.agents-import-nudge__body {
+  color: var(--text-muted);
+}
+
+.agents-import-nudge__action {
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-body-sm);
+}
+
+.agents-import-nudge__close {
+  position: absolute;
+  top: var(--spacing-tight);
+  right: var(--spacing-tight);
+  opacity: 0.6;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.agents-import-nudge:hover .agents-import-nudge__close,
+.agents-import-nudge__close:focus-visible {
+  opacity: 1;
+}
+
+/* The collapsed rail is badges only: no room for a note. */
+.workspace-sidebar.is-hidden .agents-import-nudge {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agents-import-step__body,
+  .agents-import-step[data-state='done'] .agents-import-step__marker > svg,
+  .agents-import-message__copy[data-copied] .button__icon,
+  .agents-import-preview,
+  .agents-import-problems,
+  .agents-import-done__mark,
+  .agents-import-done__title,
+  .agents-import-done__team,
+  .agents-import-nudge {
+    animation: none;
+  }
+
+  .agents-import-agent__reveal,
+  .agents-import-agent__chevron {
+    transition: none;
+  }
+}

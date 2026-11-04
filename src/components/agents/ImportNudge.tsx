@@ -9,8 +9,8 @@
  */
 
 import { useState } from 'react';
-import { CloseIcon, DownloadIcon } from '@/components/icons';
-import { Button } from '../primitives/Button';
+import { ArrowRightIcon, CloseIcon, DownloadIcon } from '@/components/icons';
+import { TextButton } from '../primitives/TextButton';
 import { IconButton } from '../primitives/IconButton';
 
 const DISMISSED_KEY = 'shipstudio.agents.importNudgeDismissed';
@@ -34,37 +34,54 @@ function writeDismissed() {
   }
 }
 
-interface ImportNudgeProps {
-  agentCount: number;
-  onImport: () => void;
+/** Whether the note shows, and how to put it away for good. */
+export function useImportNudge(agentCount: number) {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  return {
+    visible: !dismissed && agentCount < SET_UP_TEAM_SIZE,
+    dismiss: () => {
+      writeDismissed();
+      setDismissed(true);
+    },
+  };
 }
 
-export function ImportNudge({ agentCount, onImport }: ImportNudgeProps) {
-  const [dismissed, setDismissed] = useState(readDismissed);
-  if (dismissed || agentCount >= SET_UP_TEAM_SIZE) return null;
+interface ImportNudgeProps {
+  onImport: () => void;
+  onDismiss: () => void;
+}
 
+export function ImportNudge({ onImport, onDismiss }: ImportNudgeProps) {
   return (
     <aside className="agents-import-nudge" aria-label="Import agents">
+      {/* The badge column of the rows above, so the text starts where their names do. */}
+      <span className="agents-import-nudge__icon" aria-hidden>
+        <DownloadIcon size={14} />
+      </span>
+      <div className="agents-import-nudge__text">
+        <p className="agents-import-nudge__title">
+          Coming from Grok Bot, Muse or another assistant?
+        </p>
+        <p className="agents-import-nudge__body">
+          Bring your agents over, with their memory and routines.
+        </p>
+        <TextButton
+          variant="primary"
+          className="agents-import-nudge__action"
+          rightIcon={<ArrowRightIcon size={12} />}
+          onClick={onImport}
+        >
+          Import agents
+        </TextButton>
+      </div>
       <IconButton
         variant="ghost"
         size="compact"
         className="agents-import-nudge__close"
         icon={<CloseIcon size={12} />}
         aria-label="Dismiss"
-        onClick={() => {
-          writeDismissed();
-          setDismissed(true);
-        }}
+        onClick={onDismiss}
       />
-      <p className="agents-import-nudge__title">Coming from Grok Bot, Muse or another assistant?</p>
-      <p className="agents-import-nudge__body">
-        Bring your agents over with their instructions, memory and routines. It takes a couple of
-        minutes.
-      </p>
-      <Button variant="secondary" size="compact" onClick={onImport}>
-        <DownloadIcon size={12} />
-        Import agents
-      </Button>
     </aside>
   );
 }

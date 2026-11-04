@@ -507,7 +507,14 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
         onDelete={setDeleting}
         onOpenApps={openApps}
       />
-      <ImportAgentsModal isOpen={importOpen} onClose={() => setImportOpen(false)} />
+      <ImportAgentsModal
+        isOpen={importOpen}
+        onClose={() => setImportOpen(false)}
+        onOpenAgent={(id) => {
+          setImportOpen(false);
+          setSelectedId(id);
+        }}
+      />
       <AgentAppsModal isOpen={appsOpen} onClose={() => setAppsOpen(false)} />
       {claudeStep && <ClaudeSignInModal start={claudeStep} onClose={() => setClaudeStep(null)} />}
       {stopping && (

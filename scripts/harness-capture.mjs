@@ -254,6 +254,13 @@ async function newPage(url, viewport = VIEWPORT) {
   });
   const target = await res.json();
   const page = await Page.attach(target.webSocketDebuggerUrl);
+  // So a Copy button can reach its "Copied" state instead of a denied write.
+  await page
+    .send('Browser.grantPermissions', {
+      origin: HARNESS_ORIGIN,
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+    })
+    .catch(() => {});
   // A scenario's own window size (e.g. below the compact breakpoint). The app
   // reads its width on load, so the page is reloaded at the new size.
   if (viewport !== VIEWPORT) {
