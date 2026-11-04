@@ -12,12 +12,20 @@ import type { Agent, AgentMessage } from '@shipstudio/companion-protocol';
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View, type ScrollViewProps } from 'react-native';
+import {
+  type FlatList,
+  type LayoutChangeEvent,
+  Pressable,
+  StyleSheet,
+  View,
+  type ScrollViewProps,
+} from 'react-native';
 import { KeyboardChatScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import Animated, {
   FadeIn,
   FadeInDown,
   FadeOut,
+  LinearTransition,
   ZoomIn,
   ZoomOut,
   useAnimatedStyle,
@@ -30,6 +38,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { isQueued, needsYou } from '../lib/agents';
 import { messageActions, plainText, type MessageAction } from '../lib/actions';
 import { pill } from '../lib/connection';
+import { announce } from '../lib/a11y';
 import { addQuote } from '../lib/drafts';
 import { preview } from '../lib/files';
 import { haptic } from '../lib/haptics';
@@ -55,13 +64,25 @@ import { Button, Icon, IconButton, ripple, T } from './ui';
 
 const NONE: never[] = [];
 
+/** Rows glide to where a growing or collapsing neighbour puts them: nothing jumps. */
+const glide = LinearTransition.duration(220);
+
+/**
+ * A reply taller than this share of the screen stops pushing its own first
+ * line away: its start stays put and it grows down, as ChatGPT and Claude do.
+ */
+const TALL_REPLY = 0.7;
+
 export function ChatView({
   id,
   at,
+  compose = false,
   embedded = false,
 }: {
   id: string;
   at?: string;
+  /** Opened to write (the "New message" quick action): the field has the keyboard. */
+  compose?: boolean;
   embedded?: boolean;
 }) {
   const router = useRouter();
@@ -75,6 +96,12 @@ export function ChatView({
   const macName = useApp((s) => s.credentials?.name ?? 'your Mac');
   const list = useRef<FlatList<Item>>(null);
   const [away, setAway] = useState(false);
+  // Scrolled off the bottom at all: what's on screen holds still while the newest grows.
+  const [scrolled, setScrolled] = useState(false);
+  const [listHeight, setListHeight] = useState(0);
+  const [draftHeight, setDraftHeight] = useState(0);
+  // The newest row when you scrolled away: anything newer is "New reply".
+  const [awayFrom, setAwayFrom] = useState<string | null>(null);
   const [composerHeight, setComposerHeight] = useState(90);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -91,6 +118,7 @@ export function ChatView({
   );
 
   const showError = useCallback((text: string) => {
+    announce(text, true);
     setToast(text);
     setTimeout(() => setToast((t) => (t === text ? null : t)), 4000);
   }, []);
@@ -112,6 +140,14 @@ export function ChatView({
     () => messages.some((m) => m.kind === 'approval' && m.approval?.status === 'pending'),
     [messages]
   );
+  const tall = !!draft && listHeight > 0 && draftHeight > listHeight * TALL_REPLY;
+  const newest = items[0]?.key ?? null;
+  const newReply =
+    away &&
+    awayFrom !== null &&
+    newest !== awayFrom &&
+    items[0]?.kind === 'message' &&
+    items[0].message.kind === 'agent';
 
   useEffect(() => {
     if (!at || !connected) return;
@@ -208,7 +244,7 @@ export function ChatView({
     );
   }
 
-  const header = <Header agent={agent} asking={asking} />;
+  const header = <Header agent={agent} asking={asking} writing={!!draft?.text} />;
   const openSheet = () => router.push({ pathname: '/agent/[id]', params: { id } });
   const urgentBelow = away && (needsYou(agent) || asking);
 
@@ -246,17 +282,23 @@ export function ChatView({
       )}
       <LinkBanner />
       <PathContext.Provider value={openPath}>
-        <FlatList
+        <Animated.FlatList
           ref={list}
           inverted
           data={items}
           keyExtractor={(i) => i.key}
+          itemLayoutAnimation={glide}
+          onLayout={(e: LayoutChangeEvent) => setListHeight(e.nativeEvent.layout.height)}
+          // Scrolled up, or reading a reply taller than the screen: the rows
+          // above the newest stay where they are while it grows below them.
+          maintainVisibleContentPosition={scrolled || tall ? { minIndexForVisible: 1 } : undefined}
           renderItem={({ item }) => (
             <ItemView
               item={item}
               agent={agent}
               onError={showError}
               onLongPress={onMessageAction}
+              onDraftHeight={setDraftHeight}
               lit={item.key === target}
             />
           )}
@@ -282,7 +324,15 @@ export function ChatView({
           keyboardShouldPersistTaps="handled"
           onEndReached={older}
           onEndReachedThreshold={0.6}
-          onScroll={(e) => setAway(e.nativeEvent.contentOffset.y > 360)}
+          onScroll={(e) => {
+            const y = e.nativeEvent.contentOffset.y;
+            const isAway = y > 360;
+            setScrolled(y > 8);
+            if (isAway !== away) {
+              setAway(isAway);
+              setAwayFrom(isAway ? newest : null);
+            }
+          }}
           scrollEventThrottle={64}
           initialNumToRender={16}
           maxToRenderPerBatch={12}
@@ -313,19 +363,25 @@ export function ChatView({
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={urgentBelow ? 'Needs your OK. Jump to it' : 'Jump to latest'}
+            accessibilityLabel={
+              urgentBelow
+                ? 'Needs your OK. Jump to it'
+                : newReply
+                  ? 'New reply. Jump to it'
+                  : 'Jump to latest'
+            }
             android_ripple={ripple}
             onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
             style={[styles.jump, urgentBelow && styles.jumpUrgent]}
           >
-            {urgentBelow && (
+            {(urgentBelow || newReply) && (
               <T
                 variant="small"
-                color={colors.textOnAccent}
+                color={urgentBelow ? colors.textOnAccent : colors.textPrimary}
                 maxFontSizeMultiplier={chromeScale}
                 style={{ marginLeft: space.xs }}
               >
-                Needs your OK
+                {urgentBelow ? 'Needs your OK' : 'New reply'}
               </T>
             )}
             <Icon
@@ -352,6 +408,7 @@ export function ChatView({
       <KeyboardStickyView offset={{ opened: embedded ? 0 : insets.bottom }}>
         <Composer
           agent={agent}
+          autoFocus={compose}
           connected={connected}
           macName={macName}
           onError={showError}
@@ -376,12 +433,14 @@ function ItemView({
   agent,
   onError,
   onLongPress,
+  onDraftHeight,
   lit,
 }: {
   item: Item;
   agent: Agent;
   onError: (t: string) => void;
   onLongPress: (m: AgentMessage) => void;
+  onDraftHeight: (height: number) => void;
   lit?: boolean;
 }) {
   const body =
@@ -399,7 +458,7 @@ function ItemView({
     ) : item.kind === 'pending' ? (
       <PendingRow pending={item.pending} />
     ) : item.kind === 'draft' ? (
-      <DraftRow text={item.text} />
+      <DraftRow id={item.key} text={item.text} onHeight={onDraftHeight} />
     ) : (
       <WorkingRow label={item.label} />
     );
@@ -421,14 +480,25 @@ function Glow() {
   return <Animated.View pointerEvents="none" style={[styles.glow, style]} />;
 }
 
-function Header({ agent, asking }: { agent: Agent; asking: boolean }) {
+function Header({
+  agent,
+  asking,
+  writing,
+}: {
+  agent: Agent;
+  asking: boolean;
+  /** Its reply is streaming in: the header says so, not the step before it. */
+  writing: boolean;
+}) {
   const connected = useApp((s) => s.link.kind === 'connected');
   const line =
     needsYou(agent) || asking
       ? { text: 'Needs your OK', color: colors.accentWarning }
-      : agent.status.state === 'working'
-        ? { text: agent.status.activity ?? 'Working…', color: colors.textSecondary }
-        : { text: agent.role || 'Idle', color: colors.textSecondary };
+      : writing
+        ? { text: 'Writing…', color: colors.textSecondary }
+        : agent.status.state === 'working'
+          ? { text: agent.status.activity ?? 'Working…', color: colors.textSecondary }
+          : { text: agent.role || 'Idle', color: colors.textSecondary };
   return (
     <View style={styles.header}>
       <AgentAvatar name={agent.name} color={agent.color} size={28} />

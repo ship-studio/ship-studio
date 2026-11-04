@@ -11,8 +11,16 @@ import {
   type Approval,
 } from '@shipstudio/companion-protocol';
 import { memo, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import {
+  type LayoutChangeEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { describeScope, failureLine, folderName, formatClock, sessionLabel } from '../lib/agents';
 import { haptic } from '../lib/haptics';
@@ -20,6 +28,7 @@ import { describeError, answerApproval, discardPending, send } from '../lib/sess
 import type { PendingSend } from '../lib/sync';
 import { alpha, chromeScale, colors, fonts, radius, space, type } from '../lib/theme';
 import { Attachments } from './attachments';
+import { useReveal } from '../lib/reveal';
 import { Markdown } from './Markdown';
 import { Button, Icon, ripple, T } from './ui';
 import { Spinner } from './agent';
@@ -84,7 +93,7 @@ export const MessageRow = memo(function MessageRow({
           accessibilityHint={hold ? 'Hold for Copy, Quote and Select Text' : undefined}
           style={({ pressed }) => [styles.agentRow, pressed && styles.heldProse]}
         >
-          <Markdown text={message.text} />
+          <Prose id={message.id} text={message.text} />
           {!!message.attachments?.length && (
             <Attachments
               agentId={message.agentId}
@@ -269,8 +278,10 @@ function SessionCard({
   );
 }
 
-/** Notes, check-ins, delegation and session lines: one muted line each. */
+/** Notes, check-ins, delegation and session lines: one muted line each. A change opens its diff. */
 function SystemLine({ message }: { message: AgentMessage }) {
+  const router = useRouter();
+  const canDiff = useApp((s) => !!s.welcome?.methods.includes('agents.changeDiff'));
   const text =
     message.kind === 'changes' && message.changes
       ? `Changed ${message.changes.fileCount} file${message.changes.fileCount === 1 ? '' : 's'} in ${message.changes.project
@@ -283,7 +294,7 @@ function SystemLine({ message }: { message: AgentMessage }) {
           : message.kind === 'check_in'
             ? `${message.checkIn?.manual ? 'Ran now' : 'Check-in'} · ${message.text}`
             : message.text;
-  return (
+  const line = (
     <View style={styles.systemRow}>
       <T variant="small" color={colors.textSecondary} numberOfLines={4} style={{ flexShrink: 1 }}>
         {text}
@@ -293,6 +304,22 @@ function SystemLine({ message }: { message: AgentMessage }) {
       </T>
     </View>
   );
+  if (message.kind !== 'changes' || !message.changes || !canDiff) return line;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityHint="Shows what changed in each file"
+      onPress={() =>
+        router.push({
+          pathname: '/diff',
+          params: { agentId: message.agentId, messageId: message.id },
+        })
+      }
+      style={({ pressed }) => pressed && { opacity: 0.6 }}
+    >
+      {line}
+    </Pressable>
+  );
 }
 
 const OUTCOME = {
@@ -300,6 +327,16 @@ const OUTCOME = {
   denied: 'Declined',
   expired: 'Not answered in time',
 } as const;
+
+/**
+ * How long a new card's answers stay inert: the desktop's anti-misclick
+ * delay. A card can land under a thumb that was tapping Send or Stop, and
+ * Allow is the one tap this app must never take by accident.
+ */
+export const ARM_MS = 400;
+
+/** At this text size the explanation folds away, so the answers stay in reach. */
+const LARGE_TEXT = 1.6;
 
 function ApprovalCard({
   message,
@@ -315,12 +352,23 @@ function ApprovalCard({
   const [busy, setBusy] = useState<null | 'allow' | 'deny' | 'always'>(null);
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState('');
+  const [armed, setArmed] = useState(false);
+  const [explained, setExplained] = useState(false);
+  const { fontScale } = useWindowDimensions();
+  const large = fontScale >= LARGE_TEXT;
   const connected = useApp((s) => s.link.kind === 'connected');
   const pending = approval.status === 'pending';
   const paused = pending && agent.status.state === 'idle';
 
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setTimeout(() => setArmed(true), ARM_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
+
   // The haptic says what the Mac did, so it waits for the Mac.
   const answer = async (allow: boolean, always = false, why?: string) => {
+    if (!armed) return;
     setBusy(always ? 'always' : allow ? 'allow' : 'deny');
     try {
       await answerApproval(message.agentId, approval.requestId, allow, always, why);
@@ -341,9 +389,14 @@ function ApprovalCard({
       : approval.status === 'denied' && approval.note
         ? `Declined · “${approval.note}”`
         : OUTCOME[approval.status as keyof typeof OUTCOME];
+  const scope = approval.always ? describeScope(approval.always, agent.name) : null;
+  const off = !!busy || !connected;
 
   return (
-    <View style={[styles.card, pending && styles.cardPending]}>
+    <Animated.View
+      layout={LinearTransition.duration(220)}
+      style={[styles.card, pending && styles.cardPending]}
+    >
       {pending && (
         <View style={styles.eyebrow}>
           <Icon name="exclamationmark.triangle.fill" size={12} color={colors.accentWarning} />
@@ -357,28 +410,22 @@ function ApprovalCard({
           </T>
         </View>
       )}
-      <T variant="subhead" color={colors.textWhite}>
+      <T variant="subhead" color={colors.textWhite} maxFontSizeMultiplier={2}>
         {approval.title}
       </T>
-      {!!approval.detail && (
-        <View style={styles.cardDetail}>
-          <T variant="mono" color={colors.textPrimary} selectable numberOfLines={12}>
-            {approval.detail}
-          </T>
-        </View>
-      )}
+      {!!approval.detail && <Command text={approval.detail} lines={large ? 6 : 12} />}
       {paused && (
-        <T variant="small" color={colors.textSecondary}>
+        <T variant="small" color={colors.textSecondary} maxFontSizeMultiplier={2}>
           It paused here for you. Allow it and it picks up where it left off.
         </T>
       )}
       {pending && !connected && (
-        <T variant="small" color={colors.textSecondary}>
+        <T variant="small" color={colors.textSecondary} maxFontSizeMultiplier={2}>
           Answer it once your Mac is back. It stays open until then.
         </T>
       )}
       {pending && noting ? (
-        <View style={{ gap: space.sm }}>
+        <Animated.View entering={FadeIn.duration(150)} style={{ gap: space.sm }}>
           <TextInput
             autoFocus
             value={note}
@@ -389,7 +436,8 @@ function ApprovalCard({
             style={styles.noteInput}
             returnKeyType="send"
             keyboardAppearance="dark"
-            onSubmitEditing={() => void answer(false, false, note)}
+            // Return denies with the note, and only once there is one.
+            onSubmitEditing={() => note.trim() && void answer(false, false, note)}
           />
           <View style={styles.actions}>
             <Button
@@ -406,14 +454,23 @@ function ApprovalCard({
               style={{ flex: 1 }}
             />
           </View>
-        </View>
+        </Animated.View>
       ) : pending ? (
-        <View style={{ gap: space.sm }}>
+        <Animated.View
+          // Inert, and fading in, until armed: a tap meant for something else lands on nothing.
+          entering={FadeIn.duration(ARM_MS)}
+          exiting={FadeOut.duration(120)}
+          pointerEvents={armed ? 'auto' : 'none'}
+          accessibilityElementsHidden={!armed}
+          importantForAccessibility={armed ? 'auto' : 'no-hide-descendants'}
+          style={{ gap: space.sm }}
+        >
           <View style={styles.actions}>
             <Button
               title="Deny"
               busy={busy === 'deny'}
-              disabled={!!busy || !connected}
+              disabled={off}
+              focusable={armed}
               onPress={() => void answer(false)}
               style={{ flex: 1 }}
             />
@@ -421,8 +478,10 @@ function ApprovalCard({
               title="Allow"
               variant="primary"
               busy={busy === 'allow'}
-              disabled={!!busy || !connected}
+              disabled={off}
+              focusable={armed}
               onPress={() => void answer(true)}
+              accessibilityHint={approval.detail || undefined}
               style={{ flex: 1 }}
             />
           </View>
@@ -431,24 +490,41 @@ function ApprovalCard({
               <Button
                 title={`Always allow ${approval.always.label}`}
                 busy={busy === 'always'}
-                disabled={!!busy || !connected}
+                disabled={off}
+                focusable={armed}
                 onPress={() => void answer(true, true)}
-                accessibilityHint={describeScope(approval.always, agent.name)}
+                accessibilityHint={scope ?? undefined}
               />
-              <T variant="caption" color={colors.textSecondary}>
-                {describeScope(approval.always, agent.name)}
-              </T>
+              {large && !explained ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="What does always allow cover?"
+                  hitSlop={{ top: 10, bottom: 10 }}
+                  onPress={() => setExplained(true)}
+                  style={styles.disclosure}
+                >
+                  <Icon name="info.circle" size={12} color={colors.textSecondary} />
+                  <T variant="caption" color={colors.textSecondary} maxFontSizeMultiplier={2}>
+                    What does this cover?
+                  </T>
+                </Pressable>
+              ) : (
+                <T variant="caption" color={colors.textSecondary} maxFontSizeMultiplier={2}>
+                  {scope}
+                </T>
+              )}
             </View>
           )}
           <Button
             title="Deny with note…"
             variant="ghost"
-            disabled={!!busy || !connected}
+            disabled={off}
+            focusable={armed}
             onPress={() => setNoting(true)}
           />
-        </View>
+        </Animated.View>
       ) : (
-        <Animated.View entering={FadeIn.duration(200)}>
+        <Animated.View entering={FadeIn.duration(200).delay(100)}>
           <T
             variant="small"
             color={approval.status === 'allowed' ? colors.accentSuccess : colors.textSecondary}
@@ -457,6 +533,33 @@ function ApprovalCard({
           </T>
         </Animated.View>
       )}
+    </Animated.View>
+  );
+}
+
+/**
+ * The exact command, never re-wrapped: a line break inside `acme-site`
+ * reads as a different path. Long lines scroll sideways instead, and what
+ * is selected and copied is the command itself, character for character.
+ */
+function Command({ text, lines }: { text: string; lines: number }) {
+  return (
+    <View style={styles.cardDetail}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.cardDetailInner}
+      >
+        <T
+          variant="mono"
+          color={colors.textPrimary}
+          selectable
+          numberOfLines={lines}
+          maxFontSizeMultiplier={2}
+        >
+          {text}
+        </T>
+      </ScrollView>
     </View>
   );
 }
@@ -546,13 +649,37 @@ function LineButton({
   );
 }
 
-/** A reply being written. Text arriving in 100 ms chunks is revealed at an even pace. */
-export function DraftRow({ text }: { text: string }) {
-  const shown = useSmoothText(text);
+/** A reply being written: revealed at the display's own pace (`useReveal`). */
+export function DraftRow({
+  id,
+  text,
+  onHeight,
+}: {
+  id: string;
+  text: string;
+  onHeight?: (height: number) => void;
+}) {
   return (
-    <View style={styles.agentRow}>
-      <Markdown text={shown} streaming />
+    <View
+      style={styles.agentRow}
+      onLayout={onHeight && ((e: LayoutChangeEvent) => onHeight(e.nativeEvent.layout.height))}
+    >
+      <Prose id={id} text={text} streaming />
     </View>
+  );
+}
+
+/**
+ * An agent's words. While they're still being revealed (streaming, or the
+ * finished message catching up with where its draft had got to) they go
+ * through the streaming renderer; once caught up, the plain one.
+ */
+function Prose({ id, text, streaming = false }: { id: string; text: string; streaming?: boolean }) {
+  const shown = useReveal(id, text, streaming);
+  return shown.length < text.length || streaming ? (
+    <Markdown text={shown} streaming />
+  ) : (
+    <Markdown text={text} />
   );
 }
 
@@ -648,7 +775,14 @@ const styles = StyleSheet.create({
   cardDetail: {
     backgroundColor: colors.surfaceApp,
     borderRadius: radius.card,
-    padding: space.md,
+    overflow: 'hidden',
+  },
+  cardDetailInner: { padding: space.md },
+  disclosure: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    alignSelf: 'flex-start',
   },
   actions: { flexDirection: 'row', gap: space.sm },
   sessionLine: {

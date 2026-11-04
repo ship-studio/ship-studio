@@ -113,6 +113,7 @@ export function Button({
   style,
   disabled,
   onPress,
+  lines = 1,
   ...rest
 }: Omit<PressableProps, 'style' | 'children'> & {
   title: string;
@@ -121,6 +122,8 @@ export function Button({
   busy?: boolean;
   icon?: SFName;
   style?: StyleProp<ViewStyle>;
+  /** A choice someone must read in full (a session's options) wraps instead of truncating. */
+  lines?: number;
 }) {
   const c = buttonColors[variant];
   const height = size === 'large' ? 50 : size === 'compact' ? 32 : 44;
@@ -155,8 +158,9 @@ export function Button({
           <T
             variant={size === 'compact' ? 'small' : 'subhead'}
             color={c.fg}
-            numberOfLines={1}
-            maxFontSizeMultiplier={chromeScale}
+            numberOfLines={lines}
+            maxFontSizeMultiplier={lines > 1 ? 2 : chromeScale}
+            style={lines > 1 ? { flexShrink: 1, paddingVertical: space.sm } : undefined}
           >
             {title}
           </T>
@@ -205,6 +209,9 @@ const MATERIAL: Partial<Record<SFName, string>> = {
   'selection.pin.in.out': 'select_all',
   'stop.fill': 'stop',
   terminal: 'terminal',
+  'text.alignleft': 'notes',
+  camera: 'photo_camera',
+  play: 'play_arrow',
   'text.badge.checkmark': 'markdown',
   'text.quote': 'format_quote',
   'tray.and.arrow.up': 'outbox',
