@@ -151,14 +151,23 @@ fn keychain_service(account_id: &str) -> String {
 }
 
 fn write_to_keychain(account_id: &str, key: &str, value: &str) -> Result<(), CommandError> {
+    if !KEYCHAIN_SUPPORTED {
+        return Err(keychain_unsupported());
+    }
+    keychain_write(&keychain_service(account_id), key, value)
+}
+
+/// Store `value` under (`service`, `key`). Shared with Agents' secrets
+/// (`agents::secrets`), which keep their own service namespace per agent.
+pub(crate) fn keychain_write(service: &str, key: &str, value: &str) -> Result<(), CommandError> {
     use std::io::Write;
     use std::process::Stdio;
 
     if !KEYCHAIN_SUPPORTED {
-        return Err(keychain_unsupported());
+        return Err(CommandError::expected(
+            "Secrets are only stored on macOS at the moment: there's no credential vault on this platform yet.",
+        ));
     }
-
-    let service = keychain_service(account_id);
     // Pass the secret on stdin rather than as an argv entry — a CLI argument is
     // visible to any user via `ps`/`/proc`, leaking the credential. With `-w`
     // and no inline value, `security` prompts for the password and then a
@@ -166,15 +175,7 @@ fn write_to_keychain(account_id: &str, key: &str, value: &str) -> Result<(), Com
     // value twice. Callers trim to a single line (no embedded newline), so the
     // two reads each receive the full value.
     let mut child = create_command("security")
-        .args([
-            "add-generic-password",
-            "-U",
-            "-a",
-            key,
-            "-s",
-            &service,
-            "-w",
-        ])
+        .args(["add-generic-password", "-U", "-a", key, "-s", service, "-w"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -199,12 +200,15 @@ fn write_to_keychain(account_id: &str, key: &str, value: &str) -> Result<(), Com
 }
 
 fn read_from_keychain(account_id: &str, key: &str) -> Option<String> {
+    keychain_read(&keychain_service(account_id), key)
+}
+
+pub(crate) fn keychain_read(service: &str, key: &str) -> Option<String> {
     if !KEYCHAIN_SUPPORTED {
         return None;
     }
-    let service = keychain_service(account_id);
     let output = create_command("security")
-        .args(["find-generic-password", "-a", key, "-s", &service, "-w"])
+        .args(["find-generic-password", "-a", key, "-s", service, "-w"])
         .output()
         .ok()?;
 
@@ -220,12 +224,15 @@ fn read_from_keychain(account_id: &str, key: &str) -> Option<String> {
 }
 
 fn delete_from_keychain(account_id: &str, key: &str) {
+    keychain_delete(&keychain_service(account_id), key);
+}
+
+pub(crate) fn keychain_delete(service: &str, key: &str) {
     if !KEYCHAIN_SUPPORTED {
         return;
     }
-    let service = keychain_service(account_id);
     let _ = create_command("security")
-        .args(["delete-generic-password", "-a", key, "-s", &service])
+        .args(["delete-generic-password", "-a", key, "-s", service])
         .status();
 }
 

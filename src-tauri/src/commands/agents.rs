@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
     self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner, schedule,
-    search, store, usage,
+    search, secrets, store, usage,
 };
 use crate::errors::CommandError;
 
@@ -459,6 +459,14 @@ fn answer_card(
     if approval.status != store::ApprovalStatus::Pending {
         return Err(CommandError::expected("That request was already answered."));
     }
+    if let Some(request) = &approval.secret {
+        if allow {
+            return Err(CommandError::expected(
+                "Type it into the card and choose Save.",
+            ));
+        }
+        return decline_secret(app, agent_id, request_id, request, note.as_deref());
+    }
     let rule = if allow && always == Some(true) {
         Some(mcp::always_allow(agent_id, &approval)?)
     } else {
@@ -524,6 +532,91 @@ fn wake(
             );
         }
     }
+    Ok(())
+}
+
+/// Decline a secure input card: nothing is stored, and the agent is woken
+/// with a plain refusal, since nobody is waiting on the card.
+fn decline_secret(
+    app: &AppHandle,
+    agent_id: &str,
+    request_id: &str,
+    request: &secrets::Request,
+    note: Option<&str>,
+) -> Result<(), CommandError> {
+    let updated = match note {
+        Some(note) => store::deny_with_note(agent_id, request_id, note)?,
+        None => store::set_approval_status(agent_id, request_id, store::ApprovalStatus::Denied)?,
+    };
+    if let Some(message) = updated {
+        let _ = app.emit(runner::EVENT_MESSAGE, &message);
+    }
+    store::refresh_pending(agent_id);
+    emit_registry(app);
+    notify::refresh_badge(app);
+    runner::enqueue(
+        app,
+        agent_id,
+        secrets::denied_prompt(request, note),
+        runner::From::User,
+    );
+    Ok(())
+}
+
+/// Save a secure input card. The values go from here to the Keychain and are
+/// never written anywhere else; the agent is woken with the variable's name.
+#[tauri::command]
+#[tracing::instrument(skip(app, values))]
+pub async fn agents_save_secret(
+    app: AppHandle,
+    agent_id: String,
+    request_id: String,
+    values: Vec<String>,
+) -> Result<secrets::Secret, CommandError> {
+    let (secret, card) = {
+        let (agent_id, request_id) = (agent_id.clone(), request_id.clone());
+        blocking(move || secrets::save(&agent_id, &request_id, &values)).await?
+    };
+    if let Some(message) = card {
+        let _ = app.emit(runner::EVENT_MESSAGE, &message);
+    }
+    emit_registry(&app);
+    notify::refresh_badge(&app);
+    runner::enqueue(
+        &app,
+        &agent_id,
+        secrets::saved_prompt(&secret),
+        runner::From::User,
+    );
+    Ok(secret)
+}
+
+/// Store something the user pasted in the composer, for this agent, without a
+/// card. The composer then sends the variable's name instead of the value.
+#[tauri::command]
+#[tracing::instrument(skip(app, value))]
+pub async fn agents_add_secret(
+    app: AppHandle,
+    agent_id: String,
+    name: String,
+    kind: String,
+    value: String,
+) -> Result<secrets::Secret, CommandError> {
+    let secret = blocking(move || secrets::add(&agent_id, &name, &kind, &value)).await?;
+    emit_registry(&app);
+    Ok(secret)
+}
+
+/// Delete a secret from the Keychain and from the agent.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_revoke_secret(
+    app: AppHandle,
+    agent_id: String,
+    secret_id: String,
+) -> Result<(), CommandError> {
+    blocking(move || secrets::revoke(&agent_id, &secret_id)).await?;
+    emit_registry(&app);
     Ok(())
 }
 

@@ -218,7 +218,10 @@ fn save_inbox(agent_id: &str, queue: &VecDeque<Inbound>) {
     let path = home.join("inbox.json");
     if queue.is_empty() {
         let _ = std::fs::remove_file(path);
-    } else if let Ok(json) = serde_json::to_vec(queue) {
+    } else if let Ok(json) = serde_json::to_value(queue).and_then(|mut v| {
+        super::secrets::redact_value(&mut v);
+        serde_json::to_vec(&v)
+    }) {
         if let Err(e) = std::fs::write(&path, json) {
             tracing::warn!("[Agents] couldn't save {agent_id}'s queue: {e}");
         }
@@ -322,7 +325,10 @@ async fn stop_orphan(pid: u32, session: &str) {
     }
 }
 
-pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
+pub fn set_status(app: &AppHandle, agent_id: &str, mut status: Status) {
+    if let Some(activity) = status.activity.as_mut() {
+        *activity = super::secrets::redact(activity).into_owned();
+    }
     {
         let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
         runtimes.entry(agent_id.to_string()).or_default().status = Some(status.clone());
@@ -344,6 +350,7 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
+    let message = super::secrets::redact_message(message);
     if let Err(e) = store::append_message(&message) {
         unsaved(app, &message, &e);
         return Err(e);
@@ -465,6 +472,7 @@ fn emit_draft(app: &AppHandle, agent_id: &str, id: &str, text: &str) {
         id: &'a str,
         text: &'a str,
     }
+    let text = &super::secrets::redact(text);
     let _ = app.emit(EVENT_DRAFT, Payload { agent_id, id, text });
 }
 
@@ -1035,7 +1043,14 @@ async fn run_turn(
             )));
         }
     }
-    let system_prompt = system_prompt_for(&agent, &home, &layout);
+    // This agent's secrets, as variables of this process only (see `secrets`).
+    let secret_env = super::secrets::env_for(&agent);
+    let mut system_prompt = system_prompt_for(&agent, &home, &layout);
+    let have = super::secrets::prompt_section(&agent, &secret_env);
+    if !have.is_empty() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&have);
+    }
     let mut cmd = crate::utils::create_command(&binary);
     cmd.args(turn_args(
         &agent,
@@ -1057,6 +1072,7 @@ async fn run_turn(
             "MCP_TOOL_TIMEOUT",
             ((super::mcp::APPROVAL_WAIT_SECS + 60) * 1000).to_string(),
         )
+        .envs(secret_env)
         .current_dir(&layout.cwd);
 
     let mut cmd = tokio::process::Command::from(cmd);
@@ -1082,6 +1098,8 @@ async fn run_turn(
     // A CLI that dies on startup closes stdin before reading it. Its exit
     // status and stderr say why; a "Broken pipe" here would only hide that.
     if let Some(mut stdin) = child.stdin.take() {
+        // A value pasted into a message reaches the agent as its reference.
+        let prompt = super::secrets::redact(prompt);
         if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
             tracing::warn!("[Agents] couldn't hand {agent_id} its prompt: {e}");
         }

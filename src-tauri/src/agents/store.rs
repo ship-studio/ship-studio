@@ -94,6 +94,10 @@ pub struct Agent {
     /// What its last turn could use, as Claude Code itself listed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<super::capabilities::Capabilities>,
+    /// Secrets it asked for and the user saved: names and references only.
+    /// The values are in the Keychain (see `secrets`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets: Vec<super::secrets::Secret>,
     /// Fields a newer Ship Studio wrote that this build doesn't know: kept
     /// and written back as they were, so running an older build never
     /// strips what a newer one saved.
@@ -188,6 +192,10 @@ pub struct Approval {
     /// What the user said when they declined, handed to the agent with the No.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// A secure input card (`request_secret`): what it asks for. Saving it
+    /// sends the value to the Keychain, never into this log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<super::secrets::Request>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -542,6 +550,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         failure: None,
         project: None,
         capabilities: None,
+        secrets: Vec::new(),
         extra: Default::default(),
     };
     let home = agents_root()?.join(&agent.id);
@@ -614,6 +623,7 @@ pub fn delete(id: &str) -> Result<Agent, CommandError> {
     }
     let removed = registry.agents.remove(index);
     write_registry(&registry)?;
+    super::secrets::forget_all(&removed);
     // The home goes with it: its memory and chat are the agent.
     let home = agents_root()?.join(&removed.id);
     if home.exists() {
@@ -679,7 +689,10 @@ fn append_line<T: Serialize>(path: &Path, value: &T) -> Result<(), CommandError>
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| super::err_io(e.to_string()))?;
     }
-    let mut line = serde_json::to_string(value).map_err(|e| super::err_other(e.to_string()))?;
+    // Every line goes through redaction: a secret's value never lands on disk.
+    let mut value = serde_json::to_value(value).map_err(|e| super::err_other(e.to_string()))?;
+    super::secrets::redact_value(&mut value);
+    let mut line = serde_json::to_string(&value).map_err(|e| super::err_other(e.to_string()))?;
     line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -1009,7 +1022,11 @@ pub fn expire_stale_approvals() {
         let Ok(stale) = pending_approvals(&agent.id) else {
             continue;
         };
-        for a in stale.into_iter().filter(|a| a.tool.is_none()) {
+        // A secure input card needs nobody waiting: saving it later still works.
+        for a in stale
+            .into_iter()
+            .filter(|a| a.tool.is_none() && a.secret.is_none())
+        {
             let _ = set_approval_status(&agent.id, &a.request_id, ApprovalStatus::Expired);
         }
     }
@@ -1123,6 +1140,7 @@ mod tests {
                         always: None,
                         always_allowed: false,
                         note: None,
+                        secret: None,
                     });
                 }
                 append_message(&line).unwrap();
@@ -1264,6 +1282,7 @@ mod tests {
                     always: None,
                     always_allowed: false,
                     note: None,
+                    secret: None,
                 }),
                 attachments: Vec::new(),
                 check_in: None,
@@ -1352,6 +1371,7 @@ mod tests {
                 always: None,
                 always_allowed: false,
                 note: None,
+                secret: None,
             });
             append_message(&card).unwrap();
             let raw = std::fs::read(log_path(&a.id).unwrap()).unwrap();

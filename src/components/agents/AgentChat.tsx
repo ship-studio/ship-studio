@@ -37,6 +37,7 @@ import { Dropdown } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
 import { CompactModeToggle } from '../workspace/ModeToggle';
 import { TextButton } from '../primitives/TextButton';
+import { AgentSecretHint } from './AgentSecretHint';
 import { AgentModelMenu } from './AgentModelMenu';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
@@ -1025,6 +1026,15 @@ export function AgentChat({
             )}
             <TextButton onClick={dictation.dismissBlocked}>Dismiss</TextButton>
           </p>
+        )}
+
+        {engineReady && (
+          <AgentSecretHint
+            agentId={agent.id}
+            agentName={agent.name}
+            draft={draft}
+            setDraft={setDraft}
+          />
         )}
 
         {engineReady ? (

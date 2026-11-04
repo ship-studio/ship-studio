@@ -19,6 +19,7 @@
 //! - [`procs`]: a turn's whole process tree, so Stop and quit leave nothing running
 //! - [`prompts`]: voice and role
 //! - [`search`]: find a message across every conversation
+//! - [`secrets`]: credentials an agent asked for, kept in the Keychain, never shown to it
 //! - [`stream`]: a reply while it is being written (drafts)
 //! - [`usage`]: tokens and cost per agent, from each turn's `result` event
 //!
@@ -40,6 +41,7 @@ pub mod prompts;
 pub mod runner;
 pub mod schedule;
 pub mod search;
+pub mod secrets;
 pub mod sessions;
 pub mod store;
 pub mod stream;

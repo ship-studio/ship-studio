@@ -222,6 +222,21 @@ const TOOLS: &[Tool] = &[
         }),
     },
     Tool {
+        name: "request_secret",
+        description: "Ask the user for a password, API key, token or login through a secure card in this chat. They type it into a masked field; it goes into the macOS Keychain for you alone, and you get an environment variable and a reference, never the value. Always use this for credentials: never ask the user to paste one in chat. It returns at once: stop and tell the user in one line what it's for; you'll be woken when they save or decline it.",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Short snake_case name, e.g. stripe_key. It becomes the variable: $STRIPE_KEY." },
+                "purpose": { "type": "string", "description": "What you'll use it for, in one line. Shown to the user on the card." },
+                "kind": { "type": "string", "enum": ["password", "api_key", "token", "other"] },
+                "fields": { "type": "array", "items": { "type": "string" }, "description": "Optional: labels for a login with several parts, e.g. [\"Username\", \"Password\"]. Each becomes $NAME_USERNAME, $NAME_PASSWORD." }
+            },
+            "required": ["name", "purpose", "kind"]
+        }),
+    },
+    Tool {
         name: "approve",
         description: "Internal: Claude Code asks this before a tool call that needs the user's permission.",
         main_only: false,
@@ -321,6 +336,7 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
             check_ins(app, caller, name, args)
         }
         "approve" => approve(app, caller, args).await,
+        "request_secret" => request_secret(app, caller, args),
         _ => error("Unknown tool"),
     }
 }
@@ -732,6 +748,59 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
     }
 }
 
+/// A secure input card. Nothing waits on it: saving or declining wakes the
+/// agent (see `commands::agents::agents_save_secret`), so a card answered
+/// tomorrow works as well as one answered now.
+fn request_secret(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
+    let labels: Vec<String> = args
+        .get("fields")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let request = match super::secrets::build_request(
+        caller,
+        arg(args, "name").unwrap_or(""),
+        arg(args, "purpose").unwrap_or(""),
+        arg(args, "kind").unwrap_or(""),
+        &labels,
+    ) {
+        Ok(r) => r,
+        Err(e) => return error(e.to_string()),
+    };
+    let open = store::pending_approvals(&caller.id).unwrap_or_default();
+    if open
+        .iter()
+        .any(|a| a.secret.as_ref().is_some_and(|s| s.name == request.name))
+    {
+        return text(format!(
+            "You already asked for {}; the card is still waiting in this chat. Stop here.",
+            request.name
+        ));
+    }
+    let mut approval = new_card(
+        store::new_id(),
+        format!("Secure input · {}", request.name),
+        request.purpose.clone(),
+        None,
+    );
+    let reply = super::secrets::asked_reply(&request);
+    approval.secret = Some(request);
+    let mut card = runner::new_message(&caller.id, MessageKind::Approval, "");
+    card.approval = Some(approval);
+    if let Err(e) = runner::record(app, card) {
+        return error(e.to_string());
+    }
+    store::refresh_pending(&caller.id);
+    super::notify::refresh_badge(app);
+    let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+    text(reply)
+}
+
 /// Put an Allow / Deny card in the caller's chat and wait for the answer.
 ///
 /// `call` is the Claude Code tool call the card is about, if any. Those cards
@@ -827,6 +896,7 @@ pub(super) fn new_card(
         always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
         always_allowed: false,
         note: None,
+        secret: None,
     }
 }
 
@@ -1244,6 +1314,7 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
             extra: Default::default(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]

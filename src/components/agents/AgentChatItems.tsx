@@ -35,6 +35,7 @@ import { ComposerAttachments, MessageAttachments } from './AgentAttachments';
 import type { DraftAttachment } from './useComposerAttachments';
 import { MentionText } from './AgentMentions';
 import { AgentPeerStatus } from './AgentPeerStatus';
+import { SecretCard } from './AgentSecretCard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
@@ -780,6 +781,11 @@ export const ApprovalCard = memo(function ApprovalCard({
   // a card that loads already answered just shows it.
   const [openedPending] = useState(approval?.status === 'pending');
   if (!approval) return null;
+  if (approval.secret) {
+    return (
+      <SecretCard message={message} agentName={agentName} onAnswer={onAnswer} arrived={arrived} />
+    );
+  }
   const pending = approval.status === 'pending';
   const fields = approvalFields(approval.tool, approval.input);
   const answer = async (allow: boolean, always = false, why?: string) => {
