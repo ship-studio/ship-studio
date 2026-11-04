@@ -6,6 +6,7 @@
 import type { Scenario } from '../types';
 
 const MIN = 60_000;
+const DEMO_HOME = '/harness/agents-demo';
 const now = Date.now();
 
 const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
@@ -37,6 +38,8 @@ const agent = (
     pendingApprovals: 0,
     model: null,
     status: status('idle'),
+    // Served by the harness's dev server, so attachment images load over HTTP.
+    home: DEMO_HOME,
     ...rest,
   };
 };
@@ -183,6 +186,75 @@ const LEADGEN_CHAT = [
   }),
 ];
 
+const shot = (name: string, size: number) => ({
+  name,
+  path: `attachments/m-att1/${name}`,
+  mime: 'image/jpeg',
+  size,
+});
+
+const ACME_CHAT = [
+  msg(
+    'user',
+    'The client sent these. The pricing cards overlap on mobile and two footer links 404.',
+    50,
+    {
+      agentId: 'acme',
+      attachments: [
+        shot('Pricing on mobile.jpg', 40_266),
+        shot('Footer links.jpg', 36_471),
+        shot('Hero crop.jpg', 27_238),
+      ],
+    }
+  ),
+  msg(
+    'agent',
+    'Got them. The cards overlap below 400px because the grid keeps three columns; I’ll stack them. Checking the footer next.',
+    49,
+    { agentId: 'acme' }
+  ),
+  msg('user', '', 20, {
+    agentId: 'acme',
+    attachments: [
+      {
+        name: 'Acme brand guidelines 2026.pdf',
+        path: 'attachments/m-att2/Acme brand guidelines 2026.pdf',
+        mime: 'application/pdf',
+        size: 4_812_330,
+      },
+      {
+        name: 'footer-links.csv',
+        path: 'attachments/m-att2/footer-links.csv',
+        mime: 'text/csv',
+        size: 2_140,
+      },
+    ],
+  }),
+  msg(
+    'agent',
+    'Read both. The guidelines want 24px gutters on mobile, so the stacked cards use that. The CSV lists 31 links; **2 are dead**: `/careers` and the old Twitter URL.\n\nFixing them on the pricing branch.',
+    19,
+    { agentId: 'acme' }
+  ),
+];
+
+/** What the paperclip "picks" in the harness, and what the backend says about it. */
+const PICKED = [
+  `${DEMO_HOME}/attachments/m-att1/Pricing on mobile.jpg`,
+  '/Users/harness/Desktop/QA notes from the client call.md',
+];
+const inspectFiles = (args: Record<string, unknown>) =>
+  (args.paths as string[]).map((path) => {
+    const name = path.split('/').pop() ?? path;
+    const image = name.endsWith('.jpg');
+    return {
+      path,
+      name,
+      mime: image ? 'image/jpeg' : 'text/markdown',
+      size: image ? 40_266 : 6_220,
+    };
+  });
+
 const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
 
 /**
@@ -224,6 +296,7 @@ const messagesFor = (args: Record<string, unknown>) => {
   const sent = SENT[String(args.agentId)] ?? [];
   if (args.agentId === 'chief') return [...CHIEF_CHAT, ...sent];
   if (args.agentId === 'leadgen') return [...LEADGEN_CHAT, ...sent];
+  if (args.agentId === 'acme') return [...ACME_CHAT, ...sent];
   return sent;
 };
 
@@ -251,6 +324,34 @@ export const agentsScenarios: Scenario[] = [
     requires: '.agent-approval',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '[data-agent-id="leadgen"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-attachments',
+    title: 'Agents — attachments sent and staged',
+    looksRightWhen:
+      'Acme Site’s chat: a user message carrying three screenshots as a right-aligned thumbnail row above its text, then a files-only message as two chips (PDF, CSV) with type and size. The composer holds one staged image thumbnail and one file chip above the text field, with the paperclip on the left and Send enabled.',
+    requires: '.agent-composer__attachments',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-composer__attach' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_inspect_files: inspectFiles,
+      'plugin:dialog|open': PICKED,
+    },
+  },
+  {
+    id: 'agents-attachment-view',
+    title: 'Agents — a sent screenshot opened full size',
+    looksRightWhen:
+      'A dialog titled with the file name shows the screenshot at full size, with an Open button beside the close button.',
+    requires: '.agent-lightbox__image',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-attachments__image' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,

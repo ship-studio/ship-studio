@@ -6,6 +6,7 @@ import EditModeSvg from '../../assets/icons/edit-mode.svg?react';
 import EditFieldSvg from '../../assets/icons/edit-field.svg?react';
 import FileSvg from '../../assets/icons/file.svg?react';
 import FileTextSvg from '../../assets/icons/file-text.svg?react';
+import PaperclipSvg from '../../assets/icons/paperclip.svg?react';
 import FolderSvg from '../../assets/icons/folder.svg?react';
 import FolderOpenSvg from '../../assets/icons/folder-open.svg?react';
 import NewFolderSvg from '../../assets/icons/new-folder.svg?react';
@@ -104,6 +105,13 @@ export const FileIcon = createIcon(FileSvg, {
 export const FileTextIcon = createIcon(FileTextSvg, {
   name: 'FileTextIcon',
   source: 'icons/file-text.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const PaperclipIcon = createIcon(PaperclipSvg, {
+  name: 'PaperclipIcon',
+  source: 'icons/paperclip.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',

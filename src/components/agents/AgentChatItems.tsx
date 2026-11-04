@@ -11,6 +11,7 @@ import DOMPurify from 'dompurify';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button } from '../primitives/Button';
 import { AgentAvatar } from './AgentAvatar';
+import { MessageAttachments } from './AgentAttachments';
 import { useHeightReveal } from './useAgentMotion';
 
 /**
@@ -56,10 +57,16 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
   );
 }
 
-export function UserBubble({ message, arrived }: { message: AgentMessage } & Arrival) {
+export function UserBubble({
+  message,
+  agent,
+  arrived,
+}: { message: AgentMessage; agent: Agent } & Arrival) {
+  const attachments = message.attachments ?? [];
   return (
     <div className="agent-chat__row agent-chat__row--user" data-arrived={arrived || undefined}>
-      <div className="agent-bubble agent-bubble--user">{message.text}</div>
+      {attachments.length > 0 && <MessageAttachments agent={agent} attachments={attachments} />}
+      {message.text && <div className="agent-bubble agent-bubble--user">{message.text}</div>}
     </div>
   );
 }

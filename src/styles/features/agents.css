@@ -369,8 +369,11 @@
   display: flex;
 }
 
+/* Attachments stack above the text bubble, both against the right edge. */
 .agent-chat__row--user {
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-2xs);
 }
 
 .agent-bubble {
@@ -692,16 +695,22 @@
 /* Same column as the messages, same field language as the dashboard search. */
 .agent-composer {
   display: flex;
-  align-items: flex-end;
-  gap: var(--spacing-sm);
+  flex-direction: column;
   width: calc(100% - (var(--spacing-xl) * 2));
   max-width: var(--agents-chat-width);
   margin: 0 auto var(--spacing-lg);
-  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-md);
+  padding: var(--spacing-xs);
   background: var(--surface-panel);
   border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-lg);
   transition: border-color var(--transition-interaction-fast);
+}
+
+/* Paperclip, text, send: the paperclip and send sit on the last line. */
+.agent-composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
 }
 
 .agent-composer:focus-within {

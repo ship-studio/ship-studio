@@ -138,6 +138,27 @@ has access to, so does it"), and it's why the prompts forbid pushing,
 deploying, sending or spending unless asked, and why those actions surface as
 cards.
 
+## Attachments and quoting (`src-tauri/src/agents/attachments.rs`)
+
+- Paste an image (⌘V), drop files anywhere on the chat, or use the paperclip.
+  Staged files sit above the text as removable chips; images show a thumbnail.
+- On send each file is copied into `<home>/attachments/<message id>/`, so the
+  agent reads its own copy and the chat keeps showing it after the original
+  moves. Picked and dropped files are copied by path; a paste is sent as bytes.
+- The log keeps what the user typed plus `attachments: [{name, path, mime,
+  size}]`; the prompt the agent gets also lists the absolute paths and asks it
+  to use the Read tool, which reads images and PDFs natively.
+- Limits: 10 files a message, 25 MB a file, refused before sending with a
+  message that says which file and why. Folders are refused.
+- On the user bubble images render as thumbnails (click: full size, with Open);
+  other files as chips that open in their default app
+  (`agents_open_attachment`, which only opens paths under `attachments/`).
+- Drops come from Tauri's window-global `tauri://drag-*` events, hit-tested
+  against the chat (lib/dropTarget). The DOM drag handlers cover the browser
+  harness and are inert in the app.
+- Select text in an agent's reply and press ⌘L (or the Quote button that
+  appears above it) to quote it into the composer as Markdown `> ` lines.
+
 ## Known limits / next
 
 - Claude Code only. The runner is CLI-specific in `run_turn`; Codex
@@ -147,7 +168,8 @@ cards.
   scheduler tick is the natural home for this.
 - No OS notification when an agent replies while Ship Studio is in the
   background. The unread badge is the only signal.
-- No attachments or voice in the composer yet.
+- No voice in the composer yet. Agents can't send files back to you yet (a
+  `share_file` tool would post a file card).
 - Many agents can run at once; there's no global concurrency cap.
 - Debug builds: `research/design-canvas` (not on main) disables the agent
   bridge under `debug_assertions`. Agents depends on it, so that branch needs

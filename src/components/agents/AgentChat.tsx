@@ -7,12 +7,17 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownIcon, ArrowUpIcon, SettingsSlidersIcon } from '@/components/icons';
+import { ArrowDownIcon, ArrowUpIcon, PaperclipIcon, SettingsSlidersIcon } from '@/components/icons';
+import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { Spinner } from '../primitives/Spinner';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
+import { ComposerAttachments } from './AgentAttachments';
+import { toOutgoing, useComposerAttachments, useFileDrop } from './useComposerAttachments';
+import { useQuoteSelection } from './useQuoteSelection';
+import { useCommands } from '../../commands/useCommands';
 import {
   AgentBubble,
   ApprovalCard,
@@ -25,6 +30,7 @@ import {
 import {
   answerApproval,
   buildChatItems,
+  quoteText,
   sendAgentMessage,
   stopAgent,
   type Agent,
@@ -52,6 +58,47 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const atBottomRef = useRef(true);
+  const sectionRef = useRef<HTMLElement>(null);
+
+  const toastError = useCallback((message: string) => showToast(message, 'error'), [showToast]);
+  const attachments = useComposerAttachments(toastError);
+  const { over: dropping, dom: dropHandlers } = useFileDrop(
+    sectionRef,
+    engineReady,
+    (paths) => void attachments.addPaths(paths),
+    attachments.addFiles
+  );
+  const { pick } = attachments;
+  const pickFiles = useCallback(() => {
+    pick().catch((error: unknown) => toastError(String(error)));
+  }, [pick, toastError]);
+
+  // Quote into the composer: after what's already typed, cursor at the end.
+  const insertQuote = useCallback((text: string) => {
+    setDraft((current) => (current.trim() ? `${current.trimEnd()}\n\n` : '') + quoteText(text));
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }, []);
+  const quoting = useQuoteSelection(scrollRef, sectionRef, insertQuote);
+
+  useCommands(
+    () => [
+      {
+        id: 'agents.attachFiles',
+        title: `Attach files for ${agent.name}…`,
+        icon: <PaperclipIcon size={14} />,
+        category: 'navigation',
+        keywords: ['agents', 'upload', 'image', 'screenshot', 'file', 'paperclip'],
+        when: () => engineReady,
+        run: pickFiles,
+      },
+    ],
+    [agent.name, engineReady, pickFiles]
+  );
 
   // Mounted once per agent (keyed by id), so the draft starts empty.
   useEffect(() => {
@@ -97,16 +144,21 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
+  const staged = attachments.items;
+  const canSend = (draft.trim().length > 0 || staged.length > 0) && engineReady;
+
   const send = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!canSend) return;
     setDraft('');
+    attachments.setItems([]);
     atBottomRef.current = true;
     try {
-      const message = await sendAgentMessage(agent.id, text);
+      const message = await sendAgentMessage(agent.id, text, await toOutgoing(staged));
       upsertMessage(message);
     } catch (error) {
       setDraft(text);
+      attachments.setItems(staged);
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
   };
@@ -145,9 +197,12 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
 
   return (
     <section
+      ref={sectionRef}
       className="agent-chat"
       data-color={agent.color}
+      data-dropping={dropping || undefined}
       aria-label={`Conversation with ${agent.name}`}
+      {...dropHandlers}
     >
       <header className="agent-chat__header">
         <AgentAvatar name={agent.name} color={agent.color} size={24} selected />
@@ -207,7 +262,7 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
               const m = item.message;
               switch (m.kind) {
                 case 'user':
-                  return <UserBubble key={m.id} message={m} arrived={arrived} />;
+                  return <UserBubble key={m.id} message={m} agent={agent} arrived={arrived} />;
                 case 'agent':
                   return <AgentBubble key={m.id} message={m} arrived={arrived} />;
                 case 'approval':
@@ -249,51 +304,85 @@ export function AgentChat({ agent, agentsById, onOpenAgent, onEditAgent }: Agent
         />
       )}
 
+      {quoting.anchor && (
+        <Button
+          size="compact"
+          className="agent-chat__quote"
+          style={{ top: quoting.anchor.top, left: quoting.anchor.left }}
+          // Keep the selection: a mousedown here would otherwise clear it.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => quoting.quote()}
+        >
+          Quote <kbd className="agent-chat__kbd">⌘L</kbd>
+        </Button>
+      )}
+
+      <div className="agent-chat__drop" aria-hidden={!dropping}>
+        <div className="agent-chat__drop-label">
+          <PaperclipIcon size={16} />
+          Drop to attach
+        </div>
+      </div>
+
       <form
         className="agent-composer"
+        data-has-attachments={staged.length > 0 || undefined}
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
-        <TextArea
-          ref={inputRef}
-          className="agent-composer__input"
-          rows={1}
-          value={draft}
-          placeholder={
-            engineReady ? `Message ${agent.name}` : 'Install Claude Code to talk to your agents'
-          }
-          disabled={!engineReady}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
+        <ComposerAttachments items={staged} onRemove={attachments.remove} />
+        <div className="agent-composer__row">
+          <IconButton
+            variant="ghost"
+            className="agent-composer__attach"
+            icon={<PaperclipIcon size={16} />}
+            onClick={pickFiles}
+            disabled={!engineReady}
+            aria-label="Attach files"
+            title="Attach files, or paste or drop them here"
+          />
+          <TextArea
+            ref={inputRef}
+            className="agent-composer__input"
+            rows={1}
+            value={draft}
+            placeholder={
+              engineReady ? `Message ${agent.name}` : 'Install Claude Code to talk to your agents'
             }
-          }}
-          aria-label={`Message ${agent.name}`}
-        />
-        {working && !draft.trim() ? (
-          <IconButton
-            variant="secondary"
-            className="agent-composer__stop"
-            icon={<span className="agent-composer__stop-square" aria-hidden />}
-            onClick={() => void onStop()}
-            aria-label={`Stop ${agent.name}`}
-            title="Stop"
+            disabled={!engineReady}
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={attachments.onPaste}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            aria-label={`Message ${agent.name}`}
           />
-        ) : (
-          <IconButton
-            type="submit"
-            variant="primary"
-            className="agent-composer__send"
-            icon={<ArrowUpIcon size={14} />}
-            disabled={!draft.trim() || !engineReady}
-            aria-label="Send"
-            title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
-          />
-        )}
+          {working && !canSend ? (
+            <IconButton
+              variant="secondary"
+              className="agent-composer__stop"
+              icon={<span className="agent-composer__stop-square" aria-hidden />}
+              onClick={() => void onStop()}
+              aria-label={`Stop ${agent.name}`}
+              title="Stop"
+            />
+          ) : (
+            <IconButton
+              type="submit"
+              variant="primary"
+              className="agent-composer__send"
+              icon={<ArrowUpIcon size={14} />}
+              disabled={!canSend}
+              aria-label="Send"
+              title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
+            />
+          )}
+        </div>
       </form>
     </section>
   );

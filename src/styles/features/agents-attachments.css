@@ -1,0 +1,271 @@
+/* Agents: attachments (composer chips, sent thumbnails, the drop zone, the
+   image view) and quoting a selection into the composer. */
+
+:root {
+  --agents-attachment-thumb: 56px; /* css-ok: staged image chip */
+  --agents-attachment-chip-max: 220px; /* css-ok: file chip name truncation */
+  --agents-attachment-image-max: 240px; /* css-ok: a lone sent image */
+  --agents-attachment-image-tile: 120px; /* css-ok: one of several sent images */
+}
+
+/* ------------------------------------------------------ composer chips */
+
+.agent-composer__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin: 0;
+  padding: var(--spacing-2xs) var(--spacing-2xs) var(--spacing-xs);
+  list-style: none;
+}
+
+.agent-attachment-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  height: var(--agents-attachment-thumb);
+  max-width: var(--agents-attachment-chip-max);
+  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
+  font: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
+}
+
+.agent-attachment-chip[data-kind='image'] {
+  width: var(--agents-attachment-thumb);
+  padding: 0;
+  overflow: hidden;
+}
+
+.agent-attachment-chip__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-attachment-chip__glyph {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-standard);
+  height: var(--control-height-standard);
+  color: var(--text-secondary);
+  background: var(--surface-recessed);
+  border-radius: var(--radius-control);
+}
+
+.agent-attachment-chip__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-attachment-chip__name {
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-attachment-chip__meta {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+/* Remove sits on the corner, shown on hover or keyboard focus. */
+.agent-attachment-chip .agent-attachment-chip__remove {
+  position: absolute;
+  top: var(--spacing-3xs);
+  right: var(--spacing-3xs);
+  width: var(--spacing-xl);
+  min-width: 0;
+  height: var(--spacing-xl);
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.agent-attachment-chip:hover .agent-attachment-chip__remove,
+.agent-attachment-chip .agent-attachment-chip__remove:focus-visible {
+  opacity: 1;
+}
+
+/* ------------------------------------------------- on a sent message */
+
+.agent-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-2xs);
+  max-width: var(--agents-bubble-max);
+}
+
+.agent-attachments__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2xs);
+  justify-content: flex-end;
+}
+
+.agent-attachments__images {
+  display: grid;
+  grid-template-columns: repeat(var(--agents-attachment-columns, 1), auto);
+  gap: var(--spacing-2xs);
+  justify-content: end;
+}
+
+.agent-attachments__images[data-count='2'] {
+  --agents-attachment-columns: 2;
+}
+
+.agent-attachments__images[data-count='3'] {
+  --agents-attachment-columns: 3;
+}
+
+.agent-attachments__image {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition-interaction-fast);
+}
+
+.agent-attachments__image:hover {
+  border-color: var(--border-strong);
+}
+
+.agent-attachments__image:focus-visible {
+  outline: var(--border-width-emphasis) solid var(--accent-focus);
+  outline-offset: var(--spacing-3xs);
+}
+
+.agent-attachments__image img {
+  display: block;
+  max-width: var(--agents-attachment-image-max);
+  max-height: var(--agents-attachment-image-max);
+  object-fit: cover;
+}
+
+.agent-attachments__images:not([data-count='1']) img {
+  width: var(--agents-attachment-image-tile);
+  height: var(--agents-attachment-image-tile);
+}
+
+.agent-attachment-chip--sent {
+  cursor: pointer;
+  animation: none;
+  transition:
+    background var(--transition-interaction-fast),
+    border-color var(--transition-interaction-fast);
+}
+
+.agent-attachment-chip--sent:hover {
+  background: var(--surface-control-hover);
+  border-color: var(--border-default);
+}
+
+.agent-attachment-chip--sent:focus-visible {
+  outline: var(--border-width-emphasis) solid var(--accent-focus);
+  outline-offset: var(--spacing-3xs);
+}
+
+/* ----------------------------------------------------------- drop zone */
+
+/* Always mounted so it can fade both ways; only visible while dragging. */
+.agent-chat__drop {
+  position: absolute;
+  inset: var(--agents-header-height) var(--spacing-md) var(--spacing-md);
+  z-index: var(--z-sticky-band);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(var(--accent-active-rgb), 0.06);
+  border: var(--border-width-emphasis) dashed rgba(var(--accent-active-rgb), 0.5);
+  border-radius: var(--radius-lg);
+  opacity: 0;
+  transform: scale(0.99);
+  transition:
+    opacity var(--transition-interaction),
+    transform var(--transition-interaction);
+}
+
+.agent-chat[data-dropping] .agent-chat__drop {
+  opacity: 1;
+  transform: none;
+}
+
+.agent-chat__drop-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-body-md);
+  color: var(--text-primary);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-sm);
+}
+
+/* --------------------------------------------------------------- quote */
+
+.agent-chat .agent-chat__quote {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  gap: var(--spacing-xs);
+  box-shadow: var(--shadow-sm);
+  transform: translate(-50%, calc(-100% - var(--spacing-xs)));
+  animation: agents-attachments-quote-in var(--transition-interaction) backwards;
+}
+
+@keyframes agents-attachments-quote-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -100%);
+  }
+}
+
+.agent-chat__kbd {
+  font-family: var(--font-code);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------- image view */
+
+.modal-frame-content.agent-lightbox {
+  width: auto;
+  max-width: min(1100px, 92vw); /* css-ok: image viewer bound */
+}
+
+.agent-lightbox__image {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh; /* css-ok: leave room for the header */
+  margin: 0 auto;
+  border-radius: var(--radius-control);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-attachment-chip,
+  .agent-chat .agent-chat__quote {
+    animation: none;
+  }
+
+  .agent-chat__drop {
+    transform: none;
+    transition: opacity var(--transition-interaction-fast);
+  }
+}
