@@ -166,6 +166,11 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .map(|l| l.chars().take(140).collect())
     };
     match message.kind {
+        MessageKind::User if message.text.trim().is_empty() => match message.attachments.len() {
+            0 => None,
+            1 => Some(format!("Sent {}", message.attachments[0].name)),
+            n => Some(format!("Sent {n} files")),
+        },
         MessageKind::User | MessageKind::Agent | MessageKind::Error => line(&message.text),
         MessageKind::SentToAgent => message
             .peer
@@ -191,6 +196,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         text: text.into(),
         peer: None,
         approval: None,
+        attachments: Vec::new(),
     }
 }
 

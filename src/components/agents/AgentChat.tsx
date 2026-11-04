@@ -18,6 +18,7 @@ import {
   HomeIcon,
   MicrophoneIcon,
   MoreHorizontalIcon,
+  PaperclipIcon,
   WarningIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
@@ -32,6 +33,10 @@ import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import { useDictation } from './useDictation';
 import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
 import { listProjects } from '../../lib/project';
+import { ComposerAttachments, ComposerQuotes } from './AgentAttachments';
+import { toOutgoing, useComposerAttachments, useFileDrop } from './useComposerAttachments';
+import { useQuoteSelection } from './useQuoteSelection';
+import { useCommands } from '../../commands/useCommands';
 import {
   AgentBubble,
   ApprovalCard,
@@ -45,6 +50,7 @@ import {
   answerApproval,
   buildChatItems,
   needsYou,
+  withQuotes,
   sendAgentMessage,
   sortAgents,
   stopAgent,
@@ -126,6 +132,48 @@ export function AgentChat({
   });
   const dictating = dictation.phase !== 'idle';
   const blocked = dictation.blocked ? blockedCopy(dictation.blocked) : null;
+  const sectionRef = useRef<HTMLElement>(null);
+
+  const toastError = useCallback((message: string) => showToast(message, 'error'), [showToast]);
+  const attachments = useComposerAttachments(toastError);
+  const { over: dropping, dom: dropHandlers } = useFileDrop(
+    sectionRef,
+    engineReady,
+    (paths) => void attachments.addPaths(paths),
+    attachments.addFiles
+  );
+  const { pick } = attachments;
+  const pickFiles = useCallback(() => {
+    pick().catch((error: unknown) => toastError(String(error)));
+  }, [pick, toastError]);
+
+  // Quotes wait above the text as chips; each ⌘L adds one. They're sent as
+  // Markdown blockquotes ahead of what was typed.
+  const [quotes, setQuotes] = useState<string[]>([]);
+  const insertQuote = useCallback((text: string) => {
+    setQuotes((current) => [...current, text]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+  const removeQuote = useCallback(
+    (index: number) => setQuotes((current) => current.filter((_, i) => i !== index)),
+    []
+  );
+  const quoting = useQuoteSelection(scrollRef, sectionRef, insertQuote);
+
+  useCommands(
+    () => [
+      {
+        id: 'agents.attachFiles',
+        title: `Attach files for ${agent.name}…`,
+        icon: <PaperclipIcon size={14} />,
+        category: 'navigation',
+        keywords: ['agents', 'upload', 'image', 'screenshot', 'file', 'paperclip'],
+        when: () => engineReady,
+        run: pickFiles,
+      },
+    ],
+    [agent.name, engineReady, pickFiles]
+  );
 
   // Focus the composer on open (mounted once per agent, keyed by id, so the
   // draft starts empty) and again when dictation ends, wherever it started.
@@ -197,6 +245,9 @@ export function AgentChat({
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
+  const staged = attachments.items;
+  const canSend = draft.trim().length > 0 || staged.length > 0 || quotes.length > 0;
+
   const deliver = async (entry: Pending) => {
     try {
       const message = await sendAgentMessage(agent.id, entry.text);
@@ -208,12 +259,33 @@ export function AgentChat({
     }
   };
 
+  // Words alone appear at once and retry in place. Files have to be copied
+  // into the agent's home first, so that send waits, and a failure puts
+  // everything back in the composer.
+  const sendWithFiles = async (typed: string, quoted: string[], files: typeof staged) => {
+    try {
+      const outgoing = await toOutgoing(files);
+      upsertMessage(await sendAgentMessage(agent.id, withQuotes(quoted, typed), outgoing));
+    } catch (error) {
+      setDraft(typed);
+      setQuotes(quoted);
+      attachments.setItems(files);
+      showToast(formatCommandError(asCommandError(error)), 'error');
+    }
+  };
+
   const send = () => {
-    const text = draft.trim();
-    if (!text || dictating) return;
+    if (!canSend || dictating) return;
+    const typed = draft.trim();
     setDraft('');
+    setQuotes([]);
     atBottomRef.current = true;
-    const entry = newPending(text);
+    if (staged.length > 0) {
+      attachments.setItems([]);
+      void sendWithFiles(typed, quotes, staged);
+      return;
+    }
+    const entry = newPending(withQuotes(quotes, typed));
     setPending((list) => [...list, entry]);
     void deliver(entry);
   };
@@ -272,9 +344,12 @@ export function AgentChat({
 
   return (
     <section
+      ref={sectionRef}
       className="agent-chat"
       data-color={agent.color}
+      data-dropping={dropping || undefined}
       aria-label={`Conversation with ${agent.name}`}
+      {...dropHandlers}
     >
       <header className="agent-chat__header">
         {compact && (
@@ -381,6 +456,7 @@ export function AgentChat({
                     <UserBubble
                       key={keyOf(m.id)}
                       message={m}
+                      agent={agent}
                       arrived={arrived}
                       failed={failed.has(m.id)}
                       onRetry={() => retry(m.id)}
@@ -449,11 +525,14 @@ export function AgentChat({
           <form
             className="agent-composer"
             data-dictation={dictation.phase}
+            data-has-attachments={staged.length > 0 || quotes.length > 0 || undefined}
             onSubmit={(e) => {
               e.preventDefault();
               send();
             }}
           >
+            <ComposerQuotes quotes={quotes} onRemove={removeQuote} />
+            <ComposerAttachments items={staged} onRemove={attachments.remove} />
             <TextArea
               ref={inputRef}
               className="agent-composer__input"
@@ -462,51 +541,66 @@ export function AgentChat({
               placeholder={dictating ? 'Listening…' : `Message ${agent.name}`}
               readOnly={dictating}
               onChange={(e) => setDraft(e.target.value)}
+              onPaste={attachments.onPaste}
               onKeyDown={(e) => {
                 if (dictation.onComposerKeyDown(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   send();
-                } else if (e.key === 'Escape' && working && !draft.trim()) {
+                } else if (e.key === 'Escape' && working && !canSend) {
                   e.preventDefault();
                   void onStop();
                 }
               }}
               aria-label={`Message ${agent.name}`}
             />
-            <IconButton
-              ref={micRef}
-              variant="ghost"
-              className="agent-composer__mic"
-              icon={<MicrophoneIcon size={14} />}
-              onClick={dictation.toggle}
-              disabled={dictation.phase === 'finishing'}
-              aria-pressed={dictating}
-              aria-label={dictating ? 'Stop dictating' : 'Dictate'}
-              title={
-                dictating ? 'Stop dictating (Esc to discard)' : 'Dictate (⌘⇧D, or hold ⌥Space)'
-              }
-            />
-            {working && !draft.trim() && !dictating ? (
+            <div className="agent-composer__bar">
               <IconButton
-                variant="secondary"
-                className="agent-composer__stop"
-                icon={<span className="agent-composer__stop-square" aria-hidden />}
-                onClick={() => void onStop()}
-                aria-label={`Stop ${agent.name}`}
-                title="Stop (Esc)"
+                variant="ghost"
+                className="agent-composer__attach"
+                icon={<PaperclipIcon size={14} />}
+                onClick={pickFiles}
+                aria-label="Attach files"
+                title="Attach files, or paste or drop them here"
               />
-            ) : (
-              <IconButton
-                type="submit"
-                variant={draft.trim() && !dictating ? 'primary' : 'secondary'}
-                className="agent-composer__send"
-                icon={<ArrowUpIcon size={14} />}
-                disabled={!draft.trim() || dictating}
-                aria-label="Send"
-                title={working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'}
-              />
-            )}
+              <div className="agent-composer__actions">
+                <IconButton
+                  ref={micRef}
+                  variant="ghost"
+                  className="agent-composer__mic"
+                  icon={<MicrophoneIcon size={14} />}
+                  onClick={dictation.toggle}
+                  disabled={dictation.phase === 'finishing'}
+                  aria-pressed={dictating}
+                  aria-label={dictating ? 'Stop dictating' : 'Dictate'}
+                  title={
+                    dictating ? 'Stop dictating (Esc to discard)' : 'Dictate (⌘⇧D, or hold ⌥Space)'
+                  }
+                />
+                {working && !canSend && !dictating ? (
+                  <IconButton
+                    variant="secondary"
+                    className="agent-composer__stop"
+                    icon={<span className="agent-composer__stop-square" aria-hidden />}
+                    onClick={() => void onStop()}
+                    aria-label={`Stop ${agent.name}`}
+                    title="Stop (Esc)"
+                  />
+                ) : (
+                  <IconButton
+                    type="submit"
+                    variant={canSend && !dictating ? 'primary' : 'secondary'}
+                    className="agent-composer__send"
+                    icon={<ArrowUpIcon size={14} />}
+                    disabled={!canSend || dictating}
+                    aria-label="Send"
+                    title={
+                      working ? 'Send. It reads this when it finishes what it’s doing.' : 'Send'
+                    }
+                  />
+                )}
+              </div>
+            </div>
           </form>
         ) : (
           <div className="agent-composer agent-composer--blocked" role="status">
@@ -519,6 +613,28 @@ export function AgentChat({
             </Button>
           </div>
         )}
+      </div>
+
+      {quoting.anchor && (
+        <Button
+          size="compact"
+          className="agent-chat__quote"
+          style={{ top: quoting.anchor.top, left: quoting.anchor.left }}
+          // Keep the selection: a mousedown here would otherwise clear it.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => quoting.quote()}
+        >
+          Quote <kbd className="agent-chat__kbd">⌘L</kbd>
+        </Button>
+      )}
+
+      <div className="agent-chat__drop" aria-hidden={!dropping}>
+        <div className="agent-chat__drop-label">
+          <span className="agent-chat__drop-icon">
+            <PaperclipIcon size={18} />
+          </span>
+          Drop files for {agent.name}
+        </div>
       </div>
     </section>
   );

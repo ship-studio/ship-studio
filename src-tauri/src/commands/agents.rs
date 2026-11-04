@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::agents::{self, import, mcp, notify, runner, store};
+use crate::agents::{self, attachments, import, mcp, notify, runner, store};
 use crate::errors::CommandError;
 
 #[derive(Serialize)]
@@ -12,6 +12,8 @@ pub struct AgentView {
     #[serde(flatten)]
     pub agent: store::Agent,
     pub status: runner::Status,
+    /// The agent's home, which attachment paths are relative to.
+    pub home: String,
 }
 
 #[derive(Serialize)]
@@ -48,17 +50,21 @@ fn emit_registry(app: &AppHandle) {
 }
 
 #[tauri::command]
-#[tracing::instrument]
-pub async fn agents_overview() -> Result<AgentsOverview, CommandError> {
+#[tracing::instrument(skip(app))]
+pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandError> {
     agents::ensure_main()?;
+    attachments::grant_asset_scope(&app);
     let engine_ready = engine_ready().await;
     let agents = store::list()?
         .into_iter()
-        .map(|agent| AgentView {
-            status: runner::status_of(&agent.id),
-            agent,
+        .map(|agent| {
+            Ok(AgentView {
+                status: runner::status_of(&agent.id),
+                home: store::agent_home(&agent.id)?.display().to_string(),
+                agent,
+            })
         })
-        .collect();
+        .collect::<Result<_, CommandError>>()?;
     Ok(AgentsOverview {
         agents,
         engine_ready,
@@ -75,23 +81,61 @@ pub async fn agents_messages(
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(app, text))]
+#[tracing::instrument(skip(app, text, attachments))]
 pub async fn agents_send(
     app: AppHandle,
     agent_id: String,
     text: String,
+    attachments: Option<Vec<attachments::OutgoingAttachment>>,
 ) -> Result<store::AgentMessage, CommandError> {
     let text = text.trim().to_string();
-    if text.is_empty() {
+    let incoming = attachments.unwrap_or_default();
+    if text.is_empty() && incoming.is_empty() {
         return Err(agents::err_invalid("text", "Type a message first."));
     }
     store::get(&agent_id)?;
-    let message = runner::record(
-        &app,
-        runner::new_message(&agent_id, store::MessageKind::User, text.clone()),
-    )?;
-    runner::enqueue(&app, &agent_id, text, runner::From::User);
+    let home = store::agent_home(&agent_id)?;
+    let mut message = runner::new_message(&agent_id, store::MessageKind::User, text.clone());
+    let id = message.id.clone();
+    message.attachments =
+        tokio::task::spawn_blocking(move || attachments::save(&home, &id, incoming))
+            .await
+            .map_err(agents::err_other)??;
+    // The log keeps what the user typed; the agent also gets where the files are.
+    let block = attachments::prompt_block(&store::agent_home(&agent_id)?, &message.attachments);
+    let prompt = match (text.is_empty(), block.is_empty()) {
+        (_, true) => text,
+        (true, false) => block,
+        (false, false) => format!("{text}\n\n{block}"),
+    };
+    let message = runner::record(&app, message)?;
+    runner::enqueue(&app, &agent_id, prompt, runner::From::User);
     Ok(message)
+}
+
+/// Name, type and size for files about to be attached, refusing folders and
+/// anything over the limit before the user gets as far as sending. Images the
+/// user picked or dropped become loadable, so the composer can show them.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_inspect_files(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<attachments::FileInfo>, CommandError> {
+    use tauri::Manager;
+    let files = attachments::inspect(&paths)?;
+    for file in files.iter().filter(|f| f.mime.starts_with("image/")) {
+        let _ = app.asset_protocol_scope().allow_file(&file.path);
+    }
+    Ok(files)
+}
+
+/// Open an attachment in its default app (a PDF in Preview, a CSV in Numbers).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_open_attachment(agent_id: String, path: String) -> Result<(), CommandError> {
+    let full = attachments::resolve(&store::agent_home(&agent_id)?, &path)?;
+    tauri_plugin_opener::open_path(&full, None::<&str>).map_err(agents::err_other)
 }
 
 #[derive(Debug, Deserialize)]

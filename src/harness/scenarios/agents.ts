@@ -7,6 +7,7 @@ import { emit } from '@tauri-apps/api/event';
 import type { Scenario } from '../types';
 
 const MIN = 60_000;
+const DEMO_HOME = '/harness/agents-demo';
 const now = Date.now();
 
 const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
@@ -39,6 +40,8 @@ const agent = (
     model: null,
     muted: false,
     status: status('idle'),
+    // Served by the harness's dev server, so attachment images load over HTTP.
+    home: DEMO_HOME,
     ...rest,
   };
 };
@@ -218,6 +221,81 @@ const FINANCE_CHAT = [
   ),
 ];
 
+const shot = (name: string, size: number) => ({
+  name,
+  path: `attachments/m-att1/${name}`,
+  mime: 'image/jpeg',
+  size,
+});
+
+const ACME_CHAT = [
+  msg(
+    'user',
+    'The client sent these. The pricing cards overlap on mobile and two footer links 404.',
+    50,
+    {
+      agentId: 'acme',
+      attachments: [
+        shot('Pricing on mobile.jpg', 40_266),
+        shot('Footer links.jpg', 36_471),
+        shot('Hero crop.jpg', 27_238),
+      ],
+    }
+  ),
+  msg(
+    'agent',
+    'Got them. The cards overlap below 400px because the grid keeps three columns; I’ll stack them. Checking the footer next.',
+    49,
+    { agentId: 'acme' }
+  ),
+  msg(
+    'user',
+    '> The cards overlap below 400px because the grid keeps three columns\n\nStack them below 640px too. The tablet layout breaks the same way.',
+    48,
+    { agentId: 'acme' }
+  ),
+  msg('user', '', 20, {
+    agentId: 'acme',
+    attachments: [
+      {
+        name: 'Acme brand guidelines 2026.pdf',
+        path: 'attachments/m-att2/Acme brand guidelines 2026.pdf',
+        mime: 'application/pdf',
+        size: 4_812_330,
+      },
+      {
+        name: 'footer-links.csv',
+        path: 'attachments/m-att2/footer-links.csv',
+        mime: 'text/csv',
+        size: 2_140,
+      },
+    ],
+  }),
+  msg(
+    'agent',
+    'Read both. The guidelines want 24px gutters on mobile, so the stacked cards use that. The CSV lists 31 links; **2 are dead**: `/careers` and the old Twitter URL.\n\nFixing them on the pricing branch.',
+    19,
+    { agentId: 'acme' }
+  ),
+];
+
+/** What the paperclip "picks" in the harness, and what the backend says about it. */
+const PICKED = [
+  `${DEMO_HOME}/attachments/m-att1/Pricing on mobile.jpg`,
+  '/Users/harness/Desktop/QA notes from the client call.md',
+];
+const inspectFiles = (args: Record<string, unknown>) =>
+  (args.paths as string[]).map((path) => {
+    const name = path.split('/').pop() ?? path;
+    const image = name.endsWith('.jpg');
+    return {
+      path,
+      name,
+      mime: image ? 'image/jpeg' : 'text/markdown',
+      size: image ? 40_266 : 6_220,
+    };
+  });
+
 const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
 
 /**
@@ -260,6 +338,7 @@ const messagesFor = (args: Record<string, unknown>) => {
   if (args.agentId === 'chief') return [...CHIEF_CHAT, ...sent];
   if (args.agentId === 'leadgen') return [...LEADGEN_CHAT, ...sent];
   if (args.agentId === 'finance') return [...FINANCE_CHAT, ...sent];
+  if (args.agentId === 'acme') return [...ACME_CHAT, ...sent];
   return sent;
 };
 
@@ -326,6 +405,35 @@ export const agentsScenarios: Scenario[] = [
     requires: '.workspace-sidebar.is-hidden .agents-list__row',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '.workspace-sidebar-toggle' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-attachments',
+    title: 'Agents — attachments sent and staged',
+    looksRightWhen:
+      'Acme Site’s chat: a user message carrying three screenshots as a right-aligned thumbnail row above its text, then a reply that quotes the agent (a quote bar inside the bubble above the user’s words), then a files-only message as two same-height chips (PDF, CSV) side by side against the right edge. The composer holds one staged image thumbnail and one file chip of the same height above the text field, with the paperclip and Send on the same bottom line.',
+    requires: '.agent-composer__attachments',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-composer__attach' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_inspect_files: inspectFiles,
+      'plugin:dialog|open': PICKED,
+      agents_send: sendMessage,
+    },
+  },
+  {
+    id: 'agents-attachment-view',
+    title: 'Agents — a sent screenshot opened full size',
+    looksRightWhen:
+      'A dialog titled with the file name shows the screenshot at full size, with an Open button beside the close button.',
+    requires: '.agent-lightbox__image',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-attachments__image' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,

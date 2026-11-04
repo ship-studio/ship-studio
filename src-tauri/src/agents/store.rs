@@ -138,6 +138,9 @@ pub struct AgentMessage {
     pub peer: Option<AgentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<Approval>,
+    /// Files sent with a user message. Absent in logs written before attachments.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<super::attachments::Attachment>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -649,6 +652,7 @@ mod tests {
                     tool: None,
                     input: None,
                 }),
+                attachments: Vec::new(),
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

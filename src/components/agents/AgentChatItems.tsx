@@ -13,11 +13,13 @@ import { CheckIcon, ChevronRightIcon, CopyIcon, WarningIcon } from '@/components
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
+import { MessageAttachments } from './AgentAttachments';
 import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   formatDivider,
   peerGroupLabel,
+  splitQuotes,
   type Agent,
   type AgentMessage,
   type AgentRef,
@@ -127,19 +129,37 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
 
 interface UserBubbleProps extends Arrival {
   message: AgentMessage;
+  /** Whose home the attachments live in. */
+  agent: Agent;
   /** Sending failed; offer to try again. */
   failed?: boolean;
   onRetry?: () => void;
 }
 
-export function UserBubble({ message, arrived, failed, onRetry }: UserBubbleProps) {
+export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBubbleProps) {
+  const attachments = message.attachments ?? [];
   return (
     <div
       className="agent-chat__row agent-chat__row--user"
       data-arrived={arrived || undefined}
       data-failed={failed || undefined}
     >
-      <div className="agent-bubble agent-bubble--user">{message.text}</div>
+      {attachments.length > 0 && <MessageAttachments agent={agent} attachments={attachments} />}
+      {message.text && (
+        <div className="agent-bubble agent-bubble--user">
+          {splitQuotes(message.text).map((part, i) =>
+            part.kind === 'quote' ? (
+              <blockquote key={i} className="agent-bubble__quote">
+                {part.text}
+              </blockquote>
+            ) : (
+              <p key={i} className="agent-bubble__text">
+                {part.text}
+              </p>
+            )
+          )}
+        </div>
+      )}
       {failed && (
         <div className="agent-chat__failed" role="alert">
           <WarningIcon size={12} />

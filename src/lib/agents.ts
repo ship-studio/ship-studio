@@ -4,7 +4,7 @@
  * @module lib/agents
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 
 /** Avatar colour keys. The CSS maps each to a feature token. */
 export const AGENT_COLORS = [
@@ -52,6 +52,8 @@ export interface Agent {
   /** No OS notifications; unread and the Dock badge still count it. */
   muted: boolean;
   status: AgentStatus;
+  /** The agent's home folder; attachment paths are relative to it. */
+  home: string;
 }
 
 export interface AgentsOverview {
@@ -83,7 +85,64 @@ export interface AgentMessage {
   text: string;
   peer?: AgentRef;
   approval?: Approval;
+  /** Files sent with a user message. */
+  attachments?: Attachment[];
 }
+
+/** A file sent with a message, as kept in the agent's home. */
+export interface Attachment {
+  name: string;
+  /** Relative to the agent's home: `attachments/<message id>/<name>`. */
+  path: string;
+  mime: string;
+  size: number;
+}
+
+/** A file about to be sent: one on disk, or bytes the composer holds (a paste). */
+export interface OutgoingAttachment {
+  name: string;
+  path?: string;
+  /** Base64. */
+  data?: string;
+}
+
+/** What the backend reports for a file before it is attached. */
+export interface FileInfo {
+  path: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+/** Must match `MAX_FILES` / `MAX_FILE_BYTES` in agents/attachments.rs. */
+export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+export const isImageMime = (mime: string) => /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(mime);
+
+/** "840 KB", "3.2 MB". */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  const mb = bytes / (1024 * 1024);
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
+/**
+ * A local file as an `<img>` source. Through the asset protocol in the app;
+ * under the UI harness the fixtures are served over HTTP, so the path already
+ * is a URL (feature-detected, as in `fidelityImageUrl`).
+ */
+export function localFileUrl(path: string): string {
+  try {
+    return convertFileSrc(path);
+  } catch {
+    return path;
+  }
+}
+
+export const attachmentUrl = (home: string, attachment: Attachment) =>
+  localFileUrl(`${home}/${attachment.path}`);
 
 export interface NewAgentInput {
   name: string;
@@ -115,12 +174,24 @@ export const AGENT_EVENTS = {
 export const getAgentsOverview = () => invoke<AgentsOverview>('agents_overview');
 export const getAgentMessages = (agentId: string, limit?: number) =>
   invoke<AgentMessage[]>('agents_messages', { agentId, limit });
-export const sendAgentMessage = (agentId: string, text: string) =>
-  invoke<AgentMessage>('agents_send', { agentId, text });
+export const sendAgentMessage = (
+  agentId: string,
+  text: string,
+  attachments: OutgoingAttachment[] = []
+) =>
+  invoke<AgentMessage>('agents_send', {
+    agentId,
+    text,
+    attachments: attachments.length ? attachments : undefined,
+  });
+export const inspectFiles = (paths: string[]) =>
+  invoke<FileInfo[]>('agents_inspect_files', { paths });
+export const openAttachment = (agentId: string, path: string) =>
+  invoke<void>('agents_open_attachment', { agentId, path });
 export const createAgent = (input: NewAgentInput) =>
-  invoke<Omit<Agent, 'status'>>('agents_create', { input });
+  invoke<Omit<Agent, 'status' | 'home'>>('agents_create', { input });
 export const updateAgent = (agentId: string, input: UpdateAgentInput) =>
-  invoke<Omit<Agent, 'status'>>('agents_update', { agentId, input });
+  invoke<Omit<Agent, 'status' | 'home'>>('agents_update', { agentId, input });
 export const getAgentInstructions = (agentId: string) =>
   invoke<string>('agents_instructions', { agentId });
 export const deleteAgent = (agentId: string) => invoke<void>('agents_delete', { agentId });
@@ -211,4 +282,50 @@ export function formatDivider(ts: number, now = Date.now()): string {
 export function peerGroupLabel(messages: AgentMessage[]): string {
   if (messages.length > 1) return `${messages.length} messages with`;
   return messages[0].kind === 'sent_to_agent' ? 'Messaged' : 'Message from';
+}
+
+/** Selected text as a Markdown quote, ready for the composer. */
+export function quoteText(text: string): string {
+  const lines = text
+    .trim()
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n');
+  return lines.map((line) => (line ? `> ${line}` : '>')).join('\n') + '\n\n';
+}
+
+/** What's sent: each quoted passage as a blockquote, then what was typed. */
+export function withQuotes(quotes: string[], text: string): string {
+  return (quotes.map(quoteText).join('') + text).trim();
+}
+
+/** A user message split into its quoted passages and its own words. */
+export interface BubblePart {
+  kind: 'quote' | 'text';
+  text: string;
+}
+
+/**
+ * Only `>` blockquotes are read out of a user's message; everything else
+ * stays the literal text they typed.
+ */
+export function splitQuotes(text: string): BubblePart[] {
+  const parts: BubblePart[] = [];
+  let lines: string[] = [];
+  let kind: BubblePart['kind'] = 'text';
+  const flush = () => {
+    const body = lines.join('\n').replace(/^\n+|\n+$/g, '');
+    if (body.trim()) parts.push({ kind, text: body });
+    lines = [];
+  };
+  for (const line of text.split('\n')) {
+    const quoted = /^>\s?/.test(line);
+    const next = quoted ? 'quote' : 'text';
+    if (next !== kind) {
+      flush();
+      kind = next;
+    }
+    lines.push(quoted ? line.replace(/^>\s?/, '') : line);
+  }
+  flush();
+  return parts;
 }

@@ -8,11 +8,13 @@
 //! - [`runner`]: per-agent inbox; each turn is one `claude --print --resume`
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`notify`]: macOS notifications and the Dock badge
+//! - [`attachments`]: files sent with a message, copied into the agent's home
 //! - [`import`]: bring an existing setup over from another assistant
 //! - [`prompts`]: voice and role
 //!
 //! Full design: docs/agents.md.
 
+pub mod attachments;
 pub mod import;
 pub mod mcp;
 pub mod notify;

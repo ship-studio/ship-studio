@@ -465,9 +465,11 @@
   display: flex;
 }
 
+/* Attachments stack above the text bubble, both against the right edge. */
 .agent-chat__row--user {
   flex-direction: column;
   align-items: flex-end;
+  gap: var(--spacing-2xs);
 }
 
 /* Two sizes in the column: --font-size-subhead for anything a person reads,
@@ -921,15 +923,22 @@
 /* Same column as the messages, same field language as the sidebar search. */
 .agent-composer {
   display: flex;
-  align-items: flex-end;
-  gap: var(--spacing-sm);
+  flex-direction: column;
   width: calc(100% - (var(--spacing-xl) * 2));
   max-width: var(--agents-chat-width);
   margin: 0 auto var(--spacing-lg);
-  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-md);
+  padding: var(--spacing-xs);
   background: var(--surface-panel);
   border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-card);
+}
+
+/* The text spans the full width; under it a slim bar carries the paperclip
+   on the left and [mic] [send] on the right, however many lines are typed. */
+.agent-composer__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .agent-composer:focus-within {
@@ -937,10 +946,9 @@
 }
 
 .agent-composer .agent-composer__input {
-  flex: 1;
-  min-height: var(--control-height-standard);
+  min-height: 0;
   max-height: 180px;
-  padding: calc((var(--control-height-standard) - var(--font-size-subhead) * 1.4) / 2) 0;
+  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-2xs);
   font-size: var(--font-size-subhead);
   line-height: var(--line-height-help);
   color: var(--text-primary);
@@ -957,6 +965,15 @@
   box-shadow: none;
 }
 
+/* [mic] [send] on the right of the bar. */
+.agent-composer__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-2xs);
+}
+
+.agent-composer__attach,
 .agent-composer__send,
 .agent-composer__stop {
   flex: 0 0 auto;
@@ -972,7 +989,9 @@
 
 /* No engine: the composer's slot says why, and offers the fix. */
 .agent-composer--blocked {
+  flex-direction: row;
   align-items: center;
+  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-md);
   gap: var(--spacing-sm);
 }
 

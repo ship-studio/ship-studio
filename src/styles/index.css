@@ -131,6 +131,7 @@
 @import './features/inbox.css';
 @import './features/agents.css';
 @import './features/agents-motion.css';
+@import './features/agents-attachments.css';
 @import './features/team/base.css';
 @import './features/team/updates.css';
 @import './features/team/people.css';

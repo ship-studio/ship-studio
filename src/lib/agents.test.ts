@@ -4,6 +4,8 @@ import {
   formatDivider,
   peerGroupLabel,
   sortAgents,
+  splitQuotes,
+  withQuotes,
   type Agent,
   type AgentMessage,
 } from './agents';
@@ -83,5 +85,22 @@ describe('sortAgents', () => {
   it('puts pinned first, then most recent', () => {
     const sorted = sortAgents([a('old', 1), a('pinned-old', 0, true), a('new', 5)]);
     expect(sorted.map((x) => x.id)).toEqual(['pinned-old', 'new', 'old']);
+  });
+});
+
+describe('quotes', () => {
+  it('sends each quote as a blockquote ahead of the typed text', () => {
+    expect(withQuotes(['one', 'two\nlines'], 'Why?')).toBe('> one\n\n> two\n> lines\n\nWhy?');
+    expect(withQuotes(['only'], '')).toBe('> only');
+  });
+
+  it('reads blockquotes back out of a user message', () => {
+    expect(splitQuotes('> one\n\n> two\n> lines\n\nWhy?')).toEqual([
+      { kind: 'quote', text: 'one' },
+      { kind: 'quote', text: 'two\nlines' },
+      { kind: 'text', text: 'Why?' },
+    ]);
+    expect(splitQuotes('> a\n>\n> b')).toEqual([{ kind: 'quote', text: 'a\n\nb' }]);
+    expect(splitQuotes('no quotes > here')).toEqual([{ kind: 'text', text: 'no quotes > here' }]);
   });
 });
