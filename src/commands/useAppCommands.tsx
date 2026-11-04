@@ -12,6 +12,7 @@ import { logger } from '../lib/logger';
 import { kbd } from '../lib/shortcuts';
 import { basename } from '../lib/paths';
 import { requestPairOnOpen } from '../lib/companion';
+import { requestInstallOnOpen } from '../lib/companionInstall';
 import { fileManagerName } from '../lib/setup';
 import {
   CodeIcon,
@@ -338,6 +339,27 @@ export function useAppCommands({
         keywords: ['phone', 'mobile', 'iphone', 'android', 'qr', 'companion', 'pair'],
         run: () => {
           requestPairOnOpen();
+          openModal('phone');
+        },
+      },
+      {
+        id: 'companion.install',
+        title: 'Install Ship Studio on my iPhone or Android…',
+        icon: <MobileIcon size={14} />,
+        category: 'settings',
+        keywords: [
+          'phone',
+          'mobile',
+          'iphone',
+          'android',
+          'install',
+          'testflight',
+          'apk',
+          'companion',
+          'xcode',
+        ],
+        run: () => {
+          requestInstallOnOpen();
           openModal('phone');
         },
       },

@@ -474,8 +474,21 @@ This follows the agent-led onboarding pattern (`src/lib/agentOnboarding.ts`):
 
 **How it starts.** Settings → Phone → **Install on my iPhone** (or **…on my
 Android**), or Cmd+K. The button spawns the user's agent in a terminal beside
-a checklist, with the prompt from `buildPhoneInstallPrompt` in a new
-`src/lib/companionInstall.ts`.
+a checklist, with the prompt from `buildIosInstallPrompt` /
+`buildAndroidInstallPrompt` in `src/lib/companionInstall.ts`. The UI is
+`src/components/phone/PhoneInstall*.tsx`; the checks are
+`commands/companion_install.rs`, all read-only. Nothing runs until the user
+clicks **Start Claude Code** (or **Reinstall**).
+
+As built: an outdated or missing Xcode disables Start, because only the user
+can update from the App Store. Android always self-builds for now
+(`studio.ship.companion.self`, never the official package); the official APK
+and TestFlight cards say "Not available yet" until `TESTFLIGHT_URL` /
+`ANDROID_APK_URL` are set. Expiry comes from the newest provisioning profile
+for `<team>.<bundle id>` under `~/Library/Developer/Xcode/UserData/Provisioning
+Profiles`, and the install record and its 24 h reminder live in the desktop's
+local storage (`shipstudio.companionInstall`). A dev build builds from its own
+checkout's `mobile/`; `SHIPSTUDIO_COMPANION_SOURCE` overrides the folder.
 
 **What the prompt tells the agent.** The prompt is prescriptive: the steps,
 the commands, and what to ask the user to do by hand. For example: "plug in

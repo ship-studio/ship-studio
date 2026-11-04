@@ -77,7 +77,7 @@ pub struct MirrorInfo {
 
 /// Build an `xcrun` command with the extended PATH (Finder-launched apps don't
 /// inherit the shell PATH).
-fn xcrun_command() -> Command {
+pub(crate) fn xcrun_command() -> Command {
     let mut cmd = if let Some(path) = find_executable("xcrun") {
         create_command(path)
     } else {
@@ -436,7 +436,7 @@ pub fn reap_orphaned_serve_sim() {
 /// Locate the Android SDK root: `$ANDROID_HOME`, then `$ANDROID_SDK_ROOT`, then the
 /// per-OS Android Studio default. `None` means Android tooling isn't installed —
 /// callers surface that as a clear "set up Android" error.
-fn android_sdk_root() -> Option<std::path::PathBuf> {
+pub(crate) fn android_sdk_root() -> Option<std::path::PathBuf> {
     for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Ok(p) = std::env::var(var) {
             let path = std::path::PathBuf::from(p);
@@ -477,7 +477,7 @@ fn android_tool_command(tool: &str, sdk_subdir: &str) -> Command {
     cmd
 }
 
-fn adb_command() -> Command {
+pub(crate) fn adb_command() -> Command {
     android_tool_command("adb", "platform-tools")
 }
 
@@ -773,7 +773,7 @@ pub struct MobilePlatformSupport {
 
 /// Are Xcode's command line tools installed? `xcode-select -p` resolves the developer
 /// dir only when they are (the bare `xcrun` stub exists even without them).
-async fn xcode_clt_installed() -> bool {
+pub(crate) async fn xcode_clt_installed() -> bool {
     let mut cmd = create_command("xcode-select");
     cmd.arg("-p");
     cmd.env("PATH", get_extended_path());
@@ -1866,7 +1866,7 @@ fn launch_command_or_refusal(
 /// runs in a login shell, so it inherits the user's profile — but `JAVA_HOME` is
 /// often unset there even when a JDK exists. We probe the common install locations
 /// (filesystem only, no shelling) and return the first with a real `bin/java`.
-fn detect_jdk_home() -> Option<std::path::PathBuf> {
+pub(crate) fn detect_jdk_home() -> Option<std::path::PathBuf> {
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(jh) = std::env::var("JAVA_HOME") {
         candidates.push(std::path::PathBuf::from(jh));

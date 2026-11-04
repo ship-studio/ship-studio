@@ -5,6 +5,7 @@ import { SettingsModal } from './dashboard/SettingsModal';
 import { MigrationModals } from './migration/MigrationModals';
 import { RemoteAccessModal } from './remote/RemoteAccessModal';
 import { PhoneModal } from './phone/PhoneModal';
+import { useCompanionInstallReminder } from './phone/PhoneInstallEntry';
 import { ToastList } from './primitives/ToastList';
 import { useModal } from '../contexts/ModalContext';
 import { usePaletteContext } from './CommandPalette/paletteContext';
@@ -42,6 +43,7 @@ function GlobalModalsBody() {
   const remoteAccess = useModal('remoteAccess');
   const phone = useModal('phone');
   const { toasts, dismissToast } = useToast();
+  useCompanionInstallReminder();
 
   return (
     <>
