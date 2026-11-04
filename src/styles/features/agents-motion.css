@@ -21,7 +21,31 @@
 @keyframes agents-motion-rise {
   from {
     opacity: 0;
-    transform: translateY(var(--spacing-sm)) scale(0.98);
+    transform: translateY(var(--agents-motion-rise-y, var(--spacing-sm)))
+      scale(var(--agents-motion-rise-scale, 0.98));
+  }
+}
+
+@keyframes agents-motion-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Gone in the first frame, then reports animationend so it unmounts. */
+@keyframes agents-motion-gone {
+  from,
+  to {
+    height: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes agents-motion-jump-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--spacing-xs));
   }
 }
 
@@ -84,7 +108,7 @@
 @keyframes agents-motion-jump-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(var(--spacing-xs));
+    transform: translateY(var(--spacing-xs));
   }
 }
 
@@ -107,11 +131,51 @@
   transform-origin: bottom center;
 }
 
-/* Switching agents is a straight swap: AgentsView keeps the old
-   conversation up until the new one's messages are in, and the new one
-   lands already scrolled to its bottom, so there is nothing to fade over. */
+/* Switching agents: AgentsView keeps the old conversation up until the new
+   one's messages are in, and the new one lands already scrolled to its
+   bottom (measured: no scroll frames, no layout shift). Its lines then fade
+   up in place — opacity only, so nothing moves. */
+.agent-chat__messages {
+  animation: agents-motion-fade-in var(--transition-interaction) backwards;
+}
+
+/* The transcript fades out under the header and above the composer instead
+   of hard-cutting. The band sits inside the messages' own padding, so at
+   rest nothing is faded. */
+.agent-chat__scroll {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--agents-motion-edge-fade),
+    black calc(100% - var(--agents-motion-edge-fade)),
+    transparent
+  ); /* css-ok: mask alpha, not a colour */
+}
 
 /* ------------------------------------------------- streaming reply */
+
+/* The hand-off. When the first words arrive, the working pill goes in the
+   same frame and the reply takes its place at the pill's height, so the
+   transcript doesn't move: before, the line pushed in, the pill collapsed,
+   and everything bobbed 20-30px. The reply fades in rather than rising (the
+   rise's offsets are variables, so this never restarts the animation), and
+   lets go of the pill's height smoothly once it's done. */
+.agent-chat__messages
+  > .agent-chat__row:has(> .agent-bubble[data-streaming])
+  ~ .agent-chat__row--working[data-leaving] {
+  animation: agents-motion-gone 1ms forwards;
+}
+
+.agent-chat__messages > .agent-chat__row--agent[data-arrived] {
+  min-height: 0;
+  transition: min-height var(--agents-motion-settle);
+}
+
+.agent-chat__messages > .agent-chat__row:has(> .agent-bubble[data-streaming]) {
+  --agents-motion-rise-y: 0;
+  --agents-motion-rise-scale: 1;
+  min-height: var(--agents-motion-working-height);
+}
 
 /* A reply being written grows in place (the bubble arrives once, like any
    line; its text changing never re-runs that). A soft dot breathes at the end
@@ -146,10 +210,6 @@
    agents.css), so it can open and close instead of popping. The chat's
    ResizeObserver keeps the bottom pinned while it does, which turns the
    height change into a smooth scroll rather than a jump. */
-.agent-chat__row--working {
-  --agents-motion-working-height: calc(var(--font-size-subhead) * 1.4 + var(--spacing-sm) * 2);
-}
-
 .agent-chat__row--working[data-entering] {
   overflow: hidden;
   animation: agents-motion-working-open var(--agents-motion-enter) backwards;
@@ -213,8 +273,21 @@
 
 /* ------------------------------------------------------ jump button */
 
-.agent-chat__jump {
+/* Seated in the transcript's bottom fade band, centred without a transform
+   (agents.css centres it with translateX, which the button's own :active
+   scale replaced, so a press threw it sideways). Leaves as it came. */
+.agent-chat__footer .agent-chat__jump {
+  bottom: calc(100% + (var(--agents-motion-edge-fade) - var(--control-height-compact)) / 2);
+  right: 0;
+  left: 0;
+  margin-inline: auto;
+  transform: none;
   animation: agents-motion-jump-in var(--agents-motion-enter) backwards;
+}
+
+.agent-chat__footer .agent-chat__jump[data-leaving] {
+  pointer-events: none;
+  animation: agents-motion-jump-out var(--transition-interaction-fast) forwards;
 }
 
 /* --------------------------------------------------------- composer */
@@ -259,6 +332,47 @@
   animation: agents-motion-pop-in var(--agents-motion-enter) backwards;
 }
 
+/* A press acknowledges before the conversation swaps. */
+.agents-list__row:active:not(.is-current) {
+  background: var(--tint-strong);
+}
+
+.agents-list__preview,
+.agent-chat__status {
+  transition: color var(--transition-interaction);
+}
+
+/* "Working" / "Needs your OK" in the header eases in when it appears. */
+.agent-chat__status {
+  animation: agents-motion-swap-in var(--agents-motion-enter) backwards;
+}
+
+/* Results replace the list; they, and hidden rows when shown, fade in. */
+.agents-list > .agents-search,
+.agents-list > .agents-search__note,
+.agents-list > .agents-list__row[data-hidden] {
+  animation: agents-motion-fade-in var(--transition-interaction) backwards;
+}
+
+/* ---------------------------------------------------- menus & modals */
+
+/* Agents' dropdowns (model, switcher, scheduled) open the way the app's
+   context menus do, with the same keyframes and tokens. */
+.ss-dropdown__menu:is(.agent-model-menu, .agent-schedule) {
+  transform-origin: top right;
+  animation: ss-context-menu-enter var(--context-menu-animation-duration)
+    var(--context-menu-animation-easing) backwards;
+}
+
+/* The editor and import dialogs: the scrim fades, the dialog rises. */
+.modal-frame-overlay:has(> .modal-frame-content:is(.agent-editor, .agents-import)) {
+  animation: agents-motion-fade-in var(--transition-interaction) backwards;
+}
+
+.modal-frame-content:is(.agent-editor, .agents-import) {
+  animation: agents-motion-rise var(--agents-motion-enter) backwards;
+}
+
 /* A search jumped here: the line's bubble rings in its agent's colour and
    fades, so the eye lands on it after the scroll. Kept under reduced motion
    (it's a fade, not movement): it is how you find the line. */
@@ -298,7 +412,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-chat__messages,
   .agent-chat__messages > [data-arrived],
+  .agent-chat__footer .agent-chat__jump,
+  .agent-chat__status,
+  .agents-list > *,
+  .ss-dropdown__menu:is(.agent-model-menu, .agent-schedule),
+  .modal-frame-overlay:has(> .modal-frame-content:is(.agent-editor, .agents-import)),
+  .modal-frame-content:is(.agent-editor, .agents-import),
   .agent-chat__row--working[data-entering],
   .agent-chat__row--working[data-leaving],
   .agent-working__activity[data-changed],
@@ -322,6 +443,7 @@
   }
 
   .agent-peer__thread,
+  .agent-chat__messages > .agent-chat__row--agent[data-arrived],
   .agent-composer .agent-composer__input,
   .agent-composer__mic::before {
     transition: none;

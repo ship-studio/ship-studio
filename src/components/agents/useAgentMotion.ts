@@ -106,15 +106,22 @@ export function useFollowBottom(
     const stop = () => {
       glideUntil.current = 0;
     };
+    // A glide that has landed is over: growth after it (a reply streaming)
+    // snaps in the same frame instead of riding a stale smooth scroll.
+    const landed = () => {
+      if (el.scrollHeight - el.clientHeight - el.scrollTop < 1) stop();
+    };
     const observer = new ResizeObserver(() => {
       if (atBottomRef.current) follow(false);
     });
     observer.observe(content);
+    el.addEventListener('scroll', landed, { passive: true });
     el.addEventListener('wheel', stop, { passive: true });
     el.addEventListener('touchstart', stop, { passive: true });
     el.addEventListener('keydown', stop);
     return () => {
       observer.disconnect();
+      el.removeEventListener('scroll', landed);
       el.removeEventListener('wheel', stop);
       el.removeEventListener('touchstart', stop);
       el.removeEventListener('keydown', stop);
