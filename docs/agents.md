@@ -76,6 +76,7 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `list_agents` | all | names, roles, busy / waiting |
 | `message_agent` | all | async: records "Messaged X" here and "Message from Y" there, queues a turn for X |
 | `list_projects` | all | Ship Studio projects and paths |
+| `share_file` | all | hands the user a file it made: copied into its `attachments/`, posted as its own message with a file card |
 | `create_agent` | Chief | name, role, instructions, optional `first_task` |
 | `update_agent` | Chief | name / role / instructions (memory kept) |
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
@@ -262,6 +263,31 @@ cards.
   persisted field, a naming flow, collapse state, and a story for how they
   sit with the recency sort. Worth doing as its own slice once the list is
   long enough to want them.
+## Files back from agents (`src-tauri/src/agents/files.rs`)
+
+- `share_file {path, caption?}` takes `~/…`, an absolute path, or one relative
+  to the agent's home. The path is canonicalised and must land inside the
+  agent's home or a registered project, so `..` and symlinks are judged by
+  where they really lead; folders are refused (zip first). The file is
+  **copied** into `<home>/attachments/<message id>/` under the attachments
+  limits, so the card survives the agent editing or deleting the original.
+- It's recorded as an `agent` message with `attachments` and the caption as
+  its text, so unread, notifications ("Shared report.pdf" with no caption) and
+  history all treat it like a reply. Images show inline; files are the same
+  chips as yours, on the left. Click opens; Show in Finder sits on hover and in
+  the image view. The prompt tells agents to share rather than paste.
+- **Files** (header … menu, or ⌘K "Files shared with <agent>") lists every
+  attachment in the conversation, both ways, newest first
+  (`agents_files`, a scan of the whole log), filterable All / From you /
+  From <agent>, each with Open and Show in Finder.
+- **Paths in replies** become links: Markdown links without a scheme, `~/…`
+  and absolute paths under `/Users`, `/Volumes`, `/tmp` and similar written
+  out in prose, and inline code that is only such a path (`/careers` isn't).
+  `agents_open_path` resolves relative paths against the agent's home and
+  requires the target to exist. Documents open in their default app; folders,
+  apps, scripts, anything executable or with a launching extension
+  (`.command`, `.app`, `.py`, `.webloc`…) are only revealed in Finder, never
+  run. ⌘-click always reveals.
 
 ## Known limits / next
 
@@ -269,8 +295,6 @@ cards.
   (`codex exec --json`) and Opencode would slot in there.
 - No OS notification when an agent replies while Ship Studio is in the
   background. The unread badge is the only signal.
-- Agents can't send files back to you yet (a `share_file` tool would post a
-  file card).
 - Search scans files on every query. Fine at one person's scale (tens of
   agents, thousands of lines); an index would be needed well past that.
 - Many agents can run at once; there's no global concurrency cap.
@@ -282,7 +306,7 @@ cards.
 
 ## Testing
 
-- `cargo test --lib agents::`: store, prompts framing, activity labels, MCP
+- `cargo test --lib agents::`: store, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
 - `node scripts/harness-capture.mjs agents-`: team, Team overview, @mention menu, approval, first run, new

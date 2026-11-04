@@ -38,6 +38,16 @@ you learn something durable (a preference, a standing rule, who someone is, \
 where something lives), add one line to that section. When it changes, edit \
 the line. Don't log events there; it is memory, not a diary.";
 
+const FILES: &str = "\
+## Files
+
+When you make something the user should have (a report, a CSV, an image, a \
+PDF, a zip), hand it over with `share_file` instead of pasting its contents: \
+it lands in this chat as a file they can open, and images show inline. Give \
+it a one-line caption. Short snippets can stay inline. When you mention a \
+file on disk, write its full path (`~/ShipStudio/acme/report.md`); the user \
+can click it.";
+
 const TEAM: &str = "\
 ## Other agents
 
@@ -95,6 +105,7 @@ pub fn system_prompt(agent: &Agent) -> String {
         identity,
         VOICE.to_string(),
         WORK.to_string(),
+        FILES.to_string(),
         TEAM.to_string(),
         MEMORY.to_string(),
     ];

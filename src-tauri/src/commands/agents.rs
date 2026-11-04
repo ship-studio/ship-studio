@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, attachments, import, mcp, notify, prompts, runner, schedule, search, store, usage,
+    self, attachments, files, import, mcp, notify, prompts, runner, schedule, search, store, usage,
 };
 use crate::errors::CommandError;
 
@@ -146,12 +146,47 @@ pub async fn agents_inspect_files(
     Ok(files)
 }
 
-/// Open an attachment in its default app (a PDF in Preview, a CSV in Numbers).
+/// Open an attachment in its default app (a PDF in Preview, a CSV in Numbers),
+/// or with `reveal`, show it in Finder.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn agents_open_attachment(agent_id: String, path: String) -> Result<(), CommandError> {
+pub async fn agents_open_attachment(
+    agent_id: String,
+    path: String,
+    reveal: Option<bool>,
+) -> Result<(), CommandError> {
     let full = attachments::resolve(&store::agent_home(&agent_id)?, &path)?;
-    tauri_plugin_opener::open_path(&full, None::<&str>).map_err(agents::err_other)
+    let action = if reveal.unwrap_or(false) {
+        files::PathAction::Reveal
+    } else {
+        files::PathAction::Open
+    };
+    files::perform(&full, action)
+}
+
+/// Everything shared in one conversation, both ways, newest first.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_files(agent_id: String) -> Result<Vec<files::SharedFile>, CommandError> {
+    tokio::task::spawn_blocking(move || files::list(&agent_id))
+        .await
+        .map_err(agents::err_other)?
+}
+
+/// A path an agent wrote in its reply, clicked: a document opens in its
+/// default app; folders, apps and scripts are only shown in Finder. Returns
+/// what was done, so the UI can say "Shown in Finder".
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_open_path(
+    agent_id: String,
+    path: String,
+    reveal: Option<bool>,
+) -> Result<files::PathAction, CommandError> {
+    let home = store::agent_home(&agent_id)?;
+    let (full, action) = files::local_path(&path, &home, reveal.unwrap_or(false))?;
+    files::perform(&full, action)?;
+    Ok(action)
 }
 
 #[derive(Debug, Deserialize)]

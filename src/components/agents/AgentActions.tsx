@@ -15,6 +15,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   HistoryIcon,
+  PaperclipIcon,
   PinIcon,
   TrashIcon,
 } from '@/components/icons';
@@ -49,11 +50,14 @@ export function AgentActionItems({
   onEdit,
   onDelete,
   onSchedule,
+  onFiles,
 }: {
   agent: Agent;
   kind: 'context' | 'dropdown';
   /** Only where the schedule popover is at hand (the conversation header). */
   onSchedule?: () => void;
+  /** Same: only where the Files list can open. */
+  onFiles?: () => void;
 } & AgentActions) {
   const items: Item[] = [
     {
@@ -67,6 +71,7 @@ export function AgentActionItems({
       icon: agent.muted ? <BellIcon size={12} /> : <BellOffIcon size={12} />,
       run: () => onToggleMuted(agent),
     },
+    ...(onFiles ? [{ label: 'Files', icon: <PaperclipIcon size={12} />, run: onFiles }] : []),
     ...(onSchedule
       ? [{ label: 'Schedule a check-in…', icon: <HistoryIcon size={12} />, run: onSchedule }]
       : []),

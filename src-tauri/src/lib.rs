@@ -569,6 +569,8 @@ pub fn run() {
             commands::agents::agents_send,
             commands::agents::agents_inspect_files,
             commands::agents::agents_open_attachment,
+            commands::agents::agents_files,
+            commands::agents::agents_open_path,
             commands::agents::agents_create,
             commands::agents::agents_update,
             commands::agents::agents_instructions,

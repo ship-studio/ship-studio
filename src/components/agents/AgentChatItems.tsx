@@ -21,6 +21,8 @@ import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
 import { MessageAttachments } from './AgentAttachments';
 import { MentionText } from './AgentMentions';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
@@ -29,7 +31,11 @@ import {
   formatDivider,
   formatExactTime,
   formatWhen,
+  isCodePath,
+  localPathFromHref,
+  openLocalPath,
   peerGroupLabel,
+  PROSE_PATH,
   splitQuotes,
   type Agent,
   type AgentMessage,
@@ -44,20 +50,47 @@ interface Arrival {
   arrived?: boolean;
 }
 
-/** Links in agent text open in the system browser, never in the app webview. */
-function useExternalLinks() {
-  return useCallback((event: MouseEvent<HTMLElement>) => {
-    const anchor = (event.target as HTMLElement).closest('a');
-    const href = anchor?.getAttribute('href');
-    if (!href) return;
-    event.preventDefault();
-    if (/^(https?|mailto):/i.test(href)) void openUrl(href);
-  }, []);
+/**
+ * Links in agent text: web links open in the system browser, never in the app
+ * webview; a local path opens in its default app (⌘-click shows it in Finder
+ * instead). The backend decides what is safe to open: folders, apps and
+ * scripts are only ever revealed.
+ */
+function useProseLinks(agentId: string) {
+  const { showToast } = useOptionalToast();
+  return useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      const anchor = (event.target as HTMLElement).closest('a');
+      const href = anchor?.getAttribute('href');
+      if (!href) return;
+      event.preventDefault();
+      if (/^(https?|mailto):/i.test(href)) {
+        void openUrl(href);
+        return;
+      }
+      const path = localPathFromHref(href);
+      if (!path) return;
+      const reveal = event.metaKey;
+      openLocalPath(agentId, path, reveal).then(
+        (done) => {
+          if (done === 'reveal' && !reveal) showToast('Shown in Finder', 'info');
+        },
+        (error: unknown) => showToast(formatCommandError(asCommandError(error)), 'error')
+      );
+    },
+    [agentId, showToast]
+  );
 }
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+const pathLink = (path: string, inner: string) =>
+  `<a href="${escapeHtml(encodeURI(path))}" class="agent-path" title="${escapeHtml(path)}">${inner}</a>`;
 
 /**
  * Agent prose. Images become links: a remote image would load inside the app
- * webview, unsized, from wherever the agent pointed it.
+ * webview, unsized, from wherever the agent pointed it. A local path, written
+ * out or in `code`, becomes a link that opens it.
  */
 const markdown = new Marked({
   gfm: true,
@@ -67,7 +100,26 @@ const markdown = new Marked({
       const label = DOMPurify.sanitize(text || href);
       return `<a href="${encodeURI(href)}">${label}</a>`;
     },
+    codespan({ text }) {
+      return isCodePath(text) ? pathLink(text.trim(), `<code>${escapeHtml(text)}</code>`) : false;
+    },
   },
+  extensions: [
+    {
+      name: 'localPath',
+      level: 'inline',
+      start: (src) => {
+        const at = src.search(PROSE_PATH);
+        return at < 0 ? undefined : at;
+      },
+      tokenizer(src) {
+        if (this.lexer.state.inLink) return undefined;
+        const match = new RegExp(`^${PROSE_PATH.source}`).exec(src);
+        return match ? { type: 'localPath', raw: match[0], path: match[0] } : undefined;
+      },
+      renderer: (token) => pathLink(String(token.path), escapeHtml(String(token.path))),
+    },
+  ],
 });
 
 type Segment = { type: 'html'; html: string } | { type: 'code'; text: string; lang?: string };
@@ -149,6 +201,8 @@ function MessageActions({ text, ts }: { text: string; ts: number }) {
 
 interface AgentBubbleProps extends Arrival {
   message: AgentMessage;
+  /** Whose reply: local paths resolve against its home, shared files live there. */
+  agent: Agent;
   /** Still being written: the text grows in place and a caret marks its end. */
   streaming?: boolean;
 }
@@ -173,25 +227,38 @@ function Prose({ text }: { text: string }) {
   );
 }
 
-export function AgentBubble({ message, arrived, streaming }: AgentBubbleProps) {
-  const onClick = useExternalLinks();
+/** A reply in prose, and any files the agent shared with it (`share_file`). */
+export function AgentBubble({ message, agent, arrived, streaming }: AgentBubbleProps) {
+  const onClick = useProseLinks(agent.id);
+  const attachments = message.attachments ?? [];
+  const actions = !streaming && <MessageActions text={message.text} ts={message.ts} />;
   return (
     <div
       className="agent-chat__row agent-chat__row--agent"
       data-arrived={arrived || undefined}
       data-stopped={message.stopped || undefined}
+      data-attachments={attachments.length > 0 || undefined}
       data-message-ids={message.id}
     >
-      <div
-        className="agent-bubble agent-bubble--agent agent-markdown"
-        data-streaming={streaming || undefined}
-        aria-busy={streaming || undefined}
-        onClick={onClick}
-      >
-        <Prose text={message.text} />
-      </div>
+      {message.text && (
+        <div
+          className="agent-bubble agent-bubble--agent agent-markdown"
+          data-streaming={streaming || undefined}
+          aria-busy={streaming || undefined}
+          onClick={onClick}
+        >
+          <Prose text={message.text} />
+        </div>
+      )}
       {message.stopped && <span className="agent-bubble__stopped">Stopped</span>}
-      {!streaming && <MessageActions text={message.text} ts={message.ts} />}
+      {attachments.length > 0 ? (
+        <div className="agent-chat__line agent-chat__line--agent">
+          <MessageAttachments agent={agent} attachments={attachments} side="agent" />
+          {actions}
+        </div>
+      ) : (
+        actions
+      )}
     </div>
   );
 }
@@ -355,6 +422,8 @@ export function PeerGroup({
   arrived,
   reveal,
 }: PeerGroupProps) {
+  // Links in the thread open like a reply's, never inside the app webview.
+  const onProseClick = useProseLinks(peer.id);
   const [open, setOpen] = useState(Boolean(reveal));
   const [revealed, setRevealed] = useState(reveal);
   if (reveal !== revealed) {
@@ -393,7 +462,7 @@ export function PeerGroup({
         </button>
       </div>
       {threadShown && (
-        <div ref={threadRef} className="agent-peer__thread">
+        <div ref={threadRef} className="agent-peer__thread" onClick={onProseClick}>
           {messages.map((m) => (
             <div key={m.id} className="agent-peer__message" data-direction={m.kind}>
               <span className="agent-peer__who">

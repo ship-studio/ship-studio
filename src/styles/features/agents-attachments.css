@@ -7,6 +7,7 @@
   --agents-attachment-chip-max: 220px; /* css-ok: file chip name truncation */
   --agents-attachment-image-max: 240px; /* css-ok: a lone sent image */
   --agents-attachment-image-tile: 120px; /* css-ok: one of several sent images */
+  --agents-files-width: 560px; /* css-ok: the Files list's reading width */
 }
 
 /* ------------------------------------------------------ composer chips */
@@ -230,6 +231,67 @@
   outline-offset: var(--spacing-3xs);
 }
 
+/* Show in Finder, on the image's corner or the chip's end, on hover or focus. */
+.agent-attachments__item {
+  position: relative;
+  display: flex;
+}
+
+.agent-attachments .agent-attachments__reveal {
+  position: absolute;
+  top: var(--spacing-2xs);
+  right: var(--spacing-2xs);
+  width: var(--spacing-xl);
+  min-width: 0;
+  height: var(--spacing-xl);
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.agent-attachments__files .agent-attachments__reveal {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.agent-attachments__item:hover .agent-attachments__reveal,
+.agent-attachments__item:focus-within .agent-attachments__reveal {
+  opacity: 1;
+}
+
+/* A file the agent shared: under its words, against the left edge, with
+   Copy and the time beside it as they sit beside a reply's last line. */
+.agent-chat__row--agent[data-attachments] {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.agent-chat__line--agent {
+  justify-content: flex-start;
+  max-width: 100%;
+}
+
+.agent-attachments[data-side='agent'] {
+  align-items: flex-start;
+  width: auto;
+  max-width: min(var(--agents-prose-measure), 100%);
+}
+
+.agent-attachments[data-side='agent'] .agent-attachments__files {
+  justify-content: flex-start;
+}
+
+.agent-attachments[data-side='agent'] .agent-attachments__images {
+  justify-content: start;
+}
+
+/* A path in a reply opens the file; it reads as code when written as code. */
+.agent-markdown a.agent-path {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
 /* A quote inside the user's own bubble. */
 .agent-bubble__quote,
 .agent-bubble__text {
@@ -338,6 +400,116 @@
   max-height: 70vh; /* css-ok: leave room for the header */
   margin: 0 auto;
   border-radius: var(--radius-control);
+}
+
+/* ------------------------------------------------------------ Files list */
+
+.modal-frame-content.agent-files {
+  width: min(var(--agents-files-width), 92vw); /* css-ok: viewport bound */
+}
+
+.agent-files__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-xl) var(--spacing-xl);
+}
+
+.agent-files__filter {
+  align-self: flex-start;
+}
+
+.agent-files__list {
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh; /* css-ok: leave room for the header */
+  margin: 0 calc(-1 * var(--spacing-2xs));
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.agent-files__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3xs);
+  padding: var(--spacing-2xs);
+  border-radius: var(--radius-control);
+  transition: background var(--transition-interaction-fast);
+}
+
+.agent-files__row:hover,
+.agent-files__row:focus-within {
+  background: var(--surface-control-hover);
+}
+
+.agent-files__open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.agent-files__open:focus-visible {
+  outline: var(--border-width-emphasis) solid var(--accent-focus);
+  outline-offset: var(--spacing-3xs);
+  border-radius: var(--radius-control);
+}
+
+.agent-files__icon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-standard);
+  height: var(--control-height-standard);
+  overflow: hidden;
+  color: var(--text-secondary);
+  background: var(--surface-recessed);
+  border-radius: var(--radius-control);
+}
+
+.agent-files__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-files__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--line-height-compact);
+}
+
+.agent-files__name {
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-files__meta {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+.agent-files__empty {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: var(--spacing-xl) var(--spacing-md);
+  font-size: var(--font-size-body-md);
+  text-align: center;
+  color: var(--text-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {

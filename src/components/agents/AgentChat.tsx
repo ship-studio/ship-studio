@@ -38,6 +38,7 @@ import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentSchedulePopover } from './AgentSchedulePopover';
+import { AgentFilesModal } from './AgentFilesModal';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import { useDictation } from './useDictation';
 import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
@@ -184,6 +185,7 @@ export function AgentChat({
   const sectionRef = useRef<HTMLElement>(null);
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   // Who you can @mention here: everyone else on the team, in sidebar order.
   const mentionable = useMemo(
@@ -204,6 +206,14 @@ export function AgentChat({
         keywords: ['routine', 'remind', 'every', 'recurring', 'later', 'scheduled'],
         when: () => engineReady,
         run: () => setScheduleOpen(true),
+      },
+      {
+        id: 'agents.files',
+        title: `Files shared with ${agent.name}`,
+        icon: <PaperclipIcon size={14} />,
+        category: 'navigation',
+        keywords: ['agents', 'attachments', 'shared', 'downloads', 'report', 'documents'],
+        run: () => setFilesOpen(true),
       },
     ],
     [agent.name, engineReady]
@@ -596,9 +606,11 @@ export function AgentChat({
               agent={agent}
               kind="dropdown"
               onSchedule={engineReady ? () => setScheduleOpen(true) : undefined}
+              onFiles={() => setFilesOpen(true)}
               {...actions}
             />
           </Dropdown>
+          <AgentFilesModal agent={agent} isOpen={filesOpen} onClose={() => setFilesOpen(false)} />
         </div>
       </header>
 
@@ -680,6 +692,7 @@ export function AgentChat({
                       key={m.id}
                       message={m}
                       arrived={arrived}
+                      agent={agent}
                       streaming={m === streaming}
                     />
                   );
