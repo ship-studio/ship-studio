@@ -16,6 +16,7 @@ import {
   type SearchHit,
 } from '../../lib/agents';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { AgentAvatar } from './AgentAvatar';
 
 /** Wait this long after the last keystroke before scanning. */
 const DEBOUNCE_MS = 140;
@@ -53,11 +54,9 @@ export function moveHitFocus(
   field: RefObject<HTMLInputElement | null>
 ) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-  const hits = Array.from(
-    e.currentTarget
-      .closest('[data-agents-search-scope]')
-      ?.querySelectorAll<HTMLElement>('.agents-search__hit') ?? []
-  );
+  // The sidebar's field and its results live in different parts of the
+  // sidebar; there is only ever one result list on screen.
+  const hits = Array.from(document.querySelectorAll<HTMLElement>('.agents-search__hit'));
   if (hits.length === 0) return;
   e.preventDefault();
   const index = hits.indexOf(document.activeElement as HTMLElement);
@@ -94,7 +93,7 @@ export function AgentsSearchResults({ query, field, onOpen }: AgentsSearchResult
       {groupHits(results.hits).map(({ agentId, hits }) => (
         <div key={agentId} className="agents-search__group" role="listitem">
           <div className="agents-search__agent">
-            <span className="agent-dot" data-color={hits[0].agentColor} aria-hidden="true" />
+            <AgentAvatar name={hits[0].agentName} color={hits[0].agentColor} />
             <span className="agents-search__agent-name">{hits[0].agentName}</span>
           </div>
           {hits.map((hit) => {
@@ -103,6 +102,7 @@ export function AgentsSearchResults({ query, field, onOpen }: AgentsSearchResult
               <button
                 key={hit.messageId}
                 type="button"
+                tabIndex={0}
                 className="agents-search__hit"
                 onClick={() => onOpen(hit)}
               >

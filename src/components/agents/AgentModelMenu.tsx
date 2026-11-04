@@ -34,6 +34,7 @@ export function AgentModelMenu({ agent }: { agent: Agent }) {
       quietOpen
       trigger={(props) => (
         <MenuButton
+          tabIndex={0}
           variant="ghost"
           className="agent-chat__model"
           expanded={props['aria-expanded']}

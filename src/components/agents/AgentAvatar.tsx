@@ -6,7 +6,11 @@
  * @module components/agents/AgentAvatar
  */
 
-/** "Chief of Staff" → "CS", "Finance" → "FI", "Acme Site" → "AS". */
+/**
+ * "Chief of Staff" → "CS", "Finance" → "FI", "Acme Site" → "AS". A number
+ * keeps its digits ("Agent 3" → "A3", "Agent 12" → "12"), so a numbered run
+ * of agents doesn't collapse onto one badge.
+ */
 export function agentInitials(name: string): string {
   const words = name
     .trim()
@@ -14,6 +18,10 @@ export function agentInitials(name: string): string {
     .filter(
       (w) => /[A-Za-z0-9]/.test(w) && !['of', 'the', 'and', 'for', '&'].includes(w.toLowerCase())
     );
+  const number = words.length >= 2 ? words[words.length - 1] : '';
+  if (/^\d+$/.test(number)) {
+    return number.length >= 2 ? number.slice(-2) : (words[0][0] + number).toUpperCase();
+  }
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
   const word = words[0] ?? name.trim();
   return word.slice(0, 2).toUpperCase();
@@ -24,9 +32,10 @@ interface AgentAvatarProps {
   color: string;
   /**
    * `row` is the sidebar's badge (a project badge's size and type), `field`
-   * sits beside a text field at control height, `hero` heads an empty chat.
+   * sits beside a text field at control height, `hero` heads an empty chat,
+   * `mini` leads a menu item.
    */
-  size?: 'row' | 'field' | 'hero';
+  size?: 'row' | 'field' | 'hero' | 'mini';
   /** Solid fill, for the agent you're looking at (like the current project's badge). */
   selected?: boolean;
   className?: string;

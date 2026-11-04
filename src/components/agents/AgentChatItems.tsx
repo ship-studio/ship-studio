@@ -23,7 +23,10 @@ import { MessageAttachments } from './AgentAttachments';
 import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
+  errorRemedy,
+  formatClock,
   formatDivider,
+  formatExactTime,
   formatWhen,
   peerGroupLabel,
   splitQuotes,
@@ -102,12 +105,43 @@ function CodeBlock({ text }: { text: string }) {
       <IconButton
         variant="ghost"
         size="compact"
+        tabIndex={0}
         className="agent-code__copy"
         icon={isCopied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
         onClick={() => void copy(text)}
         aria-label={isCopied ? 'Copied' : 'Copy code'}
         title={isCopied ? 'Copied' : 'Copy'}
       />
+    </div>
+  );
+}
+
+/**
+ * Copy and the time, on hover or keyboard focus. They keep their space, so
+ * nothing shifts under the pointer; the exact time is the time's tooltip.
+ */
+function MessageActions({ text, ts }: { text: string; ts: number }) {
+  const { copy, isCopied } = useCopyToClipboard();
+  return (
+    <div className="agent-message__actions">
+      {text && (
+        <IconButton
+          tabIndex={0}
+          variant="ghost"
+          size="compact"
+          icon={isCopied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+          onClick={() => void copy(text)}
+          aria-label={isCopied ? 'Copied' : 'Copy message'}
+          title={isCopied ? 'Copied' : 'Copy'}
+        />
+      )}
+      <time
+        className="agent-message__time"
+        dateTime={new Date(ts).toISOString()}
+        title={formatExactTime(ts)}
+      >
+        {formatClock(ts)}
+      </time>
     </div>
   );
 }
@@ -134,6 +168,7 @@ export function AgentBubble({ message, arrived }: { message: AgentMessage } & Ar
           )
         )}
       </div>
+      <MessageActions text={message.text} ts={message.ts} />
     </div>
   );
 }
@@ -147,36 +182,47 @@ interface UserBubbleProps extends Arrival {
   onRetry?: () => void;
 }
 
+/** Attachments sit above the words, both against the right edge, as one message. */
 export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
+  const actions = !failed && <MessageActions text={message.text} ts={message.ts} />;
   return (
     <div
       className="agent-chat__row agent-chat__row--user"
       data-arrived={arrived || undefined}
       data-failed={failed || undefined}
+      data-attachments={attachments.length > 0 || undefined}
       data-message-ids={message.id}
     >
-      {attachments.length > 0 && <MessageAttachments agent={agent} attachments={attachments} />}
+      {attachments.length > 0 && (
+        <div className="agent-chat__line">
+          {!message.text && actions}
+          <MessageAttachments agent={agent} attachments={attachments} />
+        </div>
+      )}
       {message.text && (
-        <div className="agent-bubble agent-bubble--user">
-          {splitQuotes(message.text).map((part, i) =>
-            part.kind === 'quote' ? (
-              <blockquote key={i} className="agent-bubble__quote">
-                {part.text}
-              </blockquote>
-            ) : (
-              <p key={i} className="agent-bubble__text">
-                {part.text}
-              </p>
-            )
-          )}
+        <div className="agent-chat__line">
+          {actions}
+          <div className="agent-bubble agent-bubble--user">
+            {splitQuotes(message.text).map((part, i) =>
+              part.kind === 'quote' ? (
+                <blockquote key={i} className="agent-bubble__quote">
+                  {part.text}
+                </blockquote>
+              ) : (
+                <p key={i} className="agent-bubble__text">
+                  {part.text}
+                </p>
+              )
+            )}
+          </div>
         </div>
       )}
       {failed && (
         <div className="agent-chat__failed" role="alert">
           <WarningIcon size={12} />
           Not sent.
-          <TextButton variant="accent" onClick={onRetry}>
+          <TextButton variant="accent" tabIndex={0} onClick={onRetry}>
             Try again
           </TextButton>
         </div>
@@ -185,16 +231,45 @@ export function UserBubble({ message, agent, arrived, failed, onRetry }: UserBub
   );
 }
 
-export function ErrorLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+interface ErrorLineProps extends Arrival {
+  message: AgentMessage;
+  /** Send the last thing you said again; only on the newest failure. */
+  onRetry?: () => void;
+  onSignIn?: () => void;
+}
+
+/** A failed turn, with its one next step: sign in again, or try again. */
+export function ErrorLine({ message, arrived, onRetry, onSignIn }: ErrorLineProps) {
+  const signIn = errorRemedy(message.text) === 'sign-in' && onSignIn;
   return (
     <div
-      className="agent-chat__row agent-chat__row--agent"
+      className="agent-chat__row agent-chat__row--agent agent-chat__row--card"
       data-arrived={arrived || undefined}
       data-message-ids={message.id}
     >
       <div className="agent-bubble agent-bubble--error" role="alert">
-        {message.text}
+        <p className="agent-bubble__text">{message.text}</p>
+        {(signIn || onRetry) && (
+          <div className="agent-bubble__remedy">
+            {signIn && (
+              <Button tabIndex={0} size="compact" variant="secondary" onClick={onSignIn}>
+                Sign in to Claude Code
+              </Button>
+            )}
+            {onRetry && (
+              <Button
+                tabIndex={0}
+                size="compact"
+                variant={signIn ? 'ghost' : 'secondary'}
+                onClick={onRetry}
+              >
+                Retry
+              </Button>
+            )}
+          </div>
+        )}
       </div>
+      <MessageActions text={message.text} ts={message.ts} />
     </div>
   );
 }
@@ -393,10 +468,21 @@ export function ApprovalCard({ message, paused, onAnswer, arrived }: ApprovalCar
         )}
         {pending ? (
           <div className="agent-approval__actions">
-            <Button variant="secondary" disabled={busy} onClick={() => void answer(false)}>
+            {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
+            <Button
+              tabIndex={0}
+              variant="secondary"
+              disabled={busy}
+              onClick={() => void answer(false)}
+            >
               Deny
             </Button>
-            <Button variant="primary" disabled={busy} onClick={() => void answer(true)}>
+            <Button
+              tabIndex={0}
+              variant="primary"
+              disabled={busy}
+              onClick={() => void answer(true)}
+            >
               Allow
             </Button>
           </div>

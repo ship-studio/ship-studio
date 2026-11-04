@@ -31,6 +31,8 @@
   );
   --agents-chat-width: 720px;
   --agents-bubble-max: 80%;
+  /* Agent prose sits on the canvas at a reading measure, not in a bubble. */
+  --agents-prose-measure: 38em; /* ≈70 characters of body text */
 }
 
 [data-color='white'] {
@@ -102,6 +104,12 @@
   border-radius: var(--radius-control);
 }
 
+.agent-avatar--mini {
+  --agent-avatar-size: calc(var(--spacing-lg) + var(--spacing-2xs));
+  font-size: var(--font-size-caption);
+  border-radius: var(--radius-sm);
+}
+
 .agent-avatar--hero {
   --agent-avatar-size: calc(var(--control-height-standard) + var(--spacing-lg));
   font-size: var(--font-size-h4);
@@ -151,8 +159,15 @@
   cursor: pointer;
 }
 
+/* Hover is a whisper; the open conversation is the solid selected fill with
+   its badge filled in, as the current project is. A row whose context menu is
+   open takes the hover look, so the menu's target is plain. */
 .agents-list__row:hover {
-  background: var(--surface-control);
+  background: var(--tint-subtle);
+}
+
+.agents-list__row[data-context-menu-open] {
+  background: var(--surface-control-hover);
 }
 
 .agents-list__row.is-current,
@@ -163,7 +178,6 @@
 
 .agents-list__row:focus-visible {
   outline: none;
-  background: var(--surface-control);
   box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
 }
 
@@ -348,6 +362,12 @@
   padding-inline: var(--agents-rail-nav-width);
 }
 
+/* Collapsed, the nav row floats over the header band; it carries the band's
+   hairline so the line runs unbroken across the window. */
+.agents-mode .workspace-sidebar.is-hidden .workspace-sidebar-top-row {
+  box-shadow: inset 0 calc(var(--border-width-default) * -1) 0 var(--border-subtle);
+}
+
 .agent-chat__scheduled {
   font-size: var(--font-size-body-sm);
   color: var(--text-muted);
@@ -436,9 +456,19 @@
   margin-top: var(--spacing-md);
 }
 
-.agent-chat__row--agent + .agent-chat__row--agent:not(.agent-chat__row--card),
 .agent-chat__row--user + .agent-chat__row--user {
   margin-top: var(--spacing-2xs);
+}
+
+/* Unboxed, two replies in a row read as paragraphs of one answer. */
+.agent-chat__row--agent + .agent-chat__row--agent:not(.agent-chat__row--card) {
+  margin-top: var(--spacing-sm);
+}
+
+/* A message that opens with attachments is a new message, not a tail on
+   the one before it. */
+.agent-chat__row--user + .agent-chat__row--user[data-attachments] {
+  margin-top: var(--spacing-md);
 }
 
 .agent-chat__messages > .agent-chat__row--card {
@@ -461,6 +491,15 @@
   font-weight: var(--font-weight-heading);
   line-height: var(--line-height-compact);
   color: var(--text-primary);
+}
+
+.agent-chat__starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  max-width: 480px;
+  margin-top: var(--spacing-md);
 }
 
 .agent-chat__empty-role {
@@ -495,8 +534,12 @@
   user-select: text;
 }
 
+/* The agent's reply is prose on the canvas: no fill, a reading measure, and
+   the same left edge as the column. Only what you said is a bubble. */
 .agent-bubble--agent {
-  background: var(--surface-control);
+  max-width: min(var(--agents-prose-measure), 100%);
+  padding: 0;
+  border-radius: 0;
 }
 
 /* Yours is one neutral colour for every agent: identity lives in the badge,
@@ -504,6 +547,55 @@
 .agent-bubble--user {
   white-space: pre-wrap;
   background: var(--surface-selected);
+  box-shadow: var(--shadow-button);
+}
+
+/* A message and its quiet actions on one line: Copy and the time sit beside
+   the reply's last line (after it for the agent, before it for you), shown
+   on hover or keyboard focus. They keep their space so nothing shifts. */
+.agent-chat__row--agent {
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+}
+
+.agent-chat__line {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  width: 100%;
+}
+
+.agent-chat__line > .agent-bubble--user {
+  max-width: calc(var(--agents-chat-width) * 0.8);
+}
+
+.agent-message__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  opacity: 0;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.agent-chat__row:hover .agent-message__actions,
+.agent-chat__row:focus-within .agent-message__actions {
+  opacity: 1;
+}
+
+.agent-message__time {
+  padding-inline: var(--spacing-2xs);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-message__actions {
+    transition: none;
+  }
 }
 
 .agent-chat__row--user[data-failed] .agent-bubble--user {
@@ -520,14 +612,27 @@
 }
 
 .agent-bubble--error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
   color: var(--accent-error-light);
   background: rgba(var(--accent-error-rgb), 0.08);
   box-shadow: inset 0 0 0 var(--border-width-default) rgba(var(--accent-error-rgb), 0.25);
 }
 
-/* Agent prose: quiet markdown, a message rather than a document. Rules
-   inside a bubble use --border-strong / --text-faint: the bubble is already
-   --surface-control, where --border-subtle disappears. */
+.agent-bubble__text {
+  margin: 0;
+}
+
+.agent-bubble__remedy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+/* Agent prose: quiet markdown on the canvas, a message rather than a
+   document. Blocks breathe a step more than lines; headings and rules mark a
+   section, so they take the most room above. */
 .agent-markdown > :first-child,
 .agent-markdown__prose > :first-child {
   margin-top: 0;
@@ -539,16 +644,15 @@
 }
 
 .agent-markdown > * + * {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-md);
 }
 
 .agent-markdown p,
 .agent-markdown ul,
 .agent-markdown ol,
 .agent-markdown blockquote,
-.agent-markdown table,
-.agent-markdown hr {
-  margin: 0 0 var(--spacing-sm);
+.agent-markdown table {
+  margin: 0 0 var(--spacing-md);
 }
 
 .agent-markdown ul,
@@ -586,7 +690,7 @@
 .agent-markdown h4,
 .agent-markdown h5,
 .agent-markdown h6 {
-  margin: var(--spacing-md) 0 var(--spacing-xs);
+  margin: var(--spacing-lg) 0 var(--spacing-xs);
   font-size: inherit;
   font-weight: var(--font-weight-heading);
   line-height: var(--line-height-compact);
@@ -596,7 +700,7 @@
   padding: 0 var(--spacing-xs);
   font-family: var(--font-mono);
   font-size: var(--font-size-body-md);
-  background: var(--surface-recessed);
+  background: var(--surface-control);
   border-radius: var(--radius-sm);
 }
 
@@ -608,8 +712,9 @@
 
 .agent-markdown hr {
   height: 0;
+  margin: var(--spacing-lg) 0;
   border: 0;
-  border-top: var(--border-width-default) solid var(--border-strong);
+  border-top: var(--border-width-default) solid var(--border-subtle);
 }
 
 .agent-markdown table {
@@ -626,13 +731,13 @@
   padding: var(--spacing-xs) var(--spacing-sm);
   text-align: left;
   vertical-align: top;
-  border-bottom: var(--border-width-default) solid var(--border-strong);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
 }
 
 .agent-markdown th {
   font-weight: var(--font-weight-heading);
   color: var(--text-secondary);
-  border-bottom-color: var(--text-faint);
+  border-bottom-color: var(--border-strong);
 }
 
 .agent-markdown th:first-child,
@@ -644,10 +749,11 @@
   border-bottom: none;
 }
 
-/* A code block: recessed, its own scroll, and Copy on hover or focus. */
+/* A code block: its own panel on the canvas, its own scroll, and Copy on
+   hover or focus. */
 .agent-code {
   position: relative;
-  background: var(--surface-recessed);
+  background: var(--surface-panel);
   border: var(--border-width-default) solid var(--border-subtle);
   border-radius: var(--radius-card);
 }
@@ -1069,30 +1175,65 @@
 
 .agent-composer:not([data-dictation='idle']) .agent-composer__mic,
 .agent-composer:not([data-dictation='idle']) .agent-composer__mic:hover:not(:disabled) {
-  color: var(--text-primary);
+  color: var(--accent-active);
   /* The round halo is the state; a square hover plate on top muddies it. */
   background: transparent;
 }
 
+.agent-composer__mic::before {
+  background: var(--accent-active);
+}
+
 .agent-composer[data-dictation='starting'] .agent-composer__mic::before {
-  opacity: 0.06;
+  opacity: 0.1;
   transform: scale(0.85);
 }
 
 .agent-composer[data-dictation='listening'] .agent-composer__mic::before {
-  opacity: calc(0.12 + var(--dictation-level) * 0.14);
-  transform: scale(calc(0.9 + var(--dictation-level) * 0.35));
+  opacity: calc(0.16 + var(--dictation-level) * 0.2);
+  transform: scale(calc(0.9 + var(--dictation-level) * 0.4));
 }
 
-/* What arrives while listening reads as provisional until it settles. */
+/* What arrives reads as words, never as placeholder: the full text colour,
+   and it settles (stops being editable) only when dictation ends. */
 .agent-composer[data-dictation='listening'] .agent-composer__input,
 .agent-composer[data-dictation='finishing'] .agent-composer__input {
+  color: var(--text-primary);
+}
+
+.agent-composer:not([data-dictation='idle']) {
+  border-color: rgba(var(--accent-active-rgb), 0.45);
+  box-shadow: 0 0 0 var(--border-width-default) rgba(var(--accent-active-rgb), 0.12);
+}
+
+/* "● Listening · Esc to cancel", in the paperclip's place. */
+.agent-composer__listening {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding-left: var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
 }
 
-.agent-composer[data-dictation='listening'],
-.agent-composer[data-dictation='finishing'] {
-  border-color: var(--border-strong);
+.agent-composer__listening-dot {
+  width: var(--size-sidebar-status-indicator);
+  height: var(--size-sidebar-status-indicator);
+  background: var(--accent-active);
+  border-radius: var(--radius-pill);
+  animation: agents-listening-pulse 1.4s ease-in-out infinite; /* css-ok: breathing loop */
+}
+
+@keyframes agents-listening-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-composer__listening-dot {
+    animation: none;
+  }
 }
 
 .agent-composer__notice {
@@ -1128,6 +1269,12 @@
 
 .agent-editor__identity .ss-text-field {
   flex: 1;
+}
+
+/* The badge is exactly the field's height, so the two share a baseline. */
+.agent-editor__identity .agent-avatar--field {
+  --agent-avatar-size: var(--text-field-height);
+  font-size: var(--font-size-body-md);
 }
 
 .agent-editor__colors {
@@ -1202,6 +1349,8 @@
 
 /* The schedule popover, anchored to the chat header's "N scheduled" */
 .ss-dropdown__menu.agent-schedule {
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-md);
   width: 340px;
   max-width: calc(100vw - var(--spacing-2xl));
   max-height: min(480px, calc(100vh - var(--spacing-2xl) * 3));
@@ -1266,16 +1415,16 @@
 
 /* Row actions surface on hover or keyboard focus; they keep their space so
    the note doesn't reflow under the pointer. */
+/* Row actions are always there, quiet; they brighten with their row. */
 .agent-schedule__actions {
   display: flex;
   flex: 0 0 auto;
-  opacity: 0;
-  transition: opacity var(--transition-interaction);
+  color: var(--text-muted);
 }
 
 .agent-schedule__item:hover .agent-schedule__actions,
 .agent-schedule__item:focus-within .agent-schedule__actions {
-  opacity: 1;
+  color: var(--text-secondary);
 }
 
 .agent-schedule__empty {
@@ -1310,9 +1459,9 @@
 .agent-schedule__foot {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-body-sm);
   line-height: var(--line-height-help);
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .modal-frame-content.agents-import {
@@ -1377,40 +1526,42 @@
 
 /* -------------------------------------------------------------- search */
 
-/* Put away until asked for. The row animates its height open (0fr → 1fr) and
-   fades in; closed, it is inert, so nothing in it takes focus. */
-.agents-list__search {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows var(--transition-interaction),
-    opacity var(--transition-interaction);
+/* Agents mode's top field: the palette trigger's place and look (the app
+   surface, no border, its shortcut chip at the trailing edge), but a real
+   field that searches conversations. */
+.agents-top-search {
+  position: relative;
 }
 
-.agents-list__search[data-open] {
-  grid-template-rows: 1fr;
-  opacity: 1;
+.agents-top-search .agents-top-search__field {
+  height: var(--control-height-standard);
+  padding: 0 var(--spacing-tight) 0 var(--spacing-sm);
+  border-color: transparent;
+  border-radius: var(--radius-card);
 }
 
-.agents-list__search-inner {
-  min-height: 0;
-  overflow: hidden;
+.agents-top-search .agents-top-search__field:hover:not(:focus-within) {
+  background: var(--surface-control);
 }
 
-/* Same insets as the rows below: the field's edges line up with the avatar's
-   left edge and the status column's right edge. */
-.agents-list__search .ss-search-field {
-  margin: var(--spacing-sm) var(--spacing-md) var(--spacing-sm) var(--spacing-sm);
+.agents-top-search .agents-top-search__field > .ss-search-field__input {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .agents-list__search {
-    transition: none;
-  }
+.agents-top-search .ss-search-field__input::placeholder {
+  color: var(--text-faint);
 }
 
-/* Compact mode: no sidebar, so the search comes up over the chat. */
+.agents-top-search__kbd {
+  position: absolute;
+  top: 50%;
+  right: var(--spacing-tight);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* No sidebar to hold it (compact, or the rail collapsed): over the chat. */
 .agents-search-popover {
   position: absolute;
   top: var(--spacing-sm);
@@ -1458,14 +1609,16 @@
   gap: var(--spacing-sm);
 }
 
+/* Same grid as the rows: the badge in the avatar column, the name and every
+   snippet on the text column. */
 .agents-search__agent {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-2xs) var(--spacing-sm);
-  font-size: var(--font-size-body-sm);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-2xs) var(--spacing-sm);
+  font-size: var(--font-size-body-md);
   font-weight: var(--font-weight-label);
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .agents-search__agent-name {
@@ -1479,7 +1632,8 @@
   align-items: baseline;
   gap: var(--spacing-sm);
   width: 100%;
-  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-xs)
+    calc(var(--spacing-sm) * 2 + var(--size-sidebar-project-shortcut));
   text-align: left;
   font: inherit;
   background: none;

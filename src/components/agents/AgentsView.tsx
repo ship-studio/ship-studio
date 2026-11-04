@@ -7,16 +7,19 @@
  * Switching agents keeps the current conversation on screen until the next
  * one's messages are in, so a switch is one swap rather than a blank beat.
  *
- * Keys: ⌘N new agent; ⌥⌘↑ / ⌥⌘↓ or ⌘[ / ⌘] previous / next agent; Esc in an
- * empty composer stops a working agent (AgentChat); ⌘K "Open <agent>".
+ * Keys: ⌘N new agent; ⌥⌘↑ / ⌥⌘↓ or ⌘[ / ⌘] previous / next agent; ⌘F
+ * search, Esc to put it away; Esc in an empty composer otherwise stops a
+ * working agent (AgentChat); ⌘K "Open <agent>".
  *
  * @module components/agents/AgentsView
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { flushSync } from 'react-dom';
 import { HomeSidebar } from '../workspace/HomeSidebar';
 import { AgentsNavActions, AgentsSidebar } from './AgentsSidebar';
-import { AgentsSearchPopover } from './AgentsSearchBox';
+import { AgentsSearchPopover, AgentsTopSearch } from './AgentsSearchBox';
+import { ClaudeSignInModal } from './ClaudeSignInModal';
 import { AgentChat } from './AgentChat';
 import { AgentEditorModal } from './AgentEditorModal';
 import { ImportAgentsModal } from './ImportAgentsModal';
@@ -116,41 +119,44 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openNew = useCallback(() => setEditor({ open: true, agent: null }), []);
   const openImport = useCallback(() => setImportOpen(true), []);
-  // Search is put away until asked for: the header button, ⌘F, the palette.
-  const [searchOpen, setSearchOpen] = useState(false);
+  // The sidebar's top field searches conversations. With no sidebar to hold
+  // it (compact, or the rail collapsed) it comes up over the chat instead.
+  const popoverSearch = isCompact || sidebarProps.isSidebarHidden;
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const [query, setQuery] = useState('');
-  /** Bumped to (re)focus the field, including when it is already open. */
-  const [focusTick, setFocusTick] = useState(0);
+  const [signingIn, setSigningIn] = useState(false);
+  const searchOpen = query.trim().length > 0 || (popoverSearch && popoverOpen);
   const closeSearch = useCallback(() => {
-    setSearchOpen(false);
+    setPopoverOpen(false);
     setQuery('');
+    document.querySelector<HTMLElement>('.agent-composer__input')?.focus({ preventScroll: true });
   }, []);
+  // Focus lands before the next key does: the field is there (or mounted
+  // synchronously) by the time this returns, so nothing typed is lost.
   const focusSearch = useCallback(() => {
-    setSearchOpen(true);
-    setFocusTick((n) => n + 1);
-  }, []);
-  const toggleSearch = useCallback(() => {
-    if (searchOpen) closeSearch();
-    else focusSearch();
-  }, [searchOpen, closeSearch, focusSearch]);
-  useEffect(() => {
-    if (focusTick === 0) return;
-    // After the commit that un-inerts (or mounts) the field.
-    const frame = requestAnimationFrame(() => {
-      searchRef.current?.focus({ preventScroll: true });
-      searchRef.current?.select();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusTick]);
-  const search = useMemo(
-    () => ({ open: searchOpen, query, setQuery, close: closeSearch }),
-    [searchOpen, query, closeSearch]
-  );
+    if (popoverSearch) flushSync(() => setPopoverOpen(true));
+    searchRef.current?.focus({ preventScroll: true });
+    searchRef.current?.select();
+  }, [popoverSearch]);
+  const search = useMemo(() => ({ query, setQuery, close: closeSearch }), [query, closeSearch]);
 
-  // ⌘F searches every conversation, wherever focus is in Agents mode — and in
-  // compact mode too, where the field comes up over the chat.
+  // ⌘F searches every conversation, wherever focus is in Agents mode. Esc
+  // anywhere puts search away, unless something on top (a dialog, a menu,
+  // the composer) already took it.
+  const searchKeys = useRef({ searchOpen, closeSearch, focusSearch });
+  useEffect(() => {
+    searchKeys.current = { searchOpen, closeSearch, focusSearch };
+  });
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const { searchOpen, closeSearch, focusSearch } = searchKeys.current;
+      if (e.key === 'Escape') {
+        if (!searchOpen || e.defaultPrevented) return;
+        if (document.querySelector('[aria-modal="true"], [role="menu"]')) return;
+        e.preventDefault();
+        closeSearch();
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f')
         return;
       e.preventDefault();
@@ -158,7 +164,13 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [focusSearch]);
+  }, []);
+  /** The composer's Esc closes search first, rather than stopping the agent. */
+  const escapeSearch = useCallback(() => {
+    if (!searchKeys.current.searchOpen) return false;
+    searchKeys.current.closeSearch();
+    return true;
+  }, []);
 
   const openHit = useCallback((hit: SearchHit) => {
     setSelectedId(hit.agentId);
@@ -239,12 +251,13 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
           <HomeSidebar
             {...sidebarProps}
             activeNav="agents"
-            agentsNavAction={
-              <AgentsNavActions
-                onNew={openNew}
-                onImport={openImport}
-                searchOpen={searchOpen}
-                onToggleSearch={toggleSearch}
+            agentsNavAction={<AgentsNavActions onNew={openNew} onImport={openImport} />}
+            searchContent={
+              <AgentsTopSearch
+                search={search}
+                field={searchRef}
+                collapsed={sidebarProps.isSidebarHidden}
+                onOpen={focusSearch}
               />
             }
             listContent={
@@ -255,7 +268,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
                 onToggleShowHidden={() => setShowHidden((v) => !v)}
                 onSelect={setSelectedId}
                 {...actions}
-                search={search}
+                query={popoverSearch ? '' : query}
                 searchRef={searchRef}
                 onOpenHit={openHit}
               />
@@ -264,8 +277,13 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
         )}
 
         <main className="agents-main">
-          {isCompact && (
-            <AgentsSearchPopover search={search} field={searchRef} onOpenHit={openHit} />
+          {popoverSearch && (
+            <AgentsSearchPopover
+              search={search}
+              open={popoverOpen}
+              field={searchRef}
+              onOpenHit={openHit}
+            />
           )}
           {error && !loaded ? (
             <div className="agents-main__state">{error}</div>
@@ -280,6 +298,9 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
               agentsById={agentsById}
               onOpenAgent={setSelectedId}
               onSetUpEngine={() => openModal('settings')}
+              onSignIn={() => setSigningIn(true)}
+              onImport={openImport}
+              onEscape={escapeSearch}
               compact={isCompact ? { agents, onGoHome: sidebarProps.onGoHome } : undefined}
               {...actions}
               jumpTo={jumpTo}
@@ -302,6 +323,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
         onDelete={setDeleting}
       />
       <ImportAgentsModal isOpen={importOpen} onClose={() => setImportOpen(false)} />
+      {signingIn && <ClaudeSignInModal onClose={() => setSigningIn(false)} />}
       {deleting && (
         <ProjectActionConfirmModal
           title={`Delete ${deleting.name}?`}

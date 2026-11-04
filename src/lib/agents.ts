@@ -587,3 +587,35 @@ export function splitQuotes(text: string): BubblePart[] {
   flush();
   return parts;
 }
+
+/** "9:24 AM": a message's time, on hover. */
+export function formatClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** "Tuesday, November 4, 2026 at 9:24:13 AM": the exact time, in its tooltip. */
+export function formatExactTime(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'medium' });
+}
+
+/**
+ * What a failed turn's one next step is. Sign-in is matched on Claude Code's
+ * own wordings and on the app's classified message (commands/ai.rs), never
+ * on a bare "sign in", which turns up in ordinary prose.
+ */
+export function errorRemedy(text: string): 'sign-in' | null {
+  const lower = text.toLowerCase();
+  return /isn't signed in anymore|please run \/login|oauth token has expired|invalid api key|not logged in|session expired/.test(
+    lower
+  )
+    ? 'sign-in'
+    : null;
+}
+
+/** The words of the last thing you sent before `index`, to send again. */
+export function lastUserText(messages: AgentMessage[], index: number): string | null {
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages[i].kind === 'user') return messages[i].text.trim() || null;
+  }
+  return null;
+}

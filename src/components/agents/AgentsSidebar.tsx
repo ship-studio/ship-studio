@@ -5,8 +5,8 @@
  * shared status dots — so it reads as the same sidebar, not a second app.
  *
  * There is one group, so there is no group header: the Agents nav row above
- * it is the heading, and carries search and the + menu (`AgentsNavActions`).
- * Search (or ⌘F) reveals a field above the list; while it has a query the
+ * it is the heading, and carries the + menu (`AgentsNavActions`). The
+ * sidebar's top field searches conversations here; while it has a query the
  * results take the list's place.
  *
  * Right-click a row for Pin, Mark as unread, Mute notifications, Edit, Hide
@@ -16,7 +16,7 @@
  * @module components/agents/AgentsSidebar
  */
 
-import { useRef, type KeyboardEvent, type RefObject } from 'react';
+import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import {
   BellOffIcon,
   ChevronRightIcon,
@@ -24,7 +24,6 @@ import {
   EditIcon,
   PinIcon,
   PlusIcon,
-  SearchIcon,
 } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
@@ -33,7 +32,6 @@ import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
-import { AgentsSearchBox, type AgentsSearchState } from './AgentsSearchBox';
 import { useFlipReorder } from './useAgentMotion';
 import { needsYou, sortAgents, type Agent, type SearchHit } from '../../lib/agents';
 import { kbd } from '../../lib/shortcuts';
@@ -44,8 +42,8 @@ interface AgentsSidebarProps extends AgentActions {
   showHidden: boolean;
   onToggleShowHidden: () => void;
   onSelect: (agentId: string) => void;
-  search: AgentsSearchState;
-  /** ⌘F focuses this. */
+  /** The top field's query; while there is one, its results replace the list. */
+  query: string;
   searchRef: RefObject<HTMLInputElement | null>;
   onOpenHit: (hit: SearchHit) => void;
 }
@@ -54,6 +52,17 @@ function subtitle(agent: Agent): string {
   if (needsYou(agent)) return 'Needs your OK';
   if (agent.status.state === 'working') return agent.status.activity ?? 'Working…';
   return agent.preview ?? agent.role ?? '';
+}
+
+/** The full name as a tooltip only when the row cuts it short. */
+function tooltipIfTruncated(event: PointerEvent<HTMLElement>) {
+  const row = event.currentTarget;
+  const text = row.querySelector<HTMLElement>('.agents-list__name-text');
+  if (text && text.scrollWidth > text.clientWidth) {
+    row.setAttribute('data-tooltip-content', text.textContent ?? '');
+  } else {
+    row.removeAttribute('data-tooltip-content');
+  }
 }
 
 /** Up and down move between rows, the way they do in any list. */
@@ -73,12 +82,12 @@ export function AgentsSidebar({
   showHidden,
   onToggleShowHidden,
   onSelect,
-  search,
+  query,
   searchRef,
   onOpenHit,
   ...actions
 }: AgentsSidebarProps) {
-  const searching = search.open && search.query.trim().length > 0;
+  const searching = query.trim().length > 0;
   const sorted = sortAgents(agents);
   const visible = sorted.filter((a) => !a.hidden || a.id === selectedId);
   const hidden = sorted.filter((a) => a.hidden && a.id !== selectedId);
@@ -103,7 +112,7 @@ export function AgentsSidebar({
             data-agent-id={agent.id}
             data-hidden={agent.hidden || undefined}
             aria-current={current ? 'true' : undefined}
-            title={agent.name}
+            onPointerEnter={tooltipIfTruncated}
             onClick={() => onSelect(agent.id)}
           >
             <AgentAvatar name={agent.name} color={agent.color} selected={current} />
@@ -149,21 +158,9 @@ export function AgentsSidebar({
       aria-label="Agents"
       ref={listRef}
       onKeyDown={onListKeyDown}
-      data-agents-search-scope
     >
-      <div
-        id="agents-list-search"
-        className="agents-list__search"
-        data-open={search.open || undefined}
-        inert={!search.open}
-      >
-        <div className="agents-list__search-inner">
-          <AgentsSearchBox search={search} field={searchRef} />
-        </div>
-      </div>
-
       {searching ? (
-        <AgentsSearchResults query={search.query} field={searchRef} onOpen={onOpenHit} />
+        <AgentsSearchResults query={query} field={searchRef} onOpen={onOpenHit} />
       ) : (
         <>
           {visible.map(row)}
@@ -187,34 +184,9 @@ export function AgentsSidebar({
 }
 
 /** The + on the Agents nav row: a new agent, or bring some over. */
-/** The Agents nav row's trailing controls: search (on hover, or while open) and +. */
-export function AgentsNavActions({
-  onNew,
-  onImport,
-  searchOpen,
-  onToggleSearch,
-}: {
-  onNew: () => void;
-  onImport: () => void;
-  searchOpen: boolean;
-  onToggleSearch: () => void;
-}) {
+export function AgentsNavActions({ onNew, onImport }: { onNew: () => void; onImport: () => void }) {
   return (
-    <div className="workspace-sidebar-agents-actions" data-search-open={searchOpen || undefined}>
-      <IconButton
-        variant="ghost"
-        size="compact"
-        className="workspace-sidebar-agents-search"
-        icon={<SearchIcon size={12} />}
-        // Keep focus in the field, so its blur doesn't close it a moment
-        // before this click would.
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={onToggleSearch}
-        title={`Search conversations (${kbd('mod', 'F')})`}
-        aria-label="Search conversations"
-        aria-expanded={searchOpen}
-        aria-controls="agents-list-search"
-      />
+    <div className="workspace-sidebar-agents-actions">
       <Dropdown
         align="right"
         portal

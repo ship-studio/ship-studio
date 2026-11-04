@@ -67,6 +67,7 @@ export function AgentSchedulePopover({ agent, open, onOpenChange }: AgentSchedul
         count > 0 ? (
           <Button
             {...p}
+            tabIndex={0}
             variant="ghost"
             className="agent-chat__scheduled"
             leftIcon={<HistoryIcon size={12} />}
@@ -77,6 +78,7 @@ export function AgentSchedulePopover({ agent, open, onOpenChange }: AgentSchedul
         ) : (
           <IconButton
             {...p}
+            tabIndex={0}
             variant="ghost"
             icon={<HistoryIcon size={14} />}
             title="Schedule a check-in"
@@ -209,14 +211,13 @@ function ScheduleRow({
   return (
     <li className="agent-schedule__item" data-paused={item.paused || undefined}>
       <div className="agent-schedule__text">
-        <span className="agent-schedule__note" title={item.note}>
-          {item.note}
-        </span>
+        <span className="agent-schedule__note">{item.note}</span>
         <span className="agent-schedule__when">{describeCheckInTime(item)}</span>
       </div>
       <div className="agent-schedule__actions">
         {item.repeat && (
           <IconButton
+            tabIndex={0}
             variant="ghost"
             size="compact"
             icon={item.paused ? <PlayIcon size={12} /> : <PauseIcon size={12} />}
@@ -227,6 +228,7 @@ function ScheduleRow({
           />
         )}
         <IconButton
+          tabIndex={0}
           variant="ghost"
           size="compact"
           icon={<CloseIcon size={12} />}

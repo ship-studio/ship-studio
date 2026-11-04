@@ -170,14 +170,22 @@ and its answer post one notification per turn.
 
 ## Search, model and usage
 
-- **Search.** The search button in the Agents header, ⌘F, or ⌘K → "Search
-  agent conversations" reveals a field above the list (in compact mode it opens
-  over the chat instead). It scans every agent's `messages.jsonl` directly, with
-  no index: every word must appear, case is ignored, newest first, at most 50
-  hits (`src-tauri/src/agents/search.rs`). Results replace the list, grouped by
-  agent. Opening one loads older history if needed, expands a collapsed
-  agent-to-agent thread that holds it, and centres the line. Esc, or leaving
-  the field empty, puts it away.
+- **Search.** In Agents mode the sidebar's top field searches conversations
+  (⌘F focuses it; ⌘K stays the palette, and the palette's "Search agent
+  conversations" does the same). With no sidebar to hold it (compact width, or
+  the rail collapsed) it opens over the chat instead. It scans every agent's
+  `messages.jsonl` directly, with no index: every word must appear, case is
+  ignored, newest first, at most 50 hits (`src-tauri/src/agents/search.rs`).
+  Results replace the list, grouped by agent. Enter opens the first hit;
+  opening one loads older history if needed, expands a collapsed agent-to-agent
+  thread that holds it, centres the line, and puts focus in the composer. Esc
+  anywhere in Agents mode clears it (in the composer, Esc closes search before
+  it would stop a working agent).
+- **Messages.** Agent replies are prose on the canvas; your messages are
+  bubbles. Hover or focus shows Copy and the time (the exact time is its
+  tooltip). The newest error, with nothing said since, offers Retry (sends
+  your last message again, words only) and, for an expired login, "Sign in to
+  Claude Code" (the same `claude auth login` terminal the dashboard uses).
 - **Model.** Default / Opus / Sonnet / Haiku, passed as `--model` from the next
   turn. Set it when creating the agent, in the editor, or from the menu in the
   chat header. Only Claude Code's own aliases are accepted, and the backend

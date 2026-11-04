@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { agentInitials } from '../components/agents/AgentAvatar';
 import {
   buildChatItems,
+  errorRemedy,
+  lastUserText,
   describeCheckInTime,
   describeRepeat,
   formatWhen,
@@ -246,5 +249,38 @@ describe('formatUsage', () => {
     expect(modelLabel(null)).toBe('Default');
     expect(modelLabel('opus')).toBe('Opus');
     expect(modelLabel('claude-x')).toBe('claude-x');
+  });
+});
+
+describe('agentInitials', () => {
+  it('takes two words, skipping filler', () => {
+    expect(agentInitials('Chief of Staff')).toBe('CS');
+    expect(agentInitials('Finance')).toBe('FI');
+  });
+
+  it('keeps numbers apart', () => {
+    expect(agentInitials('Agent 3')).toBe('A3');
+    expect(agentInitials('Agent 10')).toBe('10');
+    expect(agentInitials('Agent 19')).toBe('19');
+  });
+});
+
+describe('errorRemedy', () => {
+  it('offers sign-in for expired logins only', () => {
+    expect(
+      errorRemedy("Claude Code isn't signed in anymore (its session expired). Open an agent")
+    ).toBe('sign-in');
+    expect(errorRemedy('Invalid API key · Please run /login')).toBe('sign-in');
+    expect(errorRemedy('You should sign in again to Stripe')).toBeNull();
+    expect(errorRemedy('Stopped.')).toBeNull();
+  });
+});
+
+describe('lastUserText', () => {
+  const m = (kind: string, text: string) => ({ id: text, agentId: 'a', ts: 0, kind, text });
+  it('finds the last thing you sent before a line', () => {
+    const list = [m('user', 'first'), m('agent', 'ok'), m('user', 'second'), m('error', 'x')];
+    expect(lastUserText(list as never, 3)).toBe('second');
+    expect(lastUserText(list as never, 0)).toBeNull();
   });
 });

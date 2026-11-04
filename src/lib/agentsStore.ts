@@ -103,6 +103,25 @@ export function upsertMessage(message: AgentMessage) {
   emit({ ...state, messages: { ...state.messages, [message.agentId]: next } });
 }
 
+/**
+ * You just sent `text`: the row shows it and moves up at once, as the
+ * backend's own update will (its first line: `preview_for` in runner.rs).
+ */
+export function markSent(agentId: string, text: string) {
+  const line = text
+    .split('\n')
+    .map((l) => l.trim())
+    .find(Boolean);
+  emit({
+    ...state,
+    agents: state.agents.map((a) =>
+      a.id === agentId
+        ? { ...a, preview: line?.slice(0, 140) ?? a.preview, lastActivityAt: Date.now() }
+        : a
+    ),
+  });
+}
+
 function patchStatus(agentId: string, status: AgentStatus) {
   emit({
     ...state,

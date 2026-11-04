@@ -15,6 +15,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CheckIcon,
+  ChevronIcon,
   HistoryIcon,
   HomeIcon,
   MicrophoneIcon,
@@ -53,6 +55,7 @@ import {
 import {
   answerApproval,
   buildChatItems,
+  lastUserText,
   needsYou,
   withQuotes,
   sendAgentMessage,
@@ -63,6 +66,7 @@ import {
 } from '../../lib/agents';
 import {
   loadMessages,
+  markSent,
   MESSAGE_MAX,
   MESSAGE_PAGE,
   upsertMessage,
@@ -70,6 +74,12 @@ import {
 } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
+
+/**
+ * First open: one-click ways in. Importing isn't the Chief's job (the other
+ * assistant does it), so that one opens the import steps instead.
+ */
+const STARTERS = ['Set up my team', 'What can you do?'];
 
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_THRESHOLD = 80;
@@ -92,6 +102,11 @@ interface AgentChatProps extends AgentActions {
   agentsById: Map<string, Agent>;
   onOpenAgent: (agentId: string) => void;
   onSetUpEngine: () => void;
+  /** The expired-login remedy on an error line. */
+  onSignIn: () => void;
+  onImport: () => void;
+  /** Esc in the composer: true if something above it (search) took it. */
+  onEscape?: () => boolean;
   /** Below the compact breakpoint the sidebar is gone; the header carries navigation. */
   compact?: { agents: Agent[]; onGoHome: () => void };
   /** A search result to scroll to and flash; `onJumped` is called once it's shown. */
@@ -110,6 +125,9 @@ export function AgentChat({
   agentsById,
   onOpenAgent,
   onSetUpEngine,
+  onSignIn,
+  onImport,
+  onEscape,
   compact,
   jumpTo,
   onJumped,
@@ -240,6 +258,12 @@ export function AgentChat({
   const keyOf = (id: string) => aliases.get(id) ?? id;
 
   const items = useMemo(() => buildChatItems(shown), [shown]);
+  // Retry belongs to the newest failure only, and only if nothing was said since.
+  const retryText = useMemo(() => {
+    const last = shown[shown.length - 1];
+    return last?.kind === 'error' ? lastUserText(shown, shown.length - 1) : null;
+  }, [shown]);
+  const retryId = retryText ? shown[shown.length - 1].id : null;
   // A card left open after the turn ended is not "working": no dots, no Stop.
   const working = agent.status.state === 'working';
   const indicator = usePresence(working);
@@ -300,6 +324,8 @@ export function AgentChat({
       target.removeEventListener('animationend', clear);
     };
     target.addEventListener('animationend', clear);
+    // Typing goes on in this conversation, not into whatever was clicked.
+    inputRef.current?.focus({ preventScroll: true });
     onJumped?.();
   }, [jumpTo, messages, agent.id, onJumped]);
 
@@ -337,20 +363,27 @@ export function AgentChat({
     }
   };
 
+  /** Words alone: on screen at once, and in the sidebar's row. */
+  const sendText = (text: string) => {
+    atBottomRef.current = true;
+    const entry = newPending(text);
+    setPending((list) => [...list, entry]);
+    markSent(agent.id, text);
+    void deliver(entry);
+  };
+
   const send = () => {
     if (!canSend || dictating) return;
     const typed = draft.trim();
     setDraft('');
     setQuotes([]);
-    atBottomRef.current = true;
     if (staged.length > 0) {
+      atBottomRef.current = true;
       attachments.setItems([]);
       void sendWithFiles(typed, quotes, staged);
       return;
     }
-    const entry = newPending(withQuotes(quotes, typed));
-    setPending((list) => [...list, entry]);
-    void deliver(entry);
+    sendText(withQuotes(quotes, typed));
   };
 
   const retry = (key: string) => {
@@ -417,6 +450,7 @@ export function AgentChat({
       <header className="agent-chat__header">
         {compact && (
           <IconButton
+            tabIndex={0}
             variant="ghost"
             className="agent-chat__home"
             icon={<HomeIcon size={14} />}
@@ -429,15 +463,21 @@ export function AgentChat({
           <Dropdown
             portal
             className="agent-chat__switcher"
+            menuClassName="agent-model-menu"
             trigger={(p) => (
               <MenuButton
                 {...p}
+                tabIndex={0}
                 expanded={p['aria-expanded']}
                 variant="ghost"
                 className="agent-chat__title"
                 aria-label={`${agent.name}. Switch agent`}
               >
                 {title}
+                <ChevronIcon
+                  size={10}
+                  className={p['aria-expanded'] ? 'chevron-flipped' : undefined}
+                />
               </MenuButton>
             )}
           >
@@ -446,12 +486,16 @@ export function AgentChat({
               .map((a) => (
                 <DropdownItem
                   key={a.id}
-                  active={a.id === agent.id}
-                  icon={<span className="agent-dot" data-color={a.color} />}
+                  icon={<AgentAvatar name={a.name} color={a.color} size="mini" />}
                   onSelect={() => onOpenAgent(a.id)}
                 >
-                  {a.name}
-                  {needsYou(a) ? ' · needs your OK' : a.unread > 0 ? ' · new' : ''}
+                  <span className="agent-model-menu__label">
+                    {a.name}
+                    {needsYou(a) ? ' · needs your OK' : a.unread > 0 ? ' · new' : ''}
+                  </span>
+                  <span className="agent-model-menu__check" aria-hidden="true">
+                    {a.id === agent.id && <CheckIcon size={12} />}
+                  </span>
                 </DropdownItem>
               ))}
             <DropdownDivider />
@@ -505,7 +549,33 @@ export function AgentChat({
             <div className="agent-chat__empty">
               <AgentAvatar name={agent.name} color={agent.color} size="hero" selected />
               <p className="agent-chat__empty-name">{agent.name}</p>
-              {agent.role && <p className="agent-chat__empty-role">{agent.role}</p>}
+              {agent.isMain ? (
+                <>
+                  <p className="agent-chat__empty-role">
+                    Your Chief of Staff builds and runs your team: it sets up agents for your
+                    projects, briefs them, and tracks their work.
+                  </p>
+                  {engineReady && (
+                    <div className="agent-chat__starters">
+                      {STARTERS.map((text) => (
+                        <Button
+                          key={text}
+                          tabIndex={0}
+                          variant="secondary"
+                          onClick={() => sendText(text)}
+                        >
+                          {text}
+                        </Button>
+                      ))}
+                      <Button tabIndex={0} variant="secondary" onClick={onImport}>
+                        Import my agents from another assistant
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                agent.role && <p className="agent-chat__empty-role">{agent.role}</p>
+              )}
             </div>
           ) : (
             items.map((item, index) => {
@@ -557,7 +627,17 @@ export function AgentChat({
                     />
                   );
                 case 'error':
-                  return <ErrorLine key={m.id} message={m} arrived={arrived} />;
+                  return (
+                    <ErrorLine
+                      key={m.id}
+                      message={m}
+                      arrived={arrived}
+                      onSignIn={onSignIn}
+                      onRetry={
+                        m.id === retryId && retryText ? () => sendText(retryText) : undefined
+                      }
+                    />
+                  );
                 case 'check_in':
                   return <CheckInLine key={m.id} message={m} arrived={arrived} />;
                 default:
@@ -579,6 +659,7 @@ export function AgentChat({
       <div className="agent-chat__footer">
         {!atBottom && (
           <IconButton
+            tabIndex={0}
             className="agent-chat__jump"
             icon={<ArrowDownIcon size={14} />}
             onClick={scrollToBottom}
@@ -631,6 +712,8 @@ export function AgentChat({
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   send();
+                } else if (e.key === 'Escape' && onEscape?.()) {
+                  e.preventDefault();
                 } else if (e.key === 'Escape' && working && !canSend) {
                   e.preventDefault();
                   void onStop();
@@ -639,17 +722,30 @@ export function AgentChat({
               aria-label={`Message ${agent.name}`}
             />
             <div className="agent-composer__bar">
-              <IconButton
-                variant="ghost"
-                className="agent-composer__attach"
-                icon={<PaperclipIcon size={14} />}
-                onClick={pickFiles}
-                aria-label="Attach files"
-                title="Attach files, or paste or drop them here"
-              />
+              {dictating ? (
+                <span className="agent-composer__listening" role="status">
+                  <span className="agent-composer__listening-dot" aria-hidden />
+                  {dictation.phase === 'finishing' ? 'Finishing…' : 'Listening'}
+                  <span aria-hidden>·</span>
+                  <TextButton tabIndex={0} onClick={dictation.cancel}>
+                    Cancel
+                  </TextButton>
+                </span>
+              ) : (
+                <IconButton
+                  tabIndex={0}
+                  variant="ghost"
+                  className="agent-composer__attach"
+                  icon={<PaperclipIcon size={14} />}
+                  onClick={pickFiles}
+                  aria-label="Attach files"
+                  title="Attach files, or paste or drop them here"
+                />
+              )}
               <div className="agent-composer__actions">
                 <IconButton
                   ref={micRef}
+                  tabIndex={0}
                   variant="ghost"
                   className="agent-composer__mic"
                   icon={<MicrophoneIcon size={14} />}
@@ -663,6 +759,7 @@ export function AgentChat({
                 />
                 {working && !canSend && !dictating ? (
                   <IconButton
+                    tabIndex={0}
                     variant="secondary"
                     className="agent-composer__stop"
                     icon={<span className="agent-composer__stop-square" aria-hidden />}
@@ -672,6 +769,7 @@ export function AgentChat({
                   />
                 ) : (
                   <IconButton
+                    tabIndex={0}
                     type="submit"
                     variant={canSend && !dictating ? 'primary' : 'secondary'}
                     className="agent-composer__send"
@@ -692,7 +790,7 @@ export function AgentChat({
             <span className="agent-composer__blocked-text">
               Agents run on Claude Code, which isn&apos;t installed on this Mac yet.
             </span>
-            <Button variant="primary" onClick={onSetUpEngine}>
+            <Button tabIndex={0} variant="primary" onClick={onSetUpEngine}>
               Set up Claude Code
             </Button>
           </div>

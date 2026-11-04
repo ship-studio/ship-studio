@@ -448,6 +448,23 @@ const searchFor = (args: Record<string, unknown>) => {
     });
 };
 
+const ERROR_CHAT = [
+  msg('user', 'Send Northwind the firmer reminder.', 30, { agentId: 'finance' }),
+  msg(
+    'error',
+    'Claude Code hit its usage limit, so AI generation isn’t available right now. The limit resets automatically — try again later. (You’ve hit your session limit · resets 3:00 PM)',
+    29,
+    { agentId: 'finance' }
+  ),
+  msg('user', 'Try again now.', 5, { agentId: 'finance' }),
+  msg(
+    'error',
+    'Claude Code isn’t signed in anymore (its session expired). Open an agent terminal and sign in again — for Claude Code, run /login — then try again.',
+    4,
+    { agentId: 'finance' }
+  ),
+];
+
 const totals = (turns: number, tokens: number, cost: number, minutes: number) => ({
   turns,
   inputTokens: Math.round(tokens * 0.01),
@@ -494,7 +511,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-markdown',
     title: 'Agents — a reply with a table, a quote and a code block',
     looksRightWhen:
-      'The table has ruled rows and a quiet header; the quote has a rule on its left; the code block is recessed with Copy on hover; the rule is a hairline.',
+      'Agent replies are unboxed prose on the canvas at a reading measure; only your messages are bubbles. The table has ruled rows and a quiet header; the quote has a rule on its left; the code block is a panel with Copy on hover; the rule is a hairline with room above and below.',
     requires: '.agent-code',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '[data-agent-id="finance"]' }],
@@ -514,6 +531,20 @@ export const agentsScenarios: Scenario[] = [
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-error',
+    title: 'Agents — a usage limit, then an expired login',
+    looksRightWhen:
+      'Finance’s chat: an older usage-limit error with its reset time and no buttons (something was said after it), then the newest error, an expired login, carrying “Sign in to Claude Code” and a quieter Retry.',
+    requires: '.agent-bubble__remedy',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="finance"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'finance' ? ERROR_CHAT : messagesFor(args),
     },
   },
   {
@@ -596,13 +627,10 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-search',
     title: 'Agents — searching every conversation',
     looksRightWhen:
-      'The search button beside + on the Agents row is on, and the field it revealed sits under the header, its edges on the rows’ insets, holding “footer”. The agent rows give way to hits grouped by agent (avatar + name), each a two-line snippet with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
+      'The sidebar’s top field (where the palette trigger sits elsewhere) holds “footer”; there is no second search field and no magnifier on the Agents row. The agent rows give way to hits grouped by agent: the badge in the rows’ avatar column, the name beside it, and each two-line snippet on the text column with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
     openSelector: '.workspace-sidebar-agents',
-    requires: '.agents-list__search[data-open]',
-    steps: [
-      { click: '.workspace-sidebar-agents-search' },
-      { fill: '.agents-list__search input', value: 'footer' },
-    ],
+    requires: '.agents-search__hit',
+    steps: [{ fill: '.agents-top-search input', value: 'footer' }],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,
@@ -617,8 +645,7 @@ export const agentsScenarios: Scenario[] = [
     openSelector: '.workspace-sidebar-agents',
     requires: '.agents-search__hit',
     steps: [
-      { click: '.workspace-sidebar-agents-search' },
-      { fill: '.agents-list__search input', value: 'dead links' },
+      { fill: '.agents-top-search input', value: 'dead links' },
       { click: '.agents-search__hit:nth-of-type(2)' },
     ],
     commands: {
@@ -667,7 +694,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff, with its avatar, name and role centred in an empty conversation and the composer ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import my agents from another assistant). The composer is ready.',
     command: 'agents.open',
     requires: '.agent-chat__empty',
     commands: {},
@@ -694,7 +721,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-dictating',
     title: 'Agents — dictating into the composer',
     looksRightWhen:
-      'The words arriving sit in the composer in the secondary text colour, not yet settled. The mic is tinted and a soft halo behind it shows the voice level; the composer border is tinted to match. Nothing reads as an error, and Send is unchanged.',
+      'The words arriving sit in the composer in the full text colour, never mistakable for the placeholder. The mic is green with a green halo sized by the voice level; the composer border is tinted green; in the paperclip’s place a pulsing dot says Listening with a Cancel beside it. Nothing reads as an error, and Send is unchanged.',
     // Steps run before a palette command, so walk in through the sidebar.
     openSelector: '.workspace-sidebar-agents',
     requires: '.agent-composer[data-dictation="listening"]',
@@ -731,7 +758,11 @@ export const agentsScenarios: Scenario[] = [
     command: 'agents.open',
     requires: '.agent-composer--blocked',
     commands: {
-      agents_overview: { ...overview(TEAM.slice(0, 1)), engineReady: false },
+      // A fresh Mac: the Chief has no history, so its row has no preview either.
+      agents_overview: {
+        ...overview([{ ...TEAM[0], preview: null }]),
+        engineReady: false,
+      },
     },
   },
 ];
