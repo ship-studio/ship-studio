@@ -64,8 +64,8 @@ export function AgentsStayOnNote() {
         )}
       </div>
       <p className="agents-stay-on__line agents-stay-on__line--quiet">
-        Always on? Run Ship Studio on an always-on Mac (a Mac mini, or a cloud Mac) to keep agents
-        going around the clock.
+        Around the clock? Run Ship Studio on a Mac that never sleeps, like a Mac mini or a cloud
+        Mac.
       </p>
     </div>
   );

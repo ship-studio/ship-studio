@@ -947,9 +947,12 @@ export function AgentChat({
                           {text}
                         </Button>
                       ))}
-                      <Button tabIndex={0} variant="secondary" onClick={onImport}>
-                        Import agents…
-                      </Button>
+                      {/* The sidebar's import note is the way in; with no sidebar, this is. */}
+                      {compact && (
+                        <Button tabIndex={0} variant="secondary" onClick={onImport}>
+                          Import agents…
+                        </Button>
+                      )}
                     </div>
                   )}
                   <AgentsStayOnNote />

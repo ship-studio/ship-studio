@@ -214,6 +214,12 @@ export function AgentEditorModal({
           e.preventDefault();
           if (canSave) void save.execute();
         }}
+        // ⌘Enter saves from anywhere in it, the instructions included (as comments do).
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+          e.preventDefault();
+          e.currentTarget.requestSubmit();
+        }}
       >
         <div className="agent-editor__identity">
           <AgentAvatar name={name} color={color} size="field" selected />

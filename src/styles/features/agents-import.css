@@ -227,6 +227,12 @@
   );
 }
 
+/* A Tab stop so the keyboard can scroll it; the app's ring, not the browser's. */
+.agents-import-message__text:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .agents-import-message__actions {
   display: flex;
   align-items: center;

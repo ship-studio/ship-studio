@@ -393,7 +393,6 @@ export const UserBubble = memo(function UserBubble({
           <span aria-hidden>·</span>
           <TextButton
             tabIndex={0}
-            variant="accent"
             onClick={onInterrupt}
             title="Stop what it’s doing and send this now (⌘↵ when sending)"
           >
