@@ -35,9 +35,14 @@ export interface PendingSend {
   agentId: string;
   text: string;
   ts: number;
+  /** The Mac said no, or it waited too long: shown as "Not sent · Send". */
   failed: boolean;
+  /** Written while the Mac couldn't be reached: sent when it answers (outbox.ts). */
+  waiting?: boolean;
   /** Already uploaded; shown from the phone's own copies until the Mac's arrive. */
   attachments?: PendingAttachment[];
+  /** Agent ids @mentioned, sent with the text. */
+  mentions?: string[];
 }
 
 export interface PendingAttachment {
@@ -247,10 +252,11 @@ export function setPendingFailed(
   s: SyncState,
   agentId: string,
   clientId: string,
-  failed: boolean
+  failed: boolean,
+  waiting = false
 ): SyncState {
   const list = (s.pending[agentId] ?? []).map((p) =>
-    p.clientId === clientId ? { ...p, failed } : p
+    p.clientId === clientId ? { ...p, failed, waiting } : p
   );
   return { ...s, pending: { ...s.pending, [agentId]: list } };
 }
