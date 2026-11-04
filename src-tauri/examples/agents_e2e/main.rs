@@ -12,9 +12,10 @@
 //! scripts/agents-e2e.sh memory approvals   # some of them
 //! ```
 //!
-//! Scenarios: memory, restart, lost-session, delegation, stop, approvals,
-//! cli-failures, corrupt-store, burst, stop-tree, quit, slots. (A project-bound agent needs
-//! `Agent.project`, which this branch doesn't have.)
+//! Scenarios: memory, restart, lost-session, project, delegation, stop,
+//! approvals, cli-failures, corrupt-store, burst, stop-tree, quit, slots.
+//! `behaviour` (opt-in, not part of the default run) checks how agents behave
+//! rather than whether the plumbing works; see `behaviour.rs`.
 
 // A test driver: a failed unwrap is a failed run, and `pgrep`/re-exec are the point.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
@@ -30,6 +31,8 @@ use ship_studio_lib::agents::{self, runner, store};
 use ship_studio_lib::commands::agents as cmd;
 use store::{AgentMessage, MessageKind};
 use tauri::{AppHandle, Listener};
+
+mod behaviour;
 
 type Check = Result<(), String>;
 
@@ -1382,6 +1385,7 @@ fn main() {
         tauri::async_runtime::block_on(async {
             match args[1].as_str() {
                 "restart-a" => restart_phase_a(&h).await,
+                "behaviour" => behaviour::phase(&h, &args[2]).await,
                 "quit" => quit_phase(&h).await,
                 "slots" => match slots_phase(&h).await {
                     Ok(()) => println!("OK"),
@@ -1428,6 +1432,7 @@ fn main() {
                 "stop-tree" => stop_tree(&h).await,
                 "quit" => quit(&h).await,
                 "slots" => slots(&h).await,
+                "behaviour" => behaviour::suite(&h).await,
                 other => Err(format!("unknown scenario {other}")),
             };
             let took = t.elapsed().as_secs();

@@ -94,6 +94,11 @@ pub struct Agent {
     /// What its last turn could use, as Claude Code itself listed it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<super::capabilities::Capabilities>,
+    /// What its routines run on: `None` is automatic (Haiku while the
+    /// agent itself is on the default model, otherwise its own model),
+    /// `"same"` is always its own model, or one of [`MODELS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routine_model: Option<String>,
     /// Fields a newer Ship Studio wrote that this build doesn't know: kept
     /// and written back as they were, so running an older build never
     /// strips what a newer one saved.
@@ -480,6 +485,31 @@ pub const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
 /// A `--model` value: empty means Claude Code's default; anything else must
 /// be one of [`MODELS`]. It becomes a CLI argument, so nothing else gets through.
+/// The cheap model routines fall back to (see [`Agent::routine_model`]).
+pub const ROUTINE_MODEL: &str = "haiku";
+
+impl Agent {
+    /// `--model` for a turn woken by one of its routines. A routine fires
+    /// again and again, usually hours after the last turn (so nothing is
+    /// cached either way), and is mostly checking: on the default model it
+    /// runs on Haiku unless the user chose otherwise.
+    pub fn routine_model(&self) -> Option<&str> {
+        match self.routine_model.as_deref() {
+            None => Some(self.model.as_deref().unwrap_or(ROUTINE_MODEL)),
+            Some("same") => self.model.as_deref(),
+            Some(m) => Some(m),
+        }
+    }
+}
+
+/// A routine model setting from the UI: `""` automatic, `"same"`, or one of [`MODELS`].
+pub fn normalize_routine_model(model: &str) -> Result<Option<String>, CommandError> {
+    match model.trim() {
+        "same" => Ok(Some("same".to_string())),
+        other => normalize_model(other),
+    }
+}
+
 pub fn normalize_model(model: &str) -> Result<Option<String>, CommandError> {
     let model = model.trim();
     if model.is_empty() {
@@ -535,6 +565,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         unread: 0,
         pending_approvals: 0,
         model: None,
+        routine_model: None,
         muted: false,
         check_ins: Vec::new(),
         usage: Default::default(),
@@ -1018,6 +1049,36 @@ pub fn expire_stale_approvals() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routines_run_on_haiku_only_while_the_agent_is_on_the_default_model() {
+        let agent = |model: Option<&str>, routine: Option<&str>| -> Agent {
+            let mut a: Agent = serde_json::from_value(serde_json::json!({
+                "id": "a", "name": "A", "shape": 0, "color": "red", "createdAt": 0
+            }))
+            .unwrap();
+            a.model = model.map(str::to_string);
+            a.routine_model = routine.map(str::to_string);
+            a
+        };
+        assert_eq!(agent(None, None).routine_model(), Some("haiku"));
+        assert_eq!(agent(Some("opus"), None).routine_model(), Some("opus"));
+        assert_eq!(agent(None, Some("same")).routine_model(), None);
+        assert_eq!(
+            agent(Some("opus"), Some("same")).routine_model(),
+            Some("opus")
+        );
+        assert_eq!(
+            agent(Some("opus"), Some("sonnet")).routine_model(),
+            Some("sonnet")
+        );
+        assert_eq!(normalize_routine_model("").unwrap(), None);
+        assert_eq!(
+            normalize_routine_model("same").unwrap().as_deref(),
+            Some("same")
+        );
+        assert!(normalize_routine_model("--danger").is_err());
+    }
 
     fn with_root<F: FnOnce()>(f: F) {
         let _serial = tests_lock();

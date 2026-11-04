@@ -290,6 +290,7 @@ mod tests {
             unread: 0,
             pending_approvals: 0,
             model: None,
+            routine_model: None,
             muted,
             check_ins: Vec::new(),
             usage: Default::default(),

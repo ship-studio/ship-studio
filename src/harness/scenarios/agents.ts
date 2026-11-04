@@ -1160,6 +1160,19 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-model-menu',
+    title: 'Agents — model menu, with what routines run on',
+    looksRightWhen:
+      'Clicking the model control in the Finance header opens a menu: Default (checked), Opus, Sonnet, Haiku; a divider; a quiet line “Routines run on Haiku”; then Automatic (checked), Same as its chats, Opus, Sonnet, Haiku.',
+    requires: '.agent-model-menu__heading',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: '[data-agent-id="finance"]' }, { click: '.agent-chat__model' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
     id: 'agents-schedule-edit',
     title: 'Agents — editing a routine in the schedule popover',
     looksRightWhen:

@@ -51,6 +51,8 @@ export interface Agent {
   pendingApprovals: number;
   /** `--model`; null is Claude Code's default. */
   model: string | null;
+  /** What its routines run on (see `routineModelOf`); omitted when automatic. */
+  routineModel?: string;
   /** No OS notifications; unread and the Dock badge still count it. */
   muted: boolean;
   /** Omitted by the backend when there are none. */
@@ -336,6 +338,8 @@ export interface UpdateAgentInput {
   muted?: boolean;
   /** An alias from AGENT_MODELS, or '' for Claude Code's default. */
   model?: string;
+  /** '' automatic, 'same' (its own model), or an alias from AGENT_MODELS. */
+  routineModel?: string;
   /** A project path from `list_projects`, or '' to unbind it. */
   project?: string;
 }
@@ -353,6 +357,21 @@ export const AGENT_MODELS = [
 
 export function modelLabel(model: string | null): string {
   return AGENT_MODELS.find((m) => m.value === (model ?? ''))?.label ?? model ?? 'Default';
+}
+
+/** Choices for what an agent's routines run on. Must match `routine_model` in store.rs. */
+export const ROUTINE_MODELS = [
+  { value: '', label: 'Automatic', hint: 'Haiku unless the agent has its own model' },
+  { value: 'same', label: 'Same as its chats', hint: null },
+  ...AGENT_MODELS.filter((m) => m.value).map((m) => ({ ...m, hint: null })),
+] as const;
+
+/** The model a routine wakes the agent on, as `Agent::routine_model` resolves it. */
+export function routineModelOf(agent: Pick<Agent, 'model' | 'routineModel'>): string | null {
+  const setting = agent.routineModel ?? '';
+  if (setting === '') return agent.model ?? 'haiku';
+  if (setting === 'same') return agent.model;
+  return setting;
 }
 
 export interface SearchHit {

@@ -31,7 +31,7 @@ use crate::errors::CommandError;
 pub const APPROVAL_WAIT_SECS: u64 = 240;
 
 /// The wait, shortened in debug builds by `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS`
-/// so the end-to-end suite (examples/agents_e2e.rs) can reach the late-Allow
+/// so the end-to-end suite (examples/agents_e2e/main.rs) can reach the late-Allow
 /// path without sitting out four minutes.
 fn approval_wait() -> Duration {
     let override_secs = cfg!(debug_assertions)
@@ -116,7 +116,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "message_agent",
-        description: "Send a message to another agent. Asynchronous: it returns once delivered; the agent works in its own conversation and messages you back if it needs to. Write it as a complete brief: they don't see your conversation with the user.",
+        description: "Hand another agent work, or answer one. Asynchronous: it returns once delivered; they work in their own conversation and their answer comes back to you as a new message. Brief them in a few lines: they don't see your conversation with the user.",
         main_only: false,
         schema: || json!({
             "type": "object",
@@ -425,12 +425,18 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
     if hop > runner::MAX_HOPS {
         return error("Not sent: this chain of agent-to-agent messages is too long. Tell the user where things stand instead.");
     }
+    // Answering a request the target sent: settles it (see runner::settle).
+    let answer = runner::settle(&caller.id, &target.id);
     let mut sent = runner::new_message(&caller.id, MessageKind::SentToAgent, body);
     sent.peer = Some(peer(&target));
     let _ = runner::record(app, sent);
     let mut received = runner::new_message(&target.id, MessageKind::FromAgent, body);
     received.peer = Some(peer(caller));
     let _ = runner::record(app, received);
+    if answer {
+        runner::enqueue_reply(app, &target.id, body.to_string(), peer(caller), hop);
+        return text(format!("Delivered to {}.", target.name));
+    }
     runner::enqueue(
         app,
         &target.id,
@@ -441,7 +447,7 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
         },
     );
     text(format!(
-        "Delivered to {}. They'll message you back if they need to; don't wait on it.",
+        "Delivered to {}. Their answer comes back to you as a new message when they're done; don't wait for it.",
         target.name
     ))
 }
@@ -619,7 +625,8 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
                         hop: 1,
                     },
                 );
-                started = " and started it on its first task".to_string();
+                started =
+                    " and started it on its first task; its answer comes back to you".to_string();
             }
             text(format!(
                 "Created {}{started}. It's in the user's sidebar now.",
@@ -1237,6 +1244,7 @@ mod tests {
             unread: 0,
             pending_approvals: 0,
             model: None,
+            routine_model: None,
             muted: false,
             check_ins: Vec::new(),
             usage: Default::default(),

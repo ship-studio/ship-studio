@@ -90,6 +90,13 @@ pub enum From {
 struct Inbound {
     text: String,
     from: From,
+    /// An agent's answer to a request this agent sent it: answered by
+    /// telling the user, never by replying (see [`settle`]).
+    #[serde(default)]
+    reply: bool,
+    /// One of the agent's routines firing (see [`store::Agent::routine_model`]).
+    #[serde(default)]
+    routine: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -126,6 +133,10 @@ struct Runtime {
     interrupt: bool,
     /// Set when a turn was interrupted: what the next turn is told first.
     interrupted: Option<String>,
+    /// Agents whose requests the turn in progress is answering. Whatever the
+    /// turn ends up saying goes back to each of them (see [`return_results`]),
+    /// unless it already answered one with `message_agent`.
+    owed: Vec<AgentRef>,
 }
 
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
@@ -300,7 +311,7 @@ pub async fn recover_after_restart(app: &AppHandle) {
             new_message(&agent.id, MessageKind::Note, resent_note(&queued)),
         );
         for message in queued {
-            enqueue(app, &agent.id, message.text, message.from);
+            push(app, &agent.id, message);
         }
     }
 }
@@ -488,11 +499,66 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
 }
 
 /// Queue a message for an agent and make sure a worker is draining its inbox.
+/// From another agent, it is a request: the turn that handles it answers it.
 pub fn enqueue(app: &AppHandle, agent_id: &str, text: String, from: From) {
+    push(
+        app,
+        agent_id,
+        Inbound {
+            text,
+            from,
+            reply: false,
+            routine: false,
+        },
+    );
+}
+
+/// Queue the turn one of the agent's routines wakes it for.
+pub fn enqueue_routine(app: &AppHandle, agent_id: &str, text: String) {
+    push(
+        app,
+        agent_id,
+        Inbound {
+            text,
+            from: From::User,
+            reply: false,
+            routine: true,
+        },
+    );
+}
+
+/// Queue an agent's answer to a request `agent_id` sent it.
+pub fn enqueue_reply(app: &AppHandle, agent_id: &str, text: String, sender: AgentRef, hop: u8) {
+    push(
+        app,
+        agent_id,
+        Inbound {
+            text,
+            from: From::Agent { sender, hop },
+            reply: true,
+            routine: false,
+        },
+    );
+}
+
+/// `from` is messaging `to`. If `from`'s turn is answering a request `to`
+/// sent, this message is that answer: it settles the debt, so the turn's
+/// final words aren't sent back as well. Returns whether it was an answer.
+pub fn settle(from: &str, to: &str) -> bool {
+    let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(owed) = runtimes.get_mut(from).map(|r| &mut r.owed) else {
+        return false;
+    };
+    let before = owed.len();
+    owed.retain(|a| a.id != to);
+    owed.len() < before
+}
+
+fn push(app: &AppHandle, agent_id: &str, inbound: Inbound) {
     let start = {
         let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = runtimes.entry(agent_id.to_string()).or_default();
-        runtime.queue.push_back(Inbound { text, from });
+        runtime.queue.push_back(inbound);
         save_inbox(agent_id, &runtime.queue);
         if runtime.running {
             false
@@ -614,6 +680,7 @@ async fn drain(app: AppHandle, agent_id: String) {
         } else {
             None
         };
+        let routine: bool;
         let prompt: String = {
             let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
             let runtime = runtimes.entry(agent_id.clone()).or_default();
@@ -628,6 +695,7 @@ async fn drain(app: AppHandle, agent_id: String) {
             }
             let batch: Vec<Inbound> = runtime.queue.drain(..).collect();
             save_inbox(&agent_id, &runtime.queue);
+            routine = batch.iter().all(|m| m.routine);
             // The turn inherits the deepest hop it is answering; a user message
             // in the batch resets the chain.
             runtime.hop = if batch.iter().any(|m| matches!(m.from, From::User)) {
@@ -642,6 +710,14 @@ async fn drain(app: AppHandle, agent_id: String) {
                     .max()
                     .unwrap_or(0)
             };
+            // An interrupted turn's debts carry over to the turn that replaces it.
+            for m in &batch {
+                if let (From::Agent { sender, .. }, false) = (&m.from, m.reply) {
+                    if !runtime.owed.iter().any(|a| a.id == sender.id) {
+                        runtime.owed.push(sender.clone());
+                    }
+                }
+            }
             runtime.cancel = Some(Arc::new(Notify::new()));
             runtime.interrupt = false;
             let prompt = compose(&batch);
@@ -665,7 +741,8 @@ async fn drain(app: AppHandle, agent_id: String) {
                 tree: start.as_ref().map(|(_, t)| t.clone()),
             },
         );
-        let result = run_turn(&app, &agent_id, &prompt, true).await;
+        let since = store::now_ms();
+        let result = run_turn(&app, &agent_id, &prompt, routine, true).await;
         if QUITTING.load(Ordering::SeqCst) {
             // The app is going: the mark stays, for the next launch to report.
             return;
@@ -676,13 +753,76 @@ async fn drain(app: AppHandle, agent_id: String) {
         if let Some((project, from)) = start {
             record_changes(&app, &agent_id, project, from).await;
         }
-        if let Err(err) = result {
-            let (text, failure) = super::failure::describe_now(&err.to_string());
-            let mut line = new_message(&agent_id, MessageKind::Error, text);
-            line.failure = Some(failure);
-            let _ = record(&app, line);
+        let failed = match result {
+            Ok(Ended::Interrupted) => {
+                notify::turn_ended(&app, &agent_id);
+                continue;
+            }
+            Ok(Ended::Stopped) => {
+                take_owed(&agent_id);
+                None
+            }
+            Ok(Ended::Finished) => Some(None),
+            Err(err) => {
+                let (text, failure) = super::failure::describe_now(&err.to_string());
+                let mut line = new_message(&agent_id, MessageKind::Error, text.clone());
+                line.failure = Some(failure);
+                let _ = record(&app, line);
+                Some(Some(text))
+            }
+        };
+        if let Some(error) = failed {
+            return_results(&app, &agent_id, since, error);
         }
         notify::turn_ended(&app, &agent_id);
+    }
+}
+
+fn take_owed(agent_id: &str) -> Vec<AgentRef> {
+    let mut runtimes = RUNTIMES.lock().unwrap_or_else(|e| e.into_inner());
+    runtimes
+        .get_mut(agent_id)
+        .map(|r| std::mem::take(&mut r.owed))
+        .unwrap_or_default()
+}
+
+/// A turn that answered other agents' requests is over: what it said (or why
+/// it couldn't finish) goes back to each of them, so delegated work always
+/// reports back and the agent never has to spend a tool call on it.
+fn return_results(app: &AppHandle, agent_id: &str, since: i64, error: Option<String>) {
+    let owed = take_owed(agent_id);
+    if owed.is_empty() {
+        return;
+    }
+    let hop = current_hop(agent_id).saturating_add(1);
+    let Ok(me) = store::get(agent_id) else { return };
+    let said: Vec<String> = store::messages(agent_id, 40)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| m.kind == MessageKind::Agent && m.ts >= since && !m.text.trim().is_empty())
+        .map(|m| m.text)
+        .collect();
+    let text = match (error, said.is_empty()) {
+        (Some(e), _) => format!("{} couldn't finish: {e}", me.name),
+        (None, true) => format!("{} finished without saying anything.", me.name),
+        (None, false) => said.join(
+            "
+
+",
+        ),
+    };
+    let sender = AgentRef {
+        id: me.id.clone(),
+        name: me.name.clone(),
+    };
+    for to in owed {
+        if hop > MAX_HOPS || store::get(&to.id).is_err() {
+            continue;
+        }
+        let mut line = new_message(&to.id, MessageKind::FromAgent, text.clone());
+        line.peer = Some(sender.clone());
+        let _ = record(app, line);
+        enqueue_reply(app, &to.id, text.clone(), sender.clone(), hop);
     }
 }
 
@@ -723,7 +863,7 @@ fn compose(batch: &[Inbound]) -> String {
         .iter()
         .map(|m| match &m.from {
             From::User => m.text.clone(),
-            From::Agent { sender, .. } => prompts::from_agent(&sender.name, &m.text),
+            From::Agent { sender, .. } => prompts::from_agent(&sender.name, &m.text, m.reply),
         })
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -776,7 +916,9 @@ fn unfinished_turn(exited_cleanly: bool, stderr: String) -> String {
 
 /// A prompt for a fresh session, prefixed with the visible conversation.
 fn with_recap(agent_id: &str, prompt: &str) -> String {
-    let Ok(log) = store::messages(agent_id, 40) else {
+    // Enough to pick the thread back up, not the whole history: this is
+    // paid for in full (nothing cached) on the turn that needs it.
+    let Ok(log) = store::messages(agent_id, 24) else {
         return prompt.to_string();
     };
     let lines: Vec<String> = log
@@ -790,7 +932,7 @@ fn with_recap(agent_id: &str, prompt: &str) -> String {
                 MessageKind::CheckIn => "Your scheduled check-in".to_string(),
                 _ => return None,
             };
-            let text: String = m.text.chars().take(600).collect();
+            let text: String = m.text.chars().take(400).collect();
             Some(format!("{who}: {text}"))
         })
         .collect();
@@ -885,6 +1027,24 @@ fn system_prompt_for(
     home: &std::path::Path,
     layout: &super::project::Layout,
 ) -> String {
+    let mut prompt = system_prompt_base(agent, home, layout);
+    if agent.is_main {
+        if let Some(team) = store::list()
+            .ok()
+            .and_then(|all| prompts::team(&all, &agent.id))
+        {
+            prompt.push_str("\n\n");
+            prompt.push_str(&team);
+        }
+    }
+    prompt
+}
+
+fn system_prompt_base(
+    agent: &store::Agent,
+    home: &std::path::Path,
+    layout: &super::project::Layout,
+) -> String {
     let Some(project) = &layout.project else {
         return prompts::system_prompt(agent, None);
     };
@@ -905,7 +1065,7 @@ fn system_prompt_for(
 
 /// Every argument a turn's `claude` process gets. The prompt goes on stdin.
 fn turn_args(
-    agent: &store::Agent,
+    model: Option<&str>,
     session_id: &str,
     resuming: bool,
     url: &str,
@@ -942,8 +1102,8 @@ fn turn_args(
     for dir in add_dirs {
         args.extend(["--add-dir".to_string(), dir.clone()]);
     }
-    if let Some(model) = &agent.model {
-        args.extend(["--model".to_string(), model.clone()]);
+    if let Some(model) = model {
+        args.extend(["--model".to_string(), model.to_string()]);
     }
     args
 }
@@ -980,14 +1140,16 @@ async fn record_off(app: &AppHandle, message: AgentMessage) {
     let _ = tokio::task::spawn_blocking(move || record(&app, message)).await;
 }
 
-/// The `claude` binary, validated (`claude --version`) at most once a
-/// minute per PATH rather than on every turn: the probe spawns a process.
+/// The `claude` binary found and validated (`claude --version`, which
+/// spawns a process and costs ~100ms) once per PATH, not per turn. It is
+/// looked for again if the file goes away or fails to start.
+static CLAUDE: LazyLock<Mutex<Option<(String, std::path::PathBuf)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
 async fn claude_binary() -> Option<std::path::PathBuf> {
-    type Cached = (String, std::path::PathBuf, std::time::Instant);
-    static CACHE: LazyLock<Mutex<Option<Cached>>> = LazyLock::new(|| Mutex::new(None));
     let path_var = std::env::var("PATH").unwrap_or_default();
-    if let Some((for_path, binary, at)) = &*CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
-        if *for_path == path_var && at.elapsed() < Duration::from_secs(60) && binary.exists() {
+    if let Some((for_path, binary)) = &*CLAUDE.lock().unwrap_or_else(|e| e.into_inner()) {
+        if *for_path == path_var && binary.exists() {
             return Some(binary.clone());
         }
     }
@@ -997,9 +1159,74 @@ async fn claude_binary() -> Option<std::path::PathBuf> {
     .await
     .ok()
     .flatten()?;
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((path_var, binary.clone(), std::time::Instant::now()));
+    *CLAUDE.lock().unwrap_or_else(|e| e.into_inner()) = Some((path_var, binary.clone()));
     Some(binary)
+}
+
+/// Where a turn's time went, logged once per turn (target `agents::timing`):
+/// our preparation before the spawn, Claude Code's start-up until its init
+/// event, the first streamed word, its result, and the wait for it to exit.
+/// `cli_ms` is the CLI's own `duration_ms`, so overhead can be told apart.
+struct Timing {
+    began: std::time::Instant,
+    spawned: std::time::Instant,
+    boot: Option<std::time::Instant>,
+    first_word: Option<std::time::Instant>,
+    result: Option<std::time::Instant>,
+    cli_ms: u64,
+}
+
+impl Timing {
+    fn spawned(began: std::time::Instant) -> Self {
+        Timing {
+            began,
+            spawned: std::time::Instant::now(),
+            boot: None,
+            first_word: None,
+            result: None,
+            cli_ms: 0,
+        }
+    }
+    fn mark_boot(&mut self) {
+        self.boot.get_or_insert_with(std::time::Instant::now);
+    }
+    fn mark_first_word(&mut self) {
+        self.first_word.get_or_insert_with(std::time::Instant::now);
+    }
+    fn mark_result(&mut self, value: &serde_json::Value) {
+        self.result = Some(std::time::Instant::now());
+        self.cli_ms = value
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+    }
+    fn log(&self, agent_id: &str) {
+        let since = |t: Option<std::time::Instant>| {
+            t.map(|t| t.duration_since(self.spawned).as_millis() as u64)
+        };
+        let tail = self.result.map(|r| r.elapsed().as_millis() as u64);
+        tracing::info!(
+            target: "agents::timing",
+            agent = agent_id,
+            prep_ms = self.spawned.duration_since(self.began).as_millis() as u64,
+            boot_ms = since(self.boot).unwrap_or(0),
+            first_word_ms = since(self.first_word).unwrap_or(0),
+            result_ms = since(self.result).unwrap_or(0),
+            tail_ms = tail.unwrap_or(0),
+            cli_ms = self.cli_ms,
+            "turn timing"
+        );
+    }
+}
+
+/// How a turn that didn't fail ended.
+#[derive(Debug, PartialEq)]
+enum Ended {
+    Finished,
+    /// Stopped for a newer message, which the next turn reads.
+    Interrupted,
+    /// Stopped by the user (or the time limit).
+    Stopped,
 }
 
 /// Run one turn. `retry_fresh` lets a vanished session be replaced once.
@@ -1007,8 +1234,10 @@ async fn run_turn(
     app: &AppHandle,
     agent_id: &str,
     prompt: &str,
+    routine: bool,
     retry_fresh: bool,
-) -> Result<(), CommandError> {
+) -> Result<Ended, CommandError> {
+    let began = std::time::Instant::now();
     let agent = store::get(agent_id)?;
     let home = store::agent_home(agent_id)?;
     std::fs::create_dir_all(&home).map_err(super::err_io)?;
@@ -1037,8 +1266,13 @@ async fn run_turn(
     }
     let system_prompt = system_prompt_for(&agent, &home, &layout);
     let mut cmd = crate::utils::create_command(&binary);
+    let model = if routine {
+        agent.routine_model()
+    } else {
+        agent.model.as_deref()
+    };
     cmd.args(turn_args(
-        &agent,
+        model,
         &session_id,
         resuming,
         &url,
@@ -1066,13 +1300,15 @@ async fn run_turn(
         .kill_on_drop(true);
     // Its own process group, so Stop takes down what it started too.
     procs::own_group(&mut cmd);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| CommandError::expected(format!("Couldn't start Claude Code: {e}")))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        *CLAUDE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        CommandError::expected(format!("Couldn't start Claude Code: {e}"))
+    })?;
     let pid = child.id();
     if let Some(pid) = pid {
         procs::register(agent_id, pid);
     }
+    let mut timing = Timing::spawned(began);
 
     let mut mark = read_mark(agent_id).unwrap_or_default();
     mark.pid = pid;
@@ -1150,6 +1386,7 @@ async fn run_turn(
                 let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
                 match value.get("type").and_then(|t| t.as_str()) {
                     Some("system") => {
+                        timing.mark_boot();
                         if let Some(caps) = super::capabilities::from_init(&value, store::now_ms()) {
                             let _ = store::update(agent_id, |a| a.capabilities = Some(caps));
                         }
@@ -1192,6 +1429,9 @@ async fn run_turn(
                     }
                     Some("result") => {
                         saw_result = true;
+                        timing.mark_result(&value);
+                        // Its reply is complete: no "working" while the CLI exits.
+                        set_status(app, agent_id, Status::idle());
                         drain_rest.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(3));
                         if let Some(turn) = super::usage::from_result(&value) {
                             let today = super::usage::today();
@@ -1208,6 +1448,7 @@ async fn run_turn(
             }
             _ = draft_tick.tick(), if drafts.dirty() => {
                 if let Some((id, text)) = drafts.flush() {
+                    timing.mark_first_word();
                     emit_draft(app, agent_id, id, text);
                 }
             }
@@ -1233,6 +1474,7 @@ async fn run_turn(
         None => finish(&mut child, pid, saw_result).await,
     };
     procs::unregister(agent_id);
+    timing.log(agent_id);
     let status = status.map_err(super::err_io)?;
     let stderr_text = tokio::time::timeout(EXIT_BOUND, stderr_task)
         .await
@@ -1253,7 +1495,7 @@ async fn run_turn(
         if note.is_none() && take_interrupt(agent_id) {
             let line = "Interrupted to read your new message";
             let _ = record(app, new_message(agent_id, MessageKind::Note, line));
-            return Ok(());
+            return Ok(Ended::Interrupted);
         }
         // Stopped by the user is their doing, not a failure: a quiet line,
         // unless the cut-off reply already says so. Our own stop is an error.
@@ -1266,7 +1508,7 @@ async fn run_turn(
             }
             None => {}
         }
-        return Ok(());
+        return Ok(Ended::Stopped);
     }
 
     let missing_session =
@@ -1277,7 +1519,7 @@ async fn run_turn(
         // The new session starts blank. Hand it the conversation the user
         // can see, so the agent doesn't greet them like a stranger.
         let prompt = with_recap(agent_id, prompt);
-        return Box::pin(run_turn(app, agent_id, &prompt, false)).await;
+        return Box::pin(run_turn(app, agent_id, &prompt, routine, false)).await;
     }
 
     if let Some(err) = result_error {
@@ -1295,7 +1537,7 @@ async fn run_turn(
     if !said_anything {
         tracing::debug!("[Agents] {agent_id} finished a turn without a reply");
     }
-    Ok(())
+    Ok(Ended::Finished)
 }
 
 /// A Ship Studio launched from inside a Claude Code session (a terminal
@@ -1320,6 +1562,27 @@ pub fn strip_session_env(cmd: &mut std::process::Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn messaging_back_the_agent_that_asked_settles_its_request_once() {
+        let asker = AgentRef {
+            id: "settle-chief".into(),
+            name: "Chief of Staff".into(),
+        };
+        RUNTIMES
+            .lock()
+            .unwrap()
+            .entry("settle-billing".into())
+            .or_default()
+            .owed = vec![asker.clone()];
+        // A message to someone else is a request, not the answer.
+        assert!(!settle("settle-billing", "settle-other"));
+        assert!(settle("settle-billing", &asker.id));
+        // Answered: the turn's last words aren't sent back again.
+        assert!(!settle("settle-billing", &asker.id));
+        assert!(take_owed("settle-billing").is_empty());
+        assert!(!settle("nobody", &asker.id));
+    }
 
     #[test]
     fn labels_our_own_tools_in_plain_words() {
@@ -1348,6 +1611,8 @@ mod tests {
             Inbound {
                 text: "Do X".into(),
                 from: From::User,
+                reply: false,
+                routine: false,
             },
             Inbound {
                 text: "Done Y".into(),
@@ -1358,6 +1623,8 @@ mod tests {
                     },
                     hop: 1,
                 },
+                reply: false,
+                routine: false,
             },
         ];
         let prompt = compose(&batch);
@@ -1393,7 +1660,14 @@ mod tests {
         assert_eq!(layout.cwd, std::path::PathBuf::from("/h"));
         let prompt = system_prompt_for(&agent, std::path::Path::new("/h"), &layout);
         assert_eq!(prompt, prompts::system_prompt(&agent, None));
-        let args = turn_args(&agent, "sid", true, "http://x", &prompt, &layout.add_dirs);
+        let args = turn_args(
+            agent.model.as_deref(),
+            "sid",
+            true,
+            "http://x",
+            &prompt,
+            &layout.add_dirs,
+        );
         let expected: Vec<String> = [
             "--print",
             "--output-format",
@@ -1444,7 +1718,14 @@ mod tests {
         let prompt = system_prompt_for(&agent, home.path(), &layout);
         assert!(prompt.contains("- Sam pays."));
         assert!(prompt.contains("You work in `/ext/site`"));
-        let args = turn_args(&agent, "sid", false, "http://x", &prompt, &layout.add_dirs);
+        let args = turn_args(
+            agent.model.as_deref(),
+            "sid",
+            false,
+            "http://x",
+            &prompt,
+            &layout.add_dirs,
+        );
         let dirs: Vec<&str> = args
             .windows(2)
             .filter(|w| w[0] == "--add-dir")
@@ -1481,6 +1762,8 @@ mod tests {
             Inbound {
                 text: "Also check the footer".into(),
                 from: From::User,
+                reply: false,
+                routine: false,
             },
             Inbound {
                 text: "Receipts filed.\nDetails follow".into(),
@@ -1491,6 +1774,8 @@ mod tests {
                     },
                     hop: 2,
                 },
+                reply: true,
+                routine: false,
             },
         ]
         .into();

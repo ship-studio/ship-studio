@@ -278,6 +278,8 @@ pub struct UpdateAgentInput {
     pub muted: Option<bool>,
     /// `--model`; an empty string goes back to Claude Code's default.
     pub model: Option<String>,
+    /// What its routines run on: `""` automatic, `"same"`, or a model alias.
+    pub routine_model: Option<String>,
     /// A project path from `list_projects`; an empty string unbinds it.
     pub project: Option<String>,
 }
@@ -312,6 +314,11 @@ pub async fn agents_update(
         .as_deref()
         .map(store::normalize_model)
         .transpose()?;
+    let routine_model = input
+        .routine_model
+        .as_deref()
+        .map(store::normalize_routine_model)
+        .transpose()?;
     let project = match input.project.as_deref() {
         Some(p) => Some(project::resolve(p).await?.map(|p| p.path)),
         None => None,
@@ -340,6 +347,9 @@ pub async fn agents_update(
         }
         if let Some(m) = model {
             a.model = m;
+        }
+        if let Some(m) = routine_model {
+            a.routine_model = m;
         }
         if let Some(p) = project {
             a.project = p;

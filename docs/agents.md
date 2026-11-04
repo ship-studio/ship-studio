@@ -142,6 +142,17 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
 | `approve` | CLI only | the permission prompt tool (below) |
 
+**Answers come back on their own.** A `message_agent` request is a debt: the
+turn that handles it owes the sender an answer. When that turn ends, whatever
+it said (or "couldn't finish: …" if it failed) is delivered back to the
+sender as its answer (`runner::return_results`), so delegated work always
+reports back and the delegate never spends a tool call doing it. Messaging
+the sender during the turn settles the debt instead (`runner::settle`). An
+answer is framed differently from a request ("Billing's answer to your
+request … tell the user the outcome; don't reply"), and handling it owes
+nobody anything, so answers can't ping-pong. Stop drops the debt; an
+interrupted turn passes it to the turn that replaces it.
+
 **Loops.** Agents messaging agents can ping-pong. A user message starts a chain
 at hop 0; each `message_agent` from a turn at hop *n* delivers at *n+1*, and
 `message_agent` refuses past hop 6. The prompts also tell agents not to send
@@ -510,6 +521,13 @@ schedule popover's footnote. Elsewhere than macOS none of it shows.
   note carries what you asked; once it exists the line says "Retries at …".
   "Set up Claude Code" (no Claude Code yet) runs the install terminal, then
   sign-in, and the composer unlocks when the overview says it's there.
+- **Routines' model.** The same menu says what routines run on, and changes
+  it: Automatic (Haiku while the agent is on the default model, otherwise its
+  own model), Same as its chats, or a model. A routine fires again and again,
+  usually long after the last turn (so nothing is cached either way), and
+  mostly checks things, so this is where a cheaper model saves the most.
+  One-time check-ins, including "Retry at", run on the agent's own model
+  (`store::Agent::routine_model`).
 - **Model.** Default / Opus / Sonnet / Haiku, passed as `--model` from the next
   turn. Set it when creating the agent, in the editor, or from the menu in the
   chat header. Only Claude Code's own aliases are accepted, and the backend
@@ -695,7 +713,7 @@ prunes them the diff says it can't be shown.
   added), process trees, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e.rs` drives the real
+- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e/main.rs` drives the real
   runner, store, bridge and MCP tools through the same Tauri commands the UI
   calls, on `claude --model haiku`, in a throwaway HOME (only the keychain is
   linked, for sign-in). Scenarios: memory across turns, quit mid-turn and
@@ -708,5 +726,20 @@ prunes them the diff says it can't be shown.
   child included), quitting mid-turn (the Exit hook, then relaunch), and more
   turns than slots. `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
+- `scripts/agents-e2e.sh behaviour` (opt-in, about $1.50 for three runs):
+  `examples/agents_e2e/behaviour.rs` checks behaviour rather than plumbing,
+  each scenario in its own HOME, several runs, with pass rates per check:
+  the Chief delegates work that belongs to a specialist (named or not) and
+  answers trivial questions itself; one brief and no chatter between agents;
+  the Chief reports back unprompted; reminders and "in two hours, tell me"
+  get a check-in; no promise of a later update without a check-in or an
+  answer actually arriving; every message gets a visible reply; a
+  correction is fixed without apology; "ask before sending email" holds
+  across turns and sending happens on yes; a fresh Chief offers a daily brief
+  and sets it up only on yes; a blocked delegate's blocker reaches the user.
+  It prints tokens (the CLI's own), cost, time to first word, and where turn
+  time goes (`agents::timing`: our prep, CLI start-up, tail after the
+  result). `AGENTS_E2E_RUNS`, `AGENTS_E2E_JOBS`, `AGENTS_E2E_ONLY`,
+  `AGENTS_E2E_OUT=<file.json>`.
 - `node scripts/harness-capture.mjs agents-`: project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, first run (keep-awake off and on), new
   agent, import, Claude Code missing.
