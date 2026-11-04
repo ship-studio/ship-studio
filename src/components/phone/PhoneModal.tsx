@@ -16,6 +16,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
+import { Checkbox } from '../primitives/Checkbox';
 import { CheckIcon, CloseIcon, ExternalLinkIcon } from '@/components/icons';
 import { useAsyncState } from '../../hooks/useAsyncState';
 import { usePolling } from '../../hooks/usePolling';
@@ -30,9 +31,11 @@ import {
   getPhoneStatus,
   phoneCapabilities,
   phoneStep,
+  PUSH_COPY,
   removePhone,
   retryPhoneTailscale,
   setPhoneAccess,
+  setPhonePush,
   shortUrl,
   startPairing,
   takePairOnOpen,
@@ -243,6 +246,14 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
               </section>
             )}
 
+            {s.devices.length > 0 && (
+              <PhonePush
+                push={s.push}
+                busy={busy}
+                onChange={(on) => void run('push', () => setPhonePush(on))}
+              />
+            )}
+
             {s.devices.length > 0 && <PhoneAbilities methods={s.methods} />}
           </>
         )}
@@ -369,6 +380,38 @@ function AccessHeader({ step, busy, onEnable, onRetry }: HeaderProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/** The push relay toggle, with exactly what it sends. */
+function PhonePush({
+  push,
+  busy,
+  onChange,
+}: {
+  push: PhoneStatus['push'];
+  busy: string | null;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <section className="phone-section">
+      <h3 className="phone-section__title">Notifications</h3>
+      <label className="phone-toggle">
+        <Checkbox
+          checked={push.enabled}
+          disabled={!push.available || busy !== null}
+          label={PUSH_COPY.label}
+          onChange={onChange}
+        />
+        <span className="phone-toggle__text">
+          {PUSH_COPY.label}
+          <span className="phone-toggle__hint">
+            {push.available ? PUSH_COPY.detail : PUSH_COPY.unavailable}
+          </span>
+          {push.available && <span className="phone-toggle__hint">{PUSH_COPY.officialOnly}</span>}
+        </span>
+      </label>
+    </section>
   );
 }
 

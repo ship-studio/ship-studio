@@ -52,6 +52,16 @@ export const deviceMinimal = {
   "pairedAt": 1762200000000,
   "connected": false
 } satisfies Device;
+export const devicesSetPush = {
+  "status": "unavailable"
+} satisfies Result<'devices.setPush'>;
+export const pushStatuses = [
+  "on",
+  "pending",
+  "off",
+  "unavailable",
+  "self_build"
+] satisfies Result<'devices.setPush'>['status'][];
 export const agentsOverview = {
   "agents": [
     {
@@ -756,6 +766,7 @@ export const frames = [
       "system.status",
       "devices.self",
       "devices.unpairSelf",
+      "devices.setPush",
       "agents.overview",
       "agents.messages",
       "agents.send",

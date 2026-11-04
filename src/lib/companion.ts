@@ -64,6 +64,14 @@ export interface PhoneStatus {
   activity: Record<string, PhoneActivity>;
   /** What a paired phone can call on this Mac (`welcome.methods`). */
   methods: string[];
+  /** Phone notifications through the push relay (`companion/push.rs`). */
+  push: PushView;
+}
+
+/** `push::PushView`. `available` is false in a build with no push service. */
+export interface PushView {
+  available: boolean;
+  enabled: boolean;
 }
 
 export interface PairingCode {
@@ -78,6 +86,9 @@ export const getPhoneStatus = () => invoke<PhoneStatus>('companion_status');
 
 export const setPhoneAccess = (enabled: boolean) =>
   invoke<PhoneStatus>('companion_set_enabled', { enabled });
+
+export const setPhonePush = (enabled: boolean) =>
+  invoke<PhoneStatus>('companion_set_push', { enabled });
 
 export const retryPhoneTailscale = () => invoke<PhoneStatus>('companion_retry_tailscale');
 
@@ -230,3 +241,17 @@ export function phoneCapabilities(methods: string[]): { can: string[]; cannot: s
   if (has('projects.list') && !has('sessions.send')) cannot.unshift('Type into project sessions');
   return { can, cannot };
 }
+
+/**
+ * What the push toggle says leaves this Mac. It must stay true to
+ * `services/push-relay` (docs/push-relay.md): no message, name or project.
+ */
+export const PUSH_COPY = {
+  label: 'Phone notifications via Ship Studio’s push service',
+  detail:
+    'When your phone isn’t open to Ship Studio, it still hears that an agent needs you or finished. ' +
+    'Only a generic alert is sent, with no message, agent name or project. Apple or Google delivers it.',
+  officialOnly:
+    'Needs the official app from TestFlight or the App Store. A self-built app can’t receive push.',
+  unavailable: 'This build of Ship Studio has no push service.',
+} as const;

@@ -38,6 +38,7 @@ import {
   setPendingFailed,
 } from './sync';
 import { clearCache, http, type PickedFile } from './files';
+import { registerPush } from './push';
 import { DirectTransport, WireFailure } from './transport';
 
 const PAGE = 50;
@@ -68,7 +69,7 @@ export async function boot() {
 
 export async function adopt(credentials: Credentials) {
   await saveCredentials(credentials);
-  setApp({ ...emptySync(), credentials, refusal: null, welcome: null, composer: {} });
+  setApp({ ...emptySync(), credentials, refusal: null, welcome: null, composer: {}, push: null });
   await loadDrafts(credentials.serverId).catch(() => {});
   connect(credentials);
 }
@@ -102,6 +103,7 @@ function connect(c: Credentials) {
     // Focus is per connection: the Mac forgot it when the last one dropped.
     const open = getApp().openChat;
     if (open) void call('agents.focus', { agentId: open });
+    if (canCall('devices.setPush', welcome)) void syncPush();
   });
   t.onEvent((event, cursor) => {
     update((s) => applyEvent(s, event, cursor));
@@ -135,6 +137,21 @@ export const canCall = (method: MethodName, welcome = getApp().welcome) =>
 export function call<M extends MethodName>(method: M, params: Params<M>): Promise<Result<M>> {
   if (!transport) return Promise.reject(new Error('Not paired'));
   return transport.request(method, params);
+}
+
+/** Hand the Mac this phone's push token, when it may have one. Never asks. */
+const syncPush = () =>
+  registerPush((token, environment) => call('devices.setPush', { token, environment })).catch(
+    () => {}
+  );
+
+/**
+ * The user chose alerts (after pairing, or in Settings): ask the OS once,
+ * then register for push if this build can.
+ */
+export async function enableAlerts(): Promise<void> {
+  await Notifications.requestPermissionsAsync().catch(() => null);
+  if (canCall('devices.setPush')) await syncPush();
 }
 
 // ---- Lifecycle ----------------------------------------------------------------
@@ -463,6 +480,7 @@ export async function unpair() {
     welcome: null,
     refusal: null,
     openChat: null,
+    push: null,
     link: { kind: 'connecting', attempt: 0 },
   });
 }

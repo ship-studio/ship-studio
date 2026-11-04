@@ -18,6 +18,8 @@ import type {
   MacStatus,
   PasteImportPreview,
   ProjectSummary,
+  PushEnvironment,
+  PushStatus,
   SchedulePreview,
   SearchHit,
   SessionScreen,
@@ -43,6 +45,16 @@ export interface Methods {
   'devices.self': { params: Record<string, never>; result: Device };
   /** "Forget this Mac" from the phone: revokes this device's token. */
   'devices.unpairSelf': { params: Record<string, never>; result: null };
+  /**
+   * Hand the Mac this phone's APNs (or FCM) token, or `null` to stop. The Mac
+   * registers it with Ship Studio's content-free push relay when its owner
+   * has push on, and says where that leaves this phone (docs/push-relay.md).
+   * Call on every connect: an unchanged token costs nothing.
+   */
+  'devices.setPush': {
+    params: { token: string | null; environment?: PushEnvironment };
+    result: { status: PushStatus };
+  };
 
   // ---- Agents ------------------------------------------------------------
   'agents.overview': { params: Record<string, never>; result: AgentsOverview };

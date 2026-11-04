@@ -431,3 +431,24 @@
 .phone-abilities__item[data-can] svg {
   color: var(--accent-success);
 }
+
+.phone-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-body-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.phone-toggle__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  line-height: 1.4;
+}
+
+.phone-toggle__hint {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}

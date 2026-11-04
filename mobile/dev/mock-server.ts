@@ -520,6 +520,8 @@ export function createMockServer(opts: MockOptions = {}) {
       }, 10);
       return null;
     },
+    // A Mac whose build has no push service, which is what a dev build is.
+    'devices.setPush': () => ({ status: 'unavailable' }),
     'agents.overview': () => overview(),
     'agents.messages': (p) => {
       const list = messages.get(String(p.agentId)) ?? [];

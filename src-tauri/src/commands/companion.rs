@@ -24,6 +24,8 @@ pub struct PhoneStatus {
     pub activity: std::collections::HashMap<String, PhoneActivity>,
     /// What a paired phone can call on this Mac (`welcome.methods`).
     pub methods: Vec<&'static str>,
+    /// Phone notifications through the push relay.
+    pub push: crate::companion::push::PushView,
 }
 
 /// One line of a phone's audit trail: what it did, and when.
@@ -88,6 +90,7 @@ async fn read_status(app: &AppHandle) -> PhoneStatus {
         pairing: c.pairing.view(now_ms()),
         activity,
         methods: crate::companion::router::METHODS.to_vec(),
+        push: c.push.view(&c),
     }
 }
 
@@ -104,6 +107,19 @@ pub async fn companion_set_enabled(
     enabled: bool,
 ) -> Result<PhoneStatus, CommandError> {
     desktop::set_enabled(&app, enabled).await?;
+    Ok(read_status(&app).await)
+}
+
+/// "Phone notifications via Ship Studio's push service". Off tells the
+/// relay to forget this Mac and every token it registered.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn companion_set_push(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<PhoneStatus, CommandError> {
+    let c = desktop::ensure(&app);
+    crate::companion::push::set_enabled(&c, enabled).await?;
     Ok(read_status(&app).await)
 }
 

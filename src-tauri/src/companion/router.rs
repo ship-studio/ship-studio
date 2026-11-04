@@ -22,6 +22,7 @@ pub const METHODS: &[&str] = &[
     "system.status",
     "devices.self",
     "devices.unpairSelf",
+    "devices.setPush",
     "agents.overview",
     "agents.messages",
     "agents.send",
@@ -261,6 +262,15 @@ fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, WireError> {
     serde_json::from_value(params).map_err(bad_params)
 }
 
+/// `devices.setPush`: a token, or `null` to stop.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetPushParams {
+    token: Option<String>,
+    #[serde(default)]
+    environment: Option<super::push::PushEnvironment>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentParam {
@@ -412,6 +422,10 @@ pub fn audit_detail(method: &str, params: &Value) -> String {
             }
         }
         "devices.unpairSelf" => "forgot this Mac".into(),
+        "devices.setPush" => match params.get("token").and_then(Value::as_str) {
+            Some(_) => "push token set".into(),
+            None => "push token cleared".into(),
+        },
         "agents.fetchPath" => preview(field("path")),
         "agents.schedule.create" | "agents.schedule.update" => {
             preview(&format!("{} — {}", field("when"), field("note")))
@@ -480,10 +494,22 @@ async fn run(
             .ok_or_else(|| CommandError::expected("This phone isn't paired any more.").into()),
         "devices.unpairSelf" => {
             let gone = c.registry.revoke(&caller.device_id)?;
-            if gone.is_some() {
+            if let Some(d) = &gone {
+                c.forget_push_later(d);
                 b.changed();
             }
             Ok(Value::Null)
+        }
+        "devices.setPush" => {
+            let p: SetPushParams = parse(params)?;
+            let status = super::push::set_push(
+                c,
+                &caller.device_id,
+                p.token,
+                p.environment.unwrap_or_default(),
+            )
+            .await?;
+            Ok(json!({ "status": status }))
         }
         "agents.overview" => Ok(b.overview().await?),
         "agents.messages" => {

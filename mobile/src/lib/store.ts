@@ -4,7 +4,12 @@
  * draft re-renders the bubble that shows it and nothing else.
  */
 
-import type { LinkState, RefusedFrame, WelcomeFrame } from '@shipstudio/companion-protocol';
+import type {
+  LinkState,
+  PushStatus,
+  RefusedFrame,
+  WelcomeFrame,
+} from '@shipstudio/companion-protocol';
 import { create } from 'zustand';
 import type { ComposerDraft } from './drafts';
 import type { Credentials } from './pairing';
@@ -25,6 +30,8 @@ export interface AppState extends SyncState {
   prefs: Prefs;
   /** iOS Increase Contrast / Android high-contrast text. */
   highContrast: boolean;
+  /** Push, as the Mac last answered `devices.setPush`; null until it has. */
+  push: PushStatus | null;
 }
 
 export interface Prefs {
@@ -44,6 +51,7 @@ export const useApp = create<AppState>(() => ({
   composer: {},
   prefs: defaultPrefs,
   highContrast: false,
+  push: null,
 }));
 
 export const setApp = useApp.setState;

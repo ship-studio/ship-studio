@@ -26,6 +26,7 @@ mod fixtures;
 pub mod hub;
 pub mod pairing;
 pub mod projects;
+pub mod push;
 pub mod router;
 pub mod server;
 #[cfg(test)]
@@ -91,6 +92,9 @@ pub struct DeviceRecord {
     /// The phone's X25519 key from pairing, kept for the future relay.
     #[serde(default)]
     pub public_key: String,
+    /// Its push token, once it sent one (`devices.setPush`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push: Option<push::PushToken>,
 }
 
 impl DeviceRecord {
@@ -127,8 +131,12 @@ pub struct Stored {
     pub devices: Vec<DeviceRecord>,
     /// Hashes of revoked tokens, newest last.
     pub revoked: Vec<String>,
+    /// Phone notifications through the push relay (`push.rs`).
+    pub push: push::PushConfig,
 }
 
+// Short-lived (one per connection); boxing the record would buy nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Auth {
     Device(DeviceRecord),
     Revoked,
@@ -255,6 +263,7 @@ impl Registry {
             expires_at: None,
             token_hash: pairing::hash_token(&token),
             public_key,
+            push: None,
         };
         let replaced = self.write(|s| {
             let (old, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut s.devices)
@@ -313,6 +322,8 @@ fn remember_revoked(s: &mut Stored, hash: String) {
 struct Conn {
     device_id: String,
     foreground: bool,
+    /// When `foreground` last changed (ms), for [`Companion::presence`].
+    since: u64,
 }
 
 pub struct Companion {
@@ -322,6 +333,7 @@ pub struct Companion {
     pub backend: Arc<dyn router::Backend>,
     pub sends: router::SendCache,
     pub blobs: blobs::Blobs,
+    pub push: push::Push,
     conns: Mutex<HashMap<u64, Conn>>,
     next_conn: AtomicU64,
     requests: Mutex<HashMap<String, VecDeque<u64>>>,
@@ -352,6 +364,7 @@ impl Companion {
             pairing: pairing::Pairing::default(),
             backend,
             sends: router::SendCache::default(),
+            push: push::Push::default(),
             conns: Mutex::new(HashMap::new()),
             next_conn: AtomicU64::new(1),
             requests: Mutex::new(HashMap::new()),
@@ -386,6 +399,7 @@ impl Companion {
             Conn {
                 device_id: device_id.to_string(),
                 foreground,
+                since: now_ms(),
             },
         );
         Some(id)
@@ -397,7 +411,26 @@ impl Companion {
 
     pub fn set_foreground(&self, conn: u64, foreground: bool) {
         if let Some(c) = self.conns().get_mut(&conn) {
-            c.foreground = foreground;
+            if c.foreground != foreground {
+                c.foreground = foreground;
+                c.since = now_ms();
+            }
+        }
+    }
+
+    /// Whether a phone can see changes itself, for deciding on a push.
+    pub fn presence(&self, device_id: &str) -> push::Presence {
+        let conns = self.conns();
+        let mine: Vec<&Conn> = conns
+            .values()
+            .filter(|c| c.device_id == device_id)
+            .collect();
+        if mine.iter().any(|c| c.foreground) {
+            push::Presence::Foreground
+        } else if let Some(since) = mine.iter().map(|c| c.since).max() {
+            push::Presence::Background { since }
+        } else {
+            push::Presence::Away
         }
     }
 
@@ -456,6 +489,7 @@ impl Companion {
         let gone = self.registry.revoke(device_id)?;
         if let Some(d) = &gone {
             self.blobs.forget_device(&d.id);
+            self.forget_push_later(d);
             self.hub.signal(hub::HubItem::Revoked {
                 device_id: d.id.clone(),
             });
@@ -468,6 +502,16 @@ impl Companion {
             self.backend.changed();
         }
         Ok(gone)
+    }
+
+    /// A removed phone's token comes off the relay too, in the background.
+    pub fn forget_push_later(&self, device: &DeviceRecord) {
+        if device.push.as_ref().is_some_and(|t| t.registered) {
+            if let Some(c) = desktop::get() {
+                let device = device.clone();
+                tauri::async_runtime::spawn(async move { push::forget_device(&c, &device).await });
+            }
+        }
     }
 }
 

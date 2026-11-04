@@ -402,6 +402,19 @@ export interface Device {
   expiresAt?: number;
 }
 
+/** Which APNs a token belongs to. TestFlight and the App Store are production. */
+export type PushEnvironment = 'production' | 'development';
+
+/**
+ * Whether this phone will get pushes, as the Mac sees it (`devices.setPush`).
+ * - `on`: the relay has it; pushes arrive while the app isn't in front.
+ * - `pending`: saved, but the relay wasn't reachable yet; retried on the next alert.
+ * - `off`: push is off on the Mac.
+ * - `unavailable`: the Mac's build has no push service.
+ * - `self_build`: a self-built app gets no push entitlement from Apple.
+ */
+export type PushStatus = 'on' | 'pending' | 'off' | 'unavailable' | 'self_build';
+
 /** A notification the Mac decided this device should show (see `Notifier`). */
 export interface Alert {
   agentId: string;

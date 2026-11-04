@@ -49,6 +49,7 @@ fn device(full: bool) -> DeviceRecord {
         expires_at: full.then_some(1_762_800_000_000),
         token_hash: "never sent".into(),
         public_key: "never sent".into(),
+        push: None,
     }
 }
 
@@ -325,6 +326,26 @@ async fn generate() -> String {
         device(true).view(true),
     );
     out += &entry("deviceMinimal", "Device", device(false).view(false));
+    // This build has no relay (fixtures never reach the network).
+    c.push.set_relay(None);
+    c.registry.write(|s| s.devices.push(device(false))).unwrap();
+    out += &entry(
+        "devicesSetPush",
+        "Result<'devices.setPush'>",
+        call(
+            "devices.setPush",
+            json!({ "token": "a1".repeat(32), "environment": "production" }),
+        )
+        .await,
+    );
+    {
+        use super::push::PushStatus::*;
+        out += &entry(
+            "pushStatuses",
+            "Result<'devices.setPush'>['status'][]",
+            [On, Pending, Off, Unavailable, SelfBuild],
+        );
+    }
     out += &entry(
         "agentsOverview",
         "Result<'agents.overview'>",

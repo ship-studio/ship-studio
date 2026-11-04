@@ -9,6 +9,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { MenuHost } from '../components/menu';
+import { agentFromResponse } from '../lib/push';
 import { boot, watchLifecycle } from '../lib/session';
 import { useApp } from '../lib/store';
 import { sheet, stackOptions } from '../lib/navigation';
@@ -47,12 +48,11 @@ export default function RootLayout() {
     if (fontsLoaded && credentialsRead) void SplashScreen.hideAsync();
   }, [fontsLoaded, credentialsRead]);
 
-  // Tapping an alert opens that agent's chat.
+  // Tapping an alert (local or pushed) opens that agent's chat.
   useEffect(() => {
     const open = (response: Notifications.NotificationResponse | null) => {
-      const agentId = response?.notification.request.content.data?.agentId;
-      if (typeof agentId === 'string')
-        router.push({ pathname: '/chat/[id]', params: { id: agentId } });
+      const agentId = agentFromResponse(response);
+      if (agentId) router.push({ pathname: '/chat/[id]', params: { id: agentId } });
     };
     open(Notifications.getLastNotificationResponse());
     const sub = Notifications.addNotificationResponseReceivedListener(open);

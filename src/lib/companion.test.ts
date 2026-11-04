@@ -21,6 +21,7 @@ const status = (over: Partial<PhoneStatus> = {}): PhoneStatus => ({
   pairing: { active: false },
   activity: {},
   methods: [],
+  push: { available: false, enabled: false },
   ...over,
 });
 

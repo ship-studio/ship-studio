@@ -1,0 +1,38 @@
+// Ship Studio's push relay. NOT DEPLOYED: see docs/push-relay.md for the
+// owner's steps. Every value marked PLACEHOLDER must be replaced first.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shipstudio-push-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // No Workers Logs: the relay prints nothing about who or what, and keeps
+  // no request logs of its own.
+  "observability": { "enabled": false },
+  "vars": {
+    // PLACEHOLDER: the official app's bundle id from the TestFlight team.
+    "APNS_TOPIC": "com.shipstudio.companion"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "shipstudio-push",
+      // PLACEHOLDER: printed by `wrangler d1 create shipstudio-push`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Creating an installation is the one unauthenticated route. Cloudflare's
+  // limiter counts it per client address; the relay never stores one.
+  "ratelimits": [
+    {
+      "name": "CREATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ]
+  // Secrets (`wrangler secret put <NAME>`), never in this file:
+  //   APNS_KEY      the .p8 file's contents
+  //   APNS_KEY_ID   the key's 10-character id
+  //   APNS_TEAM_ID  the Apple team id that owns the bundle id
+  //   FCM_SERVICE_ACCOUNT  optional, Android: the service account JSON
+}
