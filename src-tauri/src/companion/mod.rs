@@ -25,6 +25,7 @@ pub mod files;
 mod fixtures;
 pub mod hub;
 pub mod pairing;
+pub mod projects;
 pub mod router;
 pub mod server;
 #[cfg(test)]
@@ -398,6 +399,11 @@ impl Companion {
         if let Some(c) = self.conns().get_mut(&conn) {
             c.foreground = foreground;
         }
+    }
+
+    /// Some phone has the app open: worth watching the projects for.
+    pub fn any_foreground(&self) -> bool {
+        self.conns().values().any(|c| c.foreground)
     }
 
     pub fn is_connected(&self, device_id: &str) -> bool {

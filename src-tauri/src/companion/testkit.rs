@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use super::router::{ApprovalAnswer, Backend, ScheduleOp, SendExtras};
+use super::router::{AgentToggles, ApprovalAnswer, Backend, ScheduleOp, SendExtras};
 use super::wire::{ClaudeInfo, Event, Known, MacStatus, PowerInfo, Route, RouteKind};
 use super::{Companion, Registry};
 use crate::agents::store::{Agent, AgentMessage};
@@ -233,6 +233,9 @@ pub struct Stub {
     pub audit: Mutex<Vec<(String, String, String, bool)>>,
     pub focus: Mutex<Vec<(String, Option<String>)>>,
     pub answers: Mutex<Vec<ApprovalAnswer>>,
+    pub toggles: Mutex<Vec<(String, AgentToggles)>>,
+    /// What reached a session: `(session id, text or "key:<key>")`.
+    pub typed: Mutex<Vec<(String, String)>>,
 }
 
 impl Stub {
@@ -249,6 +252,8 @@ impl Stub {
             audit: Mutex::new(Vec::new()),
             focus: Mutex::new(Vec::new()),
             answers: Mutex::new(Vec::new()),
+            toggles: Mutex::new(Vec::new()),
+            typed: Mutex::new(Vec::new()),
         });
         let c = Arc::new(Companion::with_epoch(registry, stub.clone(), epoch.into()));
         let _ = stub.companion.set(Arc::downgrade(&c));
@@ -373,6 +378,25 @@ impl Backend for Stub {
         Ok(())
     }
 
+    async fn update_agent(
+        &self,
+        agent_id: &str,
+        toggles: AgentToggles,
+    ) -> Result<Value, CommandError> {
+        if agent_id != AGENT {
+            return Err(CommandError::expected("No such agent."));
+        }
+        let mut agent = stored_agent();
+        agent.pinned = toggles.pinned.unwrap_or(agent.pinned);
+        agent.hidden = toggles.hidden.unwrap_or(agent.hidden);
+        agent.muted = toggles.muted.unwrap_or(agent.muted);
+        self.toggles
+            .lock()
+            .unwrap()
+            .push((agent_id.to_string(), toggles));
+        Ok(serde_json::to_value(agent).unwrap())
+    }
+
     async fn files(&self, agent_id: &str) -> Result<Value, CommandError> {
         use crate::agents::files::{Sender, SharedFile};
         use crate::agents::store::MessageKind;
@@ -488,6 +512,55 @@ impl Backend for Stub {
             ));
         }
         Ok(serde_json::to_value(screen).unwrap())
+    }
+
+    /// The desktop's rules, played on the fixture projects: tab 2 is asking
+    /// a question (so typing would answer it), tab 1 is working.
+    async fn session_send(
+        &self,
+        project: &str,
+        session_id: Option<&str>,
+        text: &str,
+    ) -> Result<String, CommandError> {
+        let p = &projects()[0];
+        if project != p.path {
+            return Err(CommandError::expected("No such project."));
+        }
+        let id = session_id.unwrap_or("pty-1");
+        let tab = p
+            .sessions
+            .iter()
+            .find(|s| s.session_id == id)
+            .ok_or_else(|| CommandError::expected("No such tab."))?;
+        if tab.question.is_some() {
+            return Err(CommandError::expected(
+                "Not sent: it’s waiting for your answer. Answer that first, then send.",
+            ));
+        }
+        self.typed
+            .lock()
+            .unwrap()
+            .push((id.to_string(), text.to_string()));
+        Ok(id.to_string())
+    }
+
+    async fn session_key(&self, session_id: &str, key: &str) -> Result<(), CommandError> {
+        let tab = projects()
+            .swap_remove(0)
+            .sessions
+            .into_iter()
+            .find(|s| s.session_id == session_id)
+            .ok_or_else(|| CommandError::expected("That session isn't open any more."))?;
+        if key.chars().all(|c| c.is_ascii_alphanumeric()) && tab.question.is_none() {
+            return Err(CommandError::expected(
+                "Not pressed: it isn’t asking anything right now.",
+            ));
+        }
+        self.typed
+            .lock()
+            .unwrap()
+            .push((session_id.to_string(), format!("key:{key}")));
+        Ok(())
     }
 
     fn attachment_file(

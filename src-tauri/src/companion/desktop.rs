@@ -13,7 +13,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 use super::hub::HubItem;
-use super::router::{ApprovalAnswer, Backend, ScheduleOp, SendExtras};
+use super::router::{AgentToggles, ApprovalAnswer, Backend, ScheduleOp, SendExtras};
 use super::wire::{ClaudeInfo, Event, Known, MacStatus, PowerInfo, Route, RouteKind};
 use super::{Companion, Registry, TAILNET_HTTPS_PORT};
 use crate::agents::{runner, store};
@@ -43,6 +43,7 @@ pub fn ensure(app: &AppHandle) -> Arc<Companion> {
             let backend = Arc::new(DesktopBackend { app: app.clone() });
             let c = Arc::new(Companion::new(Registry::load(path), backend));
             subscribe(app, &c);
+            tauri::async_runtime::spawn(watch_projects(c.clone()));
             c
         })
         .clone()
@@ -114,6 +115,54 @@ fn subscribe(app: &AppHandle, c: &Arc<Companion>) {
             }
         });
     });
+}
+
+/// How often the projects are looked at while a phone has the app open.
+const PROJECTS_EVERY: Duration = Duration::from_secs(2);
+/// Git (branch, uncommitted count) is asked every this many looks.
+const GIT_EVERY: u32 = 5;
+
+/// Journal `projects.changed` / `projects.removed` while a phone is in the
+/// foreground (see `companion/projects.rs`). Tabs are read every look; git
+/// every [`GIT_EVERY`]th, its answer reused in between.
+async fn watch_projects(c: Arc<Companion>) {
+    use crate::remote_access::tools::{project_git, project_name, project_sessions, ProjectView};
+    let mut watch = super::projects::ProjectsWatch::default();
+    let mut git: std::collections::HashMap<String, (Option<String>, usize)> = Default::default();
+    let mut tick: u32 = 0;
+    let mut every = tokio::time::interval(PROJECTS_EVERY);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        every.tick().await;
+        if !c.any_foreground() {
+            continue;
+        }
+        let projects = all_projects().await;
+        let fresh_git = tick.is_multiple_of(GIT_EVERY);
+        tick = tick.wrapping_add(1);
+        let mut views = Vec::with_capacity(projects.len());
+        for path in &projects {
+            if fresh_git || !git.contains_key(path) {
+                git.insert(path.clone(), project_git(path).await);
+            }
+            let (branch, dirty_files) = git.get(path).cloned().unwrap_or_default();
+            views.push(ProjectView {
+                path: path.clone(),
+                name: project_name(path).to_string(),
+                branch,
+                dirty_files,
+                sessions: project_sessions(path),
+            });
+        }
+        git.retain(|p, _| projects.contains(p));
+        let views: Vec<Value> = views
+            .into_iter()
+            .filter_map(|v| serde_json::to_value(v).ok())
+            .collect();
+        for event in watch.diff(views) {
+            c.hub.publish(event);
+        }
+    }
 }
 
 // ============================================================================
@@ -210,6 +259,26 @@ impl Backend for DesktopBackend {
         cmd::agents_mark_unread(self.app.clone(), agent_id.to_string()).await
     }
 
+    async fn update_agent(
+        &self,
+        agent_id: &str,
+        toggles: AgentToggles,
+    ) -> Result<Value, CommandError> {
+        let input = cmd::UpdateAgentInput {
+            name: None,
+            shape: None,
+            color: None,
+            role: None,
+            instructions: None,
+            pinned: toggles.pinned,
+            hidden: toggles.hidden,
+            muted: toggles.muted,
+            model: None,
+            project: None,
+        };
+        json(cmd::agents_update(self.app.clone(), agent_id.to_string(), input).await?)
+    }
+
     async fn files(&self, agent_id: &str) -> Result<Value, CommandError> {
         json(cmd::agents_files(agent_id.to_string()).await?)
     }
@@ -279,6 +348,40 @@ impl Backend for DesktopBackend {
             crate::remote_access::tools::session_screen(&projects, session_id)
                 .map_err(CommandError::expected)?,
         )
+    }
+
+    async fn session_send(
+        &self,
+        project: &str,
+        session_id: Option<&str>,
+        text: &str,
+    ) -> Result<String, CommandError> {
+        use crate::remote_access::tools::{deliver, resolve_project, Undelivered};
+        let project = resolve_project(&all_projects().await, Some(project))
+            .map_err(CommandError::expected)?;
+        match deliver(&project, session_id, text).await {
+            Ok((_, tab, _)) => Ok(tab.session_id),
+            Err(Undelivered::Asking { question, .. }) => Err(CommandError::expected(format!(
+                "Not sent: it’s waiting for your answer to “{question}”. Answer that first, then send."
+            ))),
+            Err(Undelivered::NotAsking { .. }) => Err(CommandError::expected("Not sent.")),
+            Err(Undelivered::Other(e)) => Err(CommandError::expected(e)),
+        }
+    }
+
+    async fn session_key(&self, session_id: &str, key: &str) -> Result<(), CommandError> {
+        use crate::remote_access::tools::{press, project_of_session, Undelivered};
+        let project = project_of_session(&all_projects().await, session_id).ok_or_else(|| {
+            CommandError::expected("That session isn't open in Ship Studio any more.")
+        })?;
+        match press(&project, Some(session_id), key) {
+            Ok(_) => Ok(()),
+            Err(Undelivered::NotAsking { .. }) => Err(CommandError::expected(
+                "Not pressed: it isn’t asking anything right now.",
+            )),
+            Err(Undelivered::Asking { .. }) => Err(CommandError::expected("Not pressed.")),
+            Err(Undelivered::Other(e)) => Err(CommandError::expected(e)),
+        }
     }
 
     fn attachment_file(

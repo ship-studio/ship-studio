@@ -149,6 +149,18 @@ fn frames() -> Vec<ServerFrame> {
             },
         ),
         (
+            Some(6),
+            Event::ProjectChanged {
+                project: serde_json::to_value(&testkit::projects()[0]).unwrap(),
+            },
+        ),
+        (
+            Some(7),
+            Event::ProjectRemoved {
+                path: "/Users/julian/ShipStudio/old-site".into(),
+            },
+        ),
+        (
             None,
             Event::Draft {
                 agent_id: AGENT.into(),
@@ -414,6 +426,28 @@ async fn generate() -> String {
         "sessionsRead",
         "Result<'sessions.read'>",
         call("sessions.read", json!({ "sessionId": "pty-1" })).await,
+    );
+    out += &entry(
+        "agentsUpdate",
+        "Result<'agents.update'>",
+        call(
+            "agents.update",
+            json!({ "agentId": AGENT, "input": { "muted": true } }),
+        )
+        .await,
+    );
+    out += &entry(
+        "sessionsSend",
+        "Result<'sessions.send'>",
+        call(
+            "sessions.send",
+            json!({ "project": "/Users/julian/ShipStudio/site", "sessionId": "pty-1", "text": "Fix the header", "clientId": "s_1" }),
+        )
+        .await,
+    );
+    assert_eq!(
+        call("sessions.key", json!({ "sessionId": "pty-2", "key": "1" })).await,
+        Value::Null
     );
     out += &entry("frames", "ServerFrame[]", frames());
     out += &entry("pairResponses", "PairResponse[]", pair_responses());

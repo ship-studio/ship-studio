@@ -435,6 +435,10 @@ pub enum Event {
     Registry { overview: Value },
     #[serde(rename = "system.status")]
     System { status: MacStatus },
+    #[serde(rename = "projects.changed")]
+    ProjectChanged { project: Value },
+    #[serde(rename = "projects.removed")]
+    ProjectRemoved { path: String },
     #[serde(rename = "agents.draft")]
     Draft {
         agent_id: String,

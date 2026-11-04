@@ -89,6 +89,11 @@ export interface Methods {
   'agents.focus': { params: { agentId: string | null }; result: null };
   'agents.markUnread': { params: { agentId: string }; result: null };
   'agents.create': { params: { input: NewAgentInput }; result: StoredAgent };
+  /**
+   * From the phone, only the row's toggles (`pinned`, `muted`, `hidden`);
+   * any other field is refused with `bad_params`. The name, role,
+   * instructions, model and project stay the desk's.
+   */
   'agents.update': { params: { agentId: string; input: UpdateAgentInput }; result: StoredAgent };
   /** The phone asks for confirmation first; the server asks nothing further. */
   'agents.delete': { params: { agentId: string }; result: null };

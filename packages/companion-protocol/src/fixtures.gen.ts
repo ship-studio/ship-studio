@@ -640,6 +640,107 @@ export const sessionsRead = {
     "tab": 1
   }
 } satisfies Result<'sessions.read'>;
+export const agentsUpdate = {
+  "capabilities": {
+    "lines": [
+      {
+        "detail": "Bash, Read, Edit",
+        "what": "Tools"
+      }
+    ],
+    "seenAt": 1762290000000
+  },
+  "checkIns": [
+    {
+      "createdAt": 1762200000000,
+      "id": "c1",
+      "nextAt": 1762300000000,
+      "note": "Check the invoices",
+      "paused": false,
+      "repeat": {
+        "days": [
+          1,
+          3
+        ],
+        "hour": 9,
+        "kind": "days",
+        "minute": 30
+      }
+    },
+    {
+      "createdAt": 1762200000000,
+      "id": "c2",
+      "nextAt": 1762300000000,
+      "note": "Look at the queue",
+      "paused": true,
+      "repeat": {
+        "kind": "every",
+        "minutes": 60
+      }
+    },
+    {
+      "createdAt": 1762200000000,
+      "id": "c3",
+      "nextAt": 1762400000000,
+      "note": "Remind me about the VAT return",
+      "paused": false
+    }
+  ],
+  "color": "green",
+  "createdAt": 1762200000000,
+  "failure": {
+    "kind": "usage_limit",
+    "resetsAt": 1762310000000
+  },
+  "hidden": false,
+  "id": "a1",
+  "isMain": false,
+  "lastActivityAt": 1762290000000,
+  "model": "opus",
+  "muted": true,
+  "name": "Finance",
+  "pendingApprovals": 1,
+  "permissions": [
+    {
+      "createdAt": 1762200000000,
+      "id": "r1",
+      "kind": "command_prefix",
+      "label": "npm test",
+      "value": "npm test"
+    },
+    {
+      "createdAt": 1762200000000,
+      "id": "r2",
+      "kind": "command",
+      "label": "git status",
+      "value": "git status"
+    },
+    {
+      "createdAt": 1762200000000,
+      "id": "r3",
+      "kind": "domain",
+      "label": "example.com",
+      "value": "example.com"
+    },
+    {
+      "createdAt": 1762200000000,
+      "id": "r4",
+      "kind": "tool",
+      "label": "Send an email · Gmail",
+      "value": "mcp__gmail__send"
+    }
+  ],
+  "pinned": true,
+  "preview": "Invoices are filed.",
+  "project": "/Users/julian/ShipStudio/site",
+  "role": "Keeps the books",
+  "sessionId": "8c1d7a52-0000-4000-8000-000000000001",
+  "shape": 2,
+  "unread": 2
+} satisfies Result<'agents.update'>;
+export const sessionsSend = {
+  "sessionId": "pty-1"
+} satisfies Result<'sessions.send'>;
 export const frames = [
   {
     "t": "welcome",
@@ -663,6 +764,7 @@ export const frames = [
       "agents.answerApproval",
       "agents.focus",
       "agents.markUnread",
+      "agents.update",
       "agents.files",
       "agents.fetchPath",
       "agents.search",
@@ -673,7 +775,9 @@ export const frames = [
       "agents.schedule.cancel",
       "agents.schedule.runNow",
       "projects.list",
-      "sessions.read"
+      "sessions.read",
+      "sessions.send",
+      "sessions.key"
     ]
   },
   {
@@ -1047,6 +1151,65 @@ export const frames = [
           }
         ]
       }
+    }
+  },
+  {
+    "t": "evt",
+    "seq": 6,
+    "event": {
+      "type": "projects.changed",
+      "project": {
+        "branch": "main",
+        "dirtyFiles": 3,
+        "name": "site",
+        "path": "/Users/julian/ShipStudio/site",
+        "sessions": [
+          {
+            "cli": "claude",
+            "lastOutputAt": 1762290000000,
+            "question": {
+              "action": "Bash(npm install)",
+              "options": [
+                {
+                  "highlighted": false,
+                  "key": "1",
+                  "label": "Yes"
+                },
+                {
+                  "highlighted": false,
+                  "key": "2",
+                  "label": "Yes, and don't ask again for npm install"
+                },
+                {
+                  "highlighted": false,
+                  "key": "3",
+                  "label": "No"
+                }
+              ],
+              "question": "Do you want to proceed?"
+            },
+            "sessionId": "pty-2",
+            "state": "needs_decision",
+            "tab": 2
+          },
+          {
+            "activity": "Editing Header.tsx",
+            "cli": "codex",
+            "lastOutputAt": 1762290000000,
+            "sessionId": "pty-1",
+            "state": "working",
+            "tab": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "t": "evt",
+    "seq": 7,
+    "event": {
+      "type": "projects.removed",
+      "path": "/Users/julian/ShipStudio/old-site"
     }
   },
   {

@@ -1249,16 +1249,13 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
         return start_and_follow(app, project, &message, wait, &lead, started).await;
     }
 
-    let (n, tab) = match writable_tab(project, wanted) {
-        Ok(t) => t,
-        Err(e) => return error(e),
-    };
-    // Typing ends with Enter. If the agent is showing a choice — a permission
-    // prompt, a menu — that Enter would pick the highlighted option ("Yes")
-    // on the user's behalf. Refuse and hand the question back instead.
-    if let Some(snap) = pty_session::session_snapshot(&tab.session_id) {
-        let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
-        if let Some((question, options)) = agent_state::awaiting_choice_detail(&screen) {
+    let (n, tab, was_busy) = match deliver(project, wanted, &message).await {
+        Ok(d) => d,
+        Err(Undelivered::Asking {
+            n,
+            question,
+            options,
+        }) => {
             let options = if options.is_empty() {
                 String::new()
             } else {
@@ -1268,12 +1265,9 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
                 "Not sent: the agent in tab {n} is waiting for an answer right now: \"{question}\".{options} Sending a message would answer it. Ask the user which they want, answer with press_key, then send the message."
             ));
         }
-    }
-    let was_busy = super::now_ms().saturating_sub(tab.last_output_ms) < QUIET_MS;
-    begin_run(&tab.session_id, &message, tree_now(project).await);
-    if let Err(e) = type_into(&tab, n, &message).await {
-        return error(e);
-    }
+        Err(Undelivered::NotAsking { .. }) => return error("Not sent."),
+        Err(Undelivered::Other(e)) => return error(e),
+    };
     let lead = if was_busy {
         "Sent. The agent was still busy with something; it will take this up next — no need for another agent."
     } else {
@@ -1290,6 +1284,94 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
         started,
     )
     .await
+}
+
+/// Why a message or key wasn't delivered to a tab.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Undelivered {
+    /// The agent in tab `n` is showing a choice: Enter (or a stray letter)
+    /// would answer it on the user's behalf.
+    Asking {
+        n: usize,
+        question: String,
+        options: Vec<String>,
+    },
+    /// No such key, or a letter with no question showing (it would be
+    /// typed into the agent's message box).
+    NotAsking {
+        n: usize,
+        key: String,
+    },
+    Other(String),
+}
+
+/// The question tab `session_id` is showing, if any.
+fn asking(session_id: &str) -> Option<(String, Vec<String>)> {
+    let snap = pty_session::session_snapshot(session_id)?;
+    let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
+    agent_state::awaiting_choice_detail(&screen)
+}
+
+/// Type already-cleaned `message` into a live agent tab and press Enter:
+/// `message_agent`'s refusals, shared with the phone's `sessions.send`.
+/// Returns the tab, and whether it was still busy when the text went in.
+pub(crate) async fn deliver(
+    project: &str,
+    wanted: Option<&str>,
+    message: &str,
+) -> Result<(usize, SessionSummary, bool), Undelivered> {
+    let (n, tab) = writable_tab(project, wanted).map_err(Undelivered::Other)?;
+    // Typing ends with Enter. If the agent is showing a choice — a permission
+    // prompt, a menu — that Enter would pick the highlighted option ("Yes")
+    // on the user's behalf. Refuse and hand the question back instead.
+    if let Some((question, options)) = asking(&tab.session_id) {
+        return Err(Undelivered::Asking {
+            n,
+            question,
+            options,
+        });
+    }
+    let was_busy = super::now_ms().saturating_sub(tab.last_output_ms) < QUIET_MS;
+    begin_run(&tab.session_id, message, tree_now(project).await);
+    type_into(&tab, n, message)
+        .await
+        .map_err(Undelivered::Other)?;
+    Ok((n, tab, was_busy))
+}
+
+/// Press `key` in a live agent tab: `press_key`'s rules, shared with the
+/// phone's `sessions.key`. A letter or digit only while a question shows.
+pub(crate) fn press(
+    project: &str,
+    wanted: Option<&str>,
+    key: &str,
+) -> Result<(usize, SessionSummary), Undelivered> {
+    let Some(bytes) = key_bytes(key) else {
+        return Err(Undelivered::Other(format!(
+            "\"{key}\" isn't a key this tool can press."
+        )));
+    };
+    let (n, tab) = writable_tab(project, wanted).map_err(Undelivered::Other)?;
+    // A letter or digit answers a prompt — or, with none showing, gets typed
+    // into the agent's message box, where it then sits in front of whatever
+    // the user sends next.
+    if bytes.iter().all(u8::is_ascii_alphanumeric) && asking(&tab.session_id).is_none() {
+        return Err(Undelivered::NotAsking {
+            n,
+            key: key.to_string(),
+        });
+    }
+    write(&tab.session_id, bytes)
+        .map_err(|e| Undelivered::Other(format!("Couldn't press {key} in tab {n}: {e}")))?;
+    Ok((n, tab))
+}
+
+/// The project among `projects` with an open tab `session_id`.
+pub(crate) fn project_of_session(projects: &[String], session_id: &str) -> Option<String> {
+    projects
+        .iter()
+        .find(|p| sessions_for(p).iter().any(|s| s.session_id == session_id))
+        .cloned()
 }
 
 /// Watch `tab` and report on it.
@@ -1391,30 +1473,16 @@ pub(crate) fn key_bytes(key: &str) -> Option<&'static [u8]> {
 async fn press_key(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
     let started = tokio::time::Instant::now();
     let key = args.get("key").and_then(Value::as_str).unwrap_or("");
-    let Some(bytes) = key_bytes(key) else {
-        return error(format!("\"{key}\" isn't a key this tool can press."));
-    };
-    let (n, tab) = match writable_tab(project, args.get("tab").and_then(Value::as_str)) {
+    let (n, tab) = match press(project, args.get("tab").and_then(Value::as_str), key) {
         Ok(t) => t,
-        Err(e) => return error(e),
-    };
-    // A letter or digit answers a prompt — or, with none showing, gets typed
-    // into the agent's message box, where it then sits in front of whatever
-    // the user sends next.
-    if bytes.iter().all(u8::is_ascii_alphanumeric) {
-        let asking = pty_session::session_snapshot(&tab.session_id).is_some_and(|snap| {
-            let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
-            agent_state::awaiting_choice_detail(&screen).is_some()
-        });
-        if !asking {
+        Err(Undelivered::NotAsking { n, key }) => {
             return error(format!(
                 "Not pressed: the agent in tab {n} isn't asking anything right now, so \"{key}\" would just be typed into its message box. Use message_agent to tell it something."
-            ));
+            ))
         }
-    }
-    if let Err(e) = write(&tab.session_id, bytes) {
-        return error(format!("Couldn't press {key} in tab {n}: {e}"));
-    }
+        Err(Undelivered::Asking { .. }) => return error("Not pressed."),
+        Err(Undelivered::Other(e)) => return error(e),
+    };
     let lead = format!("Pressed {key}.");
     let wait = wait_arg(args, KEY_WAIT_SECS);
     follow(
@@ -2537,30 +2605,44 @@ pub(crate) fn order_sessions(sessions: &mut [SessionView]) {
     sessions.sort_by_key(|s| (s.state != "needs_decision", s.tab));
 }
 
-/// A project as data: its branch and uncommitted count (when git answers),
-/// and its agent tabs.
-pub(crate) async fn project_view(project: &str) -> ProjectView {
+/// A project's agent tabs as data, waiting ones first. Cheap: no processes.
+pub(crate) fn project_sessions(project: &str) -> Vec<SessionView> {
     let mut sessions: Vec<SessionView> = sessions_for(project)
         .iter()
         .enumerate()
         .filter_map(|(i, s)| session_view(i + 1, s).map(|(v, _)| v))
         .collect();
     order_sessions(&mut sessions);
+    sessions
+}
+
+/// A project's branch and uncommitted count, when git answers.
+pub(crate) async fn project_git(project: &str) -> (Option<String>, usize) {
     let (branch, status) = tokio::join!(
         git(project, &["rev-parse", "--abbrev-ref", "HEAD"]),
         git(project, &["status", "--porcelain"])
     );
-    ProjectView {
-        path: project.to_string(),
-        name: project_name(project).to_string(),
-        branch: branch
+    (
+        branch
             .ok()
             .map(|b| b.trim().to_string())
             .filter(|b| !b.is_empty()),
-        dirty_files: status
+        status
             .map(|s| s.lines().filter(|l| !l.is_empty()).count())
             .unwrap_or(0),
-        sessions,
+    )
+}
+
+/// A project as data: its branch and uncommitted count (when git answers),
+/// and its agent tabs.
+pub(crate) async fn project_view(project: &str) -> ProjectView {
+    let (branch, dirty_files) = project_git(project).await;
+    ProjectView {
+        path: project.to_string(),
+        name: project_name(project).to_string(),
+        branch,
+        dirty_files,
+        sessions: project_sessions(project),
     }
 }
 

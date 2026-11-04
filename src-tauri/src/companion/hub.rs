@@ -16,6 +16,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
+use serde_json::Value;
+
 use super::wire::{Cursor, Event};
 
 /// How long, and how many, events stay replayable.
@@ -34,6 +36,12 @@ fn replay_key(event: &Event) -> Option<String> {
         Event::Status { agent_id, .. } => Some(format!("status:{agent_id}")),
         Event::Registry { .. } => Some("registry".into()),
         Event::System { .. } => Some("system".into()),
+        // A removal supersedes the project's last change, and the other way round.
+        Event::ProjectChanged { project } => Some(format!(
+            "project:{}",
+            project.get("path").and_then(Value::as_str).unwrap_or("")
+        )),
+        Event::ProjectRemoved { path } => Some(format!("project:{path}")),
         // Never journaled (see `Hub::publish`); keyed so a mistake can't pile up.
         Event::Draft { .. } | Event::Snapshot { .. } | Event::CaughtUp { .. } => {
             Some("ephemeral".into())

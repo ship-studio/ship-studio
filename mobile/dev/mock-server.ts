@@ -161,6 +161,22 @@ export function createMockServer(opts: MockOptions = {}) {
 
   const projects: ProjectSummary[] = seedProjects(now);
   const screens = new Map<string, string>(seedScreens());
+  const sessionClientIds = new Map<string, string>();
+  const findSession = (id: string) =>
+    projects.flatMap((x) => x.sessions).find((x) => x.sessionId === id);
+  /** A tab changed state: journaled as the real Mac's watcher would. */
+  function setSession(id: string, change: Partial<ProjectSummary['sessions'][number]>) {
+    const project = projects.find((x) => x.sessions.some((y) => y.sessionId === id));
+    if (!project) return;
+    project.sessions = project.sessions.map((x) => {
+      if (x.sessionId !== id) return x;
+      const next = { ...x, ...change, lastOutputAt: Date.now() };
+      if (!next.activity) delete next.activity;
+      if (!next.question) delete next.question;
+      return next;
+    });
+    emit({ type: 'projects.changed', project: structuredClone(project) });
+  }
 
   /** Session cards, a preview screenshot and files both ways, so the chat shows them all. */
   function seedShared(at: number) {
@@ -689,6 +705,79 @@ export function createMockServer(opts: MockOptions = {}) {
         screen,
         ...(session.state === 'finished' ? { reply: lastReply(screen) } : {}),
       } satisfies SessionScreen;
+    },
+    'agents.update': (p) => {
+      const a = agent(String(p.agentId));
+      if (!a) return fail({ type: 'Validation', field: 'agentId', reason: 'No such agent' });
+      const input = (p.input ?? {}) as Record<string, unknown>;
+      const allowed = ['pinned', 'muted', 'hidden'];
+      if (!Object.keys(input).length || Object.keys(input).some((k) => !allowed.includes(k))) {
+        return fail({
+          type: 'Protocol',
+          code: 'bad_params',
+          message: 'Only pin, mute and hide can be changed from the phone.',
+        });
+      }
+      if (typeof input.pinned === 'boolean') a.pinned = input.pinned;
+      if (typeof input.muted === 'boolean') a.muted = input.muted;
+      if (typeof input.hidden === 'boolean') a.hidden = input.hidden;
+      emit({ type: 'agents.registry', overview: overview() });
+      const { status: _status, home: _home, ...stored } = a;
+      return stored;
+    },
+    'sessions.send': (p) => {
+      const session = findSession(String(p.sessionId ?? ''));
+      const text = String(p.text ?? '').trim();
+      if (!session) return fail({ type: 'Other', message: 'That session was closed.' });
+      if (!text || text.startsWith('!') || /^\/(?!clear|compact|status|help)/.test(text)) {
+        return fail({
+          type: 'Protocol',
+          code: 'refused',
+          message: text ? `${text.split(' ')[0]} can’t be sent remotely.` : 'The message is empty.',
+        });
+      }
+      if (session.state === 'needs_decision') {
+        return fail({
+          type: 'Other',
+          message: `Not sent: it’s waiting for your answer to “${session.question?.question}”. Answer that first, then send.`,
+        });
+      }
+      const known = sessionClientIds.get(String(p.clientId));
+      if (known) return { sessionId: known };
+      sessionClientIds.set(String(p.clientId), session.sessionId);
+      screens.set(session.sessionId, `${screens.get(session.sessionId) ?? ''}\n\n> ${text}\n`);
+      setSession(session.sessionId, { state: 'working', activity: 'Thinking…' });
+      setTimeout(() => {
+        screens.set(
+          session.sessionId,
+          `${screens.get(session.sessionId)}\n⏺ Done. ${text.length > 40 ? 'That’s handled.' : `“${text}” is handled.`}\n`
+        );
+        setSession(session.sessionId, { state: 'finished', activity: undefined });
+      }, 2500);
+      return { sessionId: session.sessionId };
+    },
+    'sessions.key': (p) => {
+      const session = findSession(String(p.sessionId));
+      if (!session) return fail({ type: 'Other', message: 'That session was closed.' });
+      const key = String(p.key);
+      if (/^[0-9yn]$/.test(key) && session.state !== 'needs_decision') {
+        return fail({ type: 'Other', message: 'Not pressed: it isn’t asking anything right now.' });
+      }
+      const option = session.question?.options.find((o) => o.key === key);
+      screens.set(
+        session.sessionId,
+        `${screens.get(session.sessionId)}\n  ⎿  ${option?.label ?? key}\n`
+      );
+      setSession(session.sessionId, {
+        state: 'working',
+        activity: 'Editing Header.tsx',
+        question: undefined,
+      });
+      setTimeout(
+        () => setSession(session.sessionId, { state: 'finished', activity: undefined }),
+        3000
+      );
+      return null;
     },
     'agents.markUnread': (p) => {
       const a = agent(String(p.agentId));

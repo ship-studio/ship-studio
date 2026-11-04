@@ -30,6 +30,7 @@ pub const METHODS: &[&str] = &[
     "agents.answerApproval",
     "agents.focus",
     "agents.markUnread",
+    "agents.update",
     "agents.files",
     "agents.fetchPath",
     "agents.search",
@@ -41,6 +42,8 @@ pub const METHODS: &[&str] = &[
     "agents.schedule.runNow",
     "projects.list",
     "sessions.read",
+    "sessions.send",
+    "sessions.key",
 ];
 
 /// `READ_ONLY_METHODS` in methods.ts (the served subset): not audited.
@@ -110,6 +113,16 @@ pub enum ScheduleOp {
     },
 }
 
+/// What the phone may change about an agent: the row's own toggles. Its
+/// name, role, instructions, model and project stay the desk's.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentToggles {
+    pub pinned: Option<bool>,
+    pub hidden: Option<bool>,
+    pub muted: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApprovalAnswer {
     pub agent_id: String,
@@ -145,6 +158,12 @@ pub trait Backend: Send + Sync + 'static {
     /// `agents_focus` for a socket instead of a window.
     async fn focus(&self, label: &str, agent_id: Option<String>) -> Result<(), CommandError>;
     async fn mark_unread(&self, agent_id: &str) -> Result<(), CommandError>;
+    /// `agents_update` with only the toggles set; returns the stored agent.
+    async fn update_agent(
+        &self,
+        agent_id: &str,
+        toggles: AgentToggles,
+    ) -> Result<Value, CommandError>;
     /// `agents_files`: everything shared in one conversation, newest first.
     async fn files(&self, agent_id: &str) -> Result<Value, CommandError>;
     /// A path from an agent's reply, resolved as `share_file` resolves it
@@ -160,6 +179,17 @@ pub trait Backend: Send + Sync + 'static {
     async fn projects(&self) -> Result<Value, CommandError>;
     /// One agent tab's screen as a `SessionScreen`.
     async fn session_screen(&self, session_id: &str) -> Result<Value, CommandError>;
+    /// Type cleaned `text` into an agent tab of `project` (the given one, or
+    /// the live one that printed last) and press Enter, with Remote
+    /// Access's refusals. Returns the tab's session id.
+    async fn session_send(
+        &self,
+        project: &str,
+        session_id: Option<&str>,
+        text: &str,
+    ) -> Result<String, CommandError>;
+    /// Press `key` (already one `key_bytes` knows) in an agent tab.
+    async fn session_key(&self, session_id: &str, key: &str) -> Result<(), CommandError>;
     /// An attachment's file: `attachments::resolve` under the agent's home.
     fn attachment_file(
         &self,
@@ -290,6 +320,29 @@ struct SessionParams {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UpdateParams {
+    agent_id: String,
+    input: AgentToggles,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSendParams {
+    project: String,
+    session_id: Option<String>,
+    text: String,
+    client_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionKeyParams {
+    session_id: String,
+    key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SendParams {
     agent_id: String,
     text: String,
@@ -321,7 +374,26 @@ pub fn audit_detail(method: &str, params: &Value) -> String {
     let field = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
     let preview = crate::remote_access::preview;
     match method {
-        "agents.send" => preview(field("text")),
+        "agents.send" | "sessions.send" => preview(field("text")),
+        "sessions.key" => format!("pressed {}", field("key")),
+        "agents.update" => {
+            let input = params.get("input").cloned().unwrap_or(Value::Null);
+            let flag = |k: &str, on: &str, off: &str| match input.get(k).and_then(Value::as_bool) {
+                Some(true) => Some(on.to_string()),
+                Some(false) => Some(off.to_string()),
+                None => None,
+            };
+            [
+                flag("pinned", "pin", "unpin"),
+                flag("muted", "mute", "unmute"),
+                flag("hidden", "hide", "unhide"),
+            ]
+            .into_iter()
+            .flatten()
+            .chain(std::iter::once(field("agentId").to_string()))
+            .collect::<Vec<_>>()
+            .join(" ")
+        }
         "agents.answerApproval" => {
             let allow = params
                 .get("allow")
@@ -485,6 +557,20 @@ async fn run(
             b.mark_unread(&p.agent_id).await?;
             Ok(Value::Null)
         }
+        "agents.update" => {
+            let p: UpdateParams = parse(params).map_err(|_| {
+                bad_params("Only pin, mute and hide can be changed from the phone.")
+            })?;
+            if p.input == AgentToggles::default() {
+                return Err(bad_params("Nothing to change."));
+            }
+            // `StoredAgent` doesn't carry lifetime usage, as the overview doesn't.
+            let mut stored = b.update_agent(&p.agent_id, p.input).await?;
+            if let Some(fields) = stored.as_object_mut() {
+                fields.remove("usage");
+            }
+            Ok(stored)
+        }
         "agents.files" => {
             let p: AgentParam = parse(params)?;
             Ok(b.files(&p.agent_id).await?)
@@ -545,6 +631,35 @@ async fn run(
         "sessions.read" => {
             let p: SessionParams = parse(params)?;
             Ok(b.session_screen(&p.session_id).await?)
+        }
+        "sessions.send" => {
+            let p: SessionSendParams = parse(params)?;
+            let client_id = p.client_id.trim().to_string();
+            if client_id.is_empty() || client_id.len() > 128 {
+                return Err(bad_params("clientId is required (at most 128 characters)."));
+            }
+            let key = format!("{}:session:{client_id}", caller.device_id);
+            c.sends
+                .once(key, now_ms(), || async move {
+                    let text = crate::remote_access::tools::clean_agent_text(&p.text, "message")
+                        .map_err(|reason| WireError::protocol(ProtocolCode::Refused, reason))?;
+                    let session_id = b
+                        .session_send(&p.project, p.session_id.as_deref(), &text)
+                        .await?;
+                    Ok(json!({ "sessionId": session_id }))
+                })
+                .await
+        }
+        "sessions.key" => {
+            let p: SessionKeyParams = parse(params)?;
+            if crate::remote_access::tools::key_bytes(&p.key).is_none() {
+                return Err(WireError::protocol(
+                    ProtocolCode::Refused,
+                    format!("\"{}\" isn't a key the phone can press.", p.key),
+                ));
+            }
+            b.session_key(&p.session_id, &p.key).await?;
+            Ok(Value::Null)
         }
         _ => Err(WireError::protocol(
             ProtocolCode::UnknownMethod,
@@ -752,6 +867,74 @@ mod tests {
         .unwrap();
         assert_eq!(made["note"], "Check the invoices");
         assert_eq!(made["repeat"]["kind"], "days");
+    }
+
+    #[tokio::test]
+    async fn the_phone_may_only_pin_mute_and_hide() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        let me = caller("dev_a");
+        let done = dispatch(
+            &c,
+            &me,
+            "agents.update",
+            json!({ "agentId": AGENT, "input": { "muted": true, "pinned": false } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(done["muted"], true);
+        assert_eq!(done["pinned"], false);
+        for refused in [
+            json!({ "agentId": AGENT, "input": { "name": "Evil" } }),
+            json!({ "agentId": AGENT, "input": { "instructions": "rm -rf" } }),
+            json!({ "agentId": AGENT, "input": {} }),
+        ] {
+            assert!(dispatch(&c, &me, "agents.update", refused).await.is_err());
+        }
+        assert_eq!(stub.toggles.lock().unwrap().len(), 1);
+        let audit = stub.audited();
+        assert_eq!(audit[0].2, format!("unpin mute {AGENT}"));
+    }
+
+    #[tokio::test]
+    async fn session_input_gets_remote_access_refusals_and_is_sent_once() {
+        use crate::companion::testkit::Stub;
+        let (c, stub) = Stub::companion();
+        let me = caller("dev_a");
+        let project = "/Users/julian/ShipStudio/site";
+        let send = |text: &str, client: &str, tab: &str| json!({ "project": project, "sessionId": tab, "text": text, "clientId": client });
+        // The working tab takes a message, once per clientId.
+        let first = dispatch(&c, &me, "sessions.send", send("fix it", "s1", "pty-1"))
+            .await
+            .unwrap();
+        assert_eq!(first["sessionId"], "pty-1");
+        dispatch(&c, &me, "sessions.send", send("fix it", "s1", "pty-1"))
+            .await
+            .unwrap();
+        assert_eq!(stub.typed.lock().unwrap().len(), 1);
+        // Shell escapes, control characters and unknown slash commands never reach a tab.
+        for text in ["!rm -rf /", "\u{7}\u{8}", "/logout"] {
+            let refused = dispatch(&c, &me, "sessions.send", send(text, text, "pty-1")).await;
+            assert!(refused.is_err(), "{text}");
+        }
+        // A tab showing a question isn't typed into: Enter would answer it.
+        let asking = dispatch(&c, &me, "sessions.send", send("hello", "s2", "pty-2")).await;
+        assert!(asking
+            .unwrap_err()
+            .summary()
+            .contains("waiting for your answer"));
+        // Keys: only ones Remote Access can press, a digit only while asking.
+        let key = |k: &str, tab: &str| json!({ "sessionId": tab, "key": k });
+        dispatch(&c, &me, "sessions.key", key("1", "pty-2"))
+            .await
+            .unwrap();
+        assert!(dispatch(&c, &me, "sessions.key", key("1", "pty-1"))
+            .await
+            .is_err());
+        assert!(dispatch(&c, &me, "sessions.key", key("rm", "pty-2"))
+            .await
+            .is_err());
+        assert_eq!(stub.typed.lock().unwrap().len(), 2);
     }
 
     #[test]
