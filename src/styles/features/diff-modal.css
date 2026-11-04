@@ -45,13 +45,27 @@
   color: var(--text-muted);
 }
 
-.diff-filename {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+/* "src/components/ Footer.tsx": the folder gives way before the name does. */
+.diff-filepath {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.diff-directory {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--font-size-subhead);
+  color: var(--text-muted);
+}
+
+.diff-filename {
+  flex-shrink: 0;
+  font-size: var(--font-size-subhead);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .diff-status {
@@ -101,25 +115,13 @@
   color: var(--text-primary);
 }
 
-/* File path */
-.diff-path {
-  padding: 8px 20px;
-  font-size: var(--font-size-body-md);
-  font-family: var(--font-code);
-  color: var(--text-muted);
-  background: var(--surface-control);
-  border-bottom: 1px solid var(--border-default);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 /* Stats */
 .diff-stats {
   display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 10px 20px;
+  min-height: 40px; /* css-ok: holds its height whether or not Previous/Next show */
+  padding: 0 20px;
   background: var(--surface-control);
   border-bottom: 1px solid var(--border-default);
   font-size: var(--font-size-body-md);
@@ -136,12 +138,32 @@
   color: var(--accent-error-light);
 }
 
+/* "2 of 5  ←  →" */
+.diff-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  margin-left: auto;
+}
+
+.diff-nav-count {
+  margin-right: var(--spacing-xs);
+  font-family: var(--font-ui);
+  font-weight: var(--font-weight-body);
+  color: var(--text-muted);
+}
+
 /* Body */
 .diff-body {
   flex: 1;
   overflow: auto;
   background: var(--surface-app);
   min-height: 200px;
+}
+
+/* Focused on open so the keyboard scrolls it; the modal is the indicator. */
+.diff-body:focus {
+  outline: none;
 }
 
 .diff-pre {
@@ -167,7 +189,7 @@
   width: 40px;
   flex-shrink: 0;
   text-align: right;
-  padding-right: 12px;
+  padding-right: var(--spacing-sm);
   color: var(--text-muted);
   opacity: 0.5;
   user-select: none;

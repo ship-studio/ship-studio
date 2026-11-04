@@ -197,13 +197,10 @@ export const agentsProjectScenarios: Scenario[] = [
     id: 'agents-project-files',
     title: 'Agents — a change card’s files listed',
     looksRightWhen:
-      'The five-file card is expanded: one row per file, path in mono (start truncated if long) with green +n and red −n on the right; the deleted file is struck through; the SVG reads “binary”. The action reads “Hide files”.',
+      'The five-file card is expanded: one row per file, path in mono (start truncated if long) with green +n and red −n on the right; the deleted file is struck through; the SVG reads “binary”. The toggle reads “Hide files”, after “View diff”.',
     requires: '.agent-changes__files',
     openSelector: AGENTS_TAB,
-    steps: [
-      { click: '[data-agent-id="acme"]' },
-      { click: '.agent-changes .agent-changes__actions button' },
-    ],
+    steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-changes__toggle-files' }],
     commands: {
       agents_overview: overview(boundTeam()),
       agents_messages: (args: Record<string, unknown>) =>
@@ -214,7 +211,7 @@ export const agentsProjectScenarios: Scenario[] = [
     id: 'agents-project-diff',
     title: 'Agents — View diff on a one-file change',
     looksRightWhen:
-      'The app’s own diff modal, titled Footer.tsx · Modified, showing this turn’s change only: 2024 struck in red, 2026 added in green, +1 −1.',
+      'The app’s own diff modal, titled src/components/ Footer.tsx · Modified, focus on the diff (not Close): +1 −1, then the hunk “export function Footer() {” and old/new line numbers 12–18, one − before 2024 in red and one + before 2026 in green. No diff --git / index / --- / +++ lines.',
     requires: '.diff-modal-content .diff-line-add',
     openSelector: AGENTS_TAB,
     steps: [
@@ -228,6 +225,28 @@ export const agentsProjectScenarios: Scenario[] = [
           ? ACME_BOUND_CHAT.filter((m) => !m.text.startsWith('Changed 5'))
           : messagesFor(args),
       agents_change_diff: CHANGE_DIFF,
+    },
+  },
+  {
+    id: 'agents-project-diff-files',
+    title: 'Agents — View diff on a five-file change, stepped to the second file',
+    looksRightWhen:
+      'The diff modal for the five-file card, moved on once with Next: the title reads src/styles/ pricing.css · Modified, the bar under it reads +1 −1 on the left and “2 of 5” with Previous and Next arrows on the right, both enabled.',
+    requires: '.diff-nav',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: '[data-agent-id="acme"]' },
+      { click: '.agent-changes .agent-changes__actions button' },
+      { click: '.diff-nav [aria-label="Next file"]' },
+    ],
+    commands: {
+      agents_overview: overview(boundTeam()),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'acme' ? ACME_BOUND_CHAT.slice(0, 5) : messagesFor(args),
+      agents_change_diff: (args: Record<string, unknown>) => ({
+        ...CHANGE_DIFF,
+        filePath: String(args.path),
+      }),
     },
   },
   {
