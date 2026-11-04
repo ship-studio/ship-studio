@@ -291,14 +291,14 @@
 .workspace-sidebar-agents {
   display: flex;
   align-items: center;
-  gap: var(--space-08);
+  gap: var(--spacing-sm);
   width: 100%;
   height: var(--control-height-standard);
   margin: 0;
-  padding: 0 var(--space-06) 0 var(--space-09);
+  padding: 0 var(--spacing-tight) 0 var(--space-09);
   font: inherit;
-  font-size: var(--font-size-11);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-label);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -306,8 +306,8 @@
   border: none;
   border-radius: var(--radius-card);
   transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast);
+    background-color var(--transition-interaction-fast),
+    color var(--transition-interaction-fast);
 }
 
 .workspace-sidebar-agents:hover {
@@ -340,7 +340,7 @@
 .workspace-sidebar-agents-row > .workspace-sidebar-agents-add {
   position: absolute;
   top: 50%;
-  right: var(--space-02);
+  right: var(--spacing-2xs);
   transform: translateY(-50%);
 }
 
@@ -357,8 +357,8 @@
 /* In the rail the unread dot sits on the icon's corner. */
 .workspace-sidebar.is-hidden .workspace-sidebar-agents .sidebar-row-dot {
   position: absolute;
-  top: var(--space-06);
-  right: var(--space-06);
+  top: var(--spacing-tight);
+  right: var(--spacing-tight);
   margin: 0;
 }
 

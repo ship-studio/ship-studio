@@ -504,7 +504,7 @@
       "status": "migration",
       "pluginStable": false,
       "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
-      "consumerCount": 39
+      "consumerCount": 37
     },
     {
       "name": "--transition",
@@ -3872,7 +3872,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 27
+      "consumerCount": 26
     },
     {
       "name": "--space-04",
@@ -3890,7 +3890,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 34
+      "consumerCount": 29
     },
     {
       "name": "--space-08",
@@ -3899,7 +3899,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 50
+      "consumerCount": 45
     },
     {
       "name": "--space-09",
@@ -3962,7 +3962,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 81
+      "consumerCount": 79
     },
     {
       "name": "--stroke-2",
@@ -4088,7 +4088,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 14
+      "consumerCount": 12
     },
     {
       "name": "--font-size-12",
@@ -4178,7 +4178,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 12
+      "consumerCount": 11
     },
     {
       "name": "--font-weight-semibold",
@@ -4583,7 +4583,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 177
+      "consumerCount": 179
     },
     {
       "name": "--border-width-emphasis",
@@ -4862,7 +4862,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 323
+      "consumerCount": 325
     },
     {
       "name": "--font-size-control",
@@ -4961,7 +4961,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 61
+      "consumerCount": 62
     },
     {
       "name": "--font-weight-heading",
@@ -5042,7 +5042,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 39
+      "consumerCount": 41
     },
     {
       "name": "--transition-interaction",
@@ -5177,7 +5177,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 172
+      "consumerCount": 173
     },
     {
       "name": "--spacing-xs",
@@ -5195,7 +5195,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 542
+      "consumerCount": 547
     },
     {
       "name": "--spacing-md",
@@ -5240,7 +5240,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 10
+      "consumerCount": 15
     },
     {
       "name": "--radius-control",

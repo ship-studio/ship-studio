@@ -1817,7 +1817,7 @@
     {
       "path": "src/styles/features/workspace/sidebar.css",
       "token": "--space-09",
-      "count": 1,
+      "count": 2,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {

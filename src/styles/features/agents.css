@@ -27,7 +27,7 @@
      window; the conversation header keeps clear of it. Four controls at
      control height, the row's gaps, and its padding. */
   --agents-rail-nav-width: calc(
-    (var(--control-height-standard) * 4) + (var(--button-gap) * 3) + (var(--space-08) * 2)
+    (var(--control-height-standard) * 4) + (var(--button-gap) * 3) + (var(--spacing-sm) * 2)
   );
   --agents-chat-width: 720px;
   --agents-bubble-max: 80%;
@@ -92,7 +92,7 @@
 
 .agent-avatar--row {
   --agent-avatar-size: var(--size-sidebar-project-shortcut);
-  font-size: var(--font-size-11);
+  font-size: var(--font-size-body-sm);
   border-radius: var(--radius-control);
 }
 
@@ -140,13 +140,13 @@
   gap: var(--spacing-sm);
   width: 100%;
   height: var(--size-sidebar-project-row);
-  padding: 0 var(--spacing-md) 0 var(--space-08);
+  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
   text-align: left;
   font: inherit;
   color: var(--text-primary);
   background: none;
   border: none;
-  border-bottom: var(--stroke-1) solid var(--border-subtle);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
   border-radius: 0;
   cursor: pointer;
 }
@@ -244,7 +244,7 @@
   gap: var(--spacing-xs);
   width: 100%;
   height: var(--control-height-standard);
-  padding: 0 var(--spacing-md) 0 var(--space-08);
+  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
   font: inherit;
   font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-label);
@@ -253,7 +253,7 @@
   cursor: pointer;
   background: none;
   border: none;
-  border-bottom: var(--stroke-1) solid var(--border-subtle);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
 }
 
 .agents-list__hidden-toggle:hover {
@@ -277,8 +277,8 @@
    riding on the badge's corner so unread and needs-you still show. */
 .workspace-sidebar.is-hidden .agents-list__row {
   justify-content: center;
-  height: calc(var(--control-height-standard) + (var(--space-08) * 2));
-  padding: var(--space-08);
+  height: calc(var(--control-height-standard) + (var(--spacing-sm) * 2));
+  padding: var(--spacing-sm);
 }
 
 .workspace-sidebar.is-hidden .agents-list__text,
@@ -288,8 +288,8 @@
 
 .workspace-sidebar.is-hidden .agents-list__status {
   position: absolute;
-  top: var(--space-06);
-  right: var(--space-06);
+  top: var(--spacing-tight);
+  right: var(--spacing-tight);
   width: auto;
   height: auto;
 }
