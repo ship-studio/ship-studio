@@ -1024,22 +1024,9 @@ pub async fn get_account_credential_status(
     let vercel_username = {
         let token = get_env_vars_for_account(&id).remove("VERCEL_TOKEN");
         if token.is_some() || id == DEFAULT_ACCOUNT_ID {
-            if let Some(p) = find_binary_by_name("vercel") {
-                let mut cmd = tokio::process::Command::from(create_command(&p));
-                cmd.args(["whoami"]);
-                cmd.env("PATH", get_extended_path());
-                if let Some(ref t) = token {
-                    cmd.env("VERCEL_TOKEN", t);
-                }
-                match run_with_timeout(cmd, "vercel whoami", 10).await {
-                    Ok(output) if output.status.success() => {
-                        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        (!name.is_empty()).then_some(name)
-                    }
-                    _ => None,
-                }
-            } else {
-                None
+            match find_binary_by_name("vercel") {
+                Some(p) => crate::commands::setup::vercel_whoami(&p, token.as_deref()).await,
+                None => None,
             }
         } else {
             // Non-default workspace without a token → not connected for Vercel.
@@ -1097,7 +1084,11 @@ pub fn set_account_credential(id: String, key: String, value: String) -> Result<
             reason: "Credential value cannot be empty".into(),
         });
     }
-    write_to_keychain(&id, &key, value.trim())
+    write_to_keychain(&id, &key, value.trim())?;
+    if key == "vercel_token" {
+        crate::commands::setup::invalidate_vercel_whoami_cache();
+    }
+    Ok(())
 }
 
 /// Remove a credential from the keychain for an account.
@@ -1107,6 +1098,9 @@ pub fn clear_account_credential(id: String, key: String) -> Result<(), CommandEr
     validate_account_id(&id)?;
     validate_credential_key(&key)?;
     delete_from_keychain(&id, &key);
+    if key == "vercel_token" {
+        crate::commands::setup::invalidate_vercel_whoami_cache();
+    }
     Ok(())
 }
 
