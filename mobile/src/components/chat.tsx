@@ -4,19 +4,24 @@
  * everything else is a quiet line or a card.
  */
 
-import type { Agent, AgentMessage, Approval } from '@shipstudio/companion-protocol';
-import * as Haptics from 'expo-haptics';
+import {
+  splitQuotes,
+  type Agent,
+  type AgentMessage,
+  type Approval,
+} from '@shipstudio/companion-protocol';
 import { memo, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { describeScope, failureLine, folderName, formatClock, sessionLabel } from '../lib/agents';
+import { haptic } from '../lib/haptics';
 import { describeError, answerApproval, discardPending, send } from '../lib/session';
 import type { PendingSend } from '../lib/sync';
-import { alpha, colors, fonts, radius, space, type } from '../lib/theme';
+import { alpha, chromeScale, colors, fonts, radius, space, type } from '../lib/theme';
 import { Attachments } from './attachments';
 import { Markdown } from './Markdown';
-import { Button, Icon, T, tap } from './ui';
+import { Button, Icon, ripple, T } from './ui';
 import { Spinner } from './agent';
 import { useApp } from '../lib/store';
 
@@ -26,13 +31,20 @@ export const MessageRow = memo(function MessageRow({
   message,
   agent,
   queued,
+  time,
   onError,
+  onLongPress,
 }: {
   message: AgentMessage;
   agent: Agent;
   queued: boolean;
+  /** The clock under the last message of a run, iMessage-style. */
+  time?: boolean;
   onError: (text: string) => void;
+  /** Copy, Quote, Select Text: words only, so only user and agent messages. */
+  onLongPress?: (message: AgentMessage) => void;
 }) {
+  const hold = onLongPress && message.text.trim() ? () => onLongPress(message) : undefined;
   switch (message.kind) {
     case 'user':
       return (
@@ -46,20 +58,32 @@ export const MessageRow = memo(function MessageRow({
             />
           )}
           {!!message.text && (
-            <View style={styles.userBubble}>
-              <T selectable>{message.text}</T>
-            </View>
+            <Pressable
+              onLongPress={hold}
+              delayLongPress={300}
+              accessibilityHint={hold ? 'Hold for Copy, Quote and Select Text' : undefined}
+              style={({ pressed }) => [styles.userBubble, pressed && styles.held]}
+            >
+              <Bubble text={message.text} />
+            </Pressable>
           )}
-          {queued && (
-            <T variant="caption" color={colors.textMuted} style={styles.meta}>
+          {queued ? (
+            <T variant="caption" color={colors.textSecondary} style={styles.meta}>
               Queued · {agent.name} reads it when this turn ends
             </T>
+          ) : (
+            time && <Clock ts={message.ts} align="right" />
           )}
         </View>
       );
     case 'agent':
       return (
-        <View style={styles.agentRow}>
+        <Pressable
+          onLongPress={hold}
+          delayLongPress={300}
+          accessibilityHint={hold ? 'Hold for Copy, Quote and Select Text' : undefined}
+          style={({ pressed }) => [styles.agentRow, pressed && styles.heldProse]}
+        >
           <Markdown text={message.text} />
           {!!message.attachments?.length && (
             <Attachments
@@ -68,12 +92,14 @@ export const MessageRow = memo(function MessageRow({
               onError={onError}
             />
           )}
-          {message.stopped && (
-            <T variant="caption" color={colors.textMuted}>
-              Stopped
+          {(message.stopped || time) && (
+            <T variant="caption" color={colors.textSecondary}>
+              {[message.stopped && 'Stopped', time && formatClock(message.ts)]
+                .filter(Boolean)
+                .join(' · ')}
             </T>
           )}
-        </View>
+        </Pressable>
       );
     case 'approval':
       return message.approval ? (
@@ -100,6 +126,50 @@ export const MessageRow = memo(function MessageRow({
   }
 });
 
+/** Your words, with any quoted passages set off above them. */
+function Bubble({ text }: { text: string }) {
+  const parts = splitQuotes(text);
+  if (parts.length === 1 && parts[0].kind === 'text') return <T>{text}</T>;
+  return (
+    <View style={{ gap: space.xs }}>
+      {parts.map((p, i) =>
+        p.kind === 'quote' ? (
+          <View key={i} style={styles.bubbleQuote}>
+            <T variant="small" color={colors.textSecondary} numberOfLines={4}>
+              {p.text}
+            </T>
+          </View>
+        ) : (
+          <T key={i}>{p.text}</T>
+        )
+      )}
+    </View>
+  );
+}
+
+function Clock({ ts, align }: { ts: number; align?: 'right' }) {
+  return (
+    <T
+      variant="caption"
+      color={colors.textSecondary}
+      style={align === 'right' ? styles.meta : undefined}
+      maxFontSizeMultiplier={chromeScale}
+    >
+      {formatClock(ts)}
+    </T>
+  );
+}
+
+export function DaySeparator({ label }: { label: string }) {
+  return (
+    <View style={styles.day} accessibilityRole="header">
+      <T variant="caption" color={colors.textSecondary} maxFontSizeMultiplier={chromeScale}>
+        {label}
+      </T>
+    </View>
+  );
+}
+
 /**
  * What an agent did in a project's session, as the desktop shows it: a line
  * for "started" and "sent", a card with the session's reply, and preview
@@ -120,7 +190,6 @@ function SessionCard({
   const tab = sessionLabel(mark);
   const open = mark.sessionId
     ? () => {
-        tap();
         router.push({
           pathname: '/session/[id]',
           params: {
@@ -141,13 +210,13 @@ function SessionCard({
         accessibilityRole={open ? 'button' : undefined}
         style={({ pressed }) => [styles.sessionLine, pressed && { opacity: 0.6 }]}
       >
-        <Icon name="terminal" size={12} color={colors.textMuted} />
+        <Icon name="terminal" size={12} color={colors.textSecondary} />
         <T variant="small" color={colors.textSecondary} numberOfLines={1} style={{ flexShrink: 1 }}>
           {mark.event === 'started'
             ? `Started a session in ${project}`
             : `Sent to ${project} · ${tab}`}
         </T>
-        {open && <Icon name="chevron.right" size={10} color={colors.textFaint} />}
+        {open && <Icon name="chevron.right" size={10} color={colors.textMuted} />}
       </Pressable>
     );
   }
@@ -165,12 +234,12 @@ function SessionCard({
             ? `${project} · ${tab}`
             : `${project} · ${message.text || 'Preview'}`}
         </T>
-        <T variant="caption" color={colors.textFaint}>
+        <T variant="caption" color={colors.textMuted}>
           {formatClock(message.ts)}
         </T>
       </View>
       {mark.event === 'reply' ? (
-        <T color={colors.textPrimary} numberOfLines={8} selectable>
+        <T color={colors.textPrimary} numberOfLines={8}>
           {message.text}
         </T>
       ) : (
@@ -184,7 +253,12 @@ function SessionCard({
         )
       )}
       {open && (
-        <Pressable onPress={open} hitSlop={8} style={styles.sessionOpen} accessibilityRole="button">
+        <Pressable
+          onPress={open}
+          hitSlop={12}
+          style={styles.sessionOpen}
+          accessibilityRole="button"
+        >
           <T variant="small" color={colors.textPrimary}>
             Open session
           </T>
@@ -211,10 +285,10 @@ function SystemLine({ message }: { message: AgentMessage }) {
             : message.text;
   return (
     <View style={styles.systemRow}>
-      <T variant="small" color={colors.textMuted} numberOfLines={4}>
+      <T variant="small" color={colors.textSecondary} numberOfLines={4} style={{ flexShrink: 1 }}>
         {text}
       </T>
-      <T variant="caption" color={colors.textFaint}>
+      <T variant="caption" color={colors.textMuted} maxFontSizeMultiplier={chromeScale}>
         {formatClock(message.ts)}
       </T>
     </View>
@@ -241,18 +315,20 @@ function ApprovalCard({
   const [busy, setBusy] = useState<null | 'allow' | 'deny' | 'always'>(null);
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState('');
+  const connected = useApp((s) => s.link.kind === 'connected');
   const pending = approval.status === 'pending';
   const paused = pending && agent.status.state === 'idle';
 
+  // The haptic says what the Mac did, so it waits for the Mac.
   const answer = async (allow: boolean, always = false, why?: string) => {
     setBusy(always ? 'always' : allow ? 'allow' : 'deny');
-    void Haptics.notificationAsync(
-      allow ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
-    );
     try {
       await answerApproval(message.agentId, approval.requestId, allow, always, why);
+      if (allow) haptic.success();
+      else haptic.warning();
       setNoting(false);
     } catch (error) {
+      haptic.error();
       onError(describeError(error));
     } finally {
       setBusy(null);
@@ -268,14 +344,22 @@ function ApprovalCard({
 
   return (
     <View style={[styles.card, pending && styles.cardPending]}>
-      <View style={styles.cardTitle}>
-        {pending && (
-          <Icon name="exclamationmark.triangle.fill" size={14} color={colors.accentWarning} />
-        )}
-        <T variant="subhead" color={colors.textWhite} style={{ flex: 1 }}>
-          {approval.title}
-        </T>
-      </View>
+      {pending && (
+        <View style={styles.eyebrow}>
+          <Icon name="exclamationmark.triangle.fill" size={12} color={colors.accentWarning} />
+          <T
+            variant="caption"
+            color={colors.accentWarning}
+            style={styles.eyebrowText}
+            maxFontSizeMultiplier={chromeScale}
+          >
+            NEEDS YOUR OK
+          </T>
+        </View>
+      )}
+      <T variant="subhead" color={colors.textWhite}>
+        {approval.title}
+      </T>
       {!!approval.detail && (
         <View style={styles.cardDetail}>
           <T variant="mono" color={colors.textPrimary} selectable numberOfLines={12}>
@@ -286,6 +370,11 @@ function ApprovalCard({
       {paused && (
         <T variant="small" color={colors.textSecondary}>
           It paused here for you. Allow it and it picks up where it left off.
+        </T>
+      )}
+      {pending && !connected && (
+        <T variant="small" color={colors.textSecondary}>
+          Answer it once your Mac is back. It stays open until then.
         </T>
       )}
       {pending && noting ? (
@@ -299,6 +388,7 @@ function ApprovalCard({
             placeholderTextColor={colors.textMuted}
             style={styles.noteInput}
             returnKeyType="send"
+            keyboardAppearance="dark"
             onSubmitEditing={() => void answer(false, false, note)}
           />
           <View style={styles.actions}>
@@ -311,6 +401,7 @@ function ApprovalCard({
             <Button
               title="Deny"
               busy={busy === 'deny'}
+              disabled={!connected}
               onPress={() => void answer(false, false, note)}
               style={{ flex: 1 }}
             />
@@ -322,7 +413,7 @@ function ApprovalCard({
             <Button
               title="Deny"
               busy={busy === 'deny'}
-              disabled={!!busy}
+              disabled={!!busy || !connected}
               onPress={() => void answer(false)}
               style={{ flex: 1 }}
             />
@@ -330,38 +421,31 @@ function ApprovalCard({
               title="Allow"
               variant="primary"
               busy={busy === 'allow'}
-              disabled={!!busy}
+              disabled={!!busy || !connected}
               onPress={() => void answer(true)}
               style={{ flex: 1 }}
             />
           </View>
           {approval.always && (
-            <Pressable
-              disabled={!!busy}
-              onPress={() => void answer(true, true)}
-              style={({ pressed }) => [
-                styles.always,
-                pressed && { backgroundColor: colors.surfaceControl },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={`Always allow ${approval.always.label}`}
-            >
-              <T variant="small" color={colors.textPrimary}>
-                Always allow{' '}
-                <T variant="small" style={{ fontFamily: fonts.mono }} color={colors.textWhite}>
-                  {approval.always.label}
-                </T>
-              </T>
-              <T variant="caption" color={colors.textMuted}>
+            <View style={{ gap: space.xs }}>
+              <Button
+                title={`Always allow ${approval.always.label}`}
+                busy={busy === 'always'}
+                disabled={!!busy || !connected}
+                onPress={() => void answer(true, true)}
+                accessibilityHint={describeScope(approval.always, agent.name)}
+              />
+              <T variant="caption" color={colors.textSecondary}>
                 {describeScope(approval.always, agent.name)}
               </T>
-            </Pressable>
+            </View>
           )}
-          <Pressable onPress={() => setNoting(true)} hitSlop={6} style={styles.denyNote}>
-            <T variant="small" color={colors.textSecondary}>
-              Deny with note…
-            </T>
-          </Pressable>
+          <Button
+            title="Deny with note…"
+            variant="ghost"
+            disabled={!!busy || !connected}
+            onPress={() => setNoting(true)}
+          />
         </View>
       ) : (
         <Animated.View entering={FadeIn.duration(200)}>
@@ -379,10 +463,12 @@ function ApprovalCard({
 
 /** Yours, before the Mac has it: shown at once, and retryable in place. */
 export function PendingRow({ pending }: { pending: PendingSend }) {
+  const macName = useApp((s) => s.credentials?.name ?? 'your Mac');
+  const dim = pending.failed || pending.waiting;
   return (
     <Animated.View entering={enter} style={styles.userRow}>
       {!!pending.attachments?.length && (
-        <View style={pending.failed && { opacity: 0.6 }}>
+        <View style={dim && { opacity: 0.6 }}>
           <Attachments
             agentId={pending.agentId}
             align="right"
@@ -391,47 +477,72 @@ export function PendingRow({ pending }: { pending: PendingSend }) {
         </View>
       )}
       {!!pending.text && (
-        <View style={[styles.userBubble, pending.failed && { opacity: 0.6 }]}>
-          <T>{pending.text}</T>
+        <View style={[styles.userBubble, dim && { opacity: 0.6 }]}>
+          <Bubble text={pending.text} />
         </View>
       )}
-      {pending.failed ? (
+      {pending.failed || pending.waiting ? (
         <View style={styles.failedLine}>
-          <T variant="caption" color={colors.accentErrorLight}>
-            Not sent ·{' '}
-          </T>
-          <Pressable
-            hitSlop={8}
-            onPress={() => {
-              tap();
-              void send(
-                pending.agentId,
-                pending.text,
-                false,
-                pending.clientId,
-                pending.attachments
-              ).catch(() => {});
-            }}
+          <T
+            variant="caption"
+            color={pending.failed ? colors.accentErrorLight : colors.textSecondary}
+            style={{ flexShrink: 1 }}
           >
-            <T variant="caption" color={colors.textPrimary}>
-              Send
-            </T>
-          </Pressable>
-          <T variant="caption" color={colors.textMuted}>
-            {'  ·  '}
+            {pending.failed ? 'Not sent' : `Waiting for ${macName}`}
           </T>
-          <Pressable hitSlop={8} onPress={() => discardPending(pending.agentId, pending.clientId)}>
-            <T variant="caption" color={colors.textMuted}>
-              Discard
-            </T>
-          </Pressable>
+          {pending.failed && (
+            <LineButton
+              label="Send"
+              onPress={() => {
+                haptic.light();
+                void send(
+                  pending.agentId,
+                  pending.text,
+                  false,
+                  pending.clientId,
+                  pending.attachments,
+                  pending.mentions
+                ).catch(() => {});
+              }}
+            />
+          )}
+          <LineButton
+            label="Discard"
+            muted
+            onPress={() => discardPending(pending.agentId, pending.clientId)}
+          />
         </View>
       ) : (
-        <T variant="caption" color={colors.textFaint} style={styles.meta}>
+        <T variant="caption" color={colors.textSecondary} style={styles.meta}>
           Sending…
         </T>
       )}
     </Animated.View>
+  );
+}
+
+/** A word you can tap in a status line: small to see, 44pt to hit. */
+function LineButton({
+  label,
+  onPress,
+  muted,
+}: {
+  label: string;
+  onPress: () => void;
+  muted?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
+      android_ripple={{ ...ripple, borderless: true }}
+      onPress={onPress}
+    >
+      <T variant="caption" color={muted ? colors.textSecondary : colors.textWhite}>
+        {label}
+      </T>
+    </Pressable>
   );
 }
 
@@ -440,7 +551,7 @@ export function DraftRow({ text }: { text: string }) {
   const shown = useSmoothText(text);
   return (
     <View style={styles.agentRow}>
-      <Markdown text={shown} />
+      <Markdown text={shown} streaming />
     </View>
   );
 }
@@ -484,13 +595,25 @@ const styles = StyleSheet.create({
   userBubble: {
     backgroundColor: colors.surfaceSelected,
     borderRadius: radius.lg + 6,
-    borderBottomRightRadius: radius.sm,
     paddingHorizontal: space.md + 2,
     paddingVertical: space.sm + 1,
   },
+  held: { backgroundColor: colors.surfaceControlHover },
+  heldProse: { opacity: 0.7 },
+  bubbleQuote: {
+    borderLeftWidth: 2,
+    borderLeftColor: colors.textMuted,
+    paddingLeft: space.sm,
+  },
   meta: { marginRight: space.xs },
-  failedLine: { flexDirection: 'row', alignItems: 'center', marginRight: space.xs },
+  failedLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    marginRight: space.xs,
+  },
   agentRow: { gap: space.xs, paddingRight: space.sm },
+  day: { alignItems: 'center', paddingVertical: space.sm },
   errorRow: {
     flexDirection: 'row',
     gap: space.sm,
@@ -514,26 +637,20 @@ const styles = StyleSheet.create({
   card: {
     gap: space.md,
     padding: space.lg,
-    borderRadius: radius.lg,
+    borderRadius: radius.lg + 8,
     backgroundColor: colors.surfacePanel,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderStrong,
   },
   cardPending: { borderColor: alpha(colors.accentWarning, 0.45) },
-  cardTitle: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
+  eyebrow: { flexDirection: 'row', gap: space.tight, alignItems: 'center' },
+  eyebrowText: { fontFamily: fonts.semibold, letterSpacing: 0.6 },
   cardDetail: {
     backgroundColor: colors.surfaceApp,
     borderRadius: radius.card,
     padding: space.md,
   },
   actions: { flexDirection: 'row', gap: space.sm },
-  always: {
-    gap: space['2xs'],
-    padding: space.sm,
-    marginHorizontal: -space.sm,
-    borderRadius: radius.card,
-  },
-  denyNote: { alignSelf: 'flex-start' },
   sessionLine: {
     flexDirection: 'row',
     alignItems: 'center',

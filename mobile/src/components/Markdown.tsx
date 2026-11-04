@@ -1,25 +1,100 @@
 /**
  * An agent's reply, rendered natively: paragraphs, headings, lists (nested,
  * tasks), quotes, code with Copy, tables that scroll sideways, links. `marked`
- * tokenises; everything is drawn with RN views and nested Text, so selection
- * and Dynamic Type behave like the rest of the app.
+ * tokenises; everything is drawn with RN views and nested Text, so Dynamic
+ * Type behaves like the rest of the app.
+ *
+ * While a reply streams, only its last block is re-read on each tick: the
+ * finished blocks before it are lexed once and kept (`splitStable`), so a
+ * long reply costs the same per frame as a short one.
+ *
+ * A file path in code (`src/app/page.tsx`) or a link to one is tappable:
+ * the chat fetches it from the Mac (`agents.fetchPath`) and opens it.
  */
 
 import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
 import { Lexer, type Token, type Tokens } from 'marked';
-import { memo, useMemo, useState, type ReactNode } from 'react';
+import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { haptic } from '../lib/haptics';
 import { alpha, colors, fonts, lineHeight, radius, space, type } from '../lib/theme';
 import { T } from './ui';
 
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+/** Opens a path written in a reply; absent where paths can't be opened. */
+export const PathContext = createContext<((path: string) => void) | null>(null);
+
+/**
+ * Split at the last block boundary (a blank line outside a code fence):
+ * everything before it is finished and won't change as more text arrives.
+ */
+export function splitStable(text: string): [string, string] {
+  let fence: string | null = null;
+  let boundary = 0;
+  let at = 0;
+  for (const line of text.split('\n')) {
+    const open = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    if (open) {
+      if (!fence) fence = open[1][0];
+      else if (open[1][0] === fence) fence = null;
+    } else if (!fence && !line.trim() && at > 0) {
+      boundary = at;
+    }
+    at += line.length + 1;
+  }
+  return [text.slice(0, boundary), text.slice(boundary)];
+}
+
+export const Markdown = memo(function Markdown({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
+  if (!streaming) return <Blocks text={text} />;
+  const [done, tail] = splitStable(text);
+  return (
+    <View style={styles.root}>
+      {!!done && <Blocks text={done} />}
+      {!!tail.trim() && <Blocks text={tail} />}
+    </View>
+  );
+});
+
+const Blocks = memo(function Blocks({ text }: { text: string }) {
   const tokens = useMemo(() => Lexer.lex(text, { gfm: true, breaks: true }), [text]);
   return <View style={styles.root}>{blocks(tokens)}</View>;
 });
 
 function blocks(tokens: Token[]): ReactNode[] {
   return tokens.map((t, i) => block(t, i)).filter(Boolean);
+}
+
+/** Extensions a bare name (no folder) must have to read as a file rather than code. */
+const FILE_EXT =
+  /\.(md|mdx|txt|pdf|png|jpe?g|gif|webp|svg|heic|json|csv|tsv|tsx?|jsx?|mjs|cjs|html?|css|scss|py|rs|go|rb|swift|kt|java|ya?ml|toml|lock|sql|sh|zip|docx?|xlsx?|pptx?|key|pages|numbers|mov|mp4|mp3|wav)$/i;
+
+/** `src/app/page.tsx`, `./notes.md`, `/Users/x/report.pdf`: a file, not a command. */
+export function looksLikePath(s: string): boolean {
+  const t = s.trim();
+  if (!t || /\s/.test(t) || /^[a-z]+:\/\//i.test(t) || t.length > 300) return false;
+  if (!/^(~|\.{1,2})?\/?([\w@.+-]+\/)*[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}$/.test(t)) return false;
+  return t.includes('/') || FILE_EXT.test(t);
+}
+
+function PathText({ path, children }: { path: string; children: ReactNode }) {
+  const open = useContext(PathContext);
+  if (!open) return <>{children}</>;
+  return (
+    <Text
+      style={styles.path}
+      onPress={() => open(path)}
+      accessibilityRole="link"
+      accessibilityHint="Opens the file from your Mac"
+    >
+      {children}
+    </Text>
+  );
 }
 
 function block(t: Token, key: number): ReactNode {
@@ -40,14 +115,14 @@ function block(t: Token, key: number): ReactNode {
     }
     case 'paragraph':
       return (
-        <Text key={key} style={styles.p} selectable>
+        <Text key={key} style={styles.p}>
           {inline((t as Tokens.Paragraph).tokens)}
         </Text>
       );
     case 'text': {
       const tt = t as Tokens.Text;
       return (
-        <Text key={key} style={styles.p} selectable>
+        <Text key={key} style={styles.p}>
           {tt.tokens ? inline(tt.tokens) : tt.text}
         </Text>
       );
@@ -103,14 +178,30 @@ function inline(tokens: Token[] | undefined): ReactNode[] {
             {inline((t as Tokens.Del).tokens)}
           </Text>
         );
-      case 'codespan':
-        return (
+      case 'codespan': {
+        const code = decode((t as Tokens.Codespan).text);
+        const span = (
           <Text key={i} style={styles.codespan}>
-            {decode((t as Tokens.Codespan).text)}
+            {code}
           </Text>
         );
+        return looksLikePath(code) ? (
+          <PathText key={i} path={code}>
+            {span}
+          </PathText>
+        ) : (
+          span
+        );
+      }
       case 'link': {
         const l = t as Tokens.Link;
+        if (looksLikePath(l.href)) {
+          return (
+            <PathText key={i} path={l.href}>
+              {inline(l.tokens)}
+            </PathText>
+          );
+        }
         const safe = /^https?:\/\//i.test(l.href);
         return (
           <Text
@@ -209,16 +300,16 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   return (
     <View style={styles.code}>
       <View style={styles.codeHeader}>
-        <T variant="caption" color={colors.textMuted}>
+        <T variant="caption" color={colors.textSecondary}>
           {lang || 'code'}
         </T>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Copy code"
-          hitSlop={10}
+          hitSlop={14}
           onPress={() => {
             void Clipboard.setStringAsync(code);
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            haptic.success();
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           }}
@@ -233,9 +324,7 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.codeBody}
       >
-        <Text style={styles.codeText} selectable>
-          {code}
-        </Text>
+        <Text style={styles.codeText}>{code}</Text>
       </ScrollView>
     </View>
   );
@@ -262,6 +351,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceControl,
   },
   link: { color: colors.accentFocus, textDecorationLine: 'underline' },
+  path: { textDecorationLine: 'underline', textDecorationColor: colors.textMuted },
   quote: {
     borderLeftWidth: 2,
     borderLeftColor: colors.borderStrong,
