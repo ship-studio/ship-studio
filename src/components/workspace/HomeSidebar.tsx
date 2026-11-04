@@ -29,6 +29,8 @@ interface HomeSidebarProps {
   agentsUnreadCount: number;
   /** Agents mode's + menu, on the Agents row. */
   agentsNavAction?: ReactNode;
+  /** Agents mode's conversation search, in the palette trigger's place. */
+  searchContent?: ReactNode;
   isSidebarHidden: boolean;
   onToggleSidebar: () => void;
   onOpenProjectPicker: () => void;
@@ -54,6 +56,7 @@ export function HomeSidebar({
   onGoAgents,
   agentsUnreadCount,
   agentsNavAction,
+  searchContent,
   listContent,
   isSidebarHidden,
   onToggleSidebar,
@@ -82,6 +85,7 @@ export function HomeSidebar({
       onGoAgents={onGoAgents}
       agentsUnreadCount={agentsUnreadCount}
       agentsNavAction={agentsNavAction}
+      searchContent={searchContent}
       listContent={listContent}
       onOpenProjectPicker={onOpenProjectPicker}
       isSidebarHidden={isSidebarHidden}

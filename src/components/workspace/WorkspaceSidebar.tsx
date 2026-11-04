@@ -173,6 +173,8 @@ interface Props {
   agentsUnreadCount?: number;
   /** A trailing control on the Agents row while Agents mode is showing (its + menu). */
   agentsNavAction?: ReactNode;
+  /** Replaces the palette trigger at the top (Agents mode searches conversations there). */
+  searchContent?: ReactNode;
 
   // Projects
   /** Pinned projects (in pin order). Have live registry data. */
@@ -433,6 +435,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onGoAgents,
   agentsUnreadCount = 0,
   agentsNavAction,
+  searchContent,
   listContent,
   onGoHome,
   onOpenProjectPicker,
@@ -1753,17 +1756,19 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         )}
 
         <div className="workspace-sidebar-search-panel">
-          <button
-            type="button"
-            className="workspace-sidebar-filter"
-            onClick={() => openPalette()}
-            title="Open command palette"
-            aria-label="Open command palette"
-          >
-            <SearchIcon size={12} />
-            <span className="workspace-sidebar-filter-placeholder">Search</span>
-            <span className="workspace-sidebar-filter-shortcut">{kbd('mod', 'K')}</span>
-          </button>
+          {searchContent ?? (
+            <button
+              type="button"
+              className="workspace-sidebar-filter"
+              onClick={() => openPalette()}
+              title="Open command palette"
+              aria-label="Open command palette"
+            >
+              <SearchIcon size={12} />
+              <span className="workspace-sidebar-filter-placeholder">Search</span>
+              <span className="workspace-sidebar-filter-shortcut">{kbd('mod', 'K')}</span>
+            </button>
+          )}
           {/* Agents is a mode, not a page: it takes over the window. It gets a
               row of its own because the nav row beside the traffic lights only
               has room for four buttons. While it is showing, the row is the

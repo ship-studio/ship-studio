@@ -146,7 +146,7 @@ export function ContextMenuTrigger({
   onContextMenu,
   ...props
 }: ContextMenuTriggerProps) {
-  const { openAt } = useContextMenuContext('ContextMenuTrigger');
+  const { openAt, isOpen } = useContextMenuContext('ContextMenuTrigger');
 
   const openFromClick = (event: MouseEvent<HTMLElement>) => {
     if (event.defaultPrevented || !openOnClick) return;
@@ -176,6 +176,8 @@ export function ContextMenuTrigger({
     return cloneElement(child, {
       ...props,
       'data-context-menu-trigger': true,
+      // The element the open menu acts on, so it can show it.
+      'data-context-menu-open': isOpen || undefined,
       onClick: (event: MouseEvent<HTMLElement>) => {
         childOnClick?.(event);
         onClick?.(event);
@@ -193,6 +195,8 @@ export function ContextMenuTrigger({
     {
       ...props,
       'data-context-menu-trigger': true,
+      // The element the open menu acts on, so it can show it.
+      'data-context-menu-open': isOpen || undefined,
       onClick: (event: MouseEvent<HTMLElement>) => {
         onClick?.(event);
         openFromClick(event);
