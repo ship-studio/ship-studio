@@ -102,9 +102,9 @@ export interface Methods {
   'agents.markUnread': { params: { agentId: string }; result: null };
   'agents.create': { params: { input: NewAgentInput }; result: StoredAgent };
   /**
-   * From the phone, only the row's toggles (`pinned`, `muted`, `hidden`);
-   * any other field is refused with `bad_params`. The name, role,
-   * instructions, model and project stay the desk's.
+   * From the phone, only the row's toggles (`pinned`, `muted`, `hidden`)
+   * and `instructions` (at most 20,000 characters); any other field is
+   * refused with `bad_params`. The name, role, model and project stay the desk's.
    */
   'agents.update': { params: { agentId: string; input: UpdateAgentInput }; result: StoredAgent };
   /** The phone asks for confirmation first; the server asks nothing further. */
@@ -158,10 +158,12 @@ export interface Methods {
   };
   /** Answer a menu: `press_key`'s rules (a digit only while a question shows). */
   'sessions.key': { params: { sessionId: string; key: string }; result: null };
+  /** Remote Access's `start_agent`: a new agent tab that opens on `prompt`. Idempotent by `clientId`. */
   'sessions.start': {
     params: { project: string; prompt: string; clientId: string };
     result: { sessionId: string };
   };
+  /** The project's live preview, captured for this phone alone as a private blob. */
   'preview.screenshot': {
     params: { project: string; device: 'desktop' | 'phone' };
     result: BlobRef;

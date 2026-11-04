@@ -269,7 +269,7 @@ impl Backend for DesktopBackend {
             shape: None,
             color: None,
             role: None,
-            instructions: None,
+            instructions: toggles.instructions,
             pinned: toggles.pinned,
             hidden: toggles.hidden,
             muted: toggles.muted,
@@ -281,6 +281,35 @@ impl Backend for DesktopBackend {
 
     async fn files(&self, agent_id: &str) -> Result<Value, CommandError> {
         json(cmd::agents_files(agent_id.to_string()).await?)
+    }
+
+    async fn instructions(&self, agent_id: &str) -> Result<String, CommandError> {
+        cmd::agents_instructions(agent_id.to_string()).await
+    }
+
+    async fn usage(&self, agent_id: &str) -> Result<Value, CommandError> {
+        json(cmd::agents_usage(agent_id.to_string()).await?)
+    }
+
+    async fn revoke_permission(&self, agent_id: &str, rule_id: &str) -> Result<(), CommandError> {
+        cmd::agents_revoke_permission(self.app.clone(), agent_id.to_string(), rule_id.to_string())
+            .await
+    }
+
+    async fn change_diff(
+        &self,
+        agent_id: &str,
+        message_id: &str,
+        path: &str,
+    ) -> Result<Value, CommandError> {
+        json(
+            cmd::agents_change_diff(
+                agent_id.to_string(),
+                message_id.to_string(),
+                path.to_string(),
+            )
+            .await?,
+        )
     }
 
     async fn shareable_path(
@@ -382,6 +411,35 @@ impl Backend for DesktopBackend {
             Err(Undelivered::Asking { .. }) => Err(CommandError::expected("Not pressed.")),
             Err(Undelivered::Other(e)) => Err(CommandError::expected(e)),
         }
+    }
+
+    async fn session_start(&self, project: &str, prompt: &str) -> Result<String, CommandError> {
+        use crate::remote_access::tools::{not_a_flag, resolve_project, start_agent_with};
+        let project = resolve_project(&all_projects().await, Some(project))
+            .map_err(CommandError::expected)?;
+        start_agent_with(&self.app, &project, &not_a_flag(prompt))
+            .await
+            .map(|(_, session_id)| session_id)
+            .map_err(CommandError::expected)
+    }
+
+    async fn preview_screenshot(
+        &self,
+        project: &str,
+        phone: bool,
+    ) -> Result<Vec<u8>, CommandError> {
+        use crate::remote_access::{shots::Device, tools};
+        let project = tools::resolve_project(&all_projects().await, Some(project))
+            .map_err(CommandError::expected)?;
+        let device = if phone {
+            Device::Phone
+        } else {
+            Device::Desktop
+        };
+        tools::capture_encoded(&self.app, &project, device, false)
+            .await
+            .map(|e| e.full)
+            .map_err(CommandError::expected)
     }
 
     fn attachment_file(

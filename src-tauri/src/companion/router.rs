@@ -32,6 +32,10 @@ pub const METHODS: &[&str] = &[
     "agents.focus",
     "agents.markUnread",
     "agents.update",
+    "agents.revokePermission",
+    "agents.instructions",
+    "agents.usage",
+    "agents.changeDiff",
     "agents.files",
     "agents.fetchPath",
     "agents.search",
@@ -45,6 +49,8 @@ pub const METHODS: &[&str] = &[
     "sessions.read",
     "sessions.send",
     "sessions.key",
+    "sessions.start",
+    "preview.screenshot",
 ];
 
 /// `READ_ONLY_METHODS` in methods.ts (the served subset): not audited.
@@ -53,6 +59,9 @@ pub const READ_ONLY_METHODS: &[&str] = &[
     "devices.self",
     "agents.overview",
     "agents.messages",
+    "agents.instructions",
+    "agents.usage",
+    "agents.changeDiff",
     "agents.files",
     "agents.search",
     "agents.schedule.preview",
@@ -114,15 +123,20 @@ pub enum ScheduleOp {
     },
 }
 
-/// What the phone may change about an agent: the row's own toggles. Its
-/// name, role, instructions, model and project stay the desk's.
+/// What the phone may change about an agent: the row's own toggles, and
+/// its instructions (the agent sheet shows them, so it can correct them).
+/// Its name, role, model and project stay the desk's.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentToggles {
     pub pinned: Option<bool>,
     pub hidden: Option<bool>,
     pub muted: Option<bool>,
+    pub instructions: Option<String>,
 }
+
+/// Instructions are a brief, not a document: the phone's editor stops here.
+const MAX_INSTRUCTIONS: usize = 20_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApprovalAnswer {
@@ -165,6 +179,19 @@ pub trait Backend: Send + Sync + 'static {
         agent_id: &str,
         toggles: AgentToggles,
     ) -> Result<Value, CommandError>;
+    /// `agents_instructions`: the agent's brief, as the Edit agent sheet shows it.
+    async fn instructions(&self, agent_id: &str) -> Result<String, CommandError>;
+    /// `agents_usage`: this week and all time.
+    async fn usage(&self, agent_id: &str) -> Result<Value, CommandError>;
+    /// `agents_revoke_permission`: an "Always allow" rule taken back.
+    async fn revoke_permission(&self, agent_id: &str, rule_id: &str) -> Result<(), CommandError>;
+    /// `agents_change_diff`: one file of a change card.
+    async fn change_diff(
+        &self,
+        agent_id: &str,
+        message_id: &str,
+        path: &str,
+    ) -> Result<Value, CommandError>;
     /// `agents_files`: everything shared in one conversation, newest first.
     async fn files(&self, agent_id: &str) -> Result<Value, CommandError>;
     /// A path from an agent's reply, resolved as `share_file` resolves it
@@ -191,6 +218,12 @@ pub trait Backend: Send + Sync + 'static {
     ) -> Result<String, CommandError>;
     /// Press `key` (already one `key_bytes` knows) in an agent tab.
     async fn session_key(&self, session_id: &str, key: &str) -> Result<(), CommandError>;
+    /// Open a new agent tab in `project` that starts on cleaned `prompt`
+    /// (Remote Access's `start_agent`). Returns its session id once the tab exists.
+    async fn session_start(&self, project: &str, prompt: &str) -> Result<String, CommandError>;
+    /// The project's live preview as a JPEG, captured for the phone alone.
+    async fn preview_screenshot(&self, project: &str, phone: bool)
+        -> Result<Vec<u8>, CommandError>;
     /// An attachment's file: `attachments::resolve` under the agent's home.
     fn attachment_file(
         &self,
@@ -346,6 +379,42 @@ struct SessionSendParams {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RuleParams {
+    agent_id: String,
+    rule_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiffParams {
+    agent_id: String,
+    message_id: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStartParams {
+    project: String,
+    prompt: String,
+    client_id: String,
+}
+
+#[derive(Deserialize)]
+struct ScreenshotParams {
+    project: String,
+    device: ScreenshotDevice,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ScreenshotDevice {
+    Desktop,
+    Phone,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SessionKeyParams {
     session_id: String,
     key: String,
@@ -397,6 +466,10 @@ pub fn audit_detail(method: &str, params: &Value) -> String {
                 flag("pinned", "pin", "unpin"),
                 flag("muted", "mute", "unmute"),
                 flag("hidden", "hide", "unhide"),
+                input
+                    .get("instructions")
+                    .and_then(Value::as_str)
+                    .map(|i| format!("edit instructions ({} chars)", i.chars().count())),
             ]
             .into_iter()
             .flatten()
@@ -427,6 +500,9 @@ pub fn audit_detail(method: &str, params: &Value) -> String {
             None => "push token cleared".into(),
         },
         "agents.fetchPath" => preview(field("path")),
+        "agents.revokePermission" => format!("revoke {} {}", field("ruleId"), field("agentId")),
+        "sessions.start" => preview(&format!("{} — {}", field("project"), field("prompt"))),
+        "preview.screenshot" => format!("{} {}", field("project"), field("device")),
         "agents.schedule.create" | "agents.schedule.update" => {
             preview(&format!("{} — {}", field("when"), field("note")))
         }
@@ -585,10 +661,21 @@ async fn run(
         }
         "agents.update" => {
             let p: UpdateParams = parse(params).map_err(|_| {
-                bad_params("Only pin, mute and hide can be changed from the phone.")
+                bad_params(
+                    "Only pin, mute, hide and the instructions can be changed from the phone.",
+                )
             })?;
             if p.input == AgentToggles::default() {
                 return Err(bad_params("Nothing to change."));
+            }
+            if p.input
+                .instructions
+                .as_ref()
+                .is_some_and(|i| i.chars().count() > MAX_INSTRUCTIONS)
+            {
+                return Err(bad_params(format!(
+                    "Instructions can be up to {MAX_INSTRUCTIONS} characters."
+                )));
             }
             // `StoredAgent` doesn't carry lifetime usage, as the overview doesn't.
             let mut stored = b.update_agent(&p.agent_id, p.input).await?;
@@ -600,6 +687,23 @@ async fn run(
         "agents.files" => {
             let p: AgentParam = parse(params)?;
             Ok(b.files(&p.agent_id).await?)
+        }
+        "agents.instructions" => {
+            let p: AgentParam = parse(params)?;
+            Ok(Value::String(b.instructions(&p.agent_id).await?))
+        }
+        "agents.usage" => {
+            let p: AgentParam = parse(params)?;
+            Ok(b.usage(&p.agent_id).await?)
+        }
+        "agents.revokePermission" => {
+            let p: RuleParams = parse(params)?;
+            b.revoke_permission(&p.agent_id, &p.rule_id).await?;
+            Ok(Value::Null)
+        }
+        "agents.changeDiff" => {
+            let p: DiffParams = parse(params)?;
+            Ok(b.change_diff(&p.agent_id, &p.message_id, &p.path).await?)
         }
         "agents.fetchPath" => {
             let p: PathParams = parse(params)?;
@@ -686,6 +790,40 @@ async fn run(
             }
             b.session_key(&p.session_id, &p.key).await?;
             Ok(Value::Null)
+        }
+        "sessions.start" => {
+            let p: SessionStartParams = parse(params)?;
+            let client_id = p.client_id.trim().to_string();
+            if client_id.is_empty() || client_id.len() > 128 {
+                return Err(bad_params("clientId is required (at most 128 characters)."));
+            }
+            let key = format!("{}:start:{client_id}", caller.device_id);
+            c.sends
+                .once(key, now_ms(), || async move {
+                    let prompt = crate::remote_access::tools::clean_agent_text(&p.prompt, "prompt")
+                        .map_err(|reason| WireError::protocol(ProtocolCode::Refused, reason))?;
+                    let session_id = b.session_start(&p.project, &prompt).await?;
+                    Ok(json!({ "sessionId": session_id }))
+                })
+                .await
+        }
+        "preview.screenshot" => {
+            let p: ScreenshotParams = parse(params)?;
+            let phone = matches!(p.device, ScreenshotDevice::Phone);
+            let jpeg = b.preview_screenshot(&p.project, phone).await?;
+            let name = format!(
+                "{}-{}.jpg",
+                crate::remote_access::tools::project_name(&p.project),
+                if phone { "phone" } else { "desktop" }
+            );
+            let blob = c.blobs.put(
+                &caller.device_id,
+                &name,
+                Some("image/jpeg"),
+                &jpeg,
+                now_ms(),
+            )?;
+            Ok(to_value(&blob.as_ref()))
         }
         _ => Err(WireError::protocol(
             ProtocolCode::UnknownMethod,
@@ -896,6 +1034,93 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_agent_sheet_reads_usage_and_instructions_and_revokes() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        let me = caller("dev_a");
+        let brief = dispatch(&c, &me, "agents.instructions", json!({ "agentId": AGENT }))
+            .await
+            .unwrap();
+        assert!(brief.as_str().unwrap().contains("invoices"));
+        let usage = dispatch(&c, &me, "agents.usage", json!({ "agentId": AGENT }))
+            .await
+            .unwrap();
+        assert_eq!(usage["week"]["turns"], 3);
+        dispatch(
+            &c,
+            &me,
+            "agents.revokePermission",
+            json!({ "agentId": AGENT, "ruleId": "r1" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stub.revoked.lock().unwrap().as_slice(), ["r1"]);
+        let diff = dispatch(
+            &c,
+            &me,
+            "agents.changeDiff",
+            json!({ "agentId": AGENT, "messageId": "m-change", "path": "src/a.ts" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(diff["filePath"], "src/a.ts");
+        // Reads aren't audited; the revoke is.
+        let audit = stub.audited();
+        assert_eq!(audit.len(), 1);
+        assert_eq!(audit[0].1, "agents.revokePermission");
+    }
+
+    #[tokio::test]
+    async fn a_session_starts_once_per_client_id_with_remote_access_refusals() {
+        use crate::companion::testkit::Stub;
+        let (c, stub) = Stub::companion();
+        let me = caller("dev_a");
+        let project = "/Users/julian/ShipStudio/site";
+        let start = |prompt: &str, client: &str| json!({ "project": project, "prompt": prompt, "clientId": client });
+        let first = dispatch(&c, &me, "sessions.start", start("add a footer", "a1"))
+            .await
+            .unwrap();
+        assert_eq!(first["sessionId"], "pty-new");
+        dispatch(&c, &me, "sessions.start", start("add a footer", "a1"))
+            .await
+            .unwrap();
+        assert_eq!(stub.typed.lock().unwrap().len(), 1);
+        assert!(
+            dispatch(&c, &me, "sessions.start", start("!rm -rf /", "a3"))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_preview_screenshot_is_a_private_blob() {
+        use crate::companion::testkit::Stub;
+        let (c, _) = Stub::companion();
+        let me = caller("dev_a");
+        let blob = dispatch(
+            &c,
+            &me,
+            "preview.screenshot",
+            json!({ "project": "/Users/julian/ShipStudio/site", "device": "phone" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(blob["name"], "site-phone.jpg");
+        assert_eq!(blob["mime"], "image/jpeg");
+        let id = blob["blobId"].as_str().unwrap();
+        assert!(c.blobs.get("dev_a", id, now_ms()).is_some());
+        assert!(c.blobs.get("dev_b", id, now_ms()).is_none());
+        assert!(dispatch(
+            &c,
+            &me,
+            "preview.screenshot",
+            json!({ "project": "/x", "device": "watch" }),
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
     async fn the_phone_may_only_pin_mute_and_hide() {
         use crate::companion::testkit::{Stub, AGENT};
         let (c, stub) = Stub::companion();
@@ -912,14 +1137,28 @@ mod tests {
         assert_eq!(done["pinned"], false);
         for refused in [
             json!({ "agentId": AGENT, "input": { "name": "Evil" } }),
-            json!({ "agentId": AGENT, "input": { "instructions": "rm -rf" } }),
+            json!({ "agentId": AGENT, "input": { "model": "opus" } }),
+            json!({ "agentId": AGENT, "input": { "instructions": "x".repeat(MAX_INSTRUCTIONS + 1) } }),
             json!({ "agentId": AGENT, "input": {} }),
         ] {
             assert!(dispatch(&c, &me, "agents.update", refused).await.is_err());
         }
-        assert_eq!(stub.toggles.lock().unwrap().len(), 1);
+        // The instructions can be corrected from the agent sheet, and the audit says so.
+        dispatch(
+            &c,
+            &me,
+            "agents.update",
+            json!({ "agentId": AGENT, "input": { "instructions": "Check the invoices" } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stub.toggles.lock().unwrap().len(), 2);
         let audit = stub.audited();
         assert_eq!(audit[0].2, format!("unpin mute {AGENT}"));
+        assert_eq!(
+            audit.last().unwrap().2,
+            format!("edit instructions (18 chars) {AGENT}")
+        );
     }
 
     #[tokio::test]

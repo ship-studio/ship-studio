@@ -236,6 +236,8 @@ pub struct Stub {
     pub toggles: Mutex<Vec<(String, AgentToggles)>>,
     /// What reached a session: `(session id, text or "key:<key>")`.
     pub typed: Mutex<Vec<(String, String)>>,
+    /// Permission rules revoked, by id.
+    pub revoked: Mutex<Vec<String>>,
 }
 
 impl Stub {
@@ -254,6 +256,7 @@ impl Stub {
             answers: Mutex::new(Vec::new()),
             toggles: Mutex::new(Vec::new()),
             typed: Mutex::new(Vec::new()),
+            revoked: Mutex::new(Vec::new()),
         });
         let c = Arc::new(Companion::with_epoch(registry, stub.clone(), epoch.into()));
         let _ = stub.companion.set(Arc::downgrade(&c));
@@ -425,6 +428,45 @@ impl Backend for Stub {
         Ok(serde_json::to_value(files).unwrap())
     }
 
+    async fn instructions(&self, agent_id: &str) -> Result<String, CommandError> {
+        if agent_id != AGENT {
+            return Err(CommandError::expected("No such agent."));
+        }
+        Ok("# Finance\n\nKeep the books. File the invoices every Monday.".into())
+    }
+
+    async fn usage(&self, agent_id: &str) -> Result<Value, CommandError> {
+        if agent_id != AGENT {
+            return Err(CommandError::expected("No such agent."));
+        }
+        let totals = |turns: u64, cost: f64| {
+            json!({
+                "turns": turns, "inputTokens": turns * 1200, "outputTokens": turns * 300,
+                "cacheReadTokens": turns * 9000, "cacheWriteTokens": turns * 800,
+                "costUsd": cost, "pricedTurns": turns, "durationMs": turns * 40_000
+            })
+        };
+        Ok(json!({ "week": totals(3, 0.42), "allTime": totals(41, 6.18) }))
+    }
+
+    async fn revoke_permission(&self, _agent_id: &str, rule_id: &str) -> Result<(), CommandError> {
+        self.revoked.lock().unwrap().push(rule_id.to_string());
+        Ok(())
+    }
+
+    async fn change_diff(
+        &self,
+        _agent_id: &str,
+        _message_id: &str,
+        path: &str,
+    ) -> Result<Value, CommandError> {
+        Ok(json!({
+            "filePath": path, "isNewFile": false, "isDeleted": false, "isBinary": false,
+            "content": "@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n export { a };\n",
+            "additions": 1, "deletions": 1
+        }))
+    }
+
     async fn shareable_path(
         &self,
         _agent_id: &str,
@@ -561,6 +603,28 @@ impl Backend for Stub {
             .unwrap()
             .push((session_id.to_string(), format!("key:{key}")));
         Ok(())
+    }
+
+    async fn session_start(&self, project: &str, prompt: &str) -> Result<String, CommandError> {
+        if project != projects()[0].path {
+            return Err(CommandError::expected("No such project."));
+        }
+        self.typed
+            .lock()
+            .unwrap()
+            .push(("pty-new".into(), prompt.to_string()));
+        Ok("pty-new".into())
+    }
+
+    async fn preview_screenshot(
+        &self,
+        _project: &str,
+        _phone: bool,
+    ) -> Result<Vec<u8>, CommandError> {
+        // A JPEG's first bytes are all the router looks at: it stores them.
+        Ok(vec![
+            0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F', 0xFF, 0xD9,
+        ])
     }
 
     fn attachment_file(

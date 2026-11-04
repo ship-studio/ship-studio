@@ -1512,7 +1512,7 @@ pub(crate) fn window_for(project: &str) -> String {
 /// Open a new agent tab whose CLI starts with `prompt`. Returns its tab
 /// number and session id once its terminal actually exists — not when we
 /// asked.
-async fn start_agent_with(
+pub(crate) async fn start_agent_with(
     app: &tauri::AppHandle,
     project: &str,
     prompt: &str,
@@ -1688,6 +1688,39 @@ async fn capture(
     device: shots::Device,
     full_page: bool,
 ) -> Result<Captured, String> {
+    let encoded = capture_encoded(app, project, device, full_page).await?;
+    let jpeg = encoded.preview;
+    // An agent's pictures go into its chat, never behind a public link.
+    let mut full = Some(encoded.full);
+    let _ = AGENTS_CALL.try_with(|call| {
+        if let Some(full) = full.take() {
+            call.shots.borrow_mut().push((device.label(), full));
+        }
+    });
+    let link = match full {
+        None => None,
+        Some(full) => {
+            let id = shots::store(full);
+            match super::tailscale::status().await {
+                super::tailscale::TailscaleState::Connected { dns_name } => {
+                    Some(shots::public_url(&dns_name, &id))
+                }
+                _ => None,
+            }
+        }
+    };
+    Ok(Captured { device, jpeg, link })
+}
+
+/// The preview photographed as `device`, encoded and nowhere else: the
+/// phone's `preview.screenshot` takes the full JPEG as a private blob, so
+/// nothing is stored behind a public link.
+pub(crate) async fn capture_encoded(
+    app: &tauri::AppHandle,
+    project: &str,
+    device: shots::Device,
+    full_page: bool,
+) -> Result<shots::Encoded, String> {
     ensure_preview(app, project).await?;
     let canonical = canonical_path(project);
     let (width, height, scale) = device.viewport();
@@ -1736,30 +1769,9 @@ async fn capture(
     if !shots::is_capture_path(std::path::Path::new(&canonical), &path) {
         return Err("The screenshot was saved somewhere unexpected, so it wasn't read.".into());
     }
-    let encoded = tokio::task::spawn_blocking(move || shots::encode(&path))
+    tokio::task::spawn_blocking(move || shots::encode(&path))
         .await
-        .map_err(|e| e.to_string())??;
-    let jpeg = encoded.preview;
-    // An agent's pictures go into its chat, never behind a public link.
-    let mut full = Some(encoded.full);
-    let _ = AGENTS_CALL.try_with(|call| {
-        if let Some(full) = full.take() {
-            call.shots.borrow_mut().push((device.label(), full));
-        }
-    });
-    let link = match full {
-        None => None,
-        Some(full) => {
-            let id = shots::store(full);
-            match super::tailscale::status().await {
-                super::tailscale::TailscaleState::Connected { dns_name } => {
-                    Some(shots::public_url(&dns_name, &id))
-                }
-                _ => None,
-            }
-        }
-    };
-    Ok(Captured { device, jpeg, link })
+        .map_err(|e| e.to_string())?
 }
 
 /// Image blocks plus one text line per capture naming its link.

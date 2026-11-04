@@ -776,6 +776,10 @@ export const frames = [
       "agents.focus",
       "agents.markUnread",
       "agents.update",
+      "agents.revokePermission",
+      "agents.instructions",
+      "agents.usage",
+      "agents.changeDiff",
       "agents.files",
       "agents.fetchPath",
       "agents.search",
@@ -788,7 +792,9 @@ export const frames = [
       "projects.list",
       "sessions.read",
       "sessions.send",
-      "sessions.key"
+      "sessions.key",
+      "sessions.start",
+      "preview.screenshot"
     ]
   },
   {
