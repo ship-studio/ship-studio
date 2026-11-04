@@ -252,6 +252,9 @@
 /* Sidebar-top palette trigger — button styled like a search input. The
  * real search happens inside the Cmd+K palette; clicking opens it. */
 .workspace-sidebar-search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
   padding: var(--space-08);
   border-bottom: var(--stroke-1) solid var(--border-subtle);
   flex-shrink: 0;
@@ -277,91 +280,6 @@
   transition:
     background-color var(--transition-fast),
     color var(--transition-fast);
-}
-
-/* The Agents row: a destination, not a field, so it doesn't borrow the
-   search trigger's input look. Transparent at rest, the control surface on
-   hover, and the selected surface while Agents mode is showing, like a
-   current project row. */
-.workspace-sidebar-agents-row {
-  position: relative;
-  margin-top: var(--spacing-xs);
-}
-
-.workspace-sidebar-agents {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  height: var(--control-height-standard);
-  margin: 0;
-  padding: 0 var(--spacing-tight) 0 var(--space-09);
-  font: inherit;
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-label);
-  color: var(--text-secondary);
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-card);
-  transition:
-    background-color var(--transition-interaction-fast),
-    color var(--transition-interaction-fast);
-}
-
-.workspace-sidebar-agents:hover {
-  color: var(--text-primary);
-  background: var(--surface-control);
-}
-
-.workspace-sidebar-agents:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 var(--border-width-emphasis) var(--accent-focus);
-}
-
-.workspace-sidebar-agents.is-active,
-.workspace-sidebar-agents.is-active:hover {
-  color: var(--text-primary);
-  background: var(--surface-selected);
-  cursor: default;
-}
-
-.workspace-sidebar-agents-label {
-  flex: 1;
-}
-
-.workspace-sidebar-agents .sidebar-row-dot {
-  margin-right: var(--spacing-xs);
-}
-
-/* The + menu rides at the row's trailing edge, inside its selected fill. */
-.workspace-sidebar-agents-actions {
-  position: absolute;
-  top: 50%;
-  right: var(--spacing-2xs);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2xs);
-  transform: translateY(-50%);
-}
-
-.workspace-sidebar.is-hidden .workspace-sidebar-agents {
-  justify-content: center;
-  padding: 0;
-}
-
-.workspace-sidebar.is-hidden .workspace-sidebar-agents-label,
-.workspace-sidebar.is-hidden .workspace-sidebar-agents-actions {
-  display: none;
-}
-
-/* In the rail the unread dot sits on the icon's corner. */
-.workspace-sidebar.is-hidden .workspace-sidebar-agents .sidebar-row-dot {
-  position: absolute;
-  top: var(--spacing-tight);
-  right: var(--spacing-tight);
-  margin: 0;
 }
 
 .workspace-sidebar-filter:hover {

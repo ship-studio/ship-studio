@@ -26,6 +26,8 @@ export type CommandMap = Record<string, unknown>;
 export interface ScenarioStep {
   /** Click this once it exists. */
   click?: string;
+  /** Point at this once it exists, e.g. to show its tooltip. */
+  hover?: string;
   /** Type into this input once it exists. */
   fill?: string;
   /** Choose this value from a native select once it exists. */
@@ -83,6 +85,11 @@ export interface Scenario {
    * make realistic anyway (no dev server, no real PTY).
    */
   clipSelector?: string;
+  /**
+   * Capture at this window size instead of 1440×900, e.g. below the 750px
+   * compact breakpoint. The capture runner emulates it before the app loads.
+   */
+  viewport?: { width: number; height: number };
   /**
    * `localStorage` seeded after the harness wipes storage. Use it for states
    * that only exist as a stored preference (onboarding mode, a dismissed

@@ -730,8 +730,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     onGoWorkflows: homeNav?.onGoWorkflows,
     onGoInbox: homeNav?.onGoInbox,
     inboxUnreadCount: homeNav?.inboxUnreadCount,
-    onGoAgents: homeNav?.onGoAgents,
-    agentsUnreadCount: homeNav?.agentsUnreadCount,
     isSidebarHidden,
     onToggleSidebar,
     compactWorkspaceToolbarEnabled,
@@ -838,6 +836,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
             projectRows={projectRows}
             onSelectProject={onSelectProject}
             onGoHome={onGoHome}
+            onGoAgents={homeNav?.onGoAgents}
             autoAcceptMode={autoAcceptMode}
             handleTerminalExit={handleTerminalExit}
             restartTerminalTab={restartTerminalTab}
@@ -854,6 +853,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
               isSidebarHidden={isSidebarHidden}
               onToggleSidebar={onToggleSidebar}
               showNavigationControls={false}
+              onGoAgents={homeNav?.onGoAgents}
               projects={projectRows}
               onCloseProject={onCloseProject}
               onUnpinProject={onUnpinProject}

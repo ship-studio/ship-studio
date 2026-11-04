@@ -17,7 +17,6 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ActivityIcon,
   AddIcon,
-  AgentsIcon,
   BellIcon,
   ChevronIcon,
   CloseIcon,
@@ -62,6 +61,7 @@ import { formatRelativeTime } from '../../lib/branches';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { ProjectDevServerSnapshot } from '../../hooks/useDevServer';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
+import { ModeToggle } from './ModeToggle';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
 import { kbd } from '../../lib/shortcuts';
@@ -167,12 +167,13 @@ interface Props {
   /** Home-level Team screen. Absent where there is no nav row. */
   /** Unread findings, rendered as a badge on the Inbox button. */
   inboxUnreadCount?: number;
-  /** Switch to Agents mode. Hides the nav button when omitted. */
+  /**
+   * Switch to Agents mode. Shows the Projects | Agents toggle above Search;
+   * without it there is no toggle.
+   */
   onGoAgents?: () => void;
-  /** Unread agent replies, rendered as a badge on the Agents button. */
-  agentsUnreadCount?: number;
-  /** A trailing control on the Agents row while Agents mode is showing (its + menu). */
-  agentsNavAction?: ReactNode;
+  /** Switch back to Projects from Agents mode. Falls back to `onGoHome`. */
+  onGoProjects?: () => void;
   /** Replaces the palette trigger at the top (Agents mode searches conversations there). */
   searchContent?: ReactNode;
 
@@ -410,8 +411,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onGoInbox,
   inboxUnreadCount = 0,
   onGoAgents,
-  agentsUnreadCount = 0,
-  agentsNavAction,
+  onGoProjects,
   searchContent,
   listContent,
   onGoHome,
@@ -1733,6 +1733,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         )}
 
         <div className="workspace-sidebar-search-panel">
+          {onGoAgents && (
+            <ModeToggle
+              mode={activeNav === 'agents' ? 'agents' : 'projects'}
+              onProjects={onGoProjects ?? onGoHome}
+              onAgents={onGoAgents}
+              layout={isSidebarHidden ? 'stacked' : 'labels'}
+            />
+          )}
           {searchContent ?? (
             <button
               type="button"
@@ -1745,32 +1753,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               <span className="workspace-sidebar-filter-placeholder">Search</span>
               <span className="workspace-sidebar-filter-shortcut">{kbd('mod', 'K')}</span>
             </button>
-          )}
-          {/* Agents is a mode, not a page: it takes over the window. It gets a
-              row of its own because the nav row beside the traffic lights only
-              has room for four buttons. While it is showing, the row is the
-              agent list's heading and carries its + menu. */}
-          {onGoAgents && (
-            <div className="workspace-sidebar-agents-row">
-              <button
-                type="button"
-                tabIndex={0}
-                className={`workspace-sidebar-agents${activeNav === 'agents' ? ' is-active' : ''}`}
-                onClick={onGoAgents}
-                aria-current={activeNav === 'agents' ? 'page' : undefined}
-                title="Agents"
-                aria-label={
-                  agentsUnreadCount > 0 ? `Agents — ${agentsUnreadCount} unread` : 'Agents'
-                }
-              >
-                <AgentsIcon size={12} />
-                <span className="workspace-sidebar-agents-label">Agents</span>
-                {agentsUnreadCount > 0 && activeNav !== 'agents' && (
-                  <span className="sidebar-row-dot dot-unread" aria-hidden />
-                )}
-              </button>
-              {activeNav === 'agents' && agentsNavAction}
-            </div>
           )}
         </div>
 

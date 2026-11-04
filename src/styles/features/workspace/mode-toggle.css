@@ -1,0 +1,101 @@
+/* Projects | Agents (ModeToggle). Everything visual is the Tabs primitive's
+   segmented look; these rules only size and place it. */
+
+/* The Search field's height: a 24px tab plus the list's 2px padding and 1px
+   border on each side is 30px. */
+.mode-toggle.tabs__list .tabs__tab.button {
+  height: var(--size-control-medium);
+  min-height: var(--size-control-medium);
+}
+
+/* Labels: two equal segments across the full width, so the control is the
+   same width as Search and does not move when the badge comes and goes. */
+.mode-toggle--labels {
+  display: flex;
+  width: 100%;
+}
+
+.mode-toggle--labels.tabs__list .tabs__tab.button {
+  flex: 1 1 0;
+  padding-inline: var(--spacing-sm);
+}
+
+/* Icons: square segments. Stacked turns them into a column for the
+   collapsed rail, where the list is exactly the rail's 30px control width. */
+.mode-toggle.tabs__list .tabs__tab.button--icon-only {
+  width: var(--size-control-medium);
+  min-width: var(--size-control-medium);
+}
+
+.mode-toggle--stacked {
+  flex-direction: column;
+}
+
+/* The attention badge rides on the Agents segment's corner, out of flow,
+   so both labels centre exactly as they would without it. */
+.mode-toggle__dot.sidebar-row-dot {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+}
+
+/* On an icon segment the badge straddles the corner, app-icon style, so it
+   stays off the glyph's own sparkle. */
+.mode-toggle.tabs__list .button--icon-only .mode-toggle__dot.sidebar-row-dot {
+  top: calc(var(--spacing-2xs) * -1);
+  right: calc(var(--spacing-2xs) * -1);
+}
+
+/* With the toggle above Search, the panel is two bands of the workspace
+   header's height (a 30px control between 8px paddings, plus its hairline),
+   so its bottom hairline continues the preview toolbar's and the agent
+   panel header's in one line. The spare height is shared evenly around the
+   two controls. */
+.workspace-sidebar:not(.is-hidden) .workspace-sidebar-search-panel:has(.mode-toggle) {
+  min-height: calc(
+    (var(--control-height-standard) + var(--spacing-sm) * 2 + var(--border-width-default)) * 2
+  );
+  justify-content: space-evenly;
+  gap: 0;
+  padding-block: 0;
+}
+
+/* Compact: the icon pair at the compact top bar's 24px control height. */
+.mode-toggle--icons.tabs__list .tabs__tab.button {
+  width: calc(
+    var(--compact-topbar-control-size) - (var(--tabs-list-padding) + var(--border-width-default)) *
+      2
+  );
+  min-width: calc(
+    var(--compact-topbar-control-size) - (var(--tabs-list-padding) + var(--border-width-default)) *
+      2
+  );
+  height: calc(
+    var(--compact-topbar-control-size) - (var(--tabs-list-padding) + var(--border-width-default)) *
+      2
+  );
+  min-height: calc(
+    var(--compact-topbar-control-size) - (var(--tabs-list-padding) + var(--border-width-default)) *
+      2
+  );
+}
+
+.mode-toggle-compact {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+/* No bar of its own: pinned where the compact top bar's leading control
+   would be, vertically centred in that bar's height. */
+.mode-toggle-compact--floating {
+  position: fixed;
+  top: 0;
+  left: var(--compact-topbar-padding-inline);
+  z-index: var(--z-workspace-header);
+  height: var(--compact-topbar-height);
+}
+
+.mode-toggle-compact--floating.mode-toggle-compact--mac {
+  left: var(--compact-topbar-macos-padding-start);
+}

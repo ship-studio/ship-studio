@@ -11,6 +11,7 @@
 
 import type { ComponentProps } from 'react';
 import { HomeSidebar } from './HomeSidebar';
+import { CompactModeToggle } from './ModeToggle';
 import { WorkflowsView } from '../workflows/WorkflowsView';
 import { InboxView } from '../inbox/InboxView';
 import type { Project } from '../../lib/project';
@@ -35,7 +36,11 @@ export function StandingWorkView({
   return (
     <div className="app workspace workspace-home">
       <div className={`projects-with-rail${isCompact ? ' is-compact' : ''}`} key="view-standing">
-        {!isCompact && <HomeSidebar {...sidebarProps} activeNav={view} />}
+        {isCompact ? (
+          <CompactModeToggle mode="projects" onAgents={sidebarProps.onGoAgents} floating />
+        ) : (
+          <HomeSidebar {...sidebarProps} activeNav={view} />
+        )}
         {view === 'workflows' ? (
           <WorkflowsView currentProjectPath={currentProjectPath} />
         ) : (

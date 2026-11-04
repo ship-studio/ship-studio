@@ -160,7 +160,7 @@ async function runSteps(): Promise<void> {
   ];
 
   for (const step of steps) {
-    const selector = step.click ?? step.fill ?? step.select;
+    const selector = step.click ?? step.hover ?? step.fill ?? step.select;
     if (!selector) continue;
     const el = await waitFor(selector);
     if (!el) {
@@ -177,6 +177,11 @@ async function runSteps(): Promise<void> {
         new MouseEvent('click', { bubbles: true, cancelable: true, view: window, detail: 1 })
       );
       stepLog.push(`clicked ${selector}`);
+    } else if (step.hover) {
+      el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+      stepLog.push(`hovered ${selector}`);
+      // The shared tooltip waits out its one-second show delay first.
+      await new Promise((r) => setTimeout(r, 1200));
     } else if (step.fill) {
       fillInput(el, step.value ?? '');
       stepLog.push(`filled ${selector}`);

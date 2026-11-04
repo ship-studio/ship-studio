@@ -64,8 +64,7 @@ import {
 } from './components/CommandPalette/paletteContext';
 import { useAppCommands } from './commands/useAppCommands';
 import { useWorkflowCommands } from './commands/useWorkflowCommands';
-import { useAgentsNavCommands } from './commands/useAgentsCommands';
-import { useAgentsUnread } from './lib/agentsStore';
+import { useAppMode } from './hooks/useAppMode';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { PinnedProjectCommandHost } from './commands/usePinnedProjectCommands';
 import { useWorkspaceNumberShortcuts } from './hooks/useWorkspaceNumberShortcuts';
@@ -624,7 +623,12 @@ function AppContents({ initialProjectPath }: AppProps) {
   });
 
   useWorkflowCommands({ setView, showToast });
-  useAgentsNavCommands({ setView });
+  const modeNav = useAppMode({
+    view,
+    setView,
+    currentProjectPath: currentProject?.path ?? null,
+    openProject: handleRailClick,
+  });
   useOrphanedWorkspaceGuard(view, currentProject !== null, setView);
 
   // Close an active session from the sidebar (dashboard, collapsed rail, or
@@ -1103,7 +1107,6 @@ function AppContents({ initialProjectPath }: AppProps) {
   // sidebar, used by the Projects, Workflows, and Inbox screens.
   const workflowsSnapshot = useSyncExternalStore(subscribeWorkflows, getWorkflowsSnapshot);
   const inboxUnread = unreadCount(workflowsSnapshot);
-  const agentsUnread = useAgentsUnread();
 
   const homeSidebarProps = useMemo(
     () => ({
@@ -1111,8 +1114,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       onGoWorkflows: () => setView('workflows'),
       onGoInbox: () => setView('inbox'),
       inboxUnreadCount: inboxUnread,
-      onGoAgents: () => setView('agents'),
-      agentsUnreadCount: agentsUnread,
+      ...modeNav,
       onOpenProjectPicker: openProjectPicker,
       isSidebarHidden,
       onToggleSidebar: toggleSidebar,
@@ -1133,7 +1135,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     [
       openAccountSelect,
       inboxUnread,
-      agentsUnread,
+      modeNav,
       openProjectPicker,
       isSidebarHidden,
       toggleSidebar,

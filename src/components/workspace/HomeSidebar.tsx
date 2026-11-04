@@ -25,10 +25,9 @@ interface HomeSidebarProps {
   onGoWorkflows: () => void;
   onGoInbox: () => void;
   inboxUnreadCount: number;
+  /** The Projects | Agents toggle: back to wherever you were on each side. */
+  onGoProjects: () => void;
   onGoAgents: () => void;
-  agentsUnreadCount: number;
-  /** Agents mode's + menu, on the Agents row. */
-  agentsNavAction?: ReactNode;
   /** Agents mode's conversation search, in the palette trigger's place. */
   searchContent?: ReactNode;
   isSidebarHidden: boolean;
@@ -53,9 +52,8 @@ export function HomeSidebar({
   onGoWorkflows,
   onGoInbox,
   inboxUnreadCount,
+  onGoProjects,
   onGoAgents,
-  agentsUnreadCount,
-  agentsNavAction,
   searchContent,
   listContent,
   isSidebarHidden,
@@ -82,9 +80,8 @@ export function HomeSidebar({
       onGoWorkflows={onGoWorkflows}
       onGoInbox={onGoInbox}
       inboxUnreadCount={inboxUnreadCount}
+      onGoProjects={onGoProjects}
       onGoAgents={onGoAgents}
-      agentsUnreadCount={agentsUnreadCount}
-      agentsNavAction={agentsNavAction}
       searchContent={searchContent}
       listContent={listContent}
       onOpenProjectPicker={onOpenProjectPicker}

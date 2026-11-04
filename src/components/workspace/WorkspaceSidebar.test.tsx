@@ -9,6 +9,12 @@ import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { mockInvokeResponse } from '../../test/setup';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 
+// The toggle reads agent attention from the live store; nothing here wants any.
+vi.mock('../../lib/agentsStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/agentsStore')>()),
+  useAgentsAttention: () => ({ waiting: [], unread: 0 }),
+}));
+
 const PROJECT_PATH = '/tmp/sidebar-project';
 const EXPANDED_PROJECTS_KEY = 'ship-studio:workspace-sidebar:expanded-projects';
 
@@ -1784,5 +1790,40 @@ describe('WorkspaceSidebar project close button', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Pin to sidebar' }));
 
     expect(onTogglePinProject).toHaveBeenCalledWith(ACTIVE_PATH, true);
+  });
+});
+
+describe('WorkspaceSidebar mode toggle', () => {
+  beforeEach(() => {
+    mockInvokeResponse('list_accounts', []);
+    mockInvokeResponse('get_project_account_id', null);
+    mockInvokeResponse('get_active_account_id', 'default');
+    mockInvokeResponse('get_spotify_widget_enabled', false);
+    mockInvokeResponse('get_spotify_state', null);
+  });
+
+  it('shows Projects | Agents above Search inside a project', () => {
+    const onGoAgents = vi.fn();
+    render(
+      <Providers>
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          showNavigationControls={false}
+          onGoAgents={onGoAgents}
+        />
+      </Providers>
+    );
+    expect(screen.getByRole('tab', { name: 'Projects' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /^Agents/ }));
+    expect(onGoAgents).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no toggle where Agents is not reachable', () => {
+    render(
+      <Providers>
+        <WorkspaceSidebar {...sidebarProps()} />
+      </Providers>
+    );
+    expect(screen.queryByRole('tablist', { name: 'Mode' })).not.toBeInTheDocument();
   });
 });

@@ -12,6 +12,7 @@ import { useCallback, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PinIcon, ChevronIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
+import { CompactModeToggle } from './ModeToggle';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { setAlwaysOnTop } from '../../lib/window';
 import { logger } from '../../lib/logger';
@@ -25,6 +26,8 @@ interface Props {
   switchableProjects: PinnedProjectRow[];
   onSelectProject: (projectPath: string) => void;
   onGoHome: () => void;
+  /** Switch to Agents mode. Shows the mode toggle at the bar's leading edge. */
+  onGoAgents?: () => void;
 }
 
 // The platform modifier preserves the macOS traffic-light inset without
@@ -37,6 +40,7 @@ export function CompactTopbar({
   switchableProjects,
   onSelectProject,
   onGoHome,
+  onGoAgents,
 }: Props) {
   const openPalette = useOpenPalette();
   const openProjectPalette = useCallback(() => openPalette({ tab: 'project' }), [openPalette]);
@@ -62,6 +66,7 @@ export function CompactTopbar({
 
   return (
     <div className={`compact-topbar ${topbarPlatformClass}`} onMouseDown={handleDragStart}>
+      {onGoAgents && <CompactModeToggle mode="projects" onAgents={onGoAgents} />}
       <div className="compact-topbar__spacer" aria-hidden="true" />
       <div className="compact-topbar__actions">
         {hasDevServer && (

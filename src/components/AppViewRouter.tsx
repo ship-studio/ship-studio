@@ -13,6 +13,7 @@ import { ThumbnailConsentModal } from './preview/ThumbnailConsentModal';
 import { ToastList } from './primitives/ToastList';
 import { OnboardingRouter } from './setup';
 import { HomeSidebar } from './workspace/HomeSidebar';
+import { CompactModeToggle } from './workspace/ModeToggle';
 import { StandingWorkView } from './workspace/StandingWorkView';
 import { AgentsView } from './agents/AgentsView';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './workspace/WorkspaceHeader';
@@ -123,7 +124,11 @@ export function AppViewRouter({
             className={`projects-with-rail${isCompact ? ' is-compact' : ''}`}
             key="view-projects"
           >
-            {!isCompact && <HomeSidebar {...homeSidebarProps} activeNav="home" />}
+            {isCompact ? (
+              <CompactModeToggle mode="projects" onAgents={homeSidebarProps.onGoAgents} floating />
+            ) : (
+              <HomeSidebar {...homeSidebarProps} activeNav="home" />
+            )}
             <ProjectsView {...projectsViewProps} />
           </div>
         </div>

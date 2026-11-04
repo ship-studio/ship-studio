@@ -1,14 +1,22 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HomeSidebar } from './HomeSidebar';
+import { kbd } from '../../lib/shortcuts';
 import { ModalProvider } from '../../contexts/ModalContext';
 import { PaletteContextProvider } from '../CommandPalette/paletteContext';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
+import type { AgentsAttention } from '../../lib/agentsStore';
 
 // Accounts load over Tauri IPC, which isn't available here — and the sidebar
 // reads `accounts.length` during render.
 vi.mock('../../hooks/useActiveAccount', () => ({
   useActiveAccount: () => ({ activeAccount: null, accounts: [] }),
+}));
+
+let attention: AgentsAttention = { waiting: [], unread: 0 };
+vi.mock('../../lib/agentsStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/agentsStore')>()),
+  useAgentsAttention: () => attention,
 }));
 
 function renderSidebar(ui: React.ReactElement) {
@@ -24,8 +32,8 @@ const props = {
   onGoHome: vi.fn(),
   onGoWorkflows: vi.fn(),
   onGoInbox: vi.fn(),
+  onGoProjects: vi.fn(),
   onGoAgents: vi.fn(),
-  agentsUnreadCount: 0,
   inboxUnreadCount: 0,
   isSidebarHidden: false,
   onToggleSidebar: vi.fn(),
@@ -85,5 +93,70 @@ describe('HomeSidebar', () => {
     const workflows = screen.getByRole('button', { name: 'Workflows' });
     expect(workflows).toBeDisabled();
     expect(workflows).toHaveAttribute('aria-current', 'page');
+  });
+
+  describe('Projects | Agents toggle', () => {
+    beforeEach(() => {
+      attention = { waiting: [], unread: 0 };
+      vi.clearAllMocks();
+    });
+
+    it('sits above Search with Projects selected on the dashboard', () => {
+      const { container } = renderSidebar(<HomeSidebar {...props} activeNav="home" />);
+      const panel = container.querySelector('.workspace-sidebar-search-panel')!;
+      const toggle = within(panel as HTMLElement).getByRole('tablist', { name: 'Mode' });
+      expect(panel.firstElementChild).toContainElement(toggle);
+      expect(screen.getByRole('tab', { name: 'Projects' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      fireEvent.click(screen.getByRole('tab', { name: 'Agents' }));
+      expect(props.onGoAgents).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces the old Agents row', () => {
+      renderSidebar(<HomeSidebar {...props} activeNav="home" />);
+      expect(screen.queryByRole('button', { name: /^Agents/ })).not.toBeInTheDocument();
+    });
+
+    it('goes back to the last Projects place from Agents mode', () => {
+      renderSidebar(<HomeSidebar {...props} activeNav="agents" />);
+      expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true');
+      fireEvent.click(screen.getByRole('tab', { name: 'Projects' }));
+      expect(props.onGoProjects).toHaveBeenCalledTimes(1);
+      expect(props.onGoHome).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the current mode is clicked', () => {
+      renderSidebar(<HomeSidebar {...props} activeNav="home" />);
+      fireEvent.click(screen.getByRole('tab', { name: 'Projects' }));
+      expect(props.onGoProjects).not.toHaveBeenCalled();
+      expect(props.onGoAgents).not.toHaveBeenCalled();
+    });
+
+    it('badges Agents and names who wants you', () => {
+      attention = { waiting: ['Lead Gen'], unread: 1 };
+      renderSidebar(<HomeSidebar {...props} activeNav="home" />);
+      const agents = screen.getByRole('tab', { name: 'Agents, Lead Gen needs your OK · 1 unread' });
+      expect(agents.querySelector('.mode-toggle__dot')).not.toBeNull();
+      expect(agents).toHaveAttribute(
+        'title',
+        `Lead Gen needs your OK · 1 unread (${kbd('mod', 'shift', 'A')})`
+      );
+    });
+
+    it('drops the badge while Agents mode is showing', () => {
+      attention = { waiting: ['Lead Gen'], unread: 0 };
+      renderSidebar(<HomeSidebar {...props} activeNav="agents" />);
+      expect(
+        screen.getByRole('tab', { name: 'Agents' }).querySelector('.mode-toggle__dot')
+      ).toBeNull();
+    });
+
+    it('stacks icon-only in the collapsed rail', () => {
+      renderSidebar(<HomeSidebar {...props} activeNav="home" isSidebarHidden />);
+      expect(screen.getByRole('tablist', { name: 'Mode' })).toHaveClass('mode-toggle--stacked');
+      expect(screen.getByRole('tab', { name: 'Agents' })).toHaveClass('button--icon-only');
+    });
   });
 });

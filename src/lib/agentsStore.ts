@@ -18,6 +18,7 @@ import {
   AGENT_EVENTS,
   getAgentMessages,
   getAgentsOverview,
+  needsYou,
   type Agent,
   type AgentMessage,
   type AgentStatus,
@@ -201,10 +202,23 @@ export function useAgents(): AgentsState {
   return useSyncExternalStore(subscribeAgents, getAgentsSnapshot);
 }
 
-/** Unread plus pending approvals across agents: the sidebar nav badge, same as the Dock's. */
-export function useAgentsUnread(): number {
+/** What the Agents side wants from you: who is waiting on your OK, and how many have news. */
+export interface AgentsAttention {
+  /** Names of the visible agents waiting on an approval or an answer. */
+  waiting: string[];
+  /** Visible agents with unread replies, not counting the ones above. */
+  unread: number;
+}
+
+/** Agents attention for the mode toggle's dot and tooltip. Hidden agents never ask. */
+export function useAgentsAttention(): AgentsAttention {
   const { agents } = useAgents();
-  return agents.reduce((sum, a) => sum + (a.hidden ? 0 : a.unread + (a.pendingApprovals ?? 0)), 0);
+  const visible = agents.filter((a) => !a.hidden);
+  const waiting = visible.filter(needsYou);
+  return {
+    waiting: waiting.map((a) => a.name),
+    unread: visible.filter((a) => !needsYou(a) && a.unread > 0).length,
+  };
 }
 
 /** Test hook. */

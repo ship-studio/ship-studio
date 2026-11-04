@@ -5,6 +5,7 @@
 
 import { emit } from '@tauri-apps/api/event';
 import type { Scenario } from '../types';
+import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
 
 const MIN = 60_000;
 const DEMO_HOME = '/harness/agents-demo';
@@ -658,6 +659,9 @@ const QUEUED_CHAT = [
 const acmeWith = (over: Record<string, unknown>) =>
   overview(TEAM.map((a) => (a.id === 'acme' ? { ...a, ...over } : a)));
 
+/** The Agents half of the sidebar's Projects | Agents toggle. */
+const AGENTS_TAB = '.mode-toggle [data-tab-value="agents"]';
+
 const totals = (turns: number, tokens: number, cost: number, minutes: number) => ({
   turns,
   inputTokens: Math.round(tokens * 0.01),
@@ -674,7 +678,7 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-team',
     title: 'Agents — a working team, Chief of Staff open',
     looksRightWhen:
-      'Agent list under the Agents row (pinned first, then most recent), one hairline per row; the Chief of Staff conversation with its name centred in the header band. “2 messages with Acme Site” lines sit centred between bubbles. Acme Site shows what it is doing; Lead Gen shows it needs your OK; Finance shows unread.',
+      'Agent list under the Projects | Agents toggle and conversation search (pinned first, then most recent), one hairline per row; the Chief of Staff conversation with its name centred in the header band. “2 messages with Acme Site” lines sit centred between bubbles. Acme Site shows what it is doing; Lead Gen shows it needs your OK; Finance shows unread.',
     command: 'agents.open',
     requires: '.agent-chat .agent-bubble--agent',
     commands: {
@@ -691,9 +695,9 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'The Lead Gen chat ends in an Allow / Deny card showing exactly what will be sent; the composer is still usable.',
     // Steps run before a palette command, so this one walks in through the
-    // sidebar nav and then picks the agent.
+    // mode toggle and then picks the agent.
     requires: '.agent-approval',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="leadgen"]' }],
     commands: {
       agents_overview: overview(),
@@ -706,7 +710,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Agent replies are unboxed prose on the canvas at a reading measure; only your messages are bubbles. The table has ruled rows and a quiet header; the quote has a rule on its left; the code block is a panel with Copy on hover; the rule is a hairline with room above and below.',
     requires: '.agent-code',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="finance"]' }],
     commands: {
       agents_overview: overview(),
@@ -719,7 +723,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'The Finance chat shows a centred “Scheduled check-in · late, was due …” line with the note under it, then the reply. The header shows “3 scheduled” beside the … menu.',
     requires: '.agent-checkin',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="finance"]' }],
     commands: {
       agents_overview: overview(),
@@ -732,7 +736,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Finance’s chat: an older usage-limit error with its reset time and no buttons (something was said after it), then the newest error, an expired login, carrying “Sign in to Claude Code” and a quieter Retry.',
     requires: '.agent-bubble__remedy',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="finance"]' }],
     commands: {
       agents_overview: overview(),
@@ -746,7 +750,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'The rail shows each agent’s badge with its status on the corner; the conversation header’s name is clear of the floating nav row.',
     requires: '.workspace-sidebar.is-hidden .agents-list__row',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '.workspace-sidebar-toggle' }],
     commands: {
       agents_overview: overview(),
@@ -759,7 +763,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Acme Site’s chat: a user message carrying three screenshots as a right-aligned thumbnail row above its text, then a reply that quotes the agent (a quote bar inside the bubble above the user’s words), then a files-only message as two same-height chips (PDF, CSV) side by side against the right edge. The composer holds one staged image thumbnail and one file chip of the same height above the text field, with the paperclip and Send on the same bottom line.',
     requires: '.agent-composer__attachments',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-composer__attach' }],
     commands: {
       agents_overview: overview(),
@@ -775,7 +779,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'A dialog titled with the file name shows the screenshot at full size, with an Open button beside the close button.',
     requires: '.agent-lightbox__image',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-attachments__image' }],
     commands: {
       agents_overview: overview(),
@@ -788,7 +792,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Acme Site’s chat ends with what it handed over, against the left edge under its words: a caption with a PDF chip, a CSV chip on its own, a caption with the screenshot as an inline thumbnail, then prose whose two paths on disk read as links (the code-formatted one keeps its code look; `/careers` is not a link). Chips and thumbnail are the same family as the user’s attachments on the right.',
     requires: '.agent-attachments[data-side="agent"]',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="acme"]' }],
     commands: {
       agents_overview: overview(),
@@ -801,7 +805,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Opened from the header’s … menu: a “Files” dialog with All / From you / From Acme Site, All chosen. Rows newest first: the screenshot as a small thumbnail, the others as type glyphs, each with name, then kind · size · date · who sent it, and Show in Finder and Open at the end.',
     requires: '.agent-files__row',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [
       { click: '[data-agent-id="acme"]' },
       { click: '.agent-chat__menu [aria-label^="Actions for"]' },
@@ -819,7 +823,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       '“From you” is chosen; only the four files you attached are listed, without a sender in their meta line.',
     requires: '.agent-files__row',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [
       { click: '[data-agent-id="acme"]' },
       { click: '.agent-chat__menu [aria-label^="Actions for"]' },
@@ -838,7 +842,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote.',
     requires: '.agent-schedule__item',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [
       { click: '[data-agent-id="finance"]' },
       { click: '.agent-chat__scheduled' },
@@ -856,7 +860,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'The header shows a quiet clock button, not a chip. Open, it says nothing is scheduled yet, with the composer focused and its hint under it.',
     requires: '.agent-schedule__empty',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [
       { click: '[data-agent-id="leadgen"]' },
       { click: '.agent-chat__header [aria-label^="Schedule a check-in"]' },
@@ -870,8 +874,8 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-search',
     title: 'Agents — searching every conversation',
     looksRightWhen:
-      'The sidebar’s top field (where the palette trigger sits elsewhere) holds “footer”; there is no second search field and no magnifier on the Agents row. The agent rows give way to hits grouped by agent: the badge in the rows’ avatar column, the name beside it, and each two-line snippet on the text column with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
-    openSelector: '.workspace-sidebar-agents',
+      'The sidebar’s top field (where the palette trigger sits elsewhere) holds “footer”; there is no second search field and no magnifier on the mode toggle. The agent rows give way to hits grouped by agent: the badge in the rows’ avatar column, the name beside it, and each two-line snippet on the text column with “footer” highlighted, who said it, and a time. Agent-to-agent lines show the peer.',
+    openSelector: AGENTS_TAB,
     requires: '.agents-search__hit',
     steps: [{ fill: '.agents-top-search input', value: 'footer' }],
     commands: {
@@ -885,7 +889,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — a search hit opened',
     looksRightWhen:
       'Clicking the “dead links” hit opens the Chief of Staff chat with the agent-to-agent thread expanded and centred, ringed briefly in the agent’s colour.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agents-search__hit',
     steps: [
       { fill: '.agents-top-search input', value: 'dead links' },
@@ -902,7 +906,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — editing an agent: model and usage',
     looksRightWhen:
       'The editor shows a Default / Opus / Sonnet / Haiku control with Sonnet chosen, and under it quiet This week / All time lines: cost, tokens, turns and time, as reported.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agent-editor__usage',
     steps: [
       { click: '.agent-chat__menu [aria-label^="Actions for"]' },
@@ -925,7 +929,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — the model menu in the chat header',
     looksRightWhen:
       'A quiet “Default model” control sits between the schedule clock and the … menu; open, it lists Default, Opus, Sonnet and Haiku in plain text with a check on Default, and no item ringed or highlighted.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.ss-dropdown__item',
     steps: [{ click: '.agent-chat__model' }],
     commands: {
@@ -981,7 +985,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — Team: what’s in flight',
     looksRightWhen:
       'The Team row heads the agent list, selected, saying “1 working · 1 needs you”. The main column shows four sections in a fixed order: Needs you (Lead Gen, with its Gmail card answerable in place), Working now (Acme Site, “Editing PricingTable.tsx”, with the loader), Scheduled next (Finance’s two active check-ins, soonest first, the paused one absent), Recent replies (newest first, one plain line each, with times). Rows share the sidebar’s badge and type.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agents-team .agent-approval',
     steps: [{ click: '[data-agent-id="__team"]' }],
     commands: {
@@ -994,7 +998,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — @ in the composer offers the team',
     looksRightWhen:
       'Typing “@fi” opens the app’s menu surface upward from the composer’s left edge: Finance first (its name starts with “fi”), each row a mini badge, the name, and the role muted. The first row is highlighted; the field keeps focus. Earlier in the chat, “@Acme Site” in your bubble is tinted green.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agent-mention-menu',
     steps: [{ fill: '.agent-composer__input', value: 'Can you ask @fi' }],
     commands: {
@@ -1008,7 +1012,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'The words arriving sit in the composer in the full text colour, never mistakable for the placeholder. The mic is green with a green halo sized by the voice level; the composer border is tinted green; in the paperclip’s place a pulsing dot says Listening with a Cancel beside it. Nothing reads as an error, and Send is unchanged.',
     // Steps run before a palette command, so walk in through the sidebar.
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agent-composer[data-dictation="listening"]',
     steps: [{ click: '.agent-composer__mic' }],
     mockEvents: true,
@@ -1026,7 +1030,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'One quiet line above the composer says Ship Studio needs microphone access, with a link to open System Settings. The composer still works for typing.',
     // Steps run before a palette command, so walk in through the sidebar.
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agent-composer__notice',
     steps: [{ click: '.agent-composer__mic' }],
     commands: {
@@ -1041,7 +1045,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Acme Site’s chat: a quiet centred “Allowed automatically: npm run lint · Always allowed” line, then a “Run a command” card for npm test -- --run pricing. Deny and Allow sit on the right; on the left, apart and muted, “Always allow npm test” with npm test in mono. Its tooltip says any command starting with npm test runs without asking and that chained commands still ask.',
     requires: '.agent-approval__always',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="acme"]' }],
     commands: {
       agents_overview: acmeWith({ status: status('waiting', 'Waiting for your OK') }),
@@ -1056,7 +1060,7 @@ export const agentsScenarios: Scenario[] = [
     looksRightWhen:
       'Acme Site’s chat: two “Run a command” cards (npm test -- --run pricing, then npm test -- --run checkout), both resolved, each reading “Always allowed · npm test” with npm test in mono, where the buttons were.',
     requires: '.agent-approval__outcome',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     steps: [{ click: '[data-agent-id="acme"]' }],
     commands: {
       agents_overview: acmeWith({ status: status('working', 'Running npm test') }),
@@ -1069,7 +1073,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — what an agent may do without asking',
     looksRightWhen:
       'Editing Acme Site, under usage: a Permissions group listing “Commands starting with npm test”, “Commands starting with npm run lint”, “Web pages on vercel.com” and “Send an email · Gmail”, hairline-separated, each with a quiet Revoke on the right.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agent-permissions__rule',
     steps: [
       { click: '[data-agent-id="acme"]' },
@@ -1102,7 +1106,7 @@ export const agentsScenarios: Scenario[] = [
     title: 'Agents — a message queued while the agent works',
     looksRightWhen:
       'Acme Site is Working. Earlier: a reply cut off with “Stopped”, a quiet centred “Interrupted to read your new message”, then the message that interrupted it and the reply. Then the working dots with “Editing PricingTable.tsx”, and only under them your newest message, slightly dimmed, with “Queued, sends when Acme Site finishes · Interrupt and send now” under it. The composer holds a second message, and beside the mic a faint “↵ queues · ⌘↵ interrupts and sends now”.',
-    openSelector: '.workspace-sidebar-agents',
+    openSelector: AGENTS_TAB,
     requires: '.agent-chat__queued',
     steps: [
       { click: '[data-agent-id="acme"]' },
@@ -1129,5 +1133,105 @@ export const agentsScenarios: Scenario[] = [
         engineReady: false,
       },
     },
+  },
+
+  // ---------------------------------------------------- the mode toggle
+  {
+    id: 'mode-toggle-home',
+    title: 'Mode toggle — on the dashboard, an agent waiting',
+    looksRightWhen:
+      'A text-only “Projects | Agents” segmented control directly above Search, 30px tall like it, with exactly Search’s left and right edges. Projects is selected. A small amber badge sits in the Agents segment’s top-right corner and both labels are centred in their halves. No Agents row under Search and no + beside the toggle.',
+    requires: '.mode-toggle .mode-toggle__dot',
+    commands: { agents_overview: overview() },
+  },
+  {
+    id: 'mode-toggle-tooltip',
+    title: 'Mode toggle — the Agents tooltip names who wants you',
+    looksRightWhen: 'Hovering Agents shows “Lead Gen needs your OK · 1 unread (⌘⇧A)”.',
+    requires: '.mode-toggle .mode-toggle__dot',
+    steps: [{ hover: AGENTS_TAB }],
+    commands: { agents_overview: overview() },
+  },
+  {
+    id: 'mode-toggle-workspace',
+    title: 'Mode toggle — inside a project',
+    looksRightWhen:
+      'The toggle sits above Search in the project sidebar, Projects selected, the amber badge on Agents. The titlebar has no Agents button. The hairline under Search continues the preview toolbar’s bottom hairline in one straight line.',
+    project: WORKSPACE_PROJECT,
+    requires: '.workspace-body .mode-toggle .mode-toggle__dot',
+    storage: {
+      elementTreeVisible: '0',
+      [`shipstudio.layout.project:${WORKSPACE_PROJECT}`]: JSON.stringify({
+        order: ['agent', 'preview'],
+        floating: [],
+        widths: {},
+      }),
+    },
+    commands: {
+      ...workspaceCommands,
+      // A feature branch, so the "editing main" banner doesn't sit between
+      // the header and the toolbar whose hairline the sidebar's must meet.
+      get_current_branch: 'feat/pricing-page',
+      get_hide_main_branch_warning: true,
+      agents_overview: overview(),
+    },
+  },
+  {
+    id: 'mode-toggle-agents',
+    title: 'Mode toggle — Agents mode, reached by the toggle',
+    looksRightWhen:
+      'Agents is selected and carries no badge (the list shows who wants you). Conversation search sits where Search was, at the same edges. The list ends in a “New agent” row like the project list’s “Open project”.',
+    openSelector: AGENTS_TAB,
+    requires: '.agents-list [data-agent-id="chief"]',
+    commands: { agents_overview: overview(), agents_messages: messagesFor },
+  },
+  {
+    id: 'mode-toggle-collapsed',
+    title: 'Mode toggle — collapsed sidebar',
+    looksRightWhen:
+      'In the rail the toggle is two stacked icons (folder, agents) in one 30px-wide segmented column, Projects selected, the amber badge on the agents icon’s corner. Search sits under it as an icon.',
+    requires: '.workspace-sidebar.is-hidden .mode-toggle--stacked .mode-toggle__dot',
+    steps: [{ click: '.workspace-sidebar-toggle' }],
+    commands: { agents_overview: overview() },
+  },
+  {
+    id: 'mode-toggle-agents-collapsed',
+    title: 'Mode toggle — collapsed sidebar in Agents mode',
+    looksRightWhen:
+      'The stacked icon toggle has Agents selected and no badge; the agent badges follow below.',
+    openSelector: AGENTS_TAB,
+    requires:
+      '.workspace-sidebar.is-hidden .mode-toggle--stacked [data-tab-value="agents"].is-active',
+    steps: [{ click: '.workspace-sidebar-toggle' }],
+    commands: { agents_overview: overview(), agents_messages: messagesFor },
+  },
+  {
+    id: 'mode-toggle-compact-home',
+    title: 'Mode toggle — compact window, dashboard',
+    looksRightWhen:
+      'No sidebar below 750px, so the toggle is a folder | agents icon pair at the top-left, clear of the traffic lights, 24px tall like the compact top bar’s controls. Projects is selected; the amber badge straddles the agents segment’s corner.',
+    viewport: { width: 700, height: 800 },
+    requires: '.project-card',
+    commands: { agents_overview: overview() },
+  },
+  {
+    id: 'mode-toggle-compact-agents',
+    title: 'Mode toggle — compact window, Agents',
+    looksRightWhen:
+      'The icon pair replaces the old Home button at the header’s leading edge, Agents selected, at the same x as on the dashboard. The title stays centred; Home is still in the agent switcher.',
+    viewport: { width: 700, height: 800 },
+    command: 'agents.open',
+    requires: '.agent-chat',
+    commands: { agents_overview: overview(), agents_messages: messagesFor },
+  },
+  {
+    id: 'mode-toggle-compact-workspace',
+    title: 'Mode toggle — compact window, project',
+    looksRightWhen:
+      'The compact top bar leads with the icon pair (Projects selected, badge on agents), then the dev-server dot, pin, ⌘K and the project picker on the right. Same height as those controls.',
+    viewport: { width: 700, height: 800 },
+    project: WORKSPACE_PROJECT,
+    requires: '.compact-topbar',
+    commands: { ...workspaceCommands, agents_overview: overview() },
   },
 ];

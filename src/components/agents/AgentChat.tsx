@@ -39,6 +39,7 @@ import {
 import { Button } from '../primitives/Button';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
+import { CompactModeToggle } from '../workspace/ModeToggle';
 import { MenuButton } from '../primitives/MenuButton';
 import { TextButton } from '../primitives/TextButton';
 import { AgentModelMenu } from './AgentModelMenu';
@@ -129,7 +130,7 @@ interface AgentChatProps extends AgentActions {
   /** Esc in the composer: true if something above it (search) took it. */
   onEscape?: () => boolean;
   /** Below the compact breakpoint the sidebar is gone; the header carries navigation. */
-  compact?: { agents: Agent[]; onGoHome: () => void };
+  compact?: { agents: Agent[]; onGoHome: () => void; onGoProjects: () => void };
   /** A search result to scroll to and flash; `onJumped` is called once it's shown. */
   jumpTo?: string | null;
   onJumped?: () => void;
@@ -561,14 +562,10 @@ export function AgentChat({
     >
       <header className="agent-chat__header">
         {compact && (
-          <IconButton
-            tabIndex={0}
-            variant="ghost"
-            className="agent-chat__home"
-            icon={<HomeIcon size={14} />}
-            onClick={compact.onGoHome}
-            aria-label="Home"
-            title="Home"
+          <CompactModeToggle
+            mode="agents"
+            onProjects={compact.onGoProjects}
+            className="agent-chat__mode"
           />
         )}
         {compact ? (

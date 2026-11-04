@@ -57,6 +57,7 @@
 @import './features/workspace/tabs.css';
 @import './features/workspace/terminal.css';
 @import './features/workspace/sidebar.css';
+@import './features/workspace/mode-toggle.css';
 @import './features/workspace/sidebar-rows.css';
 @import './features/workspace/sidebar-footer.css';
 @import './features/workspace/sidebar-project-drag.css';

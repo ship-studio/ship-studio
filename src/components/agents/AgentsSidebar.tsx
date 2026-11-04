@@ -4,10 +4,10 @@
  * full-bleed row with a hairline under it, the badge, the status slot and the
  * shared status dots — so it reads as the same sidebar, not a second app.
  *
- * There is one group, so there is no group header: the Agents nav row above
- * it is the heading, and carries the + menu (`AgentsNavActions`). The
- * sidebar's top field searches conversations here; while it has a query the
- * results take the list's place.
+ * There is one group, so there is no group header: the Projects | Agents
+ * toggle above it says where you are. "New agent" closes the list, where
+ * "Open project" closes the project list. The sidebar's top field searches
+ * conversations here; while it has a query the results take the list's place.
  *
  * Right-click a row for Pin, Mark as unread, Mute notifications, Edit, Hide
  * and Delete; the conversation header's … menu has the same items for the
@@ -18,17 +18,14 @@
 
 import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import {
+  AddIcon,
   BellOffIcon,
   ChevronRightIcon,
   CollaboratorsIcon,
-  DownloadIcon,
-  EditIcon,
   PinIcon,
-  PlusIcon,
 } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
-import { Dropdown, DropdownItem } from '../primitives/Dropdown';
-import { IconButton } from '../primitives/IconButton';
+import { Button } from '../primitives/Button';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
@@ -50,6 +47,7 @@ interface AgentsSidebarProps extends AgentActions {
   showHidden: boolean;
   onToggleShowHidden: () => void;
   onSelect: (agentId: string) => void;
+  onNew: () => void;
   /** The top field's query; while there is one, its results replace the list. */
   query: string;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -90,6 +88,7 @@ export function AgentsSidebar({
   showHidden,
   onToggleShowHidden,
   onSelect,
+  onNew,
   query,
   searchRef,
   onOpenHit,
@@ -190,6 +189,18 @@ export function AgentsSidebar({
             </button>
           )}
           {showHidden && hidden.map(row)}
+          <div className="workspace-sidebar-active-actions">
+            <Button
+              variant="ghost"
+              width="fill"
+              className="workspace-sidebar-add-project"
+              onClick={onNew}
+              title={`New agent (${kbd('mod', 'N')})`}
+            >
+              <AddIcon size={16} />
+              <span>New agent</span>
+            </Button>
+          </div>
         </>
       )}
     </div>
@@ -233,36 +244,5 @@ function TeamRow({
       </span>
       <span className="agents-list__status" />
     </button>
-  );
-}
-
-/** The + on the Agents nav row: a new agent, or bring some over. */
-export function AgentsNavActions({ onNew, onImport }: { onNew: () => void; onImport: () => void }) {
-  return (
-    <div className="workspace-sidebar-agents-actions">
-      <Dropdown
-        align="right"
-        portal
-        trigger={(p) => (
-          <IconButton
-            {...p}
-            tabIndex={0}
-            variant="ghost"
-            size="compact"
-            className="workspace-sidebar-agents-add"
-            icon={<PlusIcon size={12} />}
-            title={`New agent (${kbd('mod', 'N')})`}
-            aria-label="New agent"
-          />
-        )}
-      >
-        <DropdownItem icon={<EditIcon size={14} />} onSelect={onNew}>
-          New agent…
-        </DropdownItem>
-        <DropdownItem icon={<DownloadIcon size={14} />} onSelect={onImport}>
-          Import agents…
-        </DropdownItem>
-      </Dropdown>
-    </div>
   );
 }

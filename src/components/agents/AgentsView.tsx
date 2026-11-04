@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { flushSync } from 'react-dom';
 import { HomeSidebar } from '../workspace/HomeSidebar';
-import { AgentsNavActions, AgentsSidebar } from './AgentsSidebar';
+import { AgentsSidebar } from './AgentsSidebar';
 import { AgentsSearchPopover, AgentsTopSearch } from './AgentsSearchBox';
 import { ClaudeSignInModal } from './ClaudeSignInModal';
 import { AgentChat } from './AgentChat';
@@ -266,7 +266,6 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
           <HomeSidebar
             {...sidebarProps}
             activeNav="agents"
-            agentsNavAction={<AgentsNavActions onNew={openNew} onImport={openImport} />}
             searchContent={
               <AgentsTopSearch
                 search={search}
@@ -282,6 +281,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
                 showHidden={showHidden}
                 onToggleShowHidden={() => setShowHidden((v) => !v)}
                 onSelect={setSelectedId}
+                onNew={openNew}
                 {...actions}
                 query={popoverSearch ? '' : query}
                 searchRef={searchRef}
@@ -306,7 +306,7 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
             <AgentsTeamView
               onOpenAgent={setSelectedId}
               onOpenMessage={openMessage}
-              onGoHome={isCompact ? sidebarProps.onGoHome : undefined}
+              onGoProjects={isCompact ? sidebarProps.onGoProjects : undefined}
             />
           ) : !shown ? (
             <div className="agents-main__state">
@@ -322,7 +322,15 @@ export function AgentsView({ isCompact, sidebarProps }: AgentsViewProps) {
               onSignIn={() => setSigningIn(true)}
               onImport={openImport}
               onEscape={escapeSearch}
-              compact={isCompact ? { agents, onGoHome: sidebarProps.onGoHome } : undefined}
+              compact={
+                isCompact
+                  ? {
+                      agents,
+                      onGoHome: sidebarProps.onGoHome,
+                      onGoProjects: sidebarProps.onGoProjects,
+                    }
+                  : undefined
+              }
               {...actions}
               jumpTo={jumpTo}
               onJumped={clearJump}

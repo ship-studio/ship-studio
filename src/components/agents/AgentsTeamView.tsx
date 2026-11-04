@@ -13,8 +13,8 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CollaboratorsIcon, HomeIcon } from '@/components/icons';
-import { IconButton } from '../primitives/IconButton';
+import { CollaboratorsIcon } from '@/components/icons';
+import { CompactModeToggle } from '../workspace/ModeToggle';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
 import { AgentAvatar } from './AgentAvatar';
 import { ApprovalCard } from './AgentChatItems';
@@ -120,11 +120,11 @@ interface AgentsTeamViewProps {
   onOpenAgent: (agentId: string) => void;
   /** Open a chat at one of its lines. */
   onOpenMessage: (agentId: string, messageId: string) => void;
-  /** Below the compact breakpoint there's no sidebar; the header carries Home. */
-  onGoHome?: () => void;
+  /** Below the compact breakpoint there's no sidebar; the header carries the mode toggle. */
+  onGoProjects?: () => void;
 }
 
-export function AgentsTeamView({ onOpenAgent, onOpenMessage, onGoHome }: AgentsTeamViewProps) {
+export function AgentsTeamView({ onOpenAgent, onOpenMessage, onGoProjects }: AgentsTeamViewProps) {
   const { agents, messages } = useAgents();
   const { showToast } = useOptionalToast();
   const lines = useRecentLines(agents, messages);
@@ -141,16 +141,8 @@ export function AgentsTeamView({ onOpenAgent, onOpenMessage, onGoHome }: AgentsT
   return (
     <section className="agent-chat agents-team" aria-label="Team">
       <header className="agent-chat__header">
-        {onGoHome && (
-          <IconButton
-            tabIndex={0}
-            variant="ghost"
-            className="agent-chat__home"
-            icon={<HomeIcon size={14} />}
-            onClick={onGoHome}
-            aria-label="Home"
-            title="Home"
-          />
+        {onGoProjects && (
+          <CompactModeToggle mode="agents" onProjects={onGoProjects} className="agent-chat__mode" />
         )}
         <div className="agent-chat__title">
           <span className="agent-avatar agent-avatar--row agent-avatar--selected agents-team__badge">

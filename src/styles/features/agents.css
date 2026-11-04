@@ -139,7 +139,7 @@
 }
 
 /* The project row's band and hairline. The badge starts on the sidebar's
-   outer gutter (--space-08), the column the Search field and the Agents row
+   outer gutter (--space-08), the column the mode toggle and the Search field
    above start on; there is no disclosure chevron to make room for. */
 .agents-list__row {
   position: relative;
@@ -415,11 +415,16 @@
   transform: translateY(-50%);
 }
 
-.agent-chat__home {
+/* Compact: the mode toggle at the header's leading edge, clear of the traffic lights. */
+.agent-chat__mode {
   position: absolute;
   top: 50%;
-  left: var(--spacing-sm);
+  left: var(--compact-topbar-padding-inline);
   transform: translateY(-50%);
+}
+
+.agent-chat__mode.mode-toggle-compact--mac {
+  left: var(--compact-topbar-macos-padding-start);
 }
 
 .agent-chat__scroll {

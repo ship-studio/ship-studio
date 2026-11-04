@@ -86,8 +86,8 @@
   --sidebar-row-dot-color: var(--accent-warning);
 }
 
-/* Something new to read. The one unread mark in the sidebar: the Agents row
- * and every agent row use it, so "new" never has two colours. */
+/* Something new to read. The one unread mark in the sidebar: every agent row
+ * uses it, so "new" never has two colours. */
 .sidebar-row-dot.dot-unread {
   background: var(--accent-active);
 }

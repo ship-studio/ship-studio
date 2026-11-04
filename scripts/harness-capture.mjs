@@ -40,7 +40,8 @@ import path from 'node:path';
 
 const HARNESS_PORT = Number(process.env.SHIPSTUDIO_HARNESS_PORT ?? 1425);
 const HARNESS_ORIGIN = `http://127.0.0.1:${HARNESS_PORT}`;
-const CDP_PORT = 9333;
+// Overridable so harnesses in two worktrees can capture at the same time.
+const CDP_PORT = Number(process.env.HARNESS_CDP_PORT ?? 9333);
 const VIEWPORT = { width: 1440, height: 900 };
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -247,12 +248,23 @@ async function waitFor(page, expression, timeoutMs, what) {
   }
 }
 
-async function newPage(url) {
+async function newPage(url, viewport = VIEWPORT) {
   const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?${encodeURIComponent(url)}`, {
     method: 'PUT',
   });
   const target = await res.json();
-  return { page: await Page.attach(target.webSocketDebuggerUrl), targetId: target.id };
+  const page = await Page.attach(target.webSocketDebuggerUrl);
+  // A scenario's own window size (e.g. below the compact breakpoint). The app
+  // reads its width on load, so the page is reloaded at the new size.
+  if (viewport !== VIEWPORT) {
+    await page.send('Emulation.setDeviceMetricsOverride', {
+      ...viewport,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await page.send('Page.reload', {});
+  }
+  return { page, targetId: target.id };
 }
 
 const closeTarget = (id) => fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${id}`).catch(() => {});
@@ -302,8 +314,8 @@ const CLIPPED_TEXT_PROBE = `(() => {
   return JSON.stringify(out);
 })()`;
 
-async function capture({ url, file, clipSelector, identity, label, requires }) {
-  const { page, targetId } = await newPage(url);
+async function capture({ url, file, clipSelector, identity, label, requires, viewport }) {
+  const { page, targetId } = await newPage(url, viewport);
   try {
     const ready = await waitFor(page, 'window.__harnessReady', 25_000, `${file} to settle`)
       .then(() => true)
@@ -578,7 +590,7 @@ async function main() {
   await waitFor(probe.page, 'window.__harness', 20_000, 'the harness module to load');
   const allScenarios = JSON.parse(
     await probe.page.eval(
-      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector,requires:s.requires,command:s.command})))'
+      'JSON.stringify(window.__harness.scenarios.map(s=>({id:s.id,title:s.title,looksRightWhen:s.looksRightWhen,clipSelector:s.clipSelector,requires:s.requires,command:s.command,viewport:s.viewport})))'
     )
   );
   probe.page.close();
@@ -594,6 +606,7 @@ async function main() {
         file: path.join(outDir, `${s.id}.png`),
         clipSelector: s.clipSelector,
         requires: s.requires,
+        viewport: s.viewport,
         identity,
         label: s.id,
       });

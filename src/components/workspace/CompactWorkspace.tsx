@@ -59,6 +59,8 @@ interface CompactWorkspaceProps {
   projectRows: PinnedProjectRow[];
   onSelectProject: (projectPath: string) => void;
   onGoHome: () => void;
+  /** Switch to Agents mode (the top bar's mode toggle). */
+  onGoAgents?: () => void;
   /** Autonomy-mode flag forwarded to the Terminal children. */
   autoAcceptMode: boolean;
   handleTerminalExit: (code: number | null) => void;
@@ -117,6 +119,7 @@ export function CompactWorkspace({
   projectRows,
   onSelectProject,
   onGoHome,
+  onGoAgents,
   autoAcceptMode,
   handleTerminalExit,
   restartTerminalTab,
@@ -144,6 +147,7 @@ export function CompactWorkspace({
         switchableProjects={switchableProjects}
         onSelectProject={onSelectProject}
         onGoHome={onGoHome}
+        onGoAgents={onGoAgents}
       />
 
       <Tabs
