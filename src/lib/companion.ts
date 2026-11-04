@@ -44,6 +44,15 @@ export interface PairingView {
   request?: PairRequestDevice;
 }
 
+/** A phone's latest action, from the shared audit log. */
+export interface PhoneActivity {
+  /** The method it called (`agents.send`), as the audit log names it. */
+  tool: string;
+  detail: string;
+  ok: boolean;
+  atMs: number;
+}
+
 export interface PhoneStatus {
   enabled: boolean;
   running: boolean;
@@ -51,6 +60,10 @@ export interface PhoneStatus {
   tailscale: TailscaleState;
   devices: Device[];
   pairing: PairingView;
+  /** By device id; a phone with nothing recorded yet is absent. */
+  activity: Record<string, PhoneActivity>;
+  /** What a paired phone can call on this Mac (`welcome.methods`). */
+  methods: string[];
 }
 
 export interface PairingCode {
@@ -169,4 +182,51 @@ export function expiresIn(expiresAt: number, now: number): string | null {
 /** The address without the scheme, for showing. */
 export function shortUrl(url: string): string {
   return url.replace(/^https:\/\//, '');
+}
+
+/** What each audited method was, in the past tense. */
+const DID: Record<string, string> = {
+  'agents.send': 'Sent a message',
+  'agents.stop': 'Stopped an agent',
+  'agents.interrupt': 'Interrupted an agent',
+  'agents.markUnread': 'Marked a chat unread',
+  'agents.fetchPath': 'Downloaded a file',
+  'agents.schedule.create': 'Added a check-in',
+  'agents.schedule.update': 'Edited a check-in',
+  'agents.schedule.cancel': 'Cancelled a check-in',
+  'agents.schedule.runNow': 'Ran a check-in now',
+  'devices.unpairSelf': 'Forgot this Mac',
+};
+
+/** "Sent a message · 3 min ago"; "Allowed a request", "Paused a check-in". */
+export function activityLine(a: PhoneActivity, now: number): string {
+  let what = DID[a.tool];
+  if (a.tool === 'agents.answerApproval') {
+    what = a.detail.startsWith('deny') ? 'Denied a request' : 'Allowed a request';
+  } else if (a.tool === 'agents.schedule.pause') {
+    what = a.detail.startsWith('resume') ? 'Resumed a check-in' : 'Paused a check-in';
+  }
+  const line = `${what ?? a.tool}${a.ok ? '' : ', refused'}`;
+  return `${line} · ${ago(a.atMs, now)}`;
+}
+
+/**
+ * What a paired phone can and can't do here, from the methods this Mac
+ * serves. "Can't" is fixed by design (docs/mobile.md, Non-goals), plus
+ * anything the Mac doesn't serve yet.
+ */
+export function phoneCapabilities(methods: string[]): { can: string[]; cannot: string[] } {
+  const has = (...m: string[]) => m.every((x) => methods.includes(x));
+  const can: string[] = [];
+  if (has('agents.send', 'agents.answerApproval'))
+    can.push('Chat with agents and answer what they ask');
+  if (has('agents.stop', 'agents.interrupt')) can.push('Stop or interrupt an agent');
+  if (has('agents.fetchPath')) can.push('Send photos and files, and download what agents share');
+  if (has('agents.files')) can.push('Browse every file in a conversation');
+  if (has('agents.search')) can.push('Search every conversation');
+  if (has('agents.schedule.create')) can.push('Add, edit, pause and run check-ins');
+  if (has('projects.list', 'sessions.read')) can.push('See projects and read their agent sessions');
+  const cannot = ['Push to git', 'Edit code', 'Type into a plain terminal', 'Manage other phones'];
+  if (has('projects.list') && !has('sessions.send')) cannot.unshift('Type into project sessions');
+  return { can, cannot };
 }

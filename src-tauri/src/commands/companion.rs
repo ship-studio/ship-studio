@@ -5,7 +5,7 @@
 use serde::Serialize;
 use tauri::AppHandle;
 
-use crate::companion::{desktop, now_ms, pairing::PairingView, wire};
+use crate::companion::{actor_for, desktop, now_ms, pairing::PairingView, wire};
 use crate::errors::CommandError;
 use crate::remote_access::tailscale;
 
@@ -20,17 +20,74 @@ pub struct PhoneStatus {
     pub tailscale: tailscale::TailscaleState,
     pub devices: Vec<wire::Device>,
     pub pairing: PairingView,
+    /// Each device's latest action, by device id (absent: none recorded).
+    pub activity: std::collections::HashMap<String, PhoneActivity>,
+    /// What a paired phone can call on this Mac (`welcome.methods`).
+    pub methods: Vec<&'static str>,
+}
+
+/// One line of a phone's audit trail: what it did, and when.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneActivity {
+    pub tool: String,
+    pub detail: String,
+    pub ok: bool,
+    pub at_ms: u64,
+}
+
+/// Audit lines that are presence or pairing, not something the phone did
+/// (connecting is already "Connected now" / "Last seen"). `agents.focus` is a
+/// chat coming on screen, logged often and saying little.
+const NOT_ACTIVITY: &[&str] = &[
+    "connected",
+    "refused",
+    "pair_request",
+    "paired",
+    "pair_denied",
+    "pair_timeout",
+    "revoked",
+    "agents.focus",
+];
+
+fn activity(devices: &[wire::Device]) -> std::collections::HashMap<String, PhoneActivity> {
+    let actors: Vec<String> = devices.iter().map(|d| actor_for(&d.name)).collect();
+    let mut latest = crate::remote_access::latest_by_actor(&actors, NOT_ACTIVITY);
+    devices
+        .iter()
+        .filter_map(|d| {
+            let e = latest.remove(&actor_for(&d.name))?;
+            Some((
+                d.id.clone(),
+                PhoneActivity {
+                    tool: e.tool,
+                    detail: e.detail,
+                    ok: e.ok,
+                    at_ms: e.at_ms,
+                },
+            ))
+        })
+        .collect()
 }
 
 async fn read_status(app: &AppHandle) -> PhoneStatus {
     let c = desktop::ensure(app);
+    let devices = c.device_views();
+    let activity = {
+        let devices = devices.clone();
+        tokio::task::spawn_blocking(move || activity(&devices))
+            .await
+            .unwrap_or_default()
+    };
     PhoneStatus {
         enabled: c.registry.read(|s| s.enabled),
         running: desktop::running_port().is_some(),
         serve: desktop::serve_state(),
         tailscale: tailscale::status().await,
-        devices: c.device_views(),
+        devices,
         pairing: c.pairing.view(now_ms()),
+        activity,
+        methods: crate::companion::router::METHODS.to_vec(),
     }
 }
 

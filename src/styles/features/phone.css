@@ -393,3 +393,41 @@
   border: 1px dashed var(--border-default);
   text-align: center;
 }
+
+/* ---- What a paired phone can do ------------------------------------------ */
+
+.phone-abilities {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.phone-abilities__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.phone-abilities__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+.phone-abilities__item svg {
+  flex: none;
+  transform: translateY(1px); /* css-ok: centres the icon on the caption's first line */
+}
+
+.phone-abilities__item[data-can] {
+  color: var(--text-secondary);
+}
+
+.phone-abilities__item[data-can] svg {
+  color: var(--accent-success);
+}

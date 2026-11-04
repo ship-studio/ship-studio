@@ -8,16 +8,24 @@
 import { useState } from 'react';
 import { Button } from '../primitives/Button';
 import { MobileIcon } from '@/components/icons';
-import { deviceLine, presenceLine, type Device } from '../../lib/companion';
+import {
+  activityLine,
+  deviceLine,
+  presenceLine,
+  type Device,
+  type PhoneActivity,
+} from '../../lib/companion';
 
 interface PhoneDevicesProps {
   devices: Device[];
+  /** Each phone's latest action, by device id. */
+  activity: Record<string, PhoneActivity>;
   now: number;
   busy: string | null;
   onRemove: (device: Device) => void;
 }
 
-export function PhoneDevices({ devices, now, busy, onRemove }: PhoneDevicesProps) {
+export function PhoneDevices({ devices, activity, now, busy, onRemove }: PhoneDevicesProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
 
   if (devices.length === 0) {
@@ -60,6 +68,9 @@ export function PhoneDevices({ devices, now, busy, onRemove }: PhoneDevicesProps
               <span className="phone-device__body">
                 <span className="phone-device__name">{d.name}</span>
                 <span className="phone-device__meta">{deviceLine(d)}</span>
+                {activity[d.id] && (
+                  <span className="phone-device__meta">{activityLine(activity[d.id], now)}</span>
+                )}
               </span>
               <span className="phone-device__presence">
                 {d.connected && <span className="phone-dot" aria-hidden />}

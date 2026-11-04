@@ -19,6 +19,19 @@ export function phoneStatus(over: Record<string, unknown> = {}) {
     tailscale: { state: 'connected', dnsName: DNS },
     devices: [],
     pairing: { active: false },
+    activity: {},
+    methods: [
+      'agents.send',
+      'agents.answerApproval',
+      'agents.stop',
+      'agents.interrupt',
+      'agents.files',
+      'agents.fetchPath',
+      'agents.search',
+      'agents.schedule.create',
+      'projects.list',
+      'sessions.read',
+    ],
     ...over,
   };
 }
@@ -123,8 +136,27 @@ export const phoneScenarios: Scenario[] = [
     'Green bar "On for phones on your tailnet" with the mono address and Turn off. A "Pair a ' +
       'phone" card with an icon tile and "Show code". Paired phones: the iPhone with a green ' +
       'tile, a green dot and "Connected now"; the Pixel "Last seen 2 h ago over Tailscale" and ' +
-      '"built on this Mac". Each row has a quiet Remove.',
-    { ...ON, devices }
+      '"built on this Mac". Each row has a quiet Remove and its last action ("Sent a message · 3 min ' +
+      'ago"). Below, "What a paired phone can do": green-ticked abilities on the left, the ' +
+      "things it can't do (push, edit code, type into sessions or terminals) muted on the right.",
+    {
+      ...ON,
+      devices,
+      activity: {
+        dev_1: {
+          tool: 'agents.send',
+          detail: 'fix the header',
+          ok: true,
+          atMs: Date.now() - 3 * MIN,
+        },
+        dev_2: {
+          tool: 'agents.answerApproval',
+          detail: 'allow',
+          ok: true,
+          atMs: Date.now() - 2 * 60 * MIN,
+        },
+      },
+    }
   ),
   phone(
     'phone-code',

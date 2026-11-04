@@ -305,6 +305,76 @@ pub fn read_audit(limit: usize) -> Vec<AuditEntry> {
         .collect()
 }
 
+/// The newest entry for each of `actors`, from the same log, for the Phone
+/// panel's "last activity". `skip` names tools that are presence or pairing
+/// rather than something the phone did.
+pub fn latest_by_actor(
+    actors: &[String],
+    skip: &[&str],
+) -> std::collections::HashMap<String, AuditEntry> {
+    let mut found = std::collections::HashMap::new();
+    let Some(raw) = audit_path().and_then(|p| std::fs::read_to_string(p).ok()) else {
+        return found;
+    };
+    latest_in(&raw, actors, skip, &mut found);
+    found
+}
+
+fn latest_in(
+    raw: &str,
+    actors: &[String],
+    skip: &[&str],
+    found: &mut std::collections::HashMap<String, AuditEntry>,
+) {
+    for entry in raw
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+    {
+        if found.len() == actors.len() {
+            break;
+        }
+        let Some(actor) = entry.actor.clone() else {
+            continue;
+        };
+        if actors.contains(&actor) && !skip.contains(&entry.tool.as_str()) {
+            found.entry(actor).or_insert(entry);
+        }
+    }
+}
+
+#[cfg(test)]
+mod latest_tests {
+    use super::*;
+
+    #[test]
+    fn the_newest_real_action_per_actor() {
+        let line = |at: u64, actor: &str, tool: &str| {
+            serde_json::to_string(&AuditEntry {
+                at_ms: at,
+                tool: tool.into(),
+                project: None,
+                detail: String::new(),
+                ok: true,
+                actor: Some(actor.into()),
+            })
+            .unwrap()
+        };
+        let raw = [
+            line(1, "Phone · A", "agents.send"),
+            line(2, "Phone · B", "agents.stop"),
+            line(3, "Phone · A", "agents.answerApproval"),
+            line(4, "Phone · A", "connected"),
+        ]
+        .join("\n");
+        let mut found = std::collections::HashMap::new();
+        let actors = vec!["Phone · A".to_string(), "Phone · B".to_string()];
+        latest_in(&raw, &actors, &["connected"], &mut found);
+        assert_eq!(found["Phone · A"].tool, "agents.answerApproval");
+        assert_eq!(found["Phone · B"].at_ms, 2);
+    }
+}
+
 // ============================================================================
 // Pushing: a PIN only the user knows
 // ============================================================================

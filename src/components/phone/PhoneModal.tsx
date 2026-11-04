@@ -16,7 +16,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
-import { ExternalLinkIcon } from '@/components/icons';
+import { CheckIcon, CloseIcon, ExternalLinkIcon } from '@/components/icons';
 import { useAsyncState } from '../../hooks/useAsyncState';
 import { usePolling } from '../../hooks/usePolling';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
@@ -28,6 +28,7 @@ import {
   COMPANION_CHANGED_EVENT,
   decidePairing,
   getPhoneStatus,
+  phoneCapabilities,
   phoneStep,
   removePhone,
   retryPhoneTailscale,
@@ -193,7 +194,13 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
             {(s.enabled || s.devices.length > 0) && (
               <section className="phone-section">
                 <h3 className="phone-section__title">Paired phones</h3>
-                <PhoneDevices devices={s.devices} now={now} busy={busy} onRemove={remove} />
+                <PhoneDevices
+                  devices={s.devices}
+                  activity={s.activity}
+                  now={now}
+                  busy={busy}
+                  onRemove={remove}
+                />
                 {!s.enabled && s.devices.length > 0 && (
                   <p className="phone-footnote">
                     Phone access is off. These phones stay paired and reconnect when you turn it
@@ -202,6 +209,8 @@ export function PhoneModal({ isOpen, onClose }: PhoneModalProps) {
                 )}
               </section>
             )}
+
+            {s.devices.length > 0 && <PhoneAbilities methods={s.methods} />}
           </>
         )}
       </div>
@@ -327,5 +336,33 @@ function AccessHeader({ step, busy, onEnable, onRetry }: HeaderProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/** What a paired phone can and can't do on this Mac, from what it serves. */
+function PhoneAbilities({ methods }: { methods: string[] }) {
+  const { can, cannot } = phoneCapabilities(methods);
+  return (
+    <section className="phone-section">
+      <h3 className="phone-section__title">What a paired phone can do</h3>
+      <div className="phone-abilities">
+        <ul className="phone-abilities__list" aria-label="Can">
+          {can.map((line) => (
+            <li key={line} className="phone-abilities__item" data-can>
+              <CheckIcon size={12} />
+              {line}
+            </li>
+          ))}
+        </ul>
+        <ul className="phone-abilities__list" aria-label="Can't">
+          {cannot.map((line) => (
+            <li key={line} className="phone-abilities__item">
+              <CloseIcon size={12} />
+              {line}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }

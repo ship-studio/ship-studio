@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activityLine,
   deviceLine,
+  phoneCapabilities,
   expiresIn,
   phoneStep,
   presenceLine,
@@ -17,6 +19,8 @@ const status = (over: Partial<PhoneStatus> = {}): PhoneStatus => ({
   tailscale: { state: 'connected', dnsName: 'mac.ts.net' },
   devices: [],
   pairing: { active: false },
+  activity: {},
+  methods: [],
   ...over,
 });
 
@@ -97,5 +101,50 @@ describe('pair on open', () => {
     requestPairOnOpen();
     expect(takePairOnOpen()).toBe(true);
     expect(takePairOnOpen()).toBe(false);
+  });
+});
+
+describe('activityLine', () => {
+  const now = 10 * 60_000;
+  const at = now - 3 * 60_000;
+  it('says what the phone did and when', () => {
+    expect(activityLine({ tool: 'agents.send', detail: 'hi', ok: true, atMs: at }, now)).toBe(
+      'Sent a message · 3 min ago'
+    );
+  });
+  it('tells an allow from a deny, and a pause from a resume', () => {
+    const a = (tool: string, detail: string) =>
+      activityLine({ tool, detail, ok: true, atMs: now }, now);
+    expect(a('agents.answerApproval', 'always allow')).toBe('Allowed a request · just now');
+    expect(a('agents.answerApproval', 'deny with note: no')).toBe('Denied a request · just now');
+    expect(a('agents.schedule.pause', 'resume c1')).toBe('Resumed a check-in · just now');
+  });
+  it('says when it was refused, and falls back to the method name', () => {
+    expect(activityLine({ tool: 'agents.send', detail: '', ok: false, atMs: now }, now)).toBe(
+      'Sent a message, refused · just now'
+    );
+    expect(activityLine({ tool: 'agents.new', detail: '', ok: true, atMs: now }, now)).toBe(
+      'agents.new · just now'
+    );
+  });
+});
+
+describe('phoneCapabilities', () => {
+  it('lists only what this Mac serves, and is honest about the rest', () => {
+    const p1 = phoneCapabilities(['agents.send', 'agents.answerApproval']);
+    expect(p1.can).toEqual(['Chat with agents and answer what they ask']);
+    expect(p1.cannot).toContain('Push to git');
+    expect(p1.cannot).not.toContain('Type into project sessions');
+
+    const p2 = phoneCapabilities([
+      'agents.send',
+      'agents.answerApproval',
+      'agents.files',
+      'agents.search',
+      'projects.list',
+      'sessions.read',
+    ]);
+    expect(p2.can).toContain('See projects and read their agent sessions');
+    expect(p2.cannot[0]).toBe('Type into project sessions');
   });
 });
