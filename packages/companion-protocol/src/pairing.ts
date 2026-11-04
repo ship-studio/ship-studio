@@ -81,6 +81,7 @@ export type PairResponse =
       /** 256-bit device token. Shown nowhere; the phone keeps it in the keychain. */
       token: string;
       serverId: string;
+      /** For the future relay. Empty until a Mac issues one (P1 doesn't). */
       serverPublicKey: string;
     }
   | {

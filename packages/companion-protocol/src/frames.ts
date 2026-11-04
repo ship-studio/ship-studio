@@ -135,12 +135,17 @@ export interface EventFrame {
   event: CompanionEvent;
 }
 
+/**
+ * The answer to a `ping`, and also the Mac's heartbeat: sent unprompted every
+ * `HEARTBEAT_MS` (alongside a WebSocket-level ping, which JS can't see), so
+ * an idle link still hears from the Mac.
+ */
 export interface PongFrame {
   t: 'pong';
 }
 
 export type ServerFrame = WelcomeFrame | RefusedFrame | ResponseFrame | EventFrame | PongFrame;
 
-/** The Mac sends a ping every 15 s; no frame for this long means the link is dead. */
+/** The Mac sends a heartbeat `pong` every 15 s; no frame for this long means the link is dead. */
 export const HEARTBEAT_MS = 15_000;
 export const DEAD_AFTER_MS = 40_000;
