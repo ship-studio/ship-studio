@@ -129,12 +129,9 @@ pub fn set_status(app: &AppHandle, agent_id: &str, status: Status) {
 /// Persist a message, update the agent's sidebar row, and tell the UI.
 pub fn record(app: &AppHandle, message: AgentMessage) -> Result<AgentMessage, CommandError> {
     store::append_message(&message)?;
-    // Anything the agent says while it isn't on screen notifies. Approvals
-    // aren't unread: they're counted as pending until answered.
-    let wants_user = matches!(
-        message.kind,
-        MessageKind::Agent | MessageKind::Approval | MessageKind::Error
-    ) && !notify::on_screen(app, &message.agent_id);
+    // Anything the agent says (or a check-in firing) while it isn't on screen
+    // notifies. Approvals aren't unread: they're counted as pending until answered.
+    let wants_user = message.kind.wants_user() && !notify::on_screen(app, &message.agent_id);
     let counts_as_unread = wants_user && message.kind != MessageKind::Approval;
     let preview = preview_for(&message);
     let ts = message.ts;
@@ -184,6 +181,7 @@ pub(crate) fn preview_for(message: &AgentMessage) -> Option<String> {
             .approval
             .as_ref()
             .map(|a| format!("Needs your OK: {}", a.title)),
+        MessageKind::CheckIn => Some("Scheduled check-in".to_string()),
     }
 }
 
@@ -197,6 +195,7 @@ pub fn new_message(agent_id: &str, kind: MessageKind, text: impl Into<String>) -
         peer: None,
         approval: None,
         attachments: Vec::new(),
+        check_in: None,
     }
 }
 
@@ -331,6 +330,7 @@ fn with_recap(agent_id: &str, prompt: &str) -> String {
                 MessageKind::Agent => "You".to_string(),
                 MessageKind::SentToAgent => format!("You → {}", m.peer.as_ref()?.name),
                 MessageKind::FromAgent => format!("{} → you", m.peer.as_ref()?.name),
+                MessageKind::CheckIn => "Your scheduled check-in".to_string(),
                 _ => return None,
             };
             let text: String = m.text.chars().take(600).collect();

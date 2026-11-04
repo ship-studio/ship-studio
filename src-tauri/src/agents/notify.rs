@@ -72,11 +72,7 @@ impl Limiter {
 
 /// What a message would say as a notification, if it should be one at all.
 pub fn alert_for(agent: &Agent, message: &AgentMessage) -> Option<Alert> {
-    let notifies = matches!(
-        message.kind,
-        MessageKind::Agent | MessageKind::Approval | MessageKind::Error
-    );
-    if !notifies || agent.muted {
+    if !message.kind.wants_user() || agent.muted {
         return None;
     }
     Some(Alert {
@@ -294,6 +290,7 @@ mod tests {
             pending_approvals: 0,
             model: None,
             muted,
+            check_ins: Vec::new(),
         }
     }
 
@@ -328,6 +325,14 @@ mod tests {
         let alert = alert_for(&agent(false), &approval_message()).unwrap();
         assert_eq!(alert.body, "Needs your OK: Run a command");
         assert!(alert.sound);
+    }
+
+    #[test]
+    fn a_fired_check_in_notifies() {
+        let line = new_message("fin", MessageKind::CheckIn, "Brief me.");
+        let alert = alert_for(&agent(false), &line).unwrap();
+        assert_eq!(alert.body, "Scheduled check-in");
+        assert!(!alert.sound);
     }
 
     #[test]

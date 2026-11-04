@@ -15,6 +15,7 @@ use tauri::AppHandle;
 use tokio::sync::oneshot;
 
 use super::runner::{self, From, Status};
+use super::schedule;
 use super::store::{self, AgentRef, Approval, ApprovalStatus, MessageKind};
 use crate::errors::CommandError;
 
@@ -160,6 +161,44 @@ const TOOLS: &[Tool] = &[
         }),
     },
     Tool {
+        name: "schedule_check_in",
+        description: "Have Ship Studio wake you later with a note to yourself: use it whenever you tell the user you'll check back, follow up or remind them, so that actually happens. Once (\"tomorrow at 9:00\", \"in 2 hours\", \"friday 14:30\") or as a routine (\"every weekday at 9:00\", \"every monday at 8am\", \"every 2 hours\"), in the user's local time. It only fires while Ship Studio is open; the answer says exactly when and what happens if it's closed. Tell the user that time.",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "when": { "type": "string", "description": "When, in plain words. See the description for shapes that work." },
+                "note": { "type": "string", "description": "What to do when it fires, written to your future self: specific enough to act on with no other context." },
+                "agent": { "type": "string", "description": "Chief of Staff only: schedule it for another agent (name or id). Omit to schedule for yourself." }
+            },
+            "required": ["when", "note"]
+        }),
+    },
+    Tool {
+        name: "list_check_ins",
+        description: "Your scheduled check-ins and routines, with ids and next times.",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "agent": { "type": "string", "description": "Chief of Staff only: another agent's." }
+            }
+        }),
+    },
+    Tool {
+        name: "cancel_check_in",
+        description: "Cancel a scheduled check-in or routine by id (from list_check_ins).",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "agent": { "type": "string", "description": "Chief of Staff only: another agent's." }
+            },
+            "required": ["id"]
+        }),
+    },
+    Tool {
         name: "approve",
         description: "Internal: Claude Code asks this before a tool call that needs the user's permission.",
         main_only: false,
@@ -250,8 +289,51 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
         "create_agent" => create_agent(app, caller, args),
         "update_agent" => update_agent(app, args),
         "delete_agent" => delete_agent(app, caller, args).await,
+        "schedule_check_in" | "list_check_ins" | "cancel_check_in" => {
+            check_ins(app, caller, name, args)
+        }
         "approve" => approve(app, caller, args).await,
         _ => error("Unknown tool"),
+    }
+}
+
+/// The schedule tools. An agent manages its own; the Chief of Staff may also
+/// manage another agent's by naming it.
+fn check_ins(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) -> Value {
+    let target = match arg(args, "agent") {
+        None => caller.clone(),
+        Some(t) => match store::find(t) {
+            Ok(Some(a)) if a.id == caller.id || caller.is_main => a,
+            Ok(Some(_)) => {
+                return error("You can only schedule your own check-ins. Ask the Chief of Staff.")
+            }
+            _ => return error(format!("There's no agent called {t}.")),
+        },
+    };
+    let whose = |summary: String| {
+        if target.id == caller.id {
+            summary
+        } else {
+            format!("For {}: {summary}", target.name)
+        }
+    };
+    let result = match name {
+        "schedule_check_in" => schedule::create(
+            &target.id,
+            arg(args, "when").unwrap_or(""),
+            arg(args, "note").unwrap_or(""),
+        )
+        .map(|c| whose(c.summary)),
+        "cancel_check_in" => schedule::cancel(&target.id, arg(args, "id").unwrap_or(""))
+            .map(|c| whose(format!("Cancelled: {}", c.note))),
+        _ => return text(whose(schedule::list_text(&target))),
+    };
+    match result {
+        Ok(summary) => {
+            let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+            text(summary)
+        }
+        Err(e) => error(e.to_string()),
     }
 }
 
@@ -756,6 +838,7 @@ mod tests {
             pending_approvals: 0,
             model: None,
             muted: false,
+            check_ins: Vec::new(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

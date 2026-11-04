@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  HistoryIcon,
   HomeIcon,
   MicrophoneIcon,
   MoreHorizontalIcon,
@@ -29,6 +30,7 @@ import { TextButton } from '../primitives/TextButton';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
+import { AgentSchedulePopover } from './AgentSchedulePopover';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import { useDictation } from './useDictation';
 import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
@@ -41,6 +43,7 @@ import {
   AgentBubble,
   ApprovalCard,
   DayDivider,
+  CheckInLine,
   ErrorLine,
   PeerGroup,
   UserBubble,
@@ -133,6 +136,22 @@ export function AgentChat({
   const dictating = dictation.phase !== 'idle';
   const blocked = dictation.blocked ? blockedCopy(dictation.blocked) : null;
   const sectionRef = useRef<HTMLElement>(null);
+
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
+  useCommands(
+    () => [
+      {
+        id: 'agents.scheduleCheckIn',
+        title: `Schedule a check-in for ${agent.name}…`,
+        icon: <HistoryIcon size={14} />,
+        category: 'action',
+        keywords: ['routine', 'remind', 'every', 'recurring', 'later', 'scheduled'],
+        run: () => setScheduleOpen(true),
+      },
+    ],
+    [agent.name]
+  );
 
   const toastError = useCallback((message: string) => showToast(message, 'error'), [showToast]);
   const attachments = useComposerAttachments(toastError);
@@ -399,23 +418,31 @@ export function AgentChat({
         ) : (
           <div className="agent-chat__title">{title}</div>
         )}
-        <Dropdown
-          align="right"
-          portal
-          className="agent-chat__menu"
-          trigger={(p) => (
-            <IconButton
-              {...p}
-              tabIndex={0}
-              variant="ghost"
-              icon={<MoreHorizontalIcon size={14} />}
-              title="Agent actions"
-              aria-label={`Actions for ${agent.name}`}
+        <div className="agent-chat__actions">
+          <AgentSchedulePopover agent={agent} open={scheduleOpen} onOpenChange={setScheduleOpen} />
+          <Dropdown
+            align="right"
+            portal
+            className="agent-chat__menu"
+            trigger={(p) => (
+              <IconButton
+                {...p}
+                tabIndex={0}
+                variant="ghost"
+                icon={<MoreHorizontalIcon size={14} />}
+                title="Agent actions"
+                aria-label={`Actions for ${agent.name}`}
+              />
+            )}
+          >
+            <AgentActionItems
+              agent={agent}
+              kind="dropdown"
+              onSchedule={() => setScheduleOpen(true)}
+              {...actions}
             />
-          )}
-        >
-          <AgentActionItems agent={agent} kind="dropdown" {...actions} />
-        </Dropdown>
+          </Dropdown>
+        </div>
       </header>
 
       <div className="agent-chat__scroll" ref={scrollRef} onScroll={onScroll}>
@@ -476,6 +503,8 @@ export function AgentChat({
                   );
                 case 'error':
                   return <ErrorLine key={m.id} message={m} arrived={arrived} />;
+                case 'check_in':
+                  return <CheckInLine key={m.id} message={m} arrived={arrived} />;
                 default:
                   return null;
               }

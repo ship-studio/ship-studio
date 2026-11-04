@@ -51,9 +51,40 @@ export interface Agent {
   model: string | null;
   /** No OS notifications; unread and the Dock badge still count it. */
   muted: boolean;
+  /** Omitted by the backend when there are none. */
+  checkIns?: CheckIn[];
   status: AgentStatus;
   /** The agent's home folder; attachment paths are relative to it. */
   home: string;
+}
+
+/** How a routine repeats; mirrors `schedule::Repeat`. Days are 0 = Sunday. */
+export type Repeat =
+  | { kind: 'days'; days: number[]; hour: number; minute: number }
+  | { kind: 'every'; minutes: number };
+
+/** A check-in (one-time) or routine (repeats); mirrors `schedule::CheckIn`. */
+export interface CheckIn {
+  id: string;
+  note: string;
+  repeat?: Repeat;
+  /** When it next fires, epoch ms. */
+  nextAt: number;
+  createdAt: number;
+  paused: boolean;
+}
+
+/** On a `check_in` chat line: when it was due and whether it ran late. */
+export interface CheckInMark {
+  dueAt: number;
+  late: boolean;
+  repeats: boolean;
+}
+
+export interface SchedulePreview {
+  nextAt: number;
+  /** How it repeats; null for a one-time check-in. */
+  repeat: Repeat | null;
 }
 
 export interface AgentsOverview {
@@ -61,7 +92,14 @@ export interface AgentsOverview {
   engineReady: boolean;
 }
 
-export type MessageKind = 'user' | 'agent' | 'sent_to_agent' | 'from_agent' | 'approval' | 'error';
+export type MessageKind =
+  | 'user'
+  | 'agent'
+  | 'sent_to_agent'
+  | 'from_agent'
+  | 'approval'
+  | 'error'
+  | 'check_in';
 
 export interface AgentRef {
   id: string;
@@ -87,6 +125,7 @@ export interface AgentMessage {
   approval?: Approval;
   /** Files sent with a user message. */
   attachments?: Attachment[];
+  checkIn?: CheckInMark;
 }
 
 /** A file sent with a message, as kept in the agent's home. */
@@ -201,6 +240,89 @@ export const answerApproval = (agentId: string, requestId: string, allow: boolea
 export const focusAgent = (agentId: string | null) => invoke<void>('agents_focus', { agentId });
 export const markAgentUnread = (agentId: string) => invoke<void>('agents_mark_unread', { agentId });
 export const getImportPrompt = () => invoke<string>('agents_import_prompt');
+export const previewSchedule = (when: string) =>
+  invoke<SchedulePreview>('agents_schedule_preview', { when });
+export const createCheckIn = (agentId: string, when: string, note: string) =>
+  invoke<CheckIn>('agents_schedule_create', { agentId, when, note });
+export const cancelCheckIn = (agentId: string, id: string) =>
+  invoke<void>('agents_schedule_cancel', { agentId, id });
+export const pauseCheckIn = (agentId: string, id: string, paused: boolean) =>
+  invoke<void>('agents_schedule_pause', { agentId, id, paused });
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** "9:00 AM" in the user's locale, the same way `formatWhen` writes times. */
+const clockText = (hour: number, minute: number) =>
+  new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+/** "Every weekday at 9:00 AM", "Every 2 hours" — `schedule::describe`'s words, locale times. */
+export function describeRepeat(repeat: Repeat): string {
+  if (repeat.kind === 'every') {
+    const { minutes } = repeat;
+    if (minutes % 60 !== 0) return `Every ${minutes} minutes`;
+    return minutes === 60 ? 'Every hour' : `Every ${minutes / 60} hours`;
+  }
+  const days = [...repeat.days].sort((a, b) => a - b).join(',');
+  const named =
+    days === '0,1,2,3,4,5,6'
+      ? 'day'
+      : days === '1,2,3,4,5'
+        ? 'weekday'
+        : days === '0,6'
+          ? 'weekend day'
+          : repeat.days
+              .map((d) => DAY_NAMES[d % 7])
+              .join(', ')
+              .replace(/, ([^,]*)$/, ' and $1');
+  return `Every ${named} at ${clockText(repeat.hour, repeat.minute)}`;
+}
+
+/** "Today 9:00 AM", "Tomorrow 9:00 AM", "Thu, Nov 5 9:00 AM". */
+export function formatWhen(ts: number, now = Date.now()): string {
+  const date = new Date(ts);
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const start = today.getTime();
+  if (ts >= start && ts < start + dayMs) return `Today ${time}`;
+  if (ts >= start + dayMs && ts < start + 2 * dayMs) return `Tomorrow ${time}`;
+  const day = date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${day} ${time}`;
+}
+
+/**
+ * The schedule composer takes one line, "when: what" — "every weekday 9am:
+ * brief me on Acme". The split is the first colon followed by a space, so
+ * clock times ("9:30") stay whole. No such colon yet: it's all "when".
+ */
+export function splitScheduleInput(text: string): { when: string; note: string } {
+  const match = /^(.*?):\s+([\s\S]*)$/.exec(text);
+  if (!match) return { when: text.trim().replace(/:$/, ''), note: '' };
+  return { when: match[1].trim(), note: match[2].trim() };
+}
+
+/** A row's secondary line: when it next runs, and how it repeats. */
+export function describeCheckInTime(c: CheckIn, now = Date.now()): string {
+  if (!c.repeat) return formatWhen(c.nextAt, now);
+  const repeat = describeRepeat(c.repeat);
+  if (c.paused) return `Paused · ${repeat}`;
+  const next = formatWhen(c.nextAt, now).replace(/^(Today|Tomorrow)/, (w) => w.toLowerCase());
+  return `${repeat} · next ${next}`;
+}
+
+/** Soonest first; paused ones last. */
+export function sortCheckIns(checkIns: CheckIn[]): CheckIn[] {
+  return [...checkIns].sort((a, b) =>
+    a.paused !== b.paused ? (a.paused ? 1 : -1) : a.nextAt - b.nextAt
+  );
+}
 
 /**
  * Sidebar order: pinned first, then most recently active. The Chief of Staff

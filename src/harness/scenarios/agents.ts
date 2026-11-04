@@ -10,6 +10,14 @@ const MIN = 60_000;
 const DEMO_HOME = '/harness/agents-demo';
 const now = Date.now();
 
+/** Tomorrow at a local wall-clock time, so fixtures agree with their own "at 09:00". */
+const tomorrowAt = (hour: number, minute = 0) => {
+  const d = new Date(now);
+  d.setDate(d.getDate() + 1);
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+};
+
 const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
   state,
   activity,
@@ -68,6 +76,31 @@ const TEAM = [
     color: 'orange',
     minutesAgo: 40,
     unread: 2,
+    checkIns: [
+      {
+        id: 'ci1',
+        note: 'See whether Northwind paid the $4,200 invoice; if not, draft a firmer reminder.',
+        nextAt: tomorrowAt(9),
+        createdAt: now - 60 * MIN,
+        paused: false,
+      },
+      {
+        id: 'ci2',
+        note: 'Brief me on what came in and went out yesterday, and anything overdue.',
+        repeat: { kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 },
+        nextAt: tomorrowAt(9),
+        createdAt: now - 7 * 24 * 60 * MIN,
+        paused: false,
+      },
+      {
+        id: 'ci3',
+        note: 'Reconcile the month against the bank export.',
+        repeat: { kind: 'days', days: [1], hour: 8, minute: 30 },
+        nextAt: now + 5 * 24 * 60 * MIN,
+        createdAt: now - 30 * 24 * 60 * MIN,
+        paused: true,
+      },
+    ],
     role: 'Invoices, expenses and the books.',
     preview: 'Two invoices are overdue: Northwind ($4,200) and Globex ($1,150).',
   }),
@@ -190,7 +223,14 @@ const LEADGEN_CHAT = [
 ];
 
 const FINANCE_CHAT = [
-  msg('user', 'What’s outstanding this month?', 50, { agentId: 'finance' }),
+  msg('user', 'Chase Northwind if they haven’t paid by tomorrow.', 70, { agentId: 'finance' }),
+  msg(
+    'agent',
+    'Will do. I’ll check back tomorrow at 9:00 and draft a firmer reminder if it’s still open.',
+    69,
+    { agentId: 'finance' }
+  ),
+  msg('user', 'What’s outstanding this month?', 60, { agentId: 'finance' }),
   msg(
     'agent',
     [
@@ -216,6 +256,16 @@ const FINANCE_CHAT = [
       '- Send both reminders',
       '- Re-check on Friday',
     ].join('\n'),
+    45,
+    { agentId: 'finance' }
+  ),
+  msg('check_in', 'Brief me on what came in and went out yesterday, and anything overdue.', 41, {
+    agentId: 'finance',
+    checkIn: { dueAt: tomorrowAt(9) - 24 * 60 * MIN, late: true, repeats: false },
+  }),
+  msg(
+    'agent',
+    'Two invoices are overdue: **Northwind** ($4,200, 9 days) and **Globex** ($1,150, 3 days). Nothing else needs you.',
     40,
     { agentId: 'finance' }
   ),
@@ -295,6 +345,16 @@ const inspectFiles = (args: Record<string, unknown>) =>
       size: image ? 40_266 : 6_220,
     };
   });
+const schedulePreview = (args: Record<string, unknown>) => {
+  const when = String(args.when).toLowerCase();
+  if (when.startsWith('every'))
+    return {
+      nextAt: tomorrowAt(9),
+      repeat: { kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 },
+    };
+  if (when.includes('tomorrow')) return { nextAt: tomorrowAt(9), repeat: null };
+  throw new Error('Give it a day and a time.');
+};
 
 const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
 
@@ -398,6 +458,19 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-check-in',
+    title: 'Agents — a scheduled check-in fired in the chat',
+    looksRightWhen:
+      'The Finance chat shows a centred “Scheduled check-in · late, was due …” line with the note under it, then the reply. The header shows “3 scheduled” beside the … menu.',
+    requires: '.agent-checkin',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [{ click: '[data-agent-id="finance"]' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
     id: 'agents-collapsed',
     title: 'Agents — sidebar collapsed to the rail',
     looksRightWhen:
@@ -434,6 +507,40 @@ export const agentsScenarios: Scenario[] = [
     requires: '.agent-lightbox__image',
     openSelector: '.workspace-sidebar-agents',
     steps: [{ click: '[data-agent-id="acme"]' }, { click: '.agent-attachments__image' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
+    id: 'agents-scheduled',
+    title: 'Agents — the schedule popover',
+    looksRightWhen:
+      'Clicking “3 scheduled” in the Finance header opens a popover under it: the one-time check-in, the weekday routine with its next time, and the paused Monday routine muted and last, each note on its own line with the time quieter beneath. Below, one composer line with “every weekday 9am: brief me on Acme” typed and the time read back under it, then a one-sentence footnote.',
+    requires: '.agent-schedule__item',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__scheduled' },
+      { fill: '.agent-schedule__composer input', value: 'every weekday 9am: brief me on Acme' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_schedule_preview: schedulePreview,
+    },
+  },
+  {
+    id: 'agents-schedule-empty',
+    title: 'Agents — scheduling for an agent with nothing scheduled',
+    looksRightWhen:
+      'The header shows a quiet clock button, not a chip. Open, it says nothing is scheduled yet, with the composer focused and its hint under it.',
+    requires: '.agent-schedule__empty',
+    openSelector: '.workspace-sidebar-agents',
+    steps: [
+      { click: '[data-agent-id="leadgen"]' },
+      { click: '.agent-chat__header [aria-label^="Schedule a check-in"]' },
+    ],
     commands: {
       agents_overview: overview(),
       agents_messages: messagesFor,

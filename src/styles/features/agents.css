@@ -348,6 +348,12 @@
   padding-inline: var(--agents-rail-nav-width);
 }
 
+.agent-chat__scheduled {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .agent-chat__title {
   display: inline-flex;
   align-items: center;
@@ -378,10 +384,14 @@
   color: var(--accent-warning);
 }
 
-.agent-chat__header > .agent-chat__menu {
+/* [N scheduled] […], pinned right so the title stays centred. */
+.agent-chat__actions {
   position: absolute;
   top: 50%;
   right: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
   transform: translateY(-50%);
 }
 
@@ -676,6 +686,31 @@
   font-size: var(--font-size-body-sm);
   line-height: var(--line-height-compact);
   color: var(--text-muted);
+}
+
+/* "Scheduled check-in · late, was due Mon 9:00 AM" + the note it left */
+.agent-checkin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.agent-checkin__late {
+  color: var(--text-faint);
+}
+
+.agent-checkin__note {
+  display: -webkit-box;
+  max-width: min(480px, 100%);
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-faint);
+  text-align: center;
+  white-space: pre-line;
 }
 
 /* "› Messaged ● Finance" */
@@ -1163,6 +1198,121 @@
 
 .agent-editor__delete {
   margin-right: auto;
+}
+
+/* The schedule popover, anchored to the chat header's "N scheduled" */
+.ss-dropdown__menu.agent-schedule {
+  width: 340px;
+  max-width: calc(100vw - var(--spacing-2xl));
+  max-height: min(480px, calc(100vh - var(--spacing-2xl) * 3));
+  padding: var(--spacing-xs);
+}
+
+.agent-schedule__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-schedule__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-schedule__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-interaction);
+}
+
+.agent-schedule__item:hover,
+.agent-schedule__item:focus-within {
+  background: var(--tint-subtle);
+}
+
+.agent-schedule__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.agent-schedule__note {
+  overflow: hidden;
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-schedule__when {
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-schedule__item[data-paused] .agent-schedule__note {
+  color: var(--text-muted);
+}
+
+/* Row actions surface on hover or keyboard focus; they keep their space so
+   the note doesn't reflow under the pointer. */
+.agent-schedule__actions {
+  display: flex;
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity var(--transition-interaction);
+}
+
+.agent-schedule__item:hover .agent-schedule__actions,
+.agent-schedule__item:focus-within .agent-schedule__actions {
+  opacity: 1;
+}
+
+.agent-schedule__empty {
+  margin: 0;
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+.agent-schedule__composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-tight);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-sm) 0;
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+.agent-schedule__readback {
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-schedule__readback[data-invalid] {
+  color: var(--accent-warning);
+}
+
+.agent-schedule__foot {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-help);
+  color: var(--text-faint);
 }
 
 .modal-frame-content.agents-import {

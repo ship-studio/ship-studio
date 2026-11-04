@@ -14,6 +14,7 @@ import {
   EditIcon,
   EyeIcon,
   EyeOffIcon,
+  HistoryIcon,
   PinIcon,
   TrashIcon,
 } from '@/components/icons';
@@ -47,7 +48,13 @@ export function AgentActionItems({
   onMarkUnread,
   onEdit,
   onDelete,
-}: { agent: Agent; kind: 'context' | 'dropdown' } & AgentActions) {
+  onSchedule,
+}: {
+  agent: Agent;
+  kind: 'context' | 'dropdown';
+  /** Only where the schedule popover is at hand (the conversation header). */
+  onSchedule?: () => void;
+} & AgentActions) {
   const items: Item[] = [
     {
       label: agent.pinned ? 'Unpin' : 'Pin',
@@ -60,6 +67,9 @@ export function AgentActionItems({
       icon: agent.muted ? <BellIcon size={12} /> : <BellOffIcon size={12} />,
       run: () => onToggleMuted(agent),
     },
+    ...(onSchedule
+      ? [{ label: 'Schedule a check-in…', icon: <HistoryIcon size={12} />, run: onSchedule }]
+      : []),
     { label: 'Edit agent…', icon: <EditIcon size={12} />, run: () => onEdit(agent) },
     {
       label: agent.hidden ? 'Show in sidebar' : 'Hide from sidebar',

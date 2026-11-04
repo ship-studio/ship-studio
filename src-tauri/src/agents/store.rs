@@ -69,6 +69,9 @@ pub struct Agent {
     /// No OS notifications for this agent. Unread and the Dock badge still count it.
     #[serde(default)]
     pub muted: bool,
+    /// Check-ins and routines this agent is woken by (see `schedule`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub check_ins: Vec<super::schedule::CheckIn>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -93,6 +96,21 @@ pub enum MessageKind {
     Approval,
     /// Something went wrong running the agent — shown, never hidden.
     Error,
+    /// A scheduled check-in or routine fired; `text` is the note it left.
+    CheckIn,
+}
+
+impl MessageKind {
+    /// The kinds that are news for the user when they arrive off screen: they
+    /// count as unread, and they are what the notifications slice raises a
+    /// macOS notification for. A fired check-in is one — the user (or the
+    /// agent, on their behalf) asked for it to happen at that time.
+    pub fn wants_user(self) -> bool {
+        matches!(
+            self,
+            Self::Agent | Self::Approval | Self::Error | Self::CheckIn
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -141,6 +159,8 @@ pub struct AgentMessage {
     /// Files sent with a user message. Absent in logs written before attachments.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<super::attachments::Attachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_in: Option<super::schedule::CheckInMark>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -347,6 +367,7 @@ pub fn create(new: NewAgent) -> Result<Agent, CommandError> {
         pending_approvals: 0,
         model: None,
         muted: false,
+        check_ins: Vec::new(),
     };
     let home = agents_root()?.join(&agent.id);
     std::fs::create_dir_all(&home).map_err(|e| super::err_io(e.to_string()))?;
@@ -653,6 +674,7 @@ mod tests {
                     input: None,
                 }),
                 attachments: Vec::new(),
+                check_in: None,
             };
             append_message(&pending("r1")).unwrap();
             append_message(&pending("r2")).unwrap();

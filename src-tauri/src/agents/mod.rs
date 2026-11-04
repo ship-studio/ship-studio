@@ -10,6 +10,7 @@
 //! - [`notify`]: macOS notifications and the Dock badge
 //! - [`attachments`]: files sent with a message, copied into the agent's home
 //! - [`import`]: bring an existing setup over from another assistant
+//! - [`schedule`]: check-ins and routines that wake an agent on time
 //! - [`prompts`]: voice and role
 //!
 //! Full design: docs/agents.md.
@@ -20,6 +21,7 @@ pub mod mcp;
 pub mod notify;
 pub mod prompts;
 pub mod runner;
+pub mod schedule;
 pub mod store;
 
 use crate::errors::CommandError;

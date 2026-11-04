@@ -9,7 +9,13 @@ import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Marked, type Token, type Tokens, type TokensList } from 'marked';
 import DOMPurify from 'dompurify';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { CheckIcon, ChevronRightIcon, CopyIcon, WarningIcon } from '@/components/icons';
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  HistoryIcon,
+  WarningIcon,
+} from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
@@ -18,6 +24,7 @@ import { useHeightReveal } from './useAgentMotion';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   formatDivider,
+  formatWhen,
   peerGroupLabel,
   splitQuotes,
   type Agent,
@@ -179,6 +186,27 @@ export function ErrorLine({ message, arrived }: { message: AgentMessage } & Arri
       <div className="agent-bubble agent-bubble--error" role="alert">
         {message.text}
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Scheduled check-in", centred like the agent-to-agent lines, with the note
+ * the agent left itself. A late one says so: the app was closed when it was due.
+ */
+export function CheckInLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+  const mark = message.checkIn;
+  const label = mark?.repeats ? 'Routine' : 'Scheduled check-in';
+  return (
+    <div className="agent-checkin" data-arrived={arrived || undefined}>
+      <span className="agent-peer__line">
+        <HistoryIcon size={12} />
+        {label}
+        {mark?.late && (
+          <span className="agent-checkin__late">· late, was due {formatWhen(mark.dueAt)}</span>
+        )}
+      </span>
+      <span className="agent-checkin__note">{message.text}</span>
     </div>
   );
 }
