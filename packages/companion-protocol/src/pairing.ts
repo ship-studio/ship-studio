@@ -111,8 +111,9 @@ export const HTTP = {
 
 // ---- base64url without Buffer (the phone has no Node) -----------------------
 
-function toBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text);
+/** Bytes (or a string's UTF-8) as unpadded base64url. */
+export function toBase64Url(data: string | Uint8Array): string {
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

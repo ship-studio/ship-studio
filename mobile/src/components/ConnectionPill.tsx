@@ -1,18 +1,18 @@
 /**
- * The connection pill: shown only when something isn't right (the screens
- * say nothing while all is well), and a tap away from the full picture on
- * the Connection screen.
+ * The connection's voice on the screens: nothing while all is well, a pill
+ * or a slim banner when something isn't, and always a tap away from the full
+ * picture on the Connection screen.
  */
 
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import { useShallow } from 'zustand/react/shallow';
 import { pill } from '../lib/connection';
 import { useApp } from '../lib/store';
 import { chromeScale, colors, radius, space } from '../lib/theme';
 import { Dot, T, toneColor } from './ui';
-import { useShallow } from 'zustand/react/shallow';
 
 /** Re-render every `ms` while mounted, for "last seen 2 min ago". */
 export function useNow(ms = 15_000) {
@@ -24,10 +24,9 @@ export function useNow(ms = 15_000) {
   return now;
 }
 
-export function ConnectionPill() {
-  const router = useRouter();
-  const now = useNow();
-  const state = useApp(
+/** Everything `pill` and `layers` read, from the store. */
+export function useLinkState() {
+  return useApp(
     useShallow((s) => ({
       link: s.link,
       refusal: s.refusal,
@@ -38,7 +37,11 @@ export function ConnectionPill() {
       credentials: s.credentials,
     }))
   );
-  const p = pill(state, now);
+}
+
+function ConnectionPill() {
+  const router = useRouter();
+  const p = pill(useLinkState(), useNow());
   return (
     <Pressable
       accessibilityRole="button"
@@ -69,19 +72,8 @@ export function ConnectionPill() {
 
 /** Only when something is wrong: the state, and a tap to the reasons. */
 export function ConnectionNotice() {
-  const state = useApp(
-    useShallow((s) => ({
-      link: s.link,
-      refusal: s.refusal,
-      mac: s.mac,
-      overview: s.overview,
-      phoneOnline: s.phoneOnline,
-      syncedAt: s.syncedAt,
-      credentials: s.credentials,
-    }))
-  );
-  const now = useNow();
-  const p = pill(state, now);
+  const state = useLinkState();
+  const p = pill(state, useNow());
   if (p.tone === 'ok' || state.link.kind === 'refused') return null;
   return (
     <Animated.View
@@ -90,6 +82,33 @@ export function ConnectionNotice() {
       style={styles.notice}
     >
       <ConnectionPill />
+    </Animated.View>
+  );
+}
+
+/** In a chat, only when something is wrong: a slim line under the header. */
+export function LinkBanner() {
+  const router = useRouter();
+  const state = useLinkState();
+  const now = useNow(10_000);
+  if (state.link.kind === 'connected') return null;
+  const p = pill(state, now);
+  return (
+    <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityHint="Connection details"
+        onPress={() => router.push('/connection')}
+        style={styles.banner}
+      >
+        <T
+          variant="caption"
+          color={p.tone === 'problem' ? colors.accentErrorLight : colors.accentWarning}
+          maxFontSizeMultiplier={chromeScale}
+        >
+          {p.label} · saved messages shown
+        </T>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -108,5 +127,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderSubtle,
     maxWidth: 320,
+  },
+  banner: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.tight,
+    backgroundColor: colors.surfacePanel,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
   },
 });

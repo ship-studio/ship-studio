@@ -571,9 +571,6 @@ async function queueForget(c: Credentials) {
   await saveForgets([...list, c]).catch(() => {});
 }
 
-/** Macs forgotten while unreachable, for Settings to name. */
-export const pendingForgets = async () => (await queuedForgets()).map((c) => c.name);
-
 let finishing = false;
 
 /**

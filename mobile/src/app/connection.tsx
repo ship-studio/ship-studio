@@ -7,29 +7,17 @@ import type { Device } from '@shipstudio/companion-protocol';
 import { PROTOCOL_VERSION } from '@shipstudio/companion-protocol';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { useShallow } from 'zustand/react/shallow';
-import { useNow } from '../components/ConnectionPill';
+import { useLinkState, useNow } from '../components/ConnectionPill';
 import { Button, Dot, Section, T, toneColor } from '../components/ui';
 import { formatAgo } from '../lib/agents';
 import { layers, pill } from '../lib/connection';
 import { appInfo, openTailscale } from '../lib/pairing';
 import { currentTransport, deviceSelf } from '../lib/session';
-import { useApp } from '../lib/store';
 import { colors, space } from '../lib/theme';
 
 export default function Connection() {
   const now = useNow(5_000);
-  const state = useApp(
-    useShallow((s) => ({
-      link: s.link,
-      refusal: s.refusal,
-      mac: s.mac,
-      overview: s.overview,
-      phoneOnline: s.phoneOnline,
-      syncedAt: s.syncedAt,
-      credentials: s.credentials,
-    }))
-  );
+  const state = useLinkState();
   const [device, setDevice] = useState<Device | null>(null);
   const connected = state.link.kind === 'connected';
   useEffect(() => {

@@ -3,6 +3,7 @@
  * at its own shape, several as a grid) and open in the photo viewer; any
  * other file is a chip that opens in Quick Look, and long-press shares it.
  * Everything is fetched with this phone's token, and cached once fetched.
+ * Files staged in the composer, before they're sent, are tiles here too.
  */
 
 import type { Attachment } from '@shipstudio/companion-protocol';
@@ -10,11 +11,19 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { extensionOf, formatSize, isPreviewableImage, preview, share } from '../lib/files';
+import {
+  extensionOf,
+  formatSize,
+  isPreviewableImage,
+  preview,
+  share,
+  type PickedFile,
+} from '../lib/files';
 import { attachmentSource, describeError, download } from '../lib/session';
-import { colors, radius, space } from '../lib/theme';
+import type { PendingAttachment } from '../lib/sync';
+import { alpha, colors, radius, space } from '../lib/theme';
 import { Spinner } from './agent';
-import { choose, T } from './ui';
+import { choose, Icon, T } from './ui';
 
 /** Either a file on the Mac, or (before the Mac has it) the phone's own copy. */
 export type Shown = Attachment & { localUri?: string };
@@ -169,6 +178,80 @@ export function FileChip({
   );
 }
 
+export interface Staged {
+  key: string;
+  file: PickedFile;
+  progress: number;
+  blob?: PendingAttachment;
+  error?: string;
+}
+
+/** One file waiting to go: its picture or type, how far the upload is, and ×. */
+export function StagedTile({
+  item,
+  onRemove,
+  onRetry,
+}: {
+  item: Staged;
+  onRemove: () => void;
+  onRetry: () => void;
+}) {
+  const { file, progress, blob, error } = item;
+  return (
+    <View style={styles.tile}>
+      <Pressable
+        disabled={!error}
+        onPress={onRetry}
+        accessibilityLabel={error ? `${file.name} didn’t upload. Tap to try again` : file.name}
+        style={styles.tileBody}
+      >
+        {isPreviewableImage(file.mime) ? (
+          <Image source={{ uri: file.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <View style={styles.tileFile}>
+            <T variant="caption" color={colors.textSecondary} style={styles.tileExt}>
+              {extensionOf(file.name)}
+            </T>
+            <T
+              variant="caption"
+              color={colors.textSecondary}
+              numberOfLines={2}
+              style={styles.tileName}
+            >
+              {file.name}
+            </T>
+          </View>
+        )}
+        {!blob && (
+          <View style={[StyleSheet.absoluteFill, styles.tileVeil]}>
+            {error ? (
+              <Icon name="arrow.clockwise" size={16} color={colors.textWhite} fallback={<T>↻</T>} />
+            ) : (
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${Math.max(6, progress * 100)}%` }]} />
+              </View>
+            )}
+          </View>
+        )}
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${file.name}`}
+        hitSlop={12}
+        onPress={onRemove}
+        style={styles.remove}
+      >
+        <Icon
+          name="xmark"
+          size={9}
+          color={colors.textWhite}
+          fallback={<T variant="caption">×</T>}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
@@ -206,4 +289,42 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceControl,
   },
   badgeText: { letterSpacing: 0.4, fontSize: 10 },
+  tile: { width: 64, height: 64, marginTop: space.tight, marginRight: space.tight },
+  tileBody: {
+    flex: 1,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceControl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderStrong,
+  },
+  tileFile: { flex: 1, padding: space.tight, justifyContent: 'space-between' },
+  tileExt: { fontSize: 10, letterSpacing: 0.4 },
+  tileName: { fontSize: 10, lineHeight: 12 },
+  tileVeil: {
+    backgroundColor: alpha(colors.surfaceApp, 0.55),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressTrack: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+    backgroundColor: alpha(colors.textWhite, 0.25),
+  },
+  progressFill: { height: 4, borderRadius: 2, backgroundColor: colors.textWhite },
+  remove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceSelected,
+    borderWidth: 2,
+    borderColor: colors.surfaceApp,
+  },
 });

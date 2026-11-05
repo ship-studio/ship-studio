@@ -22,7 +22,6 @@ import {
   type Agent,
   type AgentRef,
 } from '@shipstudio/companion-protocol';
-import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Pressable,
@@ -52,31 +51,15 @@ import {
   setComposer,
   useComposerDraft,
 } from '../lib/drafts';
-import {
-  admit,
-  extensionOf,
-  isPreviewableImage,
-  pickDocuments,
-  pickPhotos,
-  takePhoto,
-  type PickedFile,
-} from '../lib/files';
+import { admit, pickDocuments, pickPhotos, takePhoto, type PickedFile } from '../lib/files';
 import { haptic } from '../lib/haptics';
 import { OUTBOX_WAIT_MS } from '../lib/outbox';
 import { canCall, describeError, send, stop, upload } from '../lib/session';
 import { useApp } from '../lib/store';
-import type { PendingAttachment } from '../lib/sync';
-import { alpha, chromeScale, colors, fonts, lineHeight, radius, space, type } from '../lib/theme';
+import { chromeScale, colors, fonts, lineHeight, radius, space, type } from '../lib/theme';
 import { AgentAvatar } from './agent';
+import { StagedTile, type Staged } from './attachments';
 import { choose, Icon, ripple, T } from './ui';
-
-interface Staged {
-  key: string;
-  file: PickedFile;
-  progress: number;
-  blob?: PendingAttachment;
-  error?: string;
-}
 
 const NONE: Agent[] = [];
 
@@ -512,72 +495,6 @@ function RoundButton({
   );
 }
 
-/** One file waiting to go: its picture or type, how far the upload is, and ×. */
-function StagedTile({
-  item,
-  onRemove,
-  onRetry,
-}: {
-  item: Staged;
-  onRemove: () => void;
-  onRetry: () => void;
-}) {
-  const { file, progress, blob, error } = item;
-  return (
-    <View style={styles.tile}>
-      <Pressable
-        disabled={!error}
-        onPress={onRetry}
-        accessibilityLabel={error ? `${file.name} didn’t upload. Tap to try again` : file.name}
-        style={styles.tileBody}
-      >
-        {isPreviewableImage(file.mime) ? (
-          <Image source={{ uri: file.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        ) : (
-          <View style={styles.tileFile}>
-            <T variant="caption" color={colors.textSecondary} style={styles.tileExt}>
-              {extensionOf(file.name)}
-            </T>
-            <T
-              variant="caption"
-              color={colors.textSecondary}
-              numberOfLines={2}
-              style={styles.tileName}
-            >
-              {file.name}
-            </T>
-          </View>
-        )}
-        {!blob && (
-          <View style={[StyleSheet.absoluteFill, styles.tileVeil]}>
-            {error ? (
-              <Icon name="arrow.clockwise" size={16} color={colors.textWhite} fallback={<T>↻</T>} />
-            ) : (
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${Math.max(6, progress * 100)}%` }]} />
-              </View>
-            )}
-          </View>
-        )}
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Remove ${file.name}`}
-        hitSlop={12}
-        onPress={onRemove}
-        style={styles.remove}
-      >
-        <Icon
-          name="xmark"
-          size={9}
-          color={colors.textWhite}
-          fallback={<T variant="caption">×</T>}
-        />
-      </Pressable>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: space.md,
@@ -635,44 +552,6 @@ const styles = StyleSheet.create({
   },
   off: { opacity: 0.4 },
   tray: { gap: space.sm, paddingTop: space.tight, paddingHorizontal: space.xs },
-  tile: { width: 64, height: 64, marginTop: space.tight, marginRight: space.tight },
-  tileBody: {
-    flex: 1,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: colors.surfaceControl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderStrong,
-  },
-  tileFile: { flex: 1, padding: space.tight, justifyContent: 'space-between' },
-  tileExt: { fontSize: 10, letterSpacing: 0.4 },
-  tileName: { fontSize: 10, lineHeight: 12 },
-  tileVeil: {
-    backgroundColor: alpha(colors.surfaceApp, 0.55),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressTrack: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    overflow: 'hidden',
-    backgroundColor: alpha(colors.textWhite, 0.25),
-  },
-  progressFill: { height: 4, borderRadius: 2, backgroundColor: colors.textWhite },
-  remove: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceSelected,
-    borderWidth: 2,
-    borderColor: colors.surfaceApp,
-  },
   field: {
     flex: 1,
     flexDirection: 'row',

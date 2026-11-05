@@ -34,10 +34,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useShallow } from 'zustand/react/shallow';
 import { isQueued, needsYou } from '../lib/agents';
 import { messageActions, plainText, type MessageAction } from '../lib/actions';
-import { pill } from '../lib/connection';
 import { announce } from '../lib/a11y';
 import { addQuote } from '../lib/drafts';
 import { preview } from '../lib/files';
@@ -56,7 +54,7 @@ import { alpha, chromeScale, colors, radius, space } from '../lib/theme';
 import { AgentAvatar, Spinner } from './agent';
 import { DaySeparator, DraftRow, MessageRow, PendingRow, WorkingRow } from './chat';
 import { Composer } from './Composer';
-import { useNow } from './ConnectionPill';
+import { LinkBanner } from './ConnectionPill';
 import { PathContext } from './Markdown';
 import { showActions } from './menu';
 import { SelectSheet } from './SelectSheet';
@@ -550,43 +548,6 @@ function Gone({
   );
 }
 
-/** Only when something is wrong: a slim line under the header, tappable for details. */
-function LinkBanner() {
-  const router = useRouter();
-  const now = useNow(10_000);
-  const state = useApp(
-    useShallow((s) => ({
-      link: s.link,
-      refusal: s.refusal,
-      mac: s.mac,
-      overview: s.overview,
-      phoneOnline: s.phoneOnline,
-      syncedAt: s.syncedAt,
-      credentials: s.credentials,
-    }))
-  );
-  if (state.link.kind === 'connected') return null;
-  const p = pill(state, now);
-  return (
-    <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityHint="Connection details"
-        onPress={() => router.push('/connection')}
-        style={styles.banner}
-      >
-        <T
-          variant="caption"
-          color={p.tone === 'problem' ? colors.accentErrorLight : colors.accentWarning}
-          maxFontSizeMultiplier={chromeScale}
-        >
-          {p.label} · saved messages shown
-        </T>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { paddingHorizontal: space.lg, paddingVertical: space.md },
@@ -632,13 +593,6 @@ const styles = StyleSheet.create({
     padding: space.md,
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceSelected,
-  },
-  banner: {
-    paddingHorizontal: space.lg,
-    paddingVertical: space.tight,
-    backgroundColor: colors.surfacePanel,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderSubtle,
   },
   gone: {
     flex: 1,

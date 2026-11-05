@@ -18,7 +18,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AgentRow } from '../../../components/AgentRow';
 import { Spinner } from '../../../components/agent';
 import { ChatView } from '../../../components/ChatView';
-import { ConnectionNotice, useNow } from '../../../components/ConnectionPill';
+import { ConnectionNotice, useLinkState, useNow } from '../../../components/ConnectionPill';
 import { Button, Icon, IconButton, ripple, T, tap } from '../../../components/ui';
 import { toggleFor, type AgentAction } from '../../../lib/actions';
 import {
@@ -398,18 +398,7 @@ function Refused() {
 
 function Empty({ hasOverview, macName }: { hasOverview: boolean; macName: string }) {
   const router = useRouter();
-  const state = useApp(
-    useShallow((s) => ({
-      link: s.link,
-      refusal: s.refusal,
-      mac: s.mac,
-      overview: s.overview,
-      phoneOnline: s.phoneOnline,
-      syncedAt: s.syncedAt,
-      credentials: s.credentials,
-    }))
-  );
-  const p = pill(state);
+  const p = pill(useLinkState());
   if (hasOverview) {
     return (
       <Animated.View entering={FadeIn.duration(200)} style={styles.emptyCentered}>
