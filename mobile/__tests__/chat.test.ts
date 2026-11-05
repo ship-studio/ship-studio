@@ -156,6 +156,14 @@ describe('contextual actions', () => {
     expect(messageActions(msg('m', 1, { text: '  ' }))).toEqual([]);
   });
 
+  it('offers Remember This only where the Mac serves memory', () => {
+    const ids = (remember: boolean) =>
+      messageActions(msg('m', 1, { kind: 'user', text: 'hi' }), remember).map((a) => a.id);
+    expect(ids(true)).toContain('remember');
+    expect(ids(false)).not.toContain('remember');
+    expect(messageActions(msg('m', 1, { kind: 'approval', text: 'x' }), true)).toEqual([]);
+  });
+
   it('copies a reply as words, without its markdown', () => {
     expect(
       plainText(

@@ -20,6 +20,8 @@ import { Markdown } from './Markdown';
 import { Icon, ripple, T } from './ui';
 import { Spinner } from './agent';
 import { ApprovalCard } from './ApprovalCard';
+import { PromptCard } from './PromptCard';
+import { SecretCard } from './SecretCard';
 import { useApp } from '../lib/store';
 
 const enter = FadeInDown.duration(220).springify().damping(18);
@@ -99,6 +101,28 @@ export const MessageRow = memo(function MessageRow({
         </Pressable>
       );
     case 'approval':
+      if (message.approval?.secret) {
+        return (
+          <SecretCard
+            message={message}
+            approval={message.approval}
+            request={message.approval.secret}
+            agent={agent}
+            onError={onError}
+          />
+        );
+      }
+      if (message.approval?.prompt) {
+        return (
+          <PromptCard
+            message={message}
+            approval={message.approval}
+            prompt={message.approval.prompt}
+            agent={agent}
+            onError={onError}
+          />
+        );
+      }
       return message.approval ? (
         <ApprovalCard
           message={message}

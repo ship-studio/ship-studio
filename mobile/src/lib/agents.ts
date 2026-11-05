@@ -8,6 +8,8 @@
 import type {
   Agent,
   AgentMessage,
+  Approval,
+  EngineInfo,
   Failure,
   PermissionScope,
   SessionMark,
@@ -43,10 +45,48 @@ export function failureLine(failure: Failure, preview: string | null): string {
   return clause ? `Didn’t finish: ${clause}` : 'Didn’t finish';
 }
 
+/**
+ * Queued behind the Mac's cap on concurrent turns: working, but its turn
+ * hasn't started (no `since`). The desk's rule, from AgentChat's status label.
+ */
+export const waitingForSlot = (agent: Agent) =>
+  agent.status.state === 'working' && agent.status.since == null;
+
+/**
+ * What a working agent is doing, or that it's waiting its turn: the Mac's
+ * own words ("Waiting for a free slot (4 agents already working)"), or, where
+ * a line is short (`brief`), the desk's label.
+ */
+export function workingLine(agent: Agent, brief = false): string {
+  if (waitingForSlot(agent)) {
+    return brief || !agent.status.activity ? 'Waiting for a free slot' : agent.status.activity;
+  }
+  return agent.status.activity ?? 'Working…';
+}
+
+/** "Claude Code" / "Codex": what the agent's turns run on. */
+export const engineName = (agent: Agent) => (agent.engine === 'codex' ? 'Codex' : 'Claude Code');
+
+/** Its model as its engine names it ("Opus"), or Default. */
+export function modelName(agent: Agent, engines: EngineInfo[] | undefined): string {
+  if (!agent.model) return 'Default';
+  const listed = engines?.find((e) => e.id === agent.engine)?.models;
+  return listed?.find((m) => m.value === agent.model)?.label ?? agent.model;
+}
+
+/**
+ * "Claude · Opus", "Codex · Default". Null from a Mac too old to say which
+ * engine, rather than guessing Claude.
+ */
+export function engineLine(agent: Agent, engines: EngineInfo[] | undefined): string | null {
+  if (!agent.engine) return null;
+  return `${agent.engine === 'codex' ? 'Codex' : 'Claude'} · ${modelName(agent, engines)}`;
+}
+
 /** The row's second line, as the sidebar writes it. */
 export function subtitle(agent: Agent): string {
   if (needsYou(agent)) return 'Needs your OK';
-  if (agent.status.state === 'working') return agent.status.activity ?? 'Working…';
+  if (agent.status.state === 'working') return workingLine(agent);
   const failure = failedTurn(agent);
   if (failure) return failureLine(failure, agent.preview);
   return agent.preview ?? agent.role ?? '';
@@ -204,7 +244,9 @@ export function attentionCounts(agents: Agent[]) {
   const shown = agents.filter((a) => !a.hidden);
   return {
     needYou: shown.filter(needsYou).length,
-    working: shown.filter((a) => !needsYou(a) && a.status.state === 'working').length,
+    // As the desk's tray counts: one waiting for a slot is listed, not working.
+    working: shown.filter((a) => !needsYou(a) && a.status.state === 'working' && !waitingForSlot(a))
+      .length,
   };
 }
 
@@ -220,4 +262,20 @@ export function nextNeedsYou(
   if (!next) return null;
   const card = pendingApproval(chats[next.id]?.messages);
   return { agentId: next.id, ...(card ? { messageId: card.id } : {}) };
+}
+
+const OUTCOME = {
+  allowed: 'Allowed',
+  denied: 'Declined',
+  expired: 'Not answered in time',
+  pending: '',
+} as const;
+
+/** An answered card in a line, as the desk words it (with the option picked on a session's question). */
+export function cardOutcome(approval: Approval): string {
+  if (approval.alwaysAllowed && approval.always) return `Always allowed · ${approval.always.label}`;
+  if (approval.status === 'denied' && approval.note) return `Declined · “${approval.note}”`;
+  const label = OUTCOME[approval.status];
+  if (approval.choice && approval.status !== 'expired') return `${label} · ${approval.choice}`;
+  return label;
 }

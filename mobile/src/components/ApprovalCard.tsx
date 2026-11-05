@@ -15,25 +15,30 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
-import { describeScope } from '../lib/agents';
+import { cardOutcome, describeScope } from '../lib/agents';
 import { haptic } from '../lib/haptics';
 import { answerApproval, describeError } from '../lib/session';
 import { useApp } from '../lib/store';
 import { alpha, chromeScale, colors, fonts, radius, space, type } from '../lib/theme';
 import { Button, Icon, T } from './ui';
 
-const OUTCOME = {
-  allowed: 'Allowed',
-  denied: 'Declined',
-  expired: 'Not answered in time',
-} as const;
-
 /**
  * How long a new card's answers stay inert: the desktop's anti-misclick
  * delay. A card can land under a thumb that was tapping Send or Stop, and
  * Allow is the one tap this app must never take by accident.
  */
-const ARM_MS = 400;
+export const ARM_MS = 400;
+
+/** Whether a pending card's answers are live yet: false for `ARM_MS` after it lands. */
+export function useArmed(pending: boolean) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setTimeout(() => setArmed(true), ARM_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
+  return armed;
+}
 
 /** At this text size the explanation folds away, so the answers stay in reach. */
 const LARGE_TEXT = 1.6;
@@ -52,19 +57,13 @@ export function ApprovalCard({
   const [busy, setBusy] = useState<null | 'allow' | 'deny' | 'always'>(null);
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState('');
-  const [armed, setArmed] = useState(false);
+  const armed = useArmed(approval.status === 'pending');
   const [explained, setExplained] = useState(false);
   const { fontScale } = useWindowDimensions();
   const large = fontScale >= LARGE_TEXT;
   const connected = useApp((s) => s.link.kind === 'connected');
   const pending = approval.status === 'pending';
   const paused = pending && agent.status.state === 'idle';
-
-  useEffect(() => {
-    if (!pending) return;
-    const timer = setTimeout(() => setArmed(true), ARM_MS);
-    return () => clearTimeout(timer);
-  }, [pending]);
 
   // The haptic says what the Mac did, so it waits for the Mac.
   const answer = async (allow: boolean, always = false, why?: string) => {
@@ -83,33 +82,16 @@ export function ApprovalCard({
     }
   };
 
-  const outcome =
-    approval.alwaysAllowed && approval.always
-      ? `Always allowed · ${approval.always.label}`
-      : approval.status === 'denied' && approval.note
-        ? `Declined · “${approval.note}”`
-        : OUTCOME[approval.status as keyof typeof OUTCOME];
+  const outcome = cardOutcome(approval);
   const scope = approval.always ? describeScope(approval.always, agent.name) : null;
   const off = !!busy || !connected;
 
   return (
     <Animated.View
       layout={LinearTransition.duration(220)}
-      style={[styles.card, pending && styles.cardPending]}
+      style={[cardStyles.card, pending && cardStyles.cardPending]}
     >
-      {pending && (
-        <View style={styles.eyebrow}>
-          <Icon name="exclamationmark.triangle.fill" size={12} color={colors.accentWarning} />
-          <T
-            variant="caption"
-            color={colors.accentWarning}
-            style={styles.eyebrowText}
-            maxFontSizeMultiplier={chromeScale}
-          >
-            NEEDS YOUR OK
-          </T>
-        </View>
-      )}
+      {pending && <Eyebrow />}
       <T variant="subhead" color={colors.textWhite} maxFontSizeMultiplier={2}>
         {approval.title}
       </T>
@@ -133,13 +115,13 @@ export function ApprovalCard({
             maxLength={500}
             placeholder={`Tell ${agent.name} what to do instead`}
             placeholderTextColor={colors.textMuted}
-            style={styles.noteInput}
+            style={cardStyles.noteInput}
             returnKeyType="send"
             keyboardAppearance="dark"
             // Return denies with the note, and only once there is one.
             onSubmitEditing={() => note.trim() && void answer(false, false, note)}
           />
-          <View style={styles.actions}>
+          <View style={cardStyles.actions}>
             <Button
               title="Cancel"
               variant="ghost"
@@ -165,7 +147,7 @@ export function ApprovalCard({
           importantForAccessibility={armed ? 'auto' : 'no-hide-descendants'}
           style={{ gap: space.sm }}
         >
-          <View style={styles.actions}>
+          <View style={cardStyles.actions}>
             <Button
               title="Deny"
               busy={busy === 'deny'}
@@ -201,7 +183,7 @@ export function ApprovalCard({
                   accessibilityLabel="What does always allow cover?"
                   hitSlop={{ top: 10, bottom: 10 }}
                   onPress={() => setExplained(true)}
-                  style={styles.disclosure}
+                  style={cardStyles.disclosure}
                 >
                   <Icon name="info.circle" size={12} color={colors.textSecondary} />
                   <T variant="caption" color={colors.textSecondary} maxFontSizeMultiplier={2}>
@@ -237,18 +219,35 @@ export function ApprovalCard({
   );
 }
 
+/** The pending card's label. */
+export function Eyebrow({ text = 'NEEDS YOUR OK' }: { text?: string }) {
+  return (
+    <View style={cardStyles.eyebrow}>
+      <Icon name="exclamationmark.triangle.fill" size={12} color={colors.accentWarning} />
+      <T
+        variant="caption"
+        color={colors.accentWarning}
+        style={cardStyles.eyebrowText}
+        maxFontSizeMultiplier={chromeScale}
+      >
+        {text}
+      </T>
+    </View>
+  );
+}
+
 /**
  * The exact command, never re-wrapped: a line break inside `acme-site`
  * reads as a different path. Long lines scroll sideways instead, and what
  * is selected and copied is the command itself, character for character.
  */
-function Command({ text, lines }: { text: string; lines: number }) {
+export function Command({ text, lines }: { text: string; lines: number }) {
   return (
-    <View style={styles.cardDetail}>
+    <View style={cardStyles.cardDetail}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.cardDetailInner}
+        contentContainerStyle={cardStyles.cardDetailInner}
       >
         <T
           variant="mono"
@@ -264,9 +263,7 @@ function Command({ text, lines }: { text: string; lines: number }) {
   );
 }
 
-/** Yours, before the Mac has it: shown at once, and retryable in place. */
-
-const styles = StyleSheet.create({
+export const cardStyles = StyleSheet.create({
   card: {
     gap: space.md,
     padding: space.lg,

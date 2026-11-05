@@ -2,7 +2,11 @@ import type { Agent, AgentMessage, UsageTotals } from '@shipstudio/companion-pro
 import type { NotificationRequest } from 'expo-notifications';
 import {
   attentionCounts,
+  cardOutcome,
   describeScope,
+  engineLine,
+  subtitle,
+  workingLine,
   needsLine,
   nextNeedsYou,
   usageLine,
@@ -11,6 +15,7 @@ import { diffLineKind, questionContext } from '../src/lib/diff';
 import { EMPTY_DRAFT, FILE_KEEP_MS, expiredFiles, putDraft } from '../src/lib/drafts';
 import { badgeCount, notificationId, targetOf } from '../src/lib/notify';
 import { agent } from './helpers';
+import * as real from '../../packages/companion-protocol/src/fixtures.gen';
 
 const named = (id: string, over: Partial<Agent> = {}) =>
   agent({ id, name: id, hidden: false, pinned: false, ...over });
@@ -192,5 +197,54 @@ describe('draft files', () => {
     expect(expiredFiles(d, FILE_KEEP_MS + 1).map((f) => f.blobId)).toEqual(['old']);
     // A draft saved before files were kept has none to lose.
     expect(expiredFiles({ text: 'x', quotes: [], mentions: [] })).toEqual([]);
+  });
+});
+
+describe('engines, slots and decision cards', () => {
+  const engines = real.agentsOverview.engines;
+
+  it('names the engine and its model, and says nothing for an older Mac', () => {
+    expect(engineLine(agent({ engine: 'claude', model: 'opus' }), engines)).toBe('Claude · Opus');
+    expect(engineLine(agent({ engine: 'codex', model: 'gpt-5-codex' }), engines)).toBe(
+      'Codex · GPT-5 Codex'
+    );
+    expect(engineLine(agent({ engine: 'codex', model: null }), engines)).toBe('Codex · Default');
+    // A model the Mac doesn't list is shown as its id, not guessed.
+    expect(engineLine(agent({ engine: 'claude', model: 'claude-x' }), engines)).toBe(
+      'Claude · claude-x'
+    );
+    expect(engineLine(agent({ engine: undefined as never }), engines)).toBeNull();
+  });
+
+  it('says a queued turn is waiting for a slot and doesn’t count it as working', () => {
+    const queued = agent({
+      status: {
+        state: 'working',
+        activity: 'Waiting for a free slot (4 agents already working)',
+        since: null,
+      },
+    });
+    const running = agent({ id: 'b', status: { state: 'working', activity: 'Editing', since: 1 } });
+    expect(workingLine(queued, true)).toBe('Waiting for a free slot');
+    expect(subtitle(queued)).toBe('Waiting for a free slot (4 agents already working)');
+    expect(workingLine(agent({ status: { state: 'working', activity: null, since: null } }))).toBe(
+      'Waiting for a free slot'
+    );
+    expect(workingLine(running)).toBe('Editing');
+    expect(attentionCounts([queued, running]).working).toBe(1);
+  });
+
+  it('words an answered session question with the option picked', () => {
+    const base = { requestId: 'q', title: 't', detail: '' };
+    expect(cardOutcome({ ...base, status: 'allowed', choice: 'Yes, proceed' })).toBe(
+      'Allowed · Yes, proceed'
+    );
+    expect(cardOutcome({ ...base, status: 'denied', choice: 'No, exit' })).toBe(
+      'Declined · No, exit'
+    );
+    expect(cardOutcome({ ...base, status: 'expired', choice: 'Yes' })).toBe('Not answered in time');
+    expect(cardOutcome({ ...base, status: 'denied', note: 'use pnpm' })).toBe(
+      'Declined · “use pnpm”'
+    );
   });
 });

@@ -113,6 +113,8 @@ phone hides anything not listed (`canCall`), so an older Mac just shows less.
 
 - `system.status`, `devices.self|unpairSelf|setPush`
 - `agents.overview|messages|send|stop|interrupt|answerApproval|focus|markUnread`
+  (`answerApproval` takes `choice` for a session's question)
+- `agents.saveSecret` (Tailscale only, never audited with a value), `agents.memory|memoryChange|memorySuggest`
 - `agents.update` (`pinned`, `muted`, `hidden`, `instructions`),
   `agents.instructions|usage|revokePermission|changeDiff`
 - `agents.files|fetchPath|search`, `agents.schedule.preview|create|update|pause|cancel|runNow`
@@ -263,14 +265,25 @@ sheet, files, a session, the diff and the photo viewer push over them. At
   sentence) / Deny with note. The answers are inert for 400 ms after the card
   lands, the desk's anti-misclick; Allow is the one tap the app must never
   take by accident.
+- **Session questions** (`PromptCard`): the question, whose session it is,
+  the diff (tinted) or text it shows, and every option it offers, answered
+  with `agents.answerApproval`'s `choice`; the same 400 ms guard.
+- **Secret cards** (`SecretCard`): masked fields straight to the Mac's
+  Keychain via `agents.saveSecret`. Only over HTTPS on Tailscale (refused on
+  the phone before sending, and by the Mac for any other route); the value
+  lives in a ref, is wiped on save, backgrounding and unmount, and never
+  reaches the store, cache, drafts, outbox, notifications or logs
+  (`__tests__/secrets.node.test.ts`).
 - **Composer.** Send, Queue while working (with Send now and Stop), Stop; no
   Stop while an approval waits. @mentions, quotes as `> ` blockquotes (the
   helpers live in the package), and files from the camera, Photos or Files,
   each uploading as soon as it's picked with progress, retry and remove.
   Drafts, including uploaded files (kept 55 min), survive leaving the chat and
   a cold start (`lib/drafts.ts`).
-- **Agent sheet.** Instructions (view and edit), pin/mute/hide, check-ins and
-  routines (create, edit, pause, run now, cancel), usage, and "Allowed
+- **Agent sheet.** "Claude · Opus" / "Codex · …" (also in the chat
+  header), Runs on and Model read-only, Memory (view, edit, forget with
+  Undo, add; "Remember This" in a message's menu), Instructions (view and edit), pin/mute/hide, check-ins and
+  routines (create, edit with past runs, pause, run now, cancel), usage, and "Allowed
   without asking" with Revoke.
 - **Files** per agent; **search** across every chat, which pages a chat back
   (40 pages at most) to the hit and lights it.

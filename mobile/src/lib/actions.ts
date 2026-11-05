@@ -10,7 +10,7 @@ import type { SymbolViewProps } from 'expo-symbols';
 type SFSymbol = Extract<SymbolViewProps['name'], string>;
 
 export type AgentAction = 'pin' | 'unpin' | 'markUnread' | 'mute' | 'unmute' | 'hide' | 'unhide';
-export type MessageAction = 'copy' | 'copyMarkdown' | 'quote' | 'select';
+export type MessageAction = 'copy' | 'copyMarkdown' | 'quote' | 'select' | 'remember';
 
 export interface Action<Id extends string> {
   id: Id;
@@ -78,9 +78,13 @@ export function toggleFor(
   }
 }
 
-/** Messages with words in them; cards and lines have their own controls. */
+/**
+ * Messages with words in them; cards and lines have their own controls.
+ * `remember`: the Mac serves memory, so "Remember this" is on offer.
+ */
 export function messageActions(
-  message: Pick<AgentMessage, 'kind' | 'text'>
+  message: Pick<AgentMessage, 'kind' | 'text'>,
+  remember = false
 ): Action<MessageAction>[] {
   if (!message.text.trim()) return [];
   if (message.kind !== 'agent' && message.kind !== 'user') return [];
@@ -92,6 +96,7 @@ export function messageActions(
     { id: 'quote', title: 'Quote', icon: 'text.quote' },
     { id: 'select', title: 'Select Text', icon: 'selection.pin.in.out' }
   );
+  if (remember) out.push({ id: 'remember', title: 'Remember This', icon: 'pin' });
   return out;
 }
 

@@ -19,6 +19,7 @@ import {
   SUPPORTED,
   type Agent,
   type AgentMessage,
+  type AgentSecret,
   type AgentsOverview,
   type Alert,
   type Attachment,
@@ -35,6 +36,8 @@ import {
   type Device,
   type JournaledEvent,
   type MacStatus,
+  type MemoryChange,
+  type MemoryEntry,
   type MethodName,
   type PairRequest,
   type PairResponse,
@@ -267,10 +270,39 @@ export function createMockServer(opts: MockOptions = {}) {
         kind: 'agent',
         text: 'Hero copy is updated on staging. Lighthouse is attached.',
         attachments: [report],
+      },
+      {
+        // A question the session can't answer itself: the desk's decision card.
+        id: id(8),
+        agentId: 'site',
+        ts: at - 2 * 60_000,
+        kind: 'approval',
+        text: '',
+        approval: {
+          requestId: 'req_prompt',
+          title: 'Do you want to make this edit to Hero.tsx?',
+          detail:
+            '@@ -18,3 +18,3 @@\n-      <section className="pt-24 pb-20">\n+      <section className="hero">\n       <h1>Ship faster</h1>',
+          status: 'pending',
+          prompt: {
+            kind: 'permission',
+            project,
+            sessionId: 'pty-site-1',
+            tab: 1,
+            question: 'Do you want to make this edit to Hero.tsx?',
+            options: [
+              { label: 'Yes', keys: ['1'], role: 'allow' },
+              { label: 'Yes, allow all edits during this session', keys: ['2'], role: 'other' },
+              { label: 'No, and tell Claude what to do differently', keys: ['3'], role: 'deny' },
+            ],
+            owner: { id: 'site', name: 'Acme Site' },
+            chats: ['site'],
+          },
+        },
       }
     );
     site.sort((a, b) => a.ts - b.ts);
-    agent('site')!.lastActivityAt = at - 3 * 60_000;
+    agent('site')!.lastActivityAt = at - 2 * 60_000;
     const design = messages.get('design')!;
     const sheet = attach('design', 'design_p2_1', 'icons@2x.png', 'image/png', iconSheet());
     design.splice(1, 0, {
@@ -290,6 +322,18 @@ export function createMockServer(opts: MockOptions = {}) {
         nextAt: nextDaily([1, 2, 3, 4, 5], 9, 0, at),
         createdAt: at - 10 * 86_400_000,
         paused: false,
+        runs: [
+          { at: at - 3 * 86_400_000, outcome: 'ran', attempt: 1 },
+          {
+            at: at - 2 * 86_400_000,
+            outcome: 'failed',
+            attempt: 3,
+            detail: 'Claude Code is signed out',
+            signIn: ['Gmail'],
+          },
+          { at: at - 86_400_000, outcome: 'ran', attempt: 2 },
+          { at: at - 2 * 3_600_000, outcome: 'ran', attempt: 1, manual: true },
+        ],
       },
       {
         id: 'ci_vat',
@@ -311,7 +355,22 @@ export function createMockServer(opts: MockOptions = {}) {
     ];
   }
 
-  const overview = (): AgentsOverview => ({ agents: structuredClone(agents), engineReady: true });
+  const overview = (): AgentsOverview => ({
+    agents: structuredClone(agents),
+    engineReady: true,
+    engines: structuredClone(real.agentsOverview.engines),
+  });
+  // What each agent remembers (its CLAUDE.md `## Memory`), and secrets saved.
+  const memories = new Map<string, MemoryEntry[]>([
+    [
+      'chief',
+      [
+        { text: 'Launch is Thursday; the pricing page ships first' },
+        { text: 'Julian wants a one-paragraph brief, not a list' },
+        { text: 'Keeps the team’s standup at 9:30', group: 'Imported from Grok Bot' },
+      ],
+    ],
+  ]);
   const agent = (id: string) => agents.find((a) => a.id === id);
   seedShared(now);
 
@@ -520,6 +579,15 @@ export function createMockServer(opts: MockOptions = {}) {
     return hits.sort((x, y) => y.ts - x.ts).slice(0, 100);
   }
 
+  /** A seeded card answered (no turn waiting on it): one fewer waiting on you. */
+  function settle(agentId: string) {
+    const a = agent(agentId);
+    if (!a || turns.get(agentId)?.onApproval) return;
+    a.pendingApprovals = Math.max(0, a.pendingApprovals - 1);
+    if (!a.pendingApprovals && a.status.state === 'waiting') setStatus(agentId, 'idle', null);
+    emit({ type: 'agents.registry', overview: overview() });
+  }
+
   type Handler = (p: Record<string, unknown>, c: Conn) => unknown;
   class Failure extends Error {
     constructor(readonly wire: WireError) {
@@ -619,18 +687,82 @@ export function createMockServer(opts: MockOptions = {}) {
       const card = list.find((m) => m.approval?.requestId === p.requestId);
       if (!card?.approval)
         return fail({ type: 'Validation', field: 'requestId', reason: 'No such request' });
+      const picked =
+        typeof p.choice === 'number' ? card.approval.prompt?.options[p.choice] : undefined;
       putMessage({
         ...card,
         approval: {
           ...card.approval,
-          status: p.allow ? 'allowed' : 'denied',
+          status: picked
+            ? picked.role === 'deny'
+              ? 'denied'
+              : 'allowed'
+            : p.allow
+              ? 'allowed'
+              : 'denied',
           ...(p.always ? { alwaysAllowed: true } : {}),
           ...(typeof p.note === 'string' && p.note ? { note: p.note } : {}),
+          ...(picked ? { choice: picked.label } : {}),
         },
       });
+      settle(String(p.agentId));
       turns.get(String(p.agentId))?.onApproval?.(Boolean(p.allow));
       return null;
     },
+    // The values go nowhere: not logged, not kept. Only that a secret exists.
+    'agents.saveSecret': (p) => {
+      const agentId = String(p.agentId);
+      const card = (messages.get(agentId) ?? []).find((m) => m.approval?.requestId === p.requestId);
+      const request = card?.approval?.secret;
+      if (!card?.approval || !request || card.approval.status !== 'pending') {
+        return fail({ type: 'Other', message: 'That card isn’t asking for a secret any more.' });
+      }
+      const values = Array.isArray(p.values) ? p.values : [];
+      if (
+        values.length !== request.fields.length ||
+        values.some((v) => typeof v !== 'string' || !v.trim())
+      ) {
+        return fail({ type: 'Validation', field: 'values', reason: 'Fill in every field.' });
+      }
+      const secret: AgentSecret = {
+        ...request,
+        id: `sec_${randomUUID().slice(0, 6)}`,
+        createdAt: Date.now(),
+      };
+      const a = agent(agentId)!;
+      a.secrets = [...(a.secrets ?? []), secret];
+      putMessage({ ...card, approval: { ...card.approval, status: 'allowed' } });
+      settle(agentId);
+      return secret;
+    },
+    'agents.memory': (p) => ({ entries: structuredClone(memories.get(String(p.agentId)) ?? []) }),
+    'agents.memoryChange': (p) => {
+      const agentId = String(p.agentId);
+      const list = memories.get(agentId) ?? [];
+      const change = p.change as MemoryChange;
+      let removed: string | undefined;
+      if (change.op === 'add') {
+        list.push({ text: change.text, ...(change.group ? { group: change.group } : {}) });
+      } else if (list[change.index]?.text !== change.original) {
+        return fail({
+          type: 'Validation',
+          field: 'change',
+          reason: 'That memory changed since you opened it. Here it is now.',
+        });
+      } else if (change.op === 'edit') {
+        list[change.index] = { ...list[change.index], text: change.text };
+      } else {
+        removed = `- ${list.splice(change.index, 1)[0].text}`;
+      }
+      memories.set(agentId, list);
+      return { entries: structuredClone(list), ...(removed ? { removed } : {}) };
+    },
+    'agents.memorySuggest': (p) =>
+      String(p.text)
+        .replace(/[*`#>]/g, '')
+        .split(/(?<=[.!?])\s|\n/)[0]
+        .slice(0, 160)
+        .trim(),
     'agents.focus': (p, c) => {
       c.focus = (p.agentId as string | null) ?? null;
       const a = c.focus ? agent(c.focus) : undefined;
@@ -1260,6 +1392,7 @@ function seedAgents(now: number): Agent[] {
     preview: null,
     unread: 0,
     pendingApprovals: 0,
+    engine: 'claude',
     model: null,
     muted: false,
     status: { state: 'idle', activity: null, since: null },
@@ -1272,6 +1405,7 @@ function seedAgents(now: number): Agent[] {
       pinned: true,
       createdAt: now - 40 * 86_400_000,
       lastActivityAt: now - 4 * 60_000,
+      model: 'opus',
       preview: 'Here’s where the launch stands: three of four checks are green.',
     }),
     base('site', 'Acme Site', 'Marketing site', 'blue', {
@@ -1293,7 +1427,8 @@ function seedAgents(now: number): Agent[] {
         },
       ],
       unread: 2,
-      preview: 'Hero copy is updated on staging.',
+      pendingApprovals: 1,
+      preview: 'Needs your OK',
     }),
     base('design', 'Designer', 'Design system', 'purple', {
       lastActivityAt: now - 26 * 60_000,
@@ -1304,11 +1439,24 @@ function seedAgents(now: number): Agent[] {
     base('fin', 'Finance', 'Invoices and spend', 'green', {
       lastActivityAt: now - 3 * 3_600_000,
       failure: { kind: 'usage_limit', resetsAt: now + 2 * 3_600_000 },
+      pendingApprovals: 1,
       preview: 'Usage limit reached.',
     }),
     base('qa', 'QA 2', 'Regression checks', 'amber', {
       lastActivityAt: now - 26 * 3_600_000,
       preview: 'All 48 checks passed on main.',
+    }),
+    // On Codex, and queued behind the cap on concurrent turns.
+    base('ops', 'Ops', 'Deploys and on-call', 'teal', {
+      engine: 'codex',
+      model: 'gpt-5-codex',
+      lastActivityAt: now - 60_000,
+      status: {
+        state: 'working',
+        activity: 'Waiting for a free slot (4 agents already working)',
+        since: null,
+      },
+      preview: 'Rotating the staging certificates.',
     }),
   ];
 }
@@ -1381,6 +1529,25 @@ function seedMessages(a: Agent, now: number): AgentMessage[] {
       kind: 'error',
       text: 'Usage limit reached.',
       failure: { kind: 'usage_limit', resetsAt: now + 2 * 3_600_000 },
+    });
+    add({ ts: now - 50 * 60_000, kind: 'user', text: 'Pull last month’s payouts from Stripe.' });
+    add({
+      ts: now - 49 * 60_000,
+      kind: 'approval',
+      text: '',
+      approval: {
+        requestId: 'req_secret',
+        title: 'Secure input · Stripe key',
+        detail: 'Read last month’s payouts to reconcile them',
+        status: 'pending',
+        secret: {
+          name: 'Stripe key',
+          purpose: 'Read last month’s payouts to reconcile them',
+          kind: 'api_key',
+          fields: [{ label: 'API key', env: 'STRIPE_KEY' }],
+          reference: 'secret:finance/stripe_key',
+        },
+      },
     });
   } else {
     add({ ts: a.lastActivityAt - 60_000, kind: 'user', text: 'Status?' });

@@ -22,7 +22,14 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { AgentAvatar } from '../../components/agent';
 import { useNow } from '../../components/ConnectionPill';
 import { Button, choose, Icon, Row, T } from '../../components/ui';
-import { describeScope, folderName, usageLine } from '../../lib/agents';
+import {
+  describeScope,
+  engineLine,
+  engineName,
+  folderName,
+  modelName,
+  usageLine,
+} from '../../lib/agents';
 import { haptic } from '../../lib/haptics';
 import {
   canCall,
@@ -40,6 +47,7 @@ export default function AgentSheet() {
   const router = useRouter();
   const agent = useApp((s) => s.overview?.agents.find((a) => a.id === id));
   const welcome = useApp((s) => s.welcome);
+  const engines = useApp((s) => s.overview?.engines);
   const live = useApp((s) => s.link.kind === 'connected');
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -58,7 +66,7 @@ export default function AgentSheet() {
   if (!agent) return null;
   const canSchedule = canCall('agents.schedule.create', welcome);
   const checkIns = sortCheckIns(agent.checkIns ?? []);
-  const where = [agent.model, agent.project && folderName(agent.project)]
+  const where = [engineLine(agent, engines), agent.project && folderName(agent.project)]
     .filter(Boolean)
     .join(' · ');
 
@@ -91,6 +99,13 @@ export default function AgentSheet() {
             onPress={() => router.push({ pathname: '/instructions', params: { id } })}
           />
         )}
+        {canCall('agents.memory', welcome) && (
+          <Row
+            label="Memory"
+            leading={<Icon name="brain" size={15} color={colors.textSecondary} />}
+            onPress={() => router.push({ pathname: '/memory', params: { id } })}
+          />
+        )}
         {canCall('agents.files', welcome) && (
           <Row
             label="Files"
@@ -118,6 +133,14 @@ export default function AgentSheet() {
           />
         )}
       </View>
+
+      {!!agent.engine && (
+        // Read-only here: switching engines starts a new session, a choice for the desk.
+        <View style={styles.list}>
+          <Row label="Runs on" value={engineName(agent)} />
+          <Row label="Model" value={modelName(agent, engines)} last />
+        </View>
+      )}
 
       {usage && <Usage usage={usage} />}
 

@@ -139,6 +139,8 @@ export default function RootLayout() {
             <Stack.Screen name="diff" options={sheet([0.75, 1])} />
             <Stack.Screen name="start" options={sheet([0.6, 0.9])} />
             <Stack.Screen name="instructions" options={sheet([0.9])} />
+            <Stack.Screen name="memory" options={sheet([0.9])} />
+            <Stack.Screen name="remember" options={sheet([0.5, 0.9])} />
             <Stack.Screen name="session/[id]" options={{ title: '' }} />
             <Stack.Screen
               name="viewer"

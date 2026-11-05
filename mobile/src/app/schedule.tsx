@@ -6,15 +6,18 @@
 
 import {
   describeRepeat,
+  describeRun,
   formatWhen,
   scheduleWhenPhrase,
   splitScheduleInput,
+  type CheckInRun,
   type SchedulePreview,
 } from '@shipstudio/companion-protocol';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { useNow } from '../components/ConnectionPill';
 import { Button, T } from '../components/ui';
 import { describeError, schedule } from '../lib/session';
 import { useApp } from '../lib/store';
@@ -93,7 +96,7 @@ export default function Schedule() {
 
   const ready = reading.kind === 'ok' && note.length > 0;
   return (
-    <View style={styles.root}>
+    <ScrollView contentContainerStyle={styles.root} keyboardShouldPersistTaps="handled">
       <T variant="title" color={colors.textWhite}>
         {editing
           ? editing.repeat
@@ -155,12 +158,52 @@ export default function Schedule() {
           style={{ flex: 1 }}
         />
       </View>
+      {!!editing?.runs?.length && <RunHistory runs={editing.runs} />}
+    </ScrollView>
+  );
+}
+
+/** Its last runs, newest first: when, and what came of it, in the desk's words. */
+function RunHistory({ runs }: { runs: CheckInRun[] }) {
+  const now = useNow(30_000);
+  return (
+    <View style={{ gap: space.xs, marginTop: space.sm }}>
+      <T variant="caption" color={colors.textMuted} style={styles.heading}>
+        PAST RUNS
+      </T>
+      <View style={styles.list} accessibilityLabel="Past runs">
+        {[...runs].reverse().map((run, i) => {
+          const outcome = [
+            describeRun(run, now),
+            run.manual ? 'run now' : null,
+            run.detail ?? null,
+            run.signIn?.length ? `${run.signIn.join(', ')} needs signing in again` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          const failed = run.outcome === 'failed' || run.outcome === 'retrying';
+          return (
+            <View key={`${run.at}-${run.attempt}`} style={[styles.run, i > 0 && styles.divider]}>
+              <T variant="small" color={colors.textPrimary}>
+                {formatWhen(run.at, now)}
+              </T>
+              <T
+                variant="caption"
+                color={failed ? colors.accentErrorLight : colors.textSecondary}
+                numberOfLines={3}
+              >
+                {outcome}
+              </T>
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { padding: space.lg, paddingTop: space.xl, gap: space.md },
+  root: { padding: space.lg, paddingTop: space.xl, gap: space.md, paddingBottom: space['2xl'] },
   input: {
     fontFamily: fonts.regular,
     fontSize: type.body,
@@ -176,4 +219,14 @@ const styles = StyleSheet.create({
   },
   reading: { minHeight: 38, paddingHorizontal: space.xs },
   actions: { flexDirection: 'row', gap: space.sm },
+  heading: { marginLeft: space.lg, letterSpacing: 0.4 },
+  list: {
+    backgroundColor: colors.surfaceApp,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
+    overflow: 'hidden',
+  },
+  run: { paddingHorizontal: space.lg, paddingVertical: space.sm + 2, gap: space['2xs'] },
+  divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
 });

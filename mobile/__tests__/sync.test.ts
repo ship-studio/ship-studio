@@ -117,7 +117,7 @@ describe('projects', () => {
     let s = applyEvent(emptySync(), {
       type: 'sync.snapshot',
       cursor: { epoch, seq: 1 },
-      overview: { agents: [], engineReady: true } as AgentsOverview,
+      overview: { agents: [], engineReady: true, engines: [] } as AgentsOverview,
       status: {} as MacStatus,
       projects: [project('/a'), project('/b')],
     });
@@ -138,7 +138,7 @@ describe('snapshot', () => {
     s = applyEvent(s, {
       type: 'sync.snapshot',
       cursor: { epoch: 'e2', seq: 1 },
-      overview: { agents: [], engineReady: true } as AgentsOverview,
+      overview: { agents: [], engineReady: true, engines: [] } as AgentsOverview,
       status: {} as MacStatus,
       projects: [],
     });

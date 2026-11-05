@@ -6,6 +6,7 @@
  */
 
 import type { Agent, AgentMessage } from '@shipstudio/companion-protocol';
+import { workingLine } from './agents';
 import type { PendingSend } from './sync';
 
 export type Item =
@@ -34,7 +35,7 @@ export function chatItems(
   const out: Item[] = [];
   if (draft) out.push({ kind: 'draft', key: draft.id, text: draft.text });
   else if (agent.status.state === 'working')
-    out.push({ kind: 'working', key: 'working', label: agent.status.activity ?? 'Working…' });
+    out.push({ kind: 'working', key: 'working', label: workingLine(agent) });
   for (let i = pending.length - 1; i >= 0; i--) {
     out.push({ kind: 'pending', key: `pending:${pending[i].clientId}`, pending: pending[i] });
   }

@@ -16,7 +16,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { distinctInitials, failedTurn, needsYou, teamNames } from '../lib/agents';
+import { distinctInitials, failedTurn, needsYou, teamNames, waitingForSlot } from '../lib/agents';
 import { useApp } from '../lib/store';
 import { agentTints, colors, fonts, mix, radius } from '../lib/theme';
 import { Dot, T } from './ui';
@@ -82,6 +82,15 @@ export function StatusMark({ agent, live = true }: { agent: Agent; live?: boolea
     return null;
   }
   if (needsYou(agent)) return <Dot color={colors.accentWarning} glow />;
+  // Queued for a slot: a still ring, since nothing is running yet.
+  if (waitingForSlot(agent)) {
+    return (
+      <View
+        accessibilityLabel="Waiting for a free slot"
+        style={[styles.wasWorking, styles.queued]}
+      />
+    );
+  }
   if (agent.status.state === 'working') return <Spinner />;
   if (failure) {
     return (
@@ -134,4 +143,5 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.textMuted,
   },
+  queued: { borderColor: colors.textSecondary, borderStyle: 'dashed' },
 });

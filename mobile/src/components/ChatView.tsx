@@ -34,13 +34,14 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { isQueued, needsYou } from '../lib/agents';
+import { engineLine, isQueued, needsYou, workingLine } from '../lib/agents';
 import { messageActions, plainText, type MessageAction } from '../lib/actions';
 import { announce } from '../lib/a11y';
 import { addQuote } from '../lib/drafts';
 import { preview } from '../lib/files';
 import { haptic } from '../lib/haptics';
 import {
+  canCall,
   describeError,
   fetchPath,
   loadLatest,
@@ -191,7 +192,8 @@ export function ChatView({
   const onMessageAction = useCallback(
     (m: AgentMessage) => {
       haptic.select();
-      showActions(undefined, messageActions(m), (action: MessageAction) => {
+      const remember = canCall('agents.memoryChange') && canCall('agents.memorySuggest');
+      showActions(undefined, messageActions(m, remember), (action: MessageAction) => {
         switch (action) {
           case 'copy':
             void Clipboard.setStringAsync(m.kind === 'agent' ? plainText(m.text) : m.text);
@@ -207,10 +209,13 @@ export function ChatView({
           case 'select':
             setSelecting(m);
             break;
+          case 'remember':
+            router.push({ pathname: '/remember', params: { id, messageId: m.id } });
+            break;
         }
       });
     },
-    [id]
+    [id, router]
   );
 
   const openPath = useCallback(
@@ -489,14 +494,15 @@ function Header({
   writing: boolean;
 }) {
   const connected = useApp((s) => s.link.kind === 'connected');
+  const engine = useApp((s) => engineLine(agent, s.overview?.engines));
   const line =
     needsYou(agent) || asking
       ? { text: 'Needs your OK', color: colors.accentWarning }
       : writing
         ? { text: 'Writing…', color: colors.textSecondary }
         : agent.status.state === 'working'
-          ? { text: agent.status.activity ?? 'Working…', color: colors.textSecondary }
-          : { text: agent.role || 'Idle', color: colors.textSecondary };
+          ? { text: workingLine(agent, true), color: colors.textSecondary }
+          : { text: engine ?? (agent.role || 'Idle'), color: colors.textSecondary };
   return (
     <View style={styles.header}>
       <AgentAvatar name={agent.name} color={agent.color} size={28} />

@@ -6,6 +6,7 @@
 import type {
   Alert,
   AgentMessage,
+  MemoryChange,
   MethodName,
   Params,
   Result,
@@ -51,6 +52,8 @@ import {
 } from './sync';
 import { clearCache, http, type PickedFile } from './files';
 import { registerPush } from './push';
+import { sendSecret } from './secrets';
+export { secretRouteProblem } from './secrets';
 import { DirectTransport, WireFailure } from './transport';
 
 const PAGE = 50;
@@ -352,7 +355,9 @@ export const answerApproval = (
   requestId: string,
   allow: boolean,
   always?: boolean,
-  note?: string
+  note?: string,
+  /** On a session's question: the option picked, by index. */
+  choice?: number
 ) =>
   call('agents.answerApproval', {
     agentId,
@@ -360,7 +365,14 @@ export const answerApproval = (
     allow,
     ...(always ? { always } : {}),
     ...(note ? { note } : {}),
+    ...(choice !== undefined ? { choice } : {}),
   });
+
+/** A secure input card's values, straight to the Mac's Keychain (see `secrets.ts`). */
+export function saveSecret(agentId: string, requestId: string, values: string[]) {
+  if (!transport) return Promise.reject(new Error('Not paired'));
+  return sendSecret(transport, agentId, requestId, values);
+}
 
 export const deviceSelf = () => call('devices.self', {});
 
@@ -441,6 +453,10 @@ export const readInstructions = (agentId: string) => call('agents.instructions',
 export const setInstructions = (agentId: string, instructions: string) =>
   call('agents.update', { agentId, input: { instructions } });
 export const readUsage = (agentId: string) => call('agents.usage', { agentId });
+export const readMemory = (agentId: string) => call('agents.memory', { agentId });
+export const changeMemory = (agentId: string, change: MemoryChange) =>
+  call('agents.memoryChange', { agentId, change });
+export const suggestMemory = (text: string) => call('agents.memorySuggest', { text });
 export const revokePermission = (agentId: string, ruleId: string) =>
   call('agents.revokePermission', { agentId, ruleId });
 export const changeDiff = (agentId: string, messageId: string, path: string) =>
