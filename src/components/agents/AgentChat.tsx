@@ -96,6 +96,8 @@ import {
   type AgentMessage,
   type AgentRef,
   type OutgoingAttachment,
+  ENGINE_LABEL,
+  engineIsReady,
 } from '../../lib/agents';
 import {
   loadOlderMessages,
@@ -206,7 +208,9 @@ export function AgentChat({
   // This chat's slices only: another agent's reply streaming doesn't touch it.
   const messages = useAgentsSelector((s) => s.messages[agent.id]);
   const rawDraft = useAgentsSelector((s) => s.drafts[agent.id]);
-  const engineReady = useAgentsSelector((s) => s.engineReady);
+  const engineReady = useAgentsSelector((s) =>
+    engineIsReady(agent.engine, s.engines, s.engineReady)
+  );
   const hasOlder = useAgentsSelector((s) => s.older[agent.id] ?? false);
   // Whitespace that hasn't become words yet isn't worth a bubble.
   const draftText = rawDraft?.text.trimStart() ?? '';
@@ -786,6 +790,7 @@ export function AgentChat({
                   key={m.id}
                   message={m}
                   arrived={arrived}
+                  engine={agent.engine}
                   onSignIn={onSignIn}
                   onRetry={m.id === retryId ? retryLast : undefined}
                   onRetryAt={retryLater}
@@ -825,6 +830,7 @@ export function AgentChat({
       ),
     [
       items,
+      agent.engine,
       queuedFrom,
       arrivedAt,
       agentsById,
@@ -1176,10 +1182,12 @@ export function AgentChat({
           <div className="agent-composer agent-composer--blocked" role="status">
             <WarningIcon size={14} className="agent-composer__blocked-icon" />
             <span className="agent-composer__blocked-text">
-              Agents run on Claude Code, which isn&apos;t installed on this Mac yet.
+              {agent.engine === 'codex'
+                ? `${agent.name} runs on Codex, which isn’t installed and signed in on this Mac.`
+                : 'Agents run on Claude Code, which isn’t installed on this Mac yet.'}
             </span>
             <Button tabIndex={0} variant="primary" onClick={onSetUpEngine}>
-              Set up Claude Code
+              Set up {ENGINE_LABEL[agent.engine]}
             </Button>
           </div>
         )}

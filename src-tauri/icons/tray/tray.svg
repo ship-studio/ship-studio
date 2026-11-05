@@ -1,0 +1,7 @@
+<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+  <!-- Ship Studio's mark (public/ship_studio_icon.svg) as a macOS template:
+       the three stacked translucent discs, in black, so the menu bar tints it. -->
+  <circle cx="18" cy="18" r="15" fill="#000" fill-opacity="0.5"/>
+  <circle cx="18" cy="18" r="10.4" fill="#000" fill-opacity="0.5"/>
+  <circle cx="18" cy="18" r="5.85" fill="#000" fill-opacity="0.5"/>
+</svg>

@@ -252,6 +252,19 @@ export const baseCommands: CommandMap = {
     openAtLoginAvailable: true,
   },
   close_to_background: false,
+  // Settings → General's GPU row; the modal was never captured before.
+  get_terminal_gpu_enabled: true,
+  // The quit guard: nothing working, so ⌘Q asks the plain question.
+  agents_quit_check: { working: [], waiting: [] },
+  agents_keep_running_in_background: null,
+  // Settings → General: menu-bar icon and quick message, following Keep running (off).
+  agents_desktop_settings: {
+    supported: true,
+    menuBarIcon: false,
+    quickEntry: false,
+    shortcut: 'Alt+Space',
+    shortcutLabel: '⌥Space',
+  },
   list_claude_skills: [],
   list_env_files: [],
   list_mcp_servers: [],

@@ -348,3 +348,35 @@
   background: var(--text-inverse);
   box-shadow: 0 1px 3px var(--overlay-30);
 }
+
+/* Agents' quick-message shortcut: shows the shortcut, records the next one on click. */
+.agents-shortcut-field {
+  align-self: flex-start;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  cursor: pointer;
+  transition: border-color var(--transition-interaction);
+}
+
+.agents-shortcut-field:hover {
+  border-color: var(--border-strong);
+}
+
+.agents-shortcut-field[data-recording] {
+  border-color: var(--accent-active);
+  color: var(--text-secondary);
+}
+
+.agents-shortcut-problem {
+  color: var(--accent-error);
+  font-size: var(--font-size-body-sm);
+}
+
+.agents-desktop-settings {
+  margin-top: var(--spacing-lg);
+}

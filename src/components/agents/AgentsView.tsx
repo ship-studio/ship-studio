@@ -22,7 +22,7 @@ import { flushSync } from 'react-dom';
 import { HomeSidebar } from '../workspace/HomeSidebar';
 import { AgentsSidebar } from './AgentsSidebar';
 import { AgentsSearchPopover, AgentsTopSearch } from './AgentsSearchBox';
-import { ClaudeSignInModal } from './ClaudeSignInModal';
+import { EngineSignInModal, type EngineSetup } from './EngineSignInModal';
 import { AgentChat } from './AgentChat';
 import { AgentsTeamView } from './AgentsTeamView';
 import { AgentEditorModal, type EditorTab } from './AgentEditorModal';
@@ -43,6 +43,7 @@ import {
   TEAM_ID,
   updateAgent,
   type Agent,
+  type AgentEngine,
   type SearchHit,
 } from '../../lib/agents';
 import {
@@ -103,6 +104,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const agents = useAgentsList();
   const loaded = useAgentsSelector((s) => s.loaded);
   const error = useAgentsSelector((s) => s.error);
+  const engines = useAgentsSelector((s) => s.engines);
   const { showToast } = useOptionalToast();
   const [selectedId, setSelectedId] = useState<string | null>(readSelected);
   const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null; tab?: EditorTab }>({
@@ -189,7 +191,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [query, setQuery] = useState('');
   /** Claude Code's terminal: installing (then signing in), or only signing in. */
-  const [claudeStep, setClaudeStep] = useState<'install' | 'sign-in' | null>(null);
+  const [engineSetup, setEngineSetup] = useState<EngineSetup | null>(null);
   /** The search hit last opened, marked in the results. */
   const [currentHit, setCurrentHit] = useState<string | null>(null);
   const [stopping, setStopping] = useState<Agent | null>(null);
@@ -436,7 +438,10 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     [run]
   );
   const toggleShowHidden = useCallback(() => setShowHidden((v) => !v), []);
-  const signIn = useCallback(() => setClaudeStep('sign-in'), []);
+  const signIn = useCallback(
+    (engine: AgentEngine) => setEngineSetup({ engine, step: 'sign-in' }),
+    []
+  );
 
   return (
     <div className="app workspace workspace-home agents-mode">
@@ -487,7 +492,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
             <AgentsTeamView
               onOpenAgent={openAgent}
               onOpenMessage={openMessage}
-              onSignIn={() => setClaudeStep('sign-in')}
+              onSignIn={signIn}
               compact={
                 isCompact
                   ? {
@@ -508,8 +513,16 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
               agent={shown}
               agentsById={agentsById}
               onOpenAgent={setSelectedId}
-              onSetUpEngine={() => setClaudeStep('install')}
-              onSignIn={signIn}
+              onSetUpEngine={() =>
+                setEngineSetup({
+                  engine: shown.engine,
+                  // Codex can be installed and only need signing in.
+                  step: engines.find((e) => e.id === shown.engine)?.installed
+                    ? 'sign-in'
+                    : 'install',
+                })
+              }
+              onSignIn={() => signIn(shown.engine)}
               onImport={openImport}
               onEscape={escapeSearch}
               compact={
@@ -556,7 +569,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
         }}
       />
       <AgentAppsModal isOpen={appsOpen} onClose={() => setAppsOpen(false)} />
-      {claudeStep && <ClaudeSignInModal start={claudeStep} onClose={() => setClaudeStep(null)} />}
+      {engineSetup && <EngineSignInModal {...engineSetup} onClose={() => setEngineSetup(null)} />}
       {stopping && (
         <ProjectActionConfirmModal
           title={`Stop ${stopping.name}?`}

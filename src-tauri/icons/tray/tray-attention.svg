@@ -1,0 +1,16 @@
+<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+  <!-- tray.svg with a dot at the top right: something needs you. The mark is
+       cut away around the dot so the two never merge at menu-bar size. -->
+  <defs>
+    <mask id="cut">
+      <rect width="36" height="36" fill="#fff"/>
+      <circle cx="29" cy="7" r="7.5" fill="#000"/>
+    </mask>
+  </defs>
+  <g mask="url(#cut)">
+    <circle cx="18" cy="18" r="15" fill="#000" fill-opacity="0.5"/>
+    <circle cx="18" cy="18" r="10.4" fill="#000" fill-opacity="0.5"/>
+    <circle cx="18" cy="18" r="5.85" fill="#000" fill-opacity="0.5"/>
+  </g>
+  <circle cx="29" cy="7" r="5.5" fill="#000"/>
+</svg>

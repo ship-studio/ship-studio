@@ -9,12 +9,14 @@
  */
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { getStayOn, setStayOn, type StayOn, type StayOnChange } from '../lib/remoteAccess';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { useOptionalToast } from '../contexts/ToastContext';
 
 let current: StayOn | null = null;
 let loading: Promise<void> | null = null;
+let following = false;
 const listeners = new Set<() => void>();
 
 function publish(next: StayOn) {
@@ -36,6 +38,13 @@ export function useStayOn(): {
   const { showToast } = useOptionalToast();
 
   useEffect(() => {
+    // The menu-bar icon's toggles change these outside any React tree.
+    if (!following) {
+      following = true;
+      void listen<StayOn>('stay-on://changed', (event) => publish(event.payload)).catch(() => {
+        following = false;
+      });
+    }
     if (current || loading) return;
     loading = getStayOn()
       .then(publish)

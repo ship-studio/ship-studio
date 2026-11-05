@@ -150,6 +150,17 @@ the URL is passed only inline to the process Ship Studio spawned for that agent.
 | `delete_agent` | Chief | puts an Allow / Deny card in the Chief's chat first |
 | `approve` | CLI only | the permission prompt tool (below) |
 
+**Answers come back on their own.** A `message_agent` request is a debt: the
+turn that handles it owes the sender an answer. When that turn ends, whatever
+it said (or "couldn't finish: …" if it failed) is delivered back to the
+sender as its answer (`runner::return_results`), so delegated work always
+reports back and the delegate never spends a tool call doing it. Messaging
+the sender during the turn settles the debt instead (`runner::settle`). An
+answer is framed differently from a request ("Billing's answer to your
+request … tell the user the outcome; don't reply"), and handling it owes
+nobody anything, so answers can't ping-pong. Stop drops the debt; an
+interrupted turn passes it to the turn that replaces it.
+
 **Loops.** Agents messaging agents can ping-pong. A user message starts a chain
 at hop 0; each `message_agent` from a turn at hop *n* delivers at *n+1*, and
 `message_agent` refuses past hop 6. The prompts also tell agents not to send
@@ -288,6 +299,13 @@ turn is stopped before it acts; a stricter mode (`default`, `plan`,
 `dontAsk`) or one we don't know is noted once in the chat and carried on. If
 our own server shows `failed` there, its approval tool doesn't exist and the
 turn is stopped too.
+
+Codex turns get the same: the `?turn=` URL is what `codex_app::args` passes
+Codex for our server, and Codex's own approval requests go through
+`broker::admit` before a card (`codex_app::answer`, request ids named
+`codex-<turn>-<jsonrpc id>` because JSON-RPC ids restart with each
+app-server). The init check is Claude Code's only: Codex is started with the
+approval policy we set, not one it reports back.
 
 **Misclicks.** Allow, Always allow and a session question's options are inert
 for 400 ms after a card appears, and a click the keyboard produced counts only
@@ -617,6 +635,164 @@ line suggesting an always-on Mac, such as a Mac mini or a cloud Mac, for
 round-the-clock agents; and as a "Keep this Mac awake" link at the end of the
 schedule popover's footnote. Elsewhere than macOS none of it shows.
 
+## Menu bar, quit guard and quick entry (`agents/tray.rs`, `agents/quick_entry.rs`)
+
+Agents run inside Ship Studio, so staying alive, and being reachable while
+the window is closed, is part of the product.
+
+**Menu-bar icon.** A monochrome template image (`src-tauri/icons/tray/*.svg`,
+rasterised by `pnpm icons:tray`): Ship Studio's three discs, with a dot while
+anything needs you. The menu is a pure function of the agents and their live
+status (`tray::menu_model`), rebuilt at most every 300ms on `agents://status`
+and `agents://registry`:
+
+- **Needs you** (up to 5): `Name · Needs your OK` (`· 3 need your OK`).
+- **Working** (up to 5): `Name · <activity line>`, cut to one short line. An agent waiting for a free slot is listed after the running ones and isn't counted as working: the tooltip says `2 working, 1 waiting for a slot` (`runner::queued`).
+- Overflow is counted (`2 more`), not listed. Hidden agents aren't listed; idle ones aren't either.
+- Then Open Ship Studio, New message to Chief… (quick entry), Keep this Mac awake / Keep running when closed (checkmarks, the same `set_stay_on`), Quit Ship Studio.
+- Clicking an agent opens its chat (`notify::open_agent`, the notification click's path), showing a window that a close hid.
+
+Shown by default **once the user has actually used Agents, or while Keep
+running when closed is on** (`AppState.menu_bar_icon`, `None` = that rule).
+"Used" is `AppState.agents_used`, set by `tray::mark_used` on the first
+message sent to any agent (`agents_send`, so quick entry too) or the first
+import (both import paths); an agent that already has a session counts, for
+installs from before the flag. Someone who never touches Agents gets no new
+icon in a crowded menu bar. Settings → General overrides it either way.
+Rows are engine-agnostic: Claude Code and Codex turns report through the
+same runner status and approval cards. Quick entry stays opt-in (it follows
+Keep running only). Turning Keep running off *from the icon*
+pins the icon on, so it doesn't vanish under the pointer.
+
+**Quit guard.** ⌘Q, the icon's Quit, ⌘K "Quit Ship Studio…", and closing a
+window while it would quit all go through `useQuitGuard`, which asks
+`agents_quit_check` (`tray::quit_check`: agents mid-turn or queued for a slot,
+and agents with an open card, hidden ones included). Nothing interrupted:
+the old "Are you sure?" (and the icon's Quit just quits). Otherwise "2 agents
+are still working. Quit anyway?", naming them, with **Keep running in
+background** (macOS; hides every window, `hide_all_to_background`) as the
+default, then Quit, then Cancel. The backend brings the main window forward
+first, since it may be hidden. The updater's restart is untouched: it still
+waits for `agents_busy` to reach 0.
+
+**Quick entry.** A system-wide shortcut (`tauri-plugin-global-shortcut`,
+default ⌥Space, Settings → General) opens a small floating composer over any
+app: its own window (`quick-entry`), created hidden at launch so the shortcut
+only shows it, on the display under the pointer, a third of the way down.
+
+- To the Chief of Staff; a leading `@Name` sends it to that agent instead (`quickEntryRecipient`, longest name wins). Other @mentions work as in a chat.
+- Dictation is the chat composer's (`useDictation`). The camera runs `screencapture -i -o -x` (drag a region, or Space and click a window) with the composer hidden; the PNG goes to `<agents>/.quick-entry/` (cleared after a day) and is attached like a file. **macOS asks for Screen Recording permission the first time**; the composer says so until a screenshot has worked.
+- Return sends (queued like any message), focus goes back to the app you were in (`[NSApp deactivate]`), and "Sent to Chief of Staff · Open chat" stays up 2.4s, unfocused, then hides. Esc or clicking elsewhere closes; closing hands focus back (`NSApp hide`) if Ship Studio wasn't in front.
+- The shortcut is released while one of Ship Studio's own windows has focus, and taken again when they lose it: in-app, ⌥Space stays the composer's hold-to-dictate key.
+- Conflicts we can know are refused with a reason (`Accelerator::conflict`): no ⌃/⌥/⌘, macOS's own (⌘Space, ⌃Space, ⌃⌥Space, ⌃⌘Space, ⌘⇧3/4/5, ⌘Tab…), and a bare ⌘-letter every app uses. Another app's global shortcut can only be found by trying; when macOS refuses, the old shortcut is put back and the reason shown.
+- Off by default unless Keep running when closed is on (`AppState.quick_entry`): a global ⌥Space takes a non-breaking space from every other app.
+
+Not verified in a real app yet (built and unit-tested only): the icon's look
+in a light and a dark menu bar and its dot, the menu rebuilding while open,
+the shortcut firing over other apps and full-screen Spaces, the composer
+appearing without bringing the main window forward (it's a normal window,
+not a non-activating panel), focus returning after send and Esc,
+`screencapture` and its permission prompt, and the quit guard from the icon
+with the window hidden.
+
+## Engines: Claude Code or Codex (`agents/engine.rs`, `agents/codex_app.rs`, `agents/codex.rs`)
+
+Each agent has `engine: "claude" | "codex"` (default `claude`), so it can run
+on a ChatGPT plan with the same chat, tools, memory and Chief around it. The
+editor's **Runs on** shows only engines that are installed and signed in
+(Codex: `codex login status`; Claude Code counts once installed), plus the
+one the agent is on, and hides itself when there is one choice. Model offers
+that engine's own list: Claude Code's aliases, or Codex's own
+`models_cache.json` (`visibility: list`, its order). The Chief can set it on
+`create_agent` / `update_agent`; both refuse an engine that isn't ready.
+Switching clears the session and the model, leaves a note ("Runs on Codex
+from its next message"), and the next turn gets the recent conversation
+(`Agent.newEngine` → `with_recap`).
+
+A Codex turn is one `codex app-server` (`agents/codex_app.rs`), spoken to
+over JSON-RPC on stdin/stdout:
+
+```
+codex app-server
+  -c sandbox_workspace_write.writable_roots=[<home or project dirs>]
+  -c mcp_servers.shipstudio_agents={url=…,tool_timeout_sec=300,default_tools_approval_mode="approve"}
+  -c project_doc_fallback_filenames=["CLAUDE.md"]
+→ initialize, initialized
+→ thread/start {cwd, approvalPolicy:"on-request", sandbox:"workspace-write",
+                model, developerInstructions}    (or thread/resume {threadId, …})
+→ turn/start {threadId, input:[prompt]}
+```
+
+Its messages map onto the same `stream::Step`s as Claude Code's stream-json,
+and only those in our own thread (a sub-agent's run in threads of their own
+and stay internal): the thread id → session; `item/started agentMessage` +
+`item/agentMessage/delta` → a draft, and `item/completed agentMessage` → the
+reply in its place; other items as they start → the activity line (labelled
+as the matching Claude Code tool); `thread/tokenUsage/updated` (`last`,
+summed over the turn) → usage (tokens only: a plan reports no price;
+duration timed here); `turn/completed` → done, or the error when `failed`;
+`error` with `willRetry` → "Reconnecting to Codex". Done closes stdin, and
+the app-server exits.
+
+**Approvals.** Sandboxed commands run without asking, like Claude Code's
+`acceptEdits` edits. Anything that needs more reaches us as a request and
+becomes the same card a Claude Code call gets, through `mcp::decide`
+(one-time grant from a late Allow → "Always allow" rule → card):
+
+| Codex asks | Card as | Allow / deny |
+|---|---|---|
+| `item/commandExecution/requestApproval` (the model asked to escalate) | `Bash {command}` (shell wrapper peeled), Codex's reason under it | `accept` / `decline` |
+| `item/fileChange/requestApproval` | `Edit {file_path}` (paths from the item) | `accept` / `decline` |
+| `mcpServer/elicitation/request` with `_meta.codex_approval_kind = "mcp_tool_call"` (a write tool on the user's own MCP servers) | `mcp__<server>__<tool> {tool_params}` | `accept` / `decline` |
+| `item/permissions/requestApproval` | "Allow more access" (network, paths) | the requested profile for the turn / none |
+
+A decline carries no message, so what the agent is told ("the user said no,
+and told you: …", or "hasn't answered yet") goes as `turn/steer` just before
+it: queued on the open turn, the model reads it with the declined call's
+result (sent after, it can miss the turn). Questions (`requestUserInput`)
+and other elicitations are declined with a steer to ask in the chat;
+requests we don't handle get a JSON-RPC error rather than hanging.
+
+**Stop and ⌘Enter** send `turn/interrupt` and wait up to 3s for the turn to
+end (`interrupted`) before the process tree is stopped. Codex sends no
+completed message for a reply cut off, so the draft is kept as stopped,
+exactly as for Claude Code.
+
+**Fallback.** `codex_app::available` asks the installed Codex for its own
+protocol schema (`app-server generate-json-schema`, ~0.1s, once per binary
+until it changes) and needs every method above. Without them a turn is
+`codex exec [resume <thread id>] --json --skip-git-repo-check` with the same
+`-c` overrides plus `sandbox_mode="workspace-write"`, `approval_policy="never"`
+and `developer_instructions`: replies arrive whole, nothing can ask (exec
+forces approvals to "never"), and the prompt says so instead
+(`prompts::for_codex_exec`). Debug builds force it with
+`SHIPSTUDIO_AGENTS_CODEX_EXEC=1`.
+
+Capabilities come from what we serve it, its built-ins and `codex mcp list
+--json`, read before each turn (Codex announces no tools). Failures read as
+"Codex's usage limit is reached. It resets at 7:18 PM." (from its "try again
+at 7:18 PM", this Mac's time) and "Codex is signed out." (checked before the
+turn, which otherwise spends 20s retrying a 401), with "Sign in to Codex"
+running `codex login`. A vanished thread (`thread/resume` → "no rollout
+found") is replaced once, like a lost Claude session.
+
+What still differs from a Claude Code agent, verified on Codex 0.166:
+
+- **What asks.** Claude Code asks for every command not allowed; Codex runs
+  commands inside its sandbox (the agent's home and the user's projects, no
+  network) without asking, and only going past it asks.
+- **Memory.** `developer_instructions` is set when a thread starts; Codex
+  re-reads the project doc every turn and hands over a changed one, so an
+  unbound agent's CLAUDE.md is its project doc and memory edits reach the
+  next turn. A bound Codex agent runs in its project, whose own AGENTS.md
+  (or CLAUDE.md) loads; its identity rides in the developer instructions.
+- No Claude in Chrome; "Apps" are the MCP servers set up in Codex.
+
+Not verified against a signed-in ChatGPT account (none on the build machine):
+real model behaviour on these prompts, the real usage-limit response (its
+wording was produced by Codex itself from a scripted 429), and a real reset
+time. The e2e Codex scenarios run on the account when one is signed in.
+
 ## Search, model and usage
 
 - **Search.** In Agents mode the sidebar's top field searches conversations
@@ -642,6 +818,17 @@ schedule popover's footnote. Elsewhere than macOS none of it shows.
   note carries what you asked; once it exists the line says "Retries at …".
   "Set up Claude Code" (no Claude Code yet) runs the install terminal, then
   sign-in, and the composer unlocks when the overview says it's there.
+- **Routines' model.** The same menu says what routines run on, and changes
+  it: Automatic (Haiku while the agent is on the default model, otherwise its
+  own model), Same as its chats, or a model. A routine fires again and again,
+  usually long after the last turn (so nothing is cached either way), and
+  mostly checks things, so this is where a cheaper model saves the most.
+  Haiku is Claude Code's: a Codex agent's routines run on its own model
+  (Same as its chats) unless one of Codex's models is picked, because which
+  of Codex's models is cheaper is not something Codex says. Moving an agent
+  to another engine resets the setting along with its model.
+  One-time check-ins, including "Retry at", run on the agent's own model
+  (`store::Agent::routine_model`).
 - **Model.** Default / Opus / Sonnet / Haiku, passed as `--model` from the next
   turn. Set it when creating the agent, in the editor, or from the menu in the
   chat header. Only Claude Code's own aliases are accepted, and the backend
@@ -796,8 +983,8 @@ prunes them the diff says it can't be shown.
 
 ## Known limits / next
 
-- Claude Code only. The runner is CLI-specific in `run_turn`; Codex
-  (`codex exec --json`) and Opencode would slot in there.
+- Claude Code and Codex (see "Engines"). Opencode would slot in the same
+  way: a command line and a mapping onto `stream::Step`.
 - Search scans files on every query. Fine at one person's scale (tens of
   agents, thousands of lines); an index would be needed well past that.
 - Turns at once are scaled to RAM (3–16, `agents::capacity`); the rest wait,
@@ -830,7 +1017,7 @@ prunes them the diff says it can't be shown.
   added), process trees, share-path validation (traversal, symlinks), prompts framing, activity labels, MCP
   tool visibility, approval descriptions, import merge rules, memory parse and write-back (odd markdown included), the retry schedule and run settling, broker admission and the init check, memory-scaled slots.
 - `pnpm vitest run src/lib/agents.test.ts`: chat grouping, dividers, ordering.
-- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e.rs` drives the real
+- `scripts/agents-e2e.sh [scenario…]` (opt-in, real turns, on Haiku): `src-tauri/examples/agents_e2e/main.rs` drives the real
   runner, store, bridge and MCP tools through the same Tauri commands the UI
   calls, on `claude --model haiku`, in a throwaway HOME (only the keychain is
   linked, for sign-in). Scenarios: memory across turns, quit mid-turn and
@@ -849,5 +1036,34 @@ prunes them the diff says it can't be shown.
   summarises on Haiku, and approval requests from no live turn are refused
   without a card). `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS` shortens the 240s
   approval wait in debug builds only. `AGENTS_E2E_KEEP=1` keeps the HOME.
+- `cargo test --lib agents::tray agents::quick_entry`: the menu model (sections, order, labels, caps, hidden agents), the quit check, both icons decode, shortcut parsing, labels and conflicts.
+- `pnpm vitest run src/lib/agentsDesktop.test.ts src/components/QuitConfirmModal.test.tsx`: the quit dialog's wording and defaults, shortcut recording, quick entry's recipient.
+- `node scripts/harness-capture.mjs agents-quit` / `agents-quick-entry` / `agents-desktop`: the quit guard, quick entry's composer (`root: 'quick-entry'`), and its settings.
+- Codex: `scripts/agents-e2e.sh codex-memory codex-stop codex-delegation
+  codex-approvals` runs those scenarios on Codex. With Codex signed in they
+  use the account (its `auth.json` copied into a throwaway `CODEX_HOME`);
+  otherwise the real `codex` binary talks to a scripted Responses endpoint
+  (`scripts/agents-e2e-codex-model.py`, passed in through the debug-only
+  `SHIPSTUDIO_AGENTS_CODEX_CONFIG`), which proves resume, streaming drafts
+  kept on Stop/interrupt, delegation through the bridge, and the approval
+  round-trip (Allow, Deny with a note the model reads, late Allow, Always
+  allow) for an escalated command, not a model's judgement.
+  `AGENTS_E2E_CODEX=real|scripted|skip` forces one;
+  `SHIPSTUDIO_AGENTS_CODEX_EXEC=1` runs them on the `exec` fallback.
+- `scripts/agents-e2e.sh behaviour` (opt-in, about $1.50 for three runs):
+  `examples/agents_e2e/behaviour.rs` checks behaviour rather than plumbing,
+  each scenario in its own HOME, several runs, with pass rates per check:
+  the Chief delegates work that belongs to a specialist (named or not) and
+  answers trivial questions itself; one brief and no chatter between agents;
+  the Chief reports back unprompted; reminders and "in two hours, tell me"
+  get a check-in; no promise of a later update without a check-in or an
+  answer actually arriving; every message gets a visible reply; a
+  correction is fixed without apology; "ask before sending email" holds
+  across turns and sending happens on yes; a fresh Chief offers a daily brief
+  and sets it up only on yes; a blocked delegate's blocker reaches the user.
+  It prints tokens (the CLI's own), cost, time to first word, and where turn
+  time goes (`agents::timing`: our prep, CLI start-up, tail after the
+  result). `AGENTS_E2E_RUNS`, `AGENTS_E2E_JOBS`, `AGENTS_E2E_ONLY`,
+  `AGENTS_E2E_OUT=<file.json>`.
 - `node scripts/harness-capture.mjs agents-`: memory (`agents-memory`, `agents-memory-edit`, `agents-remember`), a routine's past runs and a pending retry (`agents-schedule-history`), project binding (`agents-project-*`), Chief audit (`agents-chief-audit`), brief in progress, team, What's in flight (`agents-team-overview`, via ⌘K), @mention menu, approval, secure input (`agents-secret-*`, `agents-secrets-editor`), first run (keep-awake off and on), new
-  agent, import, Claude Code missing.
+  agent, import, Claude Code missing, the engine picker (`agents-engine-picker`) and a Codex agent's chat (`agents-codex-chat`).

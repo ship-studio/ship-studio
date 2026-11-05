@@ -24,7 +24,6 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
 import { useIntegrationStatus } from './hooks/useIntegrationStatus';
@@ -81,7 +80,9 @@ import {
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
 import { useKeepDevServersRunning } from './hooks/useKeepDevServersRunning';
 import { useDevServerRetention } from './hooks/useDevServerRetention';
-import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
+import { installAppLifecycleTracking } from './lib/appLifecycle';
+import { useQuitGuard } from './hooks/useQuitGuard';
+import { useStayOn } from './hooks/useStayOn';
 import type { AppView } from './lib/types';
 import './styles/index.css';
 
@@ -182,7 +183,8 @@ function AppContents({ initialProjectPath }: AppProps) {
     return installAppLifecycleTracking();
   }, []);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
-  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const quitGuard = useQuitGuard();
+  const { state: stayOn } = useStayOn();
   const previewRef = useRef<import('./components/preview/Preview').PreviewHandle | null>(null);
   const currentProjectPathRef = useRef<string | null>(null);
 
@@ -237,16 +239,6 @@ function AppContents({ initialProjectPath }: AppProps) {
       );
     }
   }, [allSessions]);
-
-  // Listen for Cmd+Q quit confirmation from native menu
-  useEffect(() => {
-    const unlisten = listen('confirm-quit', () => {
-      setShowQuitConfirm(true);
-    });
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
-  }, []);
 
   // Dev server and health check management
   const {
@@ -1224,10 +1216,14 @@ function AppContents({ initialProjectPath }: AppProps) {
     ]
   );
 
-  const quitConfirmModal = showQuitConfirm && (
+  // ⌘Q, the menu bar's Quit, the palette: guarded while agents work (useQuitGuard).
+  const quitConfirmModal = quitGuard.asking && (
     <QuitConfirmModal
-      onCancel={() => setShowQuitConfirm(false)}
-      onQuit={() => void quitAppWithTracking()}
+      check={quitGuard.asking.check}
+      backgroundAvailable={stayOn?.supported === true}
+      onCancel={quitGuard.cancel}
+      onQuit={quitGuard.quit}
+      onKeepRunning={quitGuard.keepRunning}
     />
   );
 

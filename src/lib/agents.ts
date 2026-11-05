@@ -50,8 +50,12 @@ export interface Agent {
   unread: number;
   /** Approval cards still waiting on the user, including ones the agent paused on. */
   pendingApprovals: number;
-  /** `--model`; null is Claude Code's default. */
+  /** What its turns run on; mirrors `engine::Engine`. */
+  engine: AgentEngine;
+  /** One of its engine's models; null is that engine's default. */
   model: string | null;
+  /** What its routines run on (see `routineModelOf`); omitted when automatic. */
+  routineModel?: string;
   /** No OS notifications; unread and the Dock badge still count it. */
   muted: boolean;
   /** Omitted by the backend when there are none. */
@@ -136,9 +140,28 @@ export interface SchedulePreview {
   repeat: Repeat | null;
 }
 
+export type AgentEngine = 'claude' | 'codex';
+
+export interface ModelChoice {
+  value: string;
+  label: string;
+}
+
+/** Mirrors `engine::EngineInfo`: an engine an agent can run on, as found on this Mac. */
+export interface EngineInfo {
+  id: AgentEngine;
+  label: string;
+  installed: boolean;
+  signedIn: boolean;
+  /** The engine's own models, without Default. */
+  models: ModelChoice[];
+}
+
 export interface AgentsOverview {
   agents: Agent[];
+  /** Claude Code is installed (the default engine). */
   engineReady: boolean;
+  engines: EngineInfo[];
 }
 
 export type MessageKind =
@@ -397,6 +420,7 @@ export interface NewAgentInput {
   color?: string;
   role?: string;
   instructions?: string;
+  engine?: AgentEngine;
   model?: string;
   /** A project path from `list_projects`. */
   project?: string;
@@ -411,8 +435,12 @@ export interface UpdateAgentInput {
   pinned?: boolean;
   hidden?: boolean;
   muted?: boolean;
-  /** An alias from AGENT_MODELS, or '' for Claude Code's default. */
+  /** Switches from its next turn; the model resets unless one is given too. */
+  engine?: AgentEngine;
+  /** One of its engine's models, or '' for that engine's default. */
   model?: string;
+  /** '' automatic, 'same' (its own model), or one of its engine's models. */
+  routineModel?: string;
   /** A project path from `list_projects`, or '' to unbind it. */
   project?: string;
 }
@@ -428,8 +456,75 @@ export const AGENT_MODELS = [
   { value: 'haiku', label: 'Haiku' },
 ] as const;
 
-export function modelLabel(model: string | null): string {
-  return AGENT_MODELS.find((m) => m.value === (model ?? ''))?.label ?? model ?? 'Default';
+export const ENGINE_LABEL: Record<AgentEngine, string> = { claude: 'Claude Code', codex: 'Codex' };
+
+/** Default first, then the engine's own models (Claude Code's aliases until the overview says). */
+export function modelChoices(engine: AgentEngine, engines: EngineInfo[]): readonly ModelChoice[] {
+  const listed = engines.find((e) => e.id === engine)?.models;
+  if (engine === 'claude' && !listed?.length) return AGENT_MODELS;
+  return [AGENT_MODELS[0], ...(listed ?? [])];
+}
+
+export function modelLabel(
+  model: string | null,
+  choices: readonly ModelChoice[] = AGENT_MODELS
+): string {
+  return choices.find((m) => m.value === (model ?? ''))?.label ?? model ?? 'Default';
+}
+
+/**
+ * Whether an agent on this engine can be sent a message. Claude Code counts
+ * once installed (a signed-out turn says so in the chat); Codex once its own
+ * `login status` says it's signed in too.
+ */
+export function engineIsReady(
+  engine: AgentEngine,
+  engines: EngineInfo[],
+  claudeInstalled: boolean
+): boolean {
+  if (engine === 'claude') return claudeInstalled;
+  const info = engines.find((e) => e.id === engine);
+  return Boolean(info?.installed && info.signedIn);
+}
+
+/** The engines that can take an agent right now, plus the one it's already on. */
+export function engineOptions(engines: EngineInfo[], current: AgentEngine): EngineInfo[] {
+  return engines.filter((e) => (e.installed && e.signedIn) || e.id === current);
+}
+
+export interface RoutineModelChoice extends ModelChoice {
+  hint: string | null;
+}
+
+/**
+ * Choices for what an agent's routines run on. Must match `routine_model` in
+ * store.rs. Haiku is Claude Code's: a Codex agent's routines run on its own
+ * model unless one of Codex's is picked (which is cheaper isn't something
+ * Codex says, so nothing is picked for the user).
+ */
+export function routineModelChoices(
+  engine: AgentEngine,
+  choices: readonly ModelChoice[]
+): RoutineModelChoice[] {
+  const models = choices.filter((m) => m.value).map((m) => ({ ...m, hint: null }));
+  if (engine === 'codex') {
+    return [{ value: '', label: 'Same as its chats', hint: null }, ...models];
+  }
+  return [
+    { value: '', label: 'Automatic', hint: 'Haiku unless the agent has its own model' },
+    { value: 'same', label: 'Same as its chats', hint: null },
+    ...models,
+  ];
+}
+
+/** The model a routine wakes the agent on, as `Agent::routine_model` resolves it. */
+export function routineModelOf(
+  agent: Pick<Agent, 'engine' | 'model' | 'routineModel'>
+): string | null {
+  const setting = agent.routineModel ?? '';
+  if (setting === '' && agent.engine !== 'codex') return agent.model ?? 'haiku';
+  if (setting === '' || setting === 'same') return agent.model;
+  return setting;
 }
 
 export interface SearchHit {

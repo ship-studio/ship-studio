@@ -198,6 +198,26 @@ pub async fn close_to_background(window: tauri::WebviewWindow) -> Result<bool, C
     if !keep_running_when_closed() {
         return Ok(false);
     }
+    hide_to_background(&window).await?;
+    Ok(true)
+}
+
+/// The quit dialog's "Keep running in background": hide every window, as a
+/// close would with "Keep running when closed" on. The Dock icon (or the
+/// menu-bar icon) brings them back.
+pub async fn hide_all_to_background(app: &tauri::AppHandle) -> Result<(), CommandError> {
+    use tauri::Manager;
+    for window in app.webview_windows().into_values() {
+        if window.label() != crate::agents::quick_entry::LABEL
+            && window.is_visible().unwrap_or(false)
+        {
+            hide_to_background(&window).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn hide_to_background(window: &tauri::WebviewWindow) -> Result<(), CommandError> {
     let label = window.label().to_string();
     {
         let mut hidden = HIDDEN_BY_CLOSE.lock().unwrap_or_else(|e| e.into_inner());
@@ -217,7 +237,7 @@ pub async fn close_to_background(window: tauri::WebviewWindow) -> Result<bool, C
         .hide()
         .map_err(|e| format!("Failed to hide window: {e}"))?;
     tracing::info!("Window {} hidden; Ship Studio keeps running", label);
-    Ok(true)
+    Ok(())
 }
 
 /// The Dock icon was clicked with nothing on screen: bring back what a close
@@ -236,7 +256,11 @@ pub fn reopen_hidden_windows(app: &tauri::AppHandle) {
         }
     }
     if !shown {
-        if let Some(w) = windows.get("main").or_else(|| windows.values().next()) {
+        if let Some(w) = windows.get("main").or_else(|| {
+            windows
+                .values()
+                .find(|w| w.label() != crate::agents::quick_entry::LABEL)
+        }) {
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();

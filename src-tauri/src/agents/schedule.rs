@@ -1109,7 +1109,11 @@ where
             .map_or(firing.check_in.next_at, |r| r.due_at),
         manual: firing.manual,
     });
-    runner::enqueue(app, &firing.agent_id, prompt, runner::From::User);
+    if firing.check_in.repeat.is_some() {
+        runner::enqueue_routine(app, &firing.agent_id, prompt);
+    } else {
+        runner::enqueue(app, &firing.agent_id, prompt, runner::From::User);
+    }
     runner::record(app, line).map(|_| ())
 }
 
@@ -1491,7 +1495,10 @@ mod tests {
             preview: None,
             unread: 0,
             pending_approvals: 0,
+            engine: Default::default(),
             model: None,
+            new_engine: false,
+            routine_model: None,
             muted: false,
             check_ins,
             usage: Default::default(),
