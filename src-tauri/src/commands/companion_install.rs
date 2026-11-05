@@ -6,7 +6,7 @@
 //! only command that acts is `companion_install_ios_launch`, which opens the
 //! already-installed app on the phone, and the expiry reminder.
 //!
-//! Design: docs/mobile.md, "Route 2".
+//! Design: docs/mobile.md, "Installing the app".
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};

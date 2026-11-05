@@ -2,7 +2,7 @@ import type { ExpoConfig } from 'expo/config';
 
 /**
  * Official builds set all three in EAS; forks and self-builds set their own
- * (docs/mobile.md, "Forks and self-builds"). With no EAS_PROJECT_ID, OTA
+ * (docs/mobile.md, "Installing the app"). With no EAS_PROJECT_ID, OTA
  * updates are off, so an official update can never land on a fork's binary.
  */
 const projectId = process.env.EAS_PROJECT_ID;

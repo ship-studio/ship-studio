@@ -223,7 +223,7 @@ export function activityLine(a: PhoneActivity, now: number): string {
 
 /**
  * What a paired phone can and can't do here, from the methods this Mac
- * serves. "Can't" is fixed by design (docs/mobile.md, Non-goals), plus
+ * serves. "Can't" is fixed by design (docs/mobile.md, "Principles"), plus
  * anything the Mac doesn't serve yet.
  */
 export function phoneCapabilities(methods: string[]): { can: string[]; cannot: string[] } {

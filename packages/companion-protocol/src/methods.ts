@@ -61,7 +61,8 @@ export interface Methods {
   /**
    * `agents_messages`, plus `before` for scrollback (a message id: the page
    * ending just before it). `asOf` is the event cursor at the moment of the
-   * read; see "Resync" in docs/mobile.md for why the merge needs it.
+   * read; see "Events, cursors and resync" in docs/mobile.md for why the
+   * merge needs it.
    */
   'agents.messages': {
     params: { agentId: string; limit?: number; before?: string };
