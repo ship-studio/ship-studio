@@ -16,14 +16,21 @@
  * @module components/agents/AgentsSidebar
  */
 
-import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
+import {
+  memo,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from 'react';
 import { AddIcon, BellOffIcon, ChevronRightIcon, DownloadIcon, PinIcon } from '@/components/icons';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../primitives/ContextMenu';
 import { Button } from '../primitives/Button';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsSearchResults } from './AgentsSearchResults';
-import { ImportNudge } from './ImportNudge';
+import { ImportNudge, useImportNudge } from './ImportNudge';
 import { AgentMark } from './AgentSwitcher';
 import { useFlipReorder } from './useAgentMotion';
 import {
@@ -36,8 +43,10 @@ import {
 } from '../../lib/agents';
 import { kbd } from '../../lib/shortcuts';
 
-interface AgentsSidebarProps extends AgentActions {
+interface AgentsSidebarProps {
   agents: Agent[];
+  /** Stable across renders, so an event re-renders only the row it changed. */
+  actions: AgentActions;
   selectedId: string | null;
   showHidden: boolean;
   onToggleShowHidden: () => void;
@@ -130,12 +139,17 @@ export function AgentsSidebar({
   searchRef,
   onOpenHit,
   currentHit,
-  ...actions
+  actions,
 }: AgentsSidebarProps) {
   const searching = query.trim().length > 0;
-  const sorted = sortAgents(agents);
-  const visible = sorted.filter((a) => !a.hidden || a.id === selectedId);
-  const hidden = sorted.filter((a) => a.hidden && a.id !== selectedId);
+  const nudge = useImportNudge(agents.length);
+  const { visible, hidden } = useMemo(() => {
+    const sorted = sortAgents(agents);
+    return {
+      visible: sorted.filter((a) => !a.hidden || a.id === selectedId),
+      hidden: sorted.filter((a) => a.hidden && a.id !== selectedId),
+    };
+  }, [agents, selectedId]);
   // An agent that just did something slides to the top instead of jumping.
   const listRef = useRef<HTMLDivElement>(null);
   const shown = showHidden ? [...visible, ...hidden] : visible;
@@ -144,49 +158,16 @@ export function AgentsSidebar({
   // The one row in the Tab order: the open one, else the first.
   const tabStop = shown.some((a) => a.id === selectedId) ? selectedId : shown[0]?.id;
 
-  const row = (agent: Agent) => {
-    const current = agent.id === selectedId;
-    return (
-      <ContextMenu key={agent.id}>
-        <ContextMenuTrigger asChild>
-          {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
-          <button
-            type="button"
-            tabIndex={agent.id === tabStop ? 0 : -1}
-            className={`agents-list__row${current ? ' is-current' : ''}`}
-            data-agent-id={agent.id}
-            data-hidden={agent.hidden || undefined}
-            aria-current={current ? 'true' : undefined}
-            onPointerEnter={tooltipIfTruncated}
-            onClick={() => onSelect(agent.id)}
-          >
-            <AgentAvatar name={agent.name} color={agent.color} selected={current} />
-            <span className="agents-list__text">
-              <span className="agents-list__name">
-                <span className="agents-list__name-text">{agent.name}</span>
-                {agent.pinned && (
-                  <PinIcon size={12} className="agents-list__pin" aria-label="Pinned" />
-                )}
-                {agent.muted && (
-                  <BellOffIcon size={12} className="agents-list__pin" aria-label="Muted" />
-                )}
-              </span>
-              <span className="agents-list__preview" data-state={lineState(agent)}>
-                {subtitle(agent)}
-              </span>
-            </span>
-            <span className="agents-list__status">
-              {/* Read already when it's the one open: no unread dot for it. */}
-              <AgentMark agent={current ? { ...agent, unread: 0 } : agent} />
-            </span>
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
-          <AgentActionItems agent={agent} kind="context" {...actions} />
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  };
+  const row = (agent: Agent) => (
+    <AgentRow
+      key={agent.id}
+      agent={agent}
+      current={agent.id === selectedId}
+      tabStop={agent.id === tabStop}
+      onSelect={onSelect}
+      actions={actions}
+    />
+  );
 
   return (
     <div
@@ -219,7 +200,7 @@ export function AgentsSidebar({
             </button>
           )}
           {showHidden && hidden.map(row)}
-          <ImportNudge agentCount={agents.length} onImport={onImport} />
+          {nudge.visible && <ImportNudge onImport={onImport} onDismiss={nudge.dismiss} />}
           <div className="workspace-sidebar-active-actions">
             <Button
               variant="ghost"
@@ -231,20 +212,79 @@ export function AgentsSidebar({
               <AddIcon size={16} />
               <span>New agent</span>
             </Button>
-            {/* Always here, not only on first run: people decide to bring their
-                agents over after they've tried it. */}
-            <Button
-              variant="ghost"
-              width="fill"
-              className="workspace-sidebar-add-project"
-              onClick={onImport}
-            >
-              <DownloadIcon size={16} />
-              <span>Import agents</span>
-            </Button>
+            {/* Here for good once the note above is gone: people decide to
+                bring their agents over after they've tried it. While the note
+                shows, it is the way in, and a second button would only echo it. */}
+            {!nudge.visible && (
+              <Button
+                variant="ghost"
+                width="fill"
+                className="workspace-sidebar-add-project"
+                onClick={onImport}
+              >
+                <DownloadIcon size={16} />
+                <span>Import agents</span>
+              </Button>
+            )}
           </div>
         </>
       )}
     </div>
   );
 }
+
+/** One agent's row, memoised: a status event re-renders the row it changed, not all of them. */
+const AgentRow = memo(function AgentRow({
+  agent,
+  current,
+  tabStop,
+  onSelect,
+  actions,
+}: {
+  agent: Agent;
+  current: boolean;
+  tabStop: boolean;
+  onSelect: (agentId: string) => void;
+  actions: AgentActions;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
+        <button
+          type="button"
+          tabIndex={tabStop ? 0 : -1}
+          className={`agents-list__row${current ? ' is-current' : ''}`}
+          data-agent-id={agent.id}
+          data-hidden={agent.hidden || undefined}
+          aria-current={current ? 'true' : undefined}
+          onPointerEnter={tooltipIfTruncated}
+          onClick={() => onSelect(agent.id)}
+        >
+          <AgentAvatar name={agent.name} color={agent.color} selected={current} />
+          <span className="agents-list__text">
+            <span className="agents-list__name">
+              <span className="agents-list__name-text">{agent.name}</span>
+              {agent.pinned && (
+                <PinIcon size={12} className="agents-list__pin" aria-label="Pinned" />
+              )}
+              {agent.muted && (
+                <BellOffIcon size={12} className="agents-list__pin" aria-label="Muted" />
+              )}
+            </span>
+            <span className="agents-list__preview" data-state={lineState(agent)}>
+              {subtitle(agent)}
+            </span>
+          </span>
+          <span className="agents-list__status">
+            {/* Read already when it's the one open: no unread dot for it. */}
+            <AgentMark agent={current ? { ...agent, unread: 0 } : agent} />
+          </span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent aria-label={`Actions for ${agent.name}`}>
+        <AgentActionItems agent={agent} kind="context" {...actions} />
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+});

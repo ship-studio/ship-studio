@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::engine::Engine;
 use super::prompts::SERVER_KEY;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -29,9 +30,10 @@ pub struct Line {
     pub detail: String,
 }
 
-struct Server {
-    name: String,
-    connected: bool,
+pub struct Server {
+    pub name: String,
+    /// Claude Code: its init says "connected". Codex: not reported as needing sign-in.
+    pub connected: bool,
 }
 
 const CHROME: &str = "claude-in-chrome";
@@ -71,11 +73,13 @@ pub fn from_init(event: &Value, now: i64) -> Option<Capabilities> {
         .unwrap_or_default();
     Some(Capabilities {
         seen_at: now,
-        lines: lines(&tools, &servers),
+        lines: lines(Engine::Claude, &tools, &servers),
     })
 }
 
-fn lines(tools: &[&str], servers: &[Server]) -> Vec<Line> {
+/// The lines, from the tool ids the session has (Claude Code's names; Codex's
+/// built-ins are given as the ones they correspond to) and its MCP servers.
+pub fn lines(engine: Engine, tools: &[&str], servers: &[Server]) -> Vec<Line> {
     let ours = |name: &str| tools.contains(&format!("mcp__{SERVER_KEY}__{name}").as_str());
     let has = |name: &str| tools.contains(&name);
     let mut out = Vec::new();
@@ -142,6 +146,10 @@ fn lines(tools: &[&str], servers: &[Server]) -> Vec<Line> {
         if let Some(first) = detail.get(..1) {
             detail = first.to_uppercase() + &detail[1..];
         }
+        if engine == Engine::Codex {
+            // Codex's sandbox, as Ship Studio starts it (see `codex`).
+            detail.push_str(", in Codex's sandbox: your projects and its own folder, with no network for commands");
+        }
         push("On this Mac", format!("{detail}."));
     }
     let others = |connected: bool| -> Vec<&str> {
@@ -161,8 +169,9 @@ fn lines(tools: &[&str], servers: &[Server]) -> Vec<Line> {
         push(
             "Needs sign-in",
             format!(
-                "{}. Connect them in Claude Code to use them here.",
-                join(&signed_out)
+                "{}. Connect them in {} to use them here.",
+                join(&signed_out),
+                engine.label()
             ),
         );
     }
@@ -178,7 +187,7 @@ fn join(items: &[&str]) -> String {
 }
 
 /// The prompt section, or nothing before the agent's first turn has said.
-pub fn prompt_section(caps: Option<&Capabilities>) -> Option<String> {
+pub fn prompt_section(caps: Option<&Capabilities>, engine: Engine) -> Option<String> {
     let caps = caps.filter(|c| !c.lines.is_empty())?;
     let lines: Vec<String> = caps
         .lines
@@ -186,9 +195,10 @@ pub fn prompt_section(caps: Option<&Capabilities>) -> Option<String> {
         .map(|l| format!("- {}: {}", l.what, l.detail))
         .collect();
     Some(format!(
-        "## What you can do here\n\nAs of your last turn (Claude Code's own list):\n\n{}\n\n\
+        "## What you can do here\n\nAs of your last turn ({}'s own list):\n\n{}\n\n\
 Use these when they serve what the user asked, within the approval rules. Don't \
 claim anything that isn't listed; if something needs sign-in, say so.",
+        engine.label(),
         lines.join("\n")
     ))
 }
@@ -264,9 +274,9 @@ mod tests {
     #[test]
     fn only_init_events_count_and_the_prompt_waits_for_one() {
         assert!(from_init(&json!({ "type": "system", "subtype": "status" }), 0).is_none());
-        assert!(prompt_section(None).is_none());
+        assert!(prompt_section(None, Engine::Claude).is_none());
         let caps = from_init(&init(), 0).unwrap();
-        let section = prompt_section(Some(&caps)).unwrap();
+        let section = prompt_section(Some(&caps), Engine::Claude).unwrap();
         assert!(section.contains("- Chrome: Browse in your Chrome"));
     }
 

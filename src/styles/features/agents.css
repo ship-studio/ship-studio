@@ -486,6 +486,19 @@
   margin-top: var(--spacing-lg);
 }
 
+/* Quiet centred lines (notes, delegations, check-ins) are one run: they sit
+   apart from the conversation, and xs apart from each other. */
+.agent-chat__messages > * + :is(.agent-note, .agent-peer, .agent-checkin),
+.agent-chat__messages > :is(.agent-note, .agent-peer, .agent-checkin) + * {
+  margin-top: var(--spacing-xl);
+}
+
+.agent-chat__messages
+  > :is(.agent-note, .agent-peer, .agent-checkin)
+  + :is(.agent-note, .agent-peer, .agent-checkin) {
+  margin-top: var(--spacing-xs);
+}
+
 .agent-chat__empty {
   display: flex;
   flex: 1;
@@ -1072,6 +1085,25 @@
   gap: var(--spacing-sm);
 }
 
+/* A session's question: whose session asked, under the question. */
+.agent-approval__source {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+/* The session's own extra choices wrap ahead of Deny / Allow. */
+.agent-approval__actions[data-wrap] {
+  flex-wrap: wrap;
+}
+
+.agent-approval__choice {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+}
+
 .agent-approval__outcome {
   font-size: var(--font-size-body-sm);
   color: var(--text-muted);
@@ -1535,66 +1567,6 @@
   color: var(--text-muted);
 }
 
-.modal-frame-content.agents-import {
-  width: min(520px, 90vw);
-}
-
-.agents-import__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
-  font-size: var(--font-size-body-lg);
-  line-height: var(--line-height-help);
-  color: var(--text-secondary);
-}
-
-.agents-import__body p {
-  margin: 0;
-}
-
-.agents-import__steps {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  margin: 0;
-  padding-left: var(--spacing-xl);
-}
-
-.agents-import__steps li {
-  padding-left: var(--spacing-xs);
-}
-
-.agents-import__step {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-}
-
-.agents-import__prompt {
-  margin: 0;
-  padding: var(--spacing-md);
-  font-size: var(--font-size-body-lg);
-  line-height: var(--line-height-help);
-  color: var(--text-primary);
-  background: var(--surface-recessed);
-  border: var(--border-width-default) solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  user-select: text;
-}
-
-.agents-import__note {
-  font-size: var(--font-size-body-md);
-  color: var(--text-muted);
-}
-
-.agents-import__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-}
-
 /* ---------------------------------------------------------------- apps */
 
 .agent-editor__apps {
@@ -1749,160 +1721,6 @@
   margin: 0 0 var(--spacing-sm);
   font-size: var(--font-size-body-md);
   color: var(--text-secondary);
-}
-
-/* Paste / Connected assistant: an underline pair under the title, the
-   divider doubling as the header's bottom edge. */
-.agents-import__tabs {
-  display: flex;
-  width: 100%;
-  padding: 0 var(--spacing-xl);
-  border-bottom: var(--border-width-default) solid var(--border-subtle);
-}
-
-/* The paste prompt is long; it scrolls in place so the steps stay in view. */
-.agents-import__prompt--long {
-  margin-top: var(--spacing-sm);
-  max-height: calc(var(--font-size-body-md) * var(--line-height-help) * 7);
-  overflow-y: auto;
-  font-size: var(--font-size-body-md);
-  white-space: pre-wrap;
-  color: var(--text-secondary);
-}
-
-.agents-import__step-label {
-  display: block;
-  margin-bottom: var(--spacing-sm);
-}
-
-.agents-import__paste {
-  width: 100%;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-body-sm);
-  resize: vertical;
-}
-
-.agents-import__preview {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.agents-import__found {
-  font-size: var(--font-size-body-md);
-  color: var(--text-muted);
-}
-
-.agents-import__list {
-  display: flex;
-  flex-direction: column;
-  /* About three rows; a long team scrolls inside the list, not the dialog. */
-  max-height: calc(var(--spacing-xl) * 9);
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-  background: var(--surface-recessed);
-  border: var(--border-width-default) solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.agents-import__agent {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-md);
-}
-
-.agents-import__agent + .agents-import__agent {
-  border-top: var(--border-width-default) solid var(--border-subtle);
-}
-
-.agents-import__agent-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.agents-import__agent-name {
-  color: var(--text-primary);
-}
-
-.agents-import__agent-role,
-.agents-import__agent-detail {
-  overflow: hidden;
-  font-size: var(--font-size-body-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Counts, not prose: wrap rather than cut off the routine count. */
-.agents-import__agent-detail {
-  color: var(--text-muted);
-  white-space: normal;
-}
-
-.agents-import__routines {
-  display: flex;
-  flex-direction: column;
-  margin: var(--spacing-xs) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.agents-import__routine {
-  overflow: hidden;
-  font-size: var(--font-size-body-sm);
-  color: var(--text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Wraps: the phrase and the reason are the whole point of showing it. */
-.agents-import__routine[data-refused] {
-  color: var(--warning);
-  white-space: normal;
-}
-
-.agents-import__done p {
-  margin: 0;
-}
-
-.agents-import__done {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.agents-import__tag {
-  flex-shrink: 0;
-  font-size: var(--font-size-body-sm);
-  color: var(--text-muted);
-}
-
-.agents-import__tag[data-main] {
-  color: var(--text-primary);
-}
-
-.agents-import__problems,
-.agents-import__error {
-  font-size: var(--font-size-body-md);
-  color: var(--accent-error-light);
-}
-
-/* Only the heading is red; the reasons read as instructions, not alarms. */
-.agents-import__problems ul {
-  color: var(--text-secondary);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  margin: var(--spacing-xs) 0 0;
-  padding-left: var(--spacing-xl);
-}
-
-.agents-import__done {
-  color: var(--text-primary);
 }
 
 /* -------------------------------------------------------------- search */
@@ -2115,6 +1933,13 @@
 /* Model menu: plain text, a check on the current choice in a fixed column. */
 .agent-model-menu .agent-model-menu__label {
   flex: 1;
+}
+
+.agent-model-menu .agent-model-menu__heading {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
 }
 
 .agent-model-menu .agent-model-menu__check,

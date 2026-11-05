@@ -20,7 +20,8 @@ const tomorrowAt = (hour: number, minute = 0) => {
   return d.getTime();
 };
 
-const IMPORT_STARTER = '.agent-chat__starters > button:last-child';
+/** The first-run way into import: the sidebar note's link, or with no sidebar the Chief's starter. */
+const IMPORT_STARTER = '.agents-import-nudge__action, .agent-chat__starters > button:last-child';
 
 /** A reply Grok Bot might paste back: prose around two numbered blocks. */
 const PASTED_REPLY = [
@@ -37,18 +38,46 @@ const PASTED_REPLY = [
   '```',
 ].join('\n');
 
+type PreviewRoutine = { when: string; what: string; schedule?: string; refused?: string };
+
+/** One agent as `agents_import_paste_preview` describes it. */
+const previewAgent = (
+  name: string,
+  role: string,
+  color: string,
+  routines: PreviewRoutine[] = [],
+  over: { isMain?: boolean; existing?: boolean; memory?: string[]; instructions?: string } = {}
+) => {
+  const instructions =
+    over.instructions ??
+    `You are my ${name.toLowerCase()} agent. ${role}.\n\nKeep replies short, ask before spending money or sending anything on my behalf, and tell me when something needs a decision.`;
+  const memory = over.memory ?? [
+    'Prefers mornings for anything that needs focus',
+    'Lives in Lisbon',
+  ];
+  return {
+    name,
+    role,
+    isMain: over.isMain ?? false,
+    existing: over.existing ?? false,
+    instructionsChars: instructions.length,
+    memoryLines: memory.length,
+    routines,
+    color,
+    instructions,
+    memory,
+  };
+};
+
 const PASTE_PREVIEW = {
   source: 'Grok Bot',
   blocks: 2,
   agents: [
-    {
-      name: 'Chief',
-      role: 'Runs my week and keeps the others on track',
-      isMain: true,
-      existing: false,
-      instructionsChars: 2140,
-      memoryLines: 18,
-      routines: [
+    previewAgent(
+      'Chief',
+      'Runs my week and keeps the others on track',
+      'white',
+      [
         {
           when: 'every weekday at 8am',
           what: 'Brief me on the day.',
@@ -60,43 +89,109 @@ const PASTE_PREVIEW = {
           schedule: 'every Sunday at 18:00',
         },
       ],
-    },
-    {
-      name: 'Finance',
-      role: 'Tracks spending, invoices and rent',
-      isMain: false,
-      existing: true,
-      instructionsChars: 1312,
-      memoryLines: 9,
-      routines: [
+      {
+        isMain: true,
+        memory: [
+          'Week starts Monday; protect Friday afternoons',
+          'Partner is Ana; her birthday is 12 March',
+          'Hates long meeting invites without an agenda',
+        ],
+      }
+    ),
+    previewAgent(
+      'Finance',
+      'Tracks spending, invoices and rent',
+      'teal',
+      [
         {
           when: 'whenever rent is due',
           what: 'Remind me to pay rent.',
           refused: 'Give it a day and a time.',
         },
       ],
-    },
-    {
-      name: 'Travel',
-      role: 'Books flights and hotels within my rules',
-      isMain: false,
-      existing: false,
-      instructionsChars: 864,
-      memoryLines: 6,
-      routines: [] as { when: string; what: string; schedule?: string; refused?: string }[],
-    },
-    {
-      name: 'Inbox',
-      role: 'Triages email and drafts replies for me to send',
-      isMain: false,
-      existing: false,
-      instructionsChars: 1027,
-      memoryLines: 0,
-      routines: [{ when: 'every 2 hours', what: 'Triage new email.', schedule: 'every 2 hours' }],
-    },
+      { existing: true }
+    ),
+    previewAgent('Travel', 'Books flights and hotels within my rules', 'blue'),
+    previewAgent(
+      'Inbox',
+      'Triages email and drafts replies for me to send',
+      'orange',
+      [{ when: 'every 2 hours', what: 'Triage new email.', schedule: 'every 2 hours' }],
+      { memory: [] }
+    ),
   ],
   problems: [] as string[],
 };
+
+/** A big team: twelve agents, most with routines, two that can't be set. */
+const LONG_PREVIEW = {
+  source: 'Grok Bot',
+  blocks: 3,
+  agents: [
+    PASTE_PREVIEW.agents[0],
+    PASTE_PREVIEW.agents[1],
+    ...(
+      [
+        ['Travel', 'Books flights and hotels within my rules', 'blue'],
+        ['Inbox', 'Triages email and drafts replies for me to send', 'orange'],
+        ['Health', 'Keeps my training plan and appointments', 'green'],
+        ['Research', 'Digs into anything I ask and cites sources', 'purple'],
+        ['Home', 'Bills, repairs and the cleaner’s schedule', 'brown'],
+        ['Writing', 'Edits drafts in my voice', 'pink'],
+        ['Investor Updates', 'Drafts the monthly update from the metrics', 'amber'],
+        ['Hiring', 'Screens candidates and books interviews', 'red'],
+        ['Reading List', 'Saves and summarises long reads for the weekend', 'gray'],
+        ['Family', 'Birthdays, school dates and gifts', 'teal'],
+      ] as const
+    ).map(([name, role, color], i) =>
+      previewAgent(
+        name,
+        role,
+        color,
+        i % 3 === 2
+          ? [
+              {
+                when: 'when it feels right',
+                what: 'Check in.',
+                refused: 'Give it a day and a time.',
+              },
+            ]
+          : [
+              {
+                when: 'every friday at 5pm',
+                what: 'Weekly recap.',
+                schedule: 'every Friday at 17:00',
+              },
+            ]
+      )
+    ),
+  ],
+  problems: [] as string[],
+};
+
+const IMPORTED = {
+  created: ['Travel', 'Inbox'],
+  updated: ['Chief of Staff', 'Finance'],
+  skipped: [] as [string, string][],
+  routinesSet: [
+    {
+      agent: 'Chief of Staff',
+      when: 'every weekday at 8am',
+      what: 'Brief me on the day.',
+      detail: 'every weekday at 08:00',
+    },
+    {
+      agent: 'Chief of Staff',
+      when: 'every sunday at 6pm',
+      what: 'Plan the week with me.',
+      detail: 'every Sunday at 18:00',
+    },
+    { agent: 'Inbox', when: 'every 2 hours', what: 'Triage new email.', detail: 'every 2 hours' },
+  ],
+  routinesRefused: [] as { agent: string; when: string; what: string; detail: string }[],
+};
+
+const IMPORT_BUTTON = '.agents-import__footer .button--primary:not(:disabled)';
 
 export const status = (state: 'idle' | 'working' | 'waiting', activity: string | null = null) => ({
   state,
@@ -125,6 +220,7 @@ export const agent = (
     preview: null,
     unread: 0,
     pendingApprovals: 0,
+    engine: 'claude' as 'claude' | 'codex',
     model: null as string | null,
     muted: false,
     status: status('idle'),
@@ -360,6 +456,69 @@ const FINANCE_CHAT = [
   ),
 ];
 
+/** Finance's `## Memory`, as `agents_memory` reads it. */
+const MEMORY = [
+  { text: 'Julian’s accountant is Sam Ortiz (sam@ortiz.co).' },
+  { text: 'Invoices go out on the 1st,\nnever on weekends.' },
+  { text: 'Reports in EUR unless a client is billed in USD.' },
+  { text: 'Lives in Lisbon', group: 'Imported from Grok Bot' },
+  { text: 'Prefers mornings for anything that needs focus', group: 'Imported from Grok Bot' },
+];
+
+/** The weekday brief with a week of runs behind it and a retry pending. */
+const WITH_HISTORY = (() => {
+  const nine = new Date(now);
+  nine.setHours(9, 0, 0, 0);
+  const day = 24 * 60 * MIN;
+  const at = nine.getTime() > now ? nine.getTime() - day : nine.getTime();
+  const retryAt = now + 4 * MIN;
+  /** `k` days before `at`, same wall-clock time across DST. */
+  const daysBack = (k: number) => {
+    const d = new Date(at);
+    d.setDate(d.getDate() - k);
+    return d.getTime();
+  };
+  const runs = [
+    { at: daysBack(6), outcome: 'ran', attempt: 1 },
+    { at: daysBack(5), outcome: 'ran', attempt: 2 },
+    {
+      at: daysBack(2),
+      outcome: 'failed',
+      attempt: 1,
+      detail: 'Claude Code is signed out.',
+      signIn: ['Gmail'],
+    },
+    { at: daysBack(1), outcome: 'ran', attempt: 1 },
+    {
+      at,
+      outcome: 'retrying',
+      attempt: 1,
+      detail: 'API Error: 529 overloaded',
+      retryAt,
+    },
+  ];
+  return [
+    {
+      id: 'ci2',
+      note: 'Brief me on what came in and went out yesterday, and anything overdue.',
+      repeat: { kind: 'days', days: [1, 2, 3, 4, 5], hour: 9, minute: 0 },
+      nextAt: at + day,
+      createdAt: now - 7 * day,
+      paused: false,
+      runs,
+      retry: { at: retryAt, attempts: 1, firstFailedAt: at, dueAt: at },
+    },
+    {
+      id: 'ci3',
+      note: 'Reconcile the month against the bank export.',
+      repeat: { kind: 'days', days: [1], hour: 8, minute: 30 },
+      nextAt: now + 5 * day,
+      createdAt: now - 30 * day,
+      paused: true,
+    },
+  ];
+})();
+
 const shot = (name: string, size: number) => ({
   name,
   path: `attachments/m-att1/${name}`,
@@ -498,7 +657,78 @@ const schedulePreview = (args: Record<string, unknown>) => {
   throw new Error('Give it a day and a time.');
 };
 
-export const overview = (agents = TEAM, engineReady = true) => ({ agents, engineReady });
+/** Both engines here and signed in, each with its own models (`engine::EngineInfo`). */
+export const ENGINES = [
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    installed: true,
+    signedIn: true,
+    models: [
+      { value: 'opus', label: 'Opus' },
+      { value: 'sonnet', label: 'Sonnet' },
+      { value: 'haiku', label: 'Haiku' },
+    ],
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    installed: true,
+    signedIn: true,
+    models: [
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
+      { value: 'gpt-5.5', label: 'GPT-5.5' },
+    ],
+  },
+];
+
+export const overview = (agents = TEAM, engineReady = true) => ({
+  agents,
+  engineReady,
+  engines: ENGINES,
+});
+
+/** Research runs on Codex: same chat, its own model in the header. */
+const CODEX_TEAM = [
+  ...TEAM,
+  agent('research', 'Research', {
+    engine: 'codex',
+    model: 'gpt-5.5',
+    color: 'teal',
+    shape: 9,
+    minutesAgo: 1,
+    role: 'Competitor and market research',
+    preview: 'Three of the five now list annual pricing first.',
+    status: status('working', '$ rg -l "annual" pricing/'),
+    capabilities: {
+      seenAt: now,
+      lines: [
+        { what: 'The team', detail: 'Message the other agents.' },
+        {
+          what: 'On this Mac',
+          detail:
+            "Run commands, read and edit files, use the web, send you files and schedule check-ins, in Codex's sandbox: your projects and its own folder, with no network for commands unless you allow it.",
+        },
+      ],
+    },
+  }),
+];
+
+const CODEX_CHAT = [
+  msg('note', 'Runs on Codex from its next message', 40, { agentId: 'research' }),
+  msg('user', 'How do the five competitors on our list show pricing now?', 38, {
+    agentId: 'research',
+  }),
+  msg(
+    'agent',
+    'Three of the five now list annual pricing first: Northwind, Fable and Linework. Basecamp-style flat pricing is gone from all of them. Halcyon still hides pricing behind a demo form.\n\nWant me to put the screenshots and the per-seat numbers in a sheet?',
+    35,
+    { agentId: 'research' }
+  ),
+  msg('user', 'Yes, and check whether any of them changed it this month.', 2, {
+    agentId: 'research',
+  }),
+];
 
 /**
  * Sending, so the motion of a send can be watched (and recorded) in the
@@ -791,6 +1021,83 @@ const QUEUED_CHAT = [
 const acmeWith = (over: Record<string, unknown>) =>
   overview(TEAM.map((a) => (a.id === 'acme' ? { ...a, ...over } : a)));
 
+const financeWith = (over: Record<string, unknown>) =>
+  overview(TEAM.map((a) => (a.id === 'finance' ? { ...a, ...over } : a)));
+
+const STRIPE_REQUEST = {
+  name: 'stripe_key',
+  purpose: 'Read last month’s payouts from Stripe to reconcile against the bank export.',
+  kind: 'api_key',
+  fields: [{ label: 'API key', env: 'STRIPE_KEY' }],
+  reference: 'secret:finance/stripe_key',
+};
+
+/** Finance asks for a Stripe key through a secure card, in the state given. */
+const secretChat = (state: 'pending' | 'allowed' | 'denied') => [
+  msg('user', 'Reconcile October’s Stripe payouts against the bank export.', 6, {
+    agentId: 'finance',
+  }),
+  msg('approval', '', 5, {
+    agentId: 'finance',
+    approval: {
+      requestId: 'sec-1',
+      title: 'Secure input · stripe_key',
+      detail: STRIPE_REQUEST.purpose,
+      status: state,
+      secret: STRIPE_REQUEST,
+    },
+  }),
+  msg(
+    'agent',
+    'I need a read-only Stripe key to pull the payouts. Pop it in the card above; I never see the key itself.',
+    5,
+    { agentId: 'finance' }
+  ),
+  ...(state === 'allowed'
+    ? [
+        msg(
+          'agent',
+          'October reconciles: 31 payouts, $18,420 in total, all matched to the bank export.',
+          1,
+          { agentId: 'finance' }
+        ),
+      ]
+    : state === 'denied'
+      ? [
+          msg(
+            'agent',
+            'No problem. Export October’s payouts as CSV from the Stripe dashboard and drop it here, and I’ll reconcile from that.',
+            1,
+            { agentId: 'finance' }
+          ),
+        ]
+      : []),
+];
+
+const secretScenario = (state: 'pending' | 'allowed' | 'denied', looksRightWhen: string) => ({
+  id: `agents-secret-${state === 'pending' ? 'card' : state === 'allowed' ? 'saved' : 'denied'}`,
+  title: `Agents — secure input card (${state})`,
+  looksRightWhen,
+  requires: '.agent-secret',
+  openSelector: AGENTS_TAB,
+  steps: [{ click: '[data-agent-id="finance"]' }],
+  commands: {
+    agents_overview: financeWith(
+      state === 'pending'
+        ? {
+            pendingApprovals: 1,
+            status: status('idle'),
+            preview: 'Needs your OK: Secure input · stripe_key',
+          }
+        : {}
+    ),
+    agents_messages: (args: Record<string, unknown>) =>
+      args.agentId === 'finance' ? secretChat(state) : messagesFor(args),
+    agents_save_secret: null,
+    agents_answer_approval: null,
+  },
+});
+
 /** The Agents half of the sidebar's Projects | Agents toggle. */
 export const AGENTS_TAB = '.mode-toggle [data-tab-value="agents"]';
 
@@ -1065,6 +1372,19 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-model-menu',
+    title: 'Agents — model menu, with what routines run on',
+    looksRightWhen:
+      'Clicking the model control in the Finance header opens a menu: Default (checked), Opus, Sonnet, Haiku; a divider; a quiet line “Routines run on Haiku”; then Automatic (checked), Same as its chats, Opus, Sonnet, Haiku.',
+    requires: '.agent-model-menu__heading',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: '[data-agent-id="finance"]' }, { click: '.agent-chat__model' }],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+    },
+  },
+  {
     id: 'agents-schedule-edit',
     title: 'Agents — editing a routine in the schedule popover',
     looksRightWhen:
@@ -1178,6 +1498,88 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-memory',
+    title: 'Agents — what an agent remembers, in the editor',
+    looksRightWhen:
+      'Editing Finance, an underline tab bar reads Agent | Memory with Memory chosen. Under a muted one-line explanation, Finance’s own memory as hairline-separated rows (the accountant, the invoice rule over two lines, EUR), then a quiet “Imported from Grok Bot” heading with two rows under it. Pointing at a row shows a pencil and a bin at its right. At the bottom, one field “Something Finance should remember” with an Add button.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-memory__item',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+      { click: '.agent-editor__tabs [data-tab-value="memory"]' },
+      { hover: '.agent-memory__item:nth-child(2)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the books tidy and tell me before anything goes out.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_memory: { entries: MEMORY },
+    },
+  },
+  {
+    id: 'agents-memory-edit',
+    title: 'Agents — editing one memory in place',
+    looksRightWhen:
+      'In Finance’s Memory tab, the second row has become a two-line text area holding “Invoices go out on the 1st, never on weekends.” on two lines, with Cancel and Save under it on the right. The other rows are unchanged.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-memory__item[data-editing] textarea',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+      { click: '.agent-editor__tabs [data-tab-value="memory"]' },
+      { click: '.agent-memory__item:nth-child(2) [aria-label^="Edit"]' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the books tidy and tell me before anything goes out.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_memory: { entries: MEMORY },
+    },
+  },
+  {
+    id: 'agents-remember',
+    title: 'Agents — “Remember this” on a reply',
+    looksRightWhen:
+      'Over Finance’s chat, a small “Remember this” dialog: a three-line field holding the one-line summary of the reply (“Northwind pays in the next payment run; chase them on the 1st.”), a muted line saying it goes into Finance’s memory and where to edit it, then Cancel and a primary Remember.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-remember textarea',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { hover: '.agent-chat__row--agent:last-of-type' },
+      { click: '.agent-chat__row--agent:last-of-type [aria-label="Remember this"]' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_memory_suggest: 'Northwind pays in the next payment run; chase them on the 1st.',
+    },
+  },
+  {
+    id: 'agents-schedule-history',
+    title: 'Agents — a routine’s past runs, and one being retried',
+    looksRightWhen:
+      'Finance’s schedule popover. The weekday brief reads “Every weekday at 9:00 AM · retrying today …” in amber, and under it a quiet “Hide past runs” toggle, opened: a list of its runs newest first, each a time and an outcome — the retry in amber with the overloaded error, a red one that needed Gmail signed in again, and “Ran” for the rest.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-schedule__history .agent-schedule__run',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__scheduled' },
+      { click: '.agent-schedule__last' },
+    ],
+    commands: {
+      agents_overview: overview(
+        TEAM.map((a) => (a.id === 'finance' ? { ...a, checkIns: WITH_HISTORY } : a))
+      ),
+      agents_messages: messagesFor,
+      agents_schedule_preview: schedulePreview,
+    },
+  },
+  {
     id: 'agents-model-menu',
     title: 'Agents — the model menu in the chat header',
     looksRightWhen:
@@ -1191,10 +1593,44 @@ export const agentsScenarios: Scenario[] = [
     },
   },
   {
+    id: 'agents-engine-picker',
+    title: 'Agents — moving an agent to Codex in the editor',
+    looksRightWhen:
+      'Editing the Chief of Staff: a “Runs on” control (Claude Code | Codex) above Model, with Codex chosen; under it one muted line saying its next message starts a new Codex session handed the recent conversation, instructions and memory carried over. Model now offers Default / GPT-5.6-Sol / GPT-5.5 with Default chosen. The Apps hint says a Codex agent uses the MCP servers set up in Codex, with no Manage apps button.',
+    openSelector: AGENTS_TAB,
+    requires: '[aria-label="Runs on"] [aria-pressed="true"]',
+    clipSelector: '.agent-editor',
+    steps: [
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+      { click: '[aria-label="Runs on"] button:nth-child(2)' },
+    ],
+    commands: {
+      agents_overview: overview(),
+      agents_messages: messagesFor,
+      agents_instructions: 'Keep the team moving.',
+      agents_usage: { week: totals(0, 0, 0, 0), allTime: totals(0, 0, 0, 0) },
+    },
+  },
+  {
+    id: 'agents-codex-chat',
+    title: 'Agents — an agent running on Codex',
+    looksRightWhen:
+      'Research’s chat looks like every other agent’s: a quiet “Runs on Codex from its next message” note, the question, an unboxed prose reply, and the newest question with Research working under it (“$ rg -l "annual" pricing/”). The header’s model control reads “Codex · GPT-5.5”.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-chat__model',
+    steps: [{ click: '[data-agent-id="research"]' }],
+    commands: {
+      agents_overview: overview(CODEX_TEAM),
+      agents_messages: (args: Record<string, unknown>) =>
+        args.agentId === 'research' ? CODEX_CHAT : messagesFor(args),
+    },
+  },
+  {
     id: 'agents-first-run',
     title: 'Agents — first open, only the Chief of Staff',
     looksRightWhen:
-      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and three one-click starters under it (Set up my team, What can you do?, Import agents…). Set apart below, one muted line (“Agents run on this Mac. They pause when it sleeps or Ship Studio quits.”), a small ghost “Keep this Mac awake”, and the “Always on?” line. The composer is ready.',
+      'One agent, the Chief of Staff: its avatar and name centred in an empty conversation, one sentence saying it builds and runs your team, and two one-click starters under it (Set up my team, What can you do?). Import is the sidebar note’s alone. Set apart below, one muted line (“Agents run on this Mac. Closing Ship Studio stops them, and sleep pauses them.”), three small ghost actions (Keep this Mac awake, Keep running when closed, Open at login), and the quieter “Around the clock?” line. The composer is ready.',
     command: 'agents.open',
     requires: '.agents-stay-on .button',
     commands: {},
@@ -1229,35 +1665,72 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-import',
     title: 'Agents — import, remote access off (paste)',
     looksRightWhen:
-      'Opens on the Paste tab because remote access is off. Two numbered steps: copy the message (its full text scrolls in a quiet box, Copy message beside the step) and paste the reply into an empty monospace field. Import is disabled until something valid is pasted.',
+      'Opens on “Paste a reply” because remote access is off. One line of lede, then two steps on the Remote access rail: step 1 is current (green ring) with the message in a quiet scrolling box and a green primary “Copy message” under it; step 2 is a muted number over a tall, dashed, empty paste field inviting a big paste. The footer stays at the bottom: a muted note on the left, Cancel and a disabled Import on the right.',
     command: 'agents.import',
     requires: '.agents-import__paste',
+    clipSelector: '.agents-import',
+    commands: {},
+  },
+  {
+    id: 'agents-import-copied',
+    title: 'Agents — import, message copied',
+    looksRightWhen:
+      'After Copy message: the button reads “Copied” with a check, the hint beside it says to paste it into a chat with your assistant, step 1’s marker is a green check and step 2’s number is ringed green.',
+    openSelector: AGENTS_TAB,
+    requires: '.agents-import-message__copy[data-copied]',
+    clipSelector: '.agents-import',
+    steps: [{ click: IMPORT_STARTER }, { click: '.agents-import-message__copy' }],
     commands: {},
   },
   {
     id: 'agents-import-paste-preview',
     title: 'Agents — import, a pasted reply previewed',
     looksRightWhen:
-      'Under the pasted reply: "4 agents from Grok Bot, in 2 parts", then one row per agent with its name, role and how much instruction and memory came across. The main one says it merges into Chief of Staff, Finance says it updates the existing agent, the rest are New. Routines sit under their agent; Finance\'s "whenever rent is due" is in amber saying it won\'t be set and why, and the count line says 1 routine can\'t be set as written. The primary button reads "Import 4 agents".',
+      'Step 1 has folded to a ticked line with “Show message”; the paste field is shorter. Under it: “4 agents from Grok Bot, in 2 parts · 1 routine can’t be set as written” (the tail amber). One sidebar-style row per agent: its badge in the colour it will have (the main one wears the Chief of Staff’s badge), the name with a chip (Merges into Chief of Staff, Updates, New in green), the role, and compact counts (2.1k chars of instructions · 3 memories · 2 routines). Finance’s counts end in amber “1 won’t be set”. Each row has a chevron. The primary button reads “Import 4 agents”.',
     // Steps run before a palette command, so these walk in: Agents mode, then
-    // the first-run Import agents… starter.
-    requires: '.agents-import__paste',
+    // the sidebar note's Import agents.
+    requires: '.agents-import-agent',
+    clipSelector: '.agents-import',
     openSelector: AGENTS_TAB,
     steps: [{ click: IMPORT_STARTER }, { fill: '.agents-import__paste', value: PASTED_REPLY }],
     commands: { agents_import_paste_preview: PASTE_PREVIEW },
   },
   {
-    id: 'agents-import-paste-problems',
-    title: 'Agents — import, a pasted reply with mistakes',
+    id: 'agents-import-paste-expanded',
+    title: 'Agents — import, reading what came across',
     looksRightWhen:
-      'A calm error list under the paste, each line naming the block, the agent and the field (a trailing comma with its line, a missing name, is_main that is not true/false). The agents that did read fine are still listed below. Import stays disabled.',
-    // Steps run before a palette command, so these walk in: Agents mode, then
-    // the first-run Import agents… starter.
-    requires: '.agents-import__paste',
+      'Finance’s row is open (chevron turned down): under its name, small uppercase Instructions, Memory and Routines headings, the instructions word for word in a recessed box, memory as a dotted list, and the routine in amber with a warning mark: Won’t be set: “whenever rent is due”. Give it a day and a time.',
+    requires: '.agents-import-agent[data-open]',
+    clipSelector: '.agents-import',
     openSelector: AGENTS_TAB,
     steps: [
       { click: IMPORT_STARTER },
-
+      { fill: '.agents-import__paste', value: PASTED_REPLY },
+      { click: '.agents-import-agent:nth-child(2) .agents-import-agent__row' },
+    ],
+    commands: { agents_import_paste_preview: PASTE_PREVIEW },
+  },
+  {
+    id: 'agents-import-long',
+    title: 'Agents — import, a twelve-agent team with routines',
+    looksRightWhen:
+      '“12 agents from Grok Bot, in 3 parts · 4 routines can’t be set as written”. The list shows about five rows and scrolls inside itself; the dialog does not grow past the window and the footer with “Import 12 agents” stays in view.',
+    requires: '.agents-import-agent',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [{ click: IMPORT_STARTER }, { fill: '.agents-import__paste', value: PASTED_REPLY }],
+    commands: { agents_import_paste_preview: LONG_PREVIEW },
+  },
+  {
+    id: 'agents-import-paste-problems',
+    title: 'Agents — import, a pasted reply with mistakes',
+    looksRightWhen:
+      'A calm amber-edged note under the paste, not a red wall: a warning mark, “3 things to fix before this can come across”, each line naming the block, the agent and the field, and a muted last line saying the easiest fix is to send these to the assistant. The agents that did read fine are still listed below. Import stays disabled.',
+    requires: '.agents-import-problems',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
       { fill: '.agents-import__paste', value: '```json\n{"agents":[{"name":"Finance",},]}\n```' },
     ],
     commands: {
@@ -1267,7 +1740,56 @@ export const agentsScenarios: Scenario[] = [
         problems: [
           'Block 2 has a trailing comma at line 14 (a comma right before a } or ]). Delete that comma, or ask the assistant to send it again as valid JSON.',
           'Agent 3 in block 1 has no "name".',
-          '\u201CTravel\u201D: "is_main" should be true or false, not text.',
+          '“Travel”: "is_main" should be true or false, not text.',
+        ],
+      },
+    },
+  },
+  {
+    id: 'agents-import-done',
+    title: 'Agents — import, done',
+    looksRightWhen:
+      'The tabs and steps are gone. Centred: a green check in a soft green circle, “Your team is here”, one muted line “2 new agents · 2 updated · 3 routines set”, the four agents as pills with their badges (the main one as Chief of Staff), and “Say hi to your team.” with when they start. The footer: Close, and a primary “Open Chief of Staff”.',
+    requires: '.agents-import-done',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
+      { fill: '.agents-import__paste', value: PASTED_REPLY },
+      { click: IMPORT_BUTTON },
+    ],
+    commands: { agents_import_paste_preview: PASTE_PREVIEW, agents_import_paste: IMPORTED },
+  },
+  {
+    id: 'agents-import-done-refused',
+    title: 'Agents — import, done with routines that weren’t set',
+    looksRightWhen:
+      'As agents-import-done, plus the same calm amber note as a pasted mistake: “A few things didn’t come across”, one line per routine naming the agent, its phrase and why, and a muted last line asking Finance and Inbox to schedule them in plain words.',
+    requires: '.agents-import-done .agents-import-problems',
+    clipSelector: '.agents-import',
+    openSelector: AGENTS_TAB,
+    steps: [
+      { click: IMPORT_STARTER },
+      { fill: '.agents-import__paste', value: PASTED_REPLY },
+      { click: IMPORT_BUTTON },
+    ],
+    commands: {
+      agents_import_paste_preview: PASTE_PREVIEW,
+      agents_import_paste: {
+        ...IMPORTED,
+        routinesRefused: [
+          {
+            agent: 'Finance',
+            when: 'whenever rent is due',
+            what: 'Remind me to pay rent.',
+            detail: 'Give it a day and a time.',
+          },
+          {
+            agent: 'Inbox',
+            when: 'whenever something urgent arrives',
+            what: 'Ping me.',
+            detail: 'Give it a day and a time.',
+          },
         ],
       },
     },
@@ -1276,10 +1798,24 @@ export const agentsScenarios: Scenario[] = [
     id: 'agents-import-connected',
     title: 'Agents — import, remote access on (connected assistant)',
     looksRightWhen:
-      'Opens on the Connected assistant tab because remote access is on: connect via Remote access, the one message to send, and Copy message. Paste is one click away on the left.',
+      'Opens on Connected assistant because remote access is on: step 1 “Connect it to Ship Studio” is a ticked line with “Remote access is on”; step 2 is current with the message and a primary Copy message. Footer: a muted note and Done.',
     command: 'agents.import',
-    requires: '.agents-import__prompt',
+    requires: '.agents-import-message',
+    clipSelector: '.agents-import',
     commands: { get_remote_access_status: remoteStatus({ enabled: true, serverRunning: true }) },
+  },
+  {
+    id: 'agents-import-nudge',
+    title: 'Agents — the import note at the foot of the agent list',
+    looksRightWhen:
+      'Under the last row, on the rows’ grid: a neutral icon tile in the badge column, then a short bold-ish title, one muted line, and a green “Import agents →” text action, all starting where the names above start. A faint × at the top right. A hairline under it like a row’s; no card, no fill. New agent and Import agents follow.',
+    openSelector: AGENTS_TAB,
+    requires: '.agents-import-nudge',
+    clipSelector: '.agents-list',
+    commands: {
+      agents_overview: overview([TEAM[0], TEAM.find((a) => a.id === 'finance') ?? TEAM[1]]),
+      agents_messages: messagesFor,
+    },
   },
   {
     id: 'agents-streaming',
@@ -1348,6 +1884,7 @@ export const agentsScenarios: Scenario[] = [
     // Steps run before a palette command, so walk in through the sidebar.
     openSelector: AGENTS_TAB,
     requires: '.agent-composer__notice',
+    clipSelector: '.agent-chat__footer',
     steps: [{ click: '.agent-composer__mic' }],
     commands: {
       agents_overview: overview(),
@@ -1549,5 +2086,80 @@ export const agentsScenarios: Scenario[] = [
     project: WORKSPACE_PROJECT,
     requires: '.compact-topbar',
     commands: { ...workspaceCommands, agents_overview: overview() },
+  },
+  secretScenario(
+    'pending',
+    'Finance’s chat: a card with a lock, “Finance asks for stripe_key” (stripe_key in mono), the purpose under it, one masked “API key” field, a muted line saying it’s kept in the Keychain for Finance only and Finance gets $STRIPE_KEY, then Deny and a disabled Save on the right.'
+  ),
+  secretScenario(
+    'allowed',
+    'The same card resolved: no field or buttons, a green “Saved to your Keychain · Finance uses $STRIPE_KEY”, then Finance’s reconciliation reply.'
+  ),
+  secretScenario(
+    'denied',
+    'The same card resolved: a muted “Declined · Finance was told”, then Finance offering the CSV route instead.'
+  ),
+  {
+    id: 'agents-secrets-editor',
+    title: 'Agents — the Secrets list in Edit agent',
+    looksRightWhen:
+      'Editing Finance, below Permissions: a Secrets group listing stripe_key ($STRIPE_KEY) and bank ($BANK_USERNAME, $BANK_PASSWORD), each with its purpose, when it was added and when a turn last had it (or “not used yet”), hairline-separated, each with a quiet Revoke on the right.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-secrets__row',
+    clipSelector: '.agent-editor [role="group"][aria-label="Secrets"]',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      { click: '.agent-chat__menu [aria-label^="Actions for"]' },
+      { click: '[role="menuitem"]:nth-child(6)' },
+    ],
+    commands: {
+      agents_overview: financeWith({
+        secrets: [
+          {
+            id: 's1',
+            ...STRIPE_REQUEST,
+            purpose: 'Read payouts to reconcile against the bank export',
+            createdAt: now - 3 * 24 * 60 * MIN,
+            lastUsedAt: now - 2 * 60 * MIN,
+          },
+          {
+            id: 's2',
+            name: 'bank',
+            purpose: 'Download monthly statements',
+            kind: 'password',
+            fields: [
+              { label: 'Username', env: 'BANK_USERNAME' },
+              { label: 'Password', env: 'BANK_PASSWORD' },
+            ],
+            reference: 'secret:finance/bank',
+            createdAt: now - 20 * MIN,
+          },
+        ],
+      }),
+      agents_messages: messagesFor,
+      agents_instructions: 'Invoices, expenses and the books.',
+      agents_usage: { week: totals(6, 120_000, 1.2, 9), allTime: totals(40, 900_000, 9.4, 70) },
+      agents_revoke_secret: null,
+    },
+  },
+  {
+    id: 'agents-secret-paste-hint',
+    title: 'Agents — a key pasted in the composer',
+    looksRightWhen:
+      'Above Finance’s composer, a quiet line: “That looks like a Stripe key. Keep it out of the chat?” with “Store it securely” and “Dismiss”. The composer holds the message with the key; nothing is blocked.',
+    openSelector: AGENTS_TAB,
+    requires: '.agent-composer__notice',
+    steps: [
+      { click: '[data-agent-id="finance"]' },
+      {
+        fill: '.agent-composer__input',
+        value: 'Here is the Stripe key: sk_live_51HxAbCdEfGhIjKlMnOpQr',
+      },
+    ],
+    commands: {
+      agents_overview: financeWith({}),
+      agents_messages: messagesFor,
+      agents_add_secret: null,
+    },
   },
 ];

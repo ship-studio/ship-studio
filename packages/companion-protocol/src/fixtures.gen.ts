@@ -5,1498 +5,2074 @@
 import type { Device, PairingLink, PairResponse, Result, ServerFrame } from './index';
 
 export const systemStatus = {
-  "appVersion": "1.7.0",
-  "claude": {
-    "installed": true,
-    "signedIn": "unknown",
-    "version": "2.1.0"
+  appVersion: '1.7.0',
+  claude: {
+    installed: true,
+    signedIn: 'unknown',
+    version: '2.1.0',
   },
-  "name": "Julian’s MacBook Pro",
-  "power": {
-    "batteryPercent": 64,
-    "keepAwake": true,
-    "lidClosedMode": "no",
-    "onBattery": "yes"
+  name: 'Julian’s MacBook Pro',
+  power: {
+    batteryPercent: 64,
+    keepAwake: true,
+    lidClosedMode: 'no',
+    onBattery: 'yes',
   },
-  "routes": [
+  routes: [
     {
-      "kind": "tailscale",
-      "url": "https://julians-macbook-pro.tail1234.ts.net:47443"
+      kind: 'tailscale',
+      url: 'https://julians-macbook-pro.tail1234.ts.net:47443',
     },
     {
-      "kind": "lan",
-      "pin": "q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A",
-      "url": "https://192.168.1.20:47444"
-    }
-  ]
+      kind: 'lan',
+      pin: 'q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A',
+      url: 'https://192.168.1.20:47444',
+    },
+  ],
 } satisfies Result<'system.status'>;
 export const devicesSelf = {
-  "id": "dev_0123456789abcdef",
-  "name": "Julian’s iPhone",
-  "platform": "ios",
-  "model": "iPhone 16 Pro",
-  "appVersion": "1.0.0",
-  "build": "self",
-  "pairedAt": 1762200000000,
-  "lastSeenAt": 1762290000000,
-  "lastRoute": "tailscale",
-  "connected": true,
-  "expiresAt": 1762800000000
+  id: 'dev_0123456789abcdef',
+  name: 'Julian’s iPhone',
+  platform: 'ios',
+  model: 'iPhone 16 Pro',
+  appVersion: '1.0.0',
+  build: 'self',
+  pairedAt: 1762200000000,
+  lastSeenAt: 1762290000000,
+  lastRoute: 'tailscale',
+  connected: true,
+  expiresAt: 1762800000000,
 } satisfies Result<'devices.self'>;
 export const deviceMinimal = {
-  "id": "dev_0123456789abcdef",
-  "name": "Julian’s iPhone",
-  "platform": "android",
-  "appVersion": "1.0.0",
-  "build": "official",
-  "pairedAt": 1762200000000,
-  "connected": false
+  id: 'dev_0123456789abcdef',
+  name: 'Julian’s iPhone',
+  platform: 'android',
+  appVersion: '1.0.0',
+  build: 'official',
+  pairedAt: 1762200000000,
+  connected: false,
 } satisfies Device;
 export const devicesSetPush = {
-  "status": "unavailable"
+  status: 'unavailable',
 } satisfies Result<'devices.setPush'>;
 export const pushStatuses = [
-  "on",
-  "pending",
-  "off",
-  "unavailable",
-  "self_build"
+  'on',
+  'pending',
+  'off',
+  'unavailable',
+  'self_build',
 ] satisfies Result<'devices.setPush'>['status'][];
 export const agentsOverview = {
-  "agents": [
+  agents: [
     {
-      "capabilities": {
-        "lines": [
+      capabilities: {
+        lines: [
           {
-            "detail": "Bash, Read, Edit",
-            "what": "Tools"
-          }
+            detail: 'Bash, Read, Edit',
+            what: 'Tools',
+          },
         ],
-        "seenAt": 1762290000000
+        seenAt: 1762290000000,
       },
-      "checkIns": [
+      checkIns: [
         {
-          "createdAt": 1762200000000,
-          "id": "c1",
-          "nextAt": 1762300000000,
-          "note": "Check the invoices",
-          "paused": false,
-          "repeat": {
-            "days": [
-              1,
-              3
-            ],
-            "hour": 9,
-            "kind": "days",
-            "minute": 30
-          }
+          createdAt: 1762200000000,
+          id: 'c1',
+          nextAt: 1762300000000,
+          note: 'Check the invoices',
+          paused: false,
+          repeat: {
+            days: [1, 3],
+            hour: 9,
+            kind: 'days',
+            minute: 30,
+          },
+          retry: {
+            at: 1762201800000,
+            attempts: 1,
+            dueAt: 1762200000000,
+            firstFailedAt: 1762200000000,
+          },
+          runs: [
+            {
+              at: 1762100000000,
+              attempt: 1,
+              manual: true,
+              outcome: 'ran',
+            },
+            {
+              at: 1762150000000,
+              attempt: 3,
+              detail: 'Claude Code is signed out.',
+              outcome: 'failed',
+              signIn: ['Gmail'],
+            },
+            {
+              at: 1762200000000,
+              attempt: 1,
+              detail: 'Usage limit',
+              outcome: 'retrying',
+              retryAt: 1762201800000,
+            },
+            {
+              at: 1762250000000,
+              attempt: 2,
+              outcome: 'running',
+            },
+            {
+              at: 1762260000000,
+              attempt: 1,
+              outcome: 'unknown',
+            },
+          ],
         },
         {
-          "createdAt": 1762200000000,
-          "id": "c2",
-          "nextAt": 1762300000000,
-          "note": "Look at the queue",
-          "paused": true,
-          "repeat": {
-            "kind": "every",
-            "minutes": 60
-          }
+          createdAt: 1762200000000,
+          id: 'c2',
+          nextAt: 1762300000000,
+          note: 'Look at the queue',
+          paused: true,
+          repeat: {
+            kind: 'every',
+            minutes: 60,
+          },
         },
         {
-          "createdAt": 1762200000000,
-          "id": "c3",
-          "nextAt": 1762400000000,
-          "note": "Remind me about the VAT return",
-          "paused": false
-        }
+          createdAt: 1762200000000,
+          id: 'c3',
+          nextAt: 1762400000000,
+          note: 'Remind me about the VAT return',
+          paused: false,
+        },
       ],
-      "color": "green",
-      "createdAt": 1762200000000,
-      "failure": {
-        "kind": "usage_limit",
-        "resetsAt": 1762310000000
+      color: 'green',
+      createdAt: 1762200000000,
+      engine: 'claude',
+      failure: {
+        kind: 'usage_limit',
+        resetsAt: 1762310000000,
       },
-      "hidden": false,
-      "home": "/Users/julian/Library/Application Support/ShipStudio/agents/a1",
-      "id": "a1",
-      "isMain": false,
-      "lastActivityAt": 1762290000000,
-      "model": "opus",
-      "muted": false,
-      "name": "Finance",
-      "pendingApprovals": 1,
-      "permissions": [
+      hidden: false,
+      home: '/Users/julian/Library/Application Support/ShipStudio/agents/a1',
+      id: 'a1',
+      isMain: false,
+      lastActivityAt: 1762290000000,
+      model: 'opus',
+      muted: false,
+      name: 'Finance',
+      pendingApprovals: 1,
+      permissions: [
         {
-          "createdAt": 1762200000000,
-          "id": "r1",
-          "kind": "command_prefix",
-          "label": "npm test",
-          "value": "npm test"
+          createdAt: 1762200000000,
+          id: 'r1',
+          kind: 'command_prefix',
+          label: 'npm test',
+          value: 'npm test',
         },
         {
-          "createdAt": 1762200000000,
-          "id": "r2",
-          "kind": "command",
-          "label": "git status",
-          "value": "git status"
+          createdAt: 1762200000000,
+          id: 'r2',
+          kind: 'command',
+          label: 'git status',
+          value: 'git status',
         },
         {
-          "createdAt": 1762200000000,
-          "id": "r3",
-          "kind": "domain",
-          "label": "example.com",
-          "value": "example.com"
+          createdAt: 1762200000000,
+          id: 'r3',
+          kind: 'domain',
+          label: 'example.com',
+          value: 'example.com',
         },
         {
-          "createdAt": 1762200000000,
-          "id": "r4",
-          "kind": "tool",
-          "label": "Send an email · Gmail",
-          "value": "mcp__gmail__send"
-        }
+          createdAt: 1762200000000,
+          id: 'r4',
+          kind: 'tool',
+          label: 'Send an email · Gmail',
+          value: 'mcp__gmail__send',
+        },
       ],
-      "pinned": true,
-      "preview": "Invoices are filed.",
-      "project": "/Users/julian/ShipStudio/site",
-      "role": "Keeps the books",
-      "sessionId": "8c1d7a52-0000-4000-8000-000000000001",
-      "shape": 2,
-      "status": {
-        "activity": "Running npm test",
-        "since": 1762290000000,
-        "state": "waiting"
+      pinned: true,
+      preview: 'Invoices are filed.',
+      project: '/Users/julian/ShipStudio/site',
+      role: 'Keeps the books',
+      routineModel: 'same',
+      secrets: [
+        {
+          createdAt: 1762200000000,
+          fields: [
+            {
+              env: 'STRIPE_KEY',
+              label: 'API key',
+            },
+          ],
+          id: 's1',
+          kind: 'api_key',
+          lastUsedAt: 1762290000000,
+          name: 'Stripe key',
+          purpose: 'Reconcile payouts',
+          reference: 'secret:finance/stripe_key',
+        },
+      ],
+      sessionId: '8c1d7a52-0000-4000-8000-000000000001',
+      shape: 2,
+      status: {
+        activity: 'Running npm test',
+        since: 1762290000000,
+        state: 'waiting',
       },
-      "unread": 2
-    }
+      unread: 2,
+    },
   ],
-  "engineReady": true
+  engineReady: true,
+  engines: [
+    {
+      id: 'claude',
+      installed: true,
+      label: 'Claude Code',
+      models: [
+        {
+          label: 'Opus',
+          value: 'opus',
+        },
+        {
+          label: 'Sonnet',
+          value: 'sonnet',
+        },
+      ],
+      signedIn: true,
+    },
+    {
+      id: 'codex',
+      installed: true,
+      label: 'Codex',
+      models: [
+        {
+          label: 'GPT-5 Codex',
+          value: 'gpt-5-codex',
+        },
+      ],
+      signedIn: false,
+    },
+  ],
 } satisfies Result<'agents.overview'>;
 export const agentsMessages = {
-  "asOf": {
-    "epoch": "epoch-test",
-    "seq": 1
+  asOf: {
+    epoch: 'epoch-test',
+    seq: 1,
   },
-  "messages": [
+  messages: [
     {
-      "agentId": "a1",
-      "attachments": [
+      agentId: 'a1',
+      attachments: [
         {
-          "mime": "application/pdf",
-          "name": "invoice.pdf",
-          "path": "attachments/m01/invoice.pdf",
-          "size": 52000
-        }
+          mime: 'application/pdf',
+          name: 'invoice.pdf',
+          path: 'attachments/m01/invoice.pdf',
+          size: 52000,
+        },
       ],
-      "id": "m01",
-      "kind": "user",
-      "mentions": [
+      id: 'm01',
+      kind: 'user',
+      mentions: [
         {
-          "id": "a2",
-          "name": "Ops"
-        }
+          id: 'a2',
+          name: 'Ops',
+        },
       ],
-      "text": "@Ops can you file these?",
-      "ts": 1762290001000
+      text: '@Ops can you file these?',
+      ts: 1762290001000,
     },
     {
-      "agentId": "a1",
-      "id": "m02",
-      "kind": "agent",
-      "stopped": true,
-      "text": "Filing them now",
-      "ts": 1762290002000
+      agentId: 'a1',
+      id: 'm02',
+      kind: 'agent',
+      stopped: true,
+      text: 'Filing them now',
+      ts: 1762290002000,
     },
     {
-      "agentId": "a1",
-      "id": "m03",
-      "kind": "sent_to_agent",
-      "peer": {
-        "id": "a2",
-        "name": "Ops"
+      agentId: 'a1',
+      id: 'm03',
+      kind: 'sent_to_agent',
+      peer: {
+        id: 'a2',
+        name: 'Ops',
       },
-      "text": "File these",
-      "ts": 1762290003000
+      text: 'File these',
+      ts: 1762290003000,
     },
     {
-      "agentId": "a1",
-      "id": "m04",
-      "kind": "from_agent",
-      "peer": {
-        "id": "a2",
-        "name": "Ops"
+      agentId: 'a1',
+      id: 'm04',
+      kind: 'from_agent',
+      peer: {
+        id: 'a2',
+        name: 'Ops',
       },
-      "text": "Done",
-      "ts": 1762290004000
+      text: 'Done',
+      ts: 1762290004000,
     },
     {
-      "agentId": "a1",
-      "approval": {
-        "always": {
-          "kind": "command_prefix",
-          "label": "npm test",
-          "value": "npm test"
+      agentId: 'a1',
+      approval: {
+        always: {
+          kind: 'command_prefix',
+          label: 'npm test',
+          value: 'npm test',
         },
-        "detail": "npm test",
-        "input": {
-          "command": "npm test"
+        detail: 'npm test',
+        input: {
+          command: 'npm test',
         },
-        "requestId": "q1",
-        "status": "pending",
-        "title": "Run a command",
-        "tool": "Bash"
+        requestId: 'q1',
+        status: 'pending',
+        title: 'Run a command',
+        tool: 'Bash',
       },
-      "id": "m05",
-      "kind": "approval",
-      "text": "",
-      "ts": 1762290005000
+      id: 'm05',
+      kind: 'approval',
+      text: '',
+      ts: 1762290005000,
     },
     {
-      "agentId": "a1",
-      "approval": {
-        "always": {
-          "kind": "domain",
-          "label": "example.com",
-          "value": "example.com"
+      agentId: 'a1',
+      approval: {
+        always: {
+          kind: 'domain',
+          label: 'example.com',
+          value: 'example.com',
         },
-        "alwaysAllowed": true,
-        "detail": "https://example.com",
-        "input": {
-          "url": "https://example.com"
+        alwaysAllowed: true,
+        detail: 'https://example.com',
+        input: {
+          url: 'https://example.com',
         },
-        "requestId": "q2",
-        "status": "allowed",
-        "title": "Fetch a page",
-        "tool": "WebFetch"
+        requestId: 'q2',
+        status: 'allowed',
+        title: 'Fetch a page',
+        tool: 'WebFetch',
       },
-      "id": "m06",
-      "kind": "approval",
-      "text": "",
-      "ts": 1762290006000
+      id: 'm06',
+      kind: 'approval',
+      text: '',
+      ts: 1762290006000,
     },
     {
-      "agentId": "a1",
-      "approval": {
-        "detail": "Ops and its chat",
-        "note": "Keep Ops",
-        "requestId": "q3",
-        "status": "denied",
-        "title": "Delete Ops"
+      agentId: 'a1',
+      approval: {
+        detail: 'Ops and its chat',
+        note: 'Keep Ops',
+        requestId: 'q3',
+        status: 'denied',
+        title: 'Delete Ops',
       },
-      "id": "m07",
-      "kind": "approval",
-      "text": "",
-      "ts": 1762290007000
+      id: 'm07',
+      kind: 'approval',
+      text: '',
+      ts: 1762290007000,
     },
     {
-      "agentId": "a1",
-      "approval": {
-        "always": {
-          "kind": "tool",
-          "label": "Send an email · Gmail",
-          "value": "mcp__gmail__send"
+      agentId: 'a1',
+      approval: {
+        always: {
+          kind: 'tool',
+          label: 'Send an email · Gmail',
+          value: 'mcp__gmail__send',
         },
-        "detail": "to accounts@",
-        "requestId": "q4",
-        "status": "expired",
-        "title": "Send an email",
-        "tool": "mcp__gmail__send"
+        detail: 'to accounts@',
+        requestId: 'q4',
+        status: 'expired',
+        title: 'Send an email',
+        tool: 'mcp__gmail__send',
       },
-      "id": "m08",
-      "kind": "approval",
-      "text": "",
-      "ts": 1762290008000
+      id: 'm08',
+      kind: 'approval',
+      text: '',
+      ts: 1762290008000,
     },
     {
-      "agentId": "a1",
-      "failure": {
-        "kind": "signed_out"
+      agentId: 'a1',
+      failure: {
+        kind: 'signed_out',
       },
-      "id": "m09",
-      "kind": "error",
-      "text": "Claude Code is signed out.",
-      "ts": 1762290009000
+      id: 'm09',
+      kind: 'error',
+      text: 'Claude Code is signed out.',
+      ts: 1762290009000,
     },
     {
-      "agentId": "a1",
-      "failure": {
-        "kind": "other"
+      agentId: 'a1',
+      failure: {
+        kind: 'other',
       },
-      "id": "m10",
-      "kind": "error",
-      "text": "Something broke.",
-      "ts": 1762290010000
+      id: 'm10',
+      kind: 'error',
+      text: 'Something broke.',
+      ts: 1762290010000,
     },
     {
-      "agentId": "a1",
-      "checkIn": {
-        "dueAt": 1762290000000,
-        "late": true,
-        "manual": true,
-        "repeats": true
+      agentId: 'a1',
+      checkIn: {
+        dueAt: 1762290000000,
+        late: true,
+        manual: true,
+        repeats: true,
       },
-      "id": "m11",
-      "kind": "check_in",
-      "text": "Check the invoices",
-      "ts": 1762290011000
+      id: 'm11',
+      kind: 'check_in',
+      text: 'Check the invoices',
+      ts: 1762290011000,
     },
     {
-      "agentId": "a1",
-      "approval": {
-        "always": {
-          "kind": "command",
-          "label": "git status",
-          "value": "git status"
+      agentId: 'a1',
+      approval: {
+        always: {
+          kind: 'command',
+          label: 'git status',
+          value: 'git status',
         },
-        "alwaysAllowed": true,
-        "detail": "git status",
-        "requestId": "q5",
-        "status": "allowed",
-        "title": "Run a command"
+        alwaysAllowed: true,
+        detail: 'git status',
+        requestId: 'q5',
+        status: 'allowed',
+        title: 'Run a command',
       },
-      "id": "m12",
-      "kind": "note",
-      "text": "Allowed automatically: git status · Always allowed",
-      "ts": 1762290012000
+      id: 'm12',
+      kind: 'note',
+      text: 'Allowed automatically: git status · Always allowed',
+      ts: 1762290012000,
     },
     {
-      "agentId": "a1",
-      "changes": {
-        "added": 12,
-        "branch": "main",
-        "fileCount": 3,
-        "files": [
+      agentId: 'a1',
+      changes: {
+        added: 12,
+        branch: 'main',
+        fileCount: 3,
+        files: [
           {
-            "added": 10,
-            "path": "src/a.ts",
-            "status": "added"
+            added: 10,
+            path: 'src/a.ts',
+            status: 'added',
           },
           {
-            "added": 2,
-            "path": "src/b.ts",
-            "removed": 1,
-            "status": "modified"
+            added: 2,
+            path: 'src/b.ts',
+            removed: 1,
+            status: 'modified',
           },
           {
-            "path": "src/c.ts",
-            "removed": 7,
-            "status": "deleted"
-          }
+            path: 'src/c.ts',
+            removed: 7,
+            status: 'deleted',
+          },
         ],
-        "from": "abc123",
-        "project": "/Users/julian/ShipStudio/site",
-        "removed": 8,
-        "to": "def456"
+        from: 'abc123',
+        project: '/Users/julian/ShipStudio/site',
+        removed: 8,
+        to: 'def456',
       },
-      "id": "m13",
-      "kind": "changes",
-      "text": "",
-      "ts": 1762290013000
+      id: 'm13',
+      kind: 'changes',
+      text: '',
+      ts: 1762290013000,
     },
     {
-      "agentId": "a1",
-      "id": "m14",
-      "kind": "session",
-      "session": {
-        "cli": "claude",
-        "event": "started",
-        "project": "/Users/julian/ShipStudio/site",
-        "sessionId": "pty-1",
-        "tab": 1
+      agentId: 'a1',
+      id: 'm14',
+      kind: 'session',
+      session: {
+        cli: 'claude',
+        event: 'started',
+        project: '/Users/julian/ShipStudio/site',
+        sessionId: 'pty-1',
+        tab: 1,
       },
-      "text": "",
-      "ts": 1762290014000
+      text: '',
+      ts: 1762290014000,
     },
     {
-      "agentId": "a1",
-      "id": "m15",
-      "kind": "session",
-      "session": {
-        "event": "sent",
-        "project": "/Users/julian/ShipStudio/site"
+      agentId: 'a1',
+      id: 'm15',
+      kind: 'session',
+      session: {
+        event: 'sent',
+        project: '/Users/julian/ShipStudio/site',
       },
-      "text": "Fix the header",
-      "ts": 1762290015000
+      text: 'Fix the header',
+      ts: 1762290015000,
     },
     {
-      "agentId": "a1",
-      "id": "m16",
-      "kind": "session",
-      "session": {
-        "event": "reply",
-        "project": "/Users/julian/ShipStudio/site"
+      agentId: 'a1',
+      id: 'm16',
+      kind: 'session',
+      session: {
+        event: 'reply',
+        project: '/Users/julian/ShipStudio/site',
       },
-      "text": "Fixed",
-      "ts": 1762290016000
+      text: 'Fixed',
+      ts: 1762290016000,
     },
     {
-      "agentId": "a1",
-      "attachments": [
+      agentId: 'a1',
+      attachments: [
         {
-          "mime": "image/jpeg",
-          "name": "Desktop.jpg",
-          "path": "attachments/m17/Desktop.jpg",
-          "size": 184000
-        }
+          mime: 'image/jpeg',
+          name: 'Desktop.jpg',
+          path: 'attachments/m17/Desktop.jpg',
+          size: 184000,
+        },
       ],
-      "id": "m17",
-      "kind": "session",
-      "session": {
-        "event": "screenshot",
-        "project": "/Users/julian/ShipStudio/site"
+      id: 'm17',
+      kind: 'session',
+      session: {
+        event: 'screenshot',
+        project: '/Users/julian/ShipStudio/site',
       },
-      "text": "",
-      "ts": 1762290017000
+      text: '',
+      ts: 1762290017000,
     },
     {
-      "agentId": "a1",
-      "attachments": [
+      agentId: 'a1',
+      attachments: [
         {
-          "mime": "image/png",
-          "name": "logo.png",
-          "path": "attachments/m18/logo.png",
-          "size": 9000
-        }
+          mime: 'image/png',
+          name: 'logo.png',
+          path: 'attachments/m18/logo.png',
+          size: 9000,
+        },
       ],
-      "clientId": "c_8f2a1b",
-      "id": "m18",
-      "kind": "user",
-      "text": "Here's the logo",
-      "ts": 1762290018000
-    }
+      clientId: 'c_8f2a1b',
+      id: 'm18',
+      kind: 'user',
+      text: "Here's the logo",
+      ts: 1762290018000,
+    },
+    {
+      agentId: 'a1',
+      approval: {
+        detail: '@@ -1,2 +1,2 @@\n-  padding: 8px;\n+  padding: 12px;',
+        prompt: {
+          chats: ['a2', 'a1'],
+          kind: 'permission',
+          options: [
+            {
+              keys: ['1'],
+              label: 'Yes',
+              role: 'allow',
+            },
+            {
+              keys: ['2'],
+              label: 'Yes, allow all edits during this session',
+              role: 'other',
+            },
+            {
+              keys: ['3'],
+              label: 'No, and tell Claude what to do differently',
+              role: 'deny',
+            },
+          ],
+          owner: {
+            id: 'a2',
+            name: 'Ops',
+          },
+          project: '/Users/julian/ShipStudio/site',
+          question: 'Do you want to make this edit to Header.tsx?',
+          sessionId: 'pty-2',
+          tab: 2,
+        },
+        requestId: 'q6',
+        status: 'pending',
+        title: 'Do you want to make this edit to Header.tsx?',
+      },
+      id: 'm19',
+      kind: 'approval',
+      text: '',
+      ts: 1762290019000,
+    },
+    {
+      agentId: 'a1',
+      approval: {
+        choice: 'Yes, proceed',
+        detail: 'Claude Code asks once per folder.',
+        prompt: {
+          chats: ['a1'],
+          kind: 'trust',
+          options: [
+            {
+              keys: ['1'],
+              label: 'Yes, proceed',
+              role: 'allow',
+            },
+            {
+              keys: ['2'],
+              label: 'No, exit',
+              role: 'deny',
+            },
+          ],
+          owner: {
+            id: 'a1',
+            name: 'Finance',
+          },
+          project: '/Users/julian/ShipStudio/site',
+          question: 'Do you trust the files in this folder?',
+          sessionId: 'pty-3',
+          tab: 3,
+        },
+        requestId: 'q7',
+        status: 'allowed',
+        title: 'Let Claude Code work in site?',
+      },
+      id: 'm20',
+      kind: 'approval',
+      text: '',
+      ts: 1762290020000,
+    },
+    {
+      agentId: 'a1',
+      approval: {
+        detail: 'Download the statements',
+        requestId: 'q8',
+        secret: {
+          fields: [
+            {
+              env: 'BANK_USERNAME',
+              label: 'Username',
+            },
+            {
+              env: 'BANK_PASSWORD',
+              label: 'Password',
+            },
+          ],
+          kind: 'password',
+          name: 'Bank login',
+          purpose: 'Download the statements',
+          reference: 'secret:finance/bank_login',
+        },
+        status: 'pending',
+        title: 'Bank login',
+      },
+      id: 'm21',
+      kind: 'approval',
+      text: '',
+      ts: 1762290021000,
+    },
+    {
+      agentId: 'a1',
+      approval: {
+        detail: 'Reconcile payouts',
+        requestId: 'q9',
+        secret: {
+          fields: [
+            {
+              env: 'STRIPE_KEY',
+              label: 'API key',
+            },
+          ],
+          kind: 'api_key',
+          name: 'Stripe key',
+          purpose: 'Reconcile payouts',
+          reference: 'secret:finance/stripe_key',
+        },
+        status: 'allowed',
+        title: 'Stripe key',
+      },
+      id: 'm22',
+      kind: 'approval',
+      text: '',
+      ts: 1762290022000,
+    },
+    {
+      agentId: 'a1',
+      approval: {
+        detail: 'Deploy',
+        requestId: 'q10',
+        secret: {
+          fields: [
+            {
+              env: 'TOKEN',
+              label: 'Token',
+            },
+          ],
+          kind: 'token',
+          name: 'Token',
+          purpose: 'Deploy',
+          reference: 'secret:finance/token',
+        },
+        status: 'denied',
+        title: 'Token',
+      },
+      id: 'm23',
+      kind: 'approval',
+      text: '',
+      ts: 1762290023000,
+    },
+    {
+      agentId: 'a1',
+      approval: {
+        detail: 'Other',
+        requestId: 'q11',
+        secret: {
+          fields: [
+            {
+              env: 'OTHER',
+              label: 'Value',
+            },
+          ],
+          kind: 'other',
+          name: 'Other',
+          purpose: 'Other',
+          reference: 'secret:finance/other',
+        },
+        status: 'expired',
+        title: 'Other',
+      },
+      id: 'm24',
+      kind: 'approval',
+      text: '',
+      ts: 1762290024000,
+    },
   ],
-  "more": false
+  more: false,
 } satisfies Result<'agents.messages'>;
 export const agentsSend = {
-  "id": "m01",
-  "agentId": "a1",
-  "ts": 1762290001000,
-  "kind": "user",
-  "text": "@Ops can you file these?",
-  "attachments": [
+  id: 'm01',
+  agentId: 'a1',
+  ts: 1762290001000,
+  kind: 'user',
+  text: '@Ops can you file these?',
+  attachments: [
     {
-      "name": "invoice.pdf",
-      "path": "attachments/m01/invoice.pdf",
-      "mime": "application/pdf",
-      "size": 52000
-    }
+      name: 'invoice.pdf',
+      path: 'attachments/m01/invoice.pdf',
+      mime: 'application/pdf',
+      size: 52000,
+    },
   ],
-  "mentions": [
+  mentions: [
     {
-      "id": "a2",
-      "name": "Ops"
-    }
-  ]
+      id: 'a2',
+      name: 'Ops',
+    },
+  ],
 } satisfies Result<'agents.send'>;
 export const agentsStop = false satisfies Result<'agents.stop'>;
 export const agentsAnswerApproval = null satisfies Result<'agents.answerApproval'>;
+export const agentsSaveSecret = {
+  createdAt: 1762200000000,
+  fields: [
+    {
+      env: 'STRIPE_KEY',
+      label: 'API key',
+    },
+  ],
+  id: 's1',
+  kind: 'api_key',
+  lastUsedAt: 1762290000000,
+  name: 'Stripe key',
+  purpose: 'Reconcile payouts',
+  reference: 'secret:finance/stripe_key',
+} satisfies Result<'agents.saveSecret'>;
+export const agentsMemory = {
+  entries: [
+    {
+      text: 'Invoices go to accounts@example.com',
+    },
+    {
+      text: 'VAT is filed quarterly',
+    },
+    {
+      group: 'Imported from Grok Bot',
+      text: 'Prefers short summaries',
+    },
+  ],
+} satisfies Result<'agents.memory'>;
+export const agentsMemoryChange = {
+  entries: [
+    {
+      text: 'Invoices go to accounts@example.com',
+    },
+    {
+      group: 'Imported from Grok Bot',
+      text: 'Prefers short summaries',
+    },
+  ],
+  removed: '- VAT is filed quarterly',
+} satisfies Result<'agents.memoryChange'>;
+export const agentsMemorySuggest =
+  'Invoices over $5k need my OK first.' satisfies Result<'agents.memorySuggest'>;
 export const agentsFiles = [
   {
-    "from": "user",
-    "messageId": "m18",
-    "mime": "image/png",
-    "name": "logo.png",
-    "path": "attachments/m18/logo.png",
-    "size": 9000,
-    "ts": 1762290018000
+    from: 'user',
+    messageId: 'm18',
+    mime: 'image/png',
+    name: 'logo.png',
+    path: 'attachments/m18/logo.png',
+    size: 9000,
+    ts: 1762290018000,
   },
   {
-    "from": "user",
-    "messageId": "m01",
-    "mime": "application/pdf",
-    "name": "invoice.pdf",
-    "path": "attachments/m01/invoice.pdf",
-    "size": 52000,
-    "ts": 1762290001000
-  }
+    from: 'user',
+    messageId: 'm01',
+    mime: 'application/pdf',
+    name: 'invoice.pdf',
+    path: 'attachments/m01/invoice.pdf',
+    size: 52000,
+    ts: 1762290001000,
+  },
 ] satisfies Result<'agents.files'>;
 export const agentsFetchPath = {
-  "blobId": "blob_0123456789abcdef0123456789abcdef",
-  "mime": "text/markdown",
-  "name": "report.md",
-  "size": 4
+  blobId: 'blob_0123456789abcdef0123456789abcdef',
+  mime: 'text/markdown',
+  name: 'report.md',
+  size: 4,
 } satisfies Result<'agents.fetchPath'>;
 export const agentsSearch = [
   {
-    "agentColor": "green",
-    "agentId": "a1",
-    "agentName": "Finance",
-    "kind": "sent_to_agent",
-    "messageId": "m03",
-    "peerName": "Ops",
-    "snippet": "File these",
-    "ts": 1762290003000
+    agentColor: 'green',
+    agentId: 'a1',
+    agentName: 'Finance',
+    kind: 'sent_to_agent',
+    messageId: 'm03',
+    peerName: 'Ops',
+    snippet: 'File these',
+    ts: 1762290003000,
   },
   {
-    "agentColor": "green",
-    "agentId": "a1",
-    "agentName": "Finance",
-    "kind": "user",
-    "messageId": "m01",
-    "snippet": "@Ops can you file these?",
-    "ts": 1762290001000
-  }
+    agentColor: 'green',
+    agentId: 'a1',
+    agentName: 'Finance',
+    kind: 'user',
+    messageId: 'm01',
+    snippet: '@Ops can you file these?',
+    ts: 1762290001000,
+  },
 ] satisfies Result<'agents.search'>;
 export const schedulePreviewOnce = {
-  "nextAt": 1762297200000,
-  "repeat": null
+  nextAt: 1762297200000,
+  repeat: null,
 } satisfies Result<'agents.schedule.preview'>;
 export const schedulePreviewDays = {
-  "nextAt": 1762333200000,
-  "repeat": {
-    "days": [
-      1,
-      2,
-      3,
-      4,
-      5
-    ],
-    "hour": 9,
-    "kind": "days",
-    "minute": 0
-  }
+  nextAt: 1762333200000,
+  repeat: {
+    days: [1, 2, 3, 4, 5],
+    hour: 9,
+    kind: 'days',
+    minute: 0,
+  },
 } satisfies Result<'agents.schedule.preview'>;
 export const schedulePreviewEvery = {
-  "nextAt": 1762291800000,
-  "repeat": {
-    "kind": "every",
-    "minutes": 30
-  }
+  nextAt: 1762291800000,
+  repeat: {
+    kind: 'every',
+    minutes: 30,
+  },
 } satisfies Result<'agents.schedule.preview'>;
 export const scheduleCreate = {
-  "createdAt": 1762290000000,
-  "id": "c9",
-  "nextAt": 1762333200000,
-  "note": "Check the invoices",
-  "paused": false,
-  "repeat": {
-    "days": [
-      1,
-      2,
-      3,
-      4,
-      5
-    ],
-    "hour": 9,
-    "kind": "days",
-    "minute": 0
-  }
+  createdAt: 1762290000000,
+  id: 'c9',
+  nextAt: 1762333200000,
+  note: 'Check the invoices',
+  paused: false,
+  repeat: {
+    days: [1, 2, 3, 4, 5],
+    hour: 9,
+    kind: 'days',
+    minute: 0,
+  },
 } satisfies Result<'agents.schedule.create'>;
 export const scheduleUpdate = {
-  "createdAt": 1762200000000,
-  "id": "c1",
-  "nextAt": 1762291800000,
-  "note": "Look again",
-  "paused": false,
-  "repeat": {
-    "kind": "every",
-    "minutes": 30
-  }
+  createdAt: 1762200000000,
+  id: 'c1',
+  nextAt: 1762291800000,
+  note: 'Look again',
+  paused: false,
+  repeat: {
+    kind: 'every',
+    minutes: 30,
+  },
+  retry: {
+    at: 1762201800000,
+    attempts: 1,
+    dueAt: 1762200000000,
+    firstFailedAt: 1762200000000,
+  },
+  runs: [
+    {
+      at: 1762100000000,
+      attempt: 1,
+      manual: true,
+      outcome: 'ran',
+    },
+    {
+      at: 1762150000000,
+      attempt: 3,
+      detail: 'Claude Code is signed out.',
+      outcome: 'failed',
+      signIn: ['Gmail'],
+    },
+    {
+      at: 1762200000000,
+      attempt: 1,
+      detail: 'Usage limit',
+      outcome: 'retrying',
+      retryAt: 1762201800000,
+    },
+    {
+      at: 1762250000000,
+      attempt: 2,
+      outcome: 'running',
+    },
+    {
+      at: 1762260000000,
+      attempt: 1,
+      outcome: 'unknown',
+    },
+  ],
 } satisfies Result<'agents.schedule.update'>;
 export const projectsList = [
   {
-    "branch": "main",
-    "dirtyFiles": 3,
-    "name": "site",
-    "path": "/Users/julian/ShipStudio/site",
-    "sessions": [
+    branch: 'main',
+    dirtyFiles: 3,
+    name: 'site',
+    path: '/Users/julian/ShipStudio/site',
+    sessions: [
       {
-        "cli": "claude",
-        "lastOutputAt": 1762290000000,
-        "question": {
-          "action": "Bash(npm install)",
-          "options": [
+        cli: 'claude',
+        lastOutputAt: 1762290000000,
+        question: {
+          action: 'Bash(npm install)',
+          options: [
             {
-              "highlighted": false,
-              "key": "1",
-              "label": "Yes"
+              highlighted: false,
+              key: '1',
+              label: 'Yes',
             },
             {
-              "highlighted": false,
-              "key": "2",
-              "label": "Yes, and don't ask again for npm install"
+              highlighted: false,
+              key: '2',
+              label: "Yes, and don't ask again for npm install",
             },
             {
-              "highlighted": false,
-              "key": "3",
-              "label": "No"
-            }
+              highlighted: false,
+              key: '3',
+              label: 'No',
+            },
           ],
-          "question": "Do you want to proceed?"
+          question: 'Do you want to proceed?',
         },
-        "sessionId": "pty-2",
-        "state": "needs_decision",
-        "tab": 2
+        sessionId: 'pty-2',
+        state: 'needs_decision',
+        tab: 2,
       },
       {
-        "activity": "Editing Header.tsx",
-        "cli": "codex",
-        "lastOutputAt": 1762290000000,
-        "sessionId": "pty-1",
-        "state": "working",
-        "tab": 1
-      }
-    ]
-  }
+        activity: 'Editing Header.tsx',
+        cli: 'codex',
+        lastOutputAt: 1762290000000,
+        sessionId: 'pty-1',
+        state: 'working',
+        tab: 1,
+      },
+    ],
+  },
 ] satisfies Result<'projects.list'>;
 export const sessionsRead = {
-  "reply": "Fixed the header's spacing.",
-  "screen": "> Fix the header\n\n⏺ Editing Header.tsx",
-  "session": {
-    "activity": "Editing Header.tsx",
-    "cli": "codex",
-    "lastOutputAt": 1762290000000,
-    "sessionId": "pty-1",
-    "state": "working",
-    "tab": 1
-  }
+  reply: "Fixed the header's spacing.",
+  screen: '> Fix the header\n\n⏺ Editing Header.tsx',
+  session: {
+    activity: 'Editing Header.tsx',
+    cli: 'codex',
+    lastOutputAt: 1762290000000,
+    sessionId: 'pty-1',
+    state: 'working',
+    tab: 1,
+  },
 } satisfies Result<'sessions.read'>;
 export const agentsUpdate = {
-  "capabilities": {
-    "lines": [
+  capabilities: {
+    lines: [
       {
-        "detail": "Bash, Read, Edit",
-        "what": "Tools"
-      }
+        detail: 'Bash, Read, Edit',
+        what: 'Tools',
+      },
     ],
-    "seenAt": 1762290000000
+    seenAt: 1762290000000,
   },
-  "checkIns": [
+  checkIns: [
     {
-      "createdAt": 1762200000000,
-      "id": "c1",
-      "nextAt": 1762300000000,
-      "note": "Check the invoices",
-      "paused": false,
-      "repeat": {
-        "days": [
-          1,
-          3
-        ],
-        "hour": 9,
-        "kind": "days",
-        "minute": 30
-      }
+      createdAt: 1762200000000,
+      id: 'c1',
+      nextAt: 1762300000000,
+      note: 'Check the invoices',
+      paused: false,
+      repeat: {
+        days: [1, 3],
+        hour: 9,
+        kind: 'days',
+        minute: 30,
+      },
+      retry: {
+        at: 1762201800000,
+        attempts: 1,
+        dueAt: 1762200000000,
+        firstFailedAt: 1762200000000,
+      },
+      runs: [
+        {
+          at: 1762100000000,
+          attempt: 1,
+          manual: true,
+          outcome: 'ran',
+        },
+        {
+          at: 1762150000000,
+          attempt: 3,
+          detail: 'Claude Code is signed out.',
+          outcome: 'failed',
+          signIn: ['Gmail'],
+        },
+        {
+          at: 1762200000000,
+          attempt: 1,
+          detail: 'Usage limit',
+          outcome: 'retrying',
+          retryAt: 1762201800000,
+        },
+        {
+          at: 1762250000000,
+          attempt: 2,
+          outcome: 'running',
+        },
+        {
+          at: 1762260000000,
+          attempt: 1,
+          outcome: 'unknown',
+        },
+      ],
     },
     {
-      "createdAt": 1762200000000,
-      "id": "c2",
-      "nextAt": 1762300000000,
-      "note": "Look at the queue",
-      "paused": true,
-      "repeat": {
-        "kind": "every",
-        "minutes": 60
-      }
+      createdAt: 1762200000000,
+      id: 'c2',
+      nextAt: 1762300000000,
+      note: 'Look at the queue',
+      paused: true,
+      repeat: {
+        kind: 'every',
+        minutes: 60,
+      },
     },
     {
-      "createdAt": 1762200000000,
-      "id": "c3",
-      "nextAt": 1762400000000,
-      "note": "Remind me about the VAT return",
-      "paused": false
-    }
+      createdAt: 1762200000000,
+      id: 'c3',
+      nextAt: 1762400000000,
+      note: 'Remind me about the VAT return',
+      paused: false,
+    },
   ],
-  "color": "green",
-  "createdAt": 1762200000000,
-  "failure": {
-    "kind": "usage_limit",
-    "resetsAt": 1762310000000
+  color: 'green',
+  createdAt: 1762200000000,
+  engine: 'claude',
+  failure: {
+    kind: 'usage_limit',
+    resetsAt: 1762310000000,
   },
-  "hidden": false,
-  "id": "a1",
-  "isMain": false,
-  "lastActivityAt": 1762290000000,
-  "model": "opus",
-  "muted": true,
-  "name": "Finance",
-  "pendingApprovals": 1,
-  "permissions": [
+  hidden: false,
+  id: 'a1',
+  isMain: false,
+  lastActivityAt: 1762290000000,
+  model: 'opus',
+  muted: true,
+  name: 'Finance',
+  pendingApprovals: 1,
+  permissions: [
     {
-      "createdAt": 1762200000000,
-      "id": "r1",
-      "kind": "command_prefix",
-      "label": "npm test",
-      "value": "npm test"
+      createdAt: 1762200000000,
+      id: 'r1',
+      kind: 'command_prefix',
+      label: 'npm test',
+      value: 'npm test',
     },
     {
-      "createdAt": 1762200000000,
-      "id": "r2",
-      "kind": "command",
-      "label": "git status",
-      "value": "git status"
+      createdAt: 1762200000000,
+      id: 'r2',
+      kind: 'command',
+      label: 'git status',
+      value: 'git status',
     },
     {
-      "createdAt": 1762200000000,
-      "id": "r3",
-      "kind": "domain",
-      "label": "example.com",
-      "value": "example.com"
+      createdAt: 1762200000000,
+      id: 'r3',
+      kind: 'domain',
+      label: 'example.com',
+      value: 'example.com',
     },
     {
-      "createdAt": 1762200000000,
-      "id": "r4",
-      "kind": "tool",
-      "label": "Send an email · Gmail",
-      "value": "mcp__gmail__send"
-    }
+      createdAt: 1762200000000,
+      id: 'r4',
+      kind: 'tool',
+      label: 'Send an email · Gmail',
+      value: 'mcp__gmail__send',
+    },
   ],
-  "pinned": true,
-  "preview": "Invoices are filed.",
-  "project": "/Users/julian/ShipStudio/site",
-  "role": "Keeps the books",
-  "sessionId": "8c1d7a52-0000-4000-8000-000000000001",
-  "shape": 2,
-  "unread": 2
+  pinned: true,
+  preview: 'Invoices are filed.',
+  project: '/Users/julian/ShipStudio/site',
+  role: 'Keeps the books',
+  routineModel: 'same',
+  secrets: [
+    {
+      createdAt: 1762200000000,
+      fields: [
+        {
+          env: 'STRIPE_KEY',
+          label: 'API key',
+        },
+      ],
+      id: 's1',
+      kind: 'api_key',
+      lastUsedAt: 1762290000000,
+      name: 'Stripe key',
+      purpose: 'Reconcile payouts',
+      reference: 'secret:finance/stripe_key',
+    },
+  ],
+  sessionId: '8c1d7a52-0000-4000-8000-000000000001',
+  shape: 2,
+  unread: 2,
 } satisfies Result<'agents.update'>;
 export const sessionsSend = {
-  "sessionId": "pty-1"
+  sessionId: 'pty-1',
 } satisfies Result<'sessions.send'>;
 export const frames = [
   {
-    "t": "welcome",
-    "protocol": 1,
-    "server": {
-      "id": "srv_0123456789abcdef",
-      "name": "Julian’s MacBook Pro",
-      "appVersion": "1.7.0"
+    t: 'welcome',
+    protocol: 1,
+    server: {
+      id: 'srv_0123456789abcdef',
+      name: 'Julian’s MacBook Pro',
+      appVersion: '1.7.0',
     },
-    "deviceId": "dev_0123456789abcdef",
-    "resume": "replay",
-    "methods": [
-      "system.status",
-      "devices.self",
-      "devices.unpairSelf",
-      "devices.setPush",
-      "agents.overview",
-      "agents.messages",
-      "agents.send",
-      "agents.stop",
-      "agents.interrupt",
-      "agents.answerApproval",
-      "agents.focus",
-      "agents.markUnread",
-      "agents.update",
-      "agents.revokePermission",
-      "agents.instructions",
-      "agents.usage",
-      "agents.changeDiff",
-      "agents.files",
-      "agents.fetchPath",
-      "agents.search",
-      "agents.schedule.preview",
-      "agents.schedule.create",
-      "agents.schedule.update",
-      "agents.schedule.pause",
-      "agents.schedule.cancel",
-      "agents.schedule.runNow",
-      "projects.list",
-      "sessions.read",
-      "sessions.send",
-      "sessions.key",
-      "sessions.start",
-      "preview.screenshot"
-    ]
+    deviceId: 'dev_0123456789abcdef',
+    resume: 'replay',
+    methods: [
+      'system.status',
+      'devices.self',
+      'devices.unpairSelf',
+      'devices.setPush',
+      'agents.overview',
+      'agents.messages',
+      'agents.send',
+      'agents.stop',
+      'agents.interrupt',
+      'agents.answerApproval',
+      'agents.saveSecret',
+      'agents.focus',
+      'agents.markUnread',
+      'agents.update',
+      'agents.revokePermission',
+      'agents.instructions',
+      'agents.memory',
+      'agents.memoryChange',
+      'agents.memorySuggest',
+      'agents.usage',
+      'agents.changeDiff',
+      'agents.files',
+      'agents.fetchPath',
+      'agents.search',
+      'agents.schedule.preview',
+      'agents.schedule.create',
+      'agents.schedule.update',
+      'agents.schedule.pause',
+      'agents.schedule.cancel',
+      'agents.schedule.runNow',
+      'projects.list',
+      'sessions.read',
+      'sessions.send',
+      'sessions.key',
+      'sessions.start',
+      'preview.screenshot',
+    ],
   },
   {
-    "t": "refused",
-    "reason": "unauthorized",
-    "message": "This phone isn't paired with this Mac."
+    t: 'refused',
+    reason: 'unauthorized',
+    message: "This phone isn't paired with this Mac.",
   },
   {
-    "t": "refused",
-    "reason": "revoked",
-    "message": "This Mac removed this phone."
+    t: 'refused',
+    reason: 'revoked',
+    message: 'This Mac removed this phone.',
   },
   {
-    "t": "refused",
-    "reason": "update_app",
-    "message": "Update this app to connect to this Mac."
+    t: 'refused',
+    reason: 'update_app',
+    message: 'Update this app to connect to this Mac.',
   },
   {
-    "t": "refused",
-    "reason": "update_mac",
-    "message": "Update Ship Studio on Julian’s MacBook Pro."
+    t: 'refused',
+    reason: 'update_mac',
+    message: 'Update Ship Studio on Julian’s MacBook Pro.',
   },
   {
-    "t": "refused",
-    "reason": "too_many_connections",
-    "message": "Too many connections from this phone."
+    t: 'refused',
+    reason: 'too_many_connections',
+    message: 'Too many connections from this phone.',
   },
   {
-    "t": "res",
-    "id": 1,
-    "ok": true,
-    "result": null
+    t: 'res',
+    id: 1,
+    ok: true,
+    result: null,
   },
   {
-    "t": "res",
-    "id": 2,
-    "ok": false,
-    "error": {
-      "type": "Timeout",
-      "cmd": "claude",
-      "secs": 30
-    }
+    t: 'res',
+    id: 2,
+    ok: false,
+    error: {
+      type: 'Timeout',
+      cmd: 'claude',
+      secs: 30,
+    },
   },
   {
-    "t": "res",
-    "id": 3,
-    "ok": false,
-    "error": {
-      "type": "Process",
-      "cmd": "git",
-      "exit_code": 1,
-      "stderr": "fatal"
-    }
+    t: 'res',
+    id: 3,
+    ok: false,
+    error: {
+      type: 'Process',
+      cmd: 'git',
+      exit_code: 1,
+      stderr: 'fatal',
+    },
   },
   {
-    "t": "res",
-    "id": 4,
-    "ok": false,
-    "error": {
-      "type": "Validation",
-      "field": "text",
-      "reason": "Type a message first."
-    }
+    t: 'res',
+    id: 4,
+    ok: false,
+    error: {
+      type: 'Validation',
+      field: 'text',
+      reason: 'Type a message first.',
+    },
   },
   {
-    "t": "res",
-    "id": 5,
-    "ok": false,
-    "error": {
-      "type": "NotAuthenticated",
-      "service": "GitHub"
-    }
+    t: 'res',
+    id: 5,
+    ok: false,
+    error: {
+      type: 'NotAuthenticated',
+      service: 'GitHub',
+    },
   },
   {
-    "t": "res",
-    "id": 6,
-    "ok": false,
-    "error": {
-      "type": "Io",
-      "message": "disk full"
-    }
+    t: 'res',
+    id: 6,
+    ok: false,
+    error: {
+      type: 'Io',
+      message: 'disk full',
+    },
   },
   {
-    "t": "res",
-    "id": 7,
-    "ok": false,
-    "error": {
-      "type": "MergeConflict",
-      "pr_number": 12,
-      "stderr": "conflict"
-    }
+    t: 'res',
+    id: 7,
+    ok: false,
+    error: {
+      type: 'MergeConflict',
+      pr_number: 12,
+      stderr: 'conflict',
+    },
   },
   {
-    "t": "res",
-    "id": 8,
-    "ok": false,
-    "error": {
-      "type": "Other",
-      "message": "Something broke."
-    }
+    t: 'res',
+    id: 8,
+    ok: false,
+    error: {
+      type: 'Other',
+      message: 'Something broke.',
+    },
   },
   {
-    "t": "res",
-    "id": 9,
-    "ok": false,
-    "error": {
-      "type": "Other",
-      "message": "That request was already answered.",
-      "expected": true
-    }
+    t: 'res',
+    id: 9,
+    ok: false,
+    error: {
+      type: 'Other',
+      message: 'That request was already answered.',
+      expected: true,
+    },
   },
   {
-    "t": "res",
-    "id": 10,
-    "ok": false,
-    "error": {
-      "type": "Protocol",
-      "code": "unknown_method",
-      "message": "What happened, for the user."
-    }
+    t: 'res',
+    id: 10,
+    ok: false,
+    error: {
+      type: 'Protocol',
+      code: 'unknown_method',
+      message: 'What happened, for the user.',
+    },
   },
   {
-    "t": "res",
-    "id": 11,
-    "ok": false,
-    "error": {
-      "type": "Protocol",
-      "code": "bad_params",
-      "message": "What happened, for the user."
-    }
+    t: 'res',
+    id: 11,
+    ok: false,
+    error: {
+      type: 'Protocol',
+      code: 'bad_params',
+      message: 'What happened, for the user.',
+    },
   },
   {
-    "t": "res",
-    "id": 12,
-    "ok": false,
-    "error": {
-      "type": "Protocol",
-      "code": "rate_limited",
-      "message": "What happened, for the user."
-    }
+    t: 'res',
+    id: 12,
+    ok: false,
+    error: {
+      type: 'Protocol',
+      code: 'rate_limited',
+      message: 'What happened, for the user.',
+    },
   },
   {
-    "t": "res",
-    "id": 13,
-    "ok": false,
-    "error": {
-      "type": "Protocol",
-      "code": "too_large",
-      "message": "What happened, for the user."
-    }
+    t: 'res',
+    id: 13,
+    ok: false,
+    error: {
+      type: 'Protocol',
+      code: 'too_large',
+      message: 'What happened, for the user.',
+    },
   },
   {
-    "t": "res",
-    "id": 14,
-    "ok": false,
-    "error": {
-      "type": "Protocol",
-      "code": "refused",
-      "message": "What happened, for the user."
-    }
+    t: 'res',
+    id: 14,
+    ok: false,
+    error: {
+      type: 'Protocol',
+      code: 'refused',
+      message: 'What happened, for the user.',
+    },
   },
   {
-    "t": "res",
-    "id": 15,
-    "ok": false,
-    "error": {
-      "type": "Protocol",
-      "code": "not_connected",
-      "message": "What happened, for the user."
-    }
+    t: 'res',
+    id: 15,
+    ok: false,
+    error: {
+      type: 'Protocol',
+      code: 'not_connected',
+      message: 'What happened, for the user.',
+    },
   },
   {
-    "t": "evt",
-    "seq": 1,
-    "event": {
-      "type": "agents.message",
-      "message": {
-        "agentId": "a1",
-        "approval": {
-          "always": {
-            "kind": "command_prefix",
-            "label": "npm test",
-            "value": "npm test"
+    t: 'evt',
+    seq: 1,
+    event: {
+      type: 'agents.message',
+      message: {
+        agentId: 'a1',
+        approval: {
+          always: {
+            kind: 'command_prefix',
+            label: 'npm test',
+            value: 'npm test',
           },
-          "detail": "npm test",
-          "input": {
-            "command": "npm test"
+          detail: 'npm test',
+          input: {
+            command: 'npm test',
           },
-          "requestId": "q1",
-          "status": "pending",
-          "title": "Run a command",
-          "tool": "Bash"
+          requestId: 'q1',
+          status: 'pending',
+          title: 'Run a command',
+          tool: 'Bash',
         },
-        "id": "m05",
-        "kind": "approval",
-        "text": "",
-        "ts": 1762290005000
-      }
-    }
+        id: 'm05',
+        kind: 'approval',
+        text: '',
+        ts: 1762290005000,
+      },
+    },
   },
   {
-    "t": "evt",
-    "seq": 2,
-    "event": {
-      "type": "agents.status",
-      "agentId": "a1",
-      "status": {
-        "activity": "Reading src/App.tsx",
-        "since": 1762290000000,
-        "state": "working"
-      }
-    }
+    t: 'evt',
+    seq: 2,
+    event: {
+      type: 'agents.status',
+      agentId: 'a1',
+      status: {
+        activity: 'Reading src/App.tsx',
+        since: 1762290000000,
+        state: 'working',
+      },
+    },
   },
   {
-    "t": "evt",
-    "seq": 3,
-    "event": {
-      "type": "agents.status",
-      "agentId": "a1",
-      "status": {
-        "activity": null,
-        "since": null,
-        "state": "idle"
-      }
-    }
+    t: 'evt',
+    seq: 3,
+    event: {
+      type: 'agents.status',
+      agentId: 'a1',
+      status: {
+        activity: null,
+        since: null,
+        state: 'idle',
+      },
+    },
   },
   {
-    "t": "evt",
-    "seq": 4,
-    "event": {
-      "type": "agents.registry",
-      "overview": {
-        "agents": [
+    t: 'evt',
+    seq: 3,
+    event: {
+      type: 'agents.status',
+      agentId: 'a1',
+      status: {
+        activity: 'Waiting for a free slot (4 agents already working)',
+        since: null,
+        state: 'working',
+      },
+    },
+  },
+  {
+    t: 'evt',
+    seq: 4,
+    event: {
+      type: 'agents.registry',
+      overview: {
+        agents: [
           {
-            "capabilities": {
-              "lines": [
+            capabilities: {
+              lines: [
                 {
-                  "detail": "Bash, Read, Edit",
-                  "what": "Tools"
-                }
-              ],
-              "seenAt": 1762290000000
-            },
-            "checkIns": [
-              {
-                "createdAt": 1762200000000,
-                "id": "c1",
-                "nextAt": 1762300000000,
-                "note": "Check the invoices",
-                "paused": false,
-                "repeat": {
-                  "days": [
-                    1,
-                    3
-                  ],
-                  "hour": 9,
-                  "kind": "days",
-                  "minute": 30
-                }
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "c2",
-                "nextAt": 1762300000000,
-                "note": "Look at the queue",
-                "paused": true,
-                "repeat": {
-                  "kind": "every",
-                  "minutes": 60
-                }
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "c3",
-                "nextAt": 1762400000000,
-                "note": "Remind me about the VAT return",
-                "paused": false
-              }
-            ],
-            "color": "green",
-            "createdAt": 1762200000000,
-            "failure": {
-              "kind": "usage_limit",
-              "resetsAt": 1762310000000
-            },
-            "hidden": false,
-            "home": "/Users/julian/Library/Application Support/ShipStudio/agents/a1",
-            "id": "a1",
-            "isMain": false,
-            "lastActivityAt": 1762290000000,
-            "model": "opus",
-            "muted": false,
-            "name": "Finance",
-            "pendingApprovals": 1,
-            "permissions": [
-              {
-                "createdAt": 1762200000000,
-                "id": "r1",
-                "kind": "command_prefix",
-                "label": "npm test",
-                "value": "npm test"
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "r2",
-                "kind": "command",
-                "label": "git status",
-                "value": "git status"
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "r3",
-                "kind": "domain",
-                "label": "example.com",
-                "value": "example.com"
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "r4",
-                "kind": "tool",
-                "label": "Send an email · Gmail",
-                "value": "mcp__gmail__send"
-              }
-            ],
-            "pinned": true,
-            "preview": "Invoices are filed.",
-            "project": "/Users/julian/ShipStudio/site",
-            "role": "Keeps the books",
-            "sessionId": "8c1d7a52-0000-4000-8000-000000000001",
-            "shape": 2,
-            "status": {
-              "activity": "Running npm test",
-              "since": 1762290000000,
-              "state": "waiting"
-            },
-            "unread": 2
-          }
-        ],
-        "engineReady": true
-      }
-    }
-  },
-  {
-    "t": "evt",
-    "seq": 5,
-    "event": {
-      "type": "system.status",
-      "status": {
-        "name": "Julian’s MacBook Pro",
-        "appVersion": "1.7.0",
-        "power": {
-          "keepAwake": true,
-          "lidClosedMode": "no",
-          "onBattery": "yes",
-          "batteryPercent": 64
-        },
-        "claude": {
-          "installed": true,
-          "signedIn": "unknown",
-          "version": "2.1.0"
-        },
-        "routes": [
-          {
-            "kind": "tailscale",
-            "url": "https://julians-macbook-pro.tail1234.ts.net:47443"
-          },
-          {
-            "kind": "lan",
-            "url": "https://192.168.1.20:47444",
-            "pin": "q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A"
-          }
-        ]
-      }
-    }
-  },
-  {
-    "t": "evt",
-    "seq": 6,
-    "event": {
-      "type": "projects.changed",
-      "project": {
-        "branch": "main",
-        "dirtyFiles": 3,
-        "name": "site",
-        "path": "/Users/julian/ShipStudio/site",
-        "sessions": [
-          {
-            "cli": "claude",
-            "lastOutputAt": 1762290000000,
-            "question": {
-              "action": "Bash(npm install)",
-              "options": [
-                {
-                  "highlighted": false,
-                  "key": "1",
-                  "label": "Yes"
+                  detail: 'Bash, Read, Edit',
+                  what: 'Tools',
                 },
-                {
-                  "highlighted": false,
-                  "key": "2",
-                  "label": "Yes, and don't ask again for npm install"
+              ],
+              seenAt: 1762290000000,
+            },
+            checkIns: [
+              {
+                createdAt: 1762200000000,
+                id: 'c1',
+                nextAt: 1762300000000,
+                note: 'Check the invoices',
+                paused: false,
+                repeat: {
+                  days: [1, 3],
+                  hour: 9,
+                  kind: 'days',
+                  minute: 30,
                 },
-                {
-                  "highlighted": false,
-                  "key": "3",
-                  "label": "No"
-                }
-              ],
-              "question": "Do you want to proceed?"
-            },
-            "sessionId": "pty-2",
-            "state": "needs_decision",
-            "tab": 2
-          },
-          {
-            "activity": "Editing Header.tsx",
-            "cli": "codex",
-            "lastOutputAt": 1762290000000,
-            "sessionId": "pty-1",
-            "state": "working",
-            "tab": 1
-          }
-        ]
-      }
-    }
-  },
-  {
-    "t": "evt",
-    "seq": 7,
-    "event": {
-      "type": "projects.removed",
-      "path": "/Users/julian/ShipStudio/old-site"
-    }
-  },
-  {
-    "t": "evt",
-    "event": {
-      "type": "agents.draft",
-      "agentId": "a1",
-      "id": "r1",
-      "from": 5,
-      "text": " world"
-    }
-  },
-  {
-    "t": "evt",
-    "event": {
-      "type": "sync.snapshot",
-      "cursor": {
-        "epoch": "epoch-test",
-        "seq": 5
-      },
-      "overview": {
-        "agents": [
-          {
-            "capabilities": {
-              "lines": [
-                {
-                  "detail": "Bash, Read, Edit",
-                  "what": "Tools"
-                }
-              ],
-              "seenAt": 1762290000000
-            },
-            "checkIns": [
-              {
-                "createdAt": 1762200000000,
-                "id": "c1",
-                "nextAt": 1762300000000,
-                "note": "Check the invoices",
-                "paused": false,
-                "repeat": {
-                  "days": [
-                    1,
-                    3
-                  ],
-                  "hour": 9,
-                  "kind": "days",
-                  "minute": 30
-                }
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "c2",
-                "nextAt": 1762300000000,
-                "note": "Look at the queue",
-                "paused": true,
-                "repeat": {
-                  "kind": "every",
-                  "minutes": 60
-                }
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "c3",
-                "nextAt": 1762400000000,
-                "note": "Remind me about the VAT return",
-                "paused": false
-              }
-            ],
-            "color": "green",
-            "createdAt": 1762200000000,
-            "failure": {
-              "kind": "usage_limit",
-              "resetsAt": 1762310000000
-            },
-            "hidden": false,
-            "home": "/Users/julian/Library/Application Support/ShipStudio/agents/a1",
-            "id": "a1",
-            "isMain": false,
-            "lastActivityAt": 1762290000000,
-            "model": "opus",
-            "muted": false,
-            "name": "Finance",
-            "pendingApprovals": 1,
-            "permissions": [
-              {
-                "createdAt": 1762200000000,
-                "id": "r1",
-                "kind": "command_prefix",
-                "label": "npm test",
-                "value": "npm test"
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "r2",
-                "kind": "command",
-                "label": "git status",
-                "value": "git status"
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "r3",
-                "kind": "domain",
-                "label": "example.com",
-                "value": "example.com"
-              },
-              {
-                "createdAt": 1762200000000,
-                "id": "r4",
-                "kind": "tool",
-                "label": "Send an email · Gmail",
-                "value": "mcp__gmail__send"
-              }
-            ],
-            "pinned": true,
-            "preview": "Invoices are filed.",
-            "project": "/Users/julian/ShipStudio/site",
-            "role": "Keeps the books",
-            "sessionId": "8c1d7a52-0000-4000-8000-000000000001",
-            "shape": 2,
-            "status": {
-              "activity": "Running npm test",
-              "since": 1762290000000,
-              "state": "waiting"
-            },
-            "unread": 2
-          }
-        ],
-        "engineReady": true
-      },
-      "status": {
-        "name": "Julian’s MacBook Pro",
-        "appVersion": "1.7.0",
-        "power": {
-          "keepAwake": true,
-          "lidClosedMode": "no",
-          "onBattery": "yes",
-          "batteryPercent": 64
-        },
-        "claude": {
-          "installed": true,
-          "signedIn": "unknown",
-          "version": "2.1.0"
-        },
-        "routes": [
-          {
-            "kind": "tailscale",
-            "url": "https://julians-macbook-pro.tail1234.ts.net:47443"
-          },
-          {
-            "kind": "lan",
-            "url": "https://192.168.1.20:47444",
-            "pin": "q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A"
-          }
-        ]
-      },
-      "projects": [
-        {
-          "branch": "main",
-          "dirtyFiles": 3,
-          "name": "site",
-          "path": "/Users/julian/ShipStudio/site",
-          "sessions": [
-            {
-              "cli": "claude",
-              "lastOutputAt": 1762290000000,
-              "question": {
-                "action": "Bash(npm install)",
-                "options": [
+                retry: {
+                  at: 1762201800000,
+                  attempts: 1,
+                  dueAt: 1762200000000,
+                  firstFailedAt: 1762200000000,
+                },
+                runs: [
                   {
-                    "highlighted": false,
-                    "key": "1",
-                    "label": "Yes"
+                    at: 1762100000000,
+                    attempt: 1,
+                    manual: true,
+                    outcome: 'ran',
                   },
                   {
-                    "highlighted": false,
-                    "key": "2",
-                    "label": "Yes, and don't ask again for npm install"
+                    at: 1762150000000,
+                    attempt: 3,
+                    detail: 'Claude Code is signed out.',
+                    outcome: 'failed',
+                    signIn: ['Gmail'],
                   },
                   {
-                    "highlighted": false,
-                    "key": "3",
-                    "label": "No"
-                  }
+                    at: 1762200000000,
+                    attempt: 1,
+                    detail: 'Usage limit',
+                    outcome: 'retrying',
+                    retryAt: 1762201800000,
+                  },
+                  {
+                    at: 1762250000000,
+                    attempt: 2,
+                    outcome: 'running',
+                  },
+                  {
+                    at: 1762260000000,
+                    attempt: 1,
+                    outcome: 'unknown',
+                  },
                 ],
-                "question": "Do you want to proceed?"
               },
-              "sessionId": "pty-2",
-              "state": "needs_decision",
-              "tab": 2
+              {
+                createdAt: 1762200000000,
+                id: 'c2',
+                nextAt: 1762300000000,
+                note: 'Look at the queue',
+                paused: true,
+                repeat: {
+                  kind: 'every',
+                  minutes: 60,
+                },
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'c3',
+                nextAt: 1762400000000,
+                note: 'Remind me about the VAT return',
+                paused: false,
+              },
+            ],
+            color: 'green',
+            createdAt: 1762200000000,
+            engine: 'claude',
+            failure: {
+              kind: 'usage_limit',
+              resetsAt: 1762310000000,
+            },
+            hidden: false,
+            home: '/Users/julian/Library/Application Support/ShipStudio/agents/a1',
+            id: 'a1',
+            isMain: false,
+            lastActivityAt: 1762290000000,
+            model: 'opus',
+            muted: false,
+            name: 'Finance',
+            pendingApprovals: 1,
+            permissions: [
+              {
+                createdAt: 1762200000000,
+                id: 'r1',
+                kind: 'command_prefix',
+                label: 'npm test',
+                value: 'npm test',
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'r2',
+                kind: 'command',
+                label: 'git status',
+                value: 'git status',
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'r3',
+                kind: 'domain',
+                label: 'example.com',
+                value: 'example.com',
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'r4',
+                kind: 'tool',
+                label: 'Send an email · Gmail',
+                value: 'mcp__gmail__send',
+              },
+            ],
+            pinned: true,
+            preview: 'Invoices are filed.',
+            project: '/Users/julian/ShipStudio/site',
+            role: 'Keeps the books',
+            routineModel: 'same',
+            secrets: [
+              {
+                createdAt: 1762200000000,
+                fields: [
+                  {
+                    env: 'STRIPE_KEY',
+                    label: 'API key',
+                  },
+                ],
+                id: 's1',
+                kind: 'api_key',
+                lastUsedAt: 1762290000000,
+                name: 'Stripe key',
+                purpose: 'Reconcile payouts',
+                reference: 'secret:finance/stripe_key',
+              },
+            ],
+            sessionId: '8c1d7a52-0000-4000-8000-000000000001',
+            shape: 2,
+            status: {
+              activity: 'Running npm test',
+              since: 1762290000000,
+              state: 'waiting',
+            },
+            unread: 2,
+          },
+        ],
+        engineReady: true,
+        engines: [
+          {
+            id: 'claude',
+            installed: true,
+            label: 'Claude Code',
+            models: [
+              {
+                label: 'Opus',
+                value: 'opus',
+              },
+              {
+                label: 'Sonnet',
+                value: 'sonnet',
+              },
+            ],
+            signedIn: true,
+          },
+          {
+            id: 'codex',
+            installed: true,
+            label: 'Codex',
+            models: [
+              {
+                label: 'GPT-5 Codex',
+                value: 'gpt-5-codex',
+              },
+            ],
+            signedIn: false,
+          },
+        ],
+      },
+    },
+  },
+  {
+    t: 'evt',
+    seq: 5,
+    event: {
+      type: 'system.status',
+      status: {
+        name: 'Julian’s MacBook Pro',
+        appVersion: '1.7.0',
+        power: {
+          keepAwake: true,
+          lidClosedMode: 'no',
+          onBattery: 'yes',
+          batteryPercent: 64,
+        },
+        claude: {
+          installed: true,
+          signedIn: 'unknown',
+          version: '2.1.0',
+        },
+        routes: [
+          {
+            kind: 'tailscale',
+            url: 'https://julians-macbook-pro.tail1234.ts.net:47443',
+          },
+          {
+            kind: 'lan',
+            url: 'https://192.168.1.20:47444',
+            pin: 'q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A',
+          },
+        ],
+      },
+    },
+  },
+  {
+    t: 'evt',
+    seq: 6,
+    event: {
+      type: 'projects.changed',
+      project: {
+        branch: 'main',
+        dirtyFiles: 3,
+        name: 'site',
+        path: '/Users/julian/ShipStudio/site',
+        sessions: [
+          {
+            cli: 'claude',
+            lastOutputAt: 1762290000000,
+            question: {
+              action: 'Bash(npm install)',
+              options: [
+                {
+                  highlighted: false,
+                  key: '1',
+                  label: 'Yes',
+                },
+                {
+                  highlighted: false,
+                  key: '2',
+                  label: "Yes, and don't ask again for npm install",
+                },
+                {
+                  highlighted: false,
+                  key: '3',
+                  label: 'No',
+                },
+              ],
+              question: 'Do you want to proceed?',
+            },
+            sessionId: 'pty-2',
+            state: 'needs_decision',
+            tab: 2,
+          },
+          {
+            activity: 'Editing Header.tsx',
+            cli: 'codex',
+            lastOutputAt: 1762290000000,
+            sessionId: 'pty-1',
+            state: 'working',
+            tab: 1,
+          },
+        ],
+      },
+    },
+  },
+  {
+    t: 'evt',
+    seq: 7,
+    event: {
+      type: 'projects.removed',
+      path: '/Users/julian/ShipStudio/old-site',
+    },
+  },
+  {
+    t: 'evt',
+    event: {
+      type: 'agents.draft',
+      agentId: 'a1',
+      id: 'r1',
+      from: 5,
+      text: ' world',
+    },
+  },
+  {
+    t: 'evt',
+    event: {
+      type: 'sync.snapshot',
+      cursor: {
+        epoch: 'epoch-test',
+        seq: 5,
+      },
+      overview: {
+        agents: [
+          {
+            capabilities: {
+              lines: [
+                {
+                  detail: 'Bash, Read, Edit',
+                  what: 'Tools',
+                },
+              ],
+              seenAt: 1762290000000,
+            },
+            checkIns: [
+              {
+                createdAt: 1762200000000,
+                id: 'c1',
+                nextAt: 1762300000000,
+                note: 'Check the invoices',
+                paused: false,
+                repeat: {
+                  days: [1, 3],
+                  hour: 9,
+                  kind: 'days',
+                  minute: 30,
+                },
+                retry: {
+                  at: 1762201800000,
+                  attempts: 1,
+                  dueAt: 1762200000000,
+                  firstFailedAt: 1762200000000,
+                },
+                runs: [
+                  {
+                    at: 1762100000000,
+                    attempt: 1,
+                    manual: true,
+                    outcome: 'ran',
+                  },
+                  {
+                    at: 1762150000000,
+                    attempt: 3,
+                    detail: 'Claude Code is signed out.',
+                    outcome: 'failed',
+                    signIn: ['Gmail'],
+                  },
+                  {
+                    at: 1762200000000,
+                    attempt: 1,
+                    detail: 'Usage limit',
+                    outcome: 'retrying',
+                    retryAt: 1762201800000,
+                  },
+                  {
+                    at: 1762250000000,
+                    attempt: 2,
+                    outcome: 'running',
+                  },
+                  {
+                    at: 1762260000000,
+                    attempt: 1,
+                    outcome: 'unknown',
+                  },
+                ],
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'c2',
+                nextAt: 1762300000000,
+                note: 'Look at the queue',
+                paused: true,
+                repeat: {
+                  kind: 'every',
+                  minutes: 60,
+                },
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'c3',
+                nextAt: 1762400000000,
+                note: 'Remind me about the VAT return',
+                paused: false,
+              },
+            ],
+            color: 'green',
+            createdAt: 1762200000000,
+            engine: 'claude',
+            failure: {
+              kind: 'usage_limit',
+              resetsAt: 1762310000000,
+            },
+            hidden: false,
+            home: '/Users/julian/Library/Application Support/ShipStudio/agents/a1',
+            id: 'a1',
+            isMain: false,
+            lastActivityAt: 1762290000000,
+            model: 'opus',
+            muted: false,
+            name: 'Finance',
+            pendingApprovals: 1,
+            permissions: [
+              {
+                createdAt: 1762200000000,
+                id: 'r1',
+                kind: 'command_prefix',
+                label: 'npm test',
+                value: 'npm test',
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'r2',
+                kind: 'command',
+                label: 'git status',
+                value: 'git status',
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'r3',
+                kind: 'domain',
+                label: 'example.com',
+                value: 'example.com',
+              },
+              {
+                createdAt: 1762200000000,
+                id: 'r4',
+                kind: 'tool',
+                label: 'Send an email · Gmail',
+                value: 'mcp__gmail__send',
+              },
+            ],
+            pinned: true,
+            preview: 'Invoices are filed.',
+            project: '/Users/julian/ShipStudio/site',
+            role: 'Keeps the books',
+            routineModel: 'same',
+            secrets: [
+              {
+                createdAt: 1762200000000,
+                fields: [
+                  {
+                    env: 'STRIPE_KEY',
+                    label: 'API key',
+                  },
+                ],
+                id: 's1',
+                kind: 'api_key',
+                lastUsedAt: 1762290000000,
+                name: 'Stripe key',
+                purpose: 'Reconcile payouts',
+                reference: 'secret:finance/stripe_key',
+              },
+            ],
+            sessionId: '8c1d7a52-0000-4000-8000-000000000001',
+            shape: 2,
+            status: {
+              activity: 'Running npm test',
+              since: 1762290000000,
+              state: 'waiting',
+            },
+            unread: 2,
+          },
+        ],
+        engineReady: true,
+        engines: [
+          {
+            id: 'claude',
+            installed: true,
+            label: 'Claude Code',
+            models: [
+              {
+                label: 'Opus',
+                value: 'opus',
+              },
+              {
+                label: 'Sonnet',
+                value: 'sonnet',
+              },
+            ],
+            signedIn: true,
+          },
+          {
+            id: 'codex',
+            installed: true,
+            label: 'Codex',
+            models: [
+              {
+                label: 'GPT-5 Codex',
+                value: 'gpt-5-codex',
+              },
+            ],
+            signedIn: false,
+          },
+        ],
+      },
+      status: {
+        name: 'Julian’s MacBook Pro',
+        appVersion: '1.7.0',
+        power: {
+          keepAwake: true,
+          lidClosedMode: 'no',
+          onBattery: 'yes',
+          batteryPercent: 64,
+        },
+        claude: {
+          installed: true,
+          signedIn: 'unknown',
+          version: '2.1.0',
+        },
+        routes: [
+          {
+            kind: 'tailscale',
+            url: 'https://julians-macbook-pro.tail1234.ts.net:47443',
+          },
+          {
+            kind: 'lan',
+            url: 'https://192.168.1.20:47444',
+            pin: 'q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A',
+          },
+        ],
+      },
+      projects: [
+        {
+          branch: 'main',
+          dirtyFiles: 3,
+          name: 'site',
+          path: '/Users/julian/ShipStudio/site',
+          sessions: [
+            {
+              cli: 'claude',
+              lastOutputAt: 1762290000000,
+              question: {
+                action: 'Bash(npm install)',
+                options: [
+                  {
+                    highlighted: false,
+                    key: '1',
+                    label: 'Yes',
+                  },
+                  {
+                    highlighted: false,
+                    key: '2',
+                    label: "Yes, and don't ask again for npm install",
+                  },
+                  {
+                    highlighted: false,
+                    key: '3',
+                    label: 'No',
+                  },
+                ],
+                question: 'Do you want to proceed?',
+              },
+              sessionId: 'pty-2',
+              state: 'needs_decision',
+              tab: 2,
             },
             {
-              "activity": "Editing Header.tsx",
-              "cli": "codex",
-              "lastOutputAt": 1762290000000,
-              "sessionId": "pty-1",
-              "state": "working",
-              "tab": 1
-            }
-          ]
-        }
-      ]
-    }
+              activity: 'Editing Header.tsx',
+              cli: 'codex',
+              lastOutputAt: 1762290000000,
+              sessionId: 'pty-1',
+              state: 'working',
+              tab: 1,
+            },
+          ],
+        },
+      ],
+    },
   },
   {
-    "t": "evt",
-    "event": {
-      "type": "sync.caughtUp",
-      "cursor": {
-        "epoch": "epoch-test",
-        "seq": 5
-      }
-    }
+    t: 'evt',
+    event: {
+      type: 'sync.caughtUp',
+      cursor: {
+        epoch: 'epoch-test',
+        seq: 5,
+      },
+    },
   },
   {
-    "t": "pong"
-  }
+    t: 'pong',
+  },
 ] satisfies ServerFrame[];
 export const pairResponses = [
   {
-    "ok": true,
-    "deviceId": "dev_0123456789abcdef",
-    "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    "serverId": "srv_0123456789abcdef",
-    "serverPublicKey": ""
+    ok: true,
+    deviceId: 'dev_0123456789abcdef',
+    token: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    serverId: 'srv_0123456789abcdef',
+    serverPublicKey: '',
   },
   {
-    "ok": false,
-    "reason": "expired",
-    "message": "What happened, for the user."
+    ok: false,
+    reason: 'expired',
+    message: 'What happened, for the user.',
   },
   {
-    "ok": false,
-    "reason": "used",
-    "message": "What happened, for the user."
+    ok: false,
+    reason: 'used',
+    message: 'What happened, for the user.',
   },
   {
-    "ok": false,
-    "reason": "denied",
-    "message": "What happened, for the user."
+    ok: false,
+    reason: 'denied',
+    message: 'What happened, for the user.',
   },
   {
-    "ok": false,
-    "reason": "timeout",
-    "message": "What happened, for the user."
+    ok: false,
+    reason: 'timeout',
+    message: 'What happened, for the user.',
   },
   {
-    "ok": false,
-    "reason": "update_app",
-    "message": "What happened, for the user."
+    ok: false,
+    reason: 'update_app',
+    message: 'What happened, for the user.',
   },
   {
-    "ok": false,
-    "reason": "update_mac",
-    "message": "What happened, for the user."
-  }
+    ok: false,
+    reason: 'update_mac',
+    message: 'What happened, for the user.',
+  },
 ] satisfies PairResponse[];
 export const pairingLink = {
-  "v": 1,
-  "code": "K7Q2MZX4A9PL3WRT8NBV6YHC5D",
-  "serverId": "srv_0123456789abcdef",
-  "name": "Julian’s MacBook Pro",
-  "routes": [
+  v: 1,
+  code: 'K7Q2MZX4A9PL3WRT8NBV6YHC5D',
+  serverId: 'srv_0123456789abcdef',
+  name: 'Julian’s MacBook Pro',
+  routes: [
     {
-      "kind": "tailscale",
-      "url": "https://julians-macbook-pro.tail1234.ts.net:47443"
+      kind: 'tailscale',
+      url: 'https://julians-macbook-pro.tail1234.ts.net:47443',
     },
     {
-      "kind": "lan",
-      "url": "https://192.168.1.20:47444",
-      "pin": "q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A"
-    }
-  ]
+      kind: 'lan',
+      url: 'https://192.168.1.20:47444',
+      pin: 'q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A',
+    },
+  ],
 } satisfies PairingLink;

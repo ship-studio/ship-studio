@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
+import { AgentsDesktopSettings } from '../agents/AgentsDesktopSettings';
 import { Button } from '../primitives/Button';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
 import { getAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../../lib/analytics';
@@ -697,6 +698,7 @@ export function SettingsModal({
                   </button>
                 </div>
               </div>
+              <AgentsDesktopSettings />
             </div>
           </TabsPanel>
 

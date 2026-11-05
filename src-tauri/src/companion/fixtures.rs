@@ -138,6 +138,19 @@ fn frames() -> Vec<ServerFrame> {
             },
         ),
         (
+            Some(3),
+            // Queued behind the cap on concurrent turns: working, no `since`.
+            Event::Status {
+                agent_id: AGENT.into(),
+                status: serde_json::to_value(crate::agents::runner::Status {
+                    state: "working",
+                    activity: Some("Waiting for a free slot (4 agents already working)".into()),
+                    since: None,
+                })
+                .unwrap(),
+            },
+        ),
+        (
             Some(4),
             Event::Registry {
                 overview: testkit::overview(),
@@ -288,6 +301,7 @@ async fn generate() -> String {
         device_id: "dev_0123456789abcdef".into(),
         device_name: "Julian’s iPhone".into(),
         label: "companion:dev_0123456789abcdef:1".into(),
+        route: super::wire::RouteKind::Tailscale,
     };
     let call = |method: &'static str, params: Value| {
         let (c, caller) = (c.clone(), caller.clone());
@@ -361,6 +375,46 @@ async fn generate() -> String {
         call(
             "agents.answerApproval",
             json!({ "agentId": AGENT, "requestId": "q1", "allow": true, "always": true }),
+        )
+        .await,
+    );
+    assert_eq!(
+        call(
+            "agents.answerApproval",
+            json!({ "agentId": AGENT, "requestId": "q6", "allow": true, "choice": 1 }),
+        )
+        .await,
+        Value::Null
+    );
+    out += &entry(
+        "agentsSaveSecret",
+        "Result<'agents.saveSecret'>",
+        call(
+            "agents.saveSecret",
+            json!({ "agentId": AGENT, "requestId": "q8", "values": ["julian", "hunter2"] }),
+        )
+        .await,
+    );
+    out += &entry(
+        "agentsMemory",
+        "Result<'agents.memory'>",
+        call("agents.memory", json!({ "agentId": AGENT })).await,
+    );
+    out += &entry(
+        "agentsMemoryChange",
+        "Result<'agents.memoryChange'>",
+        call(
+            "agents.memoryChange",
+            json!({ "agentId": AGENT, "change": { "op": "delete", "index": 1, "original": "VAT is filed quarterly" } }),
+        )
+        .await,
+    );
+    out += &entry(
+        "agentsMemorySuggest",
+        "Result<'agents.memorySuggest'>",
+        call(
+            "agents.memorySuggest",
+            json!({ "text": "Invoices over $5k need my OK first." }),
         )
         .await,
     );

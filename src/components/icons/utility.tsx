@@ -228,6 +228,13 @@ export const CollaboratorsIcon = createIcon(CollaboratorsSvg, {
   kind: 'ui',
   defaultSize: 16,
 });
+/** Agents mode (a team of agents), distinct from the workspace Agent terminal's AgentsIcon. */
+export const AgentsModeIcon = createIcon(CollaboratorsSvg, {
+  name: 'AgentsModeIcon',
+  source: 'icons/collaborators.svg',
+  kind: 'ui',
+  defaultSize: 16,
+});
 export const PackageIcon = createIcon(PackageSvg, {
   name: 'PackageIcon',
   source: 'icons/old-icons/package.svg',

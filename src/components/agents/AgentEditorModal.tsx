@@ -1,6 +1,7 @@
 /**
  * Create a new agent, or edit one. Creating asks only what Grok Bot asks —
- * a name and a face — plus the model it runs on, with the role and briefing
+ * a name and a face — plus what it runs on (Claude Code or Codex, when both
+ * are here and signed in) and its model, with the role and briefing
  * one disclosure away, because
  * most agents are created by the Chief of Staff and briefed in conversation.
  *
@@ -13,16 +14,22 @@ import { Button } from '../primitives/Button';
 import { TextArea, TextField } from '../primitives/TextField';
 import { TextButton } from '../primitives/TextButton';
 import { SegmentedControl } from '../primitives/SegmentedControl';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
 import { AgentProjectField } from './AgentProject';
+import { AgentMemory } from './AgentMemory';
 import { AgentAvatar } from './AgentAvatar';
+import { AgentSecrets } from './AgentSecrets';
 import {
   AGENT_COLORS,
   type AgentColor,
-  AGENT_MODELS,
+  type AgentEngine,
   createAgent,
+  ENGINE_LABEL,
+  engineOptions,
   formatUsage,
   getAgentInstructions,
   getAgentUsage,
+  modelChoices,
   revokePermission,
   SCOPE_KIND_LABEL,
   updateAgent,
@@ -31,6 +38,7 @@ import {
   type UsageSummary,
 } from '../../lib/agents';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { useAgentsSelector } from '../../lib/agentsStore';
 import { useAsyncState } from '../../hooks/useAsyncState';
 
 /** This week and all time, as Claude Code reported them; nothing before any turn. */
@@ -49,7 +57,7 @@ function UsageLines({ usage }: { usage: UsageSummary | null }) {
 }
 
 /**
- * What it can use, as Claude Code listed it when its last turn started
+ * What it can use, as its engine listed it for its last turn
  * (`agents/capabilities.rs`). Nothing is claimed before a turn has said.
  */
 function CanDo({ agent }: { agent: Agent }) {
@@ -59,7 +67,7 @@ function CanDo({ agent }: { agent: Agent }) {
       What {agent.name} can do
       {lines.length === 0 ? (
         <p className="agent-editor__hint">
-          Shown after its first turn, from what Claude Code says it can use.
+          Shown after its first turn, from what {ENGINE_LABEL[agent.engine]} says it can use.
         </p>
       ) : (
         <dl className="agent-editor__usage agent-editor__can-do">
@@ -137,7 +145,11 @@ interface AgentEditorModalProps {
   takenColors?: string[];
   /** Open "Apps your agents can use" over the editor. */
   onOpenApps?: () => void;
+  /** Editing: open on its memory rather than its settings. */
+  initialTab?: EditorTab;
 }
+
+export type EditorTab = 'agent' | 'memory';
 
 /** The first colour nobody has yet; white and gray are left for the user to pick. */
 function freeColor(taken: string[] = []): string {
@@ -152,14 +164,20 @@ export function AgentEditorModal({
   onDelete,
   takenColors,
   onOpenApps,
+  initialTab = 'agent',
 }: AgentEditorModalProps) {
   const editing = Boolean(agent);
+  const [tab, setTab] = useState<EditorTab>(initialTab);
   // Keyed by the caller per open, so these start fresh each time.
   const [name, setName] = useState(agent?.name ?? '');
   const [color, setColor] = useState<string>(() => agent?.color ?? freeColor(takenColors));
   const [role, setRole] = useState(agent?.role ?? '');
   const [instructions, setInstructions] = useState('');
+  const engines = useAgentsSelector((s) => s.engines);
+  const [engine, setEngine] = useState<AgentEngine>(agent?.engine ?? 'claude');
   const [model, setModel] = useState(agent?.model ?? '');
+  const runsOn = engineOptions(engines, engine);
+  const switching = Boolean(agent && agent.engine !== engine);
   const [project, setProject] = useState(agent?.project ?? '');
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [showBriefing, setShowBriefing] = useState(Boolean(agent));
@@ -187,10 +205,18 @@ export function AgentEditorModal({
     setError(null);
     try {
       if (agent) {
-        await updateAgent(agent.id, { name, color, role, instructions, model, project });
+        await updateAgent(agent.id, { name, color, role, instructions, engine, model, project });
         onSaved(agent.id);
       } else {
-        const created = await createAgent({ name, color, role, instructions, model, project });
+        const created = await createAgent({
+          name,
+          color,
+          role,
+          instructions,
+          engine,
+          model,
+          project,
+        });
         onSaved(created.id);
       }
       onClose();
@@ -201,6 +227,178 @@ export function AgentEditorModal({
 
   const canSave = name.trim().length > 0 && !save.isLoading;
 
+  const form = (
+    <form
+      className="agent-editor__body"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canSave) void save.execute();
+      }}
+      // ⌘Enter saves from anywhere in it, the instructions included (as comments do).
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+        e.preventDefault();
+        e.currentTarget.requestSubmit();
+      }}
+    >
+      <div className="agent-editor__identity">
+        <AgentAvatar name={name} color={color} size="field" selected />
+        <TextField
+          placeholder="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          aria-label="Agent name"
+          maxLength={40}
+          autoFocus
+        />
+      </div>
+
+      {/* One Tab stop; the arrows move focus and the choice together, as radios do. */}
+      <div
+        className="agent-editor__colors"
+        role="radiogroup"
+        aria-label="Colour"
+        onKeyDown={(e) => {
+          const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+          if (!step) return;
+          e.preventDefault();
+          const at = AGENT_COLORS.indexOf(color as AgentColor);
+          const next = AGENT_COLORS[(at + step + AGENT_COLORS.length) % AGENT_COLORS.length];
+          setColor(next);
+          e.currentTarget.querySelector<HTMLElement>(`[data-color="${next}"]`)?.focus();
+        }}
+      >
+        {AGENT_COLORS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            tabIndex={
+              color === key ||
+              (key === AGENT_COLORS[0] && !AGENT_COLORS.includes(color as AgentColor))
+                ? 0
+                : -1
+            }
+            aria-checked={color === key}
+            aria-label={key}
+            className="agent-editor__swatch"
+            data-color={key}
+            data-selected={color === key || undefined}
+            onClick={() => setColor(key)}
+          />
+        ))}
+      </div>
+
+      {runsOn.length > 1 && (
+        <div className="agent-editor__label" role="group" aria-label="Runs on">
+          Runs on
+          <SegmentedControl
+            value={engine}
+            options={runsOn.map((e) => ({ value: e.id, label: e.label }))}
+            onValueChange={(next) => {
+              setEngine(next);
+              // Models don't cross engines.
+              setModel(next === agent?.engine ? (agent.model ?? '') : '');
+            }}
+            aria-label="Runs on"
+          />
+          {switching && (
+            <p className="agent-editor__hint">
+              Its next message starts a new {ENGINE_LABEL[engine]} session, handed the recent
+              conversation. Instructions and memory carry over.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="agent-editor__label" role="group" aria-label="Model">
+        Model
+        <SegmentedControl
+          value={model}
+          options={modelChoices(engine, engines)}
+          onValueChange={setModel}
+          aria-label="Model"
+        />
+      </div>
+
+      <AgentProjectField value={project} onChange={setProject} />
+
+      {onOpenApps && (
+        <div className="agent-editor__label" role="group" aria-label="Apps">
+          Apps
+          <div className="agent-editor__apps">
+            <p className="agent-editor__hint">
+              {engine === 'codex'
+                ? 'A Codex agent can use the MCP servers set up in Codex.'
+                : 'Every agent can use the apps your Claude Code is connected to.'}
+            </p>
+            {engine === 'claude' && (
+              <Button variant="secondary" size="compact" onClick={onOpenApps}>
+                Manage apps…
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showBriefing ? (
+        <div className="agent-editor__briefing">
+          <label className="agent-editor__label">
+            Role
+            <TextField
+              placeholder="What is this agent responsible for?"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              disabled={agent?.isMain}
+            />
+          </label>
+          <label className="agent-editor__label">
+            Instructions
+            <TextArea
+              rows={6}
+              placeholder="Brief it like a new hire: context, standing rules, who's who, where things live."
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+            />
+          </label>
+          {editing && (
+            <p className="agent-editor__hint">
+              What it remembers is kept separately, under Memory, and isn't changed here.
+            </p>
+          )}
+          <UsageLines usage={usage} />
+          {agent && <CanDo agent={agent} />}
+          {agent && <Permissions agent={agent} />}
+          {agent && <AgentSecrets agent={agent} />}
+        </div>
+      ) : (
+        <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>
+          Add a role and instructions
+        </TextButton>
+      )}
+
+      {error && (
+        <p className="agent-editor__error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="agent-editor__actions">
+        {editing && agent && !agent.isMain && onDelete && (
+          <Button variant="danger" className="agent-editor__delete" onClick={() => onDelete(agent)}>
+            Delete
+          </Button>
+        )}
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" type="submit" disabled={!canSave}>
+          {editing ? 'Save' : 'Create'}
+        </Button>
+      </div>
+    </form>
+  );
+
   return (
     <ModalFrame
       isOpen={isOpen}
@@ -208,146 +406,18 @@ export function AgentEditorModal({
       title={editing ? `Edit ${agent?.name}` : 'New agent'}
       className="agent-editor"
     >
-      <form
-        className="agent-editor__body"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (canSave) void save.execute();
-        }}
-      >
-        <div className="agent-editor__identity">
-          <AgentAvatar name={name} color={color} size="field" selected />
-          <TextField
-            placeholder="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-label="Agent name"
-            maxLength={40}
-            autoFocus
-          />
-        </div>
-
-        {/* One Tab stop; the arrows move focus and the choice together, as radios do. */}
-        <div
-          className="agent-editor__colors"
-          role="radiogroup"
-          aria-label="Colour"
-          onKeyDown={(e) => {
-            const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
-            if (!step) return;
-            e.preventDefault();
-            const at = AGENT_COLORS.indexOf(color as AgentColor);
-            const next = AGENT_COLORS[(at + step + AGENT_COLORS.length) % AGENT_COLORS.length];
-            setColor(next);
-            e.currentTarget.querySelector<HTMLElement>(`[data-color="${next}"]`)?.focus();
-          }}
-        >
-          {AGENT_COLORS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              tabIndex={
-                color === key ||
-                (key === AGENT_COLORS[0] && !AGENT_COLORS.includes(color as AgentColor))
-                  ? 0
-                  : -1
-              }
-              aria-checked={color === key}
-              aria-label={key}
-              className="agent-editor__swatch"
-              data-color={key}
-              data-selected={color === key || undefined}
-              onClick={() => setColor(key)}
-            />
-          ))}
-        </div>
-
-        <div className="agent-editor__label" role="group" aria-label="Model">
-          Model
-          <SegmentedControl
-            value={model}
-            options={AGENT_MODELS}
-            onValueChange={setModel}
-            aria-label="Model"
-          />
-        </div>
-
-        <AgentProjectField value={project} onChange={setProject} />
-
-        {onOpenApps && (
-          <div className="agent-editor__label" role="group" aria-label="Apps">
-            Apps
-            <div className="agent-editor__apps">
-              <p className="agent-editor__hint">
-                Every agent can use the apps your Claude Code is connected to.
-              </p>
-              <Button variant="secondary" size="compact" onClick={onOpenApps}>
-                Manage apps…
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {showBriefing ? (
-          <div className="agent-editor__briefing">
-            <label className="agent-editor__label">
-              Role
-              <TextField
-                placeholder="What is this agent responsible for?"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                disabled={agent?.isMain}
-              />
-            </label>
-            <label className="agent-editor__label">
-              Instructions
-              <TextArea
-                rows={6}
-                placeholder="Brief it like a new hire: context, standing rules, who's who, where things live."
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-              />
-            </label>
-            {editing && (
-              <p className="agent-editor__hint">
-                What it remembers is kept separately and isn't changed here.
-              </p>
-            )}
-            <UsageLines usage={usage} />
-            {agent && <CanDo agent={agent} />}
-            {agent && <Permissions agent={agent} />}
-          </div>
-        ) : (
-          <TextButton className="agent-editor__more" onClick={() => setShowBriefing(true)}>
-            Add a role and instructions
-          </TextButton>
-        )}
-
-        {error && (
-          <p className="agent-editor__error" role="alert">
-            {error}
-          </p>
-        )}
-
-        <div className="agent-editor__actions">
-          {editing && agent && !agent.isMain && onDelete && (
-            <Button
-              variant="danger"
-              className="agent-editor__delete"
-              onClick={() => onDelete(agent)}
-            >
-              Delete
-            </Button>
-          )}
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" disabled={!canSave}>
-            {editing ? 'Save' : 'Create'}
-          </Button>
-        </div>
-      </form>
+      {agent ? (
+        <Tabs value={tab} onValueChange={(v) => setTab(v as EditorTab)}>
+          <TabsList className="agent-editor__tabs" appearance="underline" aria-label="Edit">
+            <TabsTab value="agent">Agent</TabsTab>
+            <TabsTab value="memory">Memory</TabsTab>
+          </TabsList>
+          <TabsPanel value="agent">{form}</TabsPanel>
+          <TabsPanel value="memory">{tab === 'memory' && <AgentMemory agent={agent} />}</TabsPanel>
+        </Tabs>
+      ) : (
+        form
+      )}
     </ModalFrame>
   );
 }

@@ -7,17 +7,25 @@
 //! - [`apps`]: the user's Claude Code MCP servers, which every turn loads
 //! - [`store`]: the registry and each agent's home (CLAUDE.md + chat log)
 //! - [`runner`]: per-agent inbox; each turn is one `claude --print --resume`
+//!   or one `codex app-server` (`codex exec [resume]` on a Codex without it)
+//! - [`engine`]: Claude Code or Codex per agent: availability, sign-in, models
+//! - [`codex`]: Codex's command line and JSONL, mapped onto the same turn steps
+//! - [`codex_app`]: Codex's app-server: streaming, approval cards, interrupt
 //! - [`mcp`]: the tools agents get (team, projects, management, approvals)
 //! - [`permissions`]: "Always allow" rules and how narrowly they match
 //! - [`notify`]: macOS notifications and the Dock badge
+//! - [`tray`]: the menu-bar icon, and what a quit would interrupt
+//! - [`quick_entry`]: the system-wide shortcut and its floating composer
 //! - [`attachments`]: files sent with a message, copied into the agent's home
 //! - [`failure`]: a failed turn in Agents' own words (usage limit, signed out)
 //! - [`files`]: files an agent shares back, the Files list, paths in prose
 //! - [`import`]: bring an existing setup over from another assistant
 //! - [`schedule`]: check-ins and routines that wake an agent on time
 //! - [`project`]: binding an agent to a project, and what its turns changed there
+//! - [`procs`]: a turn's whole process tree, so Stop and quit leave nothing running
 //! - [`prompts`]: voice and role
 //! - [`search`]: find a message across every conversation
+//! - [`secrets`]: credentials an agent asked for, kept in the Keychain, never shown to it
 //! - [`stream`]: a reply while it is being written (drafts)
 //! - [`usage`]: tokens and cost per agent, from each turn's `result` event
 //!
@@ -25,22 +33,34 @@
 
 pub mod apps;
 pub mod attachments;
+pub mod broker;
 pub mod capabilities;
+pub mod capacity;
+pub mod codex;
+pub mod codex_app;
+pub mod decisions;
+pub mod engine;
 pub mod failure;
 pub mod files;
 pub mod import;
 pub mod mcp;
+pub mod memory;
 pub mod notify;
 pub mod paste;
 pub mod permissions;
+pub mod procs;
 pub mod project;
 pub mod prompts;
+pub mod quick_entry;
 pub mod runner;
+pub mod runs;
 pub mod schedule;
 pub mod search;
+pub mod secrets;
 pub mod sessions;
 pub mod store;
 pub mod stream;
+pub mod tray;
 pub mod usage;
 
 use crate::errors::CommandError;

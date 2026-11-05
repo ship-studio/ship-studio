@@ -5,15 +5,42 @@
  * (which re-exports them) so both clients word a schedule the same way.
  */
 
-import type { CheckIn, Repeat } from './model';
+import type { CheckIn, CheckInRun, Repeat } from './model';
+
+/** What a scheduled run came to, in a few words. */
+export function describeRun(run: CheckInRun, now = Date.now()): string {
+  switch (run.outcome) {
+    case 'running':
+      return 'Running';
+    case 'ran':
+      return run.attempt > 1 ? `Ran on try ${run.attempt}` : 'Ran';
+    case 'retrying':
+      return run.retryAt
+        ? `Didn’t run · retrying ${formatWhen(run.retryAt, now).replace(/^(Today|Tomorrow)/, (w) => w.toLowerCase())}`
+        : 'Didn’t run · retrying';
+    case 'failed':
+      return run.attempt > 1 ? `Didn’t run after ${run.attempt} tries` : 'Didn’t run';
+    default:
+      return 'Unknown';
+  }
+}
+
+/**
+ * Formatters are built once: `toLocaleTimeString` with options builds a new
+ * one per call, which over a few hundred rows was the costliest part of a
+ * chat render.
+ */
+const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const SHORT_DAY = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** "9:00 AM" in the user's locale, the same way `formatWhen` writes times. */
 const clockText = (hour: number, minute: number) =>
-  new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  CLOCK.format(new Date(2000, 0, 1, hour, minute));
 
 /** "Every weekday at 9:00 AM", "Every 2 hours" — `schedule::describe`'s words, locale times. */
 export function describeRepeat(repeat: Repeat): string {
@@ -40,19 +67,14 @@ export function describeRepeat(repeat: Repeat): string {
 /** "Today 9:00 AM", "Tomorrow 9:00 AM", "Thu, Nov 5 9:00 AM". */
 export function formatWhen(ts: number, now = Date.now()): string {
   const date = new Date(ts);
-  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = CLOCK.format(date);
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const dayMs = 24 * 60 * 60 * 1000;
   const start = today.getTime();
   if (ts >= start && ts < start + dayMs) return `Today ${time}`;
   if (ts >= start + dayMs && ts < start + 2 * dayMs) return `Tomorrow ${time}`;
-  const day = date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-  return `${day} ${time}`;
+  return `${SHORT_DAY.format(date)} ${time}`;
 }
 
 /**
@@ -102,6 +124,12 @@ export function scheduleWhenPhrase(c: Pick<CheckIn, 'repeat' | 'nextAt'>): strin
 
 /** A row's secondary line: when it next runs, and how it repeats. */
 export function describeCheckInTime(c: CheckIn, now = Date.now()): string {
+  const lower = (w: string) => w.toLowerCase();
+  if (c.retry && !c.paused) {
+    const retry = `retrying ${formatWhen(c.retry.at, now).replace(/^(Today|Tomorrow)/, lower)}`;
+    if (!c.repeat) return `Didn’t run · ${retry}`;
+    return `${describeRepeat(c.repeat)} · ${retry}`;
+  }
   if (!c.repeat) return formatWhen(c.nextAt, now);
   const repeat = describeRepeat(c.repeat);
   if (c.paused) return `Paused · ${repeat}`;

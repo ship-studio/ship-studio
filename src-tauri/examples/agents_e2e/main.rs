@@ -12,9 +12,17 @@
 //! scripts/agents-e2e.sh memory approvals   # some of them
 //! ```
 //!
-//! Scenarios: memory, restart, lost-session, delegation, stop, approvals,
-//! cli-failures, corrupt-store, burst. (A project-bound agent needs
-//! `Agent.project`, which this branch doesn't have.)
+//! Scenarios: memory, restart, lost-session, project, delegation, stop,
+//! approvals, cli-failures, corrupt-store, burst, stop-tree, quit, slots,
+//! session-prompt, and on Codex codex-memory, codex-stop (streaming drafts,
+//! Stop and interrupt), codex-delegation, codex-approvals (cards for Codex's
+//! own commands). Codex runs on the signed-in account (copied into the throwaway
+//! CODEX_HOME) when there is one, else on a scripted model
+//! (scripts/agents-e2e-codex-model.py), which proves the plumbing (real
+//! `codex`, runner, bridge, resume) but not a model's judgement.
+//! `AGENTS_E2E_CODEX=real|scripted|skip` forces one. `behaviour` (opt-in,
+//! not part of the default run) checks how agents behave rather than whether
+//! the plumbing works; see `behaviour.rs`.
 
 // A test driver: a failed unwrap is a failed run, and `pgrep`/re-exec are the point.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
@@ -26,10 +34,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use ship_studio_lib::agents::engine::Engine;
 use ship_studio_lib::agents::{self, runner, store};
 use ship_studio_lib::commands::agents as cmd;
 use store::{AgentMessage, MessageKind};
 use tauri::{AppHandle, Listener};
+
+mod behaviour;
 
 type Check = Result<(), String>;
 
@@ -51,6 +62,8 @@ struct H {
     drafts: Arc<Mutex<Vec<(String, String)>>>,
     /// Most agents seen "working" at the same moment.
     peak_working: Arc<Mutex<usize>>,
+    /// What the scenario's agents run on.
+    engine: Arc<Mutex<Engine>>,
 }
 
 impl H {
@@ -60,6 +73,7 @@ impl H {
             home,
             drafts: Default::default(),
             peak_working: Default::default(),
+            engine: Default::default(),
         };
         let drafts = h.drafts.clone();
         app.listen_any(runner::EVENT_DRAFT, move |e| {
@@ -87,8 +101,27 @@ impl H {
         h
     }
 
-    /// A muted Haiku agent (muted: the suite must not post OS notifications).
+    fn engine(&self) -> Engine {
+        *self.engine.lock().unwrap()
+    }
+
+    /// The scenario's engine on its cheapest model: Haiku, or for Codex
+    /// `AGENTS_E2E_CODEX_MODEL` (else Codex's default).
+    fn set_engine(&self, a: &mut store::Agent) {
+        a.engine = self.engine();
+        a.model = match a.engine {
+            Engine::Claude => Some("haiku".into()),
+            Engine::Codex => std::env::var("AGENTS_E2E_CODEX_MODEL").ok(),
+        };
+    }
+
+    /// A muted agent on the scenario's engine (muted: the suite must not post OS notifications).
     fn agent(&self, name: &str, role: &str, instructions: &str) -> store::Agent {
+        // The same scenario on the other engine reuses its names: start clean.
+        if let Ok(Some(old)) = store::find(name) {
+            runner::stop(&old.id);
+            let _ = store::delete(&old.id);
+        }
         let a = store::create(store::NewAgent {
             name: name.into(),
             role: role.into(),
@@ -99,7 +132,7 @@ impl H {
         })
         .expect("create agent");
         store::update(&a.id, |a| {
-            a.model = Some("haiku".into());
+            self.set_engine(a);
             a.muted = true;
         })
         .unwrap()
@@ -108,7 +141,10 @@ impl H {
     fn chief(&self) -> store::Agent {
         let chief = agents::ensure_main().expect("chief");
         store::update(&chief.id, |a| {
-            a.model = Some("haiku".into());
+            if a.engine != self.engine() {
+                a.session_id = None;
+            }
+            self.set_engine(a);
             a.muted = true;
         })
         .unwrap()
@@ -316,6 +352,77 @@ async fn memory(h: &H) -> Check {
     )
 }
 
+/// (1b) Memory edited from the Memory tab reaches the next turn, the
+/// instructions above it are untouched, "Remember this" summarises a
+/// message, and the approval broker refuses requests from no live turn.
+async fn memory_tab(h: &H) -> Check {
+    let a = h.agent(
+        "Vault",
+        "Keeps codes",
+        "Answer in as few words as possible.",
+    );
+    let view = cmd::agents_memory_change(
+        a.id.clone(),
+        serde_json::from_value(serde_json::json!({"op": "add", "text": "The vault code is 4471."}))
+            .unwrap(),
+    )
+    .await
+    .map_err(|e| format!("add failed: {e}"))?;
+    ensure(
+        view.entries
+            .iter()
+            .any(|e| e.text == "The vault code is 4471."),
+        "added memory not listed",
+    )?;
+    ensure(
+        store::read_instructions(&a.id).unwrap() == "Answer in as few words as possible.",
+        "the instructions changed",
+    )?;
+    h.send(&a.id, "What is the vault code? Reply with just the number.")
+        .await?;
+    h.turn(&a.id).await?;
+    no_errors(&a.id)?;
+    ensure(
+        last_reply(&a.id).contains("4471"),
+        format!("didn't read its memory: {:?}", last_reply(&a.id)),
+    )?;
+    // The CLI really ran in the mode we assume: nothing was noted about it.
+    ensure(
+        !log(&a.id)
+            .iter()
+            .any(|m| m.kind == MessageKind::Note && m.text.contains("permission mode")),
+        "Claude Code reported an unexpected permission mode",
+    )?;
+    let fact = cmd::agents_memory_suggest(
+        "Got it. From now on I'll send invoices from billing@acme.co on the 1st of each month, never on weekends.".into(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    ensure(
+        !fact.trim().is_empty() && fact.lines().count() == 1,
+        format!("summary: {fact:?}"),
+    )?;
+    // No turn running: an approval request is denied without a card.
+    let ask = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "approve", "arguments": {
+            "tool_name": "Bash", "input": {"command": "rm -rf /tmp/x"}, "tool_use_id": "toolu_zombie"
+        }}
+    });
+    for turn in [None, Some(1)] {
+        let reply = agents::mcp::handle_rpc(&h.app, &a.id, turn, &ask).await;
+        let text = reply.to_string();
+        ensure(
+            text.contains("deny") && text.contains("after its turn had ended"),
+            format!("a request from no live turn wasn't refused: {text}"),
+        )?;
+    }
+    ensure(
+        store::pending_approvals(&a.id).unwrap().is_empty(),
+        "a zombie card was put up",
+    )
+}
+
 /// (2) The app quits mid-turn (SIGKILL of a second process using the same
 /// data), then starts again: nothing is stuck and the next message works.
 async fn restart(h: &H) -> Check {
@@ -370,6 +477,13 @@ async fn restart_phase_a(h: &H) {
             dir.join("ada.txt").exists() && h.drafting(&a.id, 40)
         })
         .await;
+    // Two more while it works: they queue, and must survive the crash.
+    h.send(&a.id, "Queued one. Reply with the token Q1-OSPREY.")
+        .await
+        .unwrap();
+    h.send(&a.id, "Queued two. Reply with the token Q2-HERON.")
+        .await
+        .unwrap();
     println!("WORKING {}", a.id);
     tokio::time::sleep(Duration::from_secs(600)).await;
 }
@@ -379,12 +493,24 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
     agents::store::expire_stale_approvals();
     agents::runner::recover_after_restart(&h.app).await;
     let agent = store::get(id).map_err(|e| format!("registry unreadable: {e}"))?;
-    ensure(runner::status_of(id).state == "idle", "status not idle")?;
-    ensure(!runner::in_turn(id), "a turn is running at launch")?;
+    // The queued two were handed back to the runner; nothing else runs.
+    ensure(
+        runner::in_turn(id),
+        "the queued messages weren't sent again",
+    )?;
     ensure(agent.pending_approvals == 0, "phantom pending approvals")?;
     // The cut-short turn ends like any failed turn: its change card, then a
-    // tagged error line (Retry re-sends it).
-    let tail: Vec<AgentMessage> = log(id).into_iter().rev().take(2).collect();
+    // tagged error line (Retry re-sends it); then a note naming the queued
+    // messages being sent again.
+    let mut tail: Vec<AgentMessage> = log(id).into_iter().rev().take(3).collect();
+    let note = tail.remove(0);
+    ensure(
+        note.kind == MessageKind::Note
+            && note.text.starts_with("Sent 2 messages")
+            && note.text.contains("Q1-OSPREY")
+            && note.text.contains("Q2-HERON"),
+        format!("no note naming the re-sent messages: {:?}", note.text),
+    )?;
     ensure(
         tail.len() == 2
             && tail[0].kind == MessageKind::Error
@@ -401,6 +527,26 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
         format!("no change card for ada.txt before it: {:?}", tail[1].text),
     )?;
     ensure(agent.failure.is_some(), "agent not marked as failed")?;
+    // The queued two run once each, and then nothing is left queued on disk.
+    h.turn(id).await?;
+    let inbox = store::agent_home(id).unwrap().join("inbox.json");
+    ensure(!inbox.exists(), "the queue was left on disk after it ran")?;
+    let replies: String = of_kind(id, MessageKind::Agent)
+        .iter()
+        .map(|m| m.text.clone())
+        .collect();
+    for token in ["Q1-OSPREY", "Q2-HERON"] {
+        ensure(
+            replies.contains(token),
+            format!("the queued {token} was never answered"),
+        )?;
+        let sent = of_kind(id, MessageKind::User)
+            .iter()
+            .filter(|m| m.text.contains(token))
+            .count();
+        ensure(sent == 1, format!("{token} is in the chat {sent} times"))?;
+    }
+    let turns = store::get(id).unwrap().usage.all_time.turns;
     let errors_before = of_kind(id, MessageKind::Error).len();
     h.send(id, "Who was the story about? Reply with just the name.")
         .await?;
@@ -414,9 +560,256 @@ async fn restart_phase_b(h: &H, id: &str) -> Check {
         "failure not cleared by the next reply",
     )?;
     ensure(
+        store::get(id).unwrap().usage.all_time.turns == turns + 1,
+        "the queued messages ran again",
+    )?;
+    ensure(
         last_reply(id).contains("Ada"),
         format!("lost the thread: {:?}", last_reply(id)),
     )
+}
+
+/* ------------------------------------------------- process trees and slots */
+
+fn pids_matching(pattern: &str) -> Vec<String> {
+    std::process::Command::new("pgrep")
+        .args(["-f", pattern])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// An agent whose turn is running a long child of its own: a background
+/// `sleep <tag>` (standing in for a dev server) and a foreground one, so the
+/// turn is still going. Approvals for them are pre-granted, or answered.
+async fn turn_with_children(h: &H, name: &str, tag: u32) -> Result<store::Agent, String> {
+    let a = h.agent(
+        name,
+        "Runs commands",
+        "When asked to run commands, run them exactly as written with Bash.",
+    );
+    // Not `sleep`: Claude Code refuses a bare foreground sleep.
+    let background = format!("python3 -m http.server {tag}");
+    let foreground = format!("python3 -m http.server {}", tag + 1);
+    store::update(&a.id, |a| {
+        for (i, command) in [&background, &foreground].into_iter().enumerate() {
+            a.permissions.push(
+                serde_json::from_value(serde_json::json!({
+                    "id": format!("e2e-{i}"),
+                    "kind": "command",
+                    "value": command,
+                    "label": command,
+                    "createdAt": 0,
+                }))
+                .unwrap(),
+            );
+        }
+    })
+    .unwrap();
+    h.send(
+        &a.id,
+        &format!(
+            "First run `{background}` with Bash using run_in_background set to true. Then run `{foreground}` with Bash in the foreground. Then reply done."
+        ),
+    )
+    .await?;
+    let start = Instant::now();
+    while pids_matching(&foreground).is_empty() {
+        for card in approvals(&a.id)
+            .into_iter()
+            .filter(|c| c.status == store::ApprovalStatus::Pending)
+        {
+            let _ = cmd::agents_answer_approval(
+                h.app.clone(),
+                a.id.clone(),
+                card.request_id,
+                true,
+                None,
+                None,
+                None,
+            )
+            .await;
+        }
+        if start.elapsed() > Duration::from_secs(150) {
+            return Err(format!(
+                "the turn never started its children: {:?}",
+                last_reply(&a.id)
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    ensure(
+        !pids_matching(&background).is_empty(),
+        "the background child isn't running",
+    )?;
+    ensure(runner::in_turn(&a.id), "the turn ended early")?;
+    Ok(a)
+}
+
+/// (11) Stop ends the whole tree: what the turn's Bash started dies with it.
+async fn stop_tree(h: &H) -> Check {
+    let a = turn_with_children(h, "Sleeper", 47471).await?;
+    ensure(
+        cmd::agents_stop(a.id.clone()).await.unwrap_or(false),
+        "stop found nothing to stop",
+    )?;
+    h.turn(&a.id).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    for pattern in ["http.server 47471", "http.server 47472"] {
+        ensure(
+            pids_matching(pattern).is_empty(),
+            format!("`{pattern}` outlived Stop"),
+        )?;
+    }
+    h.send(&a.id, "Reply with just: awake").await?;
+    h.turn(&a.id).await?;
+    ensure(last_reply(&a.id).contains("awake"), "no turn after Stop")?;
+
+    // A turn that finishes with something still running in the background
+    // ends anyway (`claude --print` would wait on it for ever), and takes
+    // the background child with it.
+    let server = "python3 -m http.server 47491";
+    store::update(&a.id, |a| {
+        a.permissions.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "e2e-bg", "kind": "command", "value": server, "label": server, "createdAt": 0,
+            }))
+            .unwrap(),
+        );
+    })
+    .unwrap();
+    h.send(
+        &a.id,
+        &format!("Run `{server}` with Bash using run_in_background set to true, then reply with just: started"),
+    )
+    .await?;
+    h.until("the background server", Duration::from_secs(120), || {
+        !pids_matching("http.server 47491").is_empty() || !runner::in_turn(&a.id)
+    })
+    .await?;
+    h.idle(&[&a.id], Duration::from_secs(1), Duration::from_secs(60))
+        .await
+        .map_err(|e| format!("a finished turn stayed busy on its background child: {e}"))?;
+    ensure(
+        pids_matching("http.server 47491").is_empty(),
+        "the background child outlived its finished turn",
+    )?;
+    no_errors(&a.id)
+}
+
+/// (12) Quitting (the app's Exit hook) stops every turn and its children at
+/// once; the next launch says the turn didn't finish.
+async fn quit(h: &H) -> Check {
+    let exe = std::env::current_exe().unwrap();
+    let mut child = std::process::Command::new(&exe)
+        .args(["--phase", "quit"])
+        .env("AGENTS_E2E_HOME", &h.home)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+    let mut report = Vec::new();
+    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+        report.push(line);
+    }
+    let _ = child.wait();
+    let (id, stopped) = report
+        .iter()
+        .find_map(|l| l.strip_prefix("QUIT ")?.split_once(' '))
+        .ok_or(format!("the quit phase never got going: {report:?}"))?;
+    let id = id.to_string();
+    ensure(
+        stopped == "1",
+        format!("the exit hook stopped {stopped} turns, not 1"),
+    )?;
+    for pattern in ["http.server 57571", "http.server 57572"] {
+        ensure(
+            pids_matching(pattern).is_empty(),
+            format!("`{pattern}` outlived the app"),
+        )?;
+    }
+    let session = store::get(&id).unwrap().session_id.unwrap_or_default();
+    ensure(
+        session.is_empty() || pids_matching(&session).is_empty(),
+        "claude outlived the app",
+    )?;
+    // The next launch.
+    runner::recover_after_restart(&h.app).await;
+    ensure(
+        log(&id)
+            .last()
+            .is_some_and(|m| m.kind == MessageKind::Error && m.text.contains("closed")),
+        "the next launch didn't say the turn was cut off",
+    )?;
+    ensure(!runner::in_turn(&id), "a turn is running after recovery")
+}
+
+async fn quit_phase(h: &H) {
+    let a = turn_with_children(h, "Quitter", 57571).await.unwrap();
+    // What RunEvent::Exit does, then the process exits as the app would.
+    let stopped = runner::shutdown_sync();
+    println!("QUIT {} {stopped}", a.id);
+    std::process::exit(0);
+}
+
+/// (13) More turns than slots: the extra one waits, says so, then runs.
+async fn slots(h: &H) -> Check {
+    let exe = std::env::current_exe().unwrap();
+    let out = std::process::Command::new(&exe)
+        .args(["--phase", "slots"])
+        .env("AGENTS_E2E_HOME", &h.home)
+        .env("SHIPSTUDIO_AGENTS_MAX_TURNS", "1")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let report = String::from_utf8_lossy(&out.stdout).to_string();
+    ensure(out.status.success(), format!("slots phase: {report}"))
+}
+
+async fn slots_phase(h: &H) -> Check {
+    let first = h.agent("First", "Counts", "Answer in as few words as possible.");
+    let second = h.agent("Second", "Counts", "Answer in as few words as possible.");
+    let waited: Arc<Mutex<bool>> = Default::default();
+    let w = waited.clone();
+    let id = second.id.clone();
+    h.app.listen_any(runner::EVENT_STATUS, move |e| {
+        if let Ok(v) = serde_json::from_str::<Value>(e.payload()) {
+            if v["agentId"] == id.as_str()
+                && v["status"]["activity"]
+                    .as_str()
+                    .is_some_and(|a| a.starts_with("Waiting for a free slot"))
+            {
+                *w.lock().unwrap() = true;
+            }
+        }
+    });
+    h.send(&first.id, "Write two sentences about the sea.")
+        .await?;
+    h.send(&second.id, "Reply with just: second").await?;
+    h.idle(
+        &[&first.id, &second.id],
+        Duration::from_secs(2),
+        Duration::from_secs(240),
+    )
+    .await?;
+    ensure(
+        *waited.lock().unwrap(),
+        "the second turn never waited for a slot",
+    )?;
+    ensure(
+        *h.peak_working.lock().unwrap() >= 2,
+        "the waiting agent didn't show as busy",
+    )?;
+    ensure(
+        last_reply(&second.id).contains("second"),
+        "the waiting turn never ran",
+    )?;
+    no_errors(&first.id)?;
+    no_errors(&second.id)
 }
 
 /// (3) Claude's session file vanishes: the turn is retried fresh with a recap.
@@ -528,27 +921,53 @@ async fn delegation(h: &H) -> Check {
 async fn stop(h: &H) -> Check {
     let a = h.agent("Talker", "Writes long things", "");
     let story = "Write a 600-word story about a lighthouse. No preamble.";
+    // Codex on `exec` (the fallback) sends a reply only once it's complete:
+    // there is no draft to keep, so Stop is checked mid-turn instead, and
+    // leaves its quiet note. On app-server it streams like Claude Code.
+    let codex =
+        h.engine() == Engine::Codex && std::env::var("SHIPSTUDIO_AGENTS_CODEX_EXEC").is_ok();
+    let mid_reply = || async {
+        if codex {
+            h.until("a turn underway", Duration::from_secs(90), || {
+                runner::status_of(&a.id).state == "working"
+            })
+            .await?;
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            Ok(())
+        } else {
+            h.until("a draft", Duration::from_secs(90), || h.drafting(&a.id, 80))
+                .await
+        }
+    };
     h.send(&a.id, story).await?;
-    h.until("a draft", Duration::from_secs(90), || h.drafting(&a.id, 80))
-        .await?;
+    mid_reply().await?;
     ensure(
         cmd::agents_stop(a.id.clone()).await.unwrap_or(false),
         "stop found nothing to stop",
     )?;
     h.turn(&a.id).await?;
     let kept = of_kind(&a.id, MessageKind::Agent);
-    ensure(
-        kept.last().is_some_and(|m| m.stopped && m.text.len() >= 40),
-        "the partial reply wasn't kept as stopped",
-    )?;
+    if codex {
+        ensure(
+            of_kind(&a.id, MessageKind::Note)
+                .iter()
+                .any(|n| n.text == "Stopped"),
+            "no Stopped note",
+        )?;
+        ensure(kept.is_empty(), "a stopped Codex turn still replied")?;
+    } else {
+        ensure(
+            kept.last().is_some_and(|m| m.stopped && m.text.len() >= 40),
+            "the partial reply wasn't kept as stopped",
+        )?;
+    }
     h.send(&a.id, "Reply with just: ready").await?;
     h.turn(&a.id).await?;
     ensure(last_reply(&a.id).contains("ready"), "no turn after Stop")?;
 
     h.drafts.lock().unwrap().clear();
     h.send(&a.id, story).await?;
-    h.until("a draft", Duration::from_secs(90), || h.drafting(&a.id, 80))
-        .await?;
+    mid_reply().await?;
     h.send(&a.id, "Forget the story. Reply with just: switched")
         .await?;
     ensure(
@@ -563,11 +982,12 @@ async fn stop(h: &H) -> Check {
         "no interruption note",
     )?;
     ensure(
-        of_kind(&a.id, MessageKind::Agent)
-            .iter()
-            .filter(|m| m.stopped)
-            .count()
-            == 2,
+        codex
+            || of_kind(&a.id, MessageKind::Agent)
+                .iter()
+                .filter(|m| m.stopped)
+                .count()
+                == 2,
         "the interrupted partial wasn't kept",
     )?;
     no_errors(&a.id)?;
@@ -607,9 +1027,17 @@ async fn approvals_scenario(h: &H) -> Check {
         runner::status_of(&a.id).state == "waiting",
         "row doesn't say waiting",
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
-        .await
-        .map_err(|e| e.to_string())?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
     ensure(
         last_reply(&a.id).contains("42"),
@@ -631,9 +1059,17 @@ async fn approvals_scenario(h: &H) -> Check {
         store::get(&a.id).unwrap().pending_approvals == 1,
         "pending count off",
     )?;
-    cmd::agents_answer_approval(h.app.clone(), a.id.clone(), c.request_id, true, None, None)
-        .await
-        .map_err(|e| e.to_string())?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     h.turn(&a.id).await?;
     ensure(approvals(&a.id).len() == 2, "the retry asked again")?;
     ensure(
@@ -655,6 +1091,7 @@ async fn approvals_scenario(h: &H) -> Check {
         c.request_id,
         true,
         Some(true),
+        None,
         None,
     )
     .await
@@ -694,6 +1131,7 @@ async fn approvals_scenario(h: &H) -> Check {
         false,
         None,
         Some("Don't run it. Reply with just the word: understood".into()),
+        None,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -702,6 +1140,151 @@ async fn approvals_scenario(h: &H) -> Check {
     ensure(
         last_reply(&a.id).to_lowercase().contains("understood"),
         format!("deny note not read: {:?}", last_reply(&a.id)),
+    )?;
+    no_errors(&a.id)
+}
+
+/// (6b) Codex's own commands ask through the same cards: a command that
+/// needs to leave the sandbox gets one; Allow runs it, a note on Deny reaches
+/// the model, a late Allow finishes it without asking again, and Always
+/// allow lets the next one through with a note.
+async fn codex_approvals(h: &H) -> Check {
+    let out = outside(&h.home);
+    let a = h.agent(
+        "Runner",
+        "Runs commands",
+        "When asked to run a command, run it exactly as written and reply with only: Ran it.",
+    );
+    let run = |command: String| {
+        format!("Run this exact command. It writes outside your folders, so ask for escalated permissions. Then reply with just: Ran it. Command: {command}")
+    };
+    let path = |name: &str| format!("{}/{name}", out.display());
+
+    // Allow, through the command the UI calls.
+    h.send(&a.id, &run(format!("touch {}", path("once.txt"))))
+        .await?;
+    let c = card(h, &a.id, 0).await?;
+    ensure(
+        c.tool.as_deref() == Some("Bash") && c.detail.contains("once.txt"),
+        format!("card: {:?} {:?}", c.tool, c.detail),
+    )?;
+    ensure(
+        runner::status_of(&a.id).state == "waiting",
+        "row doesn't say waiting",
+    )?;
+    ensure(!out.join("once.txt").exists(), "it ran before the OK")?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(
+        out.join("once.txt").exists(),
+        "the allowed command didn't run",
+    )?;
+    ensure(
+        last_reply(&a.id).contains("Ran it"),
+        format!("allowed run: {:?}", last_reply(&a.id)),
+    )?;
+
+    // Deny with a note: it doesn't run, and the model reads the note.
+    h.send(&a.id, &run(format!("touch {}", path("denied.txt"))))
+        .await?;
+    let c = card(h, &a.id, 1).await?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        false,
+        None,
+        Some("Don't run it. Reply with just the word: understood".into()),
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(!out.join("denied.txt").exists(), "the denied command ran")?;
+    ensure(
+        last_reply(&a.id).to_lowercase().contains("understood"),
+        format!("deny note not read: {:?}", last_reply(&a.id)),
+    )?;
+
+    // The wait runs out (shortened); the card stays live; a late Allow
+    // wakes the agent and the same command goes through without a card.
+    std::env::set_var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS", "5");
+    h.send(&a.id, &run(format!("touch {}", path("late.txt"))))
+        .await?;
+    let c = card(h, &a.id, 2).await?;
+    h.turn(&a.id).await?;
+    std::env::remove_var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS");
+    ensure(!out.join("late.txt").exists(), "it ran without an answer")?;
+    let still = approvals(&a.id).pop().unwrap();
+    ensure(
+        still.status == store::ApprovalStatus::Pending,
+        format!("card not live after the wait: {:?}", still.status),
+    )?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    ensure(approvals(&a.id).len() == 3, "the retry asked again")?;
+    ensure(
+        out.join("late.txt").exists(),
+        "the late Allow didn't run it",
+    )?;
+
+    // Always allow: the next `git init` goes through with a note.
+    h.send(&a.id, &run(format!("git init {}", path("always-one"))))
+        .await?;
+    let c = card(h, &a.id, 3).await?;
+    ensure(
+        c.always.is_some(),
+        format!("card offers no Always allow: {:?}", c.detail),
+    )?;
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        a.id.clone(),
+        c.request_id,
+        true,
+        Some(true),
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    h.turn(&a.id).await?;
+    h.send(&a.id, &run(format!("git init {}", path("always-two"))))
+        .await?;
+    h.turn(&a.id).await?;
+    ensure(approvals(&a.id).len() == 4, "Always allow still asked")?;
+    ensure(
+        of_kind(&a.id, MessageKind::Note)
+            .iter()
+            .any(|n| n.text.starts_with("Allowed automatically")),
+        "no 'Allowed automatically' line",
+    )?;
+    ensure(
+        out.join("always-one/.git").exists() && out.join("always-two/.git").exists(),
+        "the allowed commands didn't run",
+    )?;
+    ensure(
+        store::get(&a.id).unwrap().pending_approvals == 0,
+        "cards left pending",
     )?;
     no_errors(&a.id)
 }
@@ -820,6 +1403,215 @@ async fn project_agent(h: &H) -> Check {
         store::get(&a.id).unwrap().failure.is_none(),
         "failure not cleared by the next reply",
     )
+}
+
+/// Stand in for the window: spawn the PTY a background session asks for, the
+/// way `lib/backgroundSessions.ts` does, with a real interactive `claude` on
+/// Haiku in default permission mode (so edits ask).
+fn serve_session_starts(h: &H) {
+    let app = h.app.clone();
+    let home = h.home.clone();
+    h.app.listen_any("remote-start-agent", move |e| {
+        let Ok(v) = serde_json::from_str::<Value>(e.payload()) else {
+            return;
+        };
+        let (app, home) = (app.clone(), home.clone());
+        tauri::async_runtime::spawn(async move {
+            let project = v["projectPath"].as_str().unwrap_or("").to_string();
+            let env = [
+                ("HOME", home.to_string_lossy().to_string()),
+                ("PATH", std::env::var("PATH").unwrap_or_default()),
+                ("TERM", "xterm-256color".to_string()),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+            let opened = ship_studio_lib::commands::pty_session::pty_session_open(
+                app,
+                v["sessionId"].as_str().unwrap_or("").to_string(),
+                "claude".into(),
+                vec![
+                    "--model".into(),
+                    "haiku".into(),
+                    // Edits ask, whatever the account's default mode is.
+                    "--permission-mode".into(),
+                    "default".into(),
+                    v["prompt"].as_str().unwrap_or("").to_string(),
+                ],
+                Some(project.clone()),
+                env,
+                120,
+                40,
+                Some(project),
+                Some("claude".into()),
+            )
+            .await;
+            if let Err(e) = opened {
+                println!("      session didn't open: {e}");
+            }
+        });
+    });
+}
+
+fn prompt_cards(id: &str) -> Vec<store::Approval> {
+    approvals(id)
+        .into_iter()
+        .filter(|a| a.prompt.is_some())
+        .collect()
+}
+
+/// The walkthrough bug: Chief → Site Builder → a session in a fresh,
+/// untrusted project stops on the folder-trust dialog. One card in both
+/// chats; Allow in the Chief's records the trust as Claude Code does and
+/// resolves Site Builder's too; the edit happens; a change card follows.
+async fn session_prompt(h: &H) -> Check {
+    use ship_studio_lib::agents::decisions;
+    serve_session_starts(h);
+    let dir = git_project(h, "demo");
+    std::fs::write(
+        dir.join("index.html"),
+        "<html><body><h1>Old heading</h1></body></html>\n",
+    )
+    .unwrap();
+    let config = h.home.join(".claude.json");
+    ensure(
+        !decisions::trusted(&config, &dir),
+        "demo is already trusted before the card",
+    )?;
+    let chief = h.chief();
+    let site = h.agent(
+        "Site Builder",
+        "Builds and edits the user's sites",
+        "Work on projects only through their sessions (session_message). Answer in as few words as possible.",
+    );
+    // The Chief delegates, exactly as message_agent would.
+    runner::enqueue(
+        &h.app,
+        &site.id,
+        "In the Ship Studio project \"demo\", change the <h1> text in index.html to exactly: Hello there. Use session_message with that project; don't edit the file yourself.".into(),
+        runner::From::Agent {
+            sender: store::AgentRef {
+                id: chief.id.clone(),
+                name: chief.name.clone(),
+            },
+            hop: 1,
+        },
+    );
+    h.until("the trust card", Duration::from_secs(180), || {
+        !prompt_cards(&site.id).is_empty()
+    })
+    .await?;
+    let card = prompt_cards(&site.id).remove(0);
+    let prompt = card.prompt.clone().unwrap();
+    ensure(
+        prompt.kind == decisions::PromptKind::Trust
+            && card.title == "Let Claude Code work in demo?",
+        format!("first card: {:?} {:?}", prompt.kind, card.title),
+    )?;
+    ensure(
+        prompt.chats == vec![site.id.clone(), chief.id.clone()],
+        format!("card is in {:?}", prompt.chats),
+    )?;
+    let in_chief = prompt_cards(&chief.id);
+    ensure(
+        in_chief.len() == 1 && in_chief[0].request_id == card.request_id,
+        "no matching card in the Chief's chat",
+    )?;
+    ensure(
+        store::get(&chief.id).unwrap().pending_approvals == 1,
+        "the Chief's row doesn't need your OK",
+    )?;
+    ensure(
+        !decisions::trusted(&config, &dir),
+        "trusted before anyone answered",
+    )?;
+    // Answered where the user is: the Chief's chat.
+    cmd::agents_answer_approval(
+        h.app.clone(),
+        chief.id.clone(),
+        card.request_id.clone(),
+        true,
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| format!("answer in the Chief's chat: {e}"))?;
+    ensure(decisions::trusted(&config, &dir), "trust not recorded")?;
+    let mirrored = store::find_approval(&site.id, &card.request_id)
+        .unwrap()
+        .unwrap();
+    ensure(
+        mirrored.status == store::ApprovalStatus::Allowed
+            && mirrored.choice.as_deref() == Some("Yes, I trust this folder"),
+        format!(
+            "Site Builder's copy: {:?} {:?}",
+            mirrored.status, mirrored.choice
+        ),
+    )?;
+    // Any further question (the edit's permission prompt) is allowed in
+    // Site Builder's chat, until the file changes.
+    let start = Instant::now();
+    let mut allowed = vec![card.request_id.clone()];
+    loop {
+        let html = std::fs::read_to_string(dir.join("index.html")).unwrap_or_default();
+        if html.contains("Hello there") {
+            break;
+        }
+        for c in prompt_cards(&site.id)
+            .into_iter()
+            .filter(|c| c.status == store::ApprovalStatus::Pending)
+        {
+            if !allowed.contains(&c.request_id) {
+                println!("      allowing: {}", c.title);
+                allowed.push(c.request_id.clone());
+                let _ = cmd::agents_answer_approval(
+                    h.app.clone(),
+                    site.id.clone(),
+                    c.request_id,
+                    true,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+            }
+        }
+        if start.elapsed() > Duration::from_secs(240) {
+            return Err(format!("the edit never happened: {html:?}"));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    h.idle(
+        &[&site.id],
+        Duration::from_secs(2),
+        Duration::from_secs(240),
+    )
+    .await?;
+    let changes = of_kind(&site.id, MessageKind::Changes);
+    let summary = changes
+        .last()
+        .and_then(|c| c.changes.clone())
+        .ok_or("no change card in Site Builder's chat")?;
+    ensure(
+        summary.files.iter().any(|f| f.path == "index.html"),
+        format!(
+            "change card lists {:?}",
+            summary.files.iter().map(|f| &f.path).collect::<Vec<_>>()
+        ),
+    )?;
+    ensure(
+        store::get(&chief.id).unwrap().pending_approvals == 0
+            && store::get(&site.id).unwrap().pending_approvals == 0,
+        "cards still pending",
+    )?;
+    let _ = ship_studio_lib::commands::pty_session::kill_all_sessions_sync();
+    ensure(
+        allowed.len() >= 2,
+        "the edit's permission prompt never became a card",
+    )?;
+    println!("      {} card(s) answered", allowed.len());
+    Ok(())
 }
 
 /// (8) Malformed output, a crash, a bare error code: a clean error, nothing stuck.
@@ -1025,8 +1817,9 @@ async fn burst(h: &H) -> Check {
 
 /* --------------------------------------------------------------------- main */
 
-const ALL: [&str; 10] = [
+const ALL: [&str; 19] = [
     "memory",
+    "memory-tab",
     "restart",
     "lost-session",
     "project",
@@ -1036,7 +1829,126 @@ const ALL: [&str; 10] = [
     "cli-failures",
     "corrupt-store",
     "burst",
+    "stop-tree",
+    "quit",
+    "slots",
+    "session-prompt",
+    "codex-memory",
+    "codex-stop",
+    "codex-delegation",
+    "codex-approvals",
 ];
+
+/// What the Codex scenarios run on: the signed-in account, a scripted model,
+/// or nothing (they're skipped). Decided before HOME is swapped.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum CodexMode {
+    Real,
+    Scripted,
+    Skip,
+}
+
+fn codex_mode(real_home: &Path) -> CodexMode {
+    match std::env::var("AGENTS_E2E_CODEX").as_deref() {
+        Ok("real") => return CodexMode::Real,
+        Ok("scripted") => return CodexMode::Scripted,
+        Ok("skip") => return CodexMode::Skip,
+        _ => {}
+    }
+    let signed_in = std::process::Command::new("codex")
+        .args(["login", "status"])
+        .env("HOME", real_home)
+        .output()
+        .is_ok_and(|o| o.status.success());
+    let python = std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    match (signed_in, python) {
+        (true, _) => CodexMode::Real,
+        (false, true) => CodexMode::Scripted,
+        (false, false) => CodexMode::Skip,
+    }
+}
+
+/// A folder no agent may write to without asking (codex-approvals).
+fn outside(home: &Path) -> PathBuf {
+    let dir = home.join("outside");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The rules the scripted model follows for the Codex scenarios.
+const CODEX_RULES: &str = r#"[
+ {"match": "My favourite number is", "steps": [{"text": "noted"}]},
+ {"match": "What is my favourite number", "steps": [{"recall": "favourite number is (\\d+)"}]},
+ {"match": "Forget the story", "steps": [{"text": "switched"}]},
+ {"match": "Write a 600-word story", "steps": [{"text": "The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn. The keeper climbed the stairs again and watched the dark water turn.", "delay": 0.25}]},
+ {"match": "has now approved this", "steps": [{"exec": "touch {OUT}/late.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "The user said no to this, and told you", "steps": [{"text": "understood"}]},
+ {"match": "hasn't answered yet", "steps": [{"text": "I need your OK to run that."}]},
+ {"match": "Command: touch {OUT}/once.txt", "steps": [{"exec": "touch {OUT}/once.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: touch {OUT}/denied.txt", "steps": [{"exec": "touch {OUT}/denied.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: touch {OUT}/late.txt", "steps": [{"exec": "touch {OUT}/late.txt", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: git init {OUT}/always-one", "steps": [{"exec": "git init {OUT}/always-one", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Command: git init {OUT}/always-two", "steps": [{"exec": "git init {OUT}/always-two", "escalate": true, "justification": "It writes outside my folders."}], "then": "Ran it."},
+ {"match": "Reply with just: ready", "steps": [{"text": "ready"}]},
+ {"match": "Reply with just: echo-ok", "steps": [{"text": "echo-ok"}]},
+ {"match": "Use message_agent to ask Scout", "steps": [{"call": "message_agent", "args": {"agent": "Scout", "message": "What is 6 times 7? Reply to Chief of Staff with message_agent."}}], "then": "Asked Scout."},
+ {"match": "What is 6 times 7", "steps": [{"call": "message_agent", "args": {"agent": "Chief of Staff", "message": "42"}}], "then": "Sent."},
+ {"match": "Scout's answer to your request", "steps": [{"text": "Scout says 42."}]},
+ {"match": "Message from Scout", "steps": [{"text": "Scout says 42."}]},
+ {"match": "then tell me what the tool said", "steps": [{"call": "message_agent", "args": {"agent": "Chief of Staff", "message": "ping"}}], "then": "The tool refused it."}
+]"#;
+
+/// Codex's own folder for the run: the account copied in (real), or the
+/// scripted model started and Codex pointed at it.
+fn codex_setup(mode: CodexMode, real_home: &Path, home: &Path) -> Option<std::process::Child> {
+    let theirs = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| real_home.join(".codex"));
+    let codex_home = home.join(".codex");
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::env::set_var("CODEX_HOME", &codex_home);
+    match mode {
+        CodexMode::Real => {
+            for file in ["auth.json", "models_cache.json"] {
+                let _ = std::fs::copy(theirs.join(file), codex_home.join(file));
+            }
+            None
+        }
+        CodexMode::Scripted => {
+            let port = 18_000 + (std::process::id() % 1000) as u16;
+            let rules = home.join("codex-rules.json");
+            // `{OUT}`: a folder outside every agent's writable roots.
+            let outside = outside(home);
+            std::fs::write(
+                &rules,
+                CODEX_RULES.replace("{OUT}", &outside.to_string_lossy()),
+            )
+            .unwrap();
+            let script =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/agents-e2e-codex-model.py");
+            let child = std::process::Command::new("python3")
+                .arg("-I")
+                .arg(script)
+                .arg(port.to_string())
+                .arg(&rules)
+                .arg(home.join("codex-model.jsonl"))
+                .spawn()
+                .expect("start the scripted model");
+            std::thread::sleep(Duration::from_millis(500));
+            std::env::set_var(
+                "SHIPSTUDIO_AGENTS_CODEX_CONFIG",
+                format!(
+                    "model_provider=\"scripted\"\nmodel=\"scripted\"\nmodel_providers.scripted={{name=\"scripted\",base_url=\"http://127.0.0.1:{port}/v1\",wire_api=\"responses\",supports_websockets=false,request_max_retries=0,stream_max_retries=0}}"
+                ),
+            );
+            Some(child)
+        }
+        CodexMode::Skip => None,
+    }
+}
 
 /// Claude Code reads its sign-in from the login keychain under HOME and the
 /// account from ~/.claude.json. Link the one, copy the account out of the
@@ -1074,6 +1986,14 @@ fn main() {
     let home = home.canonicalize().unwrap();
     let real_home = dirs::home_dir().expect("home");
     sign_in_from(&real_home, &home);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let wants_codex = args.is_empty() || args.iter().any(|a| a.starts_with("codex-"));
+    let codex = if wants_codex {
+        codex_mode(&real_home)
+    } else {
+        CodexMode::Skip
+    };
+    let mut scripted_model = codex_setup(codex, &real_home, &home);
     std::env::set_var("HOME", &home);
     for (key, _) in std::env::vars_os() {
         let key = key.to_string_lossy().to_string();
@@ -1083,17 +2003,29 @@ fn main() {
     }
     std::fs::create_dir_all(home.join("ShipStudio")).unwrap();
 
-    let app = tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .build(tauri::generate_context!())
         .expect("build tauri app");
+    // Headless: no Dock icon, never takes focus from whatever is in front.
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     let h = H::new(app.handle().clone(), home.clone());
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--phase") {
         tauri::async_runtime::block_on(async {
             match args[1].as_str() {
                 "restart-a" => restart_phase_a(&h).await,
+                "behaviour" => behaviour::phase(&h, &args[2]).await,
+                "quit" => quit_phase(&h).await,
+                "slots" => match slots_phase(&h).await {
+                    Ok(()) => println!("OK"),
+                    Err(e) => {
+                        println!("{e}");
+                        std::process::exit(1);
+                    }
+                },
                 "restart-b" => match restart_phase_b(&h, &args[2]).await {
                     Ok(()) => println!("OK"),
                     Err(e) => {
@@ -1113,31 +2045,51 @@ fn main() {
         args.iter().map(String::as_str).collect()
     };
     println!("HOME for this run: {}", home.display());
+    if wants_codex {
+        println!("Codex scenarios: {codex:?}");
+    }
     let started = Instant::now();
     let mut failed = 0;
     tauri::async_runtime::block_on(async {
         for name in wanted {
             let (t, c) = (Instant::now(), cost());
-            let result = match name {
+            let on_codex = name.strip_prefix("codex-");
+            if on_codex.is_some() && codex == CodexMode::Skip {
+                println!("SKIP  {name:<16} Codex isn't signed in and there's no python3 for the scripted model");
+                continue;
+            }
+            *h.engine.lock().unwrap() = if on_codex.is_some() {
+                Engine::Codex
+            } else {
+                Engine::Claude
+            };
+            let result = match on_codex.unwrap_or(name) {
                 "memory" => memory(&h).await,
+                "memory-tab" => memory_tab(&h).await,
                 "restart" => restart(&h).await,
                 "lost-session" => lost_session(&h).await,
                 "project" => project_agent(&h).await,
                 "delegation" => delegation(&h).await,
                 "stop" => stop(&h).await,
+                "approvals" if on_codex.is_some() => codex_approvals(&h).await,
                 "approvals" => approvals_scenario(&h).await,
                 "cli-failures" => cli_failures(&h).await,
                 "corrupt-store" => corrupt_store(&h).await,
                 "burst" => burst(&h).await,
+                "stop-tree" => stop_tree(&h).await,
+                "quit" => quit(&h).await,
+                "slots" => slots(&h).await,
+                "session-prompt" => session_prompt(&h).await,
+                "behaviour" => behaviour::suite(&h).await,
                 other => Err(format!("unknown scenario {other}")),
             };
             let took = t.elapsed().as_secs();
             let spent = cost() - c;
             match result {
-                Ok(()) => println!("PASS  {name:<14} {took:>4}s  ${spent:.3}"),
+                Ok(()) => println!("PASS  {name:<16} {took:>4}s  ${spent:.3}"),
                 Err(e) => {
                     failed += 1;
-                    println!("FAIL  {name:<14} {took:>4}s  ${spent:.3}  {e}");
+                    println!("FAIL  {name:<16} {took:>4}s  ${spent:.3}  {e}");
                 }
             }
         }
@@ -1148,6 +2100,9 @@ fn main() {
         started.elapsed().as_secs(),
         cost()
     );
+    if let Some(model) = scripted_model.as_mut() {
+        let _ = model.kill();
+    }
     if std::env::var("AGENTS_E2E_KEEP").is_err() {
         let _ = std::fs::remove_dir_all(&home);
     }

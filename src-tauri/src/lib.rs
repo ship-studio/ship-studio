@@ -85,7 +85,7 @@ fn cleanup_agent_processes() {
 /// Use the Vite server for `tauri dev`; packaged builds must use bundled
 /// assets. The main window is built programmatically, so Tauri cannot apply
 /// `build.devUrl` automatically as it would for a window declared in config.
-fn main_webview_url() -> Result<tauri::WebviewUrl, String> {
+pub(crate) fn main_webview_url() -> Result<tauri::WebviewUrl, String> {
     if cfg!(debug_assertions) {
         let port = std::env::var("SHIPSTUDIO_DEV_PORT")
             .ok()
@@ -146,6 +146,13 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    agents::quick_entry::on_shortcut(app, event.state())
+                })
+                .build(),
+        )
         .setup(|_app| {
             // Teach the user's own agent about workflows, and start the tick
             // that fires the armed ones. The skill install is the discovery
@@ -167,6 +174,8 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let _ = tauri::async_runtime::spawn_blocking(agents::store::expire_stale_approvals)
                     .await;
+                // Agents' secrets, known to redaction before any turn runs.
+                let _ = tauri::async_runtime::spawn_blocking(agents::secrets::load_known).await;
                 // A turn the last run quit in the middle of: stop its process, say so.
                 agents::runner::recover_after_restart(&badge_app).await;
                 agents::notify::refresh_badge(&badge_app);
@@ -258,6 +267,16 @@ pub fn run() {
 
                 #[cfg(target_os = "macos")]
                 commands::window::center_macos_traffic_lights(&main_window)?;
+
+                // Agents: the menu-bar icon, and quick entry's window (built
+                // hidden now so its shortcut only has to show it).
+                agents::tray::init(_app.handle());
+                if let Err(e) = agents::quick_entry::create(_app.handle()) {
+                    tracing::error!("[Agents] quick entry window: {e}");
+                }
+                if let Err(e) = agents::quick_entry::apply(_app.handle()) {
+                    tracing::warn!("[Agents] quick entry shortcut at launch: {e:?}");
+                }
 
                 let selected_app_icon = commands::settings::get_app_icon()?;
                 commands::settings::apply_app_icon(_app.handle(), &selected_app_icon)?;
@@ -467,7 +486,7 @@ pub fn run() {
                         } else if event_id == "close_tab" {
                             let _ = window.emit("close-tab", ());
                         } else if event_id == "confirm_quit" {
-                            let _ = window.emit("confirm-quit", ());
+                            agents::tray::request_quit(&app_handle, false);
                         } else if event_id == "capture_screenshot" {
                             let _ = window.emit("capture-screenshot", ());
                         } else if event_id == "toggle_crop" {
@@ -480,10 +499,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(true) = event {
+            if let tauri::WindowEvent::Focused(focused) = *event {
                 let (app, label) = (window.app_handle().clone(), window.label().to_string());
                 tauri::async_runtime::spawn_blocking(move || {
-                    agents::notify::window_focused(&app, &label)
+                    if focused {
+                        agents::notify::window_focused(&app, &label);
+                    }
+                    agents::quick_entry::window_focus(&app, &label, focused);
                 });
             }
             if let tauri::WindowEvent::Destroyed = event {
@@ -516,10 +538,14 @@ pub fn run() {
                 // Only run global cleanup when main window closes or no windows remain
                 // This prevents killing processes from other windows
                 let is_main = label == "main";
+                // Quick entry's composer is always there (hidden); it isn't
+                // a window anyone works in.
                 let remaining_windows = window
                     .app_handle()
                     .webview_windows()
-                    .len()
+                    .keys()
+                    .filter(|l| l.as_str() != agents::quick_entry::LABEL)
+                    .count()
                     .saturating_sub(1); // Subtract 1 because the closing window is still counted
 
                 if is_main || remaining_windows == 0 {
@@ -592,11 +618,27 @@ pub fn run() {
             commands::agents::agents_create,
             commands::agents::agents_update,
             commands::agents::agents_instructions,
+            commands::agents::agents_memory,
+            commands::agents::agents_memory_change,
+            commands::agents::agents_memory_suggest,
             commands::agents::agents_delete,
             commands::agents::agents_stop,
+            commands::agents::agents_busy,
+            commands::agents::agents_quit_check,
+            commands::agents::agents_keep_running_in_background,
+            commands::agents::agents_desktop_settings,
+            commands::agents::agents_set_desktop_settings,
+            commands::agents::quick_entry_hide,
+            commands::agents::quick_entry_sent,
+            commands::agents::quick_entry_open_chat,
+            commands::agents::quick_entry_capture,
+            commands::agents::quick_entry_resize,
             commands::agents::agents_answer_approval,
             commands::agents::agents_interrupt,
             commands::agents::agents_revoke_permission,
+            commands::agents::agents_save_secret,
+            commands::agents::agents_add_secret,
+            commands::agents::agents_revoke_secret,
             commands::agents::agents_focus,
             commands::agents::agents_mark_unread,
             commands::agents::agents_import_prompt,
@@ -1075,7 +1117,16 @@ pub fn run() {
                 // and keep their ports (issue #229: EADDRINUSE on relaunch).
                 let ptys = commands::pty::kill_all_pty_sync();
                 let sessions = commands::pty_session::kill_all_sessions_sync();
-                tracing::info!(ptys, sessions, "App exit: killed tracked PTY processes");
+                // Agents' turns too, with whatever they started: a `claude`
+                // must never keep editing a project after the app is gone.
+                // Each leaves its turn mark, so the next launch says so.
+                let agent_turns = agents::runner::shutdown_sync();
+                tracing::info!(
+                    ptys,
+                    sessions,
+                    agent_turns,
+                    "App exit: killed tracked PTY processes and agent turns"
+                );
             }
         });
 }

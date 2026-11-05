@@ -14,7 +14,7 @@ import { SegmentedControl } from '../primitives/SegmentedControl';
 import { Spinner } from '../primitives/Spinner';
 import { FileGlyph, kindLabel, useAttachmentOpener } from './AgentAttachments';
 import { useInvoke } from '../../hooks/useInvoke';
-import { useAgents } from '../../lib/agentsStore';
+import { useAgentsSelector } from '../../lib/agentsStore';
 import {
   attachmentUrl,
   filterFiles,
@@ -37,7 +37,7 @@ export function AgentFilesModal({ agent, isOpen, onClose }: AgentFilesModalProps
   const { data, isLoading, error, execute } = useInvoke<SharedFile[]>('agents_files');
   const open = useAttachmentOpener(agent.id);
   // A file shared while the list is open shows up in it.
-  const loaded = useAgents().messages[agent.id]?.length ?? 0;
+  const loaded = useAgentsSelector((s) => s.messages[agent.id]?.length ?? 0);
   useEffect(() => {
     if (isOpen) void execute({ agentId: agent.id }).catch(() => undefined);
   }, [isOpen, agent.id, loaded, execute]);

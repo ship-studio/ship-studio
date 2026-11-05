@@ -10,12 +10,15 @@
 import type { Cursor } from './frames';
 import type {
   AgentMessage,
+  AgentSecret,
   AgentsOverview,
   CheckIn,
   Device,
   FileDiff,
   ImportSummary,
   MacStatus,
+  MemoryChange,
+  MemoryView,
   PasteImportPreview,
   ProjectSummary,
   PushEnvironment,
@@ -89,10 +92,37 @@ export interface Methods {
   };
   'agents.stop': { params: { agentId: string }; result: boolean };
   'agents.interrupt': { params: { agentId: string }; result: boolean };
+  /** `choice`: on a session's question (`approval.prompt`), the option picked, by index. */
   'agents.answerApproval': {
-    params: { agentId: string; requestId: string; allow: boolean; always?: boolean; note?: string };
+    params: {
+      agentId: string;
+      requestId: string;
+      allow: boolean;
+      always?: boolean;
+      note?: string;
+      choice?: number;
+    };
     result: null;
   };
+  /**
+   * `agents_save_secret`: a secure input card's values, one per field, into
+   * the Mac's Keychain. Only over the Tailscale route (TLS end to end); the
+   * audit line names the secret, never a value, and a malformed request is
+   * refused without echoing what it carried.
+   */
+  'agents.saveSecret': {
+    params: { agentId: string; requestId: string; values: string[] };
+    result: AgentSecret;
+  };
+  /** `agents_memory`: the agent's `## Memory` entries. */
+  'agents.memory': { params: { agentId: string }; result: MemoryView };
+  /** `agents_memory_change`: add, edit or delete one entry. */
+  'agents.memoryChange': {
+    params: { agentId: string; change: MemoryChange };
+    result: MemoryView;
+  };
+  /** `agents_memory_suggest`: "Remember this", the message as one line to edit. */
+  'agents.memorySuggest': { params: { text: string }; result: string };
   'agents.revokePermission': { params: { agentId: string; ruleId: string }; result: null };
   /**
    * `agents_focus`, scoped to this device instead of a window. Sent when a
@@ -182,6 +212,8 @@ export const READ_ONLY_METHODS = [
   'agents.overview',
   'agents.messages',
   'agents.instructions',
+  'agents.memory',
+  'agents.memorySuggest',
   'agents.usage',
   'agents.files',
   'agents.changeDiff',

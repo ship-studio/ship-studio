@@ -35,7 +35,12 @@ export interface Agent {
   preview: string | null;
   unread: number;
   pendingApprovals: number;
+  /** What its turns run on; mirrors `engine::Engine`. */
+  engine: AgentEngine;
+  /** One of its engine's models; null is that engine's default. */
   model: string | null;
+  /** What its routines run on; omitted when automatic. */
+  routineModel?: string;
   muted: boolean;
   checkIns?: CheckIn[];
   permissions?: PermissionRule[];
@@ -45,6 +50,8 @@ export interface Agent {
   failure?: Failure;
   project?: string;
   capabilities?: Capabilities;
+  /** Secrets it has in the Keychain (names only); omitted when none. */
+  secrets?: AgentSecret[];
 }
 
 export interface Failure {
@@ -63,6 +70,33 @@ export interface CheckIn {
   nextAt: number;
   createdAt: number;
   paused: boolean;
+  /** Its last runs, oldest first; omitted before the first. */
+  runs?: CheckInRun[];
+  /** A failed run waiting to be tried again. */
+  retry?: CheckInRetry;
+}
+
+/** One scheduled run and what came of it; mirrors `runs::Run`. */
+export interface CheckInRun {
+  at: number;
+  outcome: 'running' | 'ran' | 'retrying' | 'failed' | 'unknown';
+  /** 1 for the run itself, 2 for its first retry. */
+  attempt: number;
+  /** Why it failed, as the chat said it. */
+  detail?: string;
+  retryAt?: number;
+  /** Connectors Claude Code said need signing in again. */
+  signIn?: string[];
+  /** Run now, from the popover. */
+  manual?: boolean;
+}
+
+/** Mirrors `runs::Retry`. */
+export interface CheckInRetry {
+  at: number;
+  attempts: number;
+  firstFailedAt: number;
+  dueAt: number;
 }
 
 export interface CheckInMark {
@@ -77,9 +111,28 @@ export interface SchedulePreview {
   repeat: Repeat | null;
 }
 
+export type AgentEngine = 'claude' | 'codex';
+
+export interface ModelChoice {
+  value: string;
+  label: string;
+}
+
+/** Mirrors `engine::EngineInfo`: an engine an agent can run on, as found on this Mac. */
+export interface EngineInfo {
+  id: AgentEngine;
+  label: string;
+  installed: boolean;
+  signedIn: boolean;
+  /** The engine's own models, without Default. */
+  models: ModelChoice[];
+}
+
 export interface AgentsOverview {
   agents: Agent[];
+  /** Claude Code is installed (the default engine). */
   engineReady: boolean;
+  engines: EngineInfo[];
 }
 
 export type MessageKind =
@@ -133,6 +186,59 @@ export interface Approval {
   always?: PermissionScope;
   alwaysAllowed?: boolean;
   note?: string;
+  /** A secure input card: what the agent asked for. */
+  secret?: SecretRequest;
+  /** A question a project session is waiting on, answered with keys sent to it. */
+  prompt?: SessionPrompt;
+  /** The option picked on a `prompt` card. */
+  choice?: string;
+}
+
+/** One answer a session's question offers, as the session shows it. */
+export interface PromptOption {
+  label: string;
+  keys: string[];
+  role: 'allow' | 'deny' | 'other';
+}
+
+/**
+ * A question a project session can't answer itself (folder trust, a
+ * permission prompt, a menu). The same card sits in every chat in `chats`;
+ * answering it in one answers it in all.
+ */
+export interface SessionPrompt {
+  kind: 'trust' | 'permission' | 'choice';
+  project: string;
+  sessionId: string;
+  tab: number;
+  question: string;
+  options: PromptOption[];
+  owner: AgentRef;
+  chats: string[];
+}
+
+// Secrets: identical to src/lib/agentSecrets.ts. A value is never part of
+// any of these; only names, purposes and variable names travel.
+
+export type SecretKind = 'password' | 'api_key' | 'token' | 'other';
+
+export interface SecretField {
+  label: string;
+  env: string;
+}
+
+export interface SecretRequest {
+  name: string;
+  purpose: string;
+  kind: SecretKind;
+  fields: SecretField[];
+  reference: string;
+}
+
+export interface AgentSecret extends SecretRequest {
+  id: string;
+  createdAt: number;
+  lastUsedAt?: number;
 }
 
 export interface AgentMessage {
@@ -196,6 +302,7 @@ export interface NewAgentInput {
   color?: string;
   role?: string;
   instructions?: string;
+  engine?: AgentEngine;
   model?: string;
   project?: string;
 }
@@ -209,7 +316,9 @@ export interface UpdateAgentInput {
   pinned?: boolean;
   hidden?: boolean;
   muted?: boolean;
+  engine?: AgentEngine;
   model?: string;
+  routineModel?: string;
   project?: string;
 }
 
@@ -251,6 +360,9 @@ export interface PasteImportAgent {
   instructionsChars: number;
   memoryLines: number;
   routines: PasteImportRoutine[];
+  color: string | null;
+  instructions: string;
+  memory: string[];
 }
 
 export interface PasteImportRoutine {
@@ -281,6 +393,32 @@ export interface ImportSummary {
   routinesSet: ImportRoutineOutcome[];
   routinesRefused: ImportRoutineOutcome[];
 }
+
+// Memory: identical to src/lib/agents.ts (`memory::Entry`, `memory::Change`).
+
+export interface MemoryEntry {
+  text: string;
+  /** The `###` heading it sits under. */
+  group?: string;
+}
+
+export interface MemoryView {
+  entries: MemoryEntry[];
+  /** The exact lines a delete removed, for Undo. */
+  removed?: string;
+}
+
+export type MemoryChange =
+  | {
+      op: 'add';
+      text: string;
+      group?: string;
+      after?: string;
+      before?: string;
+      raw?: string;
+    }
+  | { op: 'edit'; index: number; original: string; text: string }
+  | { op: 'delete'; index: number; original: string };
 
 /** Mirrors `crate::types::FileDiff` (src/lib/git.ts). */
 export interface FileDiff {

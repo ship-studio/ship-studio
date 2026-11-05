@@ -37,6 +37,7 @@ import { Dropdown } from '../primitives/Dropdown';
 import { IconButton } from '../primitives/IconButton';
 import { CompactModeToggle } from '../workspace/ModeToggle';
 import { TextButton } from '../primitives/TextButton';
+import { AgentSecretHint } from './AgentSecretHint';
 import { AgentModelMenu } from './AgentModelMenu';
 import { TextArea } from '../primitives/TextField';
 import { AgentAvatar } from './AgentAvatar';
@@ -44,6 +45,7 @@ import { AgentActionItems, type AgentActions } from './AgentActions';
 import { AgentsStayOnNote } from './AgentsStayOn';
 import { AgentSchedulePopover } from './AgentSchedulePopover';
 import { AgentFilesModal } from './AgentFilesModal';
+import { RememberModal } from './AgentRemember';
 import { useArrivals, useFollowBottom, usePresence } from './useAgentMotion';
 import { useDictation } from './useDictation';
 import { blockedCopy, dictationVocabulary, openPrivacySettings } from '../../lib/dictation';
@@ -94,15 +96,15 @@ import {
   type AgentMessage,
   type AgentRef,
   type OutgoingAttachment,
+  ENGINE_LABEL,
+  engineIsReady,
 } from '../../lib/agents';
 import {
-  loadMessages,
+  loadOlderMessages,
   markSent,
-  MESSAGE_MAX,
-  MESSAGE_PAGE,
   refreshAgents,
   upsertMessage,
-  useAgents,
+  useAgentsSelector,
 } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
@@ -120,6 +122,21 @@ const ESC_CONFIRM_MS = 1500;
 
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_THRESHOLD = 80;
+
+/** Older lines start loading while this many screens of history are still above. */
+const LOAD_AHEAD_SCREENS = 1.5;
+
+/**
+ * A function whose identity never changes but always runs the latest render's
+ * version, so the memoised rows below can take it without re-rendering.
+ */
+function useStableEvent<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const ref = useRef(fn);
+  useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  return useCallback((...args: A) => ref.current(...args), []);
+}
 
 /** Something you sent from this chat; `id` once the backend has it. */
 interface Pending {
@@ -168,7 +185,10 @@ const unsentText = new Map<string, string>();
 
 function statusLabel(agent: Agent): string | null {
   if (needsYou(agent)) return 'Needs your OK';
-  if (agent.status.state === 'working') return 'Working';
+  // Queued behind the cap on concurrent turns: working, but not started (no `since`).
+  if (agent.status.state === 'working') {
+    return agent.status.since == null ? 'Waiting for a free slot' : 'Working';
+  }
   return null;
 }
 
@@ -185,10 +205,14 @@ export function AgentChat({
   onJumped,
   ...actions
 }: AgentChatProps) {
-  const { messages: allMessages, drafts, engineReady } = useAgents();
-  const messages = allMessages[agent.id];
+  // This chat's slices only: another agent's reply streaming doesn't touch it.
+  const messages = useAgentsSelector((s) => s.messages[agent.id]);
+  const rawDraft = useAgentsSelector((s) => s.drafts[agent.id]);
+  const engineReady = useAgentsSelector((s) =>
+    engineIsReady(agent.engine, s.engines, s.engineReady)
+  );
+  const hasOlder = useAgentsSelector((s) => s.older[agent.id] ?? false);
   // Whitespace that hasn't become words yet isn't worth a bubble.
-  const rawDraft = drafts[agent.id];
   const draftText = rawDraft?.text.trimStart() ?? '';
   const streaming = useMemo(
     () => (rawDraft && draftText.trim() ? { ...rawDraft, text: draftText } : null),
@@ -234,6 +258,7 @@ export function AgentChat({
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [remembering, setRemembering] = useState<AgentMessage | null>(null);
 
   // Who you can @mention here: everyone else on the team, in sidebar order.
   const mentionable = useMemo(
@@ -350,8 +375,16 @@ export function AgentChat({
     return { shown: [...list, ...draft, ...local], aliases, failed, sending };
   }, [messages, pending, agent.id, streaming]);
 
-  const keyOf = (id: string) => aliases.get(id) ?? id;
-  const colorOf = (id: string) => agentsById.get(id)?.color;
+  // What the rows read from the agent. A status or activity change re-renders
+  // the header and the indicator, never the history.
+  const rowAgent = useMemo(() => agent, [agent.id, agent.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tints for @mentions, keyed by the colours themselves: a status event
+  // elsewhere gives a new `agentsById` but the same colours.
+  const colorKey = [...agentsById.values()].map((a) => `${a.id}:${a.color}`).join(' ');
+  const colorOf = useMemo(() => {
+    const colors = new Map(colorKey.split(' ').map((pair) => pair.split(':') as [string, string]));
+    return (id: string) => colors.get(id);
+  }, [colorKey]);
 
   const items = useMemo(() => buildChatItems(shown), [shown]);
   const livePeerLines = useMemo(() => newestPeerGroups(items), [items]);
@@ -394,12 +427,15 @@ export function AgentChat({
   // Only lines that arrive while the chat is open animate in.
   const messageIds = useMemo(() => messages?.map((m) => m.id), [messages]);
   const isArrived = useArrivals(messageIds);
-  const arrivedAt = (index: number): boolean => {
-    const item = items[index];
-    if (!item) return false;
-    if (item.type === 'day') return arrivedAt(index + 1);
-    return isArrived(item.type === 'peer-group' ? item.messages[0].id : item.message.id);
-  };
+  const arrivedAt = useCallback(
+    function arrivedAt(index: number): boolean {
+      const item = items[index];
+      if (!item) return false;
+      if (item.type === 'day') return arrivedAt(index + 1);
+      return isArrived(item.type === 'peer-group' ? item.messages[0].id : item.message.id);
+    },
+    [items, isArrived]
+  );
   const newestArrived = arrivedAt(items.length - 1);
 
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -423,25 +459,64 @@ export function AgentChat({
     if (atBottomRef.current) follow(newestArrived && isNew);
   }, [items, lastKey, working, agent.status.activity, follow, newestArrived]);
 
+  // Older lines load above as you near the top. The line that was first stays
+  // exactly where it was on screen: its offset in the content is taken before
+  // the load and the scroll moved by however far it was pushed down.
+  const anchorRef = useRef<{ firstId: string; el: HTMLElement; offset: number } | null>(null);
+  const loadEarlier = useCallback(() => {
+    const first = messagesRef.current?.querySelector<HTMLElement>('[data-message-ids]');
+    const firstId = messages?.[0]?.id;
+    if (!first || !firstId) return;
+    anchorRef.current = { firstId, el: first, offset: first.offsetTop };
+    // WebKit has no scroll anchoring; Chromium's would add its own correction
+    // to ours, so it's off until the page is in.
+    const el = scrollRef.current;
+    if (el) el.style.overflowAnchor = 'none';
+    void loadOlderMessages(agent.id).then(() =>
+      // Nothing came (a failed read): stand down.
+      requestAnimationFrame(() => {
+        if (anchorRef.current?.firstId !== firstId) return;
+        anchorRef.current = null;
+        if (el) el.style.overflowAnchor = '';
+      })
+    );
+  }, [agent.id, messages]);
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    const el = scrollRef.current;
+    // Only once the older lines are in: a reply landing meanwhile isn't it.
+    if (!anchor || !el || messages?.[0]?.id === anchor.firstId) return;
+    anchorRef.current = null;
+    if (anchor.el.isConnected) el.scrollTop += anchor.el.offsetTop - anchor.offset;
+    el.style.overflowAnchor = '';
+  }, [messages]);
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el || isGliding()) return;
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD;
     atBottomRef.current = bottom;
     setAtBottom(bottom);
-  }, [isGliding]);
+    if (hasOlder && el.scrollTop < el.clientHeight * LOAD_AHEAD_SCREENS) loadEarlier();
+  }, [isGliding, hasOlder, loadEarlier]);
 
   // A search hit: bring its line to the middle and flash it. A line older
-  // than the loaded page loads the rest first; one that's gone just stops.
+  // than what's loaded loads back to it first (once); one that's gone just stops.
+  const jumpLoad = useRef<{ id: string; done: boolean } | null>(null);
   useLayoutEffect(() => {
     if (!jumpTo || !messages) return;
     const target = messagesRef.current?.querySelector<HTMLElement>(
       `[data-message-ids~="${CSS.escape(jumpTo)}"]`
     );
     if (!target) {
-      if (messages.length >= MESSAGE_PAGE && messages.length < MESSAGE_MAX) {
-        void loadMessages(agent.id, MESSAGE_MAX);
-      } else {
+      const load = jumpLoad.current;
+      if (load?.id !== jumpTo && hasOlder) {
+        const entry = { id: jumpTo, done: false };
+        jumpLoad.current = entry;
+        void loadOlderMessages(agent.id, jumpTo).then(() => {
+          entry.done = true;
+        });
+      } else if (load?.id !== jumpTo || load.done) {
         onJumped?.();
       }
       return;
@@ -462,7 +537,7 @@ export function AgentChat({
     // Typing goes on in this conversation, not into whatever was clicked.
     inputRef.current?.focus({ preventScroll: true });
     onJumped?.();
-  }, [jumpTo, messages, agent.id, onJumped]);
+  }, [jumpTo, messages, hasOlder, agent.id, onJumped]);
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -548,17 +623,17 @@ export function AgentChat({
     });
   };
 
-  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked. */
+  /** "Retry at 3:00 PM": a one-time check-in at the reset, carrying what was asked and its files. */
   const retryAt = async (at: number) => {
+    // A check-in carries words only: its files are named by where they are.
+    const files = retrySource ? resendable(agent, retrySource).flatMap((f) => f.path ?? []) : [];
     try {
-      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? ''));
+      await createCheckIn(agent.id, whenAt(at), retryNote(retrySource?.text ?? '', files));
       await refreshAgents();
     } catch (error) {
       showToast(formatCommandError(asCommandError(error)), 'error');
     }
   };
-  const retryScheduledAt = (at: number) =>
-    (agent.checkIns ?? []).some((c) => !c.repeat && !c.paused && Math.abs(c.nextAt - at) < 120_000);
 
   // Esc stops a working agent only when pressed twice: the first says so,
   // quietly, where the hint goes. A reflex dismissal never drops a turn.
@@ -584,20 +659,25 @@ export function AgentChat({
     sendText(withQuotes(quotes, typed), now && busy);
   };
 
-  const retry = (key: string) => {
+  // Stable, for the memoised rows.
+  const retry = useStableEvent((key: string) => {
     const entry = pending.find((p) => p.key === key);
     if (!entry) return;
     setPending((list) => list.map((p) => (p.key === key ? { ...p, failed: false } : p)));
     void deliver(entry);
-  };
-
-  const onAnswer = async (requestId: string, allow: boolean, always?: boolean, note?: string) => {
-    try {
-      await answerApproval(agent.id, requestId, allow, always, note);
-    } catch (error) {
-      showToast(formatCommandError(asCommandError(error)), 'error');
+  });
+  const interruptNow = useStableEvent(() => void interrupt());
+  const retryLast = useStableEvent(retryFailed);
+  const retryLater = useStableEvent(retryAt);
+  const onAnswer = useStableEvent(
+    async (requestId: string, allow: boolean, always?: boolean, note?: string, choice?: number) => {
+      try {
+        await answerApproval(agent.id, requestId, allow, always, note, choice);
+      } catch (error) {
+        showToast(formatCommandError(asCommandError(error)), 'error');
+      }
     }
-  };
+  );
 
   const onStop = async () => {
     try {
@@ -634,6 +714,152 @@ export function AgentChat({
         </span>
       )}
     </>
+  );
+
+  // The history, memoised: typing, or a status line changing, re-renders none
+  // of it, and a growing reply re-renders only its own bubble.
+  const rowsPaused = agent.status.state === 'idle';
+  const checkIns = agent.checkIns;
+  const activity = agent.status.activity;
+  const rows = useMemo(
+    () =>
+      withIndicatorAt(
+        queuedFrom,
+        items.map((item, index) => {
+          if (item.type === 'day')
+            return <DayDivider key={`day-${item.ts}`} ts={item.ts} arrived={arrivedAt(index)} />;
+          const arrived = arrivedAt(index);
+          if (item.type === 'peer-group') {
+            return (
+              <PeerGroup
+                key={item.messages[0].id}
+                peer={item.peer}
+                messages={item.messages}
+                peerAgent={agentsById.get(item.peer.id)}
+                onOpenPeer={onOpenAgent}
+                arrived={arrived}
+                reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
+                live={livePeerLines.has(item.messages[0].id)}
+                driving={item.messages[0].id === drivingId}
+              />
+            );
+          }
+          const m = item.message;
+          switch (m.kind) {
+            case 'user':
+              return (
+                <UserBubble
+                  key={aliases.get(m.id) ?? m.id}
+                  message={m}
+                  agent={rowAgent}
+                  arrived={arrived}
+                  failed={failed.has(m.id)}
+                  sending={sending.get(m.id)}
+                  onRetry={retry}
+                  queued={m.id === queuedId}
+                  onInterrupt={interruptNow}
+                  colorOf={colorOf}
+                  onRemember={setRemembering}
+                />
+              );
+            case 'agent':
+              return (
+                <AgentBubble
+                  key={m.id}
+                  message={m}
+                  arrived={arrived}
+                  agent={rowAgent}
+                  streaming={m === streaming}
+                  onRemember={setRemembering}
+                />
+              );
+            case 'approval':
+              return (
+                <ApprovalCard
+                  key={m.id}
+                  message={m}
+                  agentName={rowAgent.name}
+                  paused={rowsPaused}
+                  onAnswer={onAnswer}
+                  arrived={arrived}
+                />
+              );
+            case 'error':
+              return (
+                <ErrorLine
+                  key={m.id}
+                  message={m}
+                  arrived={arrived}
+                  engine={agent.engine}
+                  onSignIn={onSignIn}
+                  onRetry={m.id === retryId ? retryLast : undefined}
+                  onRetryAt={retryLater}
+                  retryScheduled={Boolean(
+                    m.failure?.resetsAt && retryScheduledAt(checkIns, m.failure.resetsAt)
+                  )}
+                />
+              );
+            case 'check_in':
+              return <CheckInLine key={m.id} message={m} arrived={arrived} />;
+            case 'note':
+              return (
+                <NoteLine
+                  key={m.id}
+                  message={m}
+                  arrived={arrived}
+                  onOpenPeer={m.peer && agentsById.has(m.peer.id) ? onOpenAgent : undefined}
+                />
+              );
+            case 'changes':
+              return <ChangeCard key={m.id} message={m} arrived={arrived} />;
+            case 'session':
+              return <SessionCard key={m.id} message={m} agent={rowAgent} arrived={arrived} />;
+            default:
+              return null;
+          }
+        }),
+        indicator.mounted && (
+          <WorkingIndicator
+            key="working"
+            activity={activity}
+            entering={indicator.entering}
+            leaving={indicator.leaving}
+            onExited={indicator.onExited}
+          />
+        )
+      ),
+    [
+      items,
+      agent.engine,
+      queuedFrom,
+      arrivedAt,
+      agentsById,
+      onOpenAgent,
+      livePeerLines,
+      jumpTo,
+      drivingId,
+      aliases,
+      rowAgent,
+      failed,
+      sending,
+      retry,
+      queuedId,
+      interruptNow,
+      colorOf,
+      streaming,
+      rowsPaused,
+      onAnswer,
+      onSignIn,
+      retryId,
+      retryLast,
+      retryLater,
+      checkIns,
+      indicator.mounted,
+      indicator.entering,
+      indicator.leaving,
+      indicator.onExited,
+      activity,
+    ]
   );
 
   return (
@@ -705,6 +931,12 @@ export function AgentChat({
             />
           </Dropdown>
           <AgentFilesModal agent={agent} isOpen={filesOpen} onClose={() => setFilesOpen(false)} />
+          <RememberModal
+            key={remembering?.id ?? 'none'}
+            agent={agent}
+            message={remembering}
+            onClose={() => setRemembering(null)}
+          />
         </div>
       </header>
 
@@ -732,9 +964,12 @@ export function AgentChat({
                           {text}
                         </Button>
                       ))}
-                      <Button tabIndex={0} variant="secondary" onClick={onImport}>
-                        Import agents…
-                      </Button>
+                      {/* The sidebar's import note is the way in; with no sidebar, this is. */}
+                      {compact && (
+                        <Button tabIndex={0} variant="secondary" onClick={onImport}>
+                          Import agents…
+                        </Button>
+                      )}
                     </div>
                   )}
                   <AgentsStayOnNote />
@@ -763,115 +998,7 @@ export function AgentChat({
               )}
             </div>
           ) : (
-            withIndicatorAt(
-              queuedFrom,
-              items.map((item, index) => {
-                if (item.type === 'day')
-                  return (
-                    <DayDivider
-                      key={`day-${item.ts}-${index}`}
-                      ts={item.ts}
-                      arrived={arrivedAt(index)}
-                    />
-                  );
-                const arrived = arrivedAt(index);
-                if (item.type === 'peer-group') {
-                  return (
-                    <PeerGroup
-                      key={item.messages[0].id}
-                      peer={item.peer}
-                      messages={item.messages}
-                      peerAgent={agentsById.get(item.peer.id)}
-                      onOpenPeer={onOpenAgent}
-                      arrived={arrived}
-                      reveal={Boolean(jumpTo && item.messages.some((p) => p.id === jumpTo))}
-                      live={livePeerLines.has(item.messages[0].id)}
-                      driving={item.messages[0].id === drivingId}
-                    />
-                  );
-                }
-                const m = item.message;
-                switch (m.kind) {
-                  case 'user':
-                    return (
-                      <UserBubble
-                        key={keyOf(m.id)}
-                        message={m}
-                        agent={agent}
-                        arrived={arrived}
-                        failed={failed.has(m.id)}
-                        sending={sending.get(m.id)}
-                        onRetry={() => retry(m.id)}
-                        queued={
-                          m.id === queuedId ? { onInterrupt: () => void interrupt() } : undefined
-                        }
-                        colorOf={colorOf}
-                      />
-                    );
-                  case 'agent':
-                    return (
-                      <AgentBubble
-                        key={m.id}
-                        message={m}
-                        arrived={arrived}
-                        agent={agent}
-                        streaming={m === streaming}
-                      />
-                    );
-                  case 'approval':
-                    return (
-                      <ApprovalCard
-                        key={m.id}
-                        message={m}
-                        agentName={agent.name}
-                        paused={agent.status.state === 'idle'}
-                        onAnswer={onAnswer}
-                        arrived={arrived}
-                      />
-                    );
-                  case 'error':
-                    return (
-                      <ErrorLine
-                        key={m.id}
-                        message={m}
-                        arrived={arrived}
-                        onSignIn={onSignIn}
-                        onRetry={m.id === retryId ? retryFailed : undefined}
-                        onRetryAt={(at) => void retryAt(at)}
-                        retryScheduled={Boolean(
-                          m.failure?.resetsAt && retryScheduledAt(m.failure.resetsAt)
-                        )}
-                      />
-                    );
-                  case 'check_in':
-                    return <CheckInLine key={m.id} message={m} arrived={arrived} />;
-                  case 'note':
-                    return (
-                      <NoteLine
-                        key={m.id}
-                        message={m}
-                        arrived={arrived}
-                        onOpenPeer={m.peer && agentsById.has(m.peer.id) ? onOpenAgent : undefined}
-                      />
-                    );
-                  case 'changes':
-                    return <ChangeCard key={m.id} message={m} arrived={arrived} />;
-                  case 'session':
-                    return <SessionCard key={m.id} message={m} agent={agent} arrived={arrived} />;
-                  default:
-                    return null;
-                }
-              }),
-              indicator.mounted && (
-                <WorkingIndicator
-                  key="working"
-                  activity={agent.status.activity}
-                  entering={indicator.entering}
-                  leaving={indicator.leaving}
-                  onExited={indicator.onExited}
-                />
-              )
-            )
+            rows
           )}
           {items.length === 0 && indicator.mounted && (
             <WorkingIndicator
@@ -915,6 +1042,15 @@ export function AgentChat({
             )}
             <TextButton onClick={dictation.dismissBlocked}>Dismiss</TextButton>
           </p>
+        )}
+
+        {engineReady && (
+          <AgentSecretHint
+            agentId={agent.id}
+            agentName={agent.name}
+            draft={draft}
+            setDraft={setDraft}
+          />
         )}
 
         {engineReady ? (
@@ -986,7 +1122,7 @@ export function AgentChat({
               )}
               <div className="agent-composer__actions">
                 {escArmed && working && !canSend && !dictating ? (
-                  <span className="agent-composer__hint" role="status">
+                  <span className="agent-composer__hint" data-armed role="status">
                     Esc again to stop {agent.name}
                   </span>
                 ) : (
@@ -1017,6 +1153,7 @@ export function AgentChat({
                     tabIndex={0}
                     variant="secondary"
                     className="agent-composer__stop"
+                    data-armed={escArmed || undefined}
                     icon={<span className="agent-composer__stop-square" aria-hidden />}
                     onClick={() => void onStop()}
                     aria-label={`Stop ${agent.name}`}
@@ -1045,10 +1182,12 @@ export function AgentChat({
           <div className="agent-composer agent-composer--blocked" role="status">
             <WarningIcon size={14} className="agent-composer__blocked-icon" />
             <span className="agent-composer__blocked-text">
-              Agents run on Claude Code, which isn&apos;t installed on this Mac yet.
+              {agent.engine === 'codex'
+                ? `${agent.name} runs on Codex, which isn’t installed and signed in on this Mac.`
+                : 'Agents run on Claude Code, which isn’t installed on this Mac yet.'}
             </span>
             <Button tabIndex={0} variant="primary" onClick={onSetUpEngine}>
-              Set up Claude Code
+              Set up {ENGINE_LABEL[agent.engine]}
             </Button>
           </div>
         )}
@@ -1077,6 +1216,11 @@ export function AgentChat({
       </div>
     </section>
   );
+}
+
+/** A one-time check-in already waits for that reset: the retry is scheduled. */
+function retryScheduledAt(checkIns: Agent['checkIns'], at: number): boolean {
+  return (checkIns ?? []).some((c) => !c.repeat && !c.paused && Math.abs(c.nextAt - at) < 120_000);
 }
 
 /** The rows, with `extra` (if any) slotted in before row `at`. */

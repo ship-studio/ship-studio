@@ -408,6 +408,10 @@ where
         device_id: record.id.clone(),
         device_name: record.name.clone(),
         label: Companion::label(&record.id, conn),
+        // The listener is loopback-only and published solely by `tailscale
+        // serve` (TLS at the tailnet edge): the only way in. A LAN listener
+        // would set its own kind here.
+        route: RouteKind::Tailscale,
     };
     c.registry
         .touch(&record.id, now_ms() as i64, RouteKind::Tailscale, true);

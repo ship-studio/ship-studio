@@ -371,7 +371,7 @@ mod tests {
 /// awake" (the same `caffeinate` assertion remote access holds), "Keep running
 /// when windows close", and "Open at login" (remote access's own LaunchAgent,
 /// one file shared by both). Each is read back from the thing itself.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StayOn {
     /// macOS only; elsewhere none of this is offered.
@@ -402,8 +402,9 @@ pub fn get_stay_on() -> Result<StayOn, CommandError> {
 
 /// Change any of the three; `None` leaves that one as it is.
 #[tauri::command]
-#[tracing::instrument]
+#[tracing::instrument(skip(app))]
 pub fn set_stay_on(
+    app: tauri::AppHandle,
     keep_awake: Option<bool>,
     keep_running: Option<bool>,
     open_at_login: Option<bool>,
@@ -424,5 +425,13 @@ pub fn set_stay_on(
     if let Some(enabled) = open_at_login {
         power::set_open_at_login(enabled)?;
     }
-    Ok(stay_on_now())
+    if keep_running.is_some() {
+        // Quick entry follows this unless set on its own; so does the icon (below).
+        let _ = crate::agents::quick_entry::apply(&app);
+    }
+    crate::agents::tray::sync(&app);
+    let now = stay_on_now();
+    // Every place that shows these (Agents' note, the menu bar) shows the same.
+    let _ = tauri::Emitter::emit(&app, crate::agents::tray::EVENT_STAY_ON, now.clone());
+    Ok(now)
 }

@@ -23,6 +23,7 @@ import { AgentMark, AgentSwitcher } from './AgentSwitcher';
 import { useHeightReveal } from './useAgentMotion';
 import {
   answerApproval,
+  promptAnswer,
   createCheckIn,
   failedTurn,
   failureLine,
@@ -39,14 +40,17 @@ import {
   TEAM_ID,
   whenAt,
   type Agent,
+  type AgentEngine,
   type AgentMessage,
 } from '../../lib/agents';
-import { MESSAGE_PAGE, refreshAgents, upsertMessage, useAgents } from '../../lib/agentsStore';
+import { refreshAgents, upsertMessage, useAgentsSelector } from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 /** Lines read per chat: enough for its latest reply. A chat with a card open reads a page. */
 const RECENT_LINES = 20;
+/** What a chat with a card open reads, to find its pending cards. */
+const CARD_LINES = 400;
 
 /**
  * The recent lines of every chat that isn't loaded in the store, refetched
@@ -69,7 +73,7 @@ function useRecentLines(agents: Agent[], loaded: Record<string, AgentMessage[]>)
     let live = true;
     for (const w of wanted) {
       if (fetched[w.id]?.key === w.key) continue;
-      getAgentMessages(w.id, w.cards ? MESSAGE_PAGE : RECENT_LINES)
+      getAgentMessages(w.id, w.cards ? CARD_LINES : RECENT_LINES)
         .then((lines) => {
           if (live) setFetched((current) => ({ ...current, [w.id]: { key: w.key, lines } }));
         })
@@ -157,7 +161,8 @@ interface AgentsTeamViewProps {
   /** Open a chat at one of its lines. */
   onOpenMessage: (agentId: string, messageId: string) => void;
   /** The expired-login remedy on a failed turn. */
-  onSignIn: () => void;
+  /** Sign the agent's engine back in. */
+  onSignIn: (engine: AgentEngine) => void;
   /** Below the compact breakpoint there's no sidebar; the header switches agents. */
   compact?: { agents: Agent[]; onGoHome: () => void; onGoProjects: () => void };
 }
@@ -168,7 +173,8 @@ export function AgentsTeamView({
   onSignIn,
   compact,
 }: AgentsTeamViewProps) {
-  const { agents, messages } = useAgents();
+  const agents = useAgentsSelector((s) => s.agents);
+  const messages = useAgentsSelector((s) => s.messages);
   const { showToast } = useOptionalToast();
   const lines = useRecentLines(agents, messages);
   const team = useMemo(() => summarizeTeam(agents, lines), [agents, lines]);
@@ -198,7 +204,8 @@ export function AgentsTeamView({
     message: AgentMessage,
     allow: boolean,
     always?: boolean,
-    note?: string
+    note?: string,
+    choice?: number
   ) => {
     const approval = message.approval;
     if (!approval) return;
@@ -206,7 +213,7 @@ export function AgentsTeamView({
       `[data-message-ids~="${CSS.escape(message.id)}"]`
     );
     try {
-      await answerApproval(agent.id, approval.requestId, allow, always, note);
+      await answerApproval(agent.id, approval.requestId, allow, always, note, choice);
     } catch (error) {
       toastError(error);
       return;
@@ -218,6 +225,7 @@ export function AgentsTeamView({
         status: allow ? 'allowed' : 'denied',
         alwaysAllowed: always && allow ? true : approval.alwaysAllowed,
         note: allow ? undefined : note?.trim() || undefined,
+        ...(approval.prompt && promptAnswer(approval.prompt, allow, choice)),
       },
     };
     setHeld((h) => ({
@@ -359,8 +367,8 @@ export function AgentsTeamView({
                           agentName={agent.name}
                           paused={agent.status.state === 'idle'}
                           compact
-                          onAnswer={(_requestId, allow, always, note) =>
-                            answer(agent, m, allow, always, note)
+                          onAnswer={(_requestId, allow, always, note, choice) =>
+                            answer(agent, m, allow, always, note, choice)
                           }
                           arrived={false}
                         />
@@ -369,7 +377,8 @@ export function AgentsTeamView({
                     {failure && kind && !pending && (
                       <ErrorLine
                         message={failure}
-                        onSignIn={onSignIn}
+                        engine={agent.engine}
+                        onSignIn={() => onSignIn(agent.engine)}
                         onRetry={() => void retry(agent, failure)}
                         onRetryAt={(at) => void retryAt(agent, failure, at)}
                         retryScheduled={(agent.checkIns ?? []).some(

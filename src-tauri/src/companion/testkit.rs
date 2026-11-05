@@ -54,10 +54,19 @@ pub fn stored_agent() -> Agent {
             "preview": "Invoices are filed.",
             "unread": 2,
             "pendingApprovals": 1,
+            "engine": "claude",
             "model": "opus",
             "muted": false,
             "checkIns": [
-                { "id": "c1", "note": "Check the invoices", "repeat": { "kind": "days", "days": [1, 3], "hour": 9, "minute": 30 }, "nextAt": 1_762_300_000_000_i64, "createdAt": 1_762_200_000_000_i64, "paused": false },
+                { "id": "c1", "note": "Check the invoices", "repeat": { "kind": "days", "days": [1, 3], "hour": 9, "minute": 30 }, "nextAt": 1_762_300_000_000_i64, "createdAt": 1_762_200_000_000_i64, "paused": false,
+                  "runs": [
+                      { "at": 1_762_100_000_000_i64, "outcome": "ran", "attempt": 1, "manual": true },
+                      { "at": 1_762_150_000_000_i64, "outcome": "failed", "attempt": 3, "detail": "Claude Code is signed out.", "signIn": ["Gmail"] },
+                      { "at": 1_762_200_000_000_i64, "outcome": "retrying", "attempt": 1, "detail": "Usage limit", "retryAt": 1_762_201_800_000_i64 },
+                      { "at": 1_762_250_000_000_i64, "outcome": "running", "attempt": 2 },
+                      { "at": 1_762_260_000_000_i64, "outcome": "unknown", "attempt": 1 }
+                  ],
+                  "retry": { "at": 1_762_201_800_000_i64, "attempts": 1, "firstFailedAt": 1_762_200_000_000_i64, "dueAt": 1_762_200_000_000_i64 } },
                 { "id": "c2", "note": "Look at the queue", "repeat": { "kind": "every", "minutes": 60 }, "nextAt": 1_762_300_000_000_i64, "createdAt": 1_762_200_000_000_i64, "paused": true },
                 { "id": "c3", "note": "Remind me about the VAT return", "nextAt": 1_762_400_000_000_i64, "createdAt": 1_762_200_000_000_i64, "paused": false }
             ],
@@ -69,7 +78,13 @@ pub fn stored_agent() -> Agent {
             ],
             "failure": { "kind": "usage_limit", "resetsAt": 1_762_310_000_000_i64 },
             "project": "/Users/julian/ShipStudio/site",
-            "capabilities": { "seenAt": 1_762_290_000_000_i64, "lines": [{ "what": "Tools", "detail": "Bash, Read, Edit" }] }
+            "capabilities": { "seenAt": 1_762_290_000_000_i64, "lines": [{ "what": "Tools", "detail": "Bash, Read, Edit" }] },
+            "routineModel": "same",
+            "secrets": [
+                { "id": "s1", "name": "Stripe key", "purpose": "Reconcile payouts", "kind": "api_key",
+                  "fields": [{ "label": "API key", "env": "STRIPE_KEY" }], "reference": "secret:finance/stripe_key",
+                  "createdAt": 1_762_200_000_000_i64, "lastUsedAt": 1_762_290_000_000_i64 }
+            ]
         }),
         &["usage"],
     )
@@ -120,6 +135,44 @@ pub fn messages() -> Vec<AgentMessage> {
                 "attachments": [{ "name": "Desktop.jpg", "path": "attachments/m17/Desktop.jpg", "mime": "image/jpeg", "size": 184_000 }] }),
         json!({ "id": "m18", "agentId": AGENT, "ts": at(18), "kind": "user", "text": "Here's the logo", "clientId": "c_8f2a1b",
                 "attachments": [{ "name": "logo.png", "path": "attachments/m18/logo.png", "mime": "image/png", "size": 9_000 }] }),
+        json!({ "id": "m19", "agentId": AGENT, "ts": at(19), "kind": "approval", "text": "",
+                "approval": { "requestId": "q6", "title": "Do you want to make this edit to Header.tsx?",
+                              "detail": "@@ -1,2 +1,2 @@\n-  padding: 8px;\n+  padding: 12px;", "status": "pending",
+                              "prompt": { "kind": "permission", "project": "/Users/julian/ShipStudio/site", "sessionId": "pty-2", "tab": 2,
+                                          "question": "Do you want to make this edit to Header.tsx?",
+                                          "options": [
+                                              { "label": "Yes", "keys": ["1"], "role": "allow" },
+                                              { "label": "Yes, allow all edits during this session", "keys": ["2"], "role": "other" },
+                                              { "label": "No, and tell Claude what to do differently", "keys": ["3"], "role": "deny" }
+                                          ],
+                                          "owner": { "id": "a2", "name": "Ops" }, "chats": ["a2", AGENT] } } }),
+        json!({ "id": "m20", "agentId": AGENT, "ts": at(20), "kind": "approval", "text": "",
+                "approval": { "requestId": "q7", "title": "Let Claude Code work in site?", "detail": "Claude Code asks once per folder.", "status": "allowed",
+                              "prompt": { "kind": "trust", "project": "/Users/julian/ShipStudio/site", "sessionId": "pty-3", "tab": 3,
+                                          "question": "Do you trust the files in this folder?",
+                                          "options": [
+                                              { "label": "Yes, proceed", "keys": ["1"], "role": "allow" },
+                                              { "label": "No, exit", "keys": ["2"], "role": "deny" }
+                                          ],
+                                          "owner": { "id": AGENT, "name": "Finance" }, "chats": [AGENT] },
+                              "choice": "Yes, proceed" } }),
+        json!({ "id": "m21", "agentId": AGENT, "ts": at(21), "kind": "approval", "text": "",
+                "approval": { "requestId": "q8", "title": "Bank login", "detail": "Download the statements", "status": "pending",
+                              "secret": { "name": "Bank login", "purpose": "Download the statements", "kind": "password",
+                                          "fields": [{ "label": "Username", "env": "BANK_USERNAME" }, { "label": "Password", "env": "BANK_PASSWORD" }],
+                                          "reference": "secret:finance/bank_login" } } }),
+        json!({ "id": "m22", "agentId": AGENT, "ts": at(22), "kind": "approval", "text": "",
+                "approval": { "requestId": "q9", "title": "Stripe key", "detail": "Reconcile payouts", "status": "allowed",
+                              "secret": { "name": "Stripe key", "purpose": "Reconcile payouts", "kind": "api_key",
+                                          "fields": [{ "label": "API key", "env": "STRIPE_KEY" }], "reference": "secret:finance/stripe_key" } } }),
+        json!({ "id": "m23", "agentId": AGENT, "ts": at(23), "kind": "approval", "text": "",
+                "approval": { "requestId": "q10", "title": "Token", "detail": "Deploy", "status": "denied",
+                              "secret": { "name": "Token", "purpose": "Deploy", "kind": "token",
+                                          "fields": [{ "label": "Token", "env": "TOKEN" }], "reference": "secret:finance/token" } } }),
+        json!({ "id": "m24", "agentId": AGENT, "ts": at(24), "kind": "approval", "text": "",
+                "approval": { "requestId": "q11", "title": "Other", "detail": "Other", "status": "expired",
+                              "secret": { "name": "Other", "purpose": "Other", "kind": "other",
+                                          "fields": [{ "label": "Value", "env": "OTHER" }], "reference": "secret:finance/other" } } }),
     ];
     list.into_iter().map(|m| round_trip(m, &[])).collect()
 }
@@ -176,9 +229,54 @@ pub fn overview() -> Value {
         serde_json::to_value(crate::commands::agents::AgentsOverview {
             agents: vec![view],
             engine_ready: true,
+            engines: engines(),
         })
         .unwrap(),
     )
+}
+
+/// Both engines: Claude Code ready, Codex installed but signed out.
+pub fn engines() -> Vec<crate::agents::engine::EngineInfo> {
+    use crate::agents::engine::{Engine, EngineInfo, ModelChoice};
+    let model = |value: &str, label: &str| ModelChoice {
+        value: value.into(),
+        label: label.into(),
+    };
+    vec![
+        EngineInfo {
+            id: Engine::Claude,
+            label: "Claude Code",
+            installed: true,
+            signed_in: true,
+            models: vec![model("opus", "Opus"), model("sonnet", "Sonnet")],
+        },
+        EngineInfo {
+            id: Engine::Codex,
+            label: "Codex",
+            installed: true,
+            signed_in: false,
+            models: vec![model("gpt-5-codex", "GPT-5 Codex")],
+        },
+    ]
+}
+
+/// The memory the stub agent keeps: its own, then an imported group.
+pub fn memory_entries() -> Vec<crate::agents::memory::Entry> {
+    use crate::agents::memory::Entry;
+    vec![
+        Entry {
+            text: "Invoices go to accounts@example.com".into(),
+            group: None,
+        },
+        Entry {
+            text: "VAT is filed quarterly".into(),
+            group: None,
+        },
+        Entry {
+            text: "Prefers short summaries".into(),
+            group: Some("Imported from Grok Bot".into()),
+        },
+    ]
 }
 
 /// What `projects.list` answers with: one project, one tab waiting on the
@@ -243,6 +341,8 @@ pub struct Stub {
     pub typed: Mutex<Vec<(String, String)>>,
     /// Permission rules revoked, by id.
     pub revoked: Mutex<Vec<String>>,
+    /// Secure input cards saved (the values are not kept).
+    pub secrets_saved: AtomicUsize,
 }
 
 impl Stub {
@@ -262,6 +362,7 @@ impl Stub {
             toggles: Mutex::new(Vec::new()),
             typed: Mutex::new(Vec::new()),
             revoked: Mutex::new(Vec::new()),
+            secrets_saved: AtomicUsize::new(0),
         });
         let c = Arc::new(Companion::with_epoch(registry, stub.clone(), epoch.into()));
         let _ = stub.companion.set(Arc::downgrade(&c));
@@ -375,6 +476,78 @@ impl Backend for Stub {
     async fn answer_approval(&self, answer: ApprovalAnswer) -> Result<(), CommandError> {
         self.answers.lock().unwrap().push(answer);
         Ok(())
+    }
+
+    async fn save_secret(
+        &self,
+        agent_id: &str,
+        request_id: &str,
+        values: Vec<String>,
+    ) -> Result<Value, CommandError> {
+        if agent_id != AGENT {
+            return Err(CommandError::expected("No such agent."));
+        }
+        let card = self
+            .messages
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|m| {
+                m.approval
+                    .as_ref()
+                    .filter(|a| a.request_id == request_id)
+                    .and_then(|a| a.secret.clone())
+            })
+            .ok_or_else(|| CommandError::expected("That card isn't asking for a secret."))?;
+        if values.len() != card.fields.len() || values.iter().any(|v| v.trim().is_empty()) {
+            return Err(CommandError::expected("Fill in every field."));
+        }
+        // Counted, never kept: the test asserts no value lands anywhere.
+        self.secrets_saved.fetch_add(1, Ordering::SeqCst);
+        Ok(serde_json::to_value(&stored_agent().secrets[0]).unwrap())
+    }
+
+    async fn memory(&self, agent_id: &str) -> Result<Value, CommandError> {
+        if agent_id != AGENT {
+            return Err(CommandError::expected("No such agent."));
+        }
+        Ok(serde_json::to_value(crate::agents::memory::View {
+            entries: memory_entries(),
+            removed: None,
+        })
+        .unwrap())
+    }
+
+    async fn memory_change(&self, agent_id: &str, change: Value) -> Result<Value, CommandError> {
+        if agent_id != AGENT {
+            return Err(CommandError::expected("No such agent."));
+        }
+        let mut entries = memory_entries();
+        let mut removed = None;
+        match change["op"].as_str() {
+            Some("add") => entries.push(crate::agents::memory::Entry {
+                text: change["text"].as_str().unwrap_or("").into(),
+                group: None,
+            }),
+            Some("delete") => {
+                let i = change["index"].as_u64().unwrap_or(0) as usize;
+                if i < entries.len() {
+                    removed = Some(format!("- {}", entries.remove(i).text));
+                }
+            }
+            _ => {}
+        }
+        Ok(serde_json::to_value(crate::agents::memory::View { entries, removed }).unwrap())
+    }
+
+    async fn memory_suggest(&self, text: String) -> Result<String, CommandError> {
+        Ok(text
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect())
     }
 
     async fn focus(&self, label: &str, agent_id: Option<String>) -> Result<(), CommandError> {
@@ -529,6 +702,9 @@ impl Backend for Stub {
                     next_at,
                     created_at: now,
                     paused: false,
+                    runs: Vec::new(),
+                    retry: None,
+                    extra: Default::default(),
                 })
                 .unwrap()
             }

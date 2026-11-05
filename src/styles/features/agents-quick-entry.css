@@ -1,0 +1,122 @@
+/*
+ * Quick entry: the floating composer on the quick-message shortcut
+ * (components/agents/QuickEntry.tsx). It is the chat composer, lifted into
+ * its own transparent window: the same field, bar, mic and send, on a card
+ * with a shadow, with a "To" line above the text.
+ *
+ * The window is exactly the height of `.quick-entry`, so the mention menu
+ * opens downward in the flow rather than upward over nothing.
+ */
+
+html[data-window='quick-entry'],
+html[data-window='quick-entry'] body {
+  background: transparent;
+}
+
+html[data-window='quick-entry'] #root {
+  height: auto;
+}
+
+/* Room inside the transparent window for the card's shadow. Nothing is drawn
+   outside the card: under it is whatever app was in front. */
+.quick-entry {
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-xl);
+}
+
+.quick-entry .agent-composer.quick-entry__composer {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: quick-entry-in var(--transition-interaction-fast);
+}
+
+.quick-entry__to {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-2xs) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+.quick-entry__to-name {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.quick-entry__to-hint {
+  margin-left: var(--spacing-2xs);
+}
+
+.quick-entry__esc {
+  margin-left: auto;
+  padding: 0 var(--spacing-2xs);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-badge);
+}
+
+.quick-entry .ss-dropdown__menu.agent-mention-menu {
+  position: static;
+  margin: var(--spacing-xs) 0 0;
+  min-width: 0;
+  box-shadow: none;
+}
+
+.quick-entry__note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs) var(--spacing-md);
+  align-items: baseline;
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-2xs);
+  border-top: var(--border-width-default) solid var(--border-default);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-help);
+  color: var(--text-muted);
+}
+
+.quick-entry__note[role='alert'] {
+  color: var(--text-secondary);
+}
+
+/* Sent: one quiet line where the composer was, then the window hides. */
+.quick-entry__sent {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-size-body-md);
+  animation: quick-entry-in var(--transition-interaction-fast);
+}
+
+.quick-entry__sent-icon {
+  color: var(--accent-active);
+}
+
+.quick-entry__sent-text {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+@keyframes quick-entry-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--spacing-2xs) * -1)) scale(0.99);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-entry .agent-composer.quick-entry__composer,
+  .quick-entry__sent {
+    animation: none;
+  }
+}

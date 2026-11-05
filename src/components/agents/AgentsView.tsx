@@ -22,10 +22,10 @@ import { flushSync } from 'react-dom';
 import { HomeSidebar } from '../workspace/HomeSidebar';
 import { AgentsSidebar } from './AgentsSidebar';
 import { AgentsSearchPopover, AgentsTopSearch } from './AgentsSearchBox';
-import { ClaudeSignInModal } from './ClaudeSignInModal';
+import { EngineSignInModal, type EngineSetup } from './EngineSignInModal';
 import { AgentChat } from './AgentChat';
 import { AgentsTeamView } from './AgentsTeamView';
-import { AgentEditorModal } from './AgentEditorModal';
+import { AgentEditorModal, type EditorTab } from './AgentEditorModal';
 import { AgentProjectsProvider } from './AgentProject';
 import { ImportAgentsModal } from './ImportAgentsModal';
 import { AgentAppsModal } from './AgentAppsModal';
@@ -43,14 +43,21 @@ import {
   TEAM_ID,
   updateAgent,
   type Agent,
+  type AgentEngine,
   type SearchHit,
 } from '../../lib/agents';
-import { getAgentsSnapshot, loadMessages, refreshAgents, useAgents } from '../../lib/agentsStore';
+import {
+  getAgentsSnapshot,
+  loadMessages,
+  refreshAgents,
+  useAgentsList,
+  useAgentsSelector,
+} from '../../lib/agentsStore';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useAgentsIntents } from '../../commands/useAgentsCommands';
 import { useCommands } from '../../commands/useCommands';
-import { AgentsIcon, CheckIcon, CloseIcon } from '@/components/icons';
+import { AgentsModeIcon, CheckIcon, CloseIcon, EditFieldIcon } from '@/components/icons';
 import { kbd } from '../../lib/shortcuts';
 
 const SELECTED_KEY = 'shipstudio.agents.selected';
@@ -87,11 +94,20 @@ export function AgentsView(props: AgentsViewProps) {
   );
 }
 
+/** The open chat's composer; a no-op while none is on screen. */
+function focusComposer() {
+  document.querySelector<HTMLElement>('.agent-composer__input')?.focus({ preventScroll: true });
+}
+
 function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
-  const { agents, loaded, error, messages } = useAgents();
+  // Slices, not the whole store: a reply streaming anywhere must not re-render the view.
+  const agents = useAgentsList();
+  const loaded = useAgentsSelector((s) => s.loaded);
+  const error = useAgentsSelector((s) => s.error);
+  const engines = useAgentsSelector((s) => s.engines);
   const { showToast } = useOptionalToast();
   const [selectedId, setSelectedId] = useState<string | null>(readSelected);
-  const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null }>({
+  const [editor, setEditor] = useState<{ open: boolean; agent: Agent | null; tab?: EditorTab }>({
     open: false,
     agent: null,
   });
@@ -101,8 +117,8 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  /** The message a search result asked the chat to show. */
-  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  /** The message a search result asked a chat to show; only that agent's chat takes it. */
+  const [jump, setJump] = useState<{ agentId: string; messageId: string } | null>(null);
 
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   // "What's in flight" (⌘K only), else the last agent you had open, else the Chief of Staff.
@@ -117,9 +133,28 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   // The conversation on screen: the selected one once its messages are in,
   // until then whichever was there before.
   const [shownId, setShownId] = useState<string | null>(null);
-  const selectedReady = selected !== null && messages[selected.id] !== undefined;
-  if (selectedReady && shownId !== selected.id) setShownId(selected.id);
+  const selectedKey = selected?.id ?? null;
+  const selectedReady = useAgentsSelector(
+    (s) => selectedKey !== null && s.messages[selectedKey] !== undefined
+  );
+  if (selectedReady && selectedKey !== null && shownId !== selectedKey) setShownId(selectedKey);
   const shown = (shownId && agentsById.get(shownId)) || null;
+
+  // Opening an agent on purpose (a dialog, ⌘K, ⌘J, a notification) puts you
+  // in its composer. A chat focuses it when it mounts, but a dialog closing
+  // restores focus to its trigger, and an agent already on screen doesn't
+  // mount again; so this asks once more, a frame later, and again when the
+  // chat it asked for arrives.
+  const [focusAsk, setFocusAsk] = useState(0);
+  const openAgent = useCallback((id: string) => {
+    setSelectedId(id);
+    setFocusAsk((n) => n + 1);
+  }, []);
+  useEffect(() => {
+    if (!focusAsk) return;
+    const frame = requestAnimationFrame(focusComposer);
+    return () => cancelAnimationFrame(frame);
+  }, [focusAsk, shown?.id]);
 
   useEffect(() => {
     if (!selected) {
@@ -156,7 +191,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [query, setQuery] = useState('');
   /** Claude Code's terminal: installing (then signing in), or only signing in. */
-  const [claudeStep, setClaudeStep] = useState<'install' | 'sign-in' | null>(null);
+  const [engineSetup, setEngineSetup] = useState<EngineSetup | null>(null);
   /** The search hit last opened, marked in the results. */
   const [currentHit, setCurrentHit] = useState<string | null>(null);
   const [stopping, setStopping] = useState<Agent | null>(null);
@@ -164,7 +199,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
   const closeSearch = useCallback(() => {
     setPopoverOpen(false);
     setQuery('');
-    document.querySelector<HTMLElement>('.agent-composer__input')?.focus({ preventScroll: true });
+    focusComposer();
   }, []);
   // Focus lands before the next key does: the field is there (or mounted
   // synchronously) by the time this returns, so nothing typed is lost.
@@ -209,7 +244,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
 
   const openMessage = useCallback((agentId: string, messageId: string) => {
     setSelectedId(agentId);
-    setJumpTo(messageId);
+    setJump({ agentId, messageId });
   }, []);
   const openHit = useCallback(
     (hit: SearchHit) => {
@@ -218,12 +253,12 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     },
     [openMessage]
   );
-  const clearJump = useCallback(() => setJumpTo(null), []);
+  const clearJump = useCallback(() => setJump(null), []);
   useAgentsIntents({
     onNewAgent: openNew,
     onImportAgents: openImport,
     onApps: openApps,
-    onOpenAgent: setSelectedId,
+    onOpenAgent: openAgent,
     onSearch: focusSearch,
   });
 
@@ -239,9 +274,9 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     }
     return null;
   }, [agents, selected?.id]);
-  const keys = useRef({ order, selected, openNew, nextNeedingYou });
+  const keys = useRef({ order, selected, openNew, nextNeedingYou, showToast });
   useEffect(() => {
-    keys.current = { order, selected, openNew, nextNeedingYou };
+    keys.current = { order, selected, openNew, nextNeedingYou, showToast };
   });
 
   useEffect(() => {
@@ -249,7 +284,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       if (!event.metaKey && !event.ctrlKey) return;
       // Leave every key alone while a dialog owns the keyboard.
       if (document.querySelector('[aria-modal="true"]')) return;
-      const { order, selected, openNew, nextNeedingYou } = keys.current;
+      const { order, selected, openNew, nextNeedingYou, showToast } = keys.current;
       if (event.key.toLowerCase() === 'n' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         openNew();
@@ -258,7 +293,9 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       if (event.key.toLowerCase() === 'j' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const next = nextNeedingYou();
-        if (next) setSelectedId(next.id);
+        // Said, so the key never seems broken.
+        if (next) openAgent(next.id);
+        else showToast('No other agent needs you right now', 'info');
         return;
       }
       const step =
@@ -275,13 +312,15 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [openAgent]);
 
   // The oldest card waiting on you, on the first agent (sidebar order) with one.
   const waitingOn = sortAgents(agents).find((a) => !a.hidden && needsYou(a)) ?? null;
-  const topCard = waitingOn
-    ? (messages[waitingOn.id] ?? []).find((m) => m.approval?.status === 'pending')
-    : undefined;
+  const topCard = useAgentsSelector((s) =>
+    waitingOn
+      ? (s.messages[waitingOn.id] ?? []).find((m) => m.approval?.status === 'pending')
+      : undefined
+  );
   useEffect(() => {
     if (waitingOn && !getAgentsSnapshot().messages[waitingOn.id]) void loadMessages(waitingOn.id);
   }, [waitingOn?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -301,14 +340,14 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       {
         id: 'agents.nextNeedingYou',
         title: 'Open the next agent that needs you',
-        icon: <AgentsIcon size={14} />,
+        icon: <AgentsModeIcon size={14} />,
         category: 'navigation',
         shortcut: kbd('mod', 'J'),
         keywords: ['agents', 'approval', 'waiting', 'failed', 'unread', 'jump'],
         when: () => agents.some((a) => !a.hidden && needsAttention(a)),
         run: () => {
           const next = nextNeedingYou();
-          if (next) setSelectedId(next.id);
+          if (next) openAgent(next.id);
         },
       },
       ...(waitingOn && topCard?.approval
@@ -331,6 +370,18 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
             },
           ]
         : []),
+      ...(selected
+        ? [
+            {
+              id: 'agents.memory',
+              title: `Edit what ${selected.name} remembers…`,
+              icon: <EditFieldIcon size={14} />,
+              category: 'action' as const,
+              keywords: ['agents', 'memory', 'remember', 'forget', 'claude.md', 'facts'],
+              run: () => setEditor({ open: true, agent: selected, tab: 'memory' }),
+            },
+          ]
+        : []),
       ...agents
         .filter((a) => a.status.state !== 'idle')
         .map((a) => ({
@@ -342,7 +393,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
           run: () => setStopping(a),
         })),
     ],
-    [agents, waitingOn, topCard, answerTop, nextNeedingYou]
+    [agents, waitingOn, topCard, answerTop, nextNeedingYou, openAgent, selected]
   );
 
   const confirmStop = async () => {
@@ -366,21 +417,31 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
     setEditor({ open: false, agent: null });
   };
 
-  const actions = {
-    onTogglePin: (a: Agent) => void run(() => updateAgent(a.id, { pinned: !a.pinned })),
-    onToggleHidden: (a: Agent) => void run(() => updateAgent(a.id, { hidden: !a.hidden })),
-    onToggleMuted: (a: Agent) => void run(() => updateAgent(a.id, { muted: !a.muted })),
-    onMarkUnread: (a: Agent) => {
-      if (a.id === selected?.id) {
-        // Step off it, or opening it again would mark it read straight away.
-        const other = order.find((o) => o.id !== a.id);
-        if (other) setSelectedId(other.id);
-      }
-      void run(() => markAgentUnread(a.id));
-    },
-    onEdit: (a: Agent) => setEditor({ open: true, agent: a }),
-    onDelete: setDeleting,
-  };
+  // Stable, so a status event re-renders only the sidebar row it changed.
+  const actions = useMemo(
+    () => ({
+      onTogglePin: (a: Agent) => void run(() => updateAgent(a.id, { pinned: !a.pinned })),
+      onToggleHidden: (a: Agent) => void run(() => updateAgent(a.id, { hidden: !a.hidden })),
+      onToggleMuted: (a: Agent) => void run(() => updateAgent(a.id, { muted: !a.muted })),
+      onMarkUnread: (a: Agent) => {
+        const { order, selected } = keys.current;
+        if (a.id === selected?.id) {
+          // Step off it, or opening it again would mark it read straight away.
+          const other = order.find((o) => o.id !== a.id);
+          if (other) setSelectedId(other.id);
+        }
+        void run(() => markAgentUnread(a.id));
+      },
+      onEdit: (a: Agent) => setEditor({ open: true, agent: a }),
+      onDelete: setDeleting,
+    }),
+    [run]
+  );
+  const toggleShowHidden = useCallback(() => setShowHidden((v) => !v), []);
+  const signIn = useCallback(
+    (engine: AgentEngine) => setEngineSetup({ engine, step: 'sign-in' }),
+    []
+  );
 
   return (
     <div className="app workspace workspace-home agents-mode">
@@ -402,11 +463,11 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
                 agents={agents}
                 selectedId={selected?.id ?? null}
                 showHidden={showHidden}
-                onToggleShowHidden={() => setShowHidden((v) => !v)}
+                onToggleShowHidden={toggleShowHidden}
                 onSelect={setSelectedId}
                 onNew={openNew}
                 onImport={openImport}
-                {...actions}
+                actions={actions}
                 query={popoverSearch ? '' : query}
                 searchRef={searchRef}
                 onOpenHit={openHit}
@@ -429,9 +490,9 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
             <div className="agents-main__state">{error}</div>
           ) : teamOpen ? (
             <AgentsTeamView
-              onOpenAgent={setSelectedId}
+              onOpenAgent={openAgent}
               onOpenMessage={openMessage}
-              onSignIn={() => setClaudeStep('sign-in')}
+              onSignIn={signIn}
               compact={
                 isCompact
                   ? {
@@ -452,8 +513,16 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
               agent={shown}
               agentsById={agentsById}
               onOpenAgent={setSelectedId}
-              onSetUpEngine={() => setClaudeStep('install')}
-              onSignIn={() => setClaudeStep('sign-in')}
+              onSetUpEngine={() =>
+                setEngineSetup({
+                  engine: shown.engine,
+                  // Codex can be installed and only need signing in.
+                  step: engines.find((e) => e.id === shown.engine)?.installed
+                    ? 'sign-in'
+                    : 'install',
+                })
+              }
+              onSignIn={() => signIn(shown.engine)}
               onImport={openImport}
               onEscape={escapeSearch}
               compact={
@@ -466,7 +535,7 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
                   : undefined
               }
               {...actions}
-              jumpTo={jumpTo}
+              jumpTo={jump?.agentId === shown.id ? jump.messageId : null}
               onJumped={clearJump}
             />
           )}
@@ -474,21 +543,33 @@ function AgentsModeView({ isCompact, sidebarProps }: AgentsViewProps) {
       </div>
 
       <AgentEditorModal
-        key={editor.open ? (editor.agent?.id ?? 'new') : 'closed'}
+        key={editor.open ? `${editor.agent?.id ?? 'new'}-${editor.tab ?? ''}` : 'closed'}
         isOpen={editor.open}
         agent={editor.agent}
+        initialTab={editor.tab}
         takenColors={agents.map((a) => a.color)}
         onClose={() => setEditor({ open: false, agent: null })}
         onSaved={(id) => {
           void refreshAgents();
-          setSelectedId(id);
+          openAgent(id);
         }}
         onDelete={setDeleting}
         onOpenApps={openApps}
       />
-      <ImportAgentsModal isOpen={importOpen} onClose={() => setImportOpen(false)} />
+      <ImportAgentsModal
+        isOpen={importOpen}
+        onClose={(imported) => {
+          setImportOpen(false);
+          // The note that opened it may have gone with the import; land in the chat.
+          if (imported) setFocusAsk((n) => n + 1);
+        }}
+        onOpenAgent={(id) => {
+          setImportOpen(false);
+          openAgent(id);
+        }}
+      />
       <AgentAppsModal isOpen={appsOpen} onClose={() => setAppsOpen(false)} />
-      {claudeStep && <ClaudeSignInModal start={claudeStep} onClose={() => setClaudeStep(null)} />}
+      {engineSetup && <EngineSignInModal {...engineSetup} onClose={() => setEngineSetup(null)} />}
       {stopping && (
         <ProjectActionConfirmModal
           title={`Stop ${stopping.name}?`}

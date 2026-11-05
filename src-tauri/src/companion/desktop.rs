@@ -192,11 +192,16 @@ impl Backend for DesktopBackend {
         before: Option<&str>,
     ) -> Result<(Vec<Value>, bool), CommandError> {
         let (agent_id, before) = (agent_id.to_string(), before.map(str::to_string));
-        let (page, more) = tokio::task::spawn_blocking(move || {
-            store::messages_page(&agent_id, limit, before.as_deref())
+        // One past the page says whether older messages exist.
+        let mut page = tokio::task::spawn_blocking(move || {
+            store::messages_page(&agent_id, limit.saturating_add(1), before.as_deref(), None)
         })
         .await
         .map_err(crate::agents::err_other)??;
+        let more = page.len() > limit;
+        if more {
+            page.drain(..page.len() - limit);
+        }
         Ok((page.into_iter().map(json).collect::<Result<_, _>>()?, more))
     }
 
@@ -247,8 +252,40 @@ impl Backend for DesktopBackend {
             a.allow,
             a.always,
             a.note,
+            a.choice,
         )
         .await
+    }
+
+    async fn save_secret(
+        &self,
+        agent_id: &str,
+        request_id: &str,
+        values: Vec<String>,
+    ) -> Result<Value, CommandError> {
+        json(
+            cmd::agents_save_secret(
+                self.app.clone(),
+                agent_id.to_string(),
+                request_id.to_string(),
+                values,
+            )
+            .await?,
+        )
+    }
+
+    async fn memory(&self, agent_id: &str) -> Result<Value, CommandError> {
+        json(cmd::agents_memory(agent_id.to_string()).await?)
+    }
+
+    async fn memory_change(&self, agent_id: &str, change: Value) -> Result<Value, CommandError> {
+        let change = serde_json::from_value(change)
+            .map_err(|e| crate::agents::err_invalid("change", e.to_string()))?;
+        json(cmd::agents_memory_change(agent_id.to_string(), change).await?)
+    }
+
+    async fn memory_suggest(&self, text: String) -> Result<String, CommandError> {
+        cmd::agents_memory_suggest(text).await
     }
 
     async fn focus(&self, label: &str, agent_id: Option<String>) -> Result<(), CommandError> {
@@ -273,7 +310,9 @@ impl Backend for DesktopBackend {
             pinned: toggles.pinned,
             hidden: toggles.hidden,
             muted: toggles.muted,
+            engine: None,
             model: None,
+            routine_model: None,
             project: None,
         };
         json(cmd::agents_update(self.app.clone(), agent_id.to_string(), input).await?)
@@ -436,7 +475,7 @@ impl Backend for DesktopBackend {
         } else {
             Device::Desktop
         };
-        tools::capture_encoded(&self.app, &project, device, false)
+        tools::capture_encoded(&self.app, &project, device, false, None)
             .await
             .map(|e| e.full)
             .map_err(CommandError::expected)

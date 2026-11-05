@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { agentInitials, distinctInitials } from '../components/agents/AgentAvatar';
 import {
+  routineModelChoices,
+  routineModelOf,
+  promptAnswer,
+  type SessionPrompt,
   buildChatItems,
   describeScope,
   errorRemedy,
@@ -16,6 +20,9 @@ import {
   PROSE_PATH,
   describeCheckInTime,
   describeRepeat,
+  describeRun,
+  groupMemory,
+  undoDelete,
   formatWhen,
   splitScheduleInput,
   scheduleWhenPhrase,
@@ -25,6 +32,10 @@ import {
   groupHits,
   highlightRuns,
   modelLabel,
+  modelChoices,
+  engineIsReady,
+  engineOptions,
+  type EngineInfo,
   peerGroupLabel,
   sortAgents,
   splitQuotes,
@@ -193,6 +204,33 @@ describe('schedule helpers', () => {
     );
   });
 
+  it('says when a failed run is tried again', () => {
+    const now = new Date(2026, 10, 4, 9, 3).getTime();
+    const nextAt = new Date(2026, 10, 5, 9, 0).getTime();
+    const repeat = { kind: 'days' as const, days: [1, 2, 3, 4, 5], hour: 9, minute: 0 };
+    const retry = {
+      at: new Date(2026, 10, 4, 9, 7).getTime(),
+      attempts: 1,
+      firstFailedAt: now,
+      dueAt: now,
+    };
+    const base = { id: 'x', note: 'n', nextAt, createdAt: 0, paused: false, retry };
+    expect(describeCheckInTime({ ...base, repeat }, now)).toBe(
+      `Every weekday at ${at(9, 0)} · retrying today ${at(9, 7)}`
+    );
+    expect(describeCheckInTime(base, now)).toBe(`Didn’t run · retrying today ${at(9, 7)}`);
+    // Paused wins: nothing will run.
+    expect(describeCheckInTime({ ...base, repeat, paused: true }, now)).toMatch(/^Paused/);
+    const run = { at: now, attempt: 1 };
+    expect(describeRun({ ...run, outcome: 'ran' })).toBe('Ran');
+    expect(describeRun({ ...run, outcome: 'ran', attempt: 3 })).toBe('Ran on try 3');
+    expect(describeRun({ ...run, outcome: 'retrying', retryAt: retry.at }, now)).toBe(
+      `Didn’t run · retrying today ${at(9, 7)}`
+    );
+    expect(describeRun({ ...run, outcome: 'failed', attempt: 8 })).toBe('Didn’t run after 8 tries');
+    expect(describeRun({ ...run, outcome: 'unknown' })).toBe('Unknown');
+  });
+
   it('names today and tomorrow, and dates further out', () => {
     const now = new Date(2026, 10, 4, 15, 0).getTime();
     expect(formatWhen(new Date(2026, 10, 4, 18, 0).getTime(), now)).toMatch(/^Today /);
@@ -268,6 +306,31 @@ describe('formatUsage', () => {
     expect(modelLabel('opus')).toBe('Opus');
     expect(modelLabel('claude-x')).toBe('claude-x');
   });
+
+  it('offers each engine its own models and only engines that can run', () => {
+    const engines: EngineInfo[] = [
+      { id: 'claude', label: 'Claude Code', installed: true, signedIn: true, models: [] },
+      {
+        id: 'codex',
+        label: 'Codex',
+        installed: true,
+        signedIn: false,
+        models: [{ value: 'gpt-5.5', label: 'GPT-5.5' }],
+      },
+    ];
+    expect(modelChoices('claude', engines).map((m) => m.label)).toEqual([
+      'Default',
+      'Opus',
+      'Sonnet',
+      'Haiku',
+    ]);
+    expect(modelChoices('codex', engines).map((m) => m.value)).toEqual(['', 'gpt-5.5']);
+    expect(modelLabel('gpt-5.5', modelChoices('codex', engines))).toBe('GPT-5.5');
+    expect(engineIsReady('codex', engines, true)).toBe(false);
+    expect(engineIsReady('claude', engines, true)).toBe(true);
+    expect(engineOptions(engines, 'claude').map((e) => e.id)).toEqual(['claude']);
+    expect(engineOptions(engines, 'codex').map((e) => e.id)).toEqual(['claude', 'codex']);
+  });
 });
 
 describe('distinctInitials', () => {
@@ -340,6 +403,14 @@ describe('failure lines', () => {
   it('a retry note keeps the ask and fits a check-in', () => {
     expect(retryNote('Send the invoices')).toContain('“Send the invoices”');
     expect(retryNote('x'.repeat(2000)).length).toBeLessThanOrEqual(600);
+    const files = ['/home/a/report.pdf', '/home/a/shot.png'];
+    expect(retryNote('Send the invoices', files)).toContain(
+      'Files I attached: /home/a/report.pdf, /home/a/shot.png'
+    );
+    const many = Array.from({ length: 40 }, (_, i) => `/Users/me/agents/finance/files/${i}.pdf`);
+    const note = retryNote('x'.repeat(2000), many);
+    expect(note.length).toBeLessThanOrEqual(600);
+    expect(note).toMatch(/and \d+ more$/);
   });
   it('schedules a retry in whole minutes, never in the past', () => {
     expect(whenAt(10 * 60_000 + 1, 0)).toBe('in 11 minutes');
@@ -551,5 +622,86 @@ describe('scheduleWhenPhrase', () => {
     expect(at({ kind: 'every', minutes: 45 })).toBe('every 45 minutes');
     const once = new Date(2026, 10, 20, 9, 5).getTime();
     expect(scheduleWhenPhrase({ nextAt: once })).toBe('2026-11-20 09:05');
+  });
+});
+
+describe('promptAnswer', () => {
+  const prompt: SessionPrompt = {
+    kind: 'permission',
+    project: '/p/demo-site',
+    sessionId: 's1',
+    tab: 1,
+    question: 'Do you want to make this edit to index.html?',
+    options: [
+      { label: 'Yes', keys: ['1'], role: 'allow' },
+      { label: 'Yes, allow all edits during this session', keys: ['2'], role: 'other' },
+      { label: 'No', keys: ['3'], role: 'deny' },
+    ],
+    owner: { id: 'site', name: 'Site Builder' },
+    chats: ['site', 'chief'],
+  };
+  it('resolves Allow, Deny and a specific choice the way the backend does', () => {
+    expect(promptAnswer(prompt, true)).toEqual({ status: 'allowed', choice: 'Yes' });
+    expect(promptAnswer(prompt, false)).toEqual({ status: 'denied', choice: 'No' });
+    expect(promptAnswer(prompt, true, 1).choice).toBe('Yes, allow all edits during this session');
+    expect(promptAnswer({ ...prompt, options: [] }, false)).toEqual({
+      status: 'denied',
+      choice: 'Cancelled',
+    });
+  });
+});
+
+describe('memory', () => {
+  const entries = [
+    { text: 'Accountant is Sam' },
+    { text: 'Prefers EUR' },
+    { text: 'Lives in Lisbon', group: 'Imported from Grok Bot' },
+    { text: 'Mornings for focus', group: 'Imported from Grok Bot' },
+  ];
+
+  it('groups the agent’s own memory first, then each heading', () => {
+    const groups = groupMemory(entries);
+    expect(groups.map((g) => g.title)).toEqual([null, 'Imported from Grok Bot']);
+    expect(groups[1].items.map((i) => i.index)).toEqual([2, 3]);
+    // Nothing of its own yet: the group is still there to add to.
+    expect(groupMemory(entries.slice(2))[0]).toEqual({ title: null, items: [] });
+  });
+
+  it('undoes a delete next to its neighbours in the same group', () => {
+    expect(undoDelete(entries, 1, '- Prefers EUR\n')).toEqual({
+      op: 'add',
+      text: 'Prefers EUR',
+      group: undefined,
+      after: 'Accountant is Sam',
+      before: undefined,
+      raw: '- Prefers EUR\n',
+    });
+    expect(undoDelete(entries, 2, undefined)).toMatchObject({
+      group: 'Imported from Grok Bot',
+      after: undefined,
+      before: 'Mornings for focus',
+    });
+  });
+});
+
+describe('routine models', () => {
+  const codexModels = [
+    { value: '', label: 'Default' },
+    { value: 'gpt-a', label: 'GPT-A' },
+  ];
+  it('falls back to Haiku only on Claude Code', () => {
+    expect(routineModelOf({ engine: 'claude', model: null })).toBe('haiku');
+    expect(routineModelOf({ engine: 'codex', model: null })).toBeNull();
+    expect(routineModelOf({ engine: 'codex', model: 'gpt-a' })).toBe('gpt-a');
+    expect(routineModelOf({ engine: 'codex', model: 'gpt-a', routineModel: 'gpt-b' })).toBe(
+      'gpt-b'
+    );
+  });
+  it("offers a Codex agent its engine's models, never Haiku", () => {
+    const values = routineModelChoices('codex', codexModels).map((m) => m.value);
+    expect(values).toEqual(['', 'gpt-a']);
+    expect(routineModelChoices('claude', [{ value: '', label: 'Default' }])[0].label).toBe(
+      'Automatic'
+    );
   });
 });

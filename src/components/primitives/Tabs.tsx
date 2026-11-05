@@ -44,6 +44,12 @@ export interface TabsProps {
   size?: ButtonSize;
   /** Panel tabs link to a TabsPanel; navigation tabs intentionally omit aria-controls. */
   mode?: TabsMode;
+  /**
+   * `automatic` selects a tab as arrow keys reach it; `manual` only moves
+   * focus, and Enter or Space selects. Manual suits tabs whose selection is
+   * expensive or disorienting, such as switching the whole app's view.
+   */
+  activation?: 'automatic' | 'manual';
   children: ReactNode;
   className?: string;
 }
@@ -55,6 +61,7 @@ export function Tabs({
   onValueChange,
   size = 'compact',
   mode = 'panel',
+  activation = 'automatic',
   children,
   className,
 }: TabsProps) {
@@ -87,10 +94,10 @@ export function Tabs({
 
   const focusValue = useCallback(
     (next: TabValue) => {
-      select(next);
+      if (activation === 'automatic') select(next);
       tabsRef.current.get(next)?.element.focus();
     },
-    [select]
+    [select, activation]
   );
 
   const moveFocus = useCallback(

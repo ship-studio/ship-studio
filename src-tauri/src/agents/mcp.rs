@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
+use super::engine::Engine;
 use super::files;
 use super::permissions;
 use super::runner::{self, From, Status};
@@ -31,9 +32,9 @@ use crate::errors::CommandError;
 pub const APPROVAL_WAIT_SECS: u64 = 240;
 
 /// The wait, shortened in debug builds by `SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS`
-/// so the end-to-end suite (examples/agents_e2e.rs) can reach the late-Allow
+/// so the end-to-end suite (examples/agents_e2e/main.rs) can reach the late-Allow
 /// path without sitting out four minutes.
-fn approval_wait() -> Duration {
+pub(super) fn approval_wait() -> Duration {
     let override_secs = cfg!(debug_assertions)
         .then(|| std::env::var("SHIPSTUDIO_AGENTS_APPROVAL_WAIT_SECS").ok())
         .flatten()
@@ -81,6 +82,23 @@ pub(super) enum Answer {
 static PENDING_APPROVALS: LazyLock<Mutex<HashMap<String, oneshot::Sender<bool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Wait for the answer to a card someone else put up (`decisions.rs`).
+pub(super) fn register_waiter(request_id: &str) -> oneshot::Receiver<bool> {
+    let (tx, rx) = oneshot::channel();
+    PENDING_APPROVALS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(request_id.to_string(), tx);
+    rx
+}
+
+pub(super) fn drop_waiter(request_id: &str) {
+    PENDING_APPROVALS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(request_id);
+}
+
 pub fn answer_approval(request_id: &str, allow: bool) -> bool {
     let sender = PENDING_APPROVALS
         .lock()
@@ -116,7 +134,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "message_agent",
-        description: "Send a message to another agent. Asynchronous: it returns once delivered; the agent works in its own conversation and messages you back if it needs to. Write it as a complete brief: they don't see your conversation with the user.",
+        description: "Hand another agent work, or answer one. Asynchronous: it returns once delivered; they work in their own conversation and their answer comes back to you as a new message. Brief them in a few lines: they don't see your conversation with the user.",
         main_only: false,
         schema: || json!({
             "type": "object",
@@ -139,6 +157,7 @@ const TOOLS: &[Tool] = &[
                 "instructions": { "type": "string", "description": "A briefing, as if for a new hire: context, standing rules, who's who, where things live." },
                 "color": { "type": "string", "enum": store::COLORS },
                 "project": { "type": "string", "description": "Optional: bind it to one Ship Studio project (name or path from project_list), so its own turns run inside that project. Usually unnecessary: any agent can work on any project through sessions." },
+                "engine": { "type": "string", "enum": ["claude", "codex"], "description": "Optional: what it runs on. `claude` (Claude Code, the default) or `codex` (Codex, on the user's ChatGPT plan). Only when the user asks for it; it must be installed and signed in." },
                 "first_task": { "type": "string", "description": "Optional message to start it on right away." }
             },
             "required": ["name", "role", "instructions"]
@@ -146,7 +165,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "update_agent",
-        description: "Change an agent's name, role, instructions or project. Instructions replace the old ones; its memory is kept. `project` takes a name or path from project_list, or \"none\" to unbind it.",
+        description: "Change an agent's name, role, instructions, project or engine. Instructions replace the old ones; its memory is kept. `project` takes a name or path from project_list, or \"none\" to unbind it. `engine` (`claude` or `codex`) switches what it runs on from its next turn: a new session, handed the recent conversation.",
         main_only: true,
         schema: || json!({
             "type": "object",
@@ -155,7 +174,8 @@ const TOOLS: &[Tool] = &[
                 "name": { "type": "string" },
                 "role": { "type": "string" },
                 "instructions": { "type": "string" },
-                "project": { "type": "string" }
+                "project": { "type": "string" },
+                "engine": { "type": "string", "enum": ["claude", "codex"] }
             },
             "required": ["agent"]
         }),
@@ -222,6 +242,21 @@ const TOOLS: &[Tool] = &[
         }),
     },
     Tool {
+        name: "request_secret",
+        description: "Ask the user for a password, API key, token or login through a secure card in this chat. They type it into a masked field; it goes into the macOS Keychain for you alone, and you get an environment variable and a reference, never the value. Always use this for credentials: never ask the user to paste one in chat. It returns at once: stop and tell the user in one line what it's for; you'll be woken when they save or decline it.",
+        main_only: false,
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Short snake_case name, e.g. stripe_key. It becomes the variable: $STRIPE_KEY." },
+                "purpose": { "type": "string", "description": "What you'll use it for, in one line. Shown to the user on the card." },
+                "kind": { "type": "string", "enum": ["password", "api_key", "token", "other"] },
+                "fields": { "type": "array", "items": { "type": "string" }, "description": "Optional: labels for a login with several parts, e.g. [\"Username\", \"Password\"]. Each becomes $NAME_USERNAME, $NAME_PASSWORD." }
+            },
+            "required": ["name", "purpose", "kind"]
+        }),
+    },
+    Tool {
         name: "approve",
         description: "Internal: Claude Code asks this before a tool call that needs the user's permission.",
         main_only: false,
@@ -250,6 +285,16 @@ pub fn initialize_result(params: Option<&Value>) -> Value {
     })
 }
 
+/// The names of the tools this caller is served, as `tools/list` gives them.
+pub(super) fn tool_names(caller: &store::Agent) -> Vec<String> {
+    tools_list(caller)["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str().map(String::from))
+        .collect()
+}
+
 fn tools_list(caller: &store::Agent) -> Value {
     let mut tools: Vec<Value> = TOOLS
         .iter()
@@ -261,7 +306,14 @@ fn tools_list(caller: &store::Agent) -> Value {
     json!({ "tools": tools })
 }
 
-pub async fn handle_rpc(app: &AppHandle, agent_id: &str, message: &Value) -> Value {
+/// `turn` is the id on the caller's URL (`broker::open_turn`); only the
+/// approval broker needs it.
+pub async fn handle_rpc(
+    app: &AppHandle,
+    agent_id: &str,
+    turn: Option<u64>,
+    message: &Value,
+) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     let params = message.get("params");
@@ -296,6 +348,9 @@ pub async fn handle_rpc(app: &AppHandle, agent_id: &str, message: &Value) -> Val
                     "Only the Chief of Staff can do that. Ask it with message_agent.",
                 ));
             }
+            if name == "approve" {
+                return ok(approve(app, &caller, turn, &args).await);
+            }
             ok(call(app, &caller, name, &args).await)
         }
         _ => fail(-32601, &format!("Method not found: {method}")),
@@ -320,7 +375,7 @@ async fn call(app: &AppHandle, caller: &store::Agent, name: &str, args: &Value) 
         "schedule_check_in" | "list_check_ins" | "cancel_check_in" => {
             check_ins(app, caller, name, args)
         }
-        "approve" => approve(app, caller, args).await,
+        "request_secret" => request_secret(app, caller, args),
         _ => error("Unknown tool"),
     }
 }
@@ -425,12 +480,18 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
     if hop > runner::MAX_HOPS {
         return error("Not sent: this chain of agent-to-agent messages is too long. Tell the user where things stand instead.");
     }
+    // Answering a request the target sent: settles it (see runner::settle).
+    let answer = runner::settle(&caller.id, &target.id);
     let mut sent = runner::new_message(&caller.id, MessageKind::SentToAgent, body);
     sent.peer = Some(peer(&target));
     let _ = runner::record(app, sent);
     let mut received = runner::new_message(&target.id, MessageKind::FromAgent, body);
     received.peer = Some(peer(caller));
     let _ = runner::record(app, received);
+    if answer {
+        runner::enqueue_reply(app, &target.id, body.to_string(), peer(caller), hop);
+        return text(format!("Delivered to {}.", target.name));
+    }
     runner::enqueue(
         app,
         &target.id,
@@ -441,7 +502,7 @@ fn message_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value 
         },
     );
     text(format!(
-        "Delivered to {}. They'll message you back if they need to; don't wait on it.",
+        "Delivered to {}. Their answer comes back to you as a new message when they're done; don't wait for it.",
         target.name
     ))
 }
@@ -584,6 +645,14 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         },
         None => None,
     };
+    let engine = match arg(args, "engine").map(Engine::parse) {
+        Some(Ok(engine)) => match super::engine::require_ready(engine).await {
+            Ok(()) => Some(engine),
+            Err(e) => return error(e.to_string()),
+        },
+        Some(Err(e)) => return error(e.to_string()),
+        None => None,
+    };
     let created = store::create(store::NewAgent {
         name: name.to_string(),
         role: arg(args, "role").unwrap_or("").to_string(),
@@ -592,9 +661,12 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         color: arg(args, "color").map(str::to_string),
         is_main: false,
     });
-    let created = created.and_then(|agent| match &project {
-        Some(p) => store::update(&agent.id, |a| a.project = Some(p.path.clone())),
-        None => Ok(agent),
+    let created = created.and_then(|agent| match (&project, engine) {
+        (None, None) => Ok(agent),
+        _ => store::update(&agent.id, |a| {
+            a.project = project.as_ref().map(|p| p.path.clone());
+            a.engine = engine.unwrap_or_default();
+        }),
     });
     match created {
         Ok(agent) => {
@@ -619,7 +691,8 @@ async fn create_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
                         hop: 1,
                     },
                 );
-                started = " and started it on its first task".to_string();
+                started =
+                    " and started it on its first task; its answer comes back to you".to_string();
             }
             text(format!(
                 "Created {}{started}. It's in the user's sidebar now.",
@@ -655,6 +728,16 @@ async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         },
         None => None,
     };
+    let engine = match arg(args, "engine").map(Engine::parse) {
+        Some(Ok(engine)) if engine != agent.engine => {
+            match super::engine::require_ready(engine).await {
+                Ok(()) => Some(engine),
+                Err(e) => return error(e.to_string()),
+            }
+        }
+        Some(Err(e)) => return error(e.to_string()),
+        _ => None,
+    };
     let role = arg(args, "role").map(str::to_string);
     let mut fields = Vec::new();
     if role.as_deref().is_some_and(|r| r != agent.role) {
@@ -666,6 +749,9 @@ async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
     if project.as_ref().is_some_and(|p| *p != agent.project) {
         fields.push("project");
     }
+    if engine.is_some() {
+        fields.push("engine");
+    }
     let updated = store::update(&agent.id, |a| {
         if let Some(n) = new_name {
             a.name = n;
@@ -675,6 +761,9 @@ async fn update_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         }
         if let Some(p) = project {
             a.project = p;
+        }
+        if let Some(engine) = engine {
+            a.switch_engine(engine);
         }
     });
     let updated = match updated {
@@ -716,8 +805,8 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         None,
     )
     .await;
-    if answer != Answer::Allowed {
-        return error("The user said no. Don't delete it.");
+    if let Some(refused) = refused_reply(&answer, "delete it") {
+        return error(refused);
     }
     runner::stop(&agent.id);
     match store::delete(&agent.id) {
@@ -730,6 +819,59 @@ async fn delete_agent(app: &AppHandle, caller: &store::Agent, args: &Value) -> V
         }
         Err(e) => error(e.to_string()),
     }
+}
+
+/// A secure input card. Nothing waits on it: saving or declining wakes the
+/// agent (see `commands::agents::agents_save_secret`), so a card answered
+/// tomorrow works as well as one answered now.
+fn request_secret(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
+    let labels: Vec<String> = args
+        .get("fields")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let request = match super::secrets::build_request(
+        caller,
+        arg(args, "name").unwrap_or(""),
+        arg(args, "purpose").unwrap_or(""),
+        arg(args, "kind").unwrap_or(""),
+        &labels,
+    ) {
+        Ok(r) => r,
+        Err(e) => return error(e.to_string()),
+    };
+    let open = store::pending_approvals(&caller.id).unwrap_or_default();
+    if open
+        .iter()
+        .any(|a| a.secret.as_ref().is_some_and(|s| s.name == request.name))
+    {
+        return text(format!(
+            "You already asked for {}; the card is still waiting in this chat. Stop here.",
+            request.name
+        ));
+    }
+    let mut approval = new_card(
+        store::new_id(),
+        format!("Secure input · {}", request.name),
+        request.purpose.clone(),
+        None,
+    );
+    let reply = super::secrets::asked_reply(&request);
+    approval.secret = Some(request);
+    let mut card = runner::new_message(&caller.id, MessageKind::Approval, "");
+    card.approval = Some(approval);
+    if let Err(e) = runner::record(app, card) {
+        return error(e.to_string());
+    }
+    store::refresh_pending(&caller.id);
+    super::notify::refresh_badge(app);
+    let _ = tauri::Emitter::emit(app, runner::EVENT_REGISTRY, ());
+    text(reply)
 }
 
 /// Put an Allow / Deny card in the caller's chat and wait for the answer.
@@ -766,17 +908,17 @@ pub(super) async fn ask_user(
         },
     );
 
-    let answer = match tokio::time::timeout(approval_wait(), rx).await {
-        Ok(Ok(true)) => Answer::Allowed,
-        // The command wrote the decision (and any note) before waking us.
-        Ok(Ok(false)) => Answer::Denied(
-            store::find_approval(&caller.id, &request_id)
-                .ok()
-                .flatten()
-                .and_then(|a| a.note),
-        ),
-        _ => Answer::NotYet,
-    };
+    let waited = tokio::time::timeout(approval_wait(), rx)
+        .await
+        .ok()
+        .map(Result::ok);
+    // The command wrote the decision (and any note) before waking us.
+    let answer = read_wait(waited, || {
+        store::find_approval(&caller.id, &request_id)
+            .ok()
+            .flatten()
+            .and_then(|a| a.note)
+    });
     PENDING_APPROVALS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -809,6 +951,34 @@ pub(super) async fn ask_user(
     answer
 }
 
+/// What a wait on a card came to: `None` when the wait ran out, `Some(None)`
+/// when nobody will answer it any more. Neither is the user's answer.
+pub(super) fn read_wait(
+    waited: Option<Option<bool>>,
+    note: impl FnOnce() -> Option<String>,
+) -> Answer {
+    match waited {
+        Some(Some(true)) => Answer::Allowed,
+        Some(Some(false)) => Answer::Denied(note()),
+        Some(None) | None => Answer::NotYet,
+    }
+}
+
+/// The tool's reply when a confirmation didn't come back as Allow: the
+/// user's No, or (never dressed up as a No) a card that expired unanswered.
+pub(super) fn refused_reply(answer: &Answer, what: &str) -> Option<String> {
+    match answer {
+        Answer::Allowed => None,
+        Answer::Denied(None) => Some(format!("The user said no. Don't {what}.")),
+        Answer::Denied(Some(note)) => Some(format!(
+            "The user said no, and told you: \"{note}\". Don't {what}."
+        )),
+        Answer::NotYet => Some(format!(
+            "The user didn't answer in time, so the request expired; nothing was done. Don't {what} now. Tell them in one line, and ask again when they're back."
+        )),
+    }
+}
+
 /// The card for a request. Only a Claude Code tool call can be always
 /// allowed: Ship Studio's own confirmations (delete an agent) never offer it.
 pub(super) fn new_card(
@@ -827,6 +997,9 @@ pub(super) fn new_card(
         always: call.and_then(|(tool, input)| permissions::suggest(tool, input)),
         always_allowed: false,
         note: None,
+        prompt: None,
+        choice: None,
+        secret: None,
     }
 }
 
@@ -847,6 +1020,7 @@ pub fn always_allow(
                 id: store::new_id(),
                 scope: scope.clone(),
                 created_at: store::now_ms(),
+                extra: Default::default(),
             });
         }
     })?;
@@ -1014,40 +1188,80 @@ fn capitalize(word: &str) -> String {
         .unwrap_or_default()
 }
 
-async fn approve(app: &AppHandle, caller: &store::Agent, args: &Value) -> Value {
-    let tool = args
-        .get("tool_name")
-        .and_then(Value::as_str)
-        .unwrap_or("a tool");
-    let input = args.get("input").cloned().unwrap_or_else(|| json!({}));
-    let allow = json!({ "behavior": "allow", "updatedInput": input });
-    if take_grant(&caller.id, tool, &input) {
-        return text(allow.to_string());
+/// What became of a tool call that needed the user's OK.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Decision {
+    Allow,
+    /// Refused, with what to tell the agent.
+    Deny(String),
+}
+
+/// Decide a tool call the engine wants the user's OK for: a one-time grant
+/// from a late Allow, a standing "Always allow" rule, or else a card. Shared
+/// by Claude Code's permission prompt tool and Codex's approval requests.
+/// `why` is the engine's own reason, when it gave one, shown on the card.
+pub(super) async fn decide(
+    app: &AppHandle,
+    caller: &store::Agent,
+    tool: &str,
+    input: &Value,
+    why: Option<&str>,
+) -> Decision {
+    if take_grant(&caller.id, tool, input) {
+        return Decision::Allow;
     }
-    if permissions::matching(&caller.permissions, tool, &input).is_some() {
+    if permissions::matching(&caller.permissions, tool, input).is_some() {
         // Nothing happens invisibly: each one leaves a quiet line in the chat.
         let line = format!(
             "Allowed automatically: {} · Always allowed",
-            one_line(tool, &input)
+            one_line(tool, input)
         );
         let _ = runner::record(
             app,
             runner::new_message(&caller.id, MessageKind::Note, line),
         );
-        return text(allow.to_string());
+        return Decision::Allow;
     }
-    let (title, detail) = describe_request(tool, &input);
-    let answer = match ask_user(app, caller, title, detail, Some((tool, &input))).await {
-        Answer::Allowed => allow,
-        Answer::Denied(None) => {
-            json!({ "behavior": "deny", "message": "The user said no to this. Don't retry it; tell them what you were trying to do, or find another way." })
-        }
-        Answer::Denied(Some(note)) => {
-            json!({ "behavior": "deny", "message": format!("The user said no to this, and told you: \"{note}\". Don't retry it; do what they said instead.") })
-        }
-        Answer::NotYet => {
-            json!({ "behavior": "deny", "message": "The user hasn't answered yet; they may be away. Don't retry and don't work around it. Stop here and tell them in one short line what you need approved and why. The request stays in their chat: if they allow it later, you'll be woken up to finish, and that exact call will go through." })
-        }
+    let (title, mut detail) = describe_request(tool, input);
+    if let Some(why) = why.map(str::trim).filter(|w| !w.is_empty()) {
+        detail = format!("{detail}\n\n{why}");
+    }
+    match ask_user(app, caller, title, detail, Some((tool, input))).await {
+        Answer::Allowed => Decision::Allow,
+        Answer::Denied(note) => Decision::Deny(denied(note)),
+        Answer::NotYet => Decision::Deny(NOT_YET.to_string()),
+    }
+}
+
+/// What the agent is told when the user said no.
+pub(super) fn denied(note: Option<String>) -> String {
+    match note {
+        None => "The user said no to this. Don't retry it; tell them what you were trying to do, or find another way.".to_string(),
+        Some(note) => format!("The user said no to this, and told you: \"{note}\". Don't retry it; do what they said instead."),
+    }
+}
+
+/// What the agent is told when the card is still waiting.
+pub(super) const NOT_YET: &str = "The user hasn't answered yet; they may be away. Don't retry and don't work around it. Stop here and tell them in one short line what you need approved and why. The request stays in their chat: if they allow it later, you'll be woken up to finish, and that exact call will go through.";
+
+async fn approve(app: &AppHandle, caller: &store::Agent, turn: Option<u64>, args: &Value) -> Value {
+    let tool = args
+        .get("tool_name")
+        .and_then(Value::as_str)
+        .unwrap_or("a tool");
+    let input = args.get("input").cloned().unwrap_or_else(|| json!({}));
+    let request_id = args.get("tool_use_id").and_then(Value::as_str);
+    // Fail closed before anything else: no card for a turn that isn't running.
+    let admission = super::broker::admit(&caller.id, turn, request_id);
+    if admission != super::broker::Admission::Live {
+        tracing::warn!(agent = %caller.id, ?turn, ?request_id, ?admission, "[Agents] approval request refused without asking");
+        return text(
+            json!({ "behavior": "deny", "message": super::broker::refusal(admission) }).to_string(),
+        );
+    }
+    let answer = match decide(app, caller, tool, &input, None).await {
+        Decision::Allow => json!({ "behavior": "allow", "updatedInput": input }),
+        Decision::Deny(message) => json!({ "behavior": "deny", "message": message }),
     };
     text(answer.to_string())
 }
@@ -1235,7 +1449,10 @@ mod tests {
             preview: None,
             unread: 0,
             pending_approvals: 0,
+            engine: Default::default(),
             model: None,
+            new_engine: false,
+            routine_model: None,
             muted: false,
             check_ins: Vec::new(),
             usage: Default::default(),
@@ -1243,6 +1460,8 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
+            extra: Default::default(),
         };
         let names: Vec<String> = tools_list(&agent)["tools"]
             .as_array()

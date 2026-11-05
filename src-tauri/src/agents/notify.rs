@@ -107,6 +107,14 @@ impl Coalescer {
         self.held.remove(agent_id)
     }
 
+    /// Replace what the turn will say when it ends, or say nothing.
+    pub fn set(&mut self, agent_id: &str, alert: Option<Alert>) {
+        match alert {
+            Some(alert) => self.held.insert(agent_id.to_string(), alert),
+            None => self.held.remove(agent_id),
+        };
+    }
+
     /// The user looked: nothing held for this agent is news any more.
     pub fn seen(&mut self, agent_id: &str) {
         self.held.remove(agent_id);
@@ -144,6 +152,25 @@ fn showing_in(window: &str) -> Option<String> {
         .cloned()
 }
 
+/// The chat the user is in: the agent a focused window shows, else the one
+/// any window shows (the app may be in the background while they read it).
+/// A phone's chat doesn't count: this is the desk's chat.
+pub fn chat_in_view(app: &AppHandle) -> Option<String> {
+    let showing: Vec<(String, String)> = SHOWING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|(w, _)| !w.starts_with("companion:"))
+        .map(|(w, a)| (w.clone(), a.clone()))
+        .collect();
+    let focused = showing.iter().find(|(label, _)| {
+        app.get_webview_window(label)
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false)
+    });
+    focused.or(showing.first()).map(|(_, id)| id.clone())
+}
+
 /// Whether a focused window (or a phone in the foreground) shows this agent right now.
 pub fn on_screen(app: &AppHandle, agent_id: &str) -> bool {
     let windows: Vec<String> = SHOWING
@@ -179,6 +206,20 @@ pub fn message_recorded(app: &AppHandle, agent: &Agent, message: &AgentMessage, 
         };
         post(app, &alert, kind);
     }
+}
+
+/// What a turn's notification says, decided by someone who knows more than
+/// its last line: a scheduled run that failed and will be tried again
+/// (`agents::runs`). `None` posts nothing for the turn. Still subject to
+/// mute and to the user looking at that chat.
+pub fn replace_held(agent_id: &str, body: Option<String>) {
+    let alert = body.map(|body| Alert {
+        agent_id: agent_id.to_string(),
+        title: store::get(agent_id).map(|a| a.name).unwrap_or_default(),
+        body,
+        sound: false,
+    });
+    pending().set(agent_id, alert);
 }
 
 /// Called when a turn finishes: post what it held, unless the user is now
@@ -235,16 +276,28 @@ pub fn init(app: &AppHandle) {
         else {
             return;
         };
-        let windows = handle.webview_windows();
-        let Some(window) = windows.get("main").or_else(|| windows.values().next()) else {
-            return;
-        };
-        let _ = window.unminimize();
-        let _ = window.show();
-        crate::commands::window::forget_hidden_window(window.label());
-        let _ = window.set_focus();
-        let _ = handle.emit_to(window.label(), EVENT_OPEN, agent_id);
+        open_agent(&handle, &agent_id);
     });
+}
+
+/// Bring a window forward and open that agent's chat in it: a notification
+/// click, a menu-bar row, quick entry's "Open chat".
+pub fn open_agent(app: &AppHandle, agent_id: &str) {
+    let windows = app.webview_windows();
+    let Some(window) = windows.get("main").or_else(|| {
+        windows
+            .values()
+            .find(|w| w.label() != super::quick_entry::LABEL)
+    }) else {
+        return;
+    };
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
+    let _ = window.unminimize();
+    let _ = window.show();
+    crate::commands::window::forget_hidden_window(window.label());
+    let _ = window.set_focus();
+    let _ = app.emit_to(window.label(), EVENT_OPEN, agent_id);
 }
 
 /// A window came forward: the agent it shows has now been read.
@@ -302,7 +355,10 @@ mod tests {
             preview: None,
             unread: 0,
             pending_approvals: 0,
+            engine: Default::default(),
             model: None,
+            new_engine: false,
+            routine_model: None,
             muted,
             check_ins: Vec::new(),
             usage: Default::default(),
@@ -310,6 +366,8 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
+            extra: Default::default(),
         }
     }
 
@@ -325,6 +383,9 @@ mod tests {
             always: None,
             always_allowed: false,
             note: None,
+            prompt: None,
+            choice: None,
+            secret: None,
         });
         message
     }

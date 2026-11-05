@@ -5,7 +5,17 @@
  * @module components/agents/AgentChatItems
  */
 
-import { useCallback, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { Marked, type Token, type Tokens, type TokensList } from 'marked';
 import DOMPurify from 'dompurify';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -14,23 +24,29 @@ import {
   ChevronRightIcon,
   CopyIcon,
   HistoryIcon,
+  PinIcon,
   WarningIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
 import { TextField } from '../primitives/TextField';
+import { Tooltip } from '../primitives/Tooltip';
 import { ComposerAttachments, MessageAttachments } from './AgentAttachments';
 import type { DraftAttachment } from './useComposerAttachments';
 import { MentionText } from './AgentMentions';
 import { AgentPeerStatus } from './AgentPeerStatus';
+import { SecretCard } from './AgentSecretCard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useHeightReveal } from './useAgentMotion';
+import { useCardGuard } from './useCardGuard';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import {
   describeScope,
+  ENGINE_LABEL,
   errorRemedy,
+  folderName,
   formatClock,
   formatDivider,
   formatExactTime,
@@ -42,9 +58,11 @@ import {
   PROSE_PATH,
   splitQuotes,
   type Agent,
+  type AgentEngine,
   type AgentMessage,
   type AgentRef,
   type Approval,
+  type SessionPrompt,
 } from '../../lib/agents';
 
 /**
@@ -180,7 +198,16 @@ function CodeBlock({ text }: { text: string }) {
  * Copy isn't a Tab stop (a long chat would put dozens between you and the
  * composer): a clicked message takes focus, and ⌘C copies it (`copyOnKey`).
  */
-function MessageActions({ text, ts }: { text: string; ts: number }) {
+function MessageActions({
+  text,
+  ts,
+  onRemember,
+}: {
+  text: string;
+  ts: number;
+  /** "Remember this": offered on messages with words in them. */
+  onRemember?: () => void;
+}) {
   const { copy, isCopied } = useCopyToClipboard();
   return (
     <div className="agent-message__actions">
@@ -193,6 +220,17 @@ function MessageActions({ text, ts }: { text: string; ts: number }) {
           onClick={() => void copy(text)}
           aria-label={isCopied ? 'Copied' : 'Copy message'}
           title={isCopied ? 'Copied' : 'Copy'}
+        />
+      )}
+      {text && onRemember && (
+        <IconButton
+          tabIndex={-1}
+          variant="ghost"
+          size="compact"
+          icon={<PinIcon size={12} />}
+          onClick={onRemember}
+          aria-label="Remember this"
+          title="Remember this"
         />
       )}
       <time
@@ -227,6 +265,8 @@ interface AgentBubbleProps extends Arrival {
   agent: Agent;
   /** Still being written: the text grows in place and a caret marks its end. */
   streaming?: boolean;
+  /** "Remember this", with this message. */
+  onRemember?: (message: AgentMessage) => void;
 }
 
 /** Markdown prose with code blocks, shared by replies and agent-to-agent threads. */
@@ -250,10 +290,22 @@ function Prose({ text }: { text: string }) {
 }
 
 /** A reply in prose, and any files the agent shared with it (`share_file`). */
-export function AgentBubble({ message, agent, arrived, streaming }: AgentBubbleProps) {
+export const AgentBubble = memo(function AgentBubble({
+  message,
+  agent,
+  arrived,
+  streaming,
+  onRemember,
+}: AgentBubbleProps) {
   const onClick = useProseLinks(agent.id);
   const attachments = message.attachments ?? [];
-  const actions = !streaming && <MessageActions text={message.text} ts={message.ts} />;
+  const actions = !streaming && (
+    <MessageActions
+      text={message.text}
+      ts={message.ts}
+      onRemember={onRemember && (() => onRemember(message))}
+    />
+  );
   const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
@@ -286,7 +338,7 @@ export function AgentBubble({ message, agent, arrived, streaming }: AgentBubbleP
       )}
     </div>
   );
-}
+});
 
 interface UserBubbleProps extends Arrival {
   message: AgentMessage;
@@ -294,20 +346,24 @@ interface UserBubbleProps extends Arrival {
   agent: Agent;
   /** Sending failed; offer to try again. */
   failed?: boolean;
-  onRetry?: () => void;
+  /** Called with this message's id. */
+  onRetry?: (id: string) => void;
   /** An agent's colour, for tinting the names you @mentioned. */
   colorOf: (agentId: string) => string | undefined;
   /**
    * The newest message waiting for the turn in progress to end. It says so,
    * and offers to interrupt that turn to send it now.
    */
-  queued?: { onInterrupt: () => void };
+  queued?: boolean;
+  onInterrupt?: () => void;
   /** Still copying its files in: the files as staged, shown while it sends. */
   sending?: DraftAttachment[];
+  /** "Remember this", with this message. */
+  onRemember?: (message: AgentMessage) => void;
 }
 
 /** Attachments sit above the words, both against the right edge, as one message. */
-export function UserBubble({
+export const UserBubble = memo(function UserBubble({
   message,
   agent,
   arrived,
@@ -315,10 +371,18 @@ export function UserBubble({
   onRetry,
   colorOf,
   queued,
+  onInterrupt,
   sending,
+  onRemember,
 }: UserBubbleProps) {
   const attachments = message.attachments ?? [];
-  const actions = !failed && !sending && <MessageActions text={message.text} ts={message.ts} />;
+  const actions = !failed && !sending && (
+    <MessageActions
+      text={message.text}
+      ts={message.ts}
+      onRemember={onRemember && (() => onRemember(message))}
+    />
+  );
   const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
@@ -372,8 +436,7 @@ export function UserBubble({
           <span aria-hidden>·</span>
           <TextButton
             tabIndex={0}
-            variant="accent"
-            onClick={queued.onInterrupt}
+            onClick={onInterrupt}
             title="Stop what it’s doing and send this now (⌘↵ when sending)"
           >
             Interrupt and send now
@@ -384,24 +447,26 @@ export function UserBubble({
         <div className="agent-chat__failed" role="alert">
           <WarningIcon size={12} />
           Not sent.
-          <TextButton variant="accent" tabIndex={0} onClick={onRetry}>
+          <TextButton variant="accent" tabIndex={0} onClick={() => onRetry?.(message.id)}>
             Try again
           </TextButton>
         </div>
       )}
     </div>
   );
-}
+});
 
 interface ErrorLineProps extends Arrival {
   message: AgentMessage;
   /** Send the last thing you said again; only on the newest failure. */
   onRetry?: () => void;
   /** A usage limit with a reset time Claude Code reported: retry then. */
-  onRetryAt?: (at: number) => void;
+  onRetryAt?: (at: number) => void | Promise<void>;
   /** A retry already waits for that reset (a check-in at that time). */
   retryScheduled?: boolean;
   onSignIn?: () => void;
+  /** What the agent runs on, which "Sign in to …" names. */
+  engine?: AgentEngine;
 }
 
 /**
@@ -409,19 +474,32 @@ interface ErrorLineProps extends Arrival {
  * or when the usage limit resets). A usage limit is expected and heals on its
  * own, so it reads as a notice, not an alarm.
  */
-export function ErrorLine({
+export const ErrorLine = memo(function ErrorLine({
   message,
   arrived,
   onRetry,
   onRetryAt,
   retryScheduled,
   onSignIn,
+  engine = 'claude',
 }: ErrorLineProps) {
   const signIn = errorRemedy(message) === 'sign-in' && onSignIn;
   const resetsAt = message.failure?.kind === 'usage_limit' ? message.failure.resetsAt : undefined;
   // Offered only while the reset is still ahead (as of when the line was shown).
   const [shownAt] = useState(Date.now);
   const retryAt = onRetry && resetsAt && resetsAt > shownAt ? resetsAt : undefined;
+  // One check-in per click, however fast the second click comes.
+  const [scheduling, setScheduling] = useState(false);
+  const schedulingRef = useRef(false);
+  const scheduleRetry = (at: number) => {
+    if (schedulingRef.current) return;
+    schedulingRef.current = true;
+    setScheduling(true);
+    void Promise.resolve(onRetryAt?.(at)).finally(() => {
+      schedulingRef.current = false;
+      setScheduling(false);
+    });
+  };
   const onKeyDown = useCopyOnKey(message.text);
   return (
     <div
@@ -441,7 +519,7 @@ export function ErrorLine({
           <div className="agent-bubble__remedy">
             {signIn && (
               <Button tabIndex={0} size="compact" variant="secondary" onClick={onSignIn}>
-                Sign in to Claude Code
+                Sign in to {ENGINE_LABEL[engine]}
               </Button>
             )}
             {retryAt &&
@@ -455,9 +533,11 @@ export function ErrorLine({
                   tabIndex={0}
                   size="compact"
                   variant="secondary"
-                  onClick={() => onRetryAt?.(retryAt)}
+                  disabled={scheduling}
+                  aria-busy={scheduling || undefined}
+                  onClick={() => scheduleRetry(retryAt)}
                 >
-                  Retry at {formatClock(retryAt)}
+                  {scheduling ? 'Scheduling…' : `Retry at ${formatClock(retryAt)}`}
                 </Button>
               ))}
             {onRetry && (
@@ -476,14 +556,17 @@ export function ErrorLine({
       <MessageActions text={message.text} ts={message.ts} />
     </div>
   );
-}
+});
 
 /**
  * "Scheduled check-in", centred like the agent-to-agent lines, with the note
  * the agent left itself. A late one says so: the app was closed when it was due.
  * One you ran from the schedule popover says that instead.
  */
-export function CheckInLine({ message, arrived }: { message: AgentMessage } & Arrival) {
+export const CheckInLine = memo(function CheckInLine({
+  message,
+  arrived,
+}: { message: AgentMessage } & Arrival) {
   const mark = message.checkIn;
   const label = mark?.repeats ? 'Routine' : 'Scheduled check-in';
   return (
@@ -503,13 +586,13 @@ export function CheckInLine({ message, arrived }: { message: AgentMessage } & Ar
       <span className="agent-checkin__note">{message.text}</span>
     </div>
   );
-}
+});
 
 /**
  * Something Ship Studio did for the agent, said quietly so it never happens
  * invisibly: "Allowed automatically: npm test · Always allowed".
  */
-export function NoteLine({
+export const NoteLine = memo(function NoteLine({
   message,
   arrived,
   onOpenPeer,
@@ -524,8 +607,10 @@ export function NoteLine({
       ) : (
         <>
           {message.text.slice(0, at)}
+          {/* Not a Tab stop: an audit trail of links is a long walk to the
+              composer, and every agent is in the sidebar. */}
           <TextButton
-            tabIndex={0}
+            tabIndex={-1}
             className="agent-note__link"
             onClick={() => onOpenPeer?.(message.peer!.id)}
           >
@@ -536,15 +621,15 @@ export function NoteLine({
       )}
     </div>
   );
-}
+});
 
-export function DayDivider({ ts, arrived }: { ts: number } & Arrival) {
+export const DayDivider = memo(function DayDivider({ ts, arrived }: { ts: number } & Arrival) {
   return (
     <div className="agent-chat__divider" data-arrived={arrived || undefined}>
       {formatDivider(ts)}
     </div>
   );
-}
+});
 
 interface PeerGroupProps extends Arrival {
   peer: AgentRef;
@@ -565,7 +650,7 @@ interface PeerGroupProps extends Arrival {
  * Finance". Collapsed by default: the conversation between agents is there
  * when you want it and out of the way when you don't.
  */
-export function PeerGroup({
+export const PeerGroup = memo(function PeerGroup({
   peer,
   messages,
   peerAgent,
@@ -588,13 +673,23 @@ export function PeerGroup({
   const setOpen = (toggle: (v: boolean) => boolean) => setChosen(toggle(open));
   const threadRef = useRef<HTMLDivElement>(null);
   const threadShown = useHeightReveal(threadRef, open);
+  // One Tab stop per line: the toggle. ← / → reach the peer's name beside it.
+  const onLineKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+    const at = buttons.indexOf(event.target as Element);
+    const next = buttons[at + (event.key === 'ArrowRight' ? 1 : -1)] as HTMLElement | undefined;
+    if (at < 0 || !next) return;
+    event.preventDefault();
+    next.focus();
+  };
   return (
     <div
       className="agent-peer"
       data-arrived={arrived || undefined}
       data-message-ids={messages.map((m) => m.id).join(' ')}
     >
-      <div className="agent-peer__line">
+      <div className="agent-peer__line" onKeyDown={onLineKeyDown}>
         <button
           type="button"
           tabIndex={0}
@@ -605,18 +700,19 @@ export function PeerGroup({
           <ChevronRightIcon size={10} className="agent-peer__chevron" />
           {peerGroupLabel(messages)}
         </button>
-        <button
-          type="button"
-          tabIndex={0}
-          className="agent-peer__name"
-          onClick={() => peerAgent && onOpenPeer(peerAgent.id)}
-          disabled={!peerAgent}
-          title={peerAgent ? `Open ${peer.name}` : `${peer.name} was deleted`}
-        >
-          {peerAgent && <span className="agent-peer__dot" data-color={peerAgent.color} />}
-          {peer.name}
-          {live && peerAgent && <AgentPeerStatus agent={peerAgent} />}
-        </button>
+        <Tooltip content={peerAgent ? `Open ${peer.name}` : `${peer.name} was deleted`}>
+          <button
+            type="button"
+            tabIndex={-1}
+            className="agent-peer__name"
+            onClick={() => peerAgent && onOpenPeer(peerAgent.id)}
+            disabled={!peerAgent}
+          >
+            {peerAgent && <span className="agent-peer__dot" data-color={peerAgent.color} />}
+            {peer.name}
+            {live && peerAgent && <AgentPeerStatus agent={peerAgent} />}
+          </button>
+        </Tooltip>
       </div>
       {threadShown && (
         <div ref={threadRef} className="agent-peer__thread" onClick={onProseClick}>
@@ -634,7 +730,7 @@ export function PeerGroup({
       )}
     </div>
   );
-}
+});
 
 const STATUS_LABEL = {
   allowed: 'Allowed',
@@ -648,7 +744,14 @@ interface ApprovalCardProps extends Arrival {
   agentName: string;
   /** The agent stopped waiting (its turn ended). Allowing wakes it to finish. */
   paused: boolean;
-  onAnswer: (requestId: string, allow: boolean, always?: boolean, note?: string) => Promise<void>;
+  onAnswer: (
+    requestId: string,
+    allow: boolean,
+    always?: boolean,
+    note?: string,
+    /** On a session's question: the index of the option picked. */
+    choice?: number
+  ) => Promise<void>;
   /**
    * Team's compact form: field values clamp to two lines with "Show all",
    * and the outcome says what happens next.
@@ -698,12 +801,15 @@ function outcomeText(approval: Approval, agentName: string, compact: boolean): R
   if (approval.status === 'denied' && approval.note) {
     return <>Declined · “{approval.note}”</>;
   }
+  if (approval.choice && approval.status !== 'expired') {
+    return `${STATUS_LABEL[approval.status as 'allowed' | 'denied']} · ${approval.choice}`;
+  }
   const label = STATUS_LABEL[approval.status as keyof typeof STATUS_LABEL];
   if (compact && approval.status === 'allowed') return `${label} · ${agentName} is carrying on`;
   return label;
 }
 
-export function ApprovalCard({
+export const ApprovalCard = memo(function ApprovalCard({
   message,
   agentName,
   paused,
@@ -713,14 +819,44 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
   const approval = message.approval;
   const [busy, setBusy] = useState(false);
-  // "Deny with note…": the actions give way to one line saying what to do instead.
+  // Deny opens one line for what to do instead; sent empty, it's a plain deny.
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState('');
+  const denyRef = useRef<HTMLButtonElement>(null);
+  const refocusDeny = useRef(false);
+  useEffect(() => {
+    if (noting || !refocusDeny.current) return;
+    refocusDeny.current = false;
+    denyRef.current?.focus();
+  }, [noting]);
+  const cancelNote = () => {
+    refocusDeny.current = true;
+    setNoting(false);
+  };
   const [showAll, setShowAll] = useState(!compact);
   // Answered while on screen, so the buttons resolve into the outcome;
   // a card that loads already answered just shows it.
   const [openedPending] = useState(approval?.status === 'pending');
+  const { guard, keyProps } = useCardGuard(approval?.status === 'pending');
   if (!approval) return null;
+  if (approval.prompt) {
+    return (
+      <SessionPromptCard
+        message={message}
+        approval={approval}
+        prompt={approval.prompt}
+        agentName={agentName}
+        onAnswer={onAnswer}
+        arrived={arrived}
+        compact={compact}
+      />
+    );
+  }
+  if (approval.secret) {
+    return (
+      <SecretCard message={message} agentName={agentName} onAnswer={onAnswer} arrived={arrived} />
+    );
+  }
   const pending = approval.status === 'pending';
   const fields = approvalFields(approval.tool, approval.input);
   const answer = async (allow: boolean, always = false, why?: string) => {
@@ -778,7 +914,7 @@ export function ApprovalCard({
             className="agent-approval__deny-note"
             onSubmit={(e) => {
               e.preventDefault();
-              void answer(false, false, note);
+              void answer(false, false, note.trim() || undefined);
             }}
           >
             <TextField
@@ -786,17 +922,17 @@ export function ApprovalCard({
               value={note}
               maxLength={500}
               disabled={busy}
-              placeholder={`Tell ${agentName} what to do instead`}
-              aria-label={`Tell ${agentName} what to do instead`}
+              placeholder={`What should ${agentName} do instead? (optional)`}
+              aria-label={`What ${agentName} should do instead (optional)`}
               onChange={(e) => setNote(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Escape') return;
                 e.preventDefault();
                 e.stopPropagation();
-                setNoting(false);
+                cancelNote();
               }}
             />
-            <Button tabIndex={0} variant="ghost" disabled={busy} onClick={() => setNoting(false)}>
+            <Button tabIndex={0} variant="ghost" disabled={busy} onClick={cancelNote}>
               Cancel
             </Button>
             <Button tabIndex={0} type="submit" variant="secondary" disabled={busy}>
@@ -806,45 +942,43 @@ export function ApprovalCard({
         ) : pending ? (
           <div className="agent-approval__actions">
             {approval.always && (
-              <TextButton
-                tabIndex={0}
-                className="agent-approval__always"
-                disabled={busy}
-                onClick={() => void answer(true, true)}
-                title={describeScope(approval.always, agentName)}
-              >
-                Always allow{' '}
-                {approval.always.kind.startsWith('command') ? (
-                  <code>{approval.always.label}</code>
-                ) : (
-                  approval.always.label
-                )}
-              </TextButton>
+              <Tooltip content={describeScope(approval.always, agentName)}>
+                <TextButton
+                  tabIndex={0}
+                  className="agent-approval__always"
+                  disabled={busy}
+                  {...keyProps}
+                  onClick={guard(() => void answer(true, true))}
+                >
+                  Always allow{' '}
+                  {approval.always.kind.startsWith('command') ? (
+                    <code>{approval.always.label}</code>
+                  ) : (
+                    approval.always.label
+                  )}
+                </TextButton>
+              </Tooltip>
             )}
-            <TextButton
-              tabIndex={0}
-              className="agent-approval__deny-with-note"
-              disabled={busy}
-              onClick={() => setNoting(true)}
-              title={`Decline, and tell ${agentName} what to do instead`}
-            >
-              Deny with note…
-            </TextButton>
             {/* tabIndex: WebKit leaves buttons out of the Tab order unless asked. */}
-            <Button
-              tabIndex={0}
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void answer(false)}
-            >
-              Deny
-            </Button>
+            <Tooltip content={`Decline; you can tell ${agentName} what to do instead`}>
+              <Button
+                ref={denyRef}
+                tabIndex={0}
+                variant="secondary"
+                className="agent-approval__deny"
+                disabled={busy}
+                onClick={() => setNoting(true)}
+              >
+                Deny…
+              </Button>
+            </Tooltip>
             <Button
               tabIndex={0}
               variant="primary"
               data-allow
               disabled={busy}
-              onClick={() => void answer(true)}
+              {...keyProps}
+              onClick={guard(() => void answer(true))}
             >
               Allow
             </Button>
@@ -855,6 +989,124 @@ export function ApprovalCard({
             data-resolved={(openedPending && !pending) || undefined}
           >
             {outcomeText(approval, agentName, compact)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+interface SessionPromptCardProps extends Arrival {
+  message: AgentMessage;
+  approval: Approval;
+  prompt: SessionPrompt;
+  agentName: string;
+  onAnswer: ApprovalCardProps['onAnswer'];
+  compact: boolean;
+}
+
+/**
+ * A question a project session is waiting on, with the session's own words
+ * and options. The same card is in every chat the work touched; answering
+ * here sends the option's keys to the session and resolves it everywhere.
+ */
+function SessionPromptCard({
+  message,
+  approval,
+  prompt,
+  agentName,
+  onAnswer,
+  arrived,
+  compact,
+}: SessionPromptCardProps) {
+  const [busy, setBusy] = useState(false);
+  const [openedPending] = useState(approval.status === 'pending');
+  const pending = approval.status === 'pending';
+  const { guard, keyProps } = useCardGuard(pending);
+  const choose = async (allow: boolean, choice?: number) => {
+    setBusy(true);
+    try {
+      await onAnswer(approval.requestId, allow, false, undefined, choice);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const indexed = prompt.options.map((option, index) => ({ option, index }));
+  const allow = indexed.find(({ option }) => option.role === 'allow');
+  const deny = indexed.find(({ option }) => option.role === 'deny');
+  const others = indexed.filter(({ option }) => option.role === 'other');
+  const owner = prompt.owner.name === agentName ? 'Its' : `${prompt.owner.name}’s`;
+  return (
+    <div
+      className="agent-chat__row agent-chat__row--agent agent-chat__row--card"
+      data-arrived={arrived || undefined}
+      data-message-ids={message.id}
+    >
+      <div className="agent-approval" data-status={approval.status} data-prompt={prompt.kind}>
+        <div className="agent-approval__title">
+          {pending && <WarningIcon size={14} className="agent-approval__icon" />}
+          {approval.title}
+        </div>
+        <p className="agent-approval__source">
+          {owner} session in {folderName(prompt.project)} · Claude Code {prompt.tab}
+        </p>
+        {/* Folder trust is our explanation, not the session's text: prose. */}
+        {approval.detail &&
+          (prompt.kind === 'trust' ? (
+            <p className="agent-approval__note">{approval.detail}</p>
+          ) : (
+            <pre className="agent-approval__detail">{approval.detail}</pre>
+          ))}
+        {pending ? (
+          <div className="agent-approval__actions" data-wrap={others.length > 0 || undefined}>
+            {others.map(({ option, index }) => (
+              <Button
+                key={index}
+                tabIndex={0}
+                variant="secondary"
+                size={compact ? 'compact' : undefined}
+                className="agent-approval__choice"
+                disabled={busy}
+                {...keyProps}
+                onClick={guard(() => void choose(true, index))}
+              >
+                {option.label}
+              </Button>
+            ))}
+            {deny && (
+              <Tooltip content={deny.option.label}>
+                <Button
+                  tabIndex={0}
+                  variant="secondary"
+                  className="agent-approval__deny"
+                  disabled={busy}
+                  onClick={() => void choose(false, deny.index)}
+                >
+                  Deny
+                </Button>
+              </Tooltip>
+            )}
+            {allow && (
+              <Tooltip content={allow.option.label}>
+                <Button
+                  tabIndex={0}
+                  variant="primary"
+                  data-allow
+                  disabled={busy}
+                  {...keyProps}
+                  onClick={guard(() => void choose(true, allow.index))}
+                >
+                  Allow
+                </Button>
+              </Tooltip>
+            )}
+          </div>
+        ) : (
+          <div
+            className="agent-approval__outcome"
+            data-resolved={(openedPending && !pending) || undefined}
+          >
+            {outcomeText(approval, agentName, false)}
           </div>
         )}
       </div>

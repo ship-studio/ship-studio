@@ -11,4 +11,5 @@ export * from './pairing';
 export * from './transport';
 export * from './version';
 export * from './schedule';
+export * from './memory';
 export * from './quotes';

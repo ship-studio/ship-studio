@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { PixelLoaderRings } from '../workspace/PixelLoaderRings';
-import { useAgents } from '../../lib/agentsStore';
+import { useAgentsSelector } from '../../lib/agentsStore';
 import {
   getAgentMessages,
   lastOutcome,
@@ -20,7 +20,7 @@ import {
 
 /** Its newest outcome line: from the store when that chat is loaded, else read once per change. */
 function useLastOutcome(agent: Agent): AgentMessage | null {
-  const loaded = useAgents().messages[agent.id];
+  const loaded = useAgentsSelector((s) => s.messages[agent.id]);
   const [fetched, setFetched] = useState<{ key: string; line: AgentMessage | null } | null>(null);
   const key = `${agent.id}:${agent.lastActivityAt}`;
   const idle = agent.status.state === 'idle';

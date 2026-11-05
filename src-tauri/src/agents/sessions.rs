@@ -18,7 +18,18 @@
 //! - **Pushing:** no PIN. The user is asked with a card in the agent's chat
 //!   showing the branch, the commits and the remote. It has no tool call
 //!   behind it, so "Always allow" is never offered and no rule can skip it.
+//! - **Questions:** a session waiting on a decision (folder trust, a
+//!   permission prompt, a menu) puts a card in front of the user
+//!   (`decisions.rs`) and the call waits on it; an agent can't press the
+//!   answer itself.
+//! - **Changes:** a message that changed the project leaves a change card,
+//!   like a bound agent's turn does.
 //! - **Audit:** the remote's log, with the agent's name as the actor.
+//! - **The window never moves.** A session is spawned in the background and
+//!   adopted by the project's tabs (`lib/backgroundSessions.ts`); a screenshot
+//!   is taken off-screen from the running dev server, or declined honestly
+//!   when none is running. Only `project_open`, which the user asks for,
+//!   switches the window.
 //!
 //! Everything about safety in the shared handlers holds unchanged: text goes
 //! only to agent tabs, never shells; a leading `!`, a `/` command outside the
@@ -29,8 +40,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
+use super::decisions;
 use super::mcp::{self, Answer};
 use super::runner;
 use super::store::{self, MessageKind};
@@ -43,8 +55,6 @@ pub struct Tool {
     pub name: &'static str,
     remote: &'static str,
     description: &'static str,
-    /// It may switch the window to the project (see `agents-session-*`).
-    shows_project: bool,
 }
 
 pub const TOOLS: &[Tool] = &[
@@ -52,85 +62,71 @@ pub const TOOLS: &[Tool] = &[
         name: "project_list",
         remote: "list_projects",
         description: "The user's Ship Studio projects: name, path, git branch, uncommitted changes, and each project's sessions (agent tabs) with whether they're working, finished or waiting on the user. Anything waiting on the user is at the top.",
-        shows_project: false,
     },
     Tool {
         name: "project_create",
         remote: "create_project",
         description: "Create a new Ship Studio project from a starter, when the user asks for a new project or site. It appears in their Projects straight away. Takes a minute or two (download, then install). Then start a session in it to build what they asked for.",
-        shows_project: false,
     },
     Tool {
         name: "project_open",
         remote: "open_project",
-        description: "Show a project in Ship Studio and start its preview. Session and screenshot tools already do this when they need to; call it only when the user asks to see a project.",
-        shows_project: true,
+        description: "Switch the user's Ship Studio window to a project and start its preview. Nothing else moves their window: sessions run and screenshots are taken in the background. Call it only when the user asks to see a project.",
     },
     Tool {
         name: "session_message",
         remote: "message_agent",
         description: "THE way to change a project. Sends a message to the project's session (its Claude Code tab, the one the user works in; the most recently active one unless you name a tab), as if the user typed it, then WAITS and returns STATUS, the session's reply, which files changed and, when it's done, a screenshot. Starts a session only if none is running. Every result ends with NEXT: do what it says.",
-        shows_project: true,
     },
     Tool {
         name: "session_start",
         remote: "start_agent",
         description: "Start a separate, additional session in a project with a first prompt. Only when you want parallel work in the same project; to continue work use session_message, even when the session is busy. Waits for its first reply like session_message.",
-        shows_project: true,
     },
     Tool {
         name: "session_wait",
         remote: "wait_for_agent",
         description: "Keep watching a session that is still working, until it finishes or asks something. Call it whenever a result says STATUS: working, repeatedly, until it doesn't.",
-        shows_project: false,
     },
     Tool {
         name: "session_read",
         remote: "read_agent",
         description: "The exact text a session's terminal is showing, with its STATUS. For following work, session_wait is better.",
-        shows_project: false,
     },
     Tool {
         name: "session_key",
         remote: "press_key",
-        description: "Press one key in a session to answer what it is asking (STATUS: needs_decision lists the options). Only with the user's answer: ask them first, in this chat.",
-        shows_project: false,
+        description: "Press one key in a session that isn't asking anything (escape interrupts it). A question a session asks (STATUS: needs_decision) is the user's to answer on the card Ship Studio shows them; this tool refuses while one is up.",
     },
     Tool {
         name: "session_close",
         remote: "close_agent",
         description: "Close a session's tab, ending it. Only when the user asks. A project's last tab can't be closed.",
-        shows_project: false,
     },
     Tool {
         name: "session_progress",
         remote: "show_progress",
         description: "Where a project is at: waits for its session's current step, then returns its STATUS and reply, which files changed, preview errors, and a screenshot.",
-        shows_project: true,
     },
     Tool {
         name: "preview_screenshot",
         remote: "preview_screenshot",
         description: "A sharp screenshot of the project's live preview (desktop, phone or both; any page). It appears in this chat for the user too.",
-        shows_project: true,
     },
     Tool {
         name: "git_status",
         remote: "git_status",
         description: "The project's branch, uncommitted files and recent commits.",
-        shows_project: false,
     },
     Tool {
         name: "push",
         remote: "push",
         description: "Push the project's current branch to GitHub (origin), committing uncommitted changes first. The user is asked in this chat with a card showing the branch, the commits and the remote; nothing is pushed unless they allow it. Only when the user asked for a push.",
-        shows_project: false,
     },
     Tool {
         name: "deploy_status",
         remote: "deploy_status",
         description: "Whether the commit last pushed from this project went live on its host (Vercel, Cloudflare Pages or Netlify), as the host reports it. Call it after a push.",
-        shows_project: false,
     },
 ];
 
@@ -358,16 +354,29 @@ async fn all_projects() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Tell the project's window an agent is about to use it, and when it's done,
-/// so a window the user was reading Agents in goes back to Agents afterwards
-/// (`useAgentsReturn`).
-fn announce(app: &AppHandle, project: &str, event: &str) {
-    let _ = app.emit_to(
-        shared::window_for(project),
-        event,
-        json!({ "projectPath": project }),
-    );
+/// Run one shared handler for an agent, collecting what it saw.
+async fn run_shared(
+    app: &AppHandle,
+    projects: &[String],
+    remote: &str,
+    args: Value,
+) -> (Value, Seen) {
+    AGENTS_CALL
+        .scope(AgentsCall::default(), async {
+            let result = shared::call_in(app, projects, remote, args).await;
+            let seen = AGENTS_CALL.with(|c| Seen {
+                shots: c.shots.take(),
+                outcomes: c.outcomes.take(),
+                started: c.started.take(),
+            });
+            (result, seen)
+        })
+        .await
 }
+
+/// Questions answered on cards within one call, at most: each answer is
+/// followed, and a session can ask again (trust, then an edit).
+const MAX_QUESTIONS: usize = 4;
 
 pub async fn call(app: &AppHandle, caller: &store::Agent, tool: &Tool, args: &Value) -> Value {
     let projects = all_projects().await;
@@ -382,32 +391,114 @@ pub async fn call(app: &AppHandle, caller: &store::Agent, tool: &Tool, args: &Va
                     .unwrap_or_default(),
             ),
         }
+    } else if let Some(refusal) = refuse_key(tool, project.as_deref(), args) {
+        mcp_error(refusal)
     } else {
-        let announced = project.as_deref().filter(|_| tool.shows_project);
-        if let Some(p) = announced {
-            announce(app, p, "agents-session-begin");
-        }
-        let (result, seen) = AGENTS_CALL
-            .scope(AgentsCall::default(), async {
-                let result = shared::call_in(app, &projects, tool.remote, args.clone()).await;
-                let seen = AGENTS_CALL.with(|c| Seen {
-                    shots: c.shots.take(),
-                    outcomes: c.outcomes.take(),
-                    started: c.started.take(),
-                });
-                (result, seen)
-            })
-            .await;
-        if let Some(p) = announced {
-            announce(app, p, "agents-session-end");
-        }
-        if let Some(p) = &project {
-            record_lines(app, caller, tool.name, p, args, &seen);
-        }
-        rename_result(result)
+        rename_result(run_with_cards(app, caller, &projects, project.as_deref(), tool, args).await)
     };
     audit(caller, tool, project.as_deref(), args, &result);
     result
+}
+
+/// An agent never presses the answer to a question the user is being asked.
+fn refuse_key(tool: &Tool, project: Option<&str>, args: &Value) -> Option<String> {
+    if tool.name != "session_key" {
+        return None;
+    }
+    let tab = args.get("tab").and_then(Value::as_str);
+    let asking = shared::asking_in(project?, tab)?;
+    Some(format!(
+        "Not pressed: the session is asking \"{}\", and only the user answers that, on the card in the chat. Tell them to answer it on the card above.",
+        asking.question
+    ))
+}
+
+/// Run the call; when a session stops on a question, put it to the user as a
+/// card, wait, and follow what the session does with the answer.
+async fn run_with_cards(
+    app: &AppHandle,
+    caller: &store::Agent,
+    projects: &[String],
+    project: Option<&str>,
+    tool: &Tool,
+    args: &Value,
+) -> Value {
+    let (mut name, mut remote, mut args_now) = (tool.name, tool.remote, args.clone());
+    let mut answered = Vec::new();
+    let mut rounds = 0;
+    loop {
+        let (result, seen) = run_shared(app, projects, remote, args_now.clone()).await;
+        let Some(p) = project else {
+            return result;
+        };
+        record_lines(app, caller, name, p, &args_now, &seen);
+        record_changes(app, caller, p, &seen).await;
+        let asked = seen.outcomes.iter().rev().find(|o| o.decision.is_some());
+        let settled = match asked {
+            Some(o) if rounds < MAX_QUESTIONS => {
+                rounds += 1;
+                Some((
+                    o.session_id.clone(),
+                    decisions::ask(app, caller, p, o).await,
+                ))
+            }
+            _ => None,
+        };
+        match settled {
+            Some((_, decisions::Settled::NotYet)) | None => {
+                return with_lead(result, &answered);
+            }
+            Some((session, settled)) => {
+                answered.push(match settled {
+                    decisions::Settled::Answered(label) => {
+                        format!("The user answered the session's question on the card: “{label}”.")
+                    }
+                    _ => "The session's question was answered in the session itself.".to_string(),
+                });
+                // A message refused because the session was asking wasn't
+                // sent: send it now. Anything else: follow the session.
+                let refused = name == "session_message"
+                    && result.get("isError").and_then(Value::as_bool) == Some(true);
+                if !refused {
+                    (name, remote) = ("session_wait", "wait_for_agent");
+                    args_now = json!({ "project": p, "tab": session });
+                }
+            }
+        }
+    }
+}
+
+/// Put what happened on the cards ahead of the session's answer.
+fn with_lead(mut result: Value, lead: &[String]) -> Value {
+    if lead.is_empty() {
+        return result;
+    }
+    if let Some(blocks) = result.get_mut("content").and_then(Value::as_array_mut) {
+        blocks.insert(0, json!({ "type": "text", "text": lead.join("\n") }));
+    }
+    result
+}
+
+/// A finished message that changed the project: a change card, once per
+/// message, like the one a bound agent's turn leaves.
+async fn record_changes(app: &AppHandle, caller: &store::Agent, project: &str, seen: &Seen) {
+    for o in seen.outcomes.iter().filter(|o| o.state == "finished") {
+        let Some(before) = shared::take_run_tree(&o.session_id) else {
+            continue;
+        };
+        let dir = std::path::Path::new(project);
+        let Some(summary) = super::project::summary(dir, &before).await else {
+            continue;
+        };
+        let files = match summary.file_count {
+            1 => "1 file".to_string(),
+            n => format!("{n} files"),
+        };
+        let text = format!("Changed {files} in {}", shared::project_name(project));
+        let mut line = runner::new_message(&caller.id, MessageKind::Changes, text);
+        line.changes = Some(summary);
+        let _ = runner::record(app, line);
+    }
 }
 
 /// The same log, rules and wording as remote access, naming the agent.
@@ -545,6 +636,7 @@ mod tests {
             cli: "claude".into(),
             state,
             reply: reply.iter().map(|s| s.to_string()).collect(),
+            decision: None,
         }
     }
 

@@ -4,10 +4,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::agents::{
-    self, apps, attachments, files, import, mcp, notify, paste, project, prompts, runner, schedule,
-    search, store, usage,
+    self, apps, attachments, engine, files, import, mcp, memory, notify, paste, project, prompts,
+    runner, schedule, search, secrets, store, usage,
 };
 use crate::errors::CommandError;
+use engine::Engine;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,26 +27,19 @@ pub struct AgentsOverview {
     /// Whether Claude Code is installed and runs. Without it nothing works,
     /// and the view says so instead of letting a message fail.
     pub engine_ready: bool,
+    /// Every engine an agent can run on: whether it's here and signed in,
+    /// and the models it offers.
+    pub engines: Vec<engine::EngineInfo>,
 }
 
-/// Whether `claude` runs, re-checked at most once a minute: the overview is
-/// refetched on every chat message, and probing spawns a process.
-async fn engine_ready() -> bool {
-    use std::sync::{LazyLock, Mutex};
-    use std::time::{Duration, Instant};
-    static CACHE: LazyLock<Mutex<Option<(bool, Instant)>>> = LazyLock::new(|| Mutex::new(None));
-    if let Some((ready, at)) = *CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
-        if at.elapsed() < Duration::from_secs(60) {
-            return ready;
-        }
-    }
-    let ready = tokio::task::spawn_blocking(|| {
-        crate::commands::claude::find_validated_binary("claude", "--version").is_some()
-    })
-    .await
-    .unwrap_or(false);
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((ready, Instant::now()));
-    ready
+/// Store work (file reads and writes) on a blocking thread, off the async
+/// workers every other command and turn share.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, CommandError> + Send + 'static,
+) -> Result<T, CommandError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(agents::err_other)?
 }
 
 fn emit_registry(app: &AppHandle) {
@@ -57,7 +51,10 @@ fn emit_registry(app: &AppHandle) {
 pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandError> {
     agents::ensure_main()?;
     attachments::grant_asset_scope(&app);
-    let engine_ready = engine_ready().await;
+    let engines = engine::overview().await;
+    let engine_ready = engines
+        .iter()
+        .any(|e| e.id == Engine::Claude && e.installed);
     let agents = store::list()?
         .into_iter()
         .map(|agent| {
@@ -71,6 +68,7 @@ pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandEr
     Ok(AgentsOverview {
         agents,
         engine_ready,
+        engines,
     })
 }
 
@@ -79,8 +77,19 @@ pub async fn agents_overview(app: AppHandle) -> Result<AgentsOverview, CommandEr
 pub async fn agents_messages(
     agent_id: String,
     limit: Option<usize>,
+    before: Option<String>,
+    through: Option<String>,
 ) -> Result<Vec<store::AgentMessage>, CommandError> {
-    store::messages(&agent_id, limit.unwrap_or(400).min(5000))
+    const MAX: usize = 5000;
+    blocking(move || {
+        store::messages_page(
+            &agent_id,
+            limit.unwrap_or(400).min(MAX),
+            before.as_deref(),
+            through.as_deref().map(|id| (id, MAX)),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -130,6 +139,7 @@ pub async fn agents_send(
         .join("\n\n");
     let message = runner::record(&app, message)?;
     runner::enqueue(&app, &agent_id, prompt, runner::From::User);
+    agents::tray::mark_used(&app);
     Ok(message)
 }
 
@@ -203,7 +213,10 @@ pub struct CreateAgentInput {
     pub role: String,
     #[serde(default)]
     pub instructions: String,
-    /// `--model`; omitted or empty uses Claude Code's default.
+    /// `claude` (the default) or `codex`.
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// One of the engine's models; omitted or empty uses its default.
     #[serde(default)]
     pub model: Option<String>,
     /// A project path from `list_projects`; omitted or empty leaves it unbound.
@@ -217,10 +230,18 @@ pub async fn agents_create(
     app: AppHandle,
     input: CreateAgentInput,
 ) -> Result<store::Agent, CommandError> {
+    let engine = match input.engine.as_deref() {
+        Some(e) => {
+            let engine = Engine::parse(e)?;
+            engine::require_ready(engine).await?;
+            engine
+        }
+        None => Engine::default(),
+    };
     let model = input
         .model
         .as_deref()
-        .map(store::normalize_model)
+        .map(|m| engine::normalize_model(engine, m))
         .transpose()?
         .flatten();
     let project = match input.project.as_deref() {
@@ -235,8 +256,9 @@ pub async fn agents_create(
         color: input.color,
         is_main: false,
     })?;
-    let agent = if model.is_some() || project.is_some() {
+    let agent = if model.is_some() || project.is_some() || engine != Engine::default() {
         store::update(&agent.id, |a| {
+            a.engine = engine;
             a.model = model;
             a.project = project;
         })?
@@ -258,8 +280,14 @@ pub struct UpdateAgentInput {
     pub pinned: Option<bool>,
     pub hidden: Option<bool>,
     pub muted: Option<bool>,
-    /// `--model`; an empty string goes back to Claude Code's default.
+    /// `claude` or `codex`: from its next turn, in a new session handed the
+    /// recent conversation. The model goes back to the engine's default
+    /// unless one is given with it.
+    pub engine: Option<String>,
+    /// One of its engine's models; an empty string goes back to the default.
     pub model: Option<String>,
+    /// What its routines run on: `""` automatic, `"same"`, or a model alias.
+    pub routine_model: Option<String>,
     /// A project path from `list_projects`; an empty string unbinds it.
     pub project: Option<String>,
 }
@@ -289,10 +317,23 @@ pub async fn agents_update(
     let color = input.color.filter(|c| store::COLORS.contains(&c.as_str()));
     let shape = input.shape.filter(|s| *s < store::SHAPE_COUNT);
     let role = input.role.clone();
+    let current = store::get(&agent_id)?;
+    let engine = match input.engine.as_deref().map(Engine::parse).transpose()? {
+        Some(engine) if engine != current.engine => {
+            engine::require_ready(engine).await?;
+            Some(engine)
+        }
+        _ => None,
+    };
     let model = input
         .model
         .as_deref()
-        .map(store::normalize_model)
+        .map(|m| engine::normalize_model(engine.unwrap_or(current.engine), m))
+        .transpose()?;
+    let routine_model = input
+        .routine_model
+        .as_deref()
+        .map(|m| store::normalize_routine_model(engine.unwrap_or(current.engine), m))
         .transpose()?;
     let project = match input.project.as_deref() {
         Some(p) => Some(project::resolve(p).await?.map(|p| p.path)),
@@ -320,8 +361,14 @@ pub async fn agents_update(
         if let Some(m) = input.muted {
             a.muted = m;
         }
+        if let Some(engine) = engine {
+            a.switch_engine(engine);
+        }
         if let Some(m) = model {
             a.model = m;
+        }
+        if let Some(m) = routine_model {
+            a.routine_model = m;
         }
         if let Some(p) = project {
             a.project = p;
@@ -335,6 +382,13 @@ pub async fn agents_update(
             None => store::read_instructions(&agent_id)?,
         };
         store::write_instructions(&store::agent_home(&agent_id)?, &updated, &instructions)?;
+    }
+    if let Some(engine) = engine {
+        let line = format!("Runs on {} from its next message", engine.label());
+        let _ = runner::record(
+            &app,
+            runner::new_message(&agent_id, store::MessageKind::Note, line),
+        );
     }
     emit_registry(&app);
     // Hiding an agent takes its unread out of the badge, as it does the sidebar's.
@@ -354,7 +408,9 @@ pub async fn agents_change_diff(
     message_id: String,
     path: String,
 ) -> Result<crate::types::FileDiff, CommandError> {
-    let summary = store::messages(&agent_id, usize::MAX)?
+    let id = agent_id.clone();
+    let summary = blocking(move || store::messages(&id, usize::MAX))
+        .await?
         .into_iter()
         .find(|m| m.id == message_id)
         .and_then(|m| m.changes)
@@ -372,6 +428,30 @@ pub async fn agents_instructions(agent_id: String) -> Result<String, CommandErro
     store::read_instructions(&agent_id)
 }
 
+/// The agent's `## Memory`, as entries (`agents/memory.rs`).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_memory(agent_id: String) -> Result<memory::View, CommandError> {
+    blocking(move || memory::read(&agent_id)).await
+}
+
+/// Add, edit or delete one memory entry; the rest of CLAUDE.md is untouched.
+#[tauri::command]
+#[tracing::instrument(skip(change))]
+pub async fn agents_memory_change(
+    agent_id: String,
+    change: memory::Change,
+) -> Result<memory::View, CommandError> {
+    blocking(move || memory::change(&agent_id, &change)).await
+}
+
+/// "Remember this": a message as one line worth keeping, for the user to edit.
+#[tauri::command]
+#[tracing::instrument(skip(text))]
+pub async fn agents_memory_suggest(text: String) -> Result<String, CommandError> {
+    Ok(memory::suggest(&text).await)
+}
+
 #[tauri::command]
 #[tracing::instrument(skip(app))]
 pub async fn agents_delete(app: AppHandle, agent_id: String) -> Result<(), CommandError> {
@@ -380,6 +460,13 @@ pub async fn agents_delete(app: AppHandle, agent_id: String) -> Result<(), Comma
     emit_registry(&app);
     notify::refresh_badge(&app);
     Ok(())
+}
+
+/// How many agents are mid-turn: an update waits for them before restarting.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_busy() -> Result<usize, CommandError> {
+    Ok(runner::busy_count())
 }
 
 #[tauri::command]
@@ -407,6 +494,19 @@ pub async fn agents_answer_approval(
     allow: bool,
     always: Option<bool>,
     note: Option<String>,
+    choice: Option<usize>,
+) -> Result<(), CommandError> {
+    blocking(move || answer_card(&app, &agent_id, &request_id, allow, always, note, choice)).await
+}
+
+fn answer_card(
+    app: &AppHandle,
+    agent_id: &str,
+    request_id: &str,
+    allow: bool,
+    always: Option<bool>,
+    note: Option<String>,
+    choice: Option<usize>,
 ) -> Result<(), CommandError> {
     let note = note
         .map(|n| n.trim().chars().take(MAX_DENY_NOTE).collect::<String>())
@@ -416,48 +516,61 @@ pub async fn agents_answer_approval(
     } else {
         store::ApprovalStatus::Denied
     };
-    let approval = store::find_approval(&agent_id, &request_id)?
+    let approval = store::find_approval(agent_id, request_id)?
         .ok_or_else(|| CommandError::expected("That request no longer exists."))?;
     if approval.status != store::ApprovalStatus::Pending {
         return Err(CommandError::expected("That request was already answered."));
     }
+    // A session's question: keys to the session, and every chat holding the
+    // card is answered with it.
+    if approval.prompt.is_some() {
+        return agents::decisions::answer(app, &approval, allow, choice);
+    }
+    if let Some(request) = &approval.secret {
+        if allow {
+            return Err(CommandError::expected(
+                "Type it into the card and choose Save.",
+            ));
+        }
+        return decline_secret(app, agent_id, request_id, request, note.as_deref());
+    }
     let rule = if allow && always == Some(true) {
-        Some(mcp::always_allow(&agent_id, &approval)?)
+        Some(mcp::always_allow(agent_id, &approval)?)
     } else {
         None
     };
     // Write the decision before waking the waiter, so the card can't be
     // overwritten by the waiter's own cleanup.
     let updated = if let Some(scope) = &rule {
-        store::allow_always(&agent_id, &request_id, scope)?
+        store::allow_always(agent_id, request_id, scope)?
     } else if let Some(note) = &note {
-        store::deny_with_note(&agent_id, &request_id, note)?
+        store::deny_with_note(agent_id, request_id, note)?
     } else {
-        store::set_approval_status(&agent_id, &request_id, status)?
+        store::set_approval_status(agent_id, request_id, status)?
     };
     if let Some(message) = updated {
         let _ = app.emit(runner::EVENT_MESSAGE, &message);
     }
-    emit_registry(&app);
-    notify::refresh_badge(&app);
-    wake(&app, &agent_id, &approval, allow, note.as_deref())?;
+    emit_registry(app);
+    notify::refresh_badge(app);
+    wake(app, agent_id, &approval, allow, note.as_deref())?;
 
     // The new rule answers the other open cards it covers, the same way.
     if let Some(scope) = rule {
-        let open = store::pending_approvals(&agent_id)?;
-        for id in mcp::covered_by(&scope, &open, &request_id) {
+        let open = store::pending_approvals(agent_id)?;
+        for id in mcp::covered_by(&scope, &open, request_id) {
             let Some(card) = open.iter().find(|a| a.request_id == id) else {
                 continue;
             };
-            if let Some(message) = store::allow_always(&agent_id, &id, &scope)? {
+            if let Some(message) = store::allow_always(agent_id, &id, &scope)? {
                 let _ = app.emit(runner::EVENT_MESSAGE, &message);
             }
-            if let Err(e) = wake(&app, &agent_id, card, true, None) {
+            if let Err(e) = wake(app, agent_id, card, true, None) {
                 tracing::warn!(request_id = %id, error = %e, "covered card could not wake its agent");
             }
         }
-        emit_registry(&app);
-        notify::refresh_badge(&app);
+        emit_registry(app);
+        notify::refresh_badge(app);
     }
     Ok(())
 }
@@ -486,6 +599,91 @@ fn wake(
             );
         }
     }
+    Ok(())
+}
+
+/// Decline a secure input card: nothing is stored, and the agent is woken
+/// with a plain refusal, since nobody is waiting on the card.
+fn decline_secret(
+    app: &AppHandle,
+    agent_id: &str,
+    request_id: &str,
+    request: &secrets::Request,
+    note: Option<&str>,
+) -> Result<(), CommandError> {
+    let updated = match note {
+        Some(note) => store::deny_with_note(agent_id, request_id, note)?,
+        None => store::set_approval_status(agent_id, request_id, store::ApprovalStatus::Denied)?,
+    };
+    if let Some(message) = updated {
+        let _ = app.emit(runner::EVENT_MESSAGE, &message);
+    }
+    store::refresh_pending(agent_id);
+    emit_registry(app);
+    notify::refresh_badge(app);
+    runner::enqueue(
+        app,
+        agent_id,
+        secrets::denied_prompt(request, note),
+        runner::From::User,
+    );
+    Ok(())
+}
+
+/// Save a secure input card. The values go from here to the Keychain and are
+/// never written anywhere else; the agent is woken with the variable's name.
+#[tauri::command]
+#[tracing::instrument(skip(app, values))]
+pub async fn agents_save_secret(
+    app: AppHandle,
+    agent_id: String,
+    request_id: String,
+    values: Vec<String>,
+) -> Result<secrets::Secret, CommandError> {
+    let (secret, card) = {
+        let (agent_id, request_id) = (agent_id.clone(), request_id.clone());
+        blocking(move || secrets::save(&agent_id, &request_id, &values)).await?
+    };
+    if let Some(message) = card {
+        let _ = app.emit(runner::EVENT_MESSAGE, &message);
+    }
+    emit_registry(&app);
+    notify::refresh_badge(&app);
+    runner::enqueue(
+        &app,
+        &agent_id,
+        secrets::saved_prompt(&secret),
+        runner::From::User,
+    );
+    Ok(secret)
+}
+
+/// Store something the user pasted in the composer, for this agent, without a
+/// card. The composer then sends the variable's name instead of the value.
+#[tauri::command]
+#[tracing::instrument(skip(app, value))]
+pub async fn agents_add_secret(
+    app: AppHandle,
+    agent_id: String,
+    name: String,
+    kind: String,
+    value: String,
+) -> Result<secrets::Secret, CommandError> {
+    let secret = blocking(move || secrets::add(&agent_id, &name, &kind, &value)).await?;
+    emit_registry(&app);
+    Ok(secret)
+}
+
+/// Delete a secret from the Keychain and from the agent.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_revoke_secret(
+    app: AppHandle,
+    agent_id: String,
+    secret_id: String,
+) -> Result<(), CommandError> {
+    blocking(move || secrets::revoke(&agent_id, &secret_id)).await?;
+    emit_registry(&app);
     Ok(())
 }
 
@@ -703,4 +901,117 @@ pub async fn agents_apps_add(server_name: String) -> Result<(), CommandError> {
 #[tracing::instrument]
 pub async fn agents_apps_remove(name: String) -> Result<(), CommandError> {
     apps::remove(&name).await
+}
+
+// ---------------------------------------------------------------------------
+// Menu bar, quit guard and quick entry (agents::tray, agents::quick_entry)
+// ---------------------------------------------------------------------------
+
+/// What quitting now would interrupt: the quit dialog's question.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_quit_check() -> Result<agents::tray::QuitCheck, CommandError> {
+    blocking(|| Ok(agents::tray::quit_check(&agents::tray::snapshot()))).await
+}
+
+/// The quit dialog's "Keep running in background".
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_keep_running_in_background(app: AppHandle) -> Result<(), CommandError> {
+    crate::commands::window::hide_all_to_background(&app).await
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub async fn agents_desktop_settings() -> Result<agents::quick_entry::Settings, CommandError> {
+    blocking(|| Ok(agents::quick_entry::settings())).await
+}
+
+/// Change the menu-bar icon, quick entry, or its shortcut; `None` leaves one
+/// as it is. A shortcut that conflicts, or that macOS refuses, is not saved.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn agents_set_desktop_settings(
+    app: AppHandle,
+    menu_bar_icon: Option<bool>,
+    quick_entry: Option<bool>,
+    shortcut: Option<String>,
+) -> Result<agents::quick_entry::Settings, CommandError> {
+    use crate::commands::setup::update_app_state;
+    let shortcut = match shortcut {
+        Some(text) => {
+            let parsed = agents::quick_entry::Accelerator::parse(&text)
+                .ok_or_else(|| agents::err_invalid("shortcut", "not a shortcut"))?;
+            if let Some(why) = parsed.conflict() {
+                return Err(CommandError::expected(why));
+            }
+            Some(parsed.canonical())
+        }
+        None => None,
+    };
+    let before = update_app_state(|s| {
+        let before = (s.quick_entry, s.quick_entry_shortcut.clone());
+        if menu_bar_icon.is_some() {
+            s.menu_bar_icon = menu_bar_icon;
+        }
+        if quick_entry.is_some() {
+            s.quick_entry = quick_entry;
+        }
+        if shortcut.is_some() {
+            s.quick_entry_shortcut = shortcut;
+        }
+        before
+    })?;
+    agents::tray::sync(&app);
+    if let Err(e) = agents::quick_entry::apply(&app) {
+        // Put back what worked, so a refused shortcut never leaves none at all.
+        update_app_state(|s| (s.quick_entry, s.quick_entry_shortcut) = before)?;
+        let _ = agents::quick_entry::apply(&app);
+        return Err(e);
+    }
+    Ok(agents::quick_entry::settings())
+}
+
+/// Esc, or after a send: close the composer and hand focus back.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_hide(app: AppHandle) -> Result<(), CommandError> {
+    agents::quick_entry::hide(&app);
+    Ok(())
+}
+
+/// A message was sent: focus goes back to the app it came from while the
+/// confirmation stays up for a moment.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_sent(app: AppHandle) -> Result<(), CommandError> {
+    agents::quick_entry::sent(&app);
+    Ok(())
+}
+
+/// The confirmation's "Open chat": close the composer and open the agent in Ship Studio.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_open_chat(app: AppHandle, agent_id: String) -> Result<(), CommandError> {
+    store::get(&agent_id)?;
+    if let Some(w) = tauri::Manager::get_webview_window(&app, agents::quick_entry::LABEL) {
+        let _ = w.hide();
+    }
+    notify::open_agent(&app, &agent_id);
+    Ok(())
+}
+
+/// "Attach screenshot": the PNG's path, or `None` when the user pressed Esc.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_capture(app: AppHandle) -> Result<Option<String>, CommandError> {
+    agents::quick_entry::capture(&app).await
+}
+
+/// The composer grows with its text; the window follows.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn quick_entry_resize(app: AppHandle, height: f64) -> Result<(), CommandError> {
+    agents::quick_entry::resize(&app, height);
+    Ok(())
 }

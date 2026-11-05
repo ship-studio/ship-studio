@@ -222,7 +222,10 @@ function registerModal(entry: ModalRegistration): () => void {
 
 function isFocusable(element: HTMLElement): boolean {
   if (!element.isConnected) return false;
-  if (element.hidden || element.hasAttribute('disabled')) return false;
+  // Inside a `hidden` ancestor (an inactive tab panel) its own computed
+  // display still reads as shown, but the browser skips it: counting it made
+  // the trap's "last" element one Tab can't reach, so focus left the dialog.
+  if (element.closest('[hidden]') || element.hasAttribute('disabled')) return false;
   if (element.getAttribute('aria-hidden') === 'true') return false;
   if (element.closest('[inert]')) return false;
   const style = window.getComputedStyle(element);

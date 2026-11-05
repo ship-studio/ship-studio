@@ -11,6 +11,7 @@
  * @module components/agents/AgentSession
  */
 
+import { memo } from 'react';
 import { GlobeIcon, TerminalIcon } from '@/components/icons';
 import { TextButton } from '../primitives/TextButton';
 import { folderName, sessionLabel, type Agent, type AgentMessage } from '../../lib/agents';
@@ -24,7 +25,12 @@ interface SessionCardProps {
   arrived?: boolean;
 }
 
-export function SessionCard({ message, agent, arrived }: SessionCardProps) {
+/** Memoised like every chat row: a draft or status event doesn't re-render it. */
+export const SessionCard = memo(function SessionCard({
+  message,
+  agent,
+  arrived,
+}: SessionCardProps) {
   const ctx = useAgentProjects();
   const mark = message.session;
   if (!mark) return null;
@@ -93,4 +99,4 @@ export function SessionCard({ message, agent, arrived }: SessionCardProps) {
       <div className="agent-changes__actions">{open}</div>
     </div>
   );
-}
+});

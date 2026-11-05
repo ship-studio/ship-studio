@@ -12,9 +12,9 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '../primitives/Button';
+import { TextButton } from '../primitives/TextButton';
 import { TextArea } from '../primitives/TextField';
 import { useAsyncState } from '../../hooks/useAsyncState';
-import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import {
   getPasteImportPrompt,
@@ -24,112 +24,34 @@ import {
   type PasteImportAgent,
   type PasteImportPreview,
 } from '../../lib/agents';
+import { ImportPreview, ImportStep, MessageCard, plural } from './ImportParts';
 
 /** Long enough that a paste lands in one check, short enough to feel live. */
 const PREVIEW_DELAY_MS = 200;
 
-const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
-
-function tagFor(agent: PasteImportAgent) {
-  if (agent.isMain) return 'Merges into Chief of Staff';
-  return agent.existing ? 'Updates existing' : 'New';
+export interface ImportResult {
+  summary: ImportSummary;
+  agents: PasteImportAgent[];
 }
 
-function detailFor(agent: PasteImportAgent) {
-  const instructions = agent.instructionsChars
-    ? `${plural(agent.instructionsChars, 'character')} of instructions`
-    : 'No instructions';
-  const parts = [instructions, plural(agent.memoryLines, 'memory line')];
-  if (agent.routines.length) parts.push(plural(agent.routines.length, 'routine'));
-  return parts.join(' · ');
+interface ImportPastePanelProps {
+  onCancel: () => void;
+  onDone: (result: ImportResult) => void;
 }
 
-/** Each routine: what it becomes, or the phrase that won't be set and why. */
-function RoutineList({ agent }: { agent: PasteImportAgent }) {
-  if (!agent.routines.length) return null;
-  return (
-    <ul className="agents-import__routines">
-      {agent.routines.map((r, i) =>
-        r.refused ? (
-          <li key={i} className="agents-import__routine" data-refused="">
-            Won&apos;t be set: &ldquo;{r.when}&rdquo;. {r.refused}
-          </li>
-        ) : (
-          <li key={i} className="agents-import__routine">
-            {r.schedule}: {r.what}
-          </li>
-        )
-      )}
-    </ul>
-  );
-}
-
-function doneText(done: ImportSummary) {
-  return [
-    done.created.length ? `Created ${done.created.join(', ')}.` : '',
-    done.updated.length ? `Updated ${done.updated.join(', ')}.` : '',
-    ...done.skipped.map(([name, why]) => `Skipped ${name}: ${why}`),
-    done.routinesSet.length ? `Set ${plural(done.routinesSet.length, 'routine')}.` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-}
-
-function PreviewList({ preview }: { preview: PasteImportPreview }) {
-  const { agents, problems, source, blocks } = preview;
-  const refused = agents.reduce((n, a) => n + a.routines.filter((r) => r.refused).length, 0);
-  return (
-    <div className="agents-import__preview" aria-live="polite">
-      {problems.length > 0 && (
-        <div className="agents-import__problems" role="alert">
-          <span>Can&apos;t import this yet:</span>
-          <ul>
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {agents.length > 0 && (
-        <>
-          <span className="agents-import__found">
-            {plural(agents.length, 'agent')}
-            {source ? ` from ${source}` : ''}
-            {blocks > 1 ? `, in ${blocks} parts` : ''}
-            {refused > 0 &&
-              `. ${plural(refused, 'routine')} can't be set as written; the rest import fine.`}
-          </span>
-          <ul className="agents-import__list">
-            {agents.map((a) => (
-              <li key={a.name} className="agents-import__agent">
-                <div className="agents-import__agent-text">
-                  <span className="agents-import__agent-name">{a.name}</span>
-                  {a.role && <span className="agents-import__agent-role">{a.role}</span>}
-                  <span className="agents-import__agent-detail">{detailFor(a)}</span>
-                  <RoutineList agent={a} />
-                </div>
-                <span className="agents-import__tag" data-main={a.isMain || undefined}>
-                  {tagFor(a)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </div>
-  );
-}
-
-export function ImportPastePanel({ onClose }: { onClose: () => void }) {
+export function ImportPastePanel({ onCancel, onDone }: ImportPastePanelProps) {
   const [prompt, setPrompt] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [showMessage, setShowMessage] = useState(false);
   const [text, setText] = useState('');
   const [checked, setChecked] = useState<{ text: string; preview: PasteImportPreview } | null>(
     null
   );
-  const { copy, isCopied } = useCopyToClipboard();
-  const importer = useAsyncState(async (pasted: string) => {
+  const importer = useAsyncState(async (pasted: string, agents: PasteImportAgent[]) => {
     try {
-      return { text: pasted, summary: await importPaste(pasted) };
+      const summary = await importPaste(pasted);
+      onDone({ summary, agents });
+      return summary;
     } catch (e) {
       // A paste that changed after its preview: show the problems, not the wrapper.
       const err = asCommandError(e);
@@ -169,103 +91,96 @@ export function ImportPastePanel({ onClose }: { onClose: () => void }) {
     };
   }, [text]);
 
-  const preview = text.trim() ? checked?.preview : null;
+  const pasted = !!text.trim();
+  const preview = pasted ? checked?.preview : null;
   const current = checked?.text === text;
   const ready = current && !!preview && preview.problems.length === 0 && preview.agents.length > 0;
-  const done = importer.data?.text === text ? importer.data.summary : null;
+  // A paste and an instant ⌘Enter beat the preview's delay: check it now
+  // rather than drop the key. Problems show as the preview lands.
+  const submit = async () => {
+    if (!pasted || importer.isLoading) return;
+    const checkedNow =
+      current && preview ? preview : await previewPasteImport(text).catch(() => null);
+    if (checkedNow && checkedNow.problems.length === 0 && checkedNow.agents.length > 0)
+      void importer.execute(text, checkedNow.agents);
+  };
 
   return (
-    <div className="agents-import__body">
-      <p>
-        Works with Grok Bot or any other assistant. It writes out its agents, with their
-        instructions and memory, and you paste that here. They then run on Claude Code on this Mac.
-      </p>
-      <ol className="agents-import__steps">
-        <li>
-          <div className="agents-import__step">
-            <span>Send it this message.</span>
-            <Button
-              variant="secondary"
-              size="compact"
-              onClick={() => void copy(prompt)}
-              disabled={!prompt}
-            >
-              {isCopied ? 'Copied' : 'Copy message'}
-            </Button>
-          </div>
-          {/* Once a reply is in, step 1 is done: its text gives the room to the preview. */}
-          {!text && (
-            <blockquote className="agents-import__prompt agents-import__prompt--long" tabIndex={0}>
-              {prompt}
-            </blockquote>
-          )}
-        </li>
-        <li>
-          <label className="agents-import__step-label" htmlFor="agents-import-paste">
-            Paste its whole reply. If it came in parts, paste them all.
-          </label>
-          <TextArea
-            id="agents-import-paste"
-            className="agents-import__paste"
-            rows={4}
-            spellCheck={false}
-            placeholder="Paste here. The text around the code is fine."
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-        </li>
-      </ol>
-      {done ? (
-        <div className="agents-import__done" role="status">
-          <p>
-            {doneText(done)} They don&apos;t start working until you message them, apart from their
-            routines, which run while Ship Studio is open.
-          </p>
-          {done.routinesRefused.length > 0 && (
-            <div className="agents-import__problems">
-              <span>These routines weren&apos;t set. Ask the agent to schedule them:</span>
-              <ul>
-                {done.routinesRefused.map((r, i) => (
-                  <li key={i}>
-                    {r.agent}: &ldquo;{r.when}&rdquo; ({r.what}). {r.detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : (
-        preview && <PreviewList preview={preview} />
-      )}
-      {importer.error && (
-        <p className="agents-import__error" role="alert">
-          {importer.error.message}
+    <>
+      <div
+        className="agents-import__body"
+        // ⌘Enter imports from the paste field or anywhere above it (as comments do).
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <p className="agents-import__lede">
+          Bring your agents over with their instructions, memory and routines. It takes about two
+          minutes, and they run on Claude Code on this Mac.
         </p>
-      )}
-      <p className="agents-import__note">
-        Pasting again later updates the same agents rather than making copies. Connections that
-        assistant has (its email, calendar and so on) don&apos;t come across.
-      </p>
-      <div className="agents-import__actions">
-        {done ? (
-          <Button variant="primary" onClick={onClose}>
-            Done
-          </Button>
-        ) : (
-          <>
-            <Button variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!ready || importer.isLoading}
-              onClick={() => void importer.execute(text)}
-            >
-              {ready && preview ? `Import ${plural(preview.agents.length, 'agent')}` : 'Import'}
-            </Button>
-          </>
-        )}
+        <ol className="agents-import-steps">
+          <ImportStep
+            n={1}
+            state={copied || pasted ? 'done' : 'current'}
+            title="Ask your assistant for its agents"
+            // Once a reply is in, this step has done its job and folds away.
+            folded={pasted && !showMessage}
+            aside={
+              pasted && (
+                <TextButton onClick={() => setShowMessage((s) => !s)}>
+                  {showMessage ? 'Hide message' : 'Show message'}
+                </TextButton>
+              )
+            }
+          >
+            <MessageCard
+              message={prompt}
+              lead={!pasted}
+              autoFocus
+              onCopied={() => setCopied(true)}
+            />
+          </ImportStep>
+          <ImportStep n={2} state={copied || pasted ? 'current' : 'todo'} title="Paste its reply">
+            <TextArea
+              id="agents-import-paste"
+              aria-label="The assistant's reply"
+              className="agents-import__paste"
+              rows={pasted ? 4 : 7}
+              spellCheck={false}
+              placeholder={
+                'Paste the whole reply here.\n\nIf it came in several parts, paste them all. The text around the code is fine.'
+              }
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            {preview && <ImportPreview preview={preview} />}
+            {importer.error && (
+              <p className="agents-import__error" role="alert">
+                {importer.error.message}
+              </p>
+            )}
+          </ImportStep>
+        </ol>
       </div>
-    </div>
+      <footer className="agents-import__footer">
+        <p className="agents-import__note">
+          Running it again updates the same agents. Apps your assistant is connected to, like email
+          and calendar, stay behind.
+        </p>
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          disabled={!ready || importer.isLoading}
+          aria-keyshortcuts="Meta+Enter"
+          onClick={() => void submit()}
+        >
+          {ready && preview ? `Import ${plural(preview.agents.length, 'agent')}` : 'Import'}
+        </Button>
+      </footer>
+    </>
   );
 }

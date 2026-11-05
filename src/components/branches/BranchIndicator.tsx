@@ -262,6 +262,7 @@ export function BranchIndicator({
           projectPath={projectPath}
           filePath={selectedFile.path}
           fileStatus={selectedFile.status}
+          files={changedFiles}
           onClose={() => {
             setSelectedFile(null);
             triggerRef.current?.focus();

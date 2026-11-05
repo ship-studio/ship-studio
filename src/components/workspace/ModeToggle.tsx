@@ -17,7 +17,7 @@
  */
 
 import { Tooltip } from '../primitives/Tooltip';
-import { AgentsIcon, FolderOpenIcon } from '@/components/icons';
+import { AgentsModeIcon, FolderOpenIcon } from '@/components/icons';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { useAgentsAttention, type AgentsAttention } from '../../lib/agentsStore';
 import { isMac } from '../../lib/setup';
@@ -62,6 +62,9 @@ export function ModeToggle({
   return (
     <Tabs
       mode="navigation"
+      // Arrows move focus only: switching the whole app under a keypress
+      // that was only meant to look is disorienting. Enter or Space switches.
+      activation="manual"
       value={mode}
       onValueChange={(next) => {
         if (next === mode) return;
@@ -91,7 +94,7 @@ export function ModeToggle({
             value="agents"
             className={tabClass}
             aria-label={showDot ? `Agents, ${attention}` : 'Agents'}
-            leftIcon={iconOnly ? <AgentsIcon size={12} /> : undefined}
+            leftIcon={iconOnly ? <AgentsModeIcon size={12} /> : undefined}
           >
             {iconOnly ? undefined : 'Agents'}
             {showDot && <span className="sidebar-row-dot dot-attention mode-toggle__dot" />}

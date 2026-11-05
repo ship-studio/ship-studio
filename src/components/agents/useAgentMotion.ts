@@ -23,12 +23,28 @@ export function prefersReducedMotion(): boolean {
  * Which items arrived while this chat was open. The ids present when the
  * conversation first loads are the baseline and never animate, so opening or
  * switching to an agent shows its history still; anything after that is new.
- * The chat is keyed by agent, so switching resets the baseline.
+ * Older history loaded above (scrolling up, a search jump) joins the baseline:
+ * it was always there. The chat is keyed by agent, so switching resets it.
  */
 export function useArrivals(ids: readonly string[] | undefined): (id: string) => boolean {
-  const [baseline, setBaseline] = useState<ReadonlySet<string> | null>(null);
-  if (ids && baseline === null) setBaseline(new Set(ids));
-  return useCallback((id: string) => baseline !== null && !baseline.has(id), [baseline]);
+  const [baseline, setBaseline] = useState<{ first?: string; seen: ReadonlySet<string> } | null>(
+    null
+  );
+  if (ids && baseline === null) setBaseline({ first: ids[0], seen: new Set(ids) });
+  else if (
+    ids &&
+    baseline?.first !== undefined &&
+    ids[0] !== baseline.first &&
+    ids.includes(baseline.first)
+  ) {
+    const seen = new Set(baseline.seen);
+    for (const id of ids) {
+      if (id === baseline.first) break;
+      seen.add(id);
+    }
+    setBaseline({ first: ids[0], seen });
+  }
+  return useCallback((id: string) => baseline !== null && !baseline.seen.has(id), [baseline]);
 }
 
 type Phase = 'static' | 'entering' | 'leaving' | 'hidden';

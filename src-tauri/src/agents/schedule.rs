@@ -34,6 +34,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 
 use super::runner;
+use super::runs;
 use super::store::{self, MessageKind};
 use crate::errors::CommandError;
 
@@ -86,6 +87,17 @@ pub struct CheckIn {
     pub created_at: i64,
     #[serde(default)]
     pub paused: bool,
+    /// Its last runs, oldest first (`agents::runs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runs: Vec<runs::Run>,
+    /// A failed run waiting to be tried again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<runs::Retry>,
+    /// Fields a newer Ship Studio wrote that this build doesn't know: kept
+    /// and written back as they were, so running an older build never
+    /// strips what a newer one saved.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Stored on the chat line a firing leaves, so the UI can say when it was for.
@@ -495,11 +507,23 @@ pub enum Due {
     Fire { late: bool, next: Option<i64> },
     /// A routine whose time passed long ago: move on without running it.
     Skip { next: i64 },
+    /// A failed run's retry is due (`agents::runs`); a routine's own next
+    /// time doesn't move.
+    Retry,
 }
 
 /// Whether a check-in is due at `now`, and what happens if so.
 pub fn due<Tz: TimeZone>(tz: &Tz, check_in: &CheckIn, now: i64) -> Option<Due> {
-    if check_in.paused || check_in.next_at > now {
+    if check_in.paused {
+        return None;
+    }
+    if let Some(retry) = &check_in.retry {
+        // A routine whose own time has come runs that instead.
+        if check_in.repeat.is_none() || check_in.next_at > now {
+            return (retry.at <= now).then_some(Due::Retry);
+        }
+    }
+    if check_in.next_at > now {
         return None;
     }
     let overdue = now - check_in.next_at;
@@ -538,6 +562,15 @@ pub struct Firing {
     pub also: Vec<CheckIn>,
     /// Run now, from the schedule popover: on demand, ahead of its time.
     pub manual: bool,
+    /// Trying a failed run again: how it has gone so far.
+    pub retry: Option<runs::Retry>,
+}
+
+impl Firing {
+    /// When it was due to fire: its retry's time, or its own.
+    fn due_at(&self) -> i64 {
+        self.retry.as_ref().map_or(self.check_in.next_at, |r| r.at)
+    }
 }
 
 pub fn plan<Tz: TimeZone>(tz: &Tz, agents: &[store::Agent], now: i64) -> Plan {
@@ -550,18 +583,34 @@ pub fn plan<Tz: TimeZone>(tz: &Tz, agents: &[store::Agent], now: i64) -> Plan {
                     plan.skips
                         .push((agent.id.clone(), check_in.id.clone(), next))
                 }
+                Some(Due::Retry) => {
+                    let retry = check_in.retry.clone();
+                    let at = retry.as_ref().map_or(check_in.next_at, |r| r.at);
+                    if plan.fire.as_ref().is_none_or(|f| at < f.due_at()) {
+                        plan.fire = Some(Firing {
+                            agent_id: agent.id.clone(),
+                            check_in: check_in.clone(),
+                            late: false,
+                            next: check_in.repeat.as_ref().map(|_| check_in.next_at),
+                            also: Vec::new(),
+                            manual: false,
+                            retry,
+                        });
+                    }
+                }
                 Some(Due::Fire { late, next }) => {
                     let older = plan
                         .fire
                         .as_ref()
-                        .is_none_or(|f| check_in.next_at < f.check_in.next_at);
+                        .is_none_or(|f| check_in.next_at < f.due_at());
                     if older {
                         let also = if late && next.is_none() {
                             agent
                                 .check_ins
                                 .iter()
                                 .filter(|c| c.id != check_in.id && c.repeat.is_none())
-                                .filter(|c| !c.paused && now - c.next_at > LATE_AFTER_MS)
+                                .filter(|c| !c.paused && c.retry.is_none())
+                                .filter(|c| now - c.next_at > LATE_AFTER_MS)
                                 .cloned()
                                 .collect()
                         } else {
@@ -574,6 +623,7 @@ pub fn plan<Tz: TimeZone>(tz: &Tz, agents: &[store::Agent], now: i64) -> Plan {
                             next,
                             also,
                             manual: false,
+                            retry: None,
                         });
                     }
                 }
@@ -592,6 +642,12 @@ where
     let late = if firing.manual {
         " The user asked you to run it now, ahead of its time; its schedule is unchanged."
             .to_string()
+    } else if let Some(r) = &firing.retry {
+        format!(
+            " It was due {} and didn't finish then, so this is try {}.",
+            format_time(tz, r.due_at),
+            r.attempts + 1
+        )
     } else if firing.late {
         format!(
             " It was due {}, but Ship Studio wasn't running then, so it's late.",
@@ -740,6 +796,9 @@ where
         next_at,
         created_at: now,
         paused: false,
+        runs: Vec::new(),
+        retry: None,
+        extra: Default::default(),
     };
     let mut refused: Option<Refused> = None;
     let candidate = check_in.clone();
@@ -804,6 +863,8 @@ fn edit_in<Tz: TimeZone>(
             note: note.to_string(),
             repeat: repeat.clone(),
             next_at,
+            // A pending retry was for what it used to say.
+            retry: None,
             ..agent.check_ins[i].clone()
         };
         let clash = agent
@@ -826,7 +887,26 @@ fn edit_in<Tz: TimeZone>(
 /// one-time check-in stays scheduled too: this is a rehearsal, not a skip.
 pub fn run_now(app: &AppHandle, agent_id: &str, id: &str) -> Result<(), CommandError> {
     let firing = manual_firing(&store::get(agent_id)?, id)?;
-    wake(app, &chrono::Local, &firing, store::now_ms())
+    let now = store::now_ms();
+    store::update(agent_id, |a| {
+        if let Some(c) = a.check_ins.iter_mut().find(|c| c.id == id) {
+            runs::record(&mut c.runs, running(&firing, now));
+        }
+    })?;
+    wake(app, &chrono::Local, &firing, now)
+}
+
+/// The history row a firing starts as.
+fn running(firing: &Firing, now: i64) -> runs::Run {
+    runs::Run {
+        at: now,
+        outcome: runs::Outcome::Running,
+        attempt: firing.retry.as_ref().map_or(1, |r| r.attempts + 1),
+        detail: None,
+        retry_at: None,
+        sign_in: Vec::new(),
+        manual: firing.manual,
+    }
 }
 
 fn manual_firing(agent: &store::Agent, id: &str) -> Result<Firing, CommandError> {
@@ -843,6 +923,7 @@ fn manual_firing(agent: &store::Agent, id: &str) -> Result<Firing, CommandError>
         next: None,
         also: Vec::new(),
         manual: true,
+        retry: None,
     })
 }
 
@@ -917,6 +998,18 @@ pub fn set_paused(agent_id: &str, id: &str, paused: bool) -> Result<(), CommandE
 
 pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let now = store::now_ms();
+        for agent in store::list().unwrap_or_default() {
+            if agent
+                .check_ins
+                .iter()
+                .any(|c| !c.runs.is_empty() || c.retry.is_some())
+            {
+                let _ = store::update(&agent.id, |a| {
+                    runs::after_restart(&mut a.check_ins, now);
+                });
+            }
+        }
         tokio::time::sleep(STARTUP_GRACE).await;
         loop {
             if let Err(err) = tick(&app) {
@@ -949,6 +1042,11 @@ fn tick(app: &AppHandle) -> Result<(), CommandError> {
             Some(next) => {
                 if let Some(c) = a.check_ins.iter_mut().find(|c| c.id == firing.check_in.id) {
                     c.next_at = next;
+                    // Its own time came round with a retry still pending: that retry is moot.
+                    if c.retry.take().is_some() && firing.retry.is_none() {
+                        runs::superseded(&mut c.runs);
+                    }
+                    runs::record(&mut c.runs, running(&firing, now));
                 }
             }
             None => a.check_ins.retain(|c| {
@@ -993,12 +1091,29 @@ where
     // through `runner::record` like a reply (a `wants_user` kind), so the
     // notifications slice posts one banner for the check-in and its
     // answer when the turn ends, rather than one for each.
-    runner::enqueue(
-        app,
-        &firing.agent_id,
-        wake_prompt(tz, firing, now),
-        runner::From::User,
-    );
+    let prompt = wake_prompt(tz, firing, now);
+    // Before the wake, so even the quickest turn finds its ticket.
+    runs::issue(runs::Ticket {
+        agent_id: firing.agent_id.clone(),
+        prompt: prompt.clone(),
+        check_ins: std::iter::once(&firing.check_in)
+            .chain(&firing.also)
+            .cloned()
+            .collect(),
+        fired_at: now,
+        attempt: firing.retry.as_ref().map_or(1, |r| r.attempts + 1),
+        first_failed_at: firing.retry.as_ref().map(|r| r.first_failed_at),
+        due_at: firing
+            .retry
+            .as_ref()
+            .map_or(firing.check_in.next_at, |r| r.due_at),
+        manual: firing.manual,
+    });
+    if firing.check_in.repeat.is_some() {
+        runner::enqueue_routine(app, &firing.agent_id, prompt);
+    } else {
+        runner::enqueue(app, &firing.agent_id, prompt, runner::From::User);
+    }
     runner::record(app, line).map(|_| ())
 }
 
@@ -1273,6 +1388,9 @@ mod tests {
             next_at,
             created_at: 0,
             paused: false,
+            runs: Vec::new(),
+            retry: None,
+            extra: Default::default(),
         }
     }
 
@@ -1377,7 +1495,10 @@ mod tests {
             preview: None,
             unread: 0,
             pending_approvals: 0,
+            engine: Default::default(),
             model: None,
+            new_engine: false,
+            routine_model: None,
             muted: false,
             check_ins,
             usage: Default::default(),
@@ -1385,6 +1506,8 @@ mod tests {
             failure: None,
             project: None,
             capabilities: None,
+            secrets: Vec::new(),
+            extra: Default::default(),
         }
     }
 
@@ -1423,6 +1546,7 @@ mod tests {
             next: None,
             also: vec![check_in("x2", due_at + 3_600_000, None)],
             manual: false,
+            retry: None,
         };
         let prompt = wake_prompt(&Eastern, &firing, at(2026, 11, 3, 15, 0));
         assert!(prompt.starts_with("[Scheduled check-in you set: note x1]"));
@@ -1650,6 +1774,86 @@ mod tests {
         )
         .is_ok());
         store::set_root_for_tests(None);
+    }
+
+    #[test]
+    fn a_failed_run_is_retried_at_its_time_without_moving_the_routine() {
+        let nine = at(2026, 11, 3, 9, 0);
+        let retry = |at: i64| runs::Retry {
+            at,
+            attempts: 1,
+            first_failed_at: nine,
+            due_at: nine,
+        };
+        // A routine with a retry pending at 9:02; its own next run is tomorrow.
+        let mut routine = check_in("r", at(2026, 11, 4, 9, 0), weekdays_at_nine());
+        routine.retry = Some(retry(nine + 2 * MINUTE_MS));
+        assert_eq!(due(&Eastern, &routine, nine + MINUTE_MS), None);
+        assert_eq!(
+            due(&Eastern, &routine, nine + 2 * MINUTE_MS),
+            Some(Due::Retry)
+        );
+        let plan = plan(
+            &Eastern,
+            &[agent_with("a", vec![routine.clone()])],
+            nine + 3 * MINUTE_MS,
+        );
+        let fire = plan.fire.expect("the retry fires");
+        assert_eq!(
+            fire.next,
+            Some(routine.next_at),
+            "the routine's own time doesn't move"
+        );
+        assert_eq!(fire.retry.as_ref().map(|r| r.attempts), Some(1));
+        let prompt = wake_prompt(&Eastern, &fire, nine + 3 * MINUTE_MS);
+        assert!(prompt.contains("didn't finish then, so this is try 2"));
+        // Paused: no retry either.
+        let mut paused = routine.clone();
+        paused.paused = true;
+        assert_eq!(due(&Eastern, &paused, nine + 3 * MINUTE_MS), None);
+        // A one-time check-in waits for its retry, not its (past) time.
+        let mut once = check_in("o", nine, None);
+        once.retry = Some(retry(nine + 5 * MINUTE_MS));
+        assert_eq!(due(&Eastern, &once, nine + 3 * MINUTE_MS), None);
+        assert_eq!(due(&Eastern, &once, nine + 5 * MINUTE_MS), Some(Due::Retry));
+        // When the routine's own time comes first, that runs instead.
+        let mut overdue = check_in("r2", nine, weekdays_at_nine());
+        overdue.retry = Some(retry(nine + 60 * MINUTE_MS));
+        assert!(matches!(
+            due(&Eastern, &overdue, nine + MINUTE_MS),
+            Some(Due::Fire { .. })
+        ));
+    }
+
+    #[test]
+    fn a_registry_with_run_history_round_trips() {
+        let mut c = check_in("h", 1, weekdays_at_nine());
+        runs::record(
+            &mut c.runs,
+            runs::Run {
+                at: 1,
+                outcome: runs::Outcome::Retrying,
+                attempt: 1,
+                detail: Some("API Error: 529 overloaded".into()),
+                retry_at: Some(2),
+                sign_in: vec!["Gmail".into()],
+                manual: false,
+            },
+        );
+        c.retry = Some(runs::Retry {
+            at: 2,
+            attempts: 1,
+            first_failed_at: 1,
+            due_at: 1,
+        });
+        let json = serde_json::to_value(&c).unwrap();
+        assert_eq!(json["runs"][0]["outcome"], "retrying");
+        assert_eq!(json["retry"]["firstFailedAt"], 1);
+        let back: CheckIn = serde_json::from_value(json).unwrap();
+        assert_eq!(back, c);
+        // Nothing written for a check-in that never ran.
+        let plain = serde_json::to_value(check_in("p", 1, None)).unwrap();
+        assert!(plain.get("runs").is_none() && plain.get("retry").is_none());
     }
 
     #[test]

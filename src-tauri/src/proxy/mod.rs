@@ -473,6 +473,22 @@ static PROXY_INSTANCES: LazyLock<Mutex<HashMap<(String, String), ProxyInstance>>
 static PROXY_START_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 
+/// The port of the dev server behind `project_path`'s preview, in whichever
+/// window runs it. A preview proxy exists exactly while a project's dev
+/// server is up (it starts once the preview sees the server ready and stops
+/// with the server), including a server kept warm in the background — so this
+/// is how the backend finds a running preview without showing it.
+pub fn dev_server_port_for(project_path: &str) -> Option<u16> {
+    let wanted = dunce::canonicalize(project_path).ok();
+    let instances = PROXY_INSTANCES.lock().ok()?;
+    instances
+        .iter()
+        .find(|((_, path), _)| {
+            path == project_path || (wanted.is_some() && dunce::canonicalize(path).ok() == wanted)
+        })
+        .map(|(_, instance)| instance._target_port)
+}
+
 /// Start a reverse proxy for the given window, forwarding to `target_port`.
 /// Returns the proxy's listening port.
 pub async fn start_preview_proxy(

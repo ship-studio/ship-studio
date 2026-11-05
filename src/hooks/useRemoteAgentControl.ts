@@ -1,52 +1,47 @@
 /**
- * Starts and closes agent tabs, and switches projects, when remote access
- * asks.
+ * Starts and closes agent tabs, and shows projects, when an agent or remote
+ * access asks.
  *
- * The remote server (src-tauri/src/remote_access) can't touch tabs itself —
+ * The server side (src-tauri/src/remote_access) can't touch tabs itself —
  * they belong to the workspace's terminal model — so `start_agent` and
  * `close_agent` emit `remote-start-agent` / `remote-close-agent` to the window
  * that owns the project (or the main window) and then watch the PTY registry
- * for the result. This hook is the other half: open the project if it isn't
- * the current one, wait for its terminals to be seeded, then do exactly what
- * the user's own click would.
+ * for the result. This hook is the other half.
  *
- * - **Start** adds a tab whose CLI *starts with* the prompt — the same
- *   spawn-not-paste delivery the Inbox uses (see useWorkflowHandoff).
- * - **Show** only opens the project, so its preview comes up for a
- *   screenshot (`remote-show-project`).
- * - **Close** is the tab's ×: `closeTerminalTab`, which also kills the PTY
- *   and tidies split panes. The last tab is never closed — the workspace
- *   always keeps one.
- *
+ * - **Start** and **close** never touch the window: the tab is spawned or
+ *   closed in the background (lib/backgroundSessions) and the project's tab
+ *   list adopts or drops it, whichever project is showing. The user sees the
+ *   new tab when they next open the project, conversation and all. Start is
+ *   spawn-not-paste, as for the Inbox (see useWorkflowHandoff).
+ * - **Show** opens the project, for remote access's screenshot when no dev
+ *   server is running (`remote-show-project`). Ship Studio's own agents never
+ *   send it.
  * - **Focus** opens the project with one tab selected: "Open session" on an
- *   agent's session card (`openAgentSession`). Same queue, same open.
+ *   agent's session card (`openAgentSession`), which the user clicked.
  *
- * Nobody is at the computer to see a failure here, so a failure is simply
- * not acting: the Rust side times out and tells the remote assistant, which
- * is the only place anyone is looking.
+ * Nobody may be looking when one of these fails, so a failure is simply not
+ * acting: the Rust side times out and tells whoever asked.
  *
  * @module hooks/useRemoteAgentControl
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../lib/logger';
 import { basename } from '../lib/paths';
 import type { Project } from '../lib/project';
+import {
+  closeInBackground,
+  startInBackground,
+  type BackgroundResult,
+  type BackgroundTabs,
+} from '../lib/backgroundSessions';
 
 /** Matches the Rust side's own wait, so neither outlives the other. */
 const GIVE_UP_MS = 60_000;
 
+/** What opens a project in the window: the user's "Open session", or remote access. */
 export type RemoteRequest =
-  | {
-      kind: 'start';
-      projectPath: string;
-      prompt: string;
-      /** Chosen by the backend so it can wait for exactly this tab. */
-      sessionId: string;
-      receivedAt: number;
-    }
-  | { kind: 'close'; projectPath: string; sessionId: string; receivedAt: number }
   /** Just bring the project up, so its preview can be screenshotted. */
   | { kind: 'show'; projectPath: string; receivedAt: number }
   /** Open the project with this session's tab selected. */
@@ -69,29 +64,20 @@ interface WorkspaceState {
   /** True while the workspace (not the dashboard) is showing. */
   inWorkspace: boolean;
   terminalTabs: readonly TabRef[];
-  maxTerminalTabs: number;
 }
 
 /** The slice of the workspace's terminal bundle this needs. */
-interface TerminalControls {
+interface TerminalControls extends BackgroundTabs {
   terminalTabs: readonly TabRef[];
-  maxTerminalTabs: number;
-  addTerminalTab: (
-    agentId?: string,
-    options?: { initialPrompt?: string; projectPath?: string; sessionId?: string }
-  ) => void;
-  closeTerminalTab: (tabId: number) => void;
   setActiveTerminalTab: (tabId: number) => void;
 }
 
 export type RemoteStep =
   | { do: 'idle' }
   | { do: 'wait' }
-  | { do: 'start' }
-  | { do: 'close'; tabId: number }
   | { do: 'focus'; tabId: number }
   | { do: 'shown' }
-  | { do: 'drop'; reason: 'expired' | 'no_room' | 'no_such_tab' | 'last_tab' };
+  | { do: 'drop'; reason: 'expired' };
 
 /**
  * What to do with a pending request given the workspace's state. Pure so the
@@ -104,44 +90,50 @@ export function remoteStep(
 ): RemoteStep {
   if (!pending) return { do: 'idle' };
   if (now - pending.receivedAt > GIVE_UP_MS) return { do: 'drop', reason: 'expired' };
-  if (pending.kind === 'show') {
-    const showing = state.inWorkspace && state.currentProjectPath === pending.projectPath;
-    return showing ? { do: 'shown' } : { do: 'wait' };
-  }
-  const tabs = state.terminalTabs;
-  const ready =
-    state.inWorkspace && state.currentProjectPath === pending.projectPath && tabs.length > 0;
-  if (!ready) return { do: 'wait' };
-
-  if (pending.kind === 'start') {
-    if (state.maxTerminalTabs > 0 && tabs.length >= state.maxTerminalTabs) {
-      return { do: 'drop', reason: 'no_room' };
-    }
-    return { do: 'start' };
-  }
-  const tab = tabs.find((t) => t.sessionId === pending.sessionId);
+  const showing = state.inWorkspace && state.currentProjectPath === pending.projectPath;
+  if (pending.kind === 'show') return showing ? { do: 'shown' } : { do: 'wait' };
+  if (!showing || state.terminalTabs.length === 0) return { do: 'wait' };
+  const tab = state.terminalTabs.find((t) => t.sessionId === pending.sessionId);
   // A closed session still opens its project; there's just no tab to pick.
-  if (pending.kind === 'focus') return tab ? { do: 'focus', tabId: tab.id } : { do: 'shown' };
-  if (!tab) return { do: 'drop', reason: 'no_such_tab' };
-  if (tabs.length <= 1) return { do: 'drop', reason: 'last_tab' };
-  return { do: 'close', tabId: tab.id };
+  return tab ? { do: 'focus', tabId: tab.id } : { do: 'shown' };
+}
+
+function report(kind: 'start' | 'close', projectPath: string, run: Promise<BackgroundResult>) {
+  run
+    .then((result) => {
+      if (!result.ok) {
+        logger.warn('[Remote] Did not act on a remote request', {
+          projectPath,
+          kind,
+          reason: result.reason,
+        });
+      }
+    })
+    .catch((err: unknown) => {
+      logger.warn('[Remote] A background tab request failed', {
+        projectPath,
+        kind,
+        error: String(err),
+      });
+    });
 }
 
 export function useRemoteAgentControl(
   currentProjectPath: string | null,
   inWorkspace: boolean,
-  {
-    terminalTabs,
-    maxTerminalTabs,
-    addTerminalTab,
-    closeTerminalTab,
-    setActiveTerminalTab,
-  }: TerminalControls,
+  terminals: TerminalControls,
   openProject: (project: Project) => void | Promise<void>
 ): void {
+  const { terminalTabs, setActiveTerminalTab } = terminals;
+  // Background work outlives the render that started it; it reads the
+  // terminal model as it is when it gets there.
+  const terminalsRef = useRef<BackgroundTabs>(terminals);
+  useEffect(() => {
+    terminalsRef.current = terminals;
+  });
+
   // A queue, not a slot: two requests can arrive while a project is still
-  // opening, and the second must not silently replace the first (the backend
-  // would then wait a full minute for a tab that was never asked for).
+  // opening, and the second must not silently replace the first.
   const [queue, setQueue] = useState<RemoteRequest[]>([]);
   const pending = queue[0] ?? null;
   const enqueue = (request: RemoteRequest) => setQueue((q) => [...q, request]);
@@ -149,20 +141,27 @@ export function useRemoteAgentControl(
   const finish = (done: RemoteRequest) => setQueue((q) => (q[0] === done ? q.slice(1) : q));
 
   useEffect(() => {
+    // A proxy that always reads the latest terminal model.
+    const live: BackgroundTabs = {
+      get maxTerminalTabs() {
+        return terminalsRef.current.maxTerminalTabs;
+      },
+      tabsForProject: (path) => terminalsRef.current.tabsForProject(path),
+      adoptTerminalTab: (path, tab) => terminalsRef.current.adoptTerminalTab(path, tab),
+      closeTerminalTab: (id, path) => terminalsRef.current.closeTerminalTab(id, path),
+    };
     const unlistenStart = listen<{ projectPath: string; prompt: string; sessionId: string }>(
       'remote-start-agent',
-      (event) => {
-        const { projectPath, prompt, sessionId } = event.payload;
-        logger.info('[Remote] Asked to start an agent', { projectPath });
-        enqueue({ kind: 'start', projectPath, prompt, sessionId, receivedAt: Date.now() });
+      ({ payload: { projectPath, prompt, sessionId } }) => {
+        logger.info('[Remote] Starting an agent tab in the background', { projectPath });
+        report('start', projectPath, startInBackground(live, projectPath, sessionId, prompt));
       }
     );
     const unlistenClose = listen<{ projectPath: string; sessionId: string }>(
       'remote-close-agent',
-      (event) => {
-        const { projectPath, sessionId } = event.payload;
-        logger.info('[Remote] Asked to close an agent', { projectPath });
-        enqueue({ kind: 'close', projectPath, sessionId, receivedAt: Date.now() });
+      ({ payload: { projectPath, sessionId } }) => {
+        logger.info('[Remote] Closing an agent tab', { projectPath });
+        report('close', projectPath, closeInBackground(live, projectPath, sessionId));
       }
     );
     const unlistenShow = listen<{ projectPath: string }>('remote-show-project', (event) => {
@@ -202,22 +201,8 @@ export function useRemoteAgentControl(
 
   useEffect(() => {
     if (!pending) return;
-    const step = remoteStep(
-      pending,
-      { currentProjectPath, inWorkspace, terminalTabs, maxTerminalTabs },
-      Date.now()
-    );
-    if (step.do === 'start' && pending.kind === 'start') {
-      addTerminalTab(undefined, {
-        initialPrompt: pending.prompt,
-        projectPath: pending.projectPath,
-        sessionId: pending.sessionId,
-      });
-      finish(pending);
-    } else if (step.do === 'close') {
-      closeTerminalTab(step.tabId);
-      finish(pending);
-    } else if (step.do === 'focus') {
+    const step = remoteStep(pending, { currentProjectPath, inWorkspace, terminalTabs }, Date.now());
+    if (step.do === 'focus') {
       setActiveTerminalTab(step.tabId);
       finish(pending);
     } else if (step.do === 'shown') {
@@ -230,16 +215,7 @@ export function useRemoteAgentControl(
       });
       finish(pending);
     }
-  }, [
-    pending,
-    currentProjectPath,
-    inWorkspace,
-    terminalTabs,
-    maxTerminalTabs,
-    addTerminalTab,
-    closeTerminalTab,
-    setActiveTerminalTab,
-  ]);
+  }, [pending, currentProjectPath, inWorkspace, terminalTabs, setActiveTerminalTab]);
 
   // A request that is waiting needs something to re-check the clock even if
   // nothing else re-renders, or it would never expire.

@@ -18,7 +18,7 @@ import {
 import { useCommands } from './useCommands';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { setStayOn, type StayOnChange } from '../lib/remoteAccess';
-import { useAgents } from '../lib/agentsStore';
+import { useAgentsSelector, type AgentsState } from '../lib/agentsStore';
 import type { AppView } from '../lib/types';
 import { AGENT_EVENTS, TEAM_ID } from '../lib/agents';
 
@@ -69,6 +69,12 @@ export function useAgentsIntents(handlers: {
   }, [onNewAgent, onImportAgents, onApps, onOpenAgent, onSearch]);
 }
 
+/** What the "Open <agent>" commands name: a status or a new message doesn't change them. */
+const selectAgents = (s: AgentsState) => s.agents;
+const sameNames = (a: AgentsState['agents'], b: AgentsState['agents']) =>
+  a.length === b.length &&
+  a.every((x, i) => x.id === b[i].id && x.name === b[i].name && x.role === b[i].role);
+
 /** ⌘K switches for keeping agents going; the same settings as the first-run note. */
 const STAY_ON_COMMANDS: { id: string; title: string; change: StayOnChange; done: string }[] = [
   {
@@ -104,7 +110,7 @@ const STAY_ON_COMMANDS: { id: string; title: string; change: StayOnChange; done:
 ];
 
 export function useAgentsNavCommands({ setView }: { setView: (view: AppView) => void }) {
-  const { agents } = useAgents();
+  const agents = useAgentsSelector(selectAgents, sameNames);
   const { showToast } = useOptionalToast();
   // A clicked notification (the backend already focused this window): open that agent.
   useEffect(() => {

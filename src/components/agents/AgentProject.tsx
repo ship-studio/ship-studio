@@ -10,6 +10,7 @@
 
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -22,6 +23,7 @@ import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown'
 import { MenuButton } from '../primitives/MenuButton';
 import { Button } from '../primitives/Button';
 import { TextButton } from '../primitives/TextButton';
+import { Tooltip } from '../primitives/Tooltip';
 import { DiffModal } from '../branches/DiffModal';
 import { listProjects } from '../../lib/project';
 import {
@@ -86,18 +88,19 @@ export function AgentProjectChip({ agent }: { agent: Agent }) {
   // Only said once the list is in: a project that left it can't be opened.
   const missing = ctx.projects !== null && !ctx.projects.some((p) => p.path === path);
   return (
-    <Button
-      tabIndex={0}
-      variant="ghost"
-      size="compact"
-      className="agent-chat__project"
-      leftIcon={<FolderIcon size={12} />}
-      onClick={() => ctx.openProject(path)}
-      disabled={missing}
-      title={missing ? `${path} isn't one of your projects any more` : `Open ${name}`}
-    >
-      {name}
-    </Button>
+    <Tooltip content={missing ? `${path} isn't one of your projects any more` : `Open ${name}`}>
+      <Button
+        tabIndex={0}
+        variant="ghost"
+        size="compact"
+        className="agent-chat__project"
+        leftIcon={<FolderIcon size={12} />}
+        onClick={() => ctx.openProject(path)}
+        disabled={missing}
+      >
+        {name}
+      </Button>
+    </Tooltip>
   );
 }
 
@@ -179,7 +182,13 @@ function LineCounts({ added = 0, removed = 0 }: { added?: number; removed?: numb
 }
 
 /** What a bound agent's turn changed in its project, from git. */
-export function ChangeCard({ message, arrived }: { message: AgentMessage; arrived?: boolean }) {
+export const ChangeCard = memo(function ChangeCard({
+  message,
+  arrived,
+}: {
+  message: AgentMessage;
+  arrived?: boolean;
+}) {
   const ctx = useAgentProjects();
   const changes = message.changes;
   const [expanded, setExpanded] = useState(false);
@@ -193,9 +202,8 @@ export function ChangeCard({ message, arrived }: { message: AgentMessage; arrive
   if (!changes) return null;
   const project = nameOf(ctx?.projects ?? null, changes.project);
   const count = changes.fileCount === 1 ? '1 file' : `${changes.fileCount} files`;
-  const only = changes.files.length === 1 ? changes.files[0] : null;
+  const several = changes.files.length > 1;
   const unlisted = changes.fileCount - changes.files.length;
-  const viewDiff = () => (only ? setViewing(only) : setExpanded((v) => !v));
   return (
     <div
       className="agent-changes"
@@ -210,42 +218,57 @@ export function ChangeCard({ message, arrived }: { message: AgentMessage; arrive
           </span>
         </span>
         {changes.branch && (
-          <span className="agent-changes__branch" title="Branch when the turn ended">
-            <BranchIcon size={12} />
-            {changes.branch}
-          </span>
+          <Tooltip content="Branch when the turn ended">
+            <span className="agent-changes__branch">
+              <BranchIcon size={12} />
+              {changes.branch}
+            </span>
+          </Tooltip>
         )}
       </div>
       {expanded && (
         <ul className="agent-changes__files">
           {changes.files.map((file) => (
             <li key={file.path}>
-              <button
-                type="button"
-                tabIndex={0}
-                className="agent-changes__file"
-                data-status={file.status}
-                onClick={() => setViewing(file)}
-                title={`View the diff of ${file.path}`}
-              >
-                <span className="agent-changes__path">{file.path}</span>
-                <span className="agent-changes__counts">
-                  {file.added == null ? (
-                    'binary'
-                  ) : (
-                    <LineCounts added={file.added} removed={file.removed} />
-                  )}
-                </span>
-              </button>
+              <Tooltip content={`View the diff of ${file.path}`}>
+                <button
+                  type="button"
+                  tabIndex={0}
+                  className="agent-changes__file"
+                  data-status={file.status}
+                  onClick={() => setViewing(file)}
+                >
+                  <span className="agent-changes__path">{file.path}</span>
+                  <span className="agent-changes__counts">
+                    {file.added == null ? (
+                      'binary'
+                    ) : (
+                      <LineCounts added={file.added} removed={file.removed} />
+                    )}
+                  </span>
+                </button>
+              </Tooltip>
             </li>
           ))}
           {unlisted > 0 && <li className="agent-changes__more">and {unlisted} more</li>}
         </ul>
       )}
       <div className="agent-changes__actions">
-        <TextButton tabIndex={0} aria-expanded={only ? undefined : expanded} onClick={viewDiff}>
-          {only || !expanded ? 'View diff' : 'Hide files'}
-        </TextButton>
+        {changes.files.length > 0 && (
+          <TextButton tabIndex={0} onClick={() => setViewing(changes.files[0])}>
+            View diff
+          </TextButton>
+        )}
+        {several && (
+          <TextButton
+            tabIndex={0}
+            className="agent-changes__toggle-files"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? 'Hide files' : 'Show files'}
+          </TextButton>
+        )}
         {ctx && (
           <TextButton
             tabIndex={0}
@@ -261,10 +284,11 @@ export function ChangeCard({ message, arrived }: { message: AgentMessage; arrive
           projectPath={changes.project}
           filePath={viewing.path}
           fileStatus={viewing.status}
+          files={changes.files}
           loadDiff={loadDiff}
           onClose={() => setViewing(null)}
         />
       )}
     </div>
   );
-}
+});

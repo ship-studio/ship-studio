@@ -6,6 +6,7 @@
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import type { FileDiff } from './git';
+import type { AgentSecret, SecretRequest } from './agentSecrets';
 
 /** Avatar colour keys. The CSS maps each to a feature token. */
 export const AGENT_COLORS = [
@@ -49,8 +50,12 @@ export interface Agent {
   unread: number;
   /** Approval cards still waiting on the user, including ones the agent paused on. */
   pendingApprovals: number;
-  /** `--model`; null is Claude Code's default. */
+  /** What its turns run on; mirrors `engine::Engine`. */
+  engine: AgentEngine;
+  /** One of its engine's models; null is that engine's default. */
   model: string | null;
+  /** What its routines run on (see `routineModelOf`); omitted when automatic. */
+  routineModel?: string;
   /** No OS notifications; unread and the Dock badge still count it. */
   muted: boolean;
   /** Omitted by the backend when there are none. */
@@ -66,6 +71,8 @@ export interface Agent {
   project?: string;
   /** What its last turn could use; omitted before its first turn. */
   capabilities?: Capabilities;
+  /** Secrets it has in the Keychain (names only); omitted when none. */
+  secrets?: AgentSecret[];
 }
 
 /** Mirrors `failure::Failure`: what kind of failure a turn ended in. */
@@ -89,6 +96,33 @@ export interface CheckIn {
   nextAt: number;
   createdAt: number;
   paused: boolean;
+  /** Its last runs, oldest first; omitted before the first. */
+  runs?: CheckInRun[];
+  /** A failed run waiting to be tried again. */
+  retry?: CheckInRetry;
+}
+
+/** One scheduled run and what came of it; mirrors `runs::Run`. */
+export interface CheckInRun {
+  at: number;
+  outcome: 'running' | 'ran' | 'retrying' | 'failed' | 'unknown';
+  /** 1 for the run itself, 2 for its first retry. */
+  attempt: number;
+  /** Why it failed, as the chat said it. */
+  detail?: string;
+  retryAt?: number;
+  /** Connectors Claude Code said need signing in again. */
+  signIn?: string[];
+  /** Run now, from the popover. */
+  manual?: boolean;
+}
+
+/** Mirrors `runs::Retry`. */
+export interface CheckInRetry {
+  at: number;
+  attempts: number;
+  firstFailedAt: number;
+  dueAt: number;
 }
 
 /** On a `check_in` chat line: when it was due and whether it ran late. */
@@ -106,9 +140,28 @@ export interface SchedulePreview {
   repeat: Repeat | null;
 }
 
+export type AgentEngine = 'claude' | 'codex';
+
+export interface ModelChoice {
+  value: string;
+  label: string;
+}
+
+/** Mirrors `engine::EngineInfo`: an engine an agent can run on, as found on this Mac. */
+export interface EngineInfo {
+  id: AgentEngine;
+  label: string;
+  installed: boolean;
+  signedIn: boolean;
+  /** The engine's own models, without Default. */
+  models: ModelChoice[];
+}
+
 export interface AgentsOverview {
   agents: Agent[];
+  /** Claude Code is installed (the default engine). */
   engineReady: boolean;
+  engines: EngineInfo[];
 }
 
 export type MessageKind =
@@ -212,6 +265,53 @@ export interface Approval {
   alwaysAllowed?: boolean;
   /** What you told the agent when you declined. */
   note?: string;
+  /** A secure input card: what the agent asked for. */
+  secret?: SecretRequest;
+  /** A question a project session is waiting on, answered with keys sent to it. */
+  prompt?: SessionPrompt;
+  /** The option picked on a `prompt` card. */
+  choice?: string;
+}
+
+/**
+ * What answering a session's question means, as the backend decides it: the
+ * option picked, else the card's Allow or Deny option. Lets a card resolve in
+ * place before the registry catches up.
+ */
+export function promptAnswer(
+  prompt: SessionPrompt,
+  allow: boolean,
+  choice?: number
+): { status: 'allowed' | 'denied'; choice: string } {
+  const picked =
+    choice !== undefined && prompt.options[choice]
+      ? prompt.options[choice]
+      : prompt.options.find((o) => o.role === (allow ? 'allow' : 'deny'));
+  if (!picked) return { status: 'denied', choice: 'Cancelled' };
+  return { status: picked.role === 'deny' ? 'denied' : 'allowed', choice: picked.label };
+}
+
+/** One answer a session's question offers, as the session shows it. */
+export interface PromptOption {
+  label: string;
+  keys: string[];
+  role: 'allow' | 'deny' | 'other';
+}
+
+/**
+ * A question a project session can't answer itself (folder trust, a
+ * permission prompt, a menu). The same card sits in every chat in `chats`;
+ * answering it in one answers it in all.
+ */
+export interface SessionPrompt {
+  kind: 'trust' | 'permission' | 'choice';
+  project: string;
+  sessionId: string;
+  tab: number;
+  question: string;
+  options: PromptOption[];
+  owner: AgentRef;
+  chats: string[];
 }
 
 export interface AgentMessage {
@@ -322,6 +422,7 @@ export interface NewAgentInput {
   color?: string;
   role?: string;
   instructions?: string;
+  engine?: AgentEngine;
   model?: string;
   /** A project path from `list_projects`. */
   project?: string;
@@ -336,8 +437,12 @@ export interface UpdateAgentInput {
   pinned?: boolean;
   hidden?: boolean;
   muted?: boolean;
-  /** An alias from AGENT_MODELS, or '' for Claude Code's default. */
+  /** Switches from its next turn; the model resets unless one is given too. */
+  engine?: AgentEngine;
+  /** One of its engine's models, or '' for that engine's default. */
   model?: string;
+  /** '' automatic, 'same' (its own model), or one of its engine's models. */
+  routineModel?: string;
   /** A project path from `list_projects`, or '' to unbind it. */
   project?: string;
 }
@@ -353,8 +458,75 @@ export const AGENT_MODELS = [
   { value: 'haiku', label: 'Haiku' },
 ] as const;
 
-export function modelLabel(model: string | null): string {
-  return AGENT_MODELS.find((m) => m.value === (model ?? ''))?.label ?? model ?? 'Default';
+export const ENGINE_LABEL: Record<AgentEngine, string> = { claude: 'Claude Code', codex: 'Codex' };
+
+/** Default first, then the engine's own models (Claude Code's aliases until the overview says). */
+export function modelChoices(engine: AgentEngine, engines: EngineInfo[]): readonly ModelChoice[] {
+  const listed = engines.find((e) => e.id === engine)?.models;
+  if (engine === 'claude' && !listed?.length) return AGENT_MODELS;
+  return [AGENT_MODELS[0], ...(listed ?? [])];
+}
+
+export function modelLabel(
+  model: string | null,
+  choices: readonly ModelChoice[] = AGENT_MODELS
+): string {
+  return choices.find((m) => m.value === (model ?? ''))?.label ?? model ?? 'Default';
+}
+
+/**
+ * Whether an agent on this engine can be sent a message. Claude Code counts
+ * once installed (a signed-out turn says so in the chat); Codex once its own
+ * `login status` says it's signed in too.
+ */
+export function engineIsReady(
+  engine: AgentEngine,
+  engines: EngineInfo[],
+  claudeInstalled: boolean
+): boolean {
+  if (engine === 'claude') return claudeInstalled;
+  const info = engines.find((e) => e.id === engine);
+  return Boolean(info?.installed && info.signedIn);
+}
+
+/** The engines that can take an agent right now, plus the one it's already on. */
+export function engineOptions(engines: EngineInfo[], current: AgentEngine): EngineInfo[] {
+  return engines.filter((e) => (e.installed && e.signedIn) || e.id === current);
+}
+
+export interface RoutineModelChoice extends ModelChoice {
+  hint: string | null;
+}
+
+/**
+ * Choices for what an agent's routines run on. Must match `routine_model` in
+ * store.rs. Haiku is Claude Code's: a Codex agent's routines run on its own
+ * model unless one of Codex's is picked (which is cheaper isn't something
+ * Codex says, so nothing is picked for the user).
+ */
+export function routineModelChoices(
+  engine: AgentEngine,
+  choices: readonly ModelChoice[]
+): RoutineModelChoice[] {
+  const models = choices.filter((m) => m.value).map((m) => ({ ...m, hint: null }));
+  if (engine === 'codex') {
+    return [{ value: '', label: 'Same as its chats', hint: null }, ...models];
+  }
+  return [
+    { value: '', label: 'Automatic', hint: 'Haiku unless the agent has its own model' },
+    { value: 'same', label: 'Same as its chats', hint: null },
+    ...models,
+  ];
+}
+
+/** The model a routine wakes the agent on, as `Agent::routine_model` resolves it. */
+export function routineModelOf(
+  agent: Pick<Agent, 'engine' | 'model' | 'routineModel'>
+): string | null {
+  const setting = agent.routineModel ?? '';
+  if (setting === '' && agent.engine !== 'codex') return agent.model ?? 'haiku';
+  if (setting === '' || setting === 'same') return agent.model;
+  return setting;
 }
 
 export interface SearchHit {
@@ -397,8 +569,15 @@ export const AGENT_EVENTS = {
 } as const;
 
 export const getAgentsOverview = () => invoke<AgentsOverview>('agents_overview');
-export const getAgentMessages = (agentId: string, limit?: number) =>
-  invoke<AgentMessage[]>('agents_messages', { agentId, limit });
+/**
+ * The newest `limit` lines, oldest first. `before`: only lines older than that
+ * one (the next page up). `through`: reach back at least to that line.
+ */
+export const getAgentMessages = (
+  agentId: string,
+  limit?: number,
+  { before, through }: { before?: string; through?: string } = {}
+) => invoke<AgentMessage[]>('agents_messages', { agentId, limit, before, through });
 export const sendAgentMessage = (
   agentId: string,
   text: string,
@@ -481,12 +660,16 @@ export const getChangeDiff = (agentId: string, messageId: string, path: string) 
   invoke<FileDiff>('agents_change_diff', { agentId, messageId, path });
 export const deleteAgent = (agentId: string) => invoke<void>('agents_delete', { agentId });
 export const stopAgent = (agentId: string) => invoke<boolean>('agents_stop', { agentId });
+/** How many agents are mid-turn (running or waiting for a slot). */
+export const agentsBusy = () => invoke<number>('agents_busy');
 export const answerApproval = (
   agentId: string,
   requestId: string,
   allow: boolean,
   always = false,
-  note?: string
+  note?: string,
+  /** On a session's question: the option picked (an index into its options). */
+  choice?: number
 ) =>
   invoke<void>('agents_answer_approval', {
     agentId,
@@ -494,6 +677,7 @@ export const answerApproval = (
     allow,
     always: always || undefined,
     note: note?.trim() || undefined,
+    choice,
   });
 /** Stop the turn in progress so what's queued sends now. */
 export const interruptAgent = (agentId: string) => invoke<boolean>('agents_interrupt', { agentId });
@@ -513,6 +697,11 @@ export interface PasteImportAgent {
   instructionsChars: number;
   memoryLines: number;
   routines: PasteImportRoutine[];
+  /** The badge colour it has or will be given here; null only before a Chief of Staff exists. */
+  color: string | null;
+  /** What came across, word for word. */
+  instructions: string;
+  memory: string[];
 }
 
 /**
@@ -569,10 +758,64 @@ export const updateCheckIn = (agentId: string, id: string, when: string, note: s
 export const runCheckInNow = (agentId: string, id: string) =>
   invoke<void>('agents_schedule_run_now', { agentId, id });
 
+/* ------------------------------------------------------------- memory */
+
+/** One entry of an agent's `## Memory`; mirrors `memory::Entry`. */
+export interface MemoryEntry {
+  text: string;
+  /** The `###` heading it sits under ("Imported from Grok Bot"). */
+  group?: string;
+}
+
+export interface MemoryView {
+  entries: MemoryEntry[];
+  /** The exact lines a delete removed, for Undo. */
+  removed?: string;
+}
+
+/** Mirrors `memory::Change`. An edit or delete names the entry by position and words. */
+export type MemoryChange =
+  | {
+      op: 'add';
+      text: string;
+      group?: string;
+      after?: string;
+      before?: string;
+      raw?: string;
+    }
+  | { op: 'edit'; index: number; original: string; text: string }
+  | { op: 'delete'; index: number; original: string };
+
+export const getAgentMemory = (agentId: string) => invoke<MemoryView>('agents_memory', { agentId });
+export const changeAgentMemory = (agentId: string, change: MemoryChange) =>
+  invoke<MemoryView>('agents_memory_change', { agentId, change });
+/** "Remember this": the message as one line worth keeping (Haiku, or its opening). */
+export const suggestMemory = (text: string) => invoke<string>('agents_memory_suggest', { text });
+
+export {
+  groupMemory,
+  undoDelete,
+  type MemoryGroup,
+} from '../../packages/companion-protocol/src/memory';
+
+/**
+ * Formatters are built once: `toLocaleTimeString` with options builds a new
+ * one per call, which over a few hundred rows was the costliest part of a
+ * chat render.
+ */
+const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const SHORT_DAY = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+const EXACT = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' });
+
 // The schedule's wording is shared with the phone, which shows the same list.
 export {
   describeCheckInTime,
   describeRepeat,
+  describeRun,
   formatWhen,
   scheduleWhenPhrase,
   sortCheckIns,
@@ -655,9 +898,7 @@ export function hitSpeaker(hit: SearchHit): string | null {
 export function formatHitTime(ts: number, now = Date.now()): string {
   const date = new Date(ts);
   const today = new Date(now);
-  if (date.toDateString() === today.toDateString()) {
-    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
+  if (date.toDateString() === today.toDateString()) return CLOCK.format(date);
   return date.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -857,18 +1098,13 @@ export function buildChatItems(messages: AgentMessage[]): ChatItem[] {
 /** "Today 2:01 PM", "Yesterday 9:12 AM", "Mon, Nov 2 4:00 PM". */
 export function formatDivider(ts: number, now = Date.now()): string {
   const date = new Date(ts);
-  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = CLOCK.format(date);
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
   const dayMs = 24 * 60 * 60 * 1000;
   if (ts >= startOfToday.getTime()) return `Today ${time}`;
   if (ts >= startOfToday.getTime() - dayMs) return `Yesterday ${time}`;
-  const day = date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-  return `${day} ${time}`;
+  return `${SHORT_DAY.format(date)} ${time}`;
 }
 
 /** The centred line for a collapsed run of agent-to-agent messages. */
@@ -887,12 +1123,12 @@ export {
 
 /** "9:24 AM": a message's time, on hover. */
 export function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return CLOCK.format(ts);
 }
 
 /** "Tuesday, November 4, 2026 at 9:24:13 AM": the exact time, in its tooltip. */
 export function formatExactTime(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'medium' });
+  return EXACT.format(ts);
 }
 
 /**
@@ -928,13 +1164,24 @@ export const resendable = (agent: Agent, message: AgentMessage): OutgoingAttachm
 /** A check-in's note is capped (`MAX_NOTE_CHARS` in schedule.rs). */
 const RETRY_NOTE_MAX = 560;
 
-/** What a "Retry at <reset>" check-in tells the agent when it fires. */
-export function retryNote(text: string): string {
+/**
+ * What a "Retry at <reset>" check-in tells the agent when it fires. A check-in
+ * carries words only, so the files that went with the ask are named by path
+ * (they stay in the agent's home); the ask gives way to them under the cap.
+ */
+export function retryNote(text: string, files: string[] = []): string {
   const ask = text.trim();
   const head = 'Claude Code’s usage limit has reset. Carry on with what I asked';
-  if (!ask) return `${head}.`;
-  const room = RETRY_NOTE_MAX - head.length - 4;
-  return `${head}: “${ask.length > room ? `${ask.slice(0, room - 1)}…` : ask}”`;
+  // At most half the note: as many paths as fit, then how many more.
+  let attached = '';
+  for (let n = files.length; n > 0 && !attached; n--) {
+    const more = n < files.length ? `, and ${files.length - n} more` : '';
+    const line = ` Files I attached: ${files.slice(0, n).join(', ')}${more}`;
+    if (line.length <= RETRY_NOTE_MAX / 2) attached = line;
+  }
+  if (!ask) return `${head}.${attached}`;
+  const room = RETRY_NOTE_MAX - head.length - 4 - attached.length;
+  return `${head}: “${ask.length > room ? `${ask.slice(0, room - 1)}…` : ask}”${attached}`;
 }
 
 /** `agents_schedule_create`'s `when` for a moment: whole minutes from now, rounded up. */

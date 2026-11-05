@@ -24,7 +24,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "unstable"] }
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "unstable", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-pty = { path = "plugins/tauri-plugin-pty" }
@@ -88,8 +88,15 @@ tauri-plugin-notification = "2"
 data-encoding = "2"
 qrcodegen = "1.8"
 async-trait = "0.1"
+# Agents' quick entry: a system-wide hotkey (default ⌥Space) that opens the
+# floating composer over any app (src/agents/quick_entry.rs).
+tauri-plugin-global-shortcut = "2"
 
 [dev-dependencies]
+
+# Unix: signals for a process group (agents::procs stops a turn's whole tree).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Windows: Job Objects, so a spawned command's whole process tree can be
 # closed together (commands/pty/job.rs).

@@ -3,12 +3,17 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Update } from '@tauri-apps/plugin-updater';
 import { UpdateBanner, parseReleaseNotes } from './UpdateBanner';
-import { checkForUpdate, downloadAndInstall } from '../lib/updater';
+import { checkForUpdate, downloadAndInstall, restartApp } from '../lib/updater';
+import { agentsBusy } from '../lib/agents';
 
 vi.mock('../lib/updater', () => ({
   checkForUpdate: vi.fn(),
   downloadAndInstall: vi.fn(),
   restartApp: vi.fn(),
+}));
+
+vi.mock('../lib/agents', () => ({
+  agentsBusy: vi.fn(() => Promise.resolve(0)),
 }));
 
 vi.mock('../lib/analytics', () => ({
@@ -168,5 +173,29 @@ A second paragraph mentioning \`pages/\` and a [link](https://example.com).`;
 
     expect(await screen.findByText('Click to restart')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Restart to apply version 0.18.0' })).toBeEnabled();
+  });
+
+  it('waits for working agents before restarting, unless asked again', async () => {
+    vi.mocked(checkForUpdate).mockResolvedValue({
+      update: {} as Update,
+      info: { version: '0.18.0', date: '2026-08-05', body: '' },
+    });
+    vi.mocked(downloadAndInstall).mockResolvedValue(undefined);
+    vi.mocked(restartApp).mockReset();
+    vi.mocked(agentsBusy).mockResolvedValue(2);
+
+    const user = userEvent.setup();
+    render(<UpdateBanner />);
+    await user.click(
+      await screen.findByRole('button', { name: 'Update Ship Studio to version 0.18.0' })
+    );
+    await user.click(
+      await screen.findByRole('button', { name: 'Restart to apply version 0.18.0' })
+    );
+    expect(await screen.findByText('After agents finish')).toBeVisible();
+    expect(restartApp).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /once agents finish\. Restart now/ }));
+    expect(restartApp).toHaveBeenCalledTimes(1);
   });
 });

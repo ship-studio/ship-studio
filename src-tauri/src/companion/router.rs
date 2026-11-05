@@ -29,11 +29,15 @@ pub const METHODS: &[&str] = &[
     "agents.stop",
     "agents.interrupt",
     "agents.answerApproval",
+    "agents.saveSecret",
     "agents.focus",
     "agents.markUnread",
     "agents.update",
     "agents.revokePermission",
     "agents.instructions",
+    "agents.memory",
+    "agents.memoryChange",
+    "agents.memorySuggest",
     "agents.usage",
     "agents.changeDiff",
     "agents.files",
@@ -60,6 +64,8 @@ pub const READ_ONLY_METHODS: &[&str] = &[
     "agents.overview",
     "agents.messages",
     "agents.instructions",
+    "agents.memory",
+    "agents.memorySuggest",
     "agents.usage",
     "agents.changeDiff",
     "agents.files",
@@ -145,7 +151,17 @@ pub struct ApprovalAnswer {
     pub allow: bool,
     pub always: Option<bool>,
     pub note: Option<String>,
+    /// On a session's question: the option picked, by index.
+    pub choice: Option<usize>,
 }
+
+/// A memory entry is a line worth keeping, not a document.
+const MAX_MEMORY_CHARS: usize = 2_000;
+/// "Remember this" summarises one message; longer is cut, as on the desk.
+const MAX_SUGGEST_CHARS: usize = 20_000;
+/// A secret's parts: a username and password is the most a card asks for.
+const MAX_SECRET_FIELDS: usize = 8;
+const MAX_SECRET_CHARS: usize = 8_192;
 
 /// Everything outside the companion it needs: the agents, the Mac, the
 /// audit log and the Phone panel. The desktop implementation is in
@@ -179,6 +195,20 @@ pub trait Backend: Send + Sync + 'static {
         agent_id: &str,
         toggles: AgentToggles,
     ) -> Result<Value, CommandError>;
+    /// `agents_save_secret`: a secure input card's values into the Keychain.
+    /// Returns the saved `AgentSecret` (never a value).
+    async fn save_secret(
+        &self,
+        agent_id: &str,
+        request_id: &str,
+        values: Vec<String>,
+    ) -> Result<Value, CommandError>;
+    /// `agents_memory`: the agent's memory entries.
+    async fn memory(&self, agent_id: &str) -> Result<Value, CommandError>;
+    /// `agents_memory_change`: add, edit or delete one entry.
+    async fn memory_change(&self, agent_id: &str, change: Value) -> Result<Value, CommandError>;
+    /// `agents_memory_suggest`: a message as one line worth keeping.
+    async fn memory_suggest(&self, text: String) -> Result<String, CommandError>;
     /// `agents_instructions`: the agent's brief, as the Edit agent sheet shows it.
     async fn instructions(&self, agent_id: &str) -> Result<String, CommandError>;
     /// `agents_usage`: this week and all time.
@@ -283,6 +313,8 @@ pub struct Caller {
     pub device_name: String,
     /// `notify::set_showing`'s key for this socket.
     pub label: String,
+    /// How this socket reached the Mac. Secrets go over Tailscale only.
+    pub route: super::wire::RouteKind,
 }
 
 fn bad_params(e: impl std::fmt::Display) -> WireError {
@@ -440,6 +472,29 @@ struct ApprovalParams {
     allow: bool,
     always: Option<bool>,
     note: Option<String>,
+    choice: Option<usize>,
+}
+
+/// Never echoed: a parse error could quote a value, so a malformed request
+/// gets a fixed sentence instead (see `"agents.saveSecret"`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SecretParams {
+    agent_id: String,
+    request_id: String,
+    values: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryChangeParams {
+    agent_id: String,
+    change: Value,
+}
+
+#[derive(Deserialize)]
+struct TextParam {
+    text: String,
 }
 
 #[derive(Deserialize)]
@@ -487,11 +542,32 @@ pub fn audit_detail(method: &str, params: &Value) -> String {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let note = field("note").trim();
+            if let Some(choice) = params.get("choice").and_then(Value::as_u64) {
+                return format!("picked option {}", choice + 1);
+            }
             match (allow, always, note.is_empty()) {
                 (true, true, _) => "always allow".into(),
                 (true, false, _) => "allow".into(),
                 (false, _, true) => "deny".into(),
                 (false, _, false) => preview(&format!("deny with note: {note}")),
+            }
+        }
+        // Names the card, never a value: `values` is not read here.
+        "agents.saveSecret" => format!("saved a secret for {}", field("agentId")),
+        "agents.memoryChange" => {
+            let change = params.get("change").cloned().unwrap_or(Value::Null);
+            let text = change.get("text").and_then(Value::as_str).unwrap_or("");
+            match change.get("op").and_then(Value::as_str).unwrap_or("") {
+                "add" => preview(&format!("remember: {text}")),
+                "edit" => preview(&format!("edit memory: {text}")),
+                "delete" => format!(
+                    "forget memory entry {}",
+                    change
+                        .get("index")
+                        .map(Value::to_string)
+                        .unwrap_or_default()
+                ),
+                other => format!("memory {other}"),
             }
         }
         "devices.unpairSelf" => "forgot this Mac".into(),
@@ -645,9 +721,57 @@ async fn run(
                 allow: p.allow,
                 always: p.always,
                 note: p.note,
+                choice: p.choice,
             })
             .await?;
             Ok(Value::Null)
+        }
+        "agents.saveSecret" => {
+            if caller.route != super::wire::RouteKind::Tailscale {
+                return Err(WireError::protocol(
+                    ProtocolCode::Refused,
+                    "Secrets are only sent over Tailscale, which encrypts them all the way to this Mac.",
+                ));
+            }
+            let p: SecretParams = parse(params).map_err(|_| {
+                bad_params("A secret needs agentId, requestId and one value per field.")
+            })?;
+            if p.values.is_empty()
+                || p.values.len() > MAX_SECRET_FIELDS
+                || p.values
+                    .iter()
+                    .any(|v| v.chars().count() > MAX_SECRET_CHARS)
+            {
+                return Err(bad_params(
+                    "That doesn't look like a secret this card asked for.",
+                ));
+            }
+            Ok(b.save_secret(&p.agent_id, &p.request_id, p.values).await?)
+        }
+        "agents.memory" => {
+            let p: AgentParam = parse(params)?;
+            Ok(b.memory(&p.agent_id).await?)
+        }
+        "agents.memoryChange" => {
+            let p: MemoryChangeParams = parse(params)?;
+            let text = p.change.get("text").and_then(Value::as_str).unwrap_or("");
+            if text.chars().count() > MAX_MEMORY_CHARS {
+                return Err(bad_params(format!(
+                    "A memory can be up to {MAX_MEMORY_CHARS} characters."
+                )));
+            }
+            if text.chars().any(|c| c.is_control() && c != '\n') {
+                return Err(WireError::protocol(
+                    ProtocolCode::Refused,
+                    "A memory can't contain control characters.",
+                ));
+            }
+            Ok(b.memory_change(&p.agent_id, p.change).await?)
+        }
+        "agents.memorySuggest" => {
+            let p: TextParam = parse(params)?;
+            let text: String = p.text.chars().take(MAX_SUGGEST_CHARS).collect();
+            Ok(Value::String(b.memory_suggest(text).await?))
         }
         "agents.focus" => {
             let p: FocusParams = parse(params)?;
@@ -905,7 +1029,107 @@ mod tests {
             device_id: device.into(),
             device_name: "Test Phone".into(),
             label: format!("companion:{device}:1"),
+            route: crate::companion::wire::RouteKind::Tailscale,
         }
+    }
+
+    #[tokio::test]
+    async fn a_secret_goes_only_over_tailscale_and_no_value_reaches_the_audit() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        let save = |values: Value| json!({ "agentId": AGENT, "requestId": "q8", "values": values });
+        let mut lan = caller("dev_a");
+        lan.route = crate::companion::wire::RouteKind::Lan;
+        let refused = dispatch(
+            &c,
+            &lan,
+            "agents.saveSecret",
+            save(json!(["julian", "hunter2"])),
+        )
+        .await
+        .unwrap_err();
+        assert!(refused.summary().contains("only sent over Tailscale"));
+
+        let me = caller("dev_a");
+        let saved = dispatch(
+            &c,
+            &me,
+            "agents.saveSecret",
+            save(json!(["julian", "hunter2"])),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved["name"], "Stripe key");
+        assert_eq!(
+            stub.secrets_saved.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        // A malformed request is refused without quoting what it carried.
+        let bad = dispatch(&c, &me, "agents.saveSecret", save(json!("hunter2")))
+            .await
+            .unwrap_err();
+        assert!(!bad.summary().contains("hunter2"));
+        let extra = json!({ "agentId": AGENT, "requestId": "q8", "values": ["a"], "v": "hunter2" });
+        assert!(!dispatch(&c, &me, "agents.saveSecret", extra)
+            .await
+            .unwrap_err()
+            .summary()
+            .contains("hunter2"));
+        for (_, method, detail, _) in stub.audited() {
+            assert_eq!(method, "agents.saveSecret");
+            assert!(
+                !detail.contains("hunter2") && !detail.contains("julian"),
+                "{detail}"
+            );
+        }
+        assert_eq!(stub.audited().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_session_question_is_answered_by_option() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        let me = caller("dev_a");
+        let params = json!({ "agentId": AGENT, "requestId": "q6", "allow": true, "choice": 1 });
+        dispatch(&c, &me, "agents.answerApproval", params)
+            .await
+            .unwrap();
+        assert_eq!(stub.answers.lock().unwrap()[0].choice, Some(1));
+        assert_eq!(stub.audited()[0].2, "picked option 2");
+    }
+
+    #[tokio::test]
+    async fn memory_changes_are_audited_and_kept_short() {
+        use crate::companion::testkit::{Stub, AGENT};
+        let (c, stub) = Stub::companion();
+        let me = caller("dev_a");
+        let add =
+            |text: String| json!({ "agentId": AGENT, "change": { "op": "add", "text": text } });
+        let view = dispatch(
+            &c,
+            &me,
+            "agents.memoryChange",
+            add("Ship on Fridays".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["entries"].as_array().unwrap().len(), 4);
+        assert_eq!(stub.audited()[0].2, "remember: Ship on Fridays");
+        assert!(
+            dispatch(&c, &me, "agents.memoryChange", add("x".repeat(2_001)))
+                .await
+                .is_err()
+        );
+        assert!(
+            dispatch(&c, &me, "agents.memoryChange", add("a\u{1b}[2J".into()))
+                .await
+                .is_err()
+        );
+        // Reading isn't an action: not audited.
+        dispatch(&c, &me, "agents.memory", json!({ "agentId": AGENT }))
+            .await
+            .unwrap();
+        assert_eq!(stub.audited().len(), 3);
     }
 
     #[tokio::test]
