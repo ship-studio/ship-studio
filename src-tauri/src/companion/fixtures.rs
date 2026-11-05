@@ -17,7 +17,7 @@ use super::router::{self, Caller};
 use super::testkit::{self, Stub, AGENT};
 use super::wire::{
     BuildKind, Cursor, DevicePlatform, Event, PairRefusal, PairResponse, PairingLink, ProtocolCode,
-    RefusedReason, ResumeMode, Route, RouteKind, ServerFrame, ServerInfo, WireError,
+    RefusedReason, ResumeMode, RouteKind, ServerFrame, ServerInfo, WireError,
 };
 use super::DeviceRecord;
 use crate::errors::CommandError;
@@ -267,18 +267,7 @@ fn pairing_link() -> PairingLink {
         code: "K7Q2MZX4A9PL3WRT8NBV6YHC5D".into(),
         server_id: "srv_0123456789abcdef".into(),
         name: "Julian’s MacBook Pro".into(),
-        routes: vec![
-            Route {
-                kind: RouteKind::Tailscale,
-                url: "https://julians-macbook-pro.tail1234.ts.net:47443".into(),
-                pin: None,
-            },
-            Route {
-                kind: RouteKind::Lan,
-                url: "https://192.168.1.20:47444".into(),
-                pin: Some("q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A".into()),
-            },
-        ],
+        routes: testkit::routes(),
     }
 }
 

@@ -1,6 +1,5 @@
 import type { Agent, AgentMessage, UsageTotals } from '@shipstudio/companion-protocol';
 import type { NotificationRequest } from 'expo-notifications';
-import * as real from '../../packages/companion-protocol/src/fixtures.gen';
 import {
   attentionCounts,
   describeScope,
@@ -11,20 +10,10 @@ import {
 import { diffLineKind, questionContext } from '../src/lib/diff';
 import { EMPTY_DRAFT, FILE_KEEP_MS, expiredFiles, putDraft } from '../src/lib/drafts';
 import { badgeCount, notificationId, targetOf } from '../src/lib/notify';
+import { agent } from './helpers';
 
-const base = real.agentsOverview.agents[0] as Agent;
-const agent = (id: string, over: Partial<Agent> = {}): Agent => ({
-  ...base,
-  id,
-  name: id,
-  hidden: false,
-  pinned: false,
-  pendingApprovals: 0,
-  unread: 0,
-  failure: undefined,
-  status: { state: 'idle', activity: null, since: null },
-  ...over,
-});
+const named = (id: string, over: Partial<Agent> = {}) =>
+  agent({ id, name: id, hidden: false, pinned: false, ...over });
 const approval = (id: string, status: 'pending' | 'allowed', detail = 'pnpm run deploy --prod') =>
   ({
     id,
@@ -70,9 +59,9 @@ describe('notifications', () => {
   it('counts the badge as the desk does: unread plus approvals, hidden agents left out', () => {
     expect(
       badgeCount([
-        agent('a', { unread: 2, pendingApprovals: 1 }),
-        agent('b', { unread: 3, hidden: true }),
-        agent('c', { unread: 1, muted: true }),
+        named('a', { unread: 2, pendingApprovals: 1 }),
+        named('b', { unread: 3, hidden: true }),
+        named('c', { unread: 1, muted: true }),
       ])
     ).toBe(4);
   });
@@ -80,7 +69,7 @@ describe('notifications', () => {
 
 describe('attention', () => {
   it('says what a waiting agent is asking, only when the saved chat knows', () => {
-    const a = agent('a', { pendingApprovals: 1 });
+    const a = named('a', { pendingApprovals: 1 });
     expect(needsLine(a, [approval('m1', 'pending')])).toBe(
       'Needs your OK · pnpm run deploy --prod'
     );
@@ -90,11 +79,11 @@ describe('attention', () => {
 
   it('counts who needs you and who is working, and finds the next card', () => {
     const agents = [
-      agent('idle'),
-      agent('busy', { status: { state: 'working', activity: null, since: 1 } }),
-      agent('old', { pendingApprovals: 1, lastActivityAt: 1 }),
-      agent('new', { pendingApprovals: 1, lastActivityAt: 9 }),
-      agent('gone', { pendingApprovals: 1, hidden: true, lastActivityAt: 99 }),
+      named('idle'),
+      named('busy', { status: { state: 'working', activity: null, since: 1 } }),
+      named('old', { pendingApprovals: 1, lastActivityAt: 1 }),
+      named('new', { pendingApprovals: 1, lastActivityAt: 9 }),
+      named('gone', { pendingApprovals: 1, hidden: true, lastActivityAt: 99 }),
     ];
     expect(attentionCounts(agents)).toEqual({ needYou: 2, working: 1 });
     expect(nextNeedsYou(agents, { new: { messages: [approval('m9', 'pending')] } })).toEqual({

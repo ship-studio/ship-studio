@@ -7,18 +7,11 @@
 import type { CompanionEvent, Cursor } from '@shipstudio/companion-protocol';
 import { WebSocket } from 'ws';
 import { createMockServer } from '../dev/mock-server';
+import { until } from './helpers';
 import { applyEvent, emptySync, mergePage, type SyncState } from '../src/lib/sync';
 import { DirectTransport } from '../src/lib/transport';
 
 jest.setTimeout(20_000);
-
-async function until(check: () => boolean, ms = 8000) {
-  const end = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > end) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 describe('DirectTransport against the mock Mac', () => {
   const mock = createMockServer({ quiet: true, allowAfterMs: 0, draftEveryMs: 15 });

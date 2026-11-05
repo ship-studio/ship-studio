@@ -1,6 +1,5 @@
-import type { Agent, AgentMessage } from '@shipstudio/companion-protocol';
+import type { Agent } from '@shipstudio/companion-protocol';
 import { withQuotes } from '@shipstudio/companion-protocol';
-import * as real from '../../packages/companion-protocol/src/fixtures.gen';
 import { agentActions, messageActions, plainText, toggleFor } from '../src/lib/actions';
 import { CACHED_MESSAGES, fromCache, toCache } from '../src/lib/cache';
 import { EMPTY_DRAFT, liveMentions, putDraft } from '../src/lib/drafts';
@@ -10,24 +9,8 @@ import { chatItems, dayLabel } from '../src/lib/timeline';
 import { WireFailure } from '../src/lib/transport';
 import { looksLikePath, splitStable } from '../src/components/Markdown';
 import { mentionQuery, sendMode } from '../src/lib/composer';
+import { agent, msg } from './helpers';
 
-const base = real.agentsOverview.agents[0] as Agent;
-const agent = (over: Partial<Agent> = {}): Agent => ({
-  ...base,
-  pendingApprovals: 0,
-  unread: 0,
-  failure: undefined,
-  status: { state: 'idle', activity: null, since: null },
-  ...over,
-});
-const msg = (id: string, ts: number, extra: Partial<AgentMessage> = {}): AgentMessage => ({
-  id,
-  agentId: 'a',
-  ts,
-  kind: 'agent',
-  text: id,
-  ...extra,
-});
 const pend = (clientId: string, ts: number, extra: Partial<PendingSend> = {}): PendingSend => ({
   clientId,
   agentId: 'a',

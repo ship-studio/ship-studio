@@ -1,8 +1,8 @@
 /**
- * P2 against the mock Mac, through the app's real transport: files both ways
- * over the HTTP routes (auth, limits, the send that carries them), the
- * echoed clientId, the Files list, search, check-ins and routines, and
- * projects with their sessions.
+ * The features beyond chat, against the mock Mac through the app's real
+ * transport: files both ways over the HTTP routes (auth, limits, the send
+ * that carries them), the echoed clientId, the Files list, search,
+ * check-ins and routines, and projects with their sessions.
  */
 
 import type { AgentMessage, CompanionEvent, Cursor } from '@shipstudio/companion-protocol';
@@ -11,12 +11,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createMockServer } from '../dev/mock-server';
+import { until } from './helpers';
 import { applyEvent, emptySync } from '../src/lib/sync';
 import { DirectTransport, WireFailure, type HttpAdapter } from '../src/lib/transport';
 
 jest.setTimeout(20_000);
 
-const dir = mkdtempSync(join(tmpdir(), 'companion-p2-'));
+const dir = mkdtempSync(join(tmpdir(), 'companion-features-'));
 
 /** `files.ts`'s job under Node: fetch and the file system. */
 const nodeHttp: HttpAdapter = {
@@ -33,15 +34,7 @@ const nodeHttp: HttpAdapter = {
   },
 };
 
-async function until(check: () => boolean, ms = 8000) {
-  const end = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > end) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
-
-describe('P2 against the mock Mac', () => {
+describe('files, search, schedules and projects against the mock Mac', () => {
   const mock = createMockServer({ quiet: true, allowAfterMs: 0, draftEveryMs: 10 });
   let url = '';
   let token = '';

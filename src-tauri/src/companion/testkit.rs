@@ -140,19 +140,24 @@ pub fn mac_status() -> MacStatus {
             signed_in: Known::Unknown,
             version: Some("2.1.0".into()),
         },
-        routes: vec![
-            Route {
-                kind: RouteKind::Tailscale,
-                url: "https://julians-macbook-pro.tail1234.ts.net:47443".into(),
-                pin: None,
-            },
-            Route {
-                kind: RouteKind::Lan,
-                url: "https://192.168.1.20:47444".into(),
-                pin: Some("q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A".into()),
-            },
-        ],
+        routes: routes(),
     }
+}
+
+/// Both kinds of route, the LAN one with its certificate pin.
+pub fn routes() -> Vec<Route> {
+    vec![
+        Route {
+            kind: RouteKind::Tailscale,
+            url: "https://julians-macbook-pro.tail1234.ts.net:47443".into(),
+            pin: None,
+        },
+        Route {
+            kind: RouteKind::Lan,
+            url: "https://192.168.1.20:47444".into(),
+            pin: Some("q2v0bQyR3m8b0f4Jc1lT8wq9s1nC3kq8H1cX0p9yQ2A".into()),
+        },
+    ]
 }
 
 /// The overview the desktop would send, live status and all, as the phone gets it.

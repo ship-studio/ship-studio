@@ -8,15 +8,7 @@ import {
   mergePage,
   type SyncState,
 } from '../src/lib/sync';
-
-const msg = (id: string, ts: number, extra: Partial<AgentMessage> = {}): AgentMessage => ({
-  id,
-  agentId: 'a',
-  ts,
-  kind: 'agent',
-  text: id,
-  ...extra,
-});
+import { msg } from './helpers';
 
 const epoch = 'e1';
 const at = (s: SyncState, seq: number, message: AgentMessage) =>
