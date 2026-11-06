@@ -239,6 +239,19 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              your plan supports (or change the model in ~/.codex/config.toml), then try again."
         )));
     }
+    // Claude Code's hard expiry: "this login reached its time limit and
+    // cannot be renewed", pointing at `claude auth login` or, for token
+    // auth, `claude setup-token` / CLAUDE_CODE_OAUTH_TOKEN. None of the
+    // expired-session wordings below appear in it. Its own branch because a
+    // token-based login is renewed by minting a new token, not by /login.
+    if lower.contains("reached its time limit and cannot be renewed") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s sign-in reached its time limit and can't be renewed, so AI \
+             generation isn't available right now. Sign in again — run `claude auth login` in \
+             a terminal (or /login in an agent terminal) — or, if you use a long-lived token, \
+             create a new one with `claude setup-token`. Then try again."
+        )));
+    }
     if lower.contains("please run /login")
         || lower.contains("oauth token has expired")
         || lower.contains("session expired")
@@ -1207,6 +1220,21 @@ mod tests {
         .expect("must classify");
         assert!(matches!(err, CommandError::Expected { .. }));
         assert!(format!("{err}").contains("sign in again"));
+    }
+
+    // Claude Code's non-renewable login expiry, which none of the
+    // expired-session substrings matched. Must not read as a usage limit.
+    #[test]
+    fn classify_agent_cli_failure_login_time_limit_is_expected() {
+        let detail = "exit code Some(1): This login reached its time limit and cannot be \
+                      renewed. Run `claude auth login` to sign in again, or use `claude \
+                      setup-token` and set CLAUDE_CODE_OAUTH_TOKEN.";
+        let err = classify_agent_cli_failure("Claude Code", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("claude auth login"), "got: {msg}");
+        assert!(msg.contains("claude setup-token"), "got: {msg}");
+        assert!(!msg.contains("usage limit"), "got: {msg}");
     }
 
     // Issue #1110: Claude Code's weekly-ceiling wording keeps the reset time.
