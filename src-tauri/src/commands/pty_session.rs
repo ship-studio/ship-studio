@@ -371,6 +371,25 @@ fn env_has_key(env: &BTreeMap<String, String>, key: &str) -> bool {
     env.keys().any(|k| k.eq_ignore_ascii_case(key))
 }
 
+fn trim_trailing_nuls(s: &str) -> &str {
+    s.trim_end_matches('\0')
+}
+
+/// Remove the NUL terminators portable_pty prints in its spawn errors.
+///
+/// On Windows, portable_pty (0.9.0, `win/psuedocon.rs`) formats a failed
+/// spawn as "CreateProcessW `{cmdline:?}` in cwd `{cwd:?}` failed: …" from
+/// the wide buffers it built for CreateProcessW — and it NUL-terminates both
+/// on purpose, as CreateProcessW requires. So every such report shows a
+/// `\0` at the end of the command line and of the cwd. That is the
+/// terminator, not a stray character in the strings Ship Studio passed, and
+/// it sent triage looking for a string-conversion bug that isn't there
+/// (the same `\0`s appear in #1143). Drop it from the message — both the
+/// `{:?}` escape (`\0"`) and a raw NUL.
+fn strip_terminator_nuls(message: &str) -> String {
+    message.replace("\\0\"", "\"").replace('\0', "")
+}
+
 fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
     if bytes.len() >= RING_BUFFER_MAX {
         ring.clear();
@@ -568,13 +587,23 @@ pub async fn pty_session_open(
         .try_clone_reader()
         .map_err(|e| format!("clone_reader: {e}"))?;
 
+    // Defensive: a NUL at the end of any string handed to CreateProcessW cuts
+    // it short there (the program name, the cwd) or makes portable_pty refuse
+    // the argument outright. Nothing in Ship Studio is known to add one, but
+    // the strings cross IPC from the webview, so drop trailing NULs here.
+    let command = trim_trailing_nuls(&command).to_string();
+    let cwd = cwd.as_deref().map(|c| trim_trailing_nuls(c).to_string());
+
     let mut cmd = CommandBuilder::new(&command);
-    cmd.args(&args);
+    cmd.args(args.iter().map(|a| trim_trailing_nuls(a)));
     if let Some(ref c) = cwd {
         cmd.cwd(std::ffi::OsString::from(c));
     }
     for (k, v) in env.iter() {
-        cmd.env(std::ffi::OsString::from(k), std::ffi::OsString::from(v));
+        cmd.env(
+            std::ffi::OsString::from(trim_trailing_nuls(k)),
+            std::ffi::OsString::from(trim_trailing_nuls(v)),
+        );
     }
 
     // Windows safety net: the provided env REPLACES the parent environment,
@@ -611,7 +640,7 @@ pub async fn pty_session_open(
         pair.slave.spawn_command(cmd.clone())
     })
     .map_err(|e| {
-        let message = format!("spawn_command `{command}`: {e}");
+        let message = strip_terminator_nuls(&format!("spawn_command `{command}`: {e}"));
         // A persistent EAGAIN is the environment (resource pressure), not an
         // app malfunction — Expected with a human message (issue #587).
         if crate::external_command::is_spawn_resource_pressure(&message) {
@@ -1620,6 +1649,32 @@ mod tests {
         assert!(env_has_key(&env, "SystemRoot"));
         assert!(env_has_key(&env, "systemroot"));
         assert!(!env_has_key(&env, "COMSPEC"));
+    }
+
+    /// portable_pty's Windows spawn error, verbatim shape: both wide buffers
+    /// carry their CreateProcessW NUL terminator into the `{:?}` output.
+    #[test]
+    fn strip_terminator_nuls_cleans_portable_pty_spawn_error() {
+        let raw = "spawn_command `powershell.exe`: CreateProcessW `\"powershell.exe\\0\"` in cwd \
+                   `Some(\"C:\\\\Users\\\\me\\\\ShipStudio\\\\site\\0\")` failed: The system \
+                   cannot find the file specified. (os error 2)";
+        let cleaned = strip_terminator_nuls(raw);
+        assert_eq!(
+            cleaned,
+            "spawn_command `powershell.exe`: CreateProcessW `\"powershell.exe\"` in cwd \
+             `Some(\"C:\\\\Users\\\\me\\\\ShipStudio\\\\site\")` failed: The system cannot find \
+             the file specified. (os error 2)"
+        );
+        // A raw NUL goes too; text without either is unchanged.
+        assert_eq!(strip_terminator_nuls("a\0b"), "ab");
+        assert_eq!(strip_terminator_nuls("os error 2"), "os error 2");
+    }
+
+    #[test]
+    fn trim_trailing_nuls_only_trims_the_end() {
+        assert_eq!(trim_trailing_nuls("powershell.exe\0"), "powershell.exe");
+        assert_eq!(trim_trailing_nuls("C:\\site\0\0"), "C:\\site");
+        assert_eq!(trim_trailing_nuls("plain"), "plain");
     }
 
     #[test]
