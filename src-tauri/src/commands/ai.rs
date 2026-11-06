@@ -333,6 +333,32 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              {agent_name} to a different model, then try again."
         )));
     }
+    // The model provider's gateway is down or overloaded (issue #1153, seen on
+    // Opencode's `hy4` endpoint): an upstream outage that clears by itself.
+    // Matched on "temporarily unavailable" only on the same line as a
+    // gateway/provider/upstream/endpoint word (per line, because Codex's
+    // transcript header has its own "provider: openai" line and an unrelated
+    // EAGAIN "resource temporarily unavailable" must not pair with it), on the
+    // hosted gateway's "endpoint is unavailable", or on a 502/503/504 status
+    // written with its reason phrase — never a bare status number.
+    let unavailable_upstream = lower.lines().any(|line| {
+        line.contains("temporarily unavailable")
+            && ["gateway", "provider", "upstream", "endpoint"]
+                .iter()
+                .any(|w| line.contains(w))
+    });
+    if unavailable_upstream
+        || lower.contains("endpoint is unavailable")
+        || lower.contains("502 bad gateway")
+        || lower.contains("503 service unavailable")
+        || lower.contains("504 gateway timeout")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s model provider is having issues right now (its gateway is \
+             temporarily unavailable), so AI generation didn't run. Try again in a few minutes, \
+             or switch {agent_name} to a different model."
+        )));
+    }
     // Opencode's own local server failing with no detail ("UnknownError" /
     // "Unexpected server error. Check server logs for details.") — a known
     // upstream Opencode failure with several causes, none of them in the
@@ -1443,6 +1469,50 @@ mod tests {
         let detail = "\n> build · muse-spark-1.3-contributor-free\n\nError: JSON schema exceeds \
                       the maximum nesting depth of 10 levels";
         assert_expected("Opencode", detail, "different model");
+    }
+
+    // Issue #1153: the provider's gateway temporarily down (seen on `hy4`).
+    #[test]
+    fn classify_agent_cli_failure_provider_gateway_outage_is_expected() {
+        assert_expected(
+            "Opencode",
+            "\n> build · hy4\n\nError: The model gateway is temporarily unavailable. Please try \
+             again later.",
+            "Try again",
+        );
+        assert_expected(
+            "Opencode",
+            "Error: Provider temporarily unavailable",
+            "having issues",
+        );
+        assert_expected(
+            "Opencode",
+            "Error: Endpoint is unavailable",
+            "having issues",
+        );
+        assert_expected(
+            "Opencode",
+            "AI_APICallError: 502 Bad Gateway",
+            "having issues",
+        );
+        assert_expected(
+            "Opencode",
+            "unexpected status 503 Service Unavailable",
+            "having issues",
+        );
+        // Too generic on their own: a bare status, or "unavailable" with no
+        // upstream word, stays reportable.
+        assert!(classify_agent_cli_failure("Opencode", "exit code 503").is_none());
+        assert!(
+            classify_agent_cli_failure("Opencode", "Error: resource temporarily unavailable")
+                .is_none()
+        );
+        assert!(classify_agent_cli_failure(
+            "Codex",
+            "OpenAI Codex v0.163.0\n--------\nprovider: openai\n--------\nERROR: write failed: \
+             Resource temporarily unavailable (os error 35)"
+        )
+        .is_none());
     }
 
     // Issue #971: Opencode's opaque internal server error.
