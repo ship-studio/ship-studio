@@ -333,6 +333,21 @@ pub(crate) fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Opti
              {agent_name} to a different model, then try again."
         )));
     }
+    // Opencode set (in its own config — Ship Studio passes no model flag) to a
+    // model no registered provider serves. Opencode prints
+    // "ProviderModelNotFoundError: ProviderModelNotFoundError" with the
+    // providerID/modelID, then "Error: Model not found: <provider>/<model>."
+    // (issue #1152, seen with `minimax-m2.7`). Matched on the error's class
+    // name or the "Model not found:" line with its colon — never a bare "not
+    // found", and not Codex's "Model metadata for `x` not found" warning.
+    if lower.contains("providermodelnotfounderror") || lower.contains("model not found: ") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} is set to a model that none of its configured providers offer, so AI \
+             generation isn't available right now. Open an agent terminal and run /models to \
+             pick a different model, or add the provider for that model to {agent_name}, then \
+             try again."
+        )));
+    }
     // Opencode's own local server failing with no detail ("UnknownError" /
     // "Unexpected server error. Check server logs for details.") — a known
     // upstream Opencode failure with several causes, none of them in the
@@ -1443,6 +1458,36 @@ mod tests {
         let detail = "\n> build · muse-spark-1.3-contributor-free\n\nError: JSON schema exceeds \
                       the maximum nesting depth of 10 levels";
         assert_expected("Opencode", detail, "different model");
+    }
+
+    // Issue #1152: Opencode set to a model no registered provider serves. The
+    // shape is Opencode's own output for ProviderModelNotFoundError.
+    #[test]
+    fn classify_agent_cli_failure_opencode_unregistered_model_is_expected() {
+        let detail = "ProviderModelNotFoundError: ProviderModelNotFoundError\n data: {\n  \
+                      providerID: \"minimax\",\n  modelID: \"minimax-m2.7\",\n  suggestions: [],\n\
+                      },\n      at getModel (/$bunfs/root/src/index.js:185999:15)\nError: Model not \
+                      found: minimax/minimax-m2.7.";
+        assert_expected("Opencode", detail, "different model");
+        // Either marker alone classifies.
+        assert_expected(
+            "Opencode",
+            "ProviderModelNotFoundError: ProviderModelNotFoundError",
+            "/models",
+        );
+        assert_expected(
+            "Opencode",
+            "Error: Model not found: minimax-m2.7. Did you mean: minimax/MiniMax-M2.7?",
+            "/models",
+        );
+        // Codex's fallback-metadata warning is not this error, and a bare
+        // "not found" stays reportable.
+        assert!(classify_agent_cli_failure(
+            "Codex",
+            "warning: Model metadata for `gpt-5.5` not found. Defaulting to fallback metadata"
+        )
+        .is_none());
+        assert!(classify_agent_cli_failure("Opencode", "Error: file not found").is_none());
     }
 
     // Issue #971: Opencode's opaque internal server error.
