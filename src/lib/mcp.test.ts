@@ -4,7 +4,90 @@ import {
   isMcpUnsupportedCliError,
   isMcpInvalidInputError,
   isMcpExpectedFailure,
+  mcpJsonConfigToAddArgs,
 } from './mcp';
+
+describe('mcpJsonConfigToAddArgs (#1154)', () => {
+  const args = (input: string, agentId?: string) => {
+    const result = mcpJsonConfigToAddArgs(input, agentId);
+    if (!result || !('args' in result)) throw new Error(`no args: ${JSON.stringify(result)}`);
+    return result.args;
+  };
+  const error = (input: string, agentId?: string) => {
+    const result = mcpJsonConfigToAddArgs(input, agentId);
+    if (!result || !('error' in result)) throw new Error(`no error: ${JSON.stringify(result)}`);
+    return result.error;
+  };
+
+  const stdio = JSON.stringify(
+    {
+      mcpServers: {
+        context7: {
+          command: 'npx',
+          args: ['-y', '@upstash/context7-mcp'],
+          env: { API_KEY: 'sk test' },
+        },
+      },
+    },
+    null,
+    2
+  );
+
+  it('leaves ordinary mcp add text alone', () => {
+    expect(mcpJsonConfigToAddArgs('my-server -- npx -y pkg', 'claude-code')).toBeNull();
+  });
+
+  it('converts a stdio server for Claude Code, Codex and OpenCode', () => {
+    expect(args(stdio, 'claude-code')).toBe(
+      'context7 -e "API_KEY=sk test" -- npx -y @upstash/context7-mcp'
+    );
+    expect(args(stdio, 'codex')).toBe(
+      'context7 --env "API_KEY=sk test" -- npx -y @upstash/context7-mcp'
+    );
+    const noEnv = '{"context7": {"command": "npx", "args": ["-y", "@upstash/context7-mcp"]}}';
+    expect(args(noEnv, 'opencode')).toBe('context7 -- npx -y @upstash/context7-mcp');
+    // OpenCode's own array form.
+    expect(args('{"mcp": {"x": {"type": "local", "command": ["bunx", "pkg"]}}}', 'opencode')).toBe(
+      'x -- bunx pkg'
+    );
+  });
+
+  it('converts a remote server in each agent syntax', () => {
+    const remote =
+      '{"mcpServers": {"linear": {"type": "http", "url": "https://mcp.linear.app/mcp"}}}';
+    expect(args(remote, 'claude-code')).toBe('--transport http linear https://mcp.linear.app/mcp');
+    expect(args(remote, 'codex')).toBe('linear --url https://mcp.linear.app/mcp');
+    const withHeader =
+      '{"servers": {"api": {"type": "sse", "url": "https://x.dev/sse", "headers": {"Authorization": "Bearer t"}}}}';
+    expect(args(withHeader, 'claude-code')).toBe(
+      '--transport sse api https://x.dev/sse -H "Authorization: Bearer t"'
+    );
+    // Codex's mcp add has no header flag — refuse rather than drop it.
+    expect(error(withHeader, 'codex')).toMatch(/headers/);
+  });
+
+  it('produces input the add validator accepts', () => {
+    expect(validateMcpAddCommand(args(stdio, 'claude-code'), 'claude', 'claude-code')).toBeNull();
+    expect(validateMcpAddCommand(args(stdio, 'codex'), 'codex', 'codex')).toBeNull();
+  });
+
+  it('quotes values with quotes and backslashes so the backend splits them back', () => {
+    const tricky = JSON.stringify({ s: { command: 'C:\\tools\\run.exe', args: ['say "hi"'] } });
+    expect(args(tricky, 'codex')).toBe('s -- "C:\\\\tools\\\\run.exe" "say \\"hi\\""');
+  });
+
+  it('explains configs it cannot convert instead of guessing', () => {
+    expect(error('{"mcpServers": {"a": {"command": "x"}, "b": {"command": "y"}}}')).toMatch(
+      /one at a time/
+    );
+    expect(error('{"command": "npx", "args": ["pkg"]}')).toMatch(/no server name/);
+    expect(error('{"mcpServers": {"a": {"command": "npx"')).toMatch(/isn't complete JSON/);
+    expect(error('{"a": {"type": "stdio"}}')).toMatch(/neither a "command" nor a "url"/);
+    expect(error('{"a": {"command": "x", "env": {"K": "v"}}}', 'opencode')).toMatch(
+      /environment variables/
+    );
+  });
+});
 
 describe('validateMcpAddCommand (#588)', () => {
   const validInputs = [

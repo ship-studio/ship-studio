@@ -18,6 +18,7 @@ import {
   addMcpServer,
   removeMcpServer,
   validateMcpAddCommand,
+  mcpJsonConfigToAddArgs,
   isMcpUnsupportedCliError,
   isMcpInvalidInputError,
   isMcpExpectedFailure,
@@ -125,12 +126,24 @@ export function McpModal({
   const handleAdd = async () => {
     if (!addCommand.trim()) return;
 
+    // A pasted JSON config (`{"mcpServers": …}`) is turned into this agent's
+    // `mcp add` arguments; passed through raw, `{` became the server name
+    // and the CLI rejected it (issue #1154). What can't be converted is
+    // explained inline, like any other input mistake.
+    const fromJson = mcpJsonConfigToAddArgs(addCommand, agentId);
+    if (fromJson && 'error' in fromJson) {
+      setAddError(fromJson.error);
+      setAddSuccess(false);
+      return;
+    }
+    const rawArgs = fromJson ? fromJson.args : addCommand.trim();
+
     // Validate before shelling out: a name with no command/URL would only
     // fail at the CLI level with a raw "missing required argument
     // 'commandOrUrl'" usage error (issue #588). Inline feedback, no toast,
     // no log — the user just hasn't finished typing the command. The agentId
     // selects OpenCode's stricter flag-unaware grammar (issue #655).
-    const validationError = validateMcpAddCommand(addCommand.trim(), agentBinaryName, agentId);
+    const validationError = validateMcpAddCommand(rawArgs, agentBinaryName, agentId);
     if (validationError) {
       setAddError(validationError);
       setAddSuccess(false);
@@ -142,7 +155,7 @@ export function McpModal({
     setAddSuccess(false);
 
     try {
-      await addMcpServer(addCommand.trim(), addScope, projectPath, agentId);
+      await addMcpServer(rawArgs, addScope, projectPath, agentId);
       void trackEvent('mcp_server_added', { scope: addScope, $screen_name: 'MCP Modal' });
       setAddSuccess(true);
       setAddCommand('');

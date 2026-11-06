@@ -291,6 +291,159 @@ export function validateMcpAddCommand(
   return invalid;
 }
 
+/** Result of reading a pasted JSON MCP config — see {@link mcpJsonConfigToAddArgs}. */
+export type McpJsonConversion = { args: string } | { error: string };
+
+const PASTE_NAME_HINT =
+  'Or enter the server name followed by its command, e.g. `my-server -- npx -y @some/mcp-server`.';
+
+/** Quote one token so `shell_split` (and {@link shellSplitArgs}) read it back unchanged. */
+function quoteArg(token: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(token)) return token;
+  return `"${token.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringRecord(value: unknown): Record<string, string> | null {
+  if (value === undefined) return {};
+  if (!isPlainObject(value)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') return null;
+    out[k] = String(v);
+  }
+  return out;
+}
+
+/**
+ * Turn a pasted JSON MCP config into the `mcp add` argument string the active
+ * agent's CLI takes (issue #1154).
+ *
+ * Server READMEs hand out configs as JSON (`{"mcpServers": {"name": {"command":
+ * …}}}`), so people paste that into the Add field. Passed through as-is, the
+ * first token (`{`) became the server name and Claude Code refused it with a
+ * raw "Invalid name {. Names can only contain letters, numbers, hyphens, and
+ * underscores." — the Codex equivalent was #1058.
+ *
+ * Accepts one server, wrapped in `mcpServers` / `servers` / `mcp` or given as
+ * `{"<name>": {…}}`, with `command` (+ `args`, `env`/`environment`) or `url`
+ * (+ `headers`, `type`). Anything it can't represent faithfully for this
+ * agent — several servers, no name, a field the agent's `mcp add` has no flag
+ * for — gets an inline message instead of a partial add that silently drops
+ * part of the config.
+ *
+ * @returns `null` when the input isn't a JSON object (normal `mcp add` text).
+ */
+export function mcpJsonConfigToAddArgs(
+  rawInput: string,
+  agentId?: string
+): McpJsonConversion | null {
+  const text = rawInput.trim();
+  if (!text.startsWith('{')) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {
+      error: `That looks like a JSON config, but it isn't complete JSON. Paste the whole config. ${PASTE_NAME_HINT}`,
+    };
+  }
+  if (!isPlainObject(parsed)) {
+    return { error: `That JSON isn't an MCP server config. ${PASTE_NAME_HINT}` };
+  }
+
+  // A config with no name around it: `{"command": "npx", …}`.
+  if ('command' in parsed || 'url' in parsed) {
+    return {
+      error: `That config has no server name. Paste it with its name, e.g. \`{"my-server": {"command": "npx", "args": ["-y", "@some/mcp-server"]}}\`. ${PASTE_NAME_HINT}`,
+    };
+  }
+
+  const wrapper = ['mcpServers', 'servers', 'mcp'].find((key) => isPlainObject(parsed[key]));
+  const servers = (wrapper ? parsed[wrapper] : parsed) as Record<string, unknown>;
+  const entries = Object.entries(servers);
+  if (entries.length === 0) {
+    return { error: `That config has no servers in it. ${PASTE_NAME_HINT}` };
+  }
+  if (entries.length > 1) {
+    return {
+      error: `That config has ${entries.length} servers (${entries
+        .map(([name]) => name)
+        .join(', ')}). Add them one at a time — paste one server's config at once.`,
+    };
+  }
+
+  const [name, config] = entries[0];
+  if (!isPlainObject(config)) {
+    return { error: `The config for "${name}" isn't an object. ${PASTE_NAME_HINT}` };
+  }
+  const env = stringRecord(config.env ?? config.environment);
+  const headers = stringRecord(config.headers);
+  if (env === null || headers === null) {
+    return {
+      error: `The env or headers in "${name}" aren't simple key/value text. ${PASTE_NAME_HINT}`,
+    };
+  }
+  const envPairs = Object.entries(env).map(([k, v]) => `${k}=${v}`);
+  const headerPairs = Object.entries(headers).map(([k, v]) => `${k}: ${v}`);
+
+  // Local (stdio) server. OpenCode writes `command` as an array.
+  let command: string[] | null = null;
+  if (typeof config.command === 'string' && config.command.trim()) {
+    const args = config.args ?? [];
+    if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
+      return { error: `The "args" in "${name}" must be a list of text values. ${PASTE_NAME_HINT}` };
+    }
+    command = [config.command, ...(args as string[])];
+  } else if (
+    Array.isArray(config.command) &&
+    config.command.length > 0 &&
+    config.command.every((c) => typeof c === 'string')
+  ) {
+    command = config.command;
+  }
+
+  const url = typeof config.url === 'string' && config.url.trim() ? config.url.trim() : null;
+  if (!command && !url) {
+    return {
+      error: `The config for "${name}" has neither a "command" nor a "url". ${PASTE_NAME_HINT}`,
+    };
+  }
+
+  const unsupported = (what: string) => ({
+    error: `"${name}" sets ${what}, which this agent's MCP setup here can't take. Add the server in the agent's own config file instead, or add it without them as a name followed by its command or URL.`,
+  });
+
+  if (command) {
+    if (agentId === 'opencode') {
+      if (envPairs.length > 0) return unsupported('environment variables');
+      return { args: [name, '--', ...command].map(quoteArg).join(' ') };
+    }
+    // Claude Code takes `-e`, Codex `--env`; both after the name and before
+    // `--`, where neither CLI can mistake the name for a flag value.
+    const envFlag = agentId === 'codex' ? '--env' : '-e';
+    const envArgs = envPairs.flatMap((pair) => [envFlag, pair]);
+    return { args: [name, ...envArgs, '--', ...command].map(quoteArg).join(' ') };
+  }
+
+  // Remote server.
+  const remoteUrl = url as string;
+  if (agentId === 'claude-code') {
+    const declared = typeof config.type === 'string' ? config.type.toLowerCase() : '';
+    const transport = declared === 'sse' ? 'sse' : 'http';
+    const headerArgs = headerPairs.flatMap((pair) => ['-H', pair]);
+    return {
+      args: ['--transport', transport, name, remoteUrl, ...headerArgs].map(quoteArg).join(' '),
+    };
+  }
+  if (headerPairs.length > 0) return unsupported('headers');
+  return { args: [name, '--url', remoteUrl].map(quoteArg).join(' ') };
+}
+
 /**
  * Remove an MCP server by name.
  * @param name - Server name to remove

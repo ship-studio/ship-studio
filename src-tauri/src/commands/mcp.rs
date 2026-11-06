@@ -697,6 +697,16 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // Claude Code's server-name check ("Invalid name {. Names can only contain
+    // letters, numbers, hyphens, and underscores."), usually tripped by a
+    // JSON config pasted where the name goes — the Claude Code twin of #1058.
+    // The modal converts pasted JSON now, so this is the backstop (#1154).
+    if lower.contains("invalid name") && lower.contains("names can only contain") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe server name can only use letters, numbers, hyphens and underscores — enter just the name followed by the command or URL (e.g. `my-server -- npx -y @some/mcp-server`)."
+        ));
+    }
+
     // Codex with no sign-in and no OPENAI_API_KEY refuses to run at all
     // ("Missing openai API key. Set the environment variable OPENAI_API_KEY
     // and re-run this command."). The user's CLI auth state (issue #1016).
@@ -1078,6 +1088,20 @@ mod tests {
             "Error: invalid server name '[mcp_servers.heroui-react]' (use letters, numbers, '-', '_', ':', '@', '/', '.')",
             "not `[mcp_servers.context7]`",
         );
+    }
+
+    // Issue #1154: Claude Code's name check, tripped by a pasted JSON config.
+    #[test]
+    fn claude_invalid_name_is_expected() {
+        assert_expected_with(
+            "Invalid name {. Names can only contain letters, numbers, hyphens, and underscores.",
+            "enter just the name",
+        );
+        // "invalid name" on its own (some other tool's wording) isn't this.
+        assert!(matches!(
+            classify_mcp_failure("add MCP server", "invalid name"),
+            CommandError::Other { .. }
+        ));
     }
 
     // Issue #1016: Codex with no sign-in and no API key.
