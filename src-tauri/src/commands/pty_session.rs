@@ -371,6 +371,73 @@ fn env_has_key(env: &BTreeMap<String, String>, key: &str) -> bool {
     env.keys().any(|k| k.eq_ignore_ascii_case(key))
 }
 
+/// Case-insensitive env lookup, non-empty values only.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn env_get<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    env.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v.trim())
+        .filter(|v| !v.is_empty())
+}
+
+/// Absolute path for a Windows system shell given by bare name
+/// (`powershell`, `powershell.exe`, `cmd`, `cmd.exe`), or `None` to leave the
+/// command alone.
+///
+/// Why: portable_pty resolves a bare program name only against the PATH in
+/// the command's own env; when that misses, it passes the bare name to
+/// CreateProcessW as `lpApplicationName`, which does NOT search PATH — it is
+/// completed against the current directory. So "powershell.exe" became
+/// `<cwd>\powershell.exe` and the Terminal tab died with "The system cannot
+/// find the file specified. (os error 2)" whenever the PowerShell directory
+/// was missing from the PATH we hand the PTY. The shells live at fixed
+/// locations under %SystemRoot%, so look there first, then PATH.
+///
+/// Paths are built with `\` and PATH split on `;` explicitly (not with
+/// `Path::join`/`split_paths`) so the logic is identical — and testable —
+/// on every host OS. `exists` is injected for the same reason.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_system_shell_path(
+    command: &str,
+    env: &BTreeMap<String, String>,
+    process_env: impl Fn(&str) -> Option<String>,
+    exists: impl Fn(&str) -> bool,
+) -> Option<String> {
+    if command.contains(['\\', '/', ':']) {
+        return None; // Already a path.
+    }
+    let lower = command.to_ascii_lowercase();
+    let (under_root, file) = match lower.strip_suffix(".exe").unwrap_or(&lower) {
+        "powershell" => (
+            "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "powershell.exe",
+        ),
+        "cmd" => ("System32\\cmd.exe", "cmd.exe"),
+        _ => return None,
+    };
+    let lookup = |key: &str| {
+        env_get(env, key)
+            .map(str::to_string)
+            .or_else(|| process_env(key).filter(|v| !v.trim().is_empty()))
+    };
+    let join = |dir: &str, rest: &str| format!("{}\\{rest}", dir.trim_end_matches(['\\', '/']));
+
+    for key in ["SystemRoot", "windir"] {
+        if let Some(root) = lookup(key) {
+            let candidate = join(&root, under_root);
+            if exists(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    let path = lookup("PATH")?;
+    path.split(';')
+        .map(|dir| dir.trim().trim_matches('"'))
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| join(dir, file))
+        .find(|candidate| exists(candidate))
+}
+
 fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
     if bytes.len() >= RING_BUFFER_MAX {
         ring.clear();
@@ -567,6 +634,18 @@ pub async fn pty_session_open(
         .master
         .try_clone_reader()
         .map_err(|e| format!("clone_reader: {e}"))?;
+
+    // A system shell named bare ("powershell.exe" for the Terminal tab,
+    // "cmd.exe" for the .cmd-shim wrapper) is spawned by absolute path, so a
+    // PATH missing its directory can't turn it into `<cwd>\powershell.exe`.
+    #[cfg(windows)]
+    let command = windows_system_shell_path(
+        &command,
+        &env,
+        |k| std::env::var(k).ok(),
+        |p| std::path::Path::new(p).is_file(),
+    )
+    .unwrap_or(command);
 
     let mut cmd = CommandBuilder::new(&command);
     cmd.args(&args);
@@ -1620,6 +1699,74 @@ mod tests {
         assert!(env_has_key(&env, "SystemRoot"));
         assert!(env_has_key(&env, "systemroot"));
         assert!(!env_has_key(&env, "COMSPEC"));
+    }
+
+    /// A bare system shell resolves to its fixed location under %SystemRoot%
+    /// first, then through PATH, and is left alone when neither has it.
+    #[test]
+    fn windows_system_shell_path_resolves_bare_shells() {
+        let ps = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+        let mut env = BTreeMap::new();
+        env.insert("SYSTEMROOT".to_string(), "C:\\Windows\\".to_string());
+        env.insert("PATH".to_string(), "C:\\Users\\me\\bin".to_string());
+        let no_process_env = |_: &str| None;
+
+        // %SystemRoot% (any key casing, trailing slash tolerated), any name casing.
+        for name in ["powershell.exe", "powershell", "PowerShell.EXE"] {
+            assert_eq!(
+                windows_system_shell_path(name, &env, no_process_env, |p| p == ps).as_deref(),
+                Some(ps),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            windows_system_shell_path("cmd.exe", &env, no_process_env, |p| {
+                p == "C:\\Windows\\System32\\cmd.exe"
+            })
+            .as_deref(),
+            Some("C:\\Windows\\System32\\cmd.exe")
+        );
+
+        // Not under %SystemRoot% → PATH lookup.
+        let mut path_env = BTreeMap::new();
+        path_env.insert(
+            "Path".to_string(),
+            "C:\\Users\\me\\bin;;\"D:\\WinPS\\\";C:\\x".to_string(),
+        );
+        assert_eq!(
+            windows_system_shell_path("powershell.exe", &path_env, no_process_env, |p| {
+                p == "D:\\WinPS\\powershell.exe"
+            })
+            .as_deref(),
+            Some("D:\\WinPS\\powershell.exe")
+        );
+
+        // The frontend's env lacks SystemRoot → the app's own environment.
+        assert_eq!(
+            windows_system_shell_path(
+                "powershell.exe",
+                &BTreeMap::new(),
+                |k| (k == "windir").then(|| "C:\\Windows".to_string()),
+                |p| p == ps
+            )
+            .as_deref(),
+            Some(ps)
+        );
+
+        // Found nowhere → unchanged (caller keeps the bare name).
+        assert_eq!(
+            windows_system_shell_path("powershell.exe", &env, no_process_env, |_| false),
+            None
+        );
+        // Not a system shell, or already a path → untouched.
+        assert_eq!(
+            windows_system_shell_path("claude", &env, no_process_env, |_| true),
+            None
+        );
+        assert_eq!(
+            windows_system_shell_path("C:\\tools\\powershell.exe", &env, no_process_env, |_| true),
+            None
+        );
     }
 
     #[test]

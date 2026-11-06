@@ -115,6 +115,9 @@ export const CURSOR: AgentConfig = {
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
   displayName: 'Terminal',
+  // Bare on Windows: `pty_session_open` resolves it to
+  // %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe (then PATH).
+  // Spawned bare, CreateProcessW looked for it in the project folder.
   binaryName: isWindows() ? 'powershell.exe' : '/bin/zsh',
   processName: isWindows() ? 'powershell' : 'zsh',
   autoAcceptFlag: null,
