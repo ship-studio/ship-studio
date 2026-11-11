@@ -17,6 +17,7 @@ pub mod css_rule_mutations;
 pub mod custom_classes;
 pub mod edit;
 pub mod edit_css;
+pub mod edit_json_image;
 pub mod edit_structure;
 pub mod env;
 pub mod external_projects;

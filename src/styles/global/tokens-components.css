@@ -17,6 +17,12 @@
   --size-preview-breakpoint-menu: 240px;
   --size-preview-breakpoint-divider-height: var(--stroke-1);
 
+  /* Assets panel search and root picker separation. */
+  --assets-panel-search-root-gap: var(--space-06);
+
+  /* Image settings affordance placement. */
+  --settings-image-lock-inset: var(--space-06);
+
   --size-sidebar-project-shortcut: 24px;
   --size-sidebar-project: 214px;
   --size-sidebar-project-row: 46px;

@@ -4,15 +4,32 @@
  * CLASSES and ATTRIBUTES keep their existing inline editing controls.
  */
 
-import { useRef, useState, type KeyboardEvent } from 'react';
-import { ChevronIcon, CloseIcon, PlusIcon } from '@/components/icons';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+} from 'react';
+import { CheckIcon, ChevronIcon, CloseIcon, PlusIcon } from '@/components/icons';
 import { useCommands } from '../../commands/useCommands';
 import type { ElementSettings } from '../../hooks/useElementSettings';
+import type { OpenInCode } from '../../lib/code';
+import { TextButton } from '../primitives/TextButton';
+import { IconButton } from '../primitives/IconButton';
 import { CascadeChip } from './CascadeChip';
 import { getElementIcon } from './element-icons';
 import { ContextMenuLabel } from '../primitives/ContextMenu';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
+import {
+  ImageSettingsSection,
+  type ImageCssDimensionSetter,
+  type ImageCssDimensions,
+} from './ImageSettingsSection';
+import { PropSection } from './PropSection';
+import type { ElementSignature } from '../../lib/edit';
 
 const TEXT_DISPLAY_TAGS = new Set([
   'a',
@@ -74,7 +91,24 @@ function displaysText(tag: string): boolean {
   return TEXT_DISPLAY_TAGS.has(normalizedTag) || normalizedTag.includes('-');
 }
 
-export function ElementSettingsPanel({ settings }: { settings: ElementSettings }) {
+export function ElementSettingsPanel({
+  settings,
+  signature,
+  projectPath,
+  onOpenInCode,
+  onSetCssDimension,
+  cssDimensions,
+  active = true,
+}: {
+  settings: ElementSettings;
+  signature?: ElementSignature | null;
+  projectPath?: string;
+  onOpenInCode?: OpenInCode;
+  onSetCssDimension?: ImageCssDimensionSetter;
+  cssDimensions?: ImageCssDimensions;
+  /** Whether this retained panel is currently visible and its palette actions are usable. */
+  active?: boolean;
+}) {
   const {
     tag,
     selectionKey,
@@ -96,6 +130,29 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
     setText,
   } = settings;
   const showTextField = displaysText(tag);
+  const visibleAttributes = attributes.filter(
+    (attribute) =>
+      tag.toLowerCase() !== 'img' ||
+      !['src', 'srcset', 'alt', 'width', 'height', 'loading'].includes(attribute.name.toLowerCase())
+  );
+  const showAttributeEmptyState =
+    visibleAttributes.length === 0 &&
+    settings.sourceMarkupStatus !== 'idle' &&
+    settings.sourceMarkupStatus !== 'resolving';
+  const addAttributeDisabled = settings.busy || !canEditAttributes;
+  const addAttributeDisabledReason = settings.busy
+    ? 'Attributes are being saved.'
+    : settings.sourceMarkupStatus === 'resolving'
+      ? 'Wait for the selected element’s source markup to resolve.'
+      : settings.sourceMarkupStatus === 'unavailable'
+        ? 'The selected element’s source markup could not be resolved.'
+        : settings.imageAttributeEditBlockReason === 'ambiguous'
+          ? 'This image matches several source locations.'
+          : settings.imageAttributeEditBlockReason === 'spread'
+            ? 'A spread attribute may provide this image’s values.'
+            : settings.imageAttributeEditBlockReason === 'mismatch'
+              ? 'The rendered image attributes do not match the source markup.'
+              : 'The selected element’s attributes are read-only.';
   type TextEditState = {
     selectionKey: string;
     sourceText: string;
@@ -191,7 +248,8 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
         id: 'elementSettings.focusText',
         title: 'Edit selected element text',
         category: 'action',
-        when: ({ kind }) => kind === 'project' && showTextField && canEditText && !settings.busy,
+        when: ({ kind }) =>
+          active && kind === 'project' && showTextField && canEditText && !settings.busy,
         keywords: ['content', 'copy', 'headline', 'label'],
         run: () => textInputRef.current?.focus(),
       },
@@ -199,7 +257,7 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
         id: 'elementSettings.openTagMenu',
         title: 'Change selected element tag',
         category: 'action',
-        when: ({ kind }) => kind === 'project' && canEditTag && !settings.busy,
+        when: ({ kind }) => active && kind === 'project' && canEditTag && !settings.busy,
         keywords: ['element', 'heading', 'paragraph', 'link', 'tag'],
         run: () =>
           panelRef.current
@@ -207,162 +265,181 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
             ?.click(),
       },
     ],
-    [canEditTag, canEditText, settings.busy, showTextField]
+    [active, canEditTag, canEditText, settings.busy, showTextField]
   );
 
   return (
     <div className="ss-settings" ref={panelRef}>
-      <section className="ss-settings__group">
-        <h4 className="ss-settings__label">Tag</h4>
-        <Dropdown
-          menuClassName="ss-settings__tag-menu"
-          trigger={(props) => (
-            <MenuButton
-              ref={props.ref}
-              onClick={props.onClick}
-              aria-haspopup={props['aria-haspopup']}
-              expanded={props['aria-expanded']}
-              variant="ghost"
-              size="compact"
-              className="ss-settings__tag-trigger"
-              disabled={!canEditTag || settings.busy}
-              aria-label="Change element tag"
-              title={canEditTag ? 'Change element tag' : undefined}
+      <PropSection title="Element" sectionId="settings-element" defaultOpen>
+        <div className="ss-settings__subsections">
+          <div className="ss-settings__subsection">
+            <h5 className="ss-settings__label">Tag</h5>
+            <Dropdown
+              menuClassName="ss-settings__tag-menu"
+              trigger={(props) => (
+                <MenuButton
+                  ref={props.ref}
+                  onClick={props.onClick}
+                  aria-haspopup={props['aria-haspopup']}
+                  expanded={props['aria-expanded']}
+                  variant="ghost"
+                  size="compact"
+                  className="ss-settings__tag-trigger"
+                  disabled={!canEditTag || settings.busy}
+                  aria-label="Change element tag"
+                  title={canEditTag ? 'Change element tag' : undefined}
+                >
+                  <CascadeChip tone="selector" className="ss-settings__tag-chip">
+                    <span className="ss-settings__tag-name">{tag || '—'}</span>
+                    <ChevronIcon size={10} />
+                  </CascadeChip>
+                </MenuButton>
+              )}
             >
-              <CascadeChip tone="selector" className="ss-settings__tag-chip">
-                <span className="ss-settings__tag-name">{tag || '—'}</span>
-                <ChevronIcon size={10} />
-              </CascadeChip>
-            </MenuButton>
-          )}
-        >
-          <ContextMenuLabel className="ss-settings__tag-menu-heading">
-            Swap tag type
-          </ContextMenuLabel>
-          {tagOptions.map((option) => (
-            <DropdownItem
-              key={option.tag}
-              active={option.tag === tag}
-              disabled={settings.busy}
-              icon={
-                getElementIcon(option.tag) ??
-                getElementIcon(/^h[4-6]$/.test(option.tag) ? 'h3' : 'unknown')
-              }
-              onSelect={() => void setTag(option.tag)}
-            >
-              {option.label}
-            </DropdownItem>
-          ))}
-        </Dropdown>
-      </section>
+              <ContextMenuLabel className="ss-settings__tag-menu-heading">
+                Swap tag type
+              </ContextMenuLabel>
+              {tagOptions.map((option) => (
+                <DropdownItem
+                  key={option.tag}
+                  active={option.tag === tag}
+                  disabled={settings.busy}
+                  icon={
+                    getElementIcon(option.tag) ??
+                    getElementIcon(/^h[4-6]$/.test(option.tag) ? 'h3' : 'unknown')
+                  }
+                  onSelect={() => void setTag(option.tag)}
+                >
+                  {option.label}
+                </DropdownItem>
+              ))}
+            </Dropdown>
+          </div>
 
-      <section className="ss-settings__group">
-        <h4 className="ss-settings__label">Classes</h4>
-        <div className="ss-settings__classes">
-          {classes.map((c) => (
-            <EditableClassChip
-              key={c}
-              name={c}
-              disabled={settings.busy}
-              onRename={(next) => renameClass(c, next)}
-              onRemove={() => removeClass(c)}
-            />
-          ))}
-          {adding ? (
-            <input
-              className="ss-settings__class-input"
-              autoFocus
-              value={classText}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="class name"
-              onChange={(e) => setClassText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit();
-                else if (e.key === 'Escape') {
-                  setClassText('');
-                  setAdding(false);
+          <div className="ss-settings__subsection">
+            <h5 className="ss-settings__label">Classes</h5>
+            <div className="ss-settings__classes">
+              {classes.map((c) => (
+                <EditableClassChip
+                  key={c}
+                  name={c}
+                  disabled={settings.busy}
+                  onRename={(next) => renameClass(c, next)}
+                  onRemove={() => removeClass(c)}
+                />
+              ))}
+              {adding ? (
+                <input
+                  className="ss-settings__class-input"
+                  autoFocus
+                  value={classText}
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder="class name"
+                  onChange={(e) => setClassText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submit();
+                    else if (e.key === 'Escape') {
+                      setClassText('');
+                      setAdding(false);
+                    }
+                  }}
+                  onBlur={submit}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="ss-settings__class-add"
+                  onClick={() => setAdding(true)}
+                >
+                  <PlusIcon size={10} /> add
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showTextField && (
+            <div className="ss-settings__subsection ss-settings__text-subsection">
+              <h5 className="ss-settings__label">Text</h5>
+              <textarea
+                key={selectionKey}
+                ref={textInputRef}
+                className="ss-settings__text-input"
+                aria-label="Text content"
+                value={textDraft}
+                disabled={!canEditText || settings.busy}
+                placeholder={
+                  textReason === 'Resolving selected text…' ? 'Resolving source…' : undefined
                 }
-              }}
-              onBlur={submit}
-            />
-          ) : (
-            <button
-              type="button"
-              className="ss-settings__class-add"
-              onClick={() => setAdding(true)}
-            >
-              <PlusIcon size={10} /> add
-            </button>
+                spellCheck
+                onFocus={() => {
+                  textCancelledRef.current = false;
+                  draftSelectionKeyRef.current = selectionKey;
+                  setTextEditState({ ...currentTextEdit, original: sourceText, editing: true });
+                }}
+                onChange={(event) => {
+                  setTextEditState({
+                    ...currentTextEdit,
+                    draft: event.target.value,
+                    editing: true,
+                  });
+                }}
+                onBlur={commitText}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelText();
+                    event.currentTarget.blur();
+                  } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    commitText();
+                  }
+                }}
+              />
+              {textReason && <p className="ss-settings__text-reason">{textReason}</p>}
+              {canEditText && (
+                <p className="ss-settings__text-help">Cmd/Ctrl+Enter saves · Esc cancels</p>
+              )}
+            </div>
           )}
         </div>
-      </section>
+      </PropSection>
 
-      {showTextField && (
-        <section className="ss-settings__group">
-          <h4 className="ss-settings__label">Text</h4>
-          <textarea
-            key={selectionKey}
-            ref={textInputRef}
-            className="ss-settings__text-input"
-            aria-label="Text content"
-            value={textDraft}
-            disabled={!canEditText || settings.busy}
-            placeholder={
-              textReason === 'Resolving selected text…' ? 'Resolving source…' : undefined
-            }
-            spellCheck
-            onFocus={() => {
-              textCancelledRef.current = false;
-              draftSelectionKeyRef.current = selectionKey;
-              setTextEditState({ ...currentTextEdit, original: sourceText, editing: true });
-            }}
-            onChange={(event) => {
-              setTextEditState({
-                ...currentTextEdit,
-                draft: event.target.value,
-                editing: true,
-              });
-            }}
-            onBlur={commitText}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                cancelText();
-                event.currentTarget.blur();
-              } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                commitText();
-              }
-            }}
-          />
-          {textReason && <p className="ss-settings__text-reason">{textReason}</p>}
-          {canEditText && (
-            <p className="ss-settings__text-help">Cmd/Ctrl+Enter saves · Esc cancels</p>
-          )}
-        </section>
+      {tag.toLowerCase() === 'img' && signature && projectPath && (
+        <ImageSettingsSection
+          settings={settings}
+          signature={signature}
+          projectPath={projectPath}
+          onOpenInCode={onOpenInCode}
+          onSetCssDimension={onSetCssDimension}
+          cssDimensions={cssDimensions}
+        />
       )}
 
-      <section className="ss-settings__group ss-settings__group--attributes">
-        <h4 className="ss-settings__label">Attributes</h4>
-        <ul className="ss-settings__attrs">
-          {attributes.map((a) => (
-            <AttrRow
-              key={a.name}
-              name={a.name}
-              value={a.value}
-              editable={canEditAttributes && !settings.busy}
-              onSetValue={(v) => setAttribute(a.name, v)}
-              onRename={(n) => renameAttribute(a.name, n, a.value)}
-              onRemove={() => removeAttribute(a.name)}
-            />
-          ))}
-        </ul>
-        {canEditAttributes && <AddAttr onAdd={(name, value) => setAttribute(name, value)} />}
-        {attributes.length === 0 && !canEditAttributes && (
-          <p className="ss-settings__empty">No other attributes.</p>
+      <PropSection title="Attributes" sectionId="settings-attributes" defaultOpen>
+        {visibleAttributes.length > 0 && (
+          <ul className="ss-settings__attrs">
+            {visibleAttributes.map((a) => (
+              <AttrRow
+                key={a.name}
+                name={a.name}
+                value={a.value}
+                editable={canEditAttributes && !settings.busy && !a.isExpression}
+                onSetValue={(v) => void setAttribute(a.name, v)}
+                onRename={(n) => renameAttribute(a.name, n, a.value)}
+                onRemove={() => removeAttribute(a.name)}
+                isExpression={a.isExpression}
+              />
+            ))}
+          </ul>
         )}
-      </section>
+        {showAttributeEmptyState && <p className="ss-settings__empty">No other attributes.</p>}
+        <AddAttr
+          disabled={addAttributeDisabled}
+          disabledReason={addAttributeDisabledReason}
+          onAdd={(name, value) => void setAttribute(name, value)}
+        />
+      </PropSection>
     </div>
   );
 }
@@ -462,6 +539,7 @@ function AttrRow({
   onSetValue,
   onRename,
   onRemove,
+  isExpression = false,
 }: {
   name: string;
   value: string;
@@ -469,6 +547,7 @@ function AttrRow({
   onSetValue: (value: string) => void;
   onRename: (newName: string) => void;
   onRemove: () => void;
+  isExpression?: boolean;
 }) {
   const [editing, setEditing] = useState<null | 'name' | 'value'>(null);
   const [text, setText] = useState('');
@@ -487,30 +566,52 @@ function AttrRow({
     setEditing(null);
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') commit();
-    else if (e.key === 'Escape') setEditing(null);
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditing(null);
+    }
   };
 
   return (
     <li className="ss-settings__attr">
       {editing === 'name' ? (
-        <input
-          className="ss-settings__attr-input ss-settings__attr-input--name"
-          autoFocus
-          value={text}
-          spellCheck={false}
-          autoComplete="off"
-          // Attribute names are idents — no spaces.
-          onChange={(e) => setText(e.target.value.replace(/\s+/g, ''))}
-          onKeyDown={onKey}
-          onBlur={commit}
-        />
+        <div className="ss-settings__attr-key-editor">
+          <span className="ss-settings__attr-key ss-settings__attr-key-measure" aria-hidden="true">
+            {text || '\u00a0'}
+          </span>
+          <textarea
+            className="ss-settings__attr-input ss-settings__attr-input--name"
+            autoFocus
+            aria-label={`Attribute name ${name}`}
+            rows={1}
+            value={text}
+            spellCheck={false}
+            autoComplete="off"
+            onFocus={(event) => {
+              const end = event.currentTarget.value.length;
+              event.currentTarget.setSelectionRange(end, end);
+            }}
+            // Attribute names are idents — no spaces.
+            onChange={(e) => setText(e.target.value.replace(/\s+/g, ''))}
+            onKeyDown={onKey}
+            onBlur={commit}
+          />
+        </div>
       ) : (
         <button
           type="button"
           className="ss-settings__attr-key"
           disabled={!editable}
-          title={editable ? 'Click to rename' : undefined}
+          title={
+            isExpression
+              ? 'This value is generated by code'
+              : editable
+                ? 'Click to rename'
+                : undefined
+          }
           onClick={() => start('name')}
         >
           {name}
@@ -518,22 +619,42 @@ function AttrRow({
       )}
       <span className="ss-settings__attr-eq">=</span>
       {editing === 'value' ? (
-        <input
-          className="ss-settings__attr-input"
-          autoFocus
-          value={text}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKey}
-          onBlur={commit}
-        />
+        <div className="ss-settings__attr-value-editor">
+          <span
+            className="ss-settings__attr-value--editable ss-settings__attr-value-measure"
+            aria-hidden="true"
+          >
+            {text || <span className="ss-settings__attr-empty">empty</span>}
+          </span>
+          <textarea
+            className="ss-settings__attr-input ss-settings__attr-input--value"
+            autoFocus
+            aria-label={`Attribute value for ${name}`}
+            rows={1}
+            value={text}
+            spellCheck={false}
+            autoComplete="off"
+            onFocus={(event) => {
+              const end = event.currentTarget.value.length;
+              event.currentTarget.setSelectionRange(end, end);
+            }}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKey}
+            onBlur={commit}
+          />
+        </div>
       ) : (
         <button
           type="button"
           className="ss-settings__attr-value ss-settings__attr-value--editable"
           disabled={!editable}
-          title={editable ? 'Click to edit' : undefined}
+          title={
+            isExpression
+              ? 'This value is generated by code'
+              : editable
+                ? 'Click to edit'
+                : undefined
+          }
           onClick={() => start('value')}
         >
           {value || <span className="ss-settings__attr-empty">empty</span>}
@@ -555,56 +676,131 @@ function AttrRow({
 }
 
 /** "+ attribute" affordance: expands to name + value inputs. */
-function AddAttr({ onAdd }: { onAdd: (name: string, value: string) => void }) {
+function AddAttr({
+  disabled,
+  disabledReason,
+  onAdd,
+}: {
+  disabled: boolean;
+  disabledReason: string;
+  onAdd: (name: string, value: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
+  const rowRef = useRef<HTMLDivElement>(null);
+  const valueInputRef = useRef<HTMLInputElement>(null);
+  const closedRef = useRef(true);
 
-  const submit = () => {
-    const n = name.trim();
-    if (n) onAdd(n, value);
-    setName('');
-    setValue('');
-    setOpen(false);
+  const finish = useCallback(
+    (save: boolean) => {
+      if (closedRef.current) return;
+      closedRef.current = true;
+      const normalizedName = name.trim();
+      if (save && !disabled && normalizedName) onAdd(normalizedName, value);
+      setName('');
+      setValue('');
+      setOpen(false);
+    },
+    [disabled, name, onAdd, value]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && rowRef.current?.contains(event.target)) return;
+      finish(true);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [finish, open]);
+
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+    finish(true);
   };
 
-  if (!open) {
+  const start = () => {
+    closedRef.current = false;
+    setName('');
+    setValue('');
+    setOpen(true);
+  };
+
+  if (disabled || !open) {
     return (
-      <button type="button" className="ss-settings__attr-add-btn" onClick={() => setOpen(true)}>
-        <PlusIcon size={11} /> Add attribute
-      </button>
+      <TextButton
+        className="ss-settings__attr-add-btn"
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
+        onClick={start}
+      >
+        Add attribute
+      </TextButton>
     );
   }
   return (
-    <div className="ss-settings__attr-add">
+    <div ref={rowRef} className="ss-settings__attr-add" onBlur={handleBlur}>
       <input
         className="ss-settings__attr-input"
         autoFocus
+        aria-label="Attribute name"
         value={name}
         spellCheck={false}
         autoComplete="off"
         placeholder="name"
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => setName(e.target.value.replace(/\s+/g, ''))}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') document.getElementById('ss-attr-add-value')?.focus();
-          else if (e.key === 'Escape') setOpen(false);
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            valueInputRef.current?.focus();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            finish(false);
+          }
         }}
       />
       <span className="ss-settings__attr-eq">=</span>
       <input
-        id="ss-attr-add-value"
+        ref={valueInputRef}
         className="ss-settings__attr-input"
+        aria-label="Attribute value"
         value={value}
         spellCheck={false}
         autoComplete="off"
         placeholder="value"
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') submit();
-          else if (e.key === 'Escape') setOpen(false);
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            finish(true);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            finish(false);
+          }
         }}
-        onBlur={submit}
       />
+      <div className="ss-settings__attr-add-actions">
+        <IconButton
+          icon={<CheckIcon size={12} />}
+          variant="success"
+          size="compact"
+          aria-label="Save attribute"
+          title="Save attribute"
+          disabled={!name.trim()}
+          onClick={() => finish(true)}
+        />
+        <IconButton
+          icon={<CloseIcon size={12} />}
+          variant="ghost"
+          size="compact"
+          aria-label="Cancel adding attribute"
+          title="Cancel"
+          onClick={() => finish(false)}
+        />
+      </div>
     </div>
   );
 }

@@ -24,7 +24,7 @@ import {
   Decoration,
   type DecorationSet,
 } from '@codemirror/view';
-import { EditorState, StateEffect, StateField, Compartment } from '@codemirror/state';
+import { Annotation, EditorState, StateEffect, StateField, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { indentUnit, bracketMatching } from '@codemirror/language';
 import {
@@ -35,6 +35,7 @@ import {
   codeTabSurfaceTheme,
   codeLanguageExtension,
 } from '../../lib/codemirror';
+import { utf8ByteRangeToUtf16Range, type CodeRevealRange } from '../../lib/code';
 
 export interface EditorSelectionInfo {
   text: string;
@@ -57,12 +58,15 @@ interface Props {
   revealLine?: number | null;
   /** Identity changes when a repeated reveal targets the same line. */
   revealRequestId?: number | null;
+  /** Exact authored source range to select after opening a file. */
+  revealRange?: CodeRevealRange | null;
   /** Fires with the current text selection in view mode (null when empty/editing). */
   onSelectionChange?: (sel: EditorSelectionInfo | null) => void;
 }
 
 // Transient line highlight for jump-to-code reveal.
 const setRevealLine = StateEffect.define<number | null>();
+const revealSelectionAnnotation = Annotation.define<boolean>();
 const revealLineDeco = Decoration.line({ class: 'cm-reveal-line' });
 const revealLineField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -88,6 +92,7 @@ export function CodeFileEditor({
   onSave,
   revealLine,
   revealRequestId,
+  revealRange,
   onSelectionChange,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -167,6 +172,10 @@ export function CodeFileEditor({
           // flow. In edit mode the selection is for editing, not for the popover.
           const cb = onSelRef.current;
           if (!cb) return;
+          if (
+            u.transactions.some((transaction) => transaction.annotation(revealSelectionAnnotation))
+          )
+            return;
           if (editableRef.current) {
             cb(null);
             return;
@@ -253,6 +262,22 @@ export function CodeFileEditor({
     }, 2000);
     return () => clearTimeout(t);
   }, [revealLine, revealRequestId]);
+
+  // Source mappers return UTF-8 byte offsets; CodeMirror uses UTF-16 offsets.
+  // Convert only against the loaded file content and leave selection empty if
+  // the range is stale, truncated, or lands inside a multibyte character.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !revealRange) return;
+    const range = utf8ByteRangeToUtf16Range(view.state.doc.toString(), revealRange);
+    if (!range || range.end > view.state.doc.length) return;
+    view.dispatch({
+      selection: { anchor: range.start, head: range.end },
+      effects: EditorView.scrollIntoView(range.start, { y: 'center' }),
+      annotations: revealSelectionAnnotation.of(true),
+    });
+    view.focus();
+  }, [revealRange, revealRequestId]);
 
   return <div ref={hostRef} className="code-file-editor" />;
 }

@@ -60,7 +60,7 @@ describe('normalizeLayout', () => {
     expect(result.version).toBe(2);
     expect(
       result.columns.map((column) => (column.kind === 'preview' ? PREVIEW : column.panels[0].panel))
-    ).toEqual(['editor', 'agent', PREVIEW, 'navigator', 'variables', 'team']);
+    ).toEqual(['assets', 'editor', 'agent', PREVIEW, 'navigator', 'variables', 'team']);
     expect(findPanelPlacement(result, 'agent')?.column.width).toBe(600);
     expect(findPanelPlacement(result, 'navigator')?.column.width).toBe(
       PANEL_META.navigator.maxWidth
@@ -372,7 +372,7 @@ describe('legacy panel preferences', () => {
       teamPinned: false,
       widths: { navigator: 320, team: 500 },
     });
-    expect(dockedPanels(migrated)).toEqual(['agent', 'navigator']);
+    expect(dockedPanels(migrated)).toEqual(['assets', 'agent', 'navigator']);
     expect(widthOf(migrated, 'navigator')).toBe(320);
     expect(widthOf(migrated, 'team')).toBe(500);
     expect(migrated.version).toBe(LAYOUT_VERSION);

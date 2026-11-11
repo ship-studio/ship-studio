@@ -646,9 +646,11 @@ describe('VisualEditorPanel', () => {
       vi.fn(), // onSetSide
       onReset
     );
-    expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument();
+    expect(document.querySelector('.ss-reset-pop')).not.toBeInTheDocument();
     fireEvent.click(document.querySelector('.ss-edit-panel__labelbtn')!); // click the name
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' })); // confirm
+    const resetButton = document.querySelector('.ss-reset-pop');
+    expect(resetButton).toBeInTheDocument();
+    fireEvent.click(resetButton!); // confirm
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
@@ -1170,7 +1172,7 @@ describe('VisualEditorPanel', () => {
         }}
       />
     );
-    expect(screen.getByText('Image')).toBeInTheDocument();
+    expect(screen.getByText('Image settings')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Replace image/ })).toBeInTheDocument();
     expect(screen.getByText('/hero.png')).toBeInTheDocument();
     // …and that class verdict is expected for a classless image, so the generic
@@ -1188,7 +1190,7 @@ describe('VisualEditorPanel', () => {
       />
     );
     expect(screen.getByText('This image’s source is set in code.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Replace image/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Replace image/ })).toBeDisabled();
   });
 
   it('keeps the class read-only banner for an image that HAS classes', () => {
@@ -1205,7 +1207,7 @@ describe('VisualEditorPanel', () => {
     );
     // Styles genuinely aren't editable here — that's worth surfacing alongside Image.
     expect(screen.getByText(/aren’t a static string/)).toBeInTheDocument();
-    expect(screen.getByText('Image')).toBeInTheDocument();
+    expect(screen.getByText('Image settings')).toBeInTheDocument();
   });
 
   // ── Class-less elements (no_class → Add class) ──

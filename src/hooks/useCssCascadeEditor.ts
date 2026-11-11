@@ -414,6 +414,8 @@ export function useCssCascadeEditor({
         computedBackgroundColor?: string;
         count?: number;
         rules?: MatchedRule[];
+        currentSrc?: string | null;
+        currentPreview?: string | null;
       } | null;
       if (!d) return;
 
@@ -480,6 +482,34 @@ export function useCssCascadeEditor({
                   computedBackgroundColor: nextSignature.computedBackgroundColor,
                 },
               }
+            : prev
+        );
+        return;
+      }
+
+      if (d.type === 'ss:imageState') {
+        const current = contrastSelectionRef.current;
+        const selected = lastSignatureRef.current;
+        if (
+          !current ||
+          !selected ||
+          selected.tagName.toLowerCase() !== 'img' ||
+          d.selectionId !== current.selectionId ||
+          d.domPath !== current.domPath ||
+          selected.domPath !== current.domPath
+        ) {
+          return;
+        }
+        const currentSrc = typeof d.currentSrc === 'string' ? d.currentSrc : null;
+        const currentPreview =
+          typeof d.currentPreview === 'string' &&
+          d.currentPreview.startsWith('data:image/png;base64,')
+            ? d.currentPreview
+            : null;
+        lastSignatureRef.current = { ...selected, currentSrc, currentPreview };
+        setSelection((prev) =>
+          prev && prev.signature.domPath === current.domPath
+            ? { ...prev, signature: { ...prev.signature, currentSrc, currentPreview } }
             : prev
         );
         return;

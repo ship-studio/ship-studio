@@ -58,6 +58,8 @@ export interface ElementSignature {
    *  inheritance (not an arbitrary `text-[#…]`). */
   computedColor?: string;
   computedBackgroundColor?: string;
+  /** Rendered CSS background image; used only to safely identify a simple URL. */
+  computedBackgroundImage?: string;
   /** CSS properties this element gets from UNLAYERED rules (custom CSS that beats
    *  Tailwind utilities). Edits touching these need the important modifier to win. */
   unlayeredProps?: string[];
@@ -67,9 +69,19 @@ export interface ElementSignature {
   inheritedProps?: Record<string, InheritedProp>;
   /** The element's raw `src` attribute (images) — the image resolver's search key. */
   attrSrc?: string | null;
+  /** Source-backed image attributes captured from the selected DOM element. */
+  attrAlt?: string | null;
+  attrWidth?: string | null;
+  attrHeight?: string | null;
+  attrLoading?: string | null;
   /** The absolute URL the browser actually loaded for an `<img>` (resolves
    *  relative paths and srcset) — used only to render the panel's thumbnail. */
   currentSrc?: string | null;
+  /** Small same-frame raster preview of the rendered image when canvas access is allowed. */
+  currentPreview?: string | null;
+  /** Natural pixel dimensions of the image resource loaded by the preview. */
+  naturalWidth?: number | null;
+  naturalHeight?: number | null;
   /** The element's resolved writing direction, used to read logical inset utilities. */
   direction?: 'ltr' | 'rtl';
   /** The element's resolved writing mode, used to read logical inset utilities. */
@@ -176,11 +188,10 @@ export function applyTextEdit(
 
 // ───────────────────────────── Image source ─────────────────────────────────
 //
-// "Replace image" follows the text-editing model: resolve the clicked <img> to
-// the static `src="…"` literal in source (class-anchored, falling back to a
-// search for the rendered src value), then surgically rewrite that literal.
+// "Replace image" resolves the clicked <img> to either a static `src="…"`
+// literal or a proven static member expression backed by a local JSON import.
 
-/** Outcome of resolving an image's `src` to source (mirrors the Rust enum). */
+/** Outcome of resolving an image's `src` to an editable source value (mirrors Rust). */
 export type ImageResolution =
   | {
       status: 'resolved';
@@ -191,9 +202,47 @@ export type ImageResolution =
       src: string;
       confidence: string;
     }
+  | {
+      status: 'json_property';
+      file: string;
+      line: number;
+      column: number;
+      src: string;
+      expression: string;
+      property_path: string[];
+      source_file: string;
+      source_line: number;
+      source_column: number;
+      /** Exact UTF-8 byte range of the authored member-chain expression. */
+      source_expression_start: number;
+      source_expression_end: number;
+      references: string[];
+      /** Source string literals with the same value; these won't change with the JSON property. */
+      literal_references: string[];
+      scope_known: boolean;
+    }
   | { status: 'read_only'; reason: string };
 
-/** Resolve a clicked image to its editable `src` source literal. */
+/** A source reference returned as `project/path:line:column`. */
+export interface ImageSourceReferenceLocation {
+  file: string;
+  line: number;
+  column: number;
+}
+
+/** Parse a JSON image reference without assuming the path itself has no colons. */
+export function parseImageSourceReference(reference: string): ImageSourceReferenceLocation | null {
+  const match = /^(.*):(\d+):(\d+)$/.exec(reference);
+  if (!match?.[1]) return null;
+  const line = Number(match[2]);
+  const column = Number(match[3]);
+  if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(column) || column < 1) {
+    return null;
+  }
+  return { file: match[1], line, column };
+}
+
+/** Resolve a clicked image to its editable source value. */
 export function resolveImageSource(
   projectPath: string,
   signature: ElementSignature
@@ -212,6 +261,64 @@ export function applySrcEdit(
   newSrc: string
 ): Promise<void> {
   return invoke('apply_src_edit', { projectPath, file, line, column, oldSrc, newSrc });
+}
+
+/** Update a verified JSON property backing an image expression. The backend
+ * re-resolves the import and member chain and checks the current value before write. */
+export function applyJsonImageEdit(
+  projectPath: string,
+  sourceFile: string,
+  sourceLine: number,
+  sourceColumn: number,
+  oldSrc: string,
+  newSrc: string,
+  expectedFile: string,
+  expectedPropertyPath: string[],
+  expectedExpression: string,
+  expectedReferences: string[],
+  expectedLiteralReferences: string[],
+  expectedScopeKnown: boolean,
+  confirmedShared: boolean
+): Promise<void> {
+  return invoke('apply_json_image_edit', {
+    projectPath,
+    sourceFile,
+    sourceLine,
+    sourceColumn,
+    oldSrc,
+    newSrc,
+    expectedFile,
+    expectedPropertyPath,
+    expectedExpression,
+    expectedReferences,
+    expectedLiteralReferences,
+    expectedScopeKnown,
+    confirmedShared,
+  });
+}
+
+/** Apply a JSON-backed image source using the resolver's complete drift baseline. */
+export function applyJsonImageSourceEdit(
+  projectPath: string,
+  resolution: Extract<ImageResolution, { status: 'json_property' }>,
+  newSrc: string,
+  confirmedShared = false
+): Promise<void> {
+  return applyJsonImageEdit(
+    projectPath,
+    resolution.source_file,
+    resolution.source_line,
+    resolution.source_column,
+    resolution.src,
+    newSrc,
+    resolution.file,
+    resolution.property_path,
+    resolution.expression,
+    resolution.references,
+    resolution.literal_references,
+    resolution.scope_known,
+    confirmedShared
+  );
 }
 
 // ───────────────────────────── Breakpoints ──────────────────────────────────
@@ -1517,6 +1624,59 @@ export const ENUM_CONTROLS: EnumControl[] = [
         token: 'shadow-2xl',
         style: { 'box-shadow': '0 25px 50px -12px rgb(0 0 0 / 0.25)' },
       },
+    ],
+  },
+  {
+    label: 'Background size',
+    variant: 'dropdown',
+    options: [
+      { label: 'Auto', token: 'bg-auto', style: { 'background-size': 'auto' } },
+      { label: 'Cover', token: 'bg-cover', style: { 'background-size': 'cover' } },
+      { label: 'Contain', token: 'bg-contain', style: { 'background-size': 'contain' } },
+    ],
+  },
+  {
+    label: 'Background position',
+    variant: 'dropdown',
+    options: [
+      { label: 'Center', token: 'bg-center', style: { 'background-position': 'center' } },
+      { label: 'Top', token: 'bg-top', style: { 'background-position': 'top' } },
+      { label: 'Right', token: 'bg-right', style: { 'background-position': 'right' } },
+      { label: 'Bottom', token: 'bg-bottom', style: { 'background-position': 'bottom' } },
+      { label: 'Left', token: 'bg-left', style: { 'background-position': 'left' } },
+      { label: 'Top left', token: 'bg-left-top', style: { 'background-position': 'left top' } },
+      { label: 'Top right', token: 'bg-right-top', style: { 'background-position': 'right top' } },
+      {
+        label: 'Bottom left',
+        token: 'bg-left-bottom',
+        style: { 'background-position': 'left bottom' },
+      },
+      {
+        label: 'Bottom right',
+        token: 'bg-right-bottom',
+        style: { 'background-position': 'right bottom' },
+      },
+    ],
+  },
+  {
+    label: 'Background repeat',
+    variant: 'dropdown',
+    options: [
+      { label: 'Repeat', token: 'bg-repeat', style: { 'background-repeat': 'repeat' } },
+      { label: 'Repeat X', token: 'bg-repeat-x', style: { 'background-repeat': 'repeat-x' } },
+      { label: 'Repeat Y', token: 'bg-repeat-y', style: { 'background-repeat': 'repeat-y' } },
+      { label: 'No repeat', token: 'bg-no-repeat', style: { 'background-repeat': 'no-repeat' } },
+      { label: 'Round', token: 'bg-repeat-round', style: { 'background-repeat': 'round' } },
+      { label: 'Space', token: 'bg-repeat-space', style: { 'background-repeat': 'space' } },
+    ],
+  },
+  {
+    label: 'Background attachment',
+    variant: 'dropdown',
+    options: [
+      { label: 'Scroll', token: 'bg-scroll', style: { 'background-attachment': 'scroll' } },
+      { label: 'Fixed', token: 'bg-fixed', style: { 'background-attachment': 'fixed' } },
+      { label: 'Local', token: 'bg-local', style: { 'background-attachment': 'local' } },
     ],
   },
   {

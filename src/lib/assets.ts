@@ -174,13 +174,31 @@ export async function createAssetFolder(projectPath: string, folderPath: string)
 
 /**
  * The URL a browser requests for an asset under the assets root — what the visual
- * editor's image replacement writes into `src="…"`. Next.js, Astro, and Vite all
- * serve the assets folder (`public/` by default) at the site root, so the asset's
- * root-relative path IS its URL. Segments are percent-encoded so file names with
- * spaces or `#` stay one URL.
+ * editor's image replacement writes into `src="…"`. Only the conventional
+ * `public/` root has a framework-independent site-root URL mapping. Other
+ * configured roots need framework-specific imports or routes, so fail clearly
+ * instead of inventing a URL.
  */
-export function assetWebPath(assetPath: string): string {
-  return '/' + assetPath.split('/').map(encodeURIComponent).join('/');
+export function assetWebPath(assetsRoot: string, assetPath: string): string {
+  const root = assetsRoot.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (root !== 'public') {
+    throw new Error(
+      `Images from the “${assetsRoot}” folder do not have a safe public URL mapping. Set the Assets folder to “public” or add the image in code.`
+    );
+  }
+  const segments = assetPath.replace(/\\/g, '/').split('/');
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error('This asset path cannot be converted to a public image URL.');
+  }
+  const encodeSegment = (segment: string) =>
+    encodeURIComponent(segment).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+  return '/' + segments.map(encodeSegment).join('/');
 }
 
 /**

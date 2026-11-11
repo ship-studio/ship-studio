@@ -27,6 +27,11 @@ interface Props {
   optionIcons?: Record<string, ReactNode>;
   /** Render as a chevron-only overflow trigger for compact segmented rows. */
   compactTrigger?: boolean;
+  /** Disable the trigger when its source value cannot be edited safely. */
+  disabled?: boolean;
+  /** Explanation exposed through the native title and description attributes. */
+  title?: string;
+  describedBy?: string;
   /** Currently-active token, or null when none of the options is applied. */
   value: string | null;
   onChange: (token: string) => void;
@@ -37,6 +42,9 @@ export function EnumDropdown({
   options,
   optionIcons,
   compactTrigger = false,
+  disabled = false,
+  title,
+  describedBy,
   value,
   onChange,
 }: Props) {
@@ -102,10 +110,12 @@ export function EnumDropdown({
         ref={triggerRef}
         variant="select"
         className={`ss-enum__trigger${compactTrigger ? ' ss-enum__trigger--compact' : ''}`}
-        title={label}
+        title={title ?? label}
         aria-label={label}
+        aria-describedby={describedBy}
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
         onClick={() => setOpen((v) => !v)}
       >
         {compactTrigger ? (

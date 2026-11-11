@@ -45,6 +45,28 @@ fn source_exts(root: &Path) -> &'static [&'static str] {
     }
 }
 
+/// Astro pages can render editable markup from imported `src/**/*.html` files
+/// (`?raw` + `set:html`). Keep generated/export HTML outside `src/` excluded,
+/// while making those authored fragments available to class, text, and image
+/// source resolvers.
+fn is_indexed_source_file(root: &Path, path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if source_exts(root).contains(&ext.as_str()) {
+        return true;
+    }
+    if ext != "html" || detect_project_type(root) != ProjectType::Astro {
+        return false;
+    }
+    path.strip_prefix(root)
+        .ok()
+        .and_then(|relative| relative.components().next())
+        .is_some_and(|component| component.as_os_str() == "src")
+}
+
 /// Hash exact source bytes for the optimistic-concurrency guards shared by
 /// element resolution and structural edits.
 pub(crate) fn content_hash(bytes: &[u8]) -> String {
@@ -102,6 +124,16 @@ pub struct ElementSignature {
     /// search key when there's no class anchor.
     #[serde(default)]
     pub attr_src: Option<String>,
+    /// Rendered image attributes used to distinguish classless source candidates
+    /// when the renderer does not expose a source-map frame (for example Astro).
+    #[serde(default)]
+    pub attr_alt: Option<String>,
+    #[serde(default)]
+    pub attr_width: Option<String>,
+    #[serde(default)]
+    pub attr_height: Option<String>,
+    #[serde(default)]
+    pub attr_loading: Option<String>,
 }
 
 /// One source location of a className literal.
@@ -355,18 +387,12 @@ pub(crate) fn invalidate_index_cache(root: &Path) {
 /// .next, .git, etc. via the `ignore` walker which also honors .gitignore).
 fn index_occurrences(root: &Path) -> Vec<Occurrence> {
     let mut out = Vec::new();
-    let exts = source_exts(root);
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(true)
         .build();
     for entry in walker.flatten() {
         let path = entry.path();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .unwrap_or_default();
-        if !exts.contains(&ext.as_str()) {
+        if !is_indexed_source_file(root, path) {
             continue;
         }
         let Ok(src) = std::fs::read_to_string(path) else {
@@ -377,7 +403,7 @@ fn index_occurrences(root: &Path) -> Vec<Occurrence> {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        for span in find_attr_spans(&src, attrs_for_ext(&ext)) {
+        for span in find_attr_spans(&src, attrs_for_path(&rel)) {
             out.push(Occurrence {
                 class_name: span.value,
                 file: rel.clone(),
@@ -692,7 +718,7 @@ fn source_hint_column(sig: &ElementSignature) -> Option<usize> {
 /// markup span. Columns are a narrowing signal only: if the browser omits one,
 /// line containment is still useful, while a column outside the span rejects
 /// the candidate rather than silently choosing a sibling on the same line.
-fn source_position_in_span(
+pub(crate) fn source_position_in_span(
     src: &str,
     start: usize,
     end: usize,
@@ -1201,18 +1227,12 @@ fn find_classless_tag_sites(
 /// contents) — the same walk/filters the className index uses.
 pub(crate) fn source_files(root: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let exts = source_exts(root);
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(true)
         .build();
     for entry in walker.flatten() {
         let path = entry.path();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .unwrap_or_default();
-        if !exts.contains(&ext.as_str()) {
+        if !is_indexed_source_file(root, path) {
             continue;
         }
         let Ok(src) = std::fs::read_to_string(path) else {
@@ -2143,18 +2163,12 @@ fn index_text_cached(root: &Path) -> std::sync::Arc<Vec<TextOccurrence>> {
 /// Index every static text run under `root` (same file walk/filters as the className index).
 fn index_text_occurrences(root: &Path) -> Vec<TextOccurrence> {
     let mut out = Vec::new();
-    let exts = source_exts(root);
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(true)
         .build();
     for entry in walker.flatten() {
         let path = entry.path();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .unwrap_or_default();
-        if !exts.contains(&ext.as_str()) {
+        if !is_indexed_source_file(root, path) {
             continue;
         }
         let Ok(src) = std::fs::read_to_string(path) else {
@@ -2430,9 +2444,32 @@ pub enum ImageResolution {
         /// How the match was reached: class confidence, or "src" | "tag" | "ancestor".
         confidence: String,
     },
+    /// A literal member chain in `src` points to a verified string property in an
+    /// imported local JSON file. Shared or unclassified references require a
+    /// separate confirmation before the writer accepts the update.
+    JsonProperty {
+        file: String,
+        line: usize,
+        column: usize,
+        src: String,
+        expression: String,
+        property_path: Vec<String>,
+        source_file: String,
+        source_line: usize,
+        source_column: usize,
+        /// Exact UTF-8 byte range of the authored member-chain expression.
+        source_expression_start: usize,
+        source_expression_end: usize,
+        references: Vec<String>,
+        /// Source string literals equal to the current URL; these do not change with the JSON property.
+        literal_references: Vec<String>,
+        scope_known: bool,
+    },
     /// The src isn't a static string literal (import, expression) or is ambiguous.
     ReadOnly { reason: String },
 }
+
+const DYNAMIC_IMAGE_SOURCE_REASON: &str = "This image uses a source expression that the editor cannot prove safe. Dynamic expressions, responsive srcset/picture markup, and ambiguous JSON properties need a code edit.";
 
 /// Outcome of looking for a `src` attribute inside one opening tag.
 enum SrcInTag {
@@ -2539,18 +2576,12 @@ struct SrcOccurrence {
 /// enough that a cache isn't worth the invalidation surface.
 fn index_src_occurrences(root: &Path) -> Vec<SrcOccurrence> {
     let mut out = Vec::new();
-    let exts = source_exts(root);
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(true)
         .build();
     for entry in walker.flatten() {
         let path = entry.path();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .unwrap_or_default();
-        if !exts.contains(&ext.as_str()) {
+        if !is_indexed_source_file(root, path) {
             continue;
         }
         let Ok(src) = std::fs::read_to_string(path) else {
@@ -2619,18 +2650,16 @@ fn resolve_src_by_value(
     src_occ: &[SrcOccurrence],
     sig: &ElementSignature,
 ) -> ImageResolution {
-    const DYNAMIC_REASON: &str =
-        "This image's source comes from code or data, so it can't be swapped here.";
     let Some(raw) = sig.attr_src.as_deref().filter(|s| !s.trim().is_empty()) else {
         return ImageResolution::ReadOnly {
-            reason: DYNAMIC_REASON.into(),
+            reason: DYNAMIC_IMAGE_SOURCE_REASON.into(),
         };
     };
     let want = next_image_url(raw).unwrap_or_else(|| raw.to_string());
     let matches: Vec<&SrcOccurrence> = src_occ.iter().filter(|o| o.value == want).collect();
     if matches.is_empty() {
         return ImageResolution::ReadOnly {
-            reason: DYNAMIC_REASON.into(),
+            reason: DYNAMIC_IMAGE_SOURCE_REASON.into(),
         };
     }
 
@@ -2698,6 +2727,13 @@ pub fn resolve_image_source(
     signature: ElementSignature,
 ) -> Result<ImageResolution, CommandError> {
     let root = validate_project_path(&project_path)?;
+    resolve_image_source_in_root(&root, signature)
+}
+
+fn resolve_image_source_in_root(
+    root: &Path,
+    signature: ElementSignature,
+) -> Result<ImageResolution, CommandError> {
     let occurrences = index_occurrences_cached(&root);
 
     // Strategy 1: class-anchored.
@@ -2718,15 +2754,44 @@ pub fn resolve_image_source(
                     match src_attr_in_tag(&src, span.value_start, span.value_end) {
                         SrcInTag::Static { value, value_start } => {
                             let (line, column) = line_col(&src, value_start);
-                            return Ok(ImageResolution::Resolved {
-                                file,
-                                line,
-                                column,
-                                src: value,
-                                confidence,
-                            });
+                            return Ok(guard_image_srcset(
+                                &root,
+                                ImageResolution::Resolved {
+                                    file,
+                                    line,
+                                    column,
+                                    src: value,
+                                    confidence,
+                                },
+                            ));
                         }
                         SrcInTag::Dynamic => {
+                            if let Some(tag_start) = src[..span.value_start].rfind('<') {
+                                if let Some(tag_end) =
+                                    open_tag_end(&src, tag_start + 1).map(|end| end + 1)
+                                {
+                                    if !json_image_tag_is_safe(&src, tag_start, tag_end) {
+                                        return Ok(ImageResolution::ReadOnly {
+                                            reason: "This image has srcset, picture, or spread-based responsive markup that cannot be kept in sync safely.".into(),
+                                        });
+                                    }
+                                }
+                                if let Some(json) =
+                                    crate::commands::edit_json_image::resolve_at_site(
+                                        &root,
+                                        &file,
+                                        tag_start,
+                                        signature
+                                            .attr_src
+                                            .as_deref()
+                                            .and_then(next_image_url)
+                                            .as_deref()
+                                            .or(signature.attr_src.as_deref()),
+                                    )
+                                {
+                                    return Ok(json_image_resolution(json));
+                                }
+                            }
                             return Ok(ImageResolution::ReadOnly {
                                 reason: "This image's source is set in code (an import or expression), so it can't be swapped here.".into(),
                             });
@@ -2738,13 +2803,127 @@ pub fn resolve_image_source(
         }
     }
 
+    // A verified source-map frame is stronger than a value search. If it points
+    // at a dynamic image expression that this resolver cannot prove, refuse the
+    // edit instead of matching a different image that happens to render the same
+    // URL elsewhere in the project.
+    if signature.source_file.is_some() {
+        let Some(raw) = signature
+            .attr_src
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return Ok(ImageResolution::ReadOnly {
+                reason: "The selected image has a source location, but its rendered URL is unavailable for verification.".into(),
+            });
+        };
+        let expected = next_image_url(raw).unwrap_or_else(|| raw.to_string());
+        let Some((hint, source_line)) = authored_source_hint(&root, &signature) else {
+            return Ok(ImageResolution::ReadOnly {
+                reason: "The selected image's source location could not be verified safely.".into(),
+            });
+        };
+        let candidates: Vec<(String, String)> = source_files(&root)
+            .into_iter()
+            .filter(|(file, _)| source_hint_matches_file(&root, &hint, file))
+            .collect();
+        let [(file, source)] = candidates.as_slice() else {
+            return Ok(ImageResolution::ReadOnly {
+                reason: "The selected image's source location is ambiguous or unavailable.".into(),
+            });
+        };
+        match crate::commands::edit_json_image::resolve_at_hint(
+            &root,
+            file,
+            source,
+            source_line,
+            source_hint_column(&signature),
+            &expected,
+        ) {
+            Ok(Some(json)) => return Ok(json_image_resolution(json)),
+            Err(()) => {
+                return Ok(ImageResolution::ReadOnly {
+                    reason: "The selected image uses an expression this editor cannot prove maps to one local JSON property.".into(),
+                });
+            }
+            Ok(None) => {}
+        }
+    }
+
     // Strategy 2: value search.
     let src_occ = index_src_occurrences(&root);
-    Ok(resolve_src_by_value(
-        occurrences.as_slice(),
-        &src_occ,
-        &signature,
-    ))
+    let src_resolution = resolve_src_by_value(occurrences.as_slice(), &src_occ, &signature);
+    if signature.source_file.is_none() && signature.tag_name.eq_ignore_ascii_case("img") {
+        if let Some(raw) = signature
+            .attr_src
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let expected = next_image_url(raw).unwrap_or_else(|| raw.to_string());
+            let json_result = crate::commands::edit_json_image::resolve_by_rendered_signature(
+                &root, &expected, &signature,
+            );
+            match &src_resolution {
+                ImageResolution::Resolved { .. } => match json_result {
+                    Ok(None) => return Ok(guard_image_srcset(&root, src_resolution)),
+                    Ok(Some(json)) => return Ok(json_image_resolution(json)),
+                    Err(()) => {
+                        return Ok(ImageResolution::ReadOnly {
+                            reason: "More than one authored image source could match this rendered image. Update it in code.".into(),
+                        });
+                    }
+                },
+                ImageResolution::ReadOnly { reason } if reason == DYNAMIC_IMAGE_SOURCE_REASON => {
+                    match json_result {
+                        // This fallback covers renderers without a creation
+                        // frame and classless React images. It accepts one
+                        // authored native <img> (or a proven Next.js Image)
+                        // whose literal JSON member chain resolves to this URL
+                        // and whose rendered attributes identify the site.
+                        Ok(Some(json)) => return Ok(json_image_resolution(json)),
+                        Err(()) => {
+                            return Ok(ImageResolution::ReadOnly {
+                                reason: "The selected image has no unique source mapping for this rendered URL, so update it in code.".into(),
+                            });
+                        }
+                        Ok(None) => {}
+                    }
+                }
+                ImageResolution::ReadOnly { .. } => match json_result {
+                    Ok(Some(json)) => return Ok(json_image_resolution(json)),
+                    Err(()) => {
+                        return Ok(ImageResolution::ReadOnly {
+                            reason: "The selected image has no unique source mapping for this rendered URL, so update it in code.".into(),
+                        });
+                    }
+                    Ok(None) => {}
+                },
+                _ => {}
+            }
+        }
+    }
+    Ok(src_resolution)
+}
+
+fn json_image_resolution(
+    json: crate::commands::edit_json_image::JsonImageResolution,
+) -> ImageResolution {
+    ImageResolution::JsonProperty {
+        file: json.file,
+        line: json.line,
+        column: json.column,
+        src: json.src,
+        expression: json.expression,
+        property_path: json.property_path,
+        source_file: json.source_file,
+        source_line: json.source_line,
+        source_column: json.source_column,
+        source_expression_start: json.source_expression_start,
+        source_expression_end: json.source_expression_end,
+        references: json.references,
+        literal_references: json.literal_references,
+        scope_known: json.scope_known,
+    }
 }
 
 /// Characters that can't appear in a quoted attribute value without breaking the
@@ -2755,6 +2934,342 @@ fn invalid_src_value(s: &str) -> bool {
     s.is_empty()
         || s.chars()
             .any(|c| matches!(c, '"' | '\'' | '`' | '<' | '>' | '{' | '}' | '\\') || c.is_control())
+}
+
+#[derive(Debug)]
+struct AttributeRange {
+    start: usize,
+    end: usize,
+    is_static: bool,
+}
+
+/// Skip a balanced JSX expression, honoring strings and comments. Returns the byte
+/// just past the matching `}`; malformed expressions fail closed.
+pub(crate) fn skip_braced_expression(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(start) != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut index = start;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        let next = bytes.get(index + 1).copied();
+        if byte == b'\'' || byte == b'"' || byte == b'`' {
+            let quote = byte;
+            index += 1;
+            while index < bytes.len() {
+                if bytes[index] == b'\\' {
+                    index = (index + 2).min(bytes.len());
+                } else if bytes[index] == quote {
+                    index += 1;
+                    break;
+                } else {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        if byte == b'/' && next == Some(b'/') {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            continue;
+        }
+        if byte == b'/' && next == Some(b'*') {
+            let close = source[index + 2..].find("*/")? + index + 4;
+            index = close;
+            continue;
+        }
+        if byte == b'{' {
+            depth += 1;
+        } else if byte == b'}' {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index + 1);
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Find occurrences of an attribute in one opening tag. The parser keeps the full
+/// attribute range so a replaced image can remove a stale `srcset` without leaving
+/// half of a JSX expression behind.
+fn attribute_ranges(tag: &str, wanted: &str) -> Option<Vec<AttributeRange>> {
+    let bytes = tag.as_bytes();
+    let mut index = 1usize;
+    while index < bytes.len() && !bytes[index].is_ascii_whitespace() && bytes[index] != b'>' {
+        index += 1;
+    }
+    let mut ranges = Vec::new();
+    while index < bytes.len() {
+        while index < bytes.len() && (bytes[index] as char).is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() || bytes[index] == b'>' || bytes[index] == b'/' {
+            break;
+        }
+        if bytes[index] == b'{' {
+            let start = index;
+            index = skip_braced_expression(tag, index)?;
+            if tag[start + 1..index - 1].trim_start().starts_with("...") {
+                // A spread can carry a dynamic `srcset` that this lightweight
+                // attribute scanner cannot inspect. Fail closed on that tag.
+                return None;
+            }
+            continue;
+        }
+
+        let start = index;
+        while index < bytes.len()
+            && !(bytes[index] as char).is_ascii_whitespace()
+            && !matches!(bytes[index], b'=' | b'/' | b'>')
+        {
+            index += 1;
+        }
+        if index == start {
+            return None;
+        }
+        let name = &tag[start..index];
+        while index < bytes.len() && (bytes[index] as char).is_ascii_whitespace() {
+            index += 1;
+        }
+        let mut end = index;
+        let mut is_static = true;
+        if index < bytes.len() && bytes[index] == b'=' {
+            index += 1;
+            while index < bytes.len() && (bytes[index] as char).is_ascii_whitespace() {
+                index += 1;
+            }
+            if index >= bytes.len() {
+                return None;
+            }
+            match bytes[index] {
+                b'\'' | b'"' | b'`' => {
+                    let quote = bytes[index];
+                    index += 1;
+                    while index < bytes.len() {
+                        if bytes[index] == b'\\' {
+                            index = (index + 2).min(bytes.len());
+                        } else if bytes[index] == quote {
+                            index += 1;
+                            break;
+                        } else {
+                            index += 1;
+                        }
+                    }
+                    if index > bytes.len() || bytes.get(index.saturating_sub(1)) != Some(&quote) {
+                        return None;
+                    }
+                }
+                b'{' => {
+                    index = skip_braced_expression(tag, index)?;
+                    // Even a quoted expression may concatenate or otherwise derive
+                    // its value (`{"small" + candidates}`). Keep every JSX
+                    // expression read-only unless a full expression parser can
+                    // prove it is one literal.
+                    is_static = false;
+                }
+                _ => {
+                    while index < bytes.len()
+                        && !(bytes[index] as char).is_ascii_whitespace()
+                        && bytes[index] != b'>'
+                    {
+                        index += 1;
+                    }
+                }
+            }
+            end = index;
+        }
+        if name.eq_ignore_ascii_case(wanted) {
+            ranges.push(AttributeRange {
+                start,
+                end,
+                is_static,
+            });
+        }
+    }
+    Some(ranges)
+}
+
+/// Resolve a static `src` only when its responsive source list can stay in sync.
+/// Any JSX `srcset={...}` expression remains read-only because the editor cannot
+/// prove how that expression relates to a replacement asset.
+fn guard_image_srcset(root: &Path, resolution: ImageResolution) -> ImageResolution {
+    let ImageResolution::Resolved {
+        file,
+        line,
+        column,
+        src,
+        confidence,
+    } = resolution
+    else {
+        return resolution;
+    };
+    let safe = (|| {
+        let source = std::fs::read_to_string(root.join(&file)).ok()?;
+        let span = find_attr_spans(&source, &["src"])
+            .into_iter()
+            .find(|span| span.line == line && span.column == column && span.value == src)?;
+        let (tag_start, tag_end) = image_tag_range(&source, span.value_start)?;
+        let srcsets = attribute_ranges(&source[tag_start..tag_end], "srcset")?;
+        Some(
+            !srcsets.iter().any(|range| !range.is_static)
+                && !image_inside_picture(&source, tag_start)?,
+        )
+    })();
+    match safe {
+        Some(true) => ImageResolution::Resolved {
+            file,
+            line,
+            column,
+            src,
+            confidence,
+        },
+        Some(false) => ImageResolution::ReadOnly {
+            reason: "This image has responsive source markup that can't be safely updated here. Update it in code so every image source stays in sync.".into(),
+        },
+        None => ImageResolution::ReadOnly {
+            reason: "This image's responsive sources could not be checked safely. Update it in code.".into(),
+        },
+    }
+}
+
+/// JSON-backed writes leave the owning template expression intact. A srcset or
+/// picture source could keep rendering an older asset, so those layouts remain
+/// read-only for this writer.
+pub(crate) fn json_image_tag_is_safe(source: &str, tag_start: usize, tag_end: usize) -> bool {
+    let Some(tag) = source.get(tag_start..tag_end) else {
+        return false;
+    };
+    let Some(srcsets) = attribute_ranges(tag, "srcset") else {
+        return false;
+    };
+    srcsets.is_empty() && image_inside_picture(source, tag_start) == Some(false)
+}
+
+/// Exact byte range of the opening image tag or image component that owns a static source value.
+/// Checking both the parsed tag name and the parsed `src` span prevents a `<` in
+/// a nearby string or text node from becoming a write target.
+fn image_tag_range(source: &str, value_start: usize) -> Option<(usize, usize)> {
+    let tag_start = source[..value_start].rfind('<')?;
+    let info = tag_at(source, tag_start)?;
+    if info.closing {
+        return None;
+    }
+    let tag_end = open_tag_end(source, value_start)? + 1;
+    if value_start >= tag_end {
+        return None;
+    }
+    let is_src_span = find_attr_spans(&source[tag_start..tag_end], &["src"])
+        .iter()
+        .any(|span| tag_start + span.value_start == value_start);
+    is_src_span.then_some((tag_start, tag_end))
+}
+
+/// A sibling `<source srcset=…>` can override an image's own `src`. Since this
+/// editor resolves one tag at a time, leave every image inside `<picture>` to
+/// code rather than risk keeping an old candidate active.
+fn image_inside_picture(source: &str, image_tag_start: usize) -> Option<bool> {
+    if image_tag_start > source.len() || !source.is_char_boundary(image_tag_start) {
+        return None;
+    }
+    let prefix = &source[..image_tag_start];
+    let mut index = 0;
+    let mut picture_depth = 0usize;
+    while index < prefix.len() {
+        if prefix[index..].starts_with("<!--") {
+            let close = prefix[index + 4..].find("-->")? + index + 7;
+            index = close;
+            continue;
+        }
+        if prefix[index..].starts_with("/*") {
+            let close = prefix[index + 2..].find("*/")? + index + 4;
+            index = close;
+            continue;
+        }
+        if prefix[index..].starts_with("//") {
+            // A comment that contains tag-like text is ambiguous in a JSX file;
+            // failing closed avoids mistaking a commented close for real ancestry.
+            let end = prefix[index..]
+                .find('\n')
+                .map_or(prefix.len(), |n| index + n);
+            if prefix[index..end].contains('<') || picture_depth > 0 {
+                return None;
+            }
+            index = end;
+            continue;
+        }
+        if prefix.as_bytes()[index] == b'{' && picture_depth > 0 {
+            index = skip_braced_expression(prefix, index)?;
+            continue;
+        }
+        if prefix.as_bytes()[index] == b'<' {
+            if let Some(tag) = tag_at(prefix, index) {
+                if tag.name.eq_ignore_ascii_case("picture") {
+                    if tag.closing {
+                        picture_depth = picture_depth.checked_sub(1)?;
+                    } else if !tag.self_closing {
+                        picture_depth = picture_depth.checked_add(1)?;
+                    }
+                }
+                index = tag.end;
+                continue;
+            }
+            if begins_picture_tag(prefix, index) {
+                return None;
+            }
+        }
+        index += prefix[index..].chars().next()?.len_utf8();
+    }
+    Some(picture_depth > 0)
+}
+
+/// True when `at` begins a malformed case-insensitive picture tag. Its ancestry
+/// cannot be proved, so image replacement must remain read-only.
+fn begins_picture_tag(source: &str, at: usize) -> bool {
+    let bytes = source.as_bytes();
+    if bytes.get(at) != Some(&b'<') {
+        return false;
+    }
+    let mut start = at + 1;
+    if bytes.get(start) == Some(&b'/') {
+        start += 1;
+    }
+    bytes
+        .get(start..start + 7)
+        .is_some_and(|name| name.eq_ignore_ascii_case(b"picture"))
+        && bytes.get(start + 7).map_or(true, |next| {
+            next.is_ascii_whitespace() || matches!(next, b'/' | b'>')
+        })
+}
+
+/// Refuse image markup writes that could affect several rendered source instances
+/// or cannot safely inspect the opening tag's attributes.
+fn image_markup_write_refusal(
+    tag_name: &str,
+    old_html: &str,
+    instance_count: usize,
+) -> Option<&'static str> {
+    if !tag_name.eq_ignore_ascii_case("img") {
+        return None;
+    }
+    if instance_count > 1 {
+        return Some("This image appears in several identical source locations. Update it in code so only the intended image changes.");
+    }
+    let Some(end) = open_tag_end(old_html, 0) else {
+        return Some("This image's attributes could not be parsed safely. Update them in code.");
+    };
+    let Some(opening_tag) = old_html.get(..=end) else {
+        return Some("This image's attributes could not be parsed safely. Update them in code.");
+    };
+    if attribute_ranges(opening_tag, "srcset").is_none() {
+        return Some("This image uses a spread or unsupported attribute expression. Update its attributes in code so they stay in sync.");
+    }
+    None
 }
 
 /// Surgically replace one static `src` literal's value, after verifying it still
@@ -2800,10 +3315,43 @@ pub fn apply_src_edit(
             reason: "source no longer matches — reselect the image".into(),
         })?;
 
-    let mut updated = String::with_capacity(src.len() + new_src.len());
-    updated.push_str(&src[..span.value_start]);
-    updated.push_str(&new_src);
-    updated.push_str(&src[span.value_end..]);
+    let (tag_start, tag_end) =
+        image_tag_range(&src, span.value_start).ok_or_else(|| CommandError::Validation {
+            field: "src".into(),
+            reason: "The image source tag could not be parsed safely — reselect the image.".into(),
+        })?;
+    let tag = &src[tag_start..tag_end];
+    let srcsets = attribute_ranges(tag, "srcset").ok_or_else(|| CommandError::Validation {
+        field: "srcset".into(),
+        reason: "This image's source attributes could not be parsed safely — update it in code."
+            .into(),
+    })?;
+    if srcsets.iter().any(|range| !range.is_static) {
+        return Err(CommandError::Validation {
+            field: "srcset".into(),
+            reason: "This image uses a code-generated srcset. Update the image source in code so its responsive sources stay in sync.".into(),
+        });
+    }
+    if image_inside_picture(&src, tag_start).unwrap_or(true) {
+        return Err(CommandError::Validation {
+            field: "srcset".into(),
+            reason: "This image is inside a <picture> element. Update it in code so responsive sources stay in sync.".into(),
+        });
+    }
+
+    // Apply source edits from right to left so every remaining byte offset stays
+    // valid. Static responsive sources are removed with the `src` replacement;
+    // preserving an old candidate list would keep the preview on the old image.
+    let mut edits: Vec<(usize, usize, &str)> = srcsets
+        .into_iter()
+        .map(|range| (tag_start + range.start, tag_start + range.end, ""))
+        .collect();
+    edits.push((span.value_start, span.value_end, &new_src));
+    edits.sort_by(|left, right| right.0.cmp(&left.0));
+    let mut updated = src.clone();
+    for (start, end, replacement) in edits {
+        updated.replace_range(start..end, replacement);
+    }
 
     std::fs::write(&abs, updated)
         .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
@@ -3470,6 +4018,25 @@ pub struct ElementHtml {
     pub locations: Option<Vec<Location>>,
 }
 
+/// A precise source anchor returned with element markup and carried back only
+/// for the matching write. The file hash makes external changes fail closed.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementSourceAnchor {
+    pub file: String,
+    pub source_start: usize,
+    pub source_hash: String,
+}
+
+/// Result of applying an element markup edit. A single anchored write returns
+/// the refreshed hash so several consecutive settings edits remain guarded.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementHtmlApplyResult {
+    pub updated: usize,
+    pub source_anchor: Option<ElementSourceAnchor>,
+}
+
 /// One located instance of an element: its file, that file's source, and the
 /// byte span of the element's markup (opening tag → matching close tag).
 #[derive(Debug)]
@@ -3480,6 +4047,113 @@ pub(crate) struct LocatedInstance {
     pub(crate) line: usize,
     pub(crate) start: usize,
     pub(crate) end: usize,
+}
+
+/// Resolve an image's complete source markup by its literal rendered `src` and
+/// static class signature. This covers imported raw HTML fragments where a
+/// shared class appears on many different images and there is no framework
+/// source hint. The source `src` is only a locator; returned values always come
+/// from the matched markup, and repeated different markup remains ambiguous.
+fn locate_image_instances_by_src(
+    root: &Path,
+    signature: &ElementSignature,
+    target: Option<&Location>,
+) -> Result<Option<(Vec<LocatedInstance>, Option<Vec<Location>>)>, CommandError> {
+    if !signature.tag_name.eq_ignore_ascii_case("img") {
+        return Ok(None);
+    }
+    let Some(rendered_src) = signature.attr_src.as_deref().filter(|src| !src.is_empty()) else {
+        return Ok(None);
+    };
+
+    let mut instances = Vec::new();
+    let mut locations = Vec::new();
+    for occurrence in index_src_occurrences(root)
+        .into_iter()
+        .filter(|occurrence| {
+            occurrence.value == rendered_src && occurrence.tag.eq_ignore_ascii_case("img")
+        })
+    {
+        let abs = root.join(&occurrence.file);
+        let Ok(src) = std::fs::read_to_string(&abs) else {
+            continue;
+        };
+        let Some(src_span) = find_attr_spans(&src, &["src"]).into_iter().find(|span| {
+            span.line == occurrence.line
+                && span.column == occurrence.column
+                && span.value == rendered_src
+                && span.tag.eq_ignore_ascii_case("img")
+        }) else {
+            continue;
+        };
+        let Some((tag_start, tag_end)) = image_tag_range(&src, src_span.value_start) else {
+            continue;
+        };
+        let opening_tag = &src[tag_start..tag_end];
+        let path_class_attrs = attrs_for_path(&occurrence.file);
+        let source_classes = find_attr_spans(opening_tag, path_class_attrs);
+        let has_class_attribute = path_class_attrs
+            .iter()
+            .any(|name| has_attr_name(opening_tag, name));
+        let class_matches = if signature.class_name.trim().is_empty() {
+            (!has_class_attribute && source_classes.is_empty())
+                || (source_classes.len() == 1 && source_classes[0].value.trim().is_empty())
+        } else {
+            let selected_classes: std::collections::HashSet<&str> =
+                signature.class_name.split_whitespace().collect();
+            source_classes.len() == 1
+                && !source_classes[0].value.trim().is_empty()
+                && source_classes[0]
+                    .value
+                    .split_whitespace()
+                    .all(|class| selected_classes.contains(class))
+        };
+        if !class_matches {
+            continue;
+        }
+        let Some((start, end)) = element_span(&src, src_span.value_start) else {
+            continue;
+        };
+        locations.push(Location {
+            file: occurrence.file.clone(),
+            line: occurrence.line,
+            column: occurrence.column,
+        });
+        instances.push(LocatedInstance {
+            file: occurrence.file,
+            abs,
+            src,
+            line: occurrence.line,
+            start,
+            end,
+        });
+    }
+
+    if instances.is_empty() {
+        return Ok(None);
+    }
+    if let Some(target) = target {
+        let selected = locations
+            .iter()
+            .position(|candidate| candidate == target)
+            .ok_or_else(|| CommandError::Validation {
+                field: "location".into(),
+                reason: "that image source location no longer matches — reselect the image".into(),
+            })?;
+        return Ok(Some((vec![instances.swap_remove(selected)], None)));
+    }
+    let first_html = &instances[0].src[instances[0].start..instances[0].end];
+    if instances
+        .iter()
+        .any(|instance| &instance.src[instance.start..instance.end] != first_html)
+    {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "This image source matches several different source locations, so its saved attributes can't be matched safely. Update it in code instead.".into(),
+        });
+    }
+    let locations = (instances.len() > 1).then_some(locations);
+    Ok(Some((instances, locations)))
 }
 
 /// Locate the element anchored by the className literal at `file:line` and
@@ -3568,6 +4242,81 @@ fn locate_classless_instance(
         start,
         end,
     })
+}
+
+/// Locate a classless JSON-backed Astro image from the verified rendered
+/// signature. The image resolver proves the literal JSON import/member chain
+/// and exact static DOM attributes; this reopens that same authored site so the
+/// Settings controls can safely edit its other literal attributes.
+fn locate_json_image_instance(
+    root: &Path,
+    signature: &ElementSignature,
+) -> Result<Option<LocatedInstance>, CommandError> {
+    if !signature.tag_name.eq_ignore_ascii_case("img") {
+        return Ok(None);
+    }
+    let Some(expected_src) = signature
+        .attr_src
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    let resolution = match crate::commands::edit_json_image::resolve_by_rendered_signature(
+        root,
+        expected_src,
+        signature,
+    ) {
+        Ok(Some(resolution)) => resolution,
+        Ok(None) => return Ok(None),
+        Err(()) => {
+            return Err(CommandError::Validation {
+                field: "image".into(),
+                reason: "This image's JSON-backed source could not be matched to one unique authored image. Update it in code instead.".into(),
+            });
+        }
+    };
+    let Some((file, source, tag_start, tag_end)) =
+        crate::commands::edit_json_image::locate_source_tag(
+            root,
+            &resolution.source_file,
+            resolution.source_line,
+            resolution.source_column,
+            expected_src,
+        )
+    else {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's JSON-backed source location could not be verified. Reselect the image.".into(),
+        });
+    };
+    if !json_image_tag_is_safe(&source, tag_start, tag_end) {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "This image uses responsive source markup that cannot be kept in sync safely."
+                .into(),
+        });
+    }
+    let Some((start, end)) = element_span(&source, tag_start) else {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's source markup could not be parsed safely.".into(),
+        });
+    };
+    if start != tag_start || end != tag_end {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's source markup did not match the verified opening tag.".into(),
+        });
+    }
+    Ok(Some(LocatedInstance {
+        abs: root.join(&file),
+        file,
+        line: line_col(&source, start).0,
+        src: source,
+        start,
+        end,
+    }))
 }
 
 /// Locate every editable instance of an element under `root`.
@@ -3681,10 +4430,25 @@ fn locate_element_instances(
 ) -> Result<(Vec<LocatedInstance>, Option<Vec<Location>>), CommandError> {
     let root = validate_project_path(project_path)?;
     if signature.class_name.trim().is_empty() {
-        return Ok((vec![locate_classless_instance(&root, &signature)?], None));
+        if let Some(image) = locate_json_image_instance(&root, &signature)? {
+            return Ok((vec![image], None));
+        }
+        return match locate_classless_instance(&root, &signature) {
+            Ok(instance) => Ok((vec![instance], None)),
+            Err(error) => match locate_image_instances_by_src(&root, &signature, target)? {
+                Some(resolved) => Ok(resolved),
+                None => Err(error),
+            },
+        };
     }
     let resolution = resolve_classname_source(project_path.to_string(), signature.clone())?;
-    locate_instances_at(&root, resolution, target, Some(&signature))
+    match locate_instances_at(&root, resolution, target, Some(&signature)) {
+        Ok(resolved) => Ok(resolved),
+        Err(error) => match locate_image_instances_by_src(&root, &signature, target)? {
+            Some(resolved) => Ok(resolved),
+            None => Err(error),
+        },
+    }
 }
 
 /// Resolve an element to the source markup span, file, and contents, plus the
@@ -3749,7 +4513,8 @@ pub fn resolve_element_html(
 ///
 /// A multi-sourced element writes to every instance (or just `location`, if
 /// given), skipping spots whose markup has drifted — mirroring
-/// `apply_classname_edit_multi`. Returns how many instances were updated;
+/// `apply_classname_edit_multi`. Image markup writes require a single instance
+/// and a safely parsed opening tag. Returns how many instances were updated;
 /// zero (everything drifted) is an error.
 #[tauri::command]
 #[tracing::instrument(skip(signature, old_html, new_html), fields(project = %project_path))]
@@ -3759,8 +4524,25 @@ pub fn apply_element_html(
     old_html: String,
     new_html: String,
     location: Option<Location>,
-) -> Result<usize, CommandError> {
+    source_anchor: Option<ElementSourceAnchor>,
+) -> Result<ElementHtmlApplyResult, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    if let Some(anchor) = source_anchor {
+        let result =
+            apply_element_html_at_source_anchor(&root, &signature, &anchor, &old_html, &new_html)?;
+        invalidate_index_cache(&root);
+        return Ok(result);
+    }
+    let is_image = signature.tag_name.eq_ignore_ascii_case("img");
     let (instances, _) = locate_element_instances(&project_path, signature, location.as_ref())?;
+    if is_image {
+        if let Some(reason) = image_markup_write_refusal("img", &old_html, instances.len()) {
+            return Err(CommandError::Validation {
+                field: "image".into(),
+                reason: reason.into(),
+            });
+        }
+    }
     let applied = apply_html_to_instances(&instances, &old_html, &new_html)?;
     if applied == 0 {
         return Err(CommandError::Validation {
@@ -3768,9 +4550,177 @@ pub fn apply_element_html(
             reason: "source no longer matches — reselect the element".into(),
         });
     }
-    let root = validate_project_path(&project_path)?;
     invalidate_index_cache(&root);
-    Ok(applied)
+    Ok(ElementHtmlApplyResult {
+        updated: applied,
+        source_anchor: None,
+    })
+}
+
+/// Apply one image markup change at a previously resolved byte offset. The
+/// complete-file hash and exact old markup must both still match; after writing,
+/// return the new hash so consecutive edits keep the same guard.
+fn apply_element_html_at_source_anchor(
+    root: &Path,
+    signature: &ElementSignature,
+    anchor: &ElementSourceAnchor,
+    old_html: &str,
+    new_html: &str,
+) -> Result<ElementHtmlApplyResult, CommandError> {
+    if !signature.tag_name.eq_ignore_ascii_case("img") {
+        return Err(CommandError::Validation {
+            field: "source_anchor".into(),
+            reason: "A source anchor can only be used for a verified image settings edit.".into(),
+        });
+    }
+    let relative = Path::new(&anchor.file);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(CommandError::Validation {
+            field: "source_anchor".into(),
+            reason: "image source path is invalid".into(),
+        });
+    }
+    let canonical_root = root.canonicalize().map_err(CommandError::from)?;
+    let canonical_file = root
+        .join(relative)
+        .canonicalize()
+        .map_err(CommandError::from)?;
+    if !canonical_file.starts_with(&canonical_root) {
+        return Err(CommandError::Validation {
+            field: "source_anchor".into(),
+            reason: "image source is outside the project".into(),
+        });
+    }
+    let source = std::fs::read_to_string(&canonical_file)
+        .map_err(|error| classify_fs_error("open this file to edit it", &canonical_file, &error))?;
+    if content_hash(source.as_bytes()) != anchor.source_hash {
+        return Err(CommandError::Validation {
+            field: "source_anchor".into(),
+            reason: "image source changed — reselect the image before editing".into(),
+        });
+    }
+    let end = anchor
+        .source_start
+        .checked_add(old_html.len())
+        .filter(|end| *end <= source.len());
+    let Some(end) = end else {
+        return Err(CommandError::Validation {
+            field: "old_html".into(),
+            reason: "image source no longer matches — reselect the image".into(),
+        });
+    };
+    if !source.is_char_boundary(anchor.source_start)
+        || !source.is_char_boundary(end)
+        || source.get(anchor.source_start..end) != Some(old_html)
+    {
+        return Err(CommandError::Validation {
+            field: "old_html".into(),
+            reason: "image source no longer matches — reselect the image".into(),
+        });
+    }
+    if let Some(reason) = image_markup_write_refusal("img", old_html, 1) {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: reason.into(),
+        });
+    }
+    let Some(new_tag) = tag_at(new_html, 0) else {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's updated markup could not be parsed safely.".into(),
+        });
+    };
+    if new_tag.closing || !new_tag.name.eq_ignore_ascii_case("img") {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: "Image settings can only update the selected image element.".into(),
+        });
+    }
+    if let Some(reason) = image_markup_write_refusal("img", new_html, 1) {
+        return Err(CommandError::Validation {
+            field: "image".into(),
+            reason: reason.into(),
+        });
+    }
+    let src_changed = image_src_attribute_changed(old_html, new_html).ok_or_else(|| {
+        CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's source attributes could not be parsed safely.".into(),
+        }
+    })?;
+    if src_changed {
+        let new_tag_end = open_tag_end(new_html, 0).ok_or_else(|| CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's source attributes could not be parsed safely.".into(),
+        })?;
+        let new_tag = new_html
+            .get(..=new_tag_end)
+            .ok_or_else(|| CommandError::Validation {
+                field: "image".into(),
+                reason: "This image's source attributes could not be parsed safely.".into(),
+            })?;
+        let sources = attribute_ranges(new_tag, "src").ok_or_else(|| CommandError::Validation {
+            field: "image".into(),
+            reason: "This image's source attributes could not be parsed safely.".into(),
+        })?;
+        let srcsets =
+            attribute_ranges(new_tag, "srcset").ok_or_else(|| CommandError::Validation {
+                field: "image".into(),
+                reason: "This image's responsive source attributes could not be parsed safely."
+                    .into(),
+            })?;
+        if sources.len() != 1
+            || !sources[0].is_static
+            || !srcsets.is_empty()
+            || image_inside_picture(&source, anchor.source_start) != Some(false)
+        {
+            return Err(CommandError::Validation {
+                field: "image".into(),
+                reason:
+                    "This image uses responsive source markup that cannot be kept in sync safely."
+                        .into(),
+            });
+        }
+    }
+    let mut updated = source;
+    updated.replace_range(anchor.source_start..end, new_html);
+    let updated_hash = content_hash(updated.as_bytes());
+    std::fs::write(&canonical_file, &updated).map_err(|error| {
+        classify_fs_error("save your change to this file", &canonical_file, &error)
+    })?;
+    Ok(ElementHtmlApplyResult {
+        updated: 1,
+        source_anchor: Some(ElementSourceAnchor {
+            file: anchor.file.clone(),
+            source_start: anchor.source_start,
+            source_hash: updated_hash,
+        }),
+    })
+}
+
+/// Compare exact `src` attribute slices in two image tags. Non-source edits can
+/// safely preserve `<picture>` and `srcset`; source changes are checked against
+/// those responsive forms separately by the anchored writer.
+fn image_src_attribute_changed(old_html: &str, new_html: &str) -> Option<bool> {
+    let old_end = open_tag_end(old_html, 0)?;
+    let new_end = open_tag_end(new_html, 0)?;
+    let old_tag = old_html.get(..=old_end)?;
+    let new_tag = new_html.get(..=new_end)?;
+    let old_sources = attribute_ranges(old_tag, "src")?;
+    let new_sources = attribute_ranges(new_tag, "src")?;
+    if old_sources.len() != new_sources.len() {
+        return Some(true);
+    }
+    for (old, new) in old_sources.iter().zip(&new_sources) {
+        if old_tag.get(old.start..old.end)? != new_tag.get(new.start..new.end)? {
+            return Some(true);
+        }
+    }
+    Some(false)
 }
 
 /// Write `new_html` over every instance whose span still equals `old_html`.
@@ -3815,6 +4765,61 @@ fn apply_html_to_instances(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn srcset_expression_is_not_treated_as_a_static_attribute() {
+        let ranges = attribute_ranges(
+            r#"<img src="hero.png" srcset={"hero.png 1x" + suffix} />"#,
+            "srcset",
+        )
+        .expect("the JSX attributes should parse");
+        assert_eq!(ranges.len(), 1);
+        assert!(!ranges[0].is_static);
+    }
+
+    #[test]
+    fn picture_ancestry_is_case_insensitive_and_skips_markup_comments() {
+        let inside = "<!-- <picture> --><PICTURE><source /><IMG";
+        assert_eq!(
+            image_inside_picture(inside, inside.find("<IMG").unwrap()),
+            Some(true)
+        );
+
+        let outside = "<!-- <picture> --><picture></picture><img";
+        assert_eq!(
+            image_inside_picture(outside, outside.find("<img").unwrap()),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn picture_ancestry_fails_closed_when_markup_cannot_be_checked() {
+        let malformed = "<PiCtUrE <img";
+        assert_eq!(
+            image_inside_picture(malformed, malformed.find("<img").unwrap()),
+            None
+        );
+
+        let unmatched_close = "</picture><img";
+        assert_eq!(
+            image_inside_picture(unmatched_close, unmatched_close.find("<img").unwrap()),
+            None
+        );
+    }
+
+    #[test]
+    fn image_markup_writes_refuse_ambiguous_instances_and_spreads() {
+        assert!(image_markup_write_refusal("img", r#"<img alt="hero">"#, 2).is_some());
+        assert!(image_markup_write_refusal("img", "<img {...props}>", 1).is_some());
+        assert_eq!(
+            image_markup_write_refusal("img", r#"<img alt="hero">"#, 1),
+            None
+        );
+        assert_eq!(
+            image_markup_write_refusal("div", "<div {...props}>", 2),
+            None
+        );
+    }
 
     fn span_str(src: &str) -> String {
         let inside = src.find("cls").unwrap();
@@ -3988,6 +4993,10 @@ mod tests {
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         };
         let (instances, locations) =
             locate_instances_at(root, Resolution::NoClass, None, Some(&sig)).unwrap();
@@ -4030,6 +5039,10 @@ mod tests {
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         };
         let err = locate_instances_at(root, Resolution::NoClass, None, Some(&sig)).unwrap_err();
         match err {
@@ -4153,7 +5166,216 @@ mod tests {
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         }
+    }
+
+    #[test]
+    fn resolves_unique_classless_astro_json_image_without_a_react_source_hint() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let canonical_root = dir.path().canonicalize().unwrap();
+        let root = canonical_root.as_path();
+        std::fs::create_dir_all(root.join("src/pages")).unwrap();
+        std::fs::create_dir_all(root.join("src/data")).unwrap();
+        std::fs::write(
+            root.join("src/data/assets.json"),
+            r#"{"updates":{"imgImage":"/images/members.jpg"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/pages/index.astro"),
+            "---\nimport assets from '../data/assets.json';\n---\n<section>\n<img src={assets.updates.imgImage} alt=\"Vinyl Alliance members meeting in a conference room\" width=\"451\" height=\"451\" />\n</section>\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("src/components")).unwrap();
+        std::fs::write(
+            root.join("src/components/Hero.astro"),
+            "---\nimport assets from '../data/assets.json';\nconst record = { image: assets.updates.imgImage, alt: 'Vinyl Alliance members meeting in a conference room' };\n---\n<img src={record.image} alt={record.alt} width=\"954\" height=\"954\" />\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/pages/other.astro"),
+            "<img src=\"/images/members.jpg\" alt=\"Members\" width=\"954\" height=\"954\" />\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/pages/another.astro"),
+            "<img src=\"/images/members.jpg\" alt=\"Another image\" width=\"128\" height=\"128\" />\n",
+        )
+        .unwrap();
+
+        // This mirrors the classless index.astro image used in Vinyl Alliance.
+        // The Hero fallback and two literal copies share the URL but have
+        // different rendered signatures, so none can become the selected
+        // candidate despite the URL-only source search being ambiguous.
+        let mut selected = sig("", "img", &[]);
+        selected.attr_src = Some("/images/members.jpg".into());
+        selected.attr_alt = Some("Vinyl Alliance members meeting in a conference room".into());
+        selected.attr_width = Some("451".into());
+        selected.attr_height = Some("451".into());
+        assert!(selected.source_file.is_none());
+        let instance = locate_json_image_instance(root, &selected)
+            .unwrap()
+            .expect("the unique JSON-backed image should be locatable");
+        let settings_markup = ElementHtml {
+            file: instance.file.clone(),
+            line: instance.line,
+            html: instance.src[instance.start..instance.end].to_string(),
+            source_start: instance.start,
+            source_end: instance.end,
+            source_hash: content_hash(instance.src.as_bytes()),
+            source_line: line_col(&instance.src, instance.start).0,
+            source_column: line_col(&instance.src, instance.start).1,
+            locations: None,
+        };
+        assert_eq!(settings_markup.file, "src/pages/index.astro");
+        assert!(settings_markup
+            .html
+            .contains("src={assets.updates.imgImage}"));
+
+        let authored_markup = std::fs::read_to_string(root.join("src/pages/index.astro")).unwrap();
+        let ImageResolution::JsonProperty {
+            source_expression_start,
+            source_expression_end,
+            expression,
+            ..
+        } = resolve_image_source_in_root(root, selected.clone()).unwrap()
+        else {
+            panic!("expected the JSON-backed source expression to resolve");
+        };
+        assert_eq!(
+            &authored_markup[source_expression_start..source_expression_end],
+            expression
+        );
+
+        let next_markup = settings_markup
+            .html
+            .replace(" height=\"451\"", " height=\"451\" loading=\"lazy\"");
+        let write_result = apply_element_html_at_source_anchor(
+            root,
+            &selected,
+            &ElementSourceAnchor {
+                file: settings_markup.file.clone(),
+                source_start: settings_markup.source_start,
+                source_hash: settings_markup.source_hash.clone(),
+            },
+            &settings_markup.html,
+            &next_markup,
+        )
+        .unwrap();
+        assert_eq!(write_result.updated, 1);
+        assert!(std::fs::read_to_string(root.join("src/pages/index.astro"))
+            .unwrap()
+            .contains("loading=\"lazy\""));
+        selected.attr_loading = Some("lazy".into());
+
+        let resolved = resolve_image_source_in_root(root, selected).unwrap();
+
+        let ImageResolution::JsonProperty {
+            file,
+            expression,
+            property_path,
+            source_file,
+            source_line,
+            source_expression_start: _,
+            source_expression_end: _,
+            references,
+            scope_known,
+            ..
+        } = resolved
+        else {
+            panic!("expected a verified JSON-backed image source");
+        };
+        assert_eq!(file, "src/data/assets.json");
+        assert_eq!(expression, "assets.updates.imgImage");
+        assert_eq!(property_path, ["updates", "imgImage"]);
+        assert_eq!(source_file, "src/pages/index.astro");
+        assert_eq!(source_line, 5);
+        assert_eq!(references.len(), 2);
+        assert!(scope_known);
+
+        let mut missing_attributes = sig("", "img", &[]);
+        missing_attributes.attr_src = Some("/images/members.jpg".into());
+        assert!(matches!(
+            resolve_image_source_in_root(root, missing_attributes).unwrap(),
+            ImageResolution::ReadOnly { .. }
+        ));
+    }
+
+    #[test]
+    fn refuses_classless_astro_json_source_when_multiple_img_sites_match() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/pages")).unwrap();
+        std::fs::create_dir_all(root.join("src/data")).unwrap();
+        std::fs::write(
+            root.join("src/data/assets.json"),
+            r#"{"updates":{"imgImage":"/images/members.jpg"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/pages/index.astro"),
+            "import assets from '../data/assets.json';\n<img src={assets.updates.imgImage} alt=\"Members\" width=\"451\" height=\"451\" />\n<img src={assets.updates.imgImage} alt=\"Members\" width=\"451\" height=\"451\" />\n",
+        )
+        .unwrap();
+
+        let mut selected = sig("", "img", &[]);
+        selected.attr_src = Some("/images/members.jpg".into());
+        selected.attr_alt = Some("Members".into());
+        selected.attr_width = Some("451".into());
+        selected.attr_height = Some("451".into());
+        assert!(matches!(
+            resolve_image_source_in_root(root, selected).unwrap(),
+            ImageResolution::ReadOnly { .. }
+        ));
+    }
+
+    #[test]
+    fn resolves_classless_next_image_json_source_from_a_proven_next_image_import() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/pages")).unwrap();
+        std::fs::create_dir_all(root.join("src/data")).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14.0.0"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/data/assets.json"),
+            r#"{"updates":{"imgImage":"/images/members.jpg"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/pages/index.tsx"),
+            "import HeroImage from 'next/image';\nimport assets from '../data/assets.json';\nexport default function Page() { return <HeroImage src={assets.updates.imgImage} alt=\"Hero\" width={451} height={451} />; }\n",
+        )
+        .unwrap();
+
+        let mut selected = img_sig(
+            "",
+            "img",
+            "/_next/image?url=%2Fimages%2Fmembers.jpg&w=828&q=75",
+        );
+        selected.attr_alt = Some("Hero".into());
+        selected.attr_width = Some("451".into());
+        selected.attr_height = Some("451".into());
+
+        let ImageResolution::JsonProperty {
+            file,
+            expression,
+            source_file,
+            ..
+        } = resolve_image_source_in_root(root, selected).unwrap()
+        else {
+            panic!("expected the classless Next Image JSON binding to resolve");
+        };
+        assert_eq!(file, "src/data/assets.json");
+        assert_eq!(expression, "assets.updates.imgImage");
+        assert_eq!(source_file, "src/pages/index.tsx");
     }
 
     #[test]
@@ -4176,6 +5398,57 @@ mod tests {
         )
         .unwrap();
         assert!(source_exts(static_site.path()).contains(&"html"));
+    }
+
+    #[test]
+    fn astro_raw_html_image_resolves_to_authored_markup() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let canonical_root = dir.path().canonicalize().unwrap();
+        let root = canonical_root.as_path();
+        std::fs::write(root.join("astro.config.mjs"), "export default {};").unwrap();
+        std::fs::create_dir_all(root.join("src/content")).unwrap();
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(
+            root.join("src/content/home.html"),
+            concat!(
+                r#"<img class="sticker-img" src="/images/one.svg" alt="One">"#,
+                "\n",
+                r#"<img class="sticker-img" src="/images/two.svg" alt="Selected sticker">"#,
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("dist/index.html"),
+            r#"<img class="generated" src="/images/generated.png">"#,
+        )
+        .unwrap();
+
+        let occurrences = index_occurrences(root);
+        assert!(matches!(
+            resolve(&occurrences, &sig("sticker-img", "img", &[])),
+            Resolution::Multi { .. }
+        ));
+        let mut signature = sig("sticker-img", "img", &[]);
+        signature.attr_src = Some("/images/two.svg".into());
+        let src_occurrences = index_src_occurrences(root);
+        let resolved = resolve_src_by_value(&occurrences, &src_occurrences, &signature);
+        let ImageResolution::Resolved { file, src, .. } = resolved else {
+            panic!(
+                "expected the rendered image URL to resolve to authored markup, got {resolved:?}"
+            );
+        };
+        assert_eq!(file, "src/content/home.html");
+        assert_eq!(src, "/images/two.svg");
+        let authored_markup = std::fs::read_to_string(root.join(&file)).unwrap();
+        assert!(authored_markup
+            .contains(r#"<img class="sticker-img" src="/images/two.svg" alt="Selected sticker">"#));
+        assert!(index_src_occurrences(root)
+            .iter()
+            .any(|source| source.file == "src/content/home.html"
+                && source.value == "/images/two.svg"));
+        assert!(!source_files(root)
+            .iter()
+            .any(|(source, _)| source == "dist/index.html"));
     }
 
     #[test]
@@ -4935,6 +6208,10 @@ const items = [];
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         };
         match resolve_text_by_content(&[], &texts, &sig) {
             TextResolution::Resolved { line, text, .. } => {
@@ -4962,6 +6239,10 @@ const items = [];
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         };
         match resolve_text_by_content(&[], &texts, &sig) {
             TextResolution::Resolved { line, text, .. } => {
@@ -4988,6 +6269,10 @@ const items = [];
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         };
         assert!(matches!(
             resolve_text_by_content(&[], &texts, &sig),
@@ -5301,6 +6586,10 @@ const items = [];
             source_column: None,
             dom_path: None,
             attr_src: Some(src.into()),
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         }
     }
 
@@ -5442,6 +6731,10 @@ const items = [];
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         }
     }
 

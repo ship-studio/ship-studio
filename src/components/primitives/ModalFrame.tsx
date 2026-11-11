@@ -83,6 +83,48 @@ const FOCUSABLE_SELECTOR = [
 export const MODAL_INERT_EXEMPT_ATTR = 'data-modal-inert-exempt';
 
 /**
+ * Body children with this attribute expose their current component-owned inert
+ * state. ModalFrame still makes them inert while a dialog is open, then reads
+ * the latest value on close instead of restoring a stale snapshot.
+ */
+export const MODAL_INERT_STATE_ATTR = 'data-modal-inert-state';
+
+/**
+ * Reconcile a body-portaled surface's own inert state with the modal stack.
+ * ModalFrame normally sweeps body children when its stack changes, but React
+ * portals can be mounted later and development refresh can preserve DOM
+ * mutations after their original modal has gone away.
+ */
+export function syncModalManagedInert(element: HTMLElement, inactive: boolean): void {
+  element.setAttribute(MODAL_INERT_STATE_ATTR, String(inactive));
+
+  if (modalStack.length > 0) {
+    if (!backgroundStates.has(element)) {
+      backgroundStates.set(element, {
+        wasInert: element.hasAttribute('inert'),
+        previousMarker: element.getAttribute('data-modal-background-inert'),
+      });
+    }
+    element.setAttribute('inert', '');
+    element.setAttribute('data-modal-background-inert', 'true');
+    return;
+  }
+
+  const state = backgroundStates.get(element);
+  if (state) {
+    backgroundStates.delete(element);
+    if (state.previousMarker === null) {
+      element.removeAttribute('data-modal-background-inert');
+    } else {
+      element.setAttribute('data-modal-background-inert', state.previousMarker);
+    }
+  }
+
+  if (inactive) element.setAttribute('inert', '');
+  else element.removeAttribute('inert');
+}
+
+/**
  * Controls that get first refusal on Escape before the dialog closes: text
  * entry (an inline rename, a search box) and anything inside — or owning — an
  * open menu/listbox. See `handleEscape` for the one-grace-press contract.
@@ -172,8 +214,12 @@ function syncModalEnvironment() {
   } else {
     for (const [element, state] of backgroundStates) {
       if (!element.isConnected) continue;
-      if (state.wasInert) element.setAttribute('inert', '');
-      else element.removeAttribute('inert');
+      const currentManagedState = element.getAttribute(MODAL_INERT_STATE_ATTR);
+      if (currentManagedState === 'true' || (currentManagedState === null && state.wasInert)) {
+        element.setAttribute('inert', '');
+      } else {
+        element.removeAttribute('inert');
+      }
       if (state.previousMarker === null) {
         element.removeAttribute('data-modal-background-inert');
       } else {

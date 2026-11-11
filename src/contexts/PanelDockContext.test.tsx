@@ -49,6 +49,7 @@ const stackedLayout: WorkspaceLayout = {
     { kind: 'panels', panels: [{ panel: 'editor', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'team', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'variables', weight: 1 }] },
+    { kind: 'panels', panels: [{ panel: 'assets', weight: 1 }] },
   ],
   floating: [],
 };
@@ -64,12 +65,21 @@ describe('structural moves', () => {
         { kind: 'panels', panels: [{ panel: 'navigator', weight: 1 }] },
         { kind: 'panels', panels: [{ panel: 'variables', weight: 1 }] },
         { kind: 'panels', panels: [{ panel: 'team', weight: 1 }] },
+        { kind: 'panels', panels: [{ panel: 'assets', weight: 1 }] },
       ],
       floating: [],
     });
     const { result } = dockOf();
     act(() =>
-      result.current.setOrder(['editor', PREVIEW, 'agent', 'navigator', 'variables', 'team'])
+      result.current.setOrder([
+        'editor',
+        PREVIEW,
+        'agent',
+        'navigator',
+        'variables',
+        'team',
+        'assets',
+      ])
     );
     const columns = result.current.layout.columns.filter((column) => column.kind === 'panels');
     const widthOf = (panel: string) =>
@@ -82,10 +92,10 @@ describe('structural moves', () => {
     const { result } = dockOf();
     act(() => result.current.stackPanel('navigator', 0, 0));
     expect(result.current.layout.columns[0]).toMatchObject({
-      panels: [{ panel: 'navigator' }, { panel: 'team' }],
+      panels: [{ panel: 'navigator' }, { panel: 'assets' }],
     });
     expect(readProjectLayout(A).columns[0]).toMatchObject({
-      panels: [{ panel: 'navigator' }, { panel: 'team' }],
+      panels: [{ panel: 'navigator' }, { panel: 'assets' }],
     });
   });
 

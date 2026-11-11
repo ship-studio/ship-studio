@@ -41,7 +41,6 @@ import {
   VariablesIcon,
   ActivityIcon,
 } from '@/components/icons';
-import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { MiddleTruncate } from '../primitives/MiddleTruncate';
 import { ToggleButton } from '../primitives/ToggleButton';
@@ -516,11 +515,13 @@ export function WorkspaceHeader({
         aria-label="Variables"
         data-workspace-panel="variables"
       />
-      <Button
+      <ToggleButton
+        variant={assetsPanelVisible ? 'secondary' : 'default'}
+        className="workspace-panel-toggle"
+        pressed={assetsPanelVisible}
         onClick={onOpenAssetsPanel}
         title="Assets"
         aria-label="Assets"
-        aria-pressed={assetsPanelVisible}
         data-education-id="assets-button"
         data-workspace-panel="assets"
         leftIcon={<ImageIcon size={16} />}

@@ -60,8 +60,11 @@ import type {
 } from '../../lib/edit';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import type { Selection } from '../../hooks/useVisualEditor';
+import type { ElementSettings } from '../../hooks/useElementSettings';
+import type { OpenInCode } from '../../lib/code';
 import { SLACK_INVITE_URL } from '../../lib/links';
 import { colorContrastContexts } from '../../lib/colorContrast';
+import { backgroundImageForLayer } from '../../lib/cssBackgroundImage';
 
 /** Build a ready-to-paste request for the coding agent to change text that's rendered
  *  from code/data (so it can't be edited inline). The user pastes it into the terminal
@@ -285,8 +288,10 @@ interface Props {
   textResolution?: TextResolution | null;
   /** Image-src editability of the selection — drives the Image section. */
   imageResolution?: ImageResolution | null;
+  /** Safe source-markup settings used by supported image attribute controls. */
+  imageSettings?: ElementSettings;
   /** Write a new src to source and swap the preview (immediate save). */
-  onReplaceImage: (webPath: string) => Promise<void>;
+  onReplaceImage: (webPath: string, confirmedShared?: boolean) => Promise<void>;
   /** Bumps each time a double-click hits dynamic text — pulses the hand-off block
    *  so the user's eye is drawn to the panel after their click did nothing. */
   textBlockedNonce?: number;
@@ -335,7 +340,7 @@ interface Props {
   /** Where the selected element's component is used project-wide (scope hint). */
   usage: UsageReport | null;
   /** Jump to a source file:line in the Code tab. */
-  onOpenInCode?: (file: string, line: number) => void;
+  onOpenInCode?: OpenInCode;
   onCommit: () => void;
   onClose: () => void;
   /** Docked as a sidebar column inside the preview container instead of
@@ -357,6 +362,7 @@ export function VisualEditorPanel({
   spacingScale,
   textResolution,
   imageResolution,
+  imageSettings,
   onReplaceImage,
   textBlockedNonce,
   breakpoints,
@@ -440,11 +446,27 @@ export function VisualEditorPanel({
     () => [...breakpoints].sort((a, b) => b.minPx - a.minPx),
     [breakpoints]
   );
+  const backgroundImage = backgroundImageForLayer(
+    currentClass,
+    layer,
+    selection?.signature.computedBackgroundImage,
+    editTarget.kind === 'class' ? editTarget.baseline : selection?.signature.className
+  );
 
   // Shared render context for every control row (the registry renders generically).
   const controlCtx = useMemo<ControlRenderCtx>(
     () => ({
       currentClass,
+      selectionKey: selection
+        ? [
+            selection.signature.domPath ?? '',
+            selection.signature.sourceFile ?? '',
+            selection.signature.sourceLine ?? '',
+            selection.signature.sourceColumn ?? '',
+            selection.signature.className,
+            selection.signature.attrSrc ?? '',
+          ].join(':')
+        : undefined,
       layer,
       onApplyEnum,
       onReset,
@@ -456,6 +478,7 @@ export function VisualEditorPanel({
       computed: {
         color: selection?.signature.computedColor,
         'background-color': selection?.signature.computedBackgroundColor,
+        'background-image': backgroundImage,
       },
       inherited: selection?.signature.inheritedProps,
       projectPath,
@@ -472,6 +495,7 @@ export function VisualEditorPanel({
       selection,
       variables,
       colorContrast,
+      backgroundImage,
       projectPath,
       onOpenInCode,
     ]
@@ -621,6 +645,8 @@ export function VisualEditorPanel({
             resolution={imageResolution ?? null}
             projectPath={projectPath}
             onReplace={onReplaceImage}
+            onOpenInCode={onOpenInCode}
+            settings={imageSettings}
           />
         )}
 

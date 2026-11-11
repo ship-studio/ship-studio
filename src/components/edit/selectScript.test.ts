@@ -298,6 +298,17 @@ it('walks up to the nearest classed ancestor when a bare non-text child is click
   expect(msg.signature.tagName).toBe('a');
 });
 
+it('selects a classless CSS-mode element so the tree and CSS panel receive ss:select', async () => {
+  document.body.innerHTML = '<main><div><span></span></div></main>';
+  send({ type: 'ss:activate', cascade: true });
+  const selected = nextSelect();
+  document.querySelector('div')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const msg = await selected;
+  expect(msg.signature.className).toBe('');
+  expect(msg.signature.tagName).toBe('div');
+  expect(msg.signature.domPath).toBeTruthy();
+});
+
 it('selects a classless text leaf directly (so its text is editable)', async () => {
   // A classless heading with text + <br> is a text leaf — clicking selects it
   // directly (not its classed wrapper), flagged leafText so the parent resolves text.
@@ -584,6 +595,41 @@ it('emits the matching rules in cascade order with active/overridden flags', asy
   // Devtools-style ordering: the winning rule sorts to the top.
   expect(rules[0].selector).toBe('.btn--primary');
   send({ type: 'ss:deactivate' });
+});
+
+it('delivers the selection before walking stylesheet rules', async () => {
+  document.body.innerHTML =
+    '<style>.cascade-yield{color:red}</style><button class="cascade-yield">Select</button>';
+  send({ type: 'ss:activate', cascade: true });
+  await flushMessages();
+
+  const target = document.querySelector<HTMLButtonElement>('.cascade-yield')!;
+  let selectionDelivered = false;
+  let scannedBeforeSelection = false;
+  const onMessage = (event: MessageEvent) => {
+    if ((event.data as { type?: string })?.type === 'ss:select') selectionDelivered = true;
+  };
+  window.addEventListener('message', onMessage);
+  const originalMatches = target.matches.bind(target);
+  const matches = vi.spyOn(target, 'matches').mockImplementation((selector) => {
+    if (!selectionDelivered) scannedBeforeSelection = true;
+    return originalMatches(selector);
+  });
+  const selected = nextSelect();
+  const cascadeResult = nextCascade();
+
+  try {
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await selected;
+    await cascadeResult;
+
+    expect(matches).toHaveBeenCalled();
+    expect(scannedBeforeSelection).toBe(false);
+  } finally {
+    window.removeEventListener('message', onMessage);
+    matches.mockRestore();
+    send({ type: 'ss:deactivate' });
+  }
 });
 
 it('reports changed media activity for the selected element when its viewport resizes', async () => {

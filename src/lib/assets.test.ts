@@ -3,13 +3,19 @@ import { assetWebPath, isImageFile } from './assets';
 
 describe('assetWebPath', () => {
   it('maps an asset path to its root-relative URL', () => {
-    expect(assetWebPath('hero.png')).toBe('/hero.png');
-    expect(assetWebPath('images/hero.png')).toBe('/images/hero.png');
+    expect(assetWebPath('public', 'hero.png')).toBe('/hero.png');
+    expect(assetWebPath('public', 'images/hero.png')).toBe('/images/hero.png');
   });
 
   it('percent-encodes segments but keeps the slashes', () => {
-    expect(assetWebPath('images/My Logo (1).png')).toBe('/images/My%20Logo%20(1).png');
-    expect(assetWebPath('a#b/c d.png')).toBe('/a%23b/c%20d.png');
+    expect(assetWebPath('public', 'images/My Logo (1).png')).toBe(
+      '/images/My%20Logo%20%281%29.png'
+    );
+    expect(assetWebPath('public', "a#b/c d's.png")).toBe('/a%23b/c%20d%27s.png');
+  });
+
+  it('rejects asset roots without a known public URL mapping', () => {
+    expect(() => assetWebPath('src/assets', 'hero.png')).toThrow('safe public URL mapping');
   });
 });
 

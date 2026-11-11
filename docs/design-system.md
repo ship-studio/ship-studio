@@ -536,7 +536,9 @@ select-only `listbox`: opening focuses the selected option, Arrow Up/Down and Ho
 active option, Enter/Space selects it, Escape closes and restores the format trigger, and selecting
 a format returns focus to the text input. When `variables` are supplied, typing `--`, selecting
 `VAR`, or focusing an existing `var(--token)` value opens a filtered variable listbox. The input
-shows the raw `--token` name while commits retain the CSS `var(--token)` wrapper.
+shows the raw `--token` name while commits retain the CSS `var(--token)` wrapper. Set
+`commitEmpty` when an optional numeric value should call `onCommit('')` after the user clears it;
+by default, empty fields keep the last saved value.
 
 ### EmptyState — [EmptyState.tsx](../src/components/primitives/EmptyState.tsx)
 

@@ -71,7 +71,7 @@ import {
   type CascadeFileGroup,
   type CascadeDisplayOrder,
 } from '../../lib/cascadePresentation';
-import { parseRuleBody, type RuleBody } from '../../lib/cssBody';
+import { addDeclaration, parseRuleBody, type RuleBody } from '../../lib/cssBody';
 import type { CascadeSelection } from '../../hooks/useCssCascadeEditor';
 import type { ElementSettings } from '../../hooks/useElementSettings';
 import type { useCssAnimations } from '../../hooks/useCssAnimations';
@@ -80,10 +80,15 @@ import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { useElementDisplayPreferences } from '../../hooks/useElementDisplayPreferences';
 import { getElementIcon } from './element-icons';
 import { useCommands } from '../../commands/useCommands';
+import type { OpenInCode } from '../../lib/code';
 
 /** The panel's top-level view: element style/settings, or project-global animation CSS. */
 type Scope = 'style' | 'settings' | 'animations';
 const noRefreshCascade = () => undefined;
+
+function isSimpleCssClassName(name: string): boolean {
+  return /^(?:--|-[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_-]*$/.test(name);
+}
 
 function mediaConditionKey(condition: string): string {
   return condition.replace(/\s+/g, '').toLowerCase();
@@ -172,7 +177,7 @@ interface Props {
   animationsState: ReturnType<typeof useCssAnimations>;
   onClose: () => void;
   /** Open a known cascade source in the workspace Code tab. */
-  onOpenInCode?: (file: string, line: number) => void;
+  onOpenInCode?: OpenInCode;
   /** Re-read the current selection after a verified source mutation. */
   onRefreshCascade?: () => void;
   /** Keep snapshot-sensitive consolidation actions disabled while CSS writes are pending. */
@@ -224,6 +229,81 @@ export function CssCascadePanel({
   const [localScope, setLocalScope] = useState<Scope>('style');
   const scope = controlledScope ?? localScope;
   const setScope = onScopeChange ?? setLocalScope;
+  const [settingsVisitedSelectionKey, setSettingsVisitedSelectionKey] = useState<string | null>(
+    () => (scope === 'settings' ? settings.selectionKey : null)
+  );
+  const mountSettingsPanel =
+    settingsVisitedSelectionKey === settings.selectionKey || scope === 'settings';
+  const imageDimensionRule = useMemo(() => {
+    const selectedClasses = (selection?.signature.className ?? '').split(/\s+/).filter(Boolean);
+    for (const className of selectedClasses) {
+      if (!isSimpleCssClassName(className)) continue;
+      const selector = `.${className}`;
+      const row = rows.find(
+        (candidate) =>
+          candidate.selector === selector &&
+          candidate.mediaText == null &&
+          candidate.editable &&
+          (candidate.draft ? Boolean(candidate.draftTargetFile) : Boolean(candidate.sourceIdentity))
+      );
+      if (row) return row;
+    }
+    return null;
+  }, [rows, selection]);
+  const setImageCssDimension = useCallback(
+    (property: 'width' | 'height', value: string | null) => {
+      const row = imageDimensionRule;
+      if (!row) return false;
+      if (
+        value !== null &&
+        typeof CSS !== 'undefined' &&
+        typeof CSS.supports === 'function' &&
+        !CSS.supports(property, value)
+      ) {
+        return false;
+      }
+
+      const key = rowKey(row);
+      const body = bodies[key] ?? parseRuleBody(row.innerText ?? '\n');
+      const propertyIndexes = body.items.flatMap((item, index) =>
+        item.kind === 'decl' && item.prop.toLowerCase() === property ? [index] : []
+      );
+      if (value === null) {
+        if (propertyIndexes.length === 0) return true;
+        onChangeBody(key, {
+          items: body.items.filter(
+            (item) => !(item.kind === 'decl' && item.prop.toLowerCase() === property)
+          ),
+        });
+        return true;
+      }
+
+      const lastIndex = propertyIndexes[propertyIndexes.length - 1];
+      if (lastIndex === undefined) {
+        onChangeBody(key, addDeclaration(body, { prop: property, value, important: false }));
+      } else {
+        onChangeBody(key, {
+          items: body.items.map((item, index) =>
+            index === lastIndex && item.kind === 'decl' ? { ...item, value } : item
+          ),
+        });
+      }
+      return true;
+    },
+    [bodies, imageDimensionRule, onChangeBody]
+  );
+  const imageCssDimensions = useMemo(() => {
+    if (!imageDimensionRule) return undefined;
+    const body =
+      bodies[rowKey(imageDimensionRule)] ?? parseRuleBody(imageDimensionRule.innerText ?? '\n');
+    const dimensions: Partial<Record<'width' | 'height', string>> = {};
+    for (const item of body.items) {
+      if (item.kind !== 'decl') continue;
+      const property = item.prop.toLowerCase();
+      if (property === 'width' || property === 'height') dimensions[property] = item.value;
+    }
+    return dimensions;
+  }, [bodies, imageDimensionRule]);
   const refreshCascade = onRefreshCascade ?? noRefreshCascade;
   // Refresh the project-global data when its scope becomes visible.
   const reloadAnimations = animationsState.reload;
@@ -1173,73 +1253,44 @@ export function CssCascadePanel({
     );
   };
 
-  const scopeHeader =
-    scope === 'animations' ? (
-      <div className="ss-cascade-header">
-        <div className="ss-cascade-header__main">
-          {selectedTarget}
-          <CascadeToolbar
-            kind="animations"
-            searchOpen={searchOpen}
-            searchButtonRef={searchButtonRef}
-            searchFieldId={searchFieldId}
-            onSearchOpen={openSearch}
-            onSearchToggle={toggleSearch}
-            order={displayOrder}
-            onOrderChange={setDisplayOrder}
-            allCollapsed={allCollapsed}
-            onCollapseAll={collapseAll}
-            onExpandAll={expandAll}
-          />
-        </div>
-        {searchOpen && (
-          <SearchField
-            id={searchFieldId}
-            ref={searchInputRef}
-            value={searchTerm}
-            onChange={changeSearch}
-            onKeyDown={handleSearchKeyDown}
-            aria-label="Search CSS animations, properties, and values"
-            placeholder="Search animations"
-            clearLabel="Clear CSS search"
-            className="ss-cascade-header__search"
-          />
-        )}
+  const scopeHeader = selection ? (
+    <div className="ss-cascade-header">
+      <div className="ss-cascade-header__main">
+        {selectedTarget}
+        <CascadeToolbar
+          kind={scope === 'animations' ? 'animations' : 'rules'}
+          disabled={scope === 'settings'}
+          searchOpen={scope !== 'settings' && searchOpen}
+          searchButtonRef={searchButtonRef}
+          searchFieldId={searchFieldId}
+          onSearchOpen={openSearch}
+          onSearchToggle={toggleSearch}
+          order={displayOrder}
+          onOrderChange={setDisplayOrder}
+          allCollapsed={allCollapsed}
+          onCollapseAll={collapseAll}
+          onExpandAll={expandAll}
+        />
       </div>
-    ) : selection ? (
-      <div className="ss-cascade-header">
-        <div className="ss-cascade-header__main">
-          {selectedTarget}
-          {scope === 'style' && (
-            <CascadeToolbar
-              searchOpen={searchOpen}
-              searchButtonRef={searchButtonRef}
-              searchFieldId={searchFieldId}
-              onSearchOpen={openSearch}
-              onSearchToggle={toggleSearch}
-              order={displayOrder}
-              onOrderChange={setDisplayOrder}
-              allCollapsed={allCollapsed}
-              onCollapseAll={collapseAll}
-              onExpandAll={expandAll}
-            />
-          )}
-        </div>
-        {scope === 'style' && searchOpen && (
-          <SearchField
-            id={searchFieldId}
-            ref={searchInputRef}
-            value={searchTerm}
-            onChange={changeSearch}
-            onKeyDown={handleSearchKeyDown}
-            aria-label="Search CSS selectors, properties, and values"
-            placeholder="Search CSS"
-            clearLabel="Clear CSS search"
-            className="ss-cascade-header__search"
-          />
-        )}
-      </div>
-    ) : null;
+      {scope !== 'settings' && searchOpen && (
+        <SearchField
+          id={searchFieldId}
+          ref={searchInputRef}
+          value={searchTerm}
+          onChange={changeSearch}
+          onKeyDown={handleSearchKeyDown}
+          aria-label={
+            scope === 'animations'
+              ? 'Search CSS animations, properties, and values'
+              : 'Search CSS selectors, properties, and values'
+          }
+          placeholder={scope === 'animations' ? 'Search animations' : 'Search CSS'}
+          clearLabel="Clear CSS search"
+          className="ss-cascade-header__search"
+        />
+      )}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -1247,6 +1298,7 @@ export function CssCascadePanel({
         pinned ? ' ss-edit-panel--pinned' : ''
       }`}
       data-testid="css-cascade-panel"
+      data-scope={scope}
     >
       <div className="ss-edit-panel__header" data-dockable-drag-handle>
         <span className="ss-edit-panel__title workspace-panel-title">CSS</span>
@@ -1276,7 +1328,16 @@ export function CssCascadePanel({
 
       <div className="ss-edit-panel__body">
         {scopeHeader}
-        <Tabs value={scope} mode="navigation" onValueChange={(next) => setScope(next as Scope)}>
+        <Tabs
+          value={scope}
+          mode="navigation"
+          onValueChange={(next) => {
+            if (scope === 'settings' || next === 'settings') {
+              setSettingsVisitedSelectionKey(settings.selectionKey);
+            }
+            setScope(next as Scope);
+          }}
+        >
           <TabsList className="ss-cascade-scope" aria-label="CSS panel view">
             <TabsTab value="style">Style</TabsTab>
             <TabsTab value="settings">Settings</TabsTab>
@@ -1296,6 +1357,24 @@ export function CssCascadePanel({
           />
         )}
         <div className="ss-cascade-content">
+          {mountSettingsPanel && selection && (
+            <div
+              className="ss-cascade-settings"
+              hidden={scope !== 'settings'}
+              aria-hidden={scope !== 'settings'}
+            >
+              <ElementSettingsPanel
+                key={settings.selectionKey}
+                settings={settings}
+                signature={selection.signature}
+                projectPath={projectPath}
+                onOpenInCode={onOpenInCode}
+                onSetCssDimension={imageDimensionRule ? setImageCssDimension : undefined}
+                cssDimensions={imageCssDimensions}
+                active={scope === 'settings'}
+              />
+            </div>
+          )}
           {scope === 'animations' ? (
             <CssAnimationsPanel
               animations={animationsState.animations}
@@ -1314,63 +1393,57 @@ export function CssCascadePanel({
             />
           ) : !selection ? (
             <p className="ss-cascade-empty">Click an element to see the CSS that styles it.</p>
-          ) : (
+          ) : scope === 'style' ? (
             <>
-              {scope === 'settings' ? (
-                <ElementSettingsPanel settings={settings} />
+              {loading ? (
+                <div className="ss-cascade-loading">
+                  <Spinner size="sm" />
+                </div>
               ) : (
                 <>
-                  {loading ? (
-                    <div className="ss-cascade-loading">
-                      <Spinner size="sm" />
-                    </div>
-                  ) : (
-                    <>
-                      {hasVisibleGeneratedStyles && (
-                        <p className="ss-cascade-generated-note" role="note">
-                          These styles are generated from source files. Source edits appear after
-                          the stylesheet rebuilds.
-                        </p>
-                      )}
-                      <div className="ss-cascade-cards">
-                        {displayOrder === 'newest-top' && (
-                          <AddSelectorBar
-                            onAddSelector={onAddSelector}
-                            onAddMediaQuery={addDraftMediaQuery}
-                            suggestions={addSelectorOptions}
-                            existing={existingSelectors}
-                          />
-                        )}
-                        {displayOrder === 'newest-top' &&
-                          visibleDraftMediaQueries.map(renderDraftMediaQuery)}
-                        {renderCascadeDisplayItems()}
-                        {displayOrder === 'newest-bottom' &&
-                          visibleDraftMediaQueries.map(renderDraftMediaQuery)}
-
-                        {searchActive && !hasVisibleCascadeItems && (
-                          <p className="ss-cascade-empty" role="status">
-                            No CSS selectors or properties match “{query}”.
-                            <TextButton onClick={() => changeSearch('')}>Clear search</TextButton>
-                          </p>
-                        )}
-                        {!searchActive && rows.length === 0 && draftMediaQueries.length === 0 && (
-                          <p className="ss-cascade-empty">No CSS rules match this element.</p>
-                        )}
-                        {displayOrder === 'newest-bottom' && (
-                          <AddSelectorBar
-                            onAddSelector={onAddSelector}
-                            onAddMediaQuery={addDraftMediaQuery}
-                            suggestions={addSelectorOptions}
-                            existing={existingSelectors}
-                          />
-                        )}
-                      </div>
-                    </>
+                  {hasVisibleGeneratedStyles && (
+                    <p className="ss-cascade-generated-note" role="note">
+                      These styles are generated from source files. Source edits appear after the
+                      stylesheet rebuilds.
+                    </p>
                   )}
+                  <div className="ss-cascade-cards">
+                    {displayOrder === 'newest-top' && (
+                      <AddSelectorBar
+                        onAddSelector={onAddSelector}
+                        onAddMediaQuery={addDraftMediaQuery}
+                        suggestions={addSelectorOptions}
+                        existing={existingSelectors}
+                      />
+                    )}
+                    {displayOrder === 'newest-top' &&
+                      visibleDraftMediaQueries.map(renderDraftMediaQuery)}
+                    {renderCascadeDisplayItems()}
+                    {displayOrder === 'newest-bottom' &&
+                      visibleDraftMediaQueries.map(renderDraftMediaQuery)}
+
+                    {searchActive && !hasVisibleCascadeItems && (
+                      <p className="ss-cascade-empty" role="status">
+                        No CSS selectors or properties match “{query}”.
+                        <TextButton onClick={() => changeSearch('')}>Clear search</TextButton>
+                      </p>
+                    )}
+                    {!searchActive && rows.length === 0 && draftMediaQueries.length === 0 && (
+                      <p className="ss-cascade-empty">No CSS rules match this element.</p>
+                    )}
+                    {displayOrder === 'newest-bottom' && (
+                      <AddSelectorBar
+                        onAddSelector={onAddSelector}
+                        onAddMediaQuery={addDraftMediaQuery}
+                        suggestions={addSelectorOptions}
+                        existing={existingSelectors}
+                      />
+                    )}
+                  </div>
                 </>
               )}
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

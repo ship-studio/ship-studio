@@ -3,6 +3,7 @@ import { act } from 'react';
 import { expect, it, vi } from 'vitest';
 import { _reset, getSnapshot } from '../../commands/registry';
 import type { ElementSettings } from '../../hooks/useElementSettings';
+import type { ElementSignature } from '../../lib/edit';
 import { ElementSettingsPanel } from './ElementSettingsPanel';
 
 function makeSettings(overrides: Partial<ElementSettings> = {}): ElementSettings {
@@ -25,6 +26,7 @@ function makeSettings(overrides: Partial<ElementSettings> = {}): ElementSettings
     renameAttribute: vi.fn(),
     removeAttribute: vi.fn(),
     canEditAttributes: true,
+    sourceMarkupStatus: 'resolved',
     location: null,
     busy: false,
     ...overrides,
@@ -125,19 +127,120 @@ it('offers compatible tags from the tag menu', () => {
 });
 
 it('orders Text after Classes and before Attributes', () => {
-  render(<ElementSettingsPanel settings={makeSettings()} />);
+  const { container } = render(<ElementSettingsPanel settings={makeSettings()} />);
 
   expect(
-    screen.getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent)
-  ).toEqual(['Tag', 'Classes', 'Text', 'Attributes']);
+    [...container.querySelectorAll('.ss-edit-panel__section-title')].map(
+      (heading) => heading.textContent
+    )
+  ).toEqual(['Element', 'Attributes']);
+  expect(
+    screen.getAllByRole('heading', { level: 5 }).map((heading) => heading.textContent)
+  ).toEqual(['Tag', 'Classes', 'Text']);
 });
 
-it('places Add attribute directly underneath the attribute rows', () => {
-  render(<ElementSettingsPanel settings={makeSettings({ attributes: [] })} />);
+it('places Image Settings between the Element and Attributes sections', () => {
+  const signature: ElementSignature = {
+    className: 'hero',
+    tagName: 'img',
+    ancestorClasses: [],
+  };
+  const { container } = render(
+    <ElementSettingsPanel
+      settings={makeSettings({ tag: 'img' })}
+      signature={signature}
+      projectPath="/project"
+    />
+  );
 
-  const heading = screen.getByRole('heading', { name: 'Attributes' });
-  expect(heading.nextElementSibling).toHaveClass('ss-settings__attrs');
-  expect(heading.nextElementSibling?.nextElementSibling).toHaveTextContent('Add attribute');
+  expect(
+    [...container.querySelectorAll('.ss-edit-panel__section-title')].map(
+      (heading) => heading.textContent
+    )
+  ).toEqual(['Element', 'Image Settings', 'Attributes']);
+});
+
+it('places Add attribute directly underneath the empty attributes message', () => {
+  const { container } = render(
+    <ElementSettingsPanel settings={makeSettings({ attributes: [] })} />
+  );
+
+  const section = [...container.querySelectorAll('details')].find((item) =>
+    item.querySelector('.ss-edit-panel__section-title')?.textContent?.includes('Attributes')
+  );
+  const body = section?.querySelector('.ss-edit-panel__section-body');
+  expect(body?.children[0]).toHaveClass('ss-settings__empty');
+  expect(body?.children[1]).toHaveTextContent('Add attribute');
+});
+
+it('saves a named attribute with an empty value from the icon button', () => {
+  const setAttribute = vi.fn().mockResolvedValue(true);
+  render(<ElementSettingsPanel settings={makeSettings({ setAttribute })} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add attribute' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Attribute name' }), {
+    target: { value: 'aria-hidden' },
+  });
+  expect(screen.getByRole('textbox', { name: 'Attribute value' })).toHaveValue('');
+  fireEvent.click(screen.getByRole('button', { name: 'Save attribute' }));
+
+  expect(setAttribute).toHaveBeenCalledWith('aria-hidden', '');
+  expect(screen.getByRole('button', { name: 'Add attribute' })).toBeInTheDocument();
+});
+
+it('saves a valid draft when a pointer lands on nonfocusable text outside the row', () => {
+  const setAttribute = vi.fn().mockResolvedValue(true);
+  render(<ElementSettingsPanel settings={makeSettings({ setAttribute })} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add attribute' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Attribute name' }), {
+    target: { value: 'data-mode' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Attribute value' }), {
+    target: { value: 'compact' },
+  });
+  fireEvent.pointerDown(screen.getByText('No other attributes.'));
+
+  expect(setAttribute).toHaveBeenCalledWith('data-mode', 'compact');
+  expect(screen.getByRole('button', { name: 'Add attribute' })).toBeInTheDocument();
+});
+
+it('keeps focus transitions inside the draft row from saving before cancel', () => {
+  const setAttribute = vi.fn().mockResolvedValue(true);
+  render(<ElementSettingsPanel settings={makeSettings({ setAttribute })} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add attribute' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Attribute name' }), {
+    target: { value: 'data-draft' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Attribute value' }), {
+    target: { value: 'discard me' },
+  });
+  const cancel = screen.getByRole('button', { name: 'Cancel adding attribute' });
+  fireEvent.blur(screen.getByRole('textbox', { name: 'Attribute value' }), {
+    relatedTarget: cancel,
+  });
+
+  expect(screen.getByRole('textbox', { name: 'Attribute name' })).toBeInTheDocument();
+  expect(setAttribute).not.toHaveBeenCalled();
+  fireEvent.click(cancel);
+
+  expect(setAttribute).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Add attribute' })).toBeInTheDocument();
+});
+
+it('closes an outside-clicked draft without writing an empty attribute name', () => {
+  const setAttribute = vi.fn().mockResolvedValue(true);
+  render(<ElementSettingsPanel settings={makeSettings({ setAttribute })} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add attribute' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Attribute value' }), {
+    target: { value: 'orphaned value' },
+  });
+  fireEvent.pointerDown(screen.getByText('No other attributes.'));
+
+  expect(setAttribute).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Add attribute' })).toBeInTheDocument();
 });
 
 it('registers palette actions to focus text and open the compatible tag menu', () => {

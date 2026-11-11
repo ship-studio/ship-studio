@@ -23,6 +23,9 @@ export interface ValueFieldOption {
   value: string;
   label: string;
   kind?: 'unit' | 'keyword' | 'format' | 'variable';
+  /** Keep an unavailable choice visible in the picker without allowing selection. */
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 /** A project CSS custom property offered by the variable picker. */
@@ -263,6 +266,12 @@ export interface ValueFieldProps extends Omit<
   defaultUnit?: string;
   /** Property-specific keywords such as `auto` or `none`. */
   keywords?: ValueFieldOption[];
+  /** Keep only choices valid for this field without changing shared defaults. */
+  filterOption?: (option: ValueFieldOption) => boolean;
+  /** Disable the unit picker independently while keeping the current suffix visible. */
+  unitSelectorDisabled?: boolean;
+  /** Return a reason to show a picker option as unavailable. */
+  getOptionDisabledReason?: (option: ValueFieldOption) => string | undefined;
   /** Project CSS custom properties available to this value. */
   variables?: ValueFieldVariable[];
   /** Selected representation for a color field. */
@@ -271,6 +280,8 @@ export interface ValueFieldProps extends Omit<
   onFormatChange?: (format: string) => void;
   /** Observe the complete in-progress value without committing it. */
   onValueChange?: (value: string) => void;
+  /** Allow an empty value to commit (for optional numeric attributes). */
+  commitEmpty?: boolean;
   /** Optional control rendered flush with the field's leading edge. */
   leading?: ReactNode;
   /** Return false to reject the value and restore the last controlled value. */
@@ -287,10 +298,14 @@ export function ValueField({
   variant = 'number',
   defaultUnit = '',
   keywords = [],
+  filterOption,
+  unitSelectorDisabled = false,
+  getOptionDisabledReason,
   variables = EMPTY_VARIABLES,
   format,
   onFormatChange,
   onValueChange,
+  commitEmpty = false,
   leading,
   onCommit,
   className,
@@ -316,7 +331,12 @@ export function ValueField({
     ...OPTIONS_BY_VARIANT[variant],
     ...(availableVariables.length > 0 || variableValue ? [VARIABLE_OPTION] : []),
     ...keywords,
-  ];
+  ]
+    .filter((option) => filterOption?.(option) ?? true)
+    .map((option) => {
+      const reason = getOptionDisabledReason?.(option);
+      return reason ? { ...option, disabled: true, disabledReason: reason } : option;
+    });
   // A field whose only option is the empty "no unit" entry has nothing to
   // pick: rendering its trigger just parks a stray "-" beside the number
   // (the Opacity row read "100 -").
@@ -443,7 +463,21 @@ export function ValueField({
   };
 
   const commit = (nextText = text, nextUnit = unit) => {
-    if (!nextText.trim()) return true;
+    if (!nextText.trim()) {
+      if (!commitEmpty || value.trim() === '') return true;
+      onValueChange?.('');
+      if (onCommit('') === false) {
+        const restored = splitValueFieldValue(value, options);
+        setText(restored.text);
+        setUnit(restored.unit);
+        setInvalid(true);
+        return false;
+      }
+      setText('');
+      setUnit(defaultUnit);
+      setInvalid(false);
+      return true;
+    }
     const nextValue = combinedValue(nextText, nextUnit);
     onValueChange?.(nextValue);
     if (onCommit(nextValue) === false) {
@@ -461,6 +495,7 @@ export function ValueField({
   };
 
   const selectOption = (option: ValueFieldOption) => {
+    if (option.disabled) return;
     setOpen(false);
     if (option.kind === 'variable') {
       const nextText = unit === 'var' ? text : '--';
@@ -757,6 +792,7 @@ export function ValueField({
           aria-haspopup="listbox"
           aria-controls={listId}
           aria-expanded={open}
+          disabled={unitSelectorDisabled}
           onPointerDown={(event) => {
             // Toggle on pointerdown so the opening gesture is complete before the
             // outside-dismiss listener can be attached. Keep focus in the input;
@@ -820,8 +856,10 @@ export function ValueField({
                   type="button"
                   role="option"
                   aria-selected={selected}
+                  aria-disabled={option.disabled || undefined}
+                  title={option.disabled ? option.disabledReason : undefined}
                   tabIndex={index === activeIndex ? 0 : -1}
-                  className={`value-field__option${selected ? ' value-field__option--selected' : ''}`}
+                  className={`value-field__option${selected ? ' value-field__option--selected' : ''}${option.disabled ? ' value-field__option--disabled' : ''}`}
                   onFocus={() => setActiveIndex(index)}
                   onClick={() => selectOption(option)}
                 >

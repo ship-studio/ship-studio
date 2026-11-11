@@ -161,6 +161,65 @@ afterEach(() => {
 });
 
 describe('useVisualEditor selection', () => {
+  it('ignores a stale class resolution after a same-path selection changes', async () => {
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    const source = iframeRef.current!.contentWindow!;
+    let finishOldResolution!: (value: Awaited<ReturnType<typeof resolveClassnameSource>>) => void;
+    vi.mocked(resolveClassnameSource)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldResolution = resolve;
+          })
+      )
+      .mockImplementationOnce((_projectPath, signature) =>
+        Promise.resolve({
+          status: 'resolved',
+          file: 'app/page.tsx',
+          line: 2,
+          column: 1,
+          class_name: signature.className,
+          confidence: 'unique',
+        })
+      );
+    const dispatch = async (className: string, selectionId: string) =>
+      act(async () => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            source,
+            data: {
+              type: 'ss:select',
+              selectionId,
+              signature: { className, tagName: 'div', domPath: '/same/path', ancestorClasses: [] },
+            },
+          })
+        );
+        await Promise.resolve();
+      });
+
+    await dispatch('old-class', 'selection-old');
+    await dispatch('new-class', 'selection-new');
+    await flush();
+    expect(result.current.selection?.signature.className).toBe('new-class');
+    expect(result.current.selection?.resolution).toMatchObject({ class_name: 'new-class' });
+
+    await act(async () => {
+      finishOldResolution({
+        status: 'resolved',
+        file: 'app/page.tsx',
+        line: 1,
+        column: 1,
+        class_name: 'old-class',
+        confidence: 'unique',
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.selection?.signature.className).toBe('new-class');
+    expect(result.current.selection?.resolution).toMatchObject({ class_name: 'new-class' });
+  });
+
   it('keeps a newer contrast snapshot when source resolution finishes later', async () => {
     const { result, iframeRef } = setup();
     act(() => result.current.toggleEditMode());
