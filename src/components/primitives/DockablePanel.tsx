@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { PanelResizeHandle } from './PanelResizeHandle';
+import { syncModalManagedInert } from './ModalFrame';
 import type { PanelDockBinding } from '../../contexts/PanelDockContext';
 
 interface Point {
@@ -639,6 +640,16 @@ export function DockablePanel({
   // were inline (the ref callback measures in the same commit); it can happen
   // for a rail slot, which is only created once this panel says it wants one.
   const awaitingDock = docked && dockStyle === undefined;
+
+  // ModalFrame owns the background inert sweep, while this panel owns its
+  // visibility. Reconcile after every commit so a stale DOM mutation (for
+  // example one preserved by development refresh) cannot leave the surface
+  // permanently inert. The helper keeps the panel inert whenever a modal is
+  // currently registered.
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (surface) syncModalManagedInert(surface, !panelVisible || awaitingDock);
+  });
 
   const placeholder = (
     <div

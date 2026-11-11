@@ -22,6 +22,7 @@ vi.mock('../lib/logger', () => ({
 
 import { applyCssRuleText, createCssRule, locateCssRules, rowKey } from '../lib/cssCascade';
 import { useCssCascadeEditor } from './useCssCascadeEditor';
+import { useElementTree } from './useElementTree';
 
 function identity(
   selector: string,
@@ -128,6 +129,61 @@ async function openCascade(rules: MatchedRule[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+it('propagates each preview selection to the CSS panel and Elements tree', async () => {
+  const iframe = document.createElement('iframe');
+  document.body.appendChild(iframe);
+  const previewWindow = iframe.contentWindow;
+  expect(previewWindow).not.toBeNull();
+  vi.spyOn(previewWindow!, 'postMessage').mockImplementation(() => {});
+  const iframeRef = { current: iframe };
+  const onToast = vi.fn();
+  const { result, unmount } = renderHook(() => ({
+    css: useCssCascadeEditor({ iframeRef, projectPath: '/project', enabled: true, onToast }),
+    tree: useElementTree({ iframeRef, enabled: true }),
+  }));
+
+  act(() => result.current.css.toggleEditMode());
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const select = (nodeId: number, className: string, domPath: string) => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:select',
+          selectionId: `selection-${nodeId}`,
+          nodeId,
+          count: 1,
+          signature: {
+            tagName: 'DIV',
+            className,
+            text: '',
+            domPath,
+            ancestorClasses: [],
+          } as unknown as ElementSignature,
+        },
+      })
+    );
+  };
+
+  act(() => select(4, 'first', '0/0'));
+  expect(result.current.css.selection?.signature.className).toBe('first');
+  expect(result.current.tree.selectedId).toBe(4);
+
+  act(() => select(7, 'second', '0/1'));
+  expect(result.current.css.selection?.signature).toMatchObject({
+    className: 'second',
+    domPath: '0/1',
+  });
+  expect(result.current.tree.selectedId).toBe(7);
+
+  unmount();
+  iframe.remove();
 });
 
 describe('useCssCascadeEditor source identity refresh', () => {

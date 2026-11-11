@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceHeader, WorkspaceTitlebar, type WorkspaceHeaderProps } from './WorkspaceHeader';
 import { openInFinder } from '../../lib/ide';
+import { AssetBrowserProvider, useAssetBrowser } from '../../contexts/AssetBrowserContext';
+import { ModalProvider } from '../../contexts/ModalContext';
 
 const { startDragging } = vi.hoisted(() => ({ startDragging: vi.fn() }));
 
@@ -94,6 +96,14 @@ function HeaderHarness({ props = headerProps() }: { props?: WorkspaceHeaderProps
   );
 }
 
+function AssetsToggleHarness() {
+  const browser = useAssetBrowser();
+  const props = headerProps();
+  props.onOpenAssetsPanel = () => browser.toggleManager();
+  props.assetsPanelVisible = browser.panelOpen || browser.modalOpen;
+  return <HeaderHarness props={props} />;
+}
+
 describe('WorkspaceHeader title bar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -105,6 +115,24 @@ describe('WorkspaceHeader title bar', () => {
     expect(container.querySelector('.workspace-titlebar-navigation')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Hide sidebar' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Home' })).toHaveClass('button--icon-only');
+  });
+
+  it('opens and closes the assets panel from the workspace header toggle', () => {
+    localStorage.setItem('shipstudio.assets.browserPresentation', 'panel');
+    render(
+      <ModalProvider>
+        <AssetBrowserProvider projectPath={projectPath}>
+          <AssetsToggleHarness />
+        </AssetBrowserProvider>
+      </ModalProvider>
+    );
+
+    const assets = screen.getByRole('button', { name: 'Assets' });
+    expect(assets).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(assets);
+    expect(assets).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(assets);
+    expect(assets).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('puts an icon-only project location action after Home and hides the project name', () => {

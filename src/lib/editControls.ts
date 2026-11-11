@@ -37,6 +37,7 @@ export type RegistryControl =
         | 'letter-spacing';
     }
   | { kind: 'enum'; key: string; control: EnumControl }
+  | { kind: 'backgroundImage'; key: string }
   | { kind: 'color'; key: string; label: string; css: string; prefix: ColorPrefix }
   | {
       kind: 'length';
@@ -155,15 +156,22 @@ export const CONTROL_SECTIONS: ControlSection[] = [
   },
   {
     id: 'backgrounds',
-    title: 'Backgrounds & Borders',
+    title: 'Backgrounds',
     defaultOpen: false,
     controls: [
       colorRow('bg'),
-      valueRow('border'),
-      colorRow('border'),
-      valueRow('radius'),
-      enumRow('Shadow'),
+      { kind: 'backgroundImage', key: 'backgroundImage' },
+      enumRow('Background size'),
+      enumRow('Background position'),
+      enumRow('Background repeat'),
+      enumRow('Background attachment'),
     ],
+  },
+  {
+    id: 'borders',
+    title: 'Borders',
+    defaultOpen: false,
+    controls: [valueRow('border'), colorRow('border'), valueRow('radius'), enumRow('Shadow')],
   },
   {
     id: 'effects',

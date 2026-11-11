@@ -256,7 +256,7 @@ describe('useElementSettings text source editing', () => {
     expect(result.current.text).toBe('A & B ©');
     expect(result.current.canEditText).toBe(true);
     expect(result.current.attributes).toEqual([
-      { name: 'data-note', value: '{config.title}' },
+      { name: 'data-note', value: '{config.title}', isExpression: true },
       { name: 'id', value: 'main' },
     ]);
 
@@ -327,6 +327,77 @@ describe('useElementSettings text source editing', () => {
 });
 
 describe('useElementSettings tag conversion', () => {
+  it('keeps rendered image values read-only when resolved markup does not contain them', async () => {
+    const signature: ElementSignature = {
+      className: 'hero',
+      tagName: 'img',
+      ancestorClasses: [],
+      attrSrc: '/rendered.png',
+      attrAlt: 'Rendered hero',
+    };
+    (resolveElementHtml as Fn).mockResolvedValue({
+      file: 'Hero.tsx',
+      line: 3,
+      html: '<img className="hero" />',
+    });
+    const { result, onToast } = setup(signature);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.sourceMarkupStatus).toBe('resolved');
+    expect(result.current.imageAttributeEditBlockReason).toBe('mismatch');
+    expect(result.current.canEditAttributes).toBe(false);
+    await act(async () => {
+      expect(await result.current.setAttribute('src', '/replacement.png')).toBe(false);
+    });
+    expect(applyElementHtml).not.toHaveBeenCalled();
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining('rendered attributes'), 'info');
+  });
+
+  it.each([
+    {
+      name: 'spread-backed image markup',
+      html: '<img className="hero" alt="Hero" {...props} />',
+      locations: undefined,
+      reason: 'spread' as const,
+    },
+    {
+      name: 'ambiguous identical image markup',
+      html: '<img className="hero" alt="Hero" />',
+      locations: [
+        { file: 'Hero.tsx', line: 3, column: 10 },
+        { file: 'Footer.tsx', line: 8, column: 10 },
+      ],
+      reason: 'ambiguous' as const,
+    },
+  ])('refuses every image attribute write for $name', async ({ html, locations, reason }) => {
+    const signature: ElementSignature = { className: 'hero', tagName: 'img', ancestorClasses: [] };
+    (resolveElementHtml as Fn).mockResolvedValue({
+      file: 'Hero.tsx',
+      line: 3,
+      html,
+      locations,
+    });
+    const { result, onToast } = setup(signature);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.canEditAttributes).toBe(false);
+    expect(result.current.imageAttributeEditBlockReason).toBe(reason);
+    await act(async () => {
+      expect(await result.current.setAttribute('alt', 'Changed')).toBe(false);
+      result.current.renameAttribute('alt', 'aria-label', 'Hero');
+    });
+    expect(applyElementHtml).not.toHaveBeenCalled();
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining('image'), 'info');
+  });
+
   it('replaces only the paired tag names and reselects the live preview node', async () => {
     const source =
       '<div data-note={title.includes(">") ? "yes" : "no"} className={classes}>before<div>inner</div> after</div>';
@@ -395,7 +466,9 @@ describe('useElementSettings tag conversion', () => {
       await Promise.resolve();
     });
 
-    act(() => result.current.setAttribute('title', 'old write'));
+    act(() => {
+      void result.current.setAttribute('title', 'old write');
+    });
     await act(async () => {
       await Promise.resolve();
     });

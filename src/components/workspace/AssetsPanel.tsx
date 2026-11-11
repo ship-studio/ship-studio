@@ -21,13 +21,18 @@ import { useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatFileSize, isImageFile, type Asset } from '../../lib/assets';
 import { useAssetManagement } from '../../hooks/useAssetManagement';
+import { useModal } from '../../contexts/ModalContext';
+import { useAssetBrowser, useOptionalAssetBrowser } from '../../contexts/AssetBrowserContext';
+import type { PanelDockBinding } from '../../contexts/PanelDockContext';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
+import { ToggleButton } from '../primitives/ToggleButton';
 import { ModalFrame } from '../primitives/ModalFrame';
+import { DockablePanel } from '../primitives/DockablePanel';
+import { MiddleTruncate } from '../primitives/MiddleTruncate';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { useModal } from '../../contexts/ModalContext';
 import {
   CloseIcon,
   CopyIcon,
@@ -47,10 +52,27 @@ import {
   GridIcon,
   ListIcon,
   MoreHorizontalIcon,
+  PinIcon,
 } from '@/components/icons';
 
 /** Common asset folders offered in the root picker. */
 const ASSETS_ROOT_SUGGESTIONS = ['public', 'src/assets', 'assets', 'static'];
+
+function AssetsPanelPin({ isPanel, onToggle }: { isPanel: boolean; onToggle: () => void }) {
+  return (
+    <ToggleButton
+      type="button"
+      className="button--icon-only panel-pin-toggle"
+      variant="ghost"
+      size="compact"
+      onClick={onToggle}
+      title={isPanel ? 'Show Assets as a modal' : 'Show Assets as a panel'}
+      aria-label="Toggle Assets panel view"
+      pressed={isPanel}
+      leftIcon={<PinIcon size={13} />}
+    />
+  );
+}
 
 interface AssetsPanelProps {
   /** Absolute path to the project directory */
@@ -60,8 +82,85 @@ interface AssetsPanelProps {
 /** The workspace Assets manager — the `AssetsModal` body bound to the
  *  'assetsPanel' modal id. */
 export function AssetsPanel({ projectPath }: AssetsPanelProps) {
-  const { isOpen, close } = useModal('assetsPanel');
-  return <AssetsModal projectPath={projectPath} isOpen={isOpen} onClose={close} />;
+  const modal = useModal('assetsPanel');
+  const browser = useOptionalAssetBrowser();
+  const request = browser?.pickRequest?.projectPath === projectPath ? browser.pickRequest : null;
+  const pick = request
+    ? {
+        title: request.title,
+        onPick: (asset: Asset, root: string) => browser!.pickAsset(request.id, asset, root),
+      }
+    : undefined;
+  return (
+    <AssetsModal
+      projectPath={projectPath}
+      isOpen={modal.isOpen}
+      onClose={browser?.closeBrowser ?? modal.close}
+      pick={pick}
+      onSwitchPresentation={browser ? () => browser.switchPresentation('panel') : undefined}
+    />
+  );
+}
+
+/** The workspace rail version of the same assets browser. */
+export function AssetsDockPanel({
+  projectPath,
+  dock,
+  docked,
+}: {
+  projectPath: string;
+  dock?: PanelDockBinding;
+  docked: boolean;
+}) {
+  const browser = useAssetBrowser();
+  const request = browser.pickRequest?.projectPath === projectPath ? browser.pickRequest : null;
+  const pick = request
+    ? {
+        title: request.title,
+        onPick: (asset: Asset, root: string) => browser.pickAsset(request.id, asset, root),
+      }
+    : undefined;
+
+  return (
+    <DockablePanel
+      dock={dock}
+      docked={docked}
+      visible={browser.panelOpen}
+      ariaLabel="Assets panel"
+      positionKey="assetsPanelFloatingPosition"
+      sizeKey="assetsPanelFloatingSize"
+      floatingSize={{ width: 360, height: 620 }}
+      minFloatingSize={{ width: 260, height: 320 }}
+      initialPosition={() => ({ left: 72, top: 96 })}
+      surfaceClassName="dockable-panel__surface--preview"
+    >
+      <div className="assets-dock-panel">
+        <header className="assets-dock-header" data-dockable-drag-handle>
+          <span className="workspace-panel-title">{pick?.title ?? 'Assets'}</span>
+          <div className="assets-dock-header-actions">
+            {!pick && (
+              <AssetsPanelPin isPanel onToggle={() => browser.switchPresentation('modal')} />
+            )}
+            <IconButton
+              variant="ghost"
+              size="compact"
+              icon={<CloseIcon size={14} />}
+              title="Close Assets"
+              aria-label="Close Assets"
+              onClick={browser.closePanel}
+            />
+          </div>
+        </header>
+        <AssetsModal
+          projectPath={projectPath}
+          isOpen={browser.panelOpen}
+          onClose={browser.closePanel}
+          pick={pick}
+          presentation="inline"
+        />
+      </div>
+    </DockablePanel>
+  );
 }
 
 export interface AssetsModalProps {
@@ -76,11 +175,21 @@ export interface AssetsModalProps {
   pick?: {
     /** Modal title, e.g. "Replace image". */
     title: string;
-    onPick: (asset: Asset) => void;
+    onPick: (asset: Asset, assetsRoot: string) => void | Promise<void>;
   };
+  /** Render the shared browser body as a rail/floating panel instead of a modal. */
+  presentation?: 'modal' | 'inline';
+  onSwitchPresentation?: () => void;
 }
 
-export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalProps) {
+export function AssetsModal({
+  projectPath,
+  isOpen,
+  onClose,
+  pick,
+  presentation = 'modal',
+  onSwitchPresentation,
+}: AssetsModalProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const {
@@ -176,8 +285,9 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
   /** Clicking an item: folders navigate; in pick mode files are the pick target. */
   const handleItemClick = (asset: Asset) => {
     if (asset.isDirectory) navigateToFolder(asset);
-    else if (pick) pick.onPick(asset);
+    else if (pick) void Promise.resolve(pick.onPick(asset, assetsRoot)).catch(() => undefined);
   };
+  const isClickableAsset = (asset: Asset) => asset.isDirectory || Boolean(pick);
   const itemModeClass = (asset: Asset) =>
     asset.isDirectory ? ' is-folder' : pick ? ' is-pickable' : '';
 
@@ -195,7 +305,7 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
         <img
           className="assets-item-thumbnail"
           src={convertFileSrc(asset.fullPath)}
-          alt={asset.name}
+          alt=""
           loading="lazy"
         />
       );
@@ -250,337 +360,399 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
 
   if (!isOpen) return null;
 
+  const body = (
+    <div className="assets-panel-content">
+      {/* Toolbar */}
+      <div className="assets-toolbar">
+        <Button
+          variant="primary"
+          leftIcon={<UploadIcon size={14} />}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          {isUploading ? 'Uploading...' : 'Upload'}
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={(e) => void handleUpload(e.target.files)}
+          style={{ display: 'none' }}
+        />
+        <Button
+          variant="default"
+          leftIcon={<FolderPlusIcon size={14} />}
+          onClick={() => setShowNewFolder(true)}
+        >
+          New Folder
+        </Button>
+        <div className="assets-toolbar-spacer" />
+        <Tabs
+          value={viewMode}
+          mode="navigation"
+          onValueChange={(next) => setViewMode(next as typeof viewMode)}
+          size="default"
+        >
+          <TabsList className="assets-view-toggle" aria-label="Asset view">
+            <TabsTab
+              value="list"
+              className="button--icon-only"
+              leftIcon={<ListIcon size={14} />}
+              aria-label="List view"
+              title="List view"
+            />
+            <TabsTab
+              value="grid"
+              className="button--icon-only"
+              leftIcon={<GridIcon size={14} />}
+              aria-label="Grid view"
+              title="Grid view"
+            />
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {/* Search */}
+      <div className="assets-search">
+        <SearchIcon size={14} />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search assets..."
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
+        {searchQuery && (
+          <button className="assets-search-clear" onClick={clearSearchQuery}>
+            <CloseIcon size={12} />
+          </button>
+        )}
+      </div>
+
+      {/* Breadcrumb navigation. The root crumb navigates home; the chevron
+              beside it re-points the panel at a different folder. */}
+      {!searchQuery && (
+        <div className="assets-breadcrumb">
+          <div className="assets-root-picker" ref={rootPickerRef}>
+            <button
+              className={`assets-breadcrumb-btn ${breadcrumbs.length === 1 ? 'active' : ''}`}
+              onClick={() => setCurrentPath('')}
+            >
+              {assetsRoot}
+            </button>
+            <Dropdown
+              menuClassName="assets-root-menu"
+              onOpenChange={(open) => {
+                if (!open) setCustomRoot(null);
+              }}
+              trigger={(p) => (
+                <button
+                  className="assets-root-toggle"
+                  title="Change assets folder"
+                  aria-label="Change assets folder"
+                  {...p}
+                >
+                  <ChevronIcon size={12} />
+                </button>
+              )}
+            >
+              {rootSuggestions.map((root) => (
+                <DropdownItem
+                  key={root}
+                  icon={<FolderIcon size={13} />}
+                  active={root === assetsRoot}
+                  onSelect={() => selectRoot(root)}
+                >
+                  <span>{root}</span>
+                  {root === assetsRoot && <CheckIcon size={12} />}
+                </DropdownItem>
+              ))}
+              {customRoot === null ? (
+                <DropdownItem
+                  icon={<EditIcon size={13} />}
+                  keepOpen
+                  onSelect={() => setCustomRoot('')}
+                >
+                  <span>Custom folder…</span>
+                </DropdownItem>
+              ) : (
+                <div className="assets-root-custom">
+                  <input
+                    type="text"
+                    value={customRoot}
+                    onChange={(e) => setCustomRoot(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        selectRoot(customRoot);
+                        closeRootMenu();
+                      }
+                      if (e.key === 'Escape') {
+                        // Back to the suggestion list — stop the event so
+                        // the Dropdown's window-level ESC handler doesn't
+                        // close the whole menu.
+                        e.stopPropagation();
+                        setCustomRoot(null);
+                      }
+                    }}
+                    placeholder="e.g. src/images"
+                    autoFocus
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    className="assets-new-folder-confirm"
+                    onClick={() => {
+                      selectRoot(customRoot);
+                      closeRootMenu();
+                    }}
+                  >
+                    <CheckIcon size={14} />
+                  </button>
+                </div>
+              )}
+            </Dropdown>
+          </div>
+          {breadcrumbs.slice(1).map((crumb, index) => (
+            <span key={crumb.path} className="assets-breadcrumb-item">
+              <ChevronRightIcon size={12} />
+              <button
+                className={`assets-breadcrumb-btn ${
+                  index === breadcrumbs.length - 2 ? 'active' : ''
+                }`}
+                onClick={() => setCurrentPath(crumb.path)}
+              >
+                {crumb.name}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* New folder input */}
+      {showNewFolder && (
+        <div className="assets-new-folder">
+          <FolderIcon size={16} />
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleCreateFolder();
+              if (e.key === 'Escape') {
+                setShowNewFolder(false);
+                setNewFolderName('');
+              }
+            }}
+            placeholder="Folder name"
+            autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+          />
+          <button className="assets-new-folder-confirm" onClick={() => void handleCreateFolder()}>
+            <CheckIcon size={14} />
+          </button>
+          <button
+            className="assets-new-folder-cancel"
+            onClick={() => {
+              setShowNewFolder(false);
+              setNewFolderName('');
+            }}
+          >
+            <CloseIcon size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Assets list / drop zone */}
+      <div
+        ref={dropZoneRef}
+        className={`assets-list-container ${isDragging ? 'dragging' : ''}`}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {isLoading ? (
+          <div className="assets-loading">Loading assets...</div>
+        ) : visibleAssets.length === 0 ? (
+          <div className="assets-empty">
+            <div className="assets-empty-icon">
+              {searchQuery ? <SearchIcon size={32} /> : <ImageIcon size={32} />}
+            </div>
+            <p>
+              {searchQuery
+                ? `No ${pick ? 'images' : 'assets'} matching "${searchQuery}"`
+                : `No ${pick ? 'images' : 'assets'} in this folder`}
+            </p>
+            {!searchQuery && (
+              <p className="assets-empty-hint">Drag and drop files here or click Upload</p>
+            )}
+          </div>
+        ) : viewMode === 'list' ? (
+          <div className="assets-list">
+            {visibleAssets.map((asset) => {
+              const isRenaming = renameTarget?.path === asset.path;
+              const clickable = isClickableAsset(asset) && !isRenaming;
+              const name = asset.isDirectory
+                ? `Open folder ${asset.name}`
+                : `Choose image ${asset.name}`;
+              return (
+                <div key={asset.path} className={`assets-item${itemModeClass(asset)}`}>
+                  <div className="assets-item-main">
+                    {isRenaming ? (
+                      <>
+                        {renderAssetPreview(asset)}
+                        <input
+                          type="text"
+                          className="assets-rename-input"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={renameKeyDown}
+                          onBlur={commitRenameOnBlur}
+                          autoFocus
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                        />
+                      </>
+                    ) : clickable ? (
+                      <button
+                        type="button"
+                        className="assets-item-main__activate"
+                        aria-label={name}
+                        onClick={() => handleItemClick(asset)}
+                      >
+                        {renderAssetPreview(asset)}
+                        <MiddleTruncate
+                          className="assets-item-name"
+                          text={asset.name}
+                          title={asset.name}
+                        />
+                        {!asset.isDirectory && (
+                          <span className="assets-item-size">{formatFileSize(asset.size)}</span>
+                        )}
+                      </button>
+                    ) : (
+                      <>
+                        {renderAssetPreview(asset)}
+                        <MiddleTruncate
+                          className="assets-item-name"
+                          text={asset.name}
+                          title={asset.name}
+                        />
+                        {!asset.isDirectory && (
+                          <span className="assets-item-size">{formatFileSize(asset.size)}</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="assets-item-actions">{renderAssetActions(asset)}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="assets-grid">
+            {visibleAssets.map((asset) => {
+              const isRenaming = renameTarget?.path === asset.path;
+              const clickable = isClickableAsset(asset) && !isRenaming;
+              const name = asset.isDirectory
+                ? `Open folder ${asset.name}`
+                : `Choose image ${asset.name}`;
+              const content = (
+                <>
+                  <div className="assets-grid-item">
+                    <div className="assets-grid-preview">
+                      {asset.isDirectory ? (
+                        <FolderIcon size={32} />
+                      ) : isImageFile(asset.name) ? (
+                        <img src={convertFileSrc(asset.fullPath)} alt="" loading="lazy" />
+                      ) : (
+                        <FileIcon size={32} />
+                      )}
+                    </div>
+                  </div>
+                  <div className="assets-grid-info">
+                    {isRenaming ? (
+                      <input
+                        type="text"
+                        className="assets-rename-input"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={renameKeyDown}
+                        onBlur={commitRenameOnBlur}
+                        autoFocus
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <MiddleTruncate
+                        className="assets-grid-name"
+                        text={asset.name}
+                        title={asset.name}
+                      />
+                    )}
+                  </div>
+                </>
+              );
+              return (
+                <div key={asset.path} className={`assets-grid-entry${itemModeClass(asset)}`}>
+                  {clickable ? (
+                    <button
+                      type="button"
+                      className="assets-grid-main"
+                      aria-label={name}
+                      onClick={() => handleItemClick(asset)}
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    <div className="assets-grid-main">{content}</div>
+                  )}
+                  <div className="assets-grid-actions">{renderAssetActions(asset)}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="assets-drag-overlay">
+            <UploadIcon size={32} />
+            <p>Drop files to upload</p>
+          </div>
+        )}
+      </div>
+
+      {error && <div className="assets-error">{error}</div>}
+    </div>
+  );
+
+  if (presentation === 'inline') return body;
   return (
     <ModalFrame
       isOpen
       onClose={onClose}
       title={pick ? pick.title : 'Assets'}
       className="assets-panel-modal"
+      headerActions={
+        onSwitchPresentation && !pick ? (
+          <AssetsPanelPin isPanel={false} onToggle={onSwitchPresentation} />
+        ) : undefined
+      }
     >
-      <div className="assets-panel-content">
-        {/* Toolbar */}
-        <div className="assets-toolbar">
-          <Button
-            variant="primary"
-            leftIcon={<UploadIcon size={14} />}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-          >
-            {isUploading ? 'Uploading...' : 'Upload'}
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={(e) => void handleUpload(e.target.files)}
-            style={{ display: 'none' }}
-          />
-          <Button
-            variant="default"
-            leftIcon={<FolderPlusIcon size={14} />}
-            onClick={() => setShowNewFolder(true)}
-          >
-            New Folder
-          </Button>
-          <div className="assets-toolbar-spacer" />
-          <Tabs
-            value={viewMode}
-            mode="navigation"
-            onValueChange={(next) => setViewMode(next as typeof viewMode)}
-            size="default"
-          >
-            <TabsList className="assets-view-toggle" aria-label="Asset view">
-              <TabsTab
-                value="list"
-                className="button--icon-only"
-                leftIcon={<ListIcon size={14} />}
-                aria-label="List view"
-                title="List view"
-              />
-              <TabsTab
-                value="grid"
-                className="button--icon-only"
-                leftIcon={<GridIcon size={14} />}
-                aria-label="Grid view"
-                title="Grid view"
-              />
-            </TabsList>
-          </Tabs>
-        </div>
-
-        {/* Search */}
-        <div className="assets-search">
-          <SearchIcon size={14} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search assets..."
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-          />
-          {searchQuery && (
-            <button className="assets-search-clear" onClick={clearSearchQuery}>
-              <CloseIcon size={12} />
-            </button>
-          )}
-        </div>
-
-        {/* Breadcrumb navigation. The root crumb navigates home; the chevron
-              beside it re-points the panel at a different folder. */}
-        {!searchQuery && (
-          <div className="assets-breadcrumb">
-            <div className="assets-root-picker" ref={rootPickerRef}>
-              <button
-                className={`assets-breadcrumb-btn ${breadcrumbs.length === 1 ? 'active' : ''}`}
-                onClick={() => setCurrentPath('')}
-              >
-                {assetsRoot}
-              </button>
-              <Dropdown
-                menuClassName="assets-root-menu"
-                onOpenChange={(open) => {
-                  if (!open) setCustomRoot(null);
-                }}
-                trigger={(p) => (
-                  <button
-                    className="assets-root-toggle"
-                    title="Change assets folder"
-                    aria-label="Change assets folder"
-                    {...p}
-                  >
-                    <ChevronIcon size={12} />
-                  </button>
-                )}
-              >
-                {rootSuggestions.map((root) => (
-                  <DropdownItem
-                    key={root}
-                    icon={<FolderIcon size={13} />}
-                    active={root === assetsRoot}
-                    onSelect={() => selectRoot(root)}
-                  >
-                    <span>{root}</span>
-                    {root === assetsRoot && <CheckIcon size={12} />}
-                  </DropdownItem>
-                ))}
-                {customRoot === null ? (
-                  <DropdownItem
-                    icon={<EditIcon size={13} />}
-                    keepOpen
-                    onSelect={() => setCustomRoot('')}
-                  >
-                    <span>Custom folder…</span>
-                  </DropdownItem>
-                ) : (
-                  <div className="assets-root-custom">
-                    <input
-                      type="text"
-                      value={customRoot}
-                      onChange={(e) => setCustomRoot(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          selectRoot(customRoot);
-                          closeRootMenu();
-                        }
-                        if (e.key === 'Escape') {
-                          // Back to the suggestion list — stop the event so
-                          // the Dropdown's window-level ESC handler doesn't
-                          // close the whole menu.
-                          e.stopPropagation();
-                          setCustomRoot(null);
-                        }
-                      }}
-                      placeholder="e.g. src/images"
-                      autoFocus
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                    />
-                    <button
-                      className="assets-new-folder-confirm"
-                      onClick={() => {
-                        selectRoot(customRoot);
-                        closeRootMenu();
-                      }}
-                    >
-                      <CheckIcon size={14} />
-                    </button>
-                  </div>
-                )}
-              </Dropdown>
-            </div>
-            {breadcrumbs.slice(1).map((crumb, index) => (
-              <span key={crumb.path} className="assets-breadcrumb-item">
-                <ChevronRightIcon size={12} />
-                <button
-                  className={`assets-breadcrumb-btn ${
-                    index === breadcrumbs.length - 2 ? 'active' : ''
-                  }`}
-                  onClick={() => setCurrentPath(crumb.path)}
-                >
-                  {crumb.name}
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* New folder input */}
-        {showNewFolder && (
-          <div className="assets-new-folder">
-            <FolderIcon size={16} />
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleCreateFolder();
-                if (e.key === 'Escape') {
-                  setShowNewFolder(false);
-                  setNewFolderName('');
-                }
-              }}
-              placeholder="Folder name"
-              autoFocus
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
-            <button className="assets-new-folder-confirm" onClick={() => void handleCreateFolder()}>
-              <CheckIcon size={14} />
-            </button>
-            <button
-              className="assets-new-folder-cancel"
-              onClick={() => {
-                setShowNewFolder(false);
-                setNewFolderName('');
-              }}
-            >
-              <CloseIcon size={14} />
-            </button>
-          </div>
-        )}
-
-        {/* Assets list / drop zone */}
-        <div
-          ref={dropZoneRef}
-          className={`assets-list-container ${isDragging ? 'dragging' : ''}`}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
-          {isLoading ? (
-            <div className="assets-loading">Loading assets...</div>
-          ) : visibleAssets.length === 0 ? (
-            <div className="assets-empty">
-              <div className="assets-empty-icon">
-                {searchQuery ? <SearchIcon size={32} /> : <ImageIcon size={32} />}
-              </div>
-              <p>
-                {searchQuery
-                  ? `No ${pick ? 'images' : 'assets'} matching "${searchQuery}"`
-                  : `No ${pick ? 'images' : 'assets'} in this folder`}
-              </p>
-              {!searchQuery && (
-                <p className="assets-empty-hint">Drag and drop files here or click Upload</p>
-              )}
-            </div>
-          ) : viewMode === 'list' ? (
-            <div className="assets-list">
-              {visibleAssets.map((asset) => (
-                <div key={asset.path} className={`assets-item${itemModeClass(asset)}`}>
-                  <div className="assets-item-main" onClick={() => handleItemClick(asset)}>
-                    {renderAssetPreview(asset)}
-                    {renameTarget?.path === asset.path ? (
-                      <input
-                        type="text"
-                        className="assets-rename-input"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={renameKeyDown}
-                        onBlur={commitRenameOnBlur}
-                        autoFocus
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="assets-item-name">{asset.name}</span>
-                    )}
-                    {!asset.isDirectory && (
-                      <span className="assets-item-size">{formatFileSize(asset.size)}</span>
-                    )}
-                  </div>
-                  <div className="assets-item-actions">{renderAssetActions(asset)}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="assets-grid">
-              {visibleAssets.map((asset) => (
-                <div
-                  key={asset.path}
-                  className={`assets-grid-entry${itemModeClass(asset)}`}
-                  onClick={() => handleItemClick(asset)}
-                >
-                  <div className="assets-grid-item">
-                    <div className="assets-grid-preview">
-                      {asset.isDirectory ? (
-                        <FolderIcon size={32} />
-                      ) : isImageFile(asset.name) ? (
-                        <img src={convertFileSrc(asset.fullPath)} alt={asset.name} loading="lazy" />
-                      ) : (
-                        <FileIcon size={32} />
-                      )}
-                    </div>
-                    <div className="assets-grid-actions">{renderAssetActions(asset)}</div>
-                  </div>
-                  <div className="assets-grid-info">
-                    {renameTarget?.path === asset.path ? (
-                      <input
-                        type="text"
-                        className="assets-rename-input"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={renameKeyDown}
-                        onBlur={commitRenameOnBlur}
-                        autoFocus
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="assets-grid-name" title={asset.name}>
-                        {asset.name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Drag overlay */}
-          {isDragging && (
-            <div className="assets-drag-overlay">
-              <UploadIcon size={32} />
-              <p>Drop files to upload</p>
-            </div>
-          )}
-        </div>
-
-        {error && <div className="assets-error">{error}</div>}
-      </div>
+      {body}
     </ModalFrame>
   );
 }

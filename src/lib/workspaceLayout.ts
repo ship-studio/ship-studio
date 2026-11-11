@@ -16,7 +16,7 @@
 export const LAYOUT_VERSION = 2 as const;
 
 /** A panel that can be arranged. Preview is the unstackable centre surface. */
-export type PanelId = 'agent' | 'navigator' | 'variables' | 'editor' | 'team';
+export type PanelId = 'agent' | 'navigator' | 'variables' | 'editor' | 'team' | 'assets';
 
 export const PREVIEW = 'preview' as const;
 
@@ -85,6 +85,7 @@ export const PANEL_META: Record<PanelId, PanelMeta> = {
   },
   editor: { label: 'Edit', minWidth: 220, maxWidth: 560, defaultWidth: 300, minHeight: 180 },
   team: { label: 'Team', minWidth: 320, maxWidth: 720, defaultWidth: 420, minHeight: 240 },
+  assets: { label: 'Assets', minWidth: 220, maxWidth: 560, defaultWidth: 300, minHeight: 180 },
 };
 
 export const PANEL_IDS = Object.keys(PANEL_META) as PanelId[];
@@ -106,6 +107,7 @@ function positiveNumber(value: unknown): number | undefined {
 export const DEFAULT_LAYOUT: WorkspaceLayout = {
   version: LAYOUT_VERSION,
   columns: [
+    { kind: 'panels', panels: [{ panel: 'assets', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'team', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'variables', weight: 1 }] },
@@ -860,6 +862,7 @@ export function layoutFromLegacyPreferences(prefs: LegacyPanelPreferences): Work
     variables: prefs.variablesPinned,
     editor: prefs.editorPinned,
     team: prefs.teamPinned,
+    assets: true,
   };
   const columns = cloneColumns(DEFAULT_LAYOUT.columns);
   for (const column of columns) {

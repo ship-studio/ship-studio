@@ -3,14 +3,316 @@
 .ss-settings {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md);
+  gap: 0;
+  padding: var(--editor-panel-inline-pad);
 }
 
-.ss-settings__group {
+.ss-edit-panel__section--settings-image {
+  --image-settings-label-w: calc(var(--space-32) + var(--space-24) + var(--space-02));
+}
+
+.ss-edit-panel__section.ss-edit-panel__section--settings-image .ss-edit-panel__control {
+  grid-template-columns: var(--image-settings-label-w) var(--spacing-xs) minmax(0, 1fr);
+}
+
+.ss-edit-panel__section--settings-attributes .ss-edit-panel__section-body {
+  gap: var(--spacing-xs);
+  padding-block-start: var(--spacing-sm);
+}
+
+.ss-settings__subsections {
   display: flex;
   flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.ss-settings__subsection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.ss-settings-image__asset-control {
+  align-items: start;
+}
+
+.ss-settings-image__asset-card {
+  display: flex;
+  min-width: 0;
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--button-radius);
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: transparent;
+}
+
+.ss-settings-image__asset-summary {
+  display: flex;
+  align-items: flex-start;
   gap: var(--spacing-md);
+}
+
+.ss-settings-image__preview {
+  flex: 0 0 auto;
+  width: calc(var(--spacing-2xl) + var(--spacing-md));
+  height: calc(var(--spacing-2xl) + var(--spacing-md));
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  outline: var(--border-width-default) solid var(--tint-strong);
+}
+
+.ss-settings-image__preview--empty {
+  display: inline-block;
+}
+
+.ss-settings-image__preview-meta {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.ss-settings-image__preview-meta code {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ss-settings-image__preview-meta > span {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-settings-image__control > .ss-settings-image__field-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.ss-settings-image__readonly-control {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  min-width: 0;
+}
+
+.ss-settings-image__field-shell {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.ss-settings-image__field-shell > .ss-settings-image__field-control,
+.ss-settings-image__field-shell > .ss-enum__trigger {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.ss-settings-image__field-shell > .value-field {
+  width: 100%;
+}
+
+.ss-settings-image__field-shell--locked > .ss-settings-image__field-control.ss-text-field,
+.ss-settings-image__field-shell--locked > .ss-enum__trigger {
+  padding-inline-end: calc(var(--text-field-padding-inline) + var(--spacing-lg));
+}
+
+.ss-settings-image__field-shell > .ss-enum__trigger:disabled .ss-enum__chevron {
+  display: none;
+}
+
+.ss-settings-image__field-shell--locked .value-field__unit {
+  padding-inline-end: calc(var(--spacing-2xs) + var(--spacing-lg));
+}
+
+.ss-settings-image__lock {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: var(--settings-image-lock-inset);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.ss-settings-image__code-action-slot {
+  display: inline-flex;
+  flex: 0 0 var(--button-height-compact);
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height-compact);
+  min-width: var(--button-height-compact);
+}
+
+.ss-settings-image__code-action-slot > .button--icon-only {
+  flex: 0 0 var(--button-height-compact);
+}
+
+.ss-edit-panel__section--settings-image .ss-edit-panel__control > .ss-edit-panel__label {
+  padding-inline: 0;
+}
+
+.ss-edit-panel__section.ss-edit-panel__section--settings-image
+  .ss-edit-panel__control
+  > .ss-edit-panel__label {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.ss-settings-image__dimensions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.ss-settings-image__handoff {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  box-sizing: border-box;
+  margin-inline-start: calc(var(--image-settings-label-w) + var(--spacing-xs));
+  margin-top: var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__handoff > p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__handoff > .button {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.ss-settings-image__metadata-divider {
+  border-block-start: var(--border-width-default) solid var(--border-default);
+}
+
+.ss-settings-image__metadata {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-sm);
+}
+
+.ss-settings-image__file-location {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__file-location-link {
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-badge);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__source {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-sm);
+  box-sizing: border-box;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.ss-settings-image__source-row {
+  align-items: start;
+  min-width: 0;
+}
+
+.ss-settings-image__source-label {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-label);
+  white-space: normal;
+}
+
+.ss-settings-image__source-value {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-xs);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__reference-link {
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-badge);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__references {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-badge);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__reference-text {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__literal-references {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-badge);
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__fact-value,
+.ss-settings-image__scope-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ss-settings-image__scope-note {
+  box-sizing: border-box;
+  margin-block-start: var(--spacing-xs);
+  color: var(--warning);
+  font-size: var(--font-size-body-sm);
+  overflow-wrap: anywhere;
 }
 
 .ss-settings__label {
@@ -206,10 +508,6 @@
   font-size: var(--font-size-body-sm);
 }
 
-.ss-settings__group--attributes {
-  gap: var(--spacing-xs);
-}
-
 .ss-settings__attr,
 .ss-settings__attr-add {
   display: grid;
@@ -226,22 +524,26 @@
 }
 
 .ss-settings__attr-add {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.ss-settings__attr-add-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
 }
 
 /* Click-to-edit attribute key (button styled as the property-colored name). */
 .ss-settings__attr-key {
   all: unset;
-  width: 100%;
-  min-width: 0;
   cursor: text;
   color: var(--property-text);
-  border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
   text-align: left;
 }
 .ss-settings__attr-key:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  border-color: var(--border-strong);
 }
 .ss-settings__attr-key:disabled {
   cursor: default;
@@ -259,14 +561,9 @@
 /* Click-to-edit attribute value (button styled as plain text). */
 .ss-settings__attr-value--editable {
   all: unset;
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding-inline-end: var(--size-control-compact);
   cursor: text;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
-  border-radius: var(--radius-sm);
 }
 .ss-settings__attr-value--editable:hover:not(:disabled) {
   color: var(--text-primary);
@@ -282,48 +579,87 @@
 
 .ss-settings__attr-input {
   all: unset;
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding: 0 var(--spacing-xs);
-  border: 1px solid var(--accent-active);
-  border-radius: var(--radius-sm);
   background: var(--surface-control);
   color: var(--text-primary);
-  font-family: var(--font-code);
-  font-size: var(--font-size-body-sm);
 }
 
 .ss-settings__attr-input--name {
   color: var(--property-text);
 }
 
-.ss-settings__attr > .ss-settings__attr-input:not(.ss-settings__attr-input--name) {
+.ss-settings__attr-key,
+.ss-settings__attr-value--editable,
+.ss-settings__attr-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: var(--spacing-2xs) var(--spacing-xs);
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  text-align: left;
+}
+
+/* Extend the attribute name border outboard while keeping its text aligned. */
+.ss-settings__attr-key,
+.ss-settings__attr-input--name {
+  border-inline-start-width: var(--border-width-default);
+  padding-inline-start: var(--spacing-xs);
+}
+
+.ss-settings__attr-key {
+  width: calc(100% + var(--spacing-xs) + var(--border-width-default));
+  margin-inline-start: calc(0px - var(--spacing-xs) - var(--border-width-default));
+}
+
+.ss-settings__attr-input {
+  border-color: var(--accent-active);
+}
+
+.ss-settings__attr-key-editor,
+.ss-settings__attr-value-editor {
+  position: relative;
+  min-width: 0;
+}
+
+.ss-settings__attr-key-measure,
+.ss-settings__attr-value-measure {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ss-settings__attr-input--name,
+.ss-settings__attr-input--value {
+  position: absolute;
+  inset: 0;
+  display: block;
+  height: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  resize: none;
+  white-space: normal;
+}
+
+.ss-settings__attr-input--name {
+  inset-inline-start: calc(0px - var(--spacing-xs) - var(--border-width-default));
+  inset-inline-end: 0;
+  width: auto;
+  padding-inline-start: var(--spacing-xs);
+}
+
+.ss-settings__attr-value--editable,
+.ss-settings__attr-input--value {
   padding-inline-end: var(--size-control-compact);
 }
 
-/* Clean "+ Add attribute" affordance — content-width (doesn't stretch the column),
-   matching the panel's quiet control style. */
-.ss-settings__attr-add-btn {
-  all: unset;
+/* Inline Add attribute action — content-width and aligned to the section inset. */
+.ss-settings__attr-add-btn.text-button {
   align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  margin-inline-start: calc(var(--spacing-2xs) * -1);
-  padding: var(--spacing-2xs);
-  border-radius: var(--radius-sm);
+  margin-inline-start: 0;
   color: var(--text-muted);
-  font-size: var(--font-size-badge);
-  cursor: pointer;
-  transition:
-    color var(--transition),
-    background var(--transition);
-}
-
-.ss-settings__attr-add-btn:hover {
-  color: var(--text-secondary);
-  background: var(--tint-subtle);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
 }
 
 .ss-settings__attr-remove {

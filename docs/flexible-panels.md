@@ -3,9 +3,11 @@
 Every panel in the workspace can be dragged anywhere, and where you put them is
 remembered per project.
 
-The workspace has six surfaces: **Preview**, **Agent**, **Team**, **Variables**,
-**Edit** (the visual/CSS editor) and **Navigator** (the element tree). Before
-this, five of them had a *fixed* place — an order somebody chose once, written
+The workspace has seven surfaces: **Preview**, **Agent**, **Team**, **Variables**,
+**Edit** (the visual/CSS editor), **Navigator** (the element tree) and **Assets**.
+Assets can open as a rail panel or a modal; its picker uses the modal while
+topbar Focus hides the other workspace panels. Before Assets joined the rail,
+five docked panels had a *fixed* place — an order somebody chose once, written
 into a CSS grid — and the only thing you could change was whether a panel was
 docked or floating. Two people who work differently could not both be right.
 
@@ -29,7 +31,8 @@ the new editor.
 
 ## Why it wasn't just a reorder
 
-The six panels lived at two nesting levels with two different layout mechanisms:
+Before Assets joined the rail, the five docked panels lived at two nesting levels
+with two different layout mechanisms:
 
 - `.workspace-content` was a flex row holding Team's dock slot and a two-pane
   `SplitPane` (Agent | preview pane).

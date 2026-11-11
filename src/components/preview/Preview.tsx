@@ -45,6 +45,7 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { DevServerStatus } from '../terminal/DevServerStatus';
 import { stripAnsi } from '../../lib/ansi';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import type { OpenInCode } from '../../lib/code';
 import { trackEvent } from '../../lib/analytics';
 import { type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
@@ -242,7 +243,7 @@ interface PreviewProps {
   /** Action wired to the install CTA — kicks off the install flow + restart. */
   onRunInstall?: () => void;
   /** Jump to a source file:line in the Code tab (from the visual editor). */
-  onOpenInCode?: (file: string, line: number) => void;
+  onOpenInCode?: OpenInCode;
   /** Snapshot undo/redo, surfaced in the fullscreen toolbar. */
   canUndo?: boolean;
   canRedo?: boolean;
@@ -780,8 +781,12 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const elementSettings = useElementSettings({
     iframeRef: editorFrameRef,
     projectPath,
-    enabled: cssEditorEnabled,
-    signature: cssEditor.selection?.signature ?? null,
+    enabled: cssEditorEnabled || (editorEnabled && editor.editMode),
+    signature: cssEditorEnabled
+      ? (cssEditor.selection?.signature ?? null)
+      : editorEnabled && editor.editMode
+        ? (editor.selection?.signature ?? null)
+        : null,
     onToast,
   });
   // The CSS panel's active view (Style / Settings / Animate), lifted so the Cmd+K
@@ -2087,6 +2092,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             spacingScale={editor.spacingScale ?? undefined}
             textResolution={textEditing.textResolution}
             imageResolution={editor.imageResolution}
+            imageSettings={elementSettings}
             onReplaceImage={editor.replaceImage}
             textBlockedNonce={textEditing.textBlockedNonce}
             breakpoints={breakpoints}

@@ -1,17 +1,27 @@
-/**
- * "Image" section of the visual editor panel, shown when the selection is an
- * `<img>`: the current asset (thumbnail + path) and a Webflow-style Replace
- * button that opens the shared assets browser (`AssetsModal`) in pick mode.
- * Picking writes the new path straight to source (picking IS the save), so
- * there's no dirty state here.
- */
+/** Image settings for a selected `<img>` in the Tailwind visual editor. */
 
-import { useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../primitives/Button';
+import { TextField } from '../primitives/TextField';
+import { ValueField } from '../primitives/ValueField';
 import { PropSection } from './PropSection';
+import { EnumDropdown } from './EnumDropdown';
+import { JsonImageEditConfirmation } from './JsonImageEditConfirmation';
 import { AssetsModal } from '../workspace/AssetsPanel';
-import { assetWebPath } from '../../lib/assets';
-import type { ElementSignature, ImageResolution } from '../../lib/edit';
+import { assetWebPath, type Asset } from '../../lib/assets';
+import { useOptionalAssetBrowser } from '../../contexts/AssetBrowserContext';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { useImageSourceEditConfirmation } from '../../hooks/useImageSourceEditing';
+import { useImageNaturalSize } from '../../hooks/useImageNaturalSize';
+import type { ElementSettings } from '../../hooks/useElementSettings';
+import { TextButton } from '../primitives/TextButton';
+import {
+  parseImageSourceReference,
+  type ElementSignature,
+  type ImageResolution,
+} from '../../lib/edit';
+import type { OpenInCode } from '../../lib/code';
 
 interface Props {
   signature: ElementSignature;
@@ -19,33 +29,159 @@ interface Props {
   resolution: ImageResolution | null;
   projectPath: string;
   /** Write the picked web path to source (rejects on failure — picker stays open). */
-  onReplace: (webPath: string) => Promise<void>;
+  onReplace: (webPath: string, confirmedShared?: boolean) => Promise<void>;
+  onOpenInCode?: OpenInCode;
+  settings?: ElementSettings;
 }
 
-export function ImageSection({ signature, resolution, projectPath, onReplace }: Props) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const resolved = resolution?.status === 'resolved';
-  // The authored path once resolved (the value a replace will rewrite); before
-  // that, the rendered attribute is the best truthful display.
-  const displaySrc = resolution?.status === 'resolved' ? resolution.src : (signature.attrSrc ?? '');
+export function ImageSection({
+  signature,
+  resolution,
+  projectPath,
+  onReplace,
+  onOpenInCode,
+  settings,
+}: Props) {
+  const browser = useOptionalAssetBrowser();
+  const cancelPicker = browser?.cancelPicker;
+  const { showToast } = useOptionalToast();
+  const { copy, isCopied } = useCopyToClipboard();
+  const [legacyPickerState, setLegacyPickerState] = useState<{
+    signatureKey: string;
+    open: boolean;
+  } | null>(null);
+  const [urlDraftState, setUrlDraftState] = useState<{
+    signatureKey: string;
+    value: string;
+  } | null>(null);
+  const pickerIdRef = useRef<number | null>(null);
+  const sourceKey =
+    resolution?.status === 'json_property'
+      ? JSON.stringify([
+          resolution.source_file,
+          resolution.source_line,
+          resolution.source_column,
+          resolution.file,
+          resolution.property_path,
+          resolution.expression,
+          resolution.src,
+          resolution.references,
+          resolution.literal_references,
+          resolution.scope_known,
+        ])
+      : resolution?.status === 'resolved'
+        ? `${resolution.file}:${resolution.line}:${resolution.column}:${resolution.src}`
+        : '';
+  const signatureKey = `${projectPath}:${signature.domPath ?? signature.sourceFile ?? ''}:${signature.attrSrc ?? ''}:${sourceKey}`;
+  const currentSignatureKey = useRef(signatureKey);
+  const resolved = resolution?.status === 'resolved' || resolution?.status === 'json_property';
+  const displaySrc = resolved ? resolution.src : (signature.attrSrc ?? '');
+  const urlDraft = urlDraftState?.signatureKey === signatureKey ? urlDraftState.value : displaySrc;
+  const { size: naturalSize, status: naturalSizeStatus } = useImageNaturalSize(
+    signature,
+    signatureKey
+  );
+  const legacyPickerOpen =
+    legacyPickerState?.signatureKey === signatureKey && legacyPickerState.open;
+  const previewSrc = signature.currentPreview ?? signature.currentSrc;
+  const sourceEdit = useImageSourceEditConfirmation(resolution, signatureKey, onReplace);
+  const loadingAttribute = settings?.attributes.find(
+    (attribute) => attribute.name.toLowerCase() === 'loading'
+  );
+  const loadingValue = loadingAttribute?.value || signature.attrLoading || 'auto';
+  const loadingDisabled =
+    !settings ||
+    settings.sourceMarkupStatus !== 'resolved' ||
+    !settings.canEditAttributes ||
+    settings.busy ||
+    Boolean(settings.imageAttributeEditBlockReason) ||
+    Boolean(loadingAttribute?.isExpression);
+  const loadingDisabledReason = !settings
+    ? 'Image settings are still resolving.'
+    : settings.busy
+      ? 'Image settings are being saved.'
+      : loadingAttribute?.isExpression
+        ? 'Loading behavior is generated by code.'
+        : settings.imageAttributeEditBlockReason === 'ambiguous'
+          ? 'Several identical source locations match this image.'
+          : settings.imageAttributeEditBlockReason === 'spread'
+            ? 'A spread attribute may provide image values.'
+            : settings.imageAttributeEditBlockReason === 'mismatch'
+              ? 'Rendered image attributes do not match the source markup.'
+              : settings.sourceMarkupStatus !== 'resolved'
+                ? 'Source markup must be resolved before editing loading behavior.'
+                : !settings.canEditAttributes
+                  ? 'Image attributes are read-only.'
+                  : undefined;
+  const loadingOptions = [
+    { label: 'Auto', token: 'auto' },
+    { label: 'Lazy', token: 'lazy' },
+    { label: 'Eager', token: 'eager' },
+  ];
+  useLayoutEffect(() => {
+    if (currentSignatureKey.current !== signatureKey) {
+      if (pickerIdRef.current != null) cancelPicker?.(pickerIdRef.current);
+      pickerIdRef.current = null;
+      currentSignatureKey.current = signatureKey;
+    }
+  }, [cancelPicker, signatureKey]);
 
-  const handlePick = useCallback(
-    async (webPath: string) => {
-      try {
-        await onReplace(webPath);
-        setPickerOpen(false);
-      } catch {
-        // Write failed (toast already shown) — keep the picker open for another try.
-      }
+  useEffect(
+    () => () => {
+      if (pickerIdRef.current != null) cancelPicker?.(pickerIdRef.current);
     },
-    [onReplace]
+    [cancelPicker]
   );
 
+  const replaceFromAsset = async (asset: Asset, assetsRoot: string, expectedKey: string) => {
+    if (currentSignatureKey.current !== expectedKey) return;
+    let webPath: string;
+    try {
+      webPath = assetWebPath(assetsRoot, asset.path);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error), 'error');
+      throw error;
+    }
+    await sourceEdit.requestReplacement(webPath);
+    pickerIdRef.current = null;
+  };
+
+  const openPicker = () => {
+    if (!resolved) return;
+    if (browser) {
+      pickerIdRef.current = browser.openPicker({
+        projectPath,
+        title: 'Replace image',
+        onPick: (asset, root) => replaceFromAsset(asset, root, signatureKey),
+      });
+    } else {
+      setLegacyPickerState({ signatureKey, open: true });
+    }
+  };
+
+  const applyUrl = async () => {
+    const next = urlDraft.trim();
+    if (!resolved || !next || next === resolution.src) return;
+    try {
+      await sourceEdit.requestReplacement(next);
+    } catch {
+      // The source-write handler already reports the failure; keep the draft for correction.
+    }
+  };
+
+  const expressionHelp =
+    'This image source is set by code and is read-only here. Copy a request for your agent to change it.';
+  const agentRequest =
+    `Change the source for the selected image in my project.\n\n` +
+    `Element: <img>${signature.className ? ` (classes: "${signature.className}")` : ''}\n` +
+    (resolution?.status === 'resolved' ? `Near: ${resolution.file}:${resolution.line}\n` : '') +
+    `Current rendered source: ${signature.currentSrc ?? signature.attrSrc ?? '(unknown)'}`;
+
   return (
-    <PropSection title="Image" defaultOpen>
+    <PropSection title="Image settings" defaultOpen>
       <div className="ss-edit-image">
-        {signature.currentSrc ? (
-          <img className="ss-edit-image__thumb" src={signature.currentSrc} alt="" />
+        {previewSrc ? (
+          <img className="ss-edit-image__thumb" src={previewSrc} alt={signature.attrAlt ?? ''} />
         ) : (
           <span className="ss-edit-image__thumb ss-edit-image__thumb--empty" aria-hidden />
         )}
@@ -55,25 +191,210 @@ export function ImageSection({ signature, resolution, projectPath, onReplace }: 
               {displaySrc}
             </code>
           )}
-          {resolved ? (
-            <Button variant="secondary" block onClick={() => setPickerOpen(true)}>
-              Replace image…
-            </Button>
-          ) : (
-            <p className="ss-edit-image__note">
-              {resolution ? resolution.reason : 'Locating source…'}
-            </p>
+          {naturalSize && (
+            <span className="ss-edit-image__detail">
+              {naturalSize.width} × {naturalSize.height} px
+            </span>
           )}
+          {naturalSizeStatus && (
+            <span className="ss-edit-image__detail" aria-live="polite">
+              {naturalSizeStatus === 'loading' ? 'Loading dimensions…' : 'Dimensions unavailable.'}
+            </span>
+          )}
+          <Button
+            variant="default"
+            width="fill"
+            className="ss-edit-image__replace"
+            disabled={!resolved}
+            onClick={openPicker}
+          >
+            Replace image…
+          </Button>
         </div>
       </div>
-      <AssetsModal
-        projectPath={projectPath}
-        isOpen={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        pick={{
-          title: 'Replace image',
-          onPick: (asset) => void handlePick(assetWebPath(asset.path)),
-        }}
+
+      <div className="ss-edit-panel__control ss-edit-image__control">
+        <label className="ss-edit-panel__label" htmlFor="ss-edit-image-url">
+          URL
+        </label>
+        <div className="ss-edit-image__url-row">
+          <TextField
+            id="ss-edit-image-url"
+            className="ss-edit-image__url-input"
+            value={urlDraft}
+            disabled={!resolved}
+            aria-label="Image URL"
+            onChange={(event) => setUrlDraftState({ signatureKey, value: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void applyUrl();
+            }}
+          />
+          <Button
+            variant="default"
+            size="compact"
+            disabled={!resolved || !urlDraft.trim()}
+            onClick={() => void applyUrl()}
+          >
+            Apply
+          </Button>
+        </div>
+      </div>
+
+      {resolution?.status === 'json_property' && (
+        <div className="ss-edit-image__source">
+          <div className="ss-edit-panel__control ss-edit-image__source-row">
+            <span className="ss-edit-panel__label">Source</span>
+            <div className="ss-edit-image__source-value">
+              <code className="ss-edit-image__source-expression">
+                src={'{'}
+                {resolution.expression}
+                {'}'}
+              </code>
+              <span className="ss-edit-image__source-location">
+                JSON value: {resolution.file} › {resolution.property_path.join('.')}
+              </span>
+            </div>
+          </div>
+          <div className="ss-edit-panel__control ss-edit-image__source-row">
+            <span className="ss-edit-panel__label">References</span>
+            <div className="ss-edit-image__source-value">
+              {resolution.references.length > 0 ? (
+                <div className="ss-edit-image__references">
+                  {resolution.references.map((reference) => {
+                    const location = parseImageSourceReference(reference);
+                    const label = location
+                      ? `Open reference in ${location.file}, line ${location.line}`
+                      : undefined;
+                    return location && onOpenInCode ? (
+                      <TextButton
+                        key={reference}
+                        className="ss-edit-image__reference-link"
+                        aria-label={label}
+                        title={label}
+                        onClick={() => onOpenInCode(location.file, location.line)}
+                      >
+                        <code>{location ? `${location.file}:${location.line}` : reference}</code>
+                      </TextButton>
+                    ) : (
+                      <code key={reference} className="ss-edit-image__reference-text">
+                        {location ? `${location.file}:${location.line}` : reference}
+                      </code>
+                    );
+                  })}
+                </div>
+              ) : (
+                <span className="ss-edit-image__fact-value">Unknown</span>
+              )}
+            </div>
+          </div>
+          {!resolution.scope_known && (
+            <div className="ss-edit-image__scope-note">
+              Other access to this JSON import could not be classified.
+            </div>
+          )}
+          {resolution.literal_references.length > 0 && (
+            <div className="ss-edit-panel__control ss-edit-image__source-row">
+              <span className="ss-edit-panel__label">Matching URL literals</span>
+              <div className="ss-edit-image__literal-references ss-edit-image__source-value">
+                {resolution.literal_references.map((reference) => (
+                  <code key={reference}>{reference}</code>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="ss-edit-image__facts">
+        <div className="ss-edit-panel__control ss-edit-image__fact-row">
+          <span className="ss-edit-panel__label">Alt</span>
+          <span className="ss-edit-image__fact-value">{signature.attrAlt || 'No alt text'}</span>
+        </div>
+        <div className="ss-edit-panel__control ss-edit-image__fact-row">
+          <span className="ss-edit-panel__label">Width</span>
+          <ValueField
+            aria-label="Image width"
+            className="ss-edit-image__fact-control"
+            variant="number"
+            value={signature.attrWidth ?? ''}
+            placeholder="auto"
+            disabled
+            onCommit={() => undefined}
+          />
+        </div>
+        <div className="ss-edit-panel__control ss-edit-image__fact-row">
+          <span className="ss-edit-panel__label">Height</span>
+          <ValueField
+            aria-label="Image height"
+            className="ss-edit-image__fact-control"
+            variant="number"
+            value={signature.attrHeight ?? ''}
+            placeholder="auto"
+            disabled
+            onCommit={() => undefined}
+          />
+        </div>
+        <div className="ss-edit-panel__control ss-edit-image__fact-row">
+          <span className="ss-edit-panel__label">Loading</span>
+          <EnumDropdown
+            label="Loading behavior"
+            options={[
+              ...loadingOptions,
+              ...(!loadingOptions.some((option) => option.token === loadingValue)
+                ? [{ label: loadingValue, token: loadingValue }]
+                : []),
+            ]}
+            value={loadingValue}
+            disabled={loadingDisabled}
+            title={loadingDisabledReason}
+            onChange={(value) =>
+              void settings?.setAttribute('loading', value === 'auto' ? null : value)
+            }
+          />
+        </div>
+      </div>
+
+      {!resolved && (
+        <div className="ss-edit-image__note">
+          <p>{resolution ? resolution.reason : 'Locating source…'}</p>
+          {resolution?.status === 'read_only' && (
+            <div className="ss-edit-image__handoff">
+              {signature.sourceFile && signature.sourceLine && onOpenInCode && (
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={() => onOpenInCode(signature.sourceFile!, signature.sourceLine!)}
+                >
+                  Open code
+                </Button>
+              )}
+              <Button variant="ghost" size="compact" onClick={() => void copy(agentRequest)}>
+                {isCopied ? 'Request copied' : 'Copy agent request'}
+              </Button>
+            </div>
+          )}
+          {!resolution && <span className="sr-only">{expressionHelp}</span>}
+        </div>
+      )}
+
+      {!browser && (
+        <AssetsModal
+          projectPath={projectPath}
+          isOpen={legacyPickerOpen}
+          onClose={() => setLegacyPickerState({ signatureKey, open: false })}
+          pick={{
+            title: 'Replace image',
+            onPick: (asset, root) => replaceFromAsset(asset, root, signatureKey),
+          }}
+        />
+      )}
+
+      <JsonImageEditConfirmation
+        resolution={resolution}
+        value={sourceEdit.pendingValue}
+        applying={sourceEdit.applying}
+        onCancel={sourceEdit.cancel}
+        onConfirm={() => void sourceEdit.confirm()}
       />
     </PropSection>
   );

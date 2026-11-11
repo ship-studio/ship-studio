@@ -58,7 +58,36 @@ beforeEach(() => {
 });
 
 async function openMenu(layout?: unknown) {
-  if (layout) writeProjectLayout(PROJECT, layout as never);
+  if (layout && typeof layout === 'object') {
+    const complete = { ...layout } as {
+      order?: unknown[];
+      columns?: unknown[];
+      floating?: string[];
+      [key: string]: unknown;
+    };
+    if (Array.isArray(complete.order)) complete.order = [...complete.order];
+    if (Array.isArray(complete.columns)) complete.columns = [...complete.columns];
+    if (Array.isArray(complete.order) && !complete.order.includes('assets')) {
+      const previewIndex = complete.order.indexOf(PREVIEW);
+      const insertAt = previewIndex >= 0 ? previewIndex + 1 : 0;
+      complete.order.splice(insertAt, 0, 'assets');
+    } else if (Array.isArray(complete.columns)) {
+      const hasAssets = complete.columns.some(
+        (column) =>
+          column &&
+          typeof column === 'object' &&
+          'panels' in column &&
+          Array.isArray((column as { panels?: unknown[] }).panels) &&
+          (column as { panels: { panel?: unknown }[] }).panels.some(
+            (item) => item.panel === 'assets'
+          )
+      );
+      if (!hasAssets) {
+        complete.columns.push({ kind: 'panels', panels: [{ panel: 'assets', weight: 1 }] });
+      }
+    }
+    writeProjectLayout(PROJECT, complete as never);
+  }
   const user = userEvent.setup();
   render(
     <PanelDockProvider projectPath={PROJECT}>
@@ -250,17 +279,18 @@ describe('the menu', () => {
       mockMenuRects();
       const handle = within(row('Agent')).getByRole('button', { name: 'Move Agent panel' });
       fireEvent(handle, pointer('pointerdown', 10, 40));
-      fireEvent(window, pointer('pointermove', 10, 140));
-      fireEvent(window, pointer('pointerup', 10, 140));
+      fireEvent(window, pointer('pointermove', 10, 200));
+      fireEvent(window, pointer('pointerup', 10, 200));
       await act(() => vi.advanceTimersByTime(250));
 
       expect(readOrder(readProjectLayout(PROJECT))).toEqual([
+        'assets',
         'team',
         'variables',
         'navigator',
         PREVIEW,
-        'agent',
         'editor',
+        'agent',
       ]);
       const agentRow = document.querySelector('[data-drag-sort-id="agent"]') as HTMLElement;
       expect(within(agentRow).getByText('Right')).toBeInTheDocument();
@@ -287,7 +317,7 @@ describe('the menu', () => {
       expect(overlay.querySelectorAll('button')).toHaveLength(0);
       expect(overlay.style.getPropertyValue('--drag-sort-overlay-width')).toBe('280px');
       expect(overlay.style.getPropertyValue('--drag-sort-overlay-height')).toBe('20px');
-      expect(overlay.style.getPropertyValue('--drag-sort-overlay-y')).toBe('130px');
+      expect(overlay.style.getPropertyValue('--drag-sort-overlay-y')).toBe('160px');
       expect(agentRow).toHaveClass('is-dragging');
       expect(agentRow).toHaveAttribute('data-drag-sort-has-overlay', 'true');
 
@@ -297,7 +327,7 @@ describe('the menu', () => {
         (
           document.querySelector('[data-drag-sort-overlay="true"]') as HTMLElement
         ).style.getPropertyValue('--drag-sort-overlay-y')
-      ).toBe('30px');
+      ).toBe('60px');
 
       fireEvent(window, pointer('pointercancel', 20, 140));
       await act(() => vi.advanceTimersByTime(250));
@@ -472,7 +502,7 @@ describe('the spatial implementation switch', () => {
           '[data-layout-side="right"] .workspace-layout-menu__column-label'
         ),
       ].map((label) => label.textContent)
-    ).toEqual(['Column 1']);
+    ).toEqual(['Column 1', 'Column 2']);
     expect(
       screen.getByText('Agent').closest('[data-drag-sort-id="workspace-layout-panel-agent"]')
     ).toHaveClass('workspace-layout-menu__tile--floating');
@@ -528,6 +558,7 @@ describe('the spatial implementation switch', () => {
         'editor',
         'variables',
         'team',
+        'assets',
       ]);
     } finally {
       vi.useRealTimers();
@@ -565,6 +596,7 @@ describe('the spatial implementation switch', () => {
         'agent',
         'variables',
         'team',
+        'assets',
       ]);
       const movedColumn = readProjectLayout(PROJECT).columns.find(
         (column) =>
@@ -611,6 +643,7 @@ describe('the spatial implementation switch', () => {
         'agent',
         'variables',
         'team',
+        'assets',
       ]);
     } finally {
       vi.useRealTimers();
@@ -651,6 +684,7 @@ describe('the spatial implementation switch', () => {
         'editor',
         'variables',
         'team',
+        'assets',
       ]);
     } finally {
       vi.useRealTimers();
@@ -711,6 +745,7 @@ describe('the spatial implementation switch', () => {
         PREVIEW,
         'variables',
         'team',
+        'assets',
       ]);
     } finally {
       vi.useRealTimers();
@@ -865,6 +900,7 @@ describe('the spatial implementation switch', () => {
         'editor',
         'variables',
         'team',
+        'assets',
         'agent',
       ]);
     } finally {
@@ -903,6 +939,7 @@ describe('the spatial implementation switch', () => {
         'editor',
         'variables',
         'team',
+        'assets',
       ]);
       expect(
         saved.columns.some(
@@ -1167,6 +1204,8 @@ describe('the spatial implementation switch', () => {
       'workspace-layout-side-right',
       'workspace-layout-column-editor',
       'workspace-layout-panel-editor',
+      'workspace-layout-column-assets',
+      'workspace-layout-panel-assets',
       'workspace-layout-panel-agent',
     ]);
   });

@@ -231,7 +231,7 @@ describe('topbar Focus projection', () => {
     await act(async () => Promise.resolve());
 
     const agentColumn = document.querySelector<HTMLElement>(
-      '.workspace-dock__column[data-column-index="1"]'
+      '.workspace-dock__column[data-column-index="2"]'
     );
     const agentSurface = screen.getByLabelText('agent panel');
     const savedBeforeFocus = readProjectLayout(PROJECT);
@@ -263,7 +263,7 @@ describe('topbar Focus projection', () => {
     await act(async () => Promise.resolve());
 
     const agentColumn = document.querySelector<HTMLElement>(
-      '.workspace-dock__column[data-column-index="1"]'
+      '.workspace-dock__column[data-column-index="2"]'
     );
     const agentSurface = screen.getByLabelText('agent panel');
     const savedBeforeFocus = readProjectLayout(PROJECT);
@@ -304,16 +304,16 @@ describe('topbar Focus projection', () => {
     expect(agentSurface).toHaveClass('is-hidden');
     expect(agentSurface).toHaveAttribute('aria-hidden', 'true');
     expect(agentSurface).toHaveAttribute('inert');
-    expect(document.querySelector('.workspace-dock__column[data-column-index="1"]')).toBeNull();
+    expect(document.querySelector('.workspace-dock__column[data-column-index="2"]')).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Focus' }));
     await act(async () => Promise.resolve());
     expect(agentSurface).not.toHaveClass('is-hidden');
     expect(agentSurface).not.toHaveAttribute('aria-hidden', 'true');
     expect(agentSurface).not.toHaveAttribute('inert');
-    expect(document.querySelector('.workspace-dock__column[data-column-index="1"]')).toHaveStyle({
-      width: '600px',
-    });
+    expect(
+      document.querySelector('[data-rail-panel="agent"]')?.closest('[data-column-index]')
+    ).toHaveStyle({ width: '600px' });
 
     fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
     await act(async () => Promise.resolve());

@@ -13,6 +13,7 @@ import { ColorField } from './ColorControls';
 import { LengthControl } from './LengthControl';
 import { CustomCssBox } from './CustomCssBox';
 import { ValuePropertyControl } from './ValuePropertyControl';
+import { BackgroundImageControl } from './BackgroundImageControl';
 import type {
   BoxType,
   Side,
@@ -30,6 +31,8 @@ import type { ColorContrastContexts } from '../../lib/colorContrast';
  *  once by the panel and passed to every row. */
 export interface ControlRenderCtx {
   currentClass: string;
+  /** Identity of the selected preview element, used to discard stale asset picks. */
+  selectionKey?: string;
   layer: LayerContext;
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onReset: (spec: ResetSpec) => void;
@@ -191,6 +194,18 @@ export function PropControlRenderer({
           onApplyEnum={ctx.onApplyEnum}
           onReset={ctx.onReset}
           variables={ctx.variables}
+        />
+      );
+    case 'backgroundImage':
+      return (
+        <BackgroundImageControl
+          currentClass={ctx.currentClass}
+          layer={ctx.layer}
+          computed={ctx.computed?.['background-image']}
+          projectPath={ctx.projectPath}
+          selectionKey={ctx.selectionKey}
+          onApplyEnum={ctx.onApplyEnum}
+          onReset={ctx.onReset}
         />
       );
     case 'custom':
