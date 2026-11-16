@@ -270,6 +270,8 @@ export interface ValueFieldProps extends Omit<
   filterOption?: (option: ValueFieldOption) => boolean;
   /** Disable the unit picker independently while keeping the current suffix visible. */
   unitSelectorDisabled?: boolean;
+  /** Avoid repeating a visible keyword such as `auto` in the trailing unit slot. */
+  hideKeywordUnitLabel?: boolean;
   /** Return a reason to show a picker option as unavailable. */
   getOptionDisabledReason?: (option: ValueFieldOption) => string | undefined;
   /** Project CSS custom properties available to this value. */
@@ -300,6 +302,7 @@ export function ValueField({
   keywords = [],
   filterOption,
   unitSelectorDisabled = false,
+  hideKeywordUnitLabel = false,
   getOptionDisabledReason,
   variables = EMPTY_VARIABLES,
   format,
@@ -832,7 +835,7 @@ export function ValueField({
             setOpen(true);
           }}
         >
-          {selectedLabel ?? '-'}
+          {hideKeywordUnitLabel && currentKeyword ? '' : (selectedLabel ?? '-')}
         </button>
       )}
       {open &&

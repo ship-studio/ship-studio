@@ -284,7 +284,9 @@ export function EditPopover({
       initialPosition={() => ({ left: pos.left, top: pos.top })}
       resizable={false}
       keepWithinViewport
-      surfaceClassName="ss-color-picker__floating-surface"
+      surfaceClassName={`ss-color-picker__floating-surface${
+        anchor?.closest('.ss-background-layer-popover') ? ' ss-background-layer-color-picker' : ''
+      }`}
     >
       <div ref={popRef} className="ss-color-picker__floating-content">
         <ColorPicker

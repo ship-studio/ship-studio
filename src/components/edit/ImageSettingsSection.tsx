@@ -11,7 +11,7 @@ import {
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { TextButton } from '../primitives/TextButton';
-import { TextField } from '../primitives/TextField';
+import { TextArea, TextField } from '../primitives/TextField';
 import { ValueField } from '../primitives/ValueField';
 import { CodeIcon, CopyIcon, LockedIcon } from '@/components/icons';
 import { EnumDropdown } from './EnumDropdown';
@@ -114,6 +114,7 @@ export function ImageSettingsSection({
   onOpenInCode,
   onSetCssDimension,
   cssDimensions,
+  onPreviewImage,
 }: {
   settings: ElementSettings;
   signature: ElementSignature;
@@ -121,6 +122,7 @@ export function ImageSettingsSection({
   onOpenInCode?: OpenInCode;
   onSetCssDimension?: ImageCssDimensionSetter;
   cssDimensions?: ImageCssDimensions;
+  onPreviewImage?: (value: string | null, signature: ElementSignature) => void;
 }) {
   const browser = useOptionalAssetBrowser();
   const cancelPicker = browser?.cancelPicker;
@@ -140,6 +142,18 @@ export function ImageSettingsSection({
     status: 'loaded' | 'error';
   } | null>(null);
   const pickerIdRef = useRef<number | null>(null);
+  const [pickerIdState, setPickerIdState] = useState<number | null>(null);
+  const pickerActive =
+    legacyPickerOpen || (pickerIdState != null && browser?.pickRequest?.id === pickerIdState);
+  const activePreviewRef = useRef<{
+    selectionKey: string;
+    signature: ElementSignature;
+    pickerId?: number;
+  } | null>(null);
+  const previewCallbackRef = useRef(onPreviewImage);
+  useLayoutEffect(() => {
+    previewCallbackRef.current = onPreviewImage;
+  }, [onPreviewImage]);
   const selectionKeyRef = useRef(settings.selectionKey);
   const src = settings.attributes.find((attr) => attr.name.toLowerCase() === 'src');
   const srcset = settings.attributes.find((attr) => attr.name.toLowerCase() === 'srcset');
@@ -237,6 +251,20 @@ export function ImageSettingsSection({
     imageFilename(displayedSrc?.value) ??
     imageFilename(signature.attrSrc);
   const previewIdentity = `${settings.selectionKey}:${previewSrc ?? ''}`;
+  const clearReplacementPreview = useCallback(
+    (expectedSelection?: string, expectedPickerId?: number) => {
+      const active = activePreviewRef.current;
+      if (
+        !active ||
+        (expectedSelection && active.selectionKey !== expectedSelection) ||
+        (expectedPickerId != null && active.pickerId !== expectedPickerId)
+      )
+        return;
+      activePreviewRef.current = null;
+      previewCallbackRef.current?.(null, active.signature);
+    },
+    []
+  );
   const { size: currentNaturalSize, status: sourceDimensionsStatus } = useImageNaturalSize(
     signature,
     settings.selectionKey
@@ -281,6 +309,7 @@ export function ImageSettingsSection({
     disabled &&
     (dynamicFieldsReadOnly.length > 0 ||
       jsonSource != null ||
+      hasSrcset ||
       insidePicture ||
       imageEditBlockReason != null ||
       sourceMarkupReason != null ||
@@ -376,17 +405,58 @@ export function ImageSettingsSection({
 
   useLayoutEffect(() => {
     if (selectionKeyRef.current === settings.selectionKey) return;
+    clearReplacementPreview(selectionKeyRef.current);
     if (pickerIdRef.current != null) cancelPicker?.(pickerIdRef.current);
     pickerIdRef.current = null;
     selectionKeyRef.current = settings.selectionKey;
-  }, [cancelPicker, settings.selectionKey]);
+  }, [cancelPicker, clearReplacementPreview, settings.selectionKey]);
+
+  useEffect(() => {
+    if (pickerIdRef.current == null) return;
+    if (browser?.pickRequest?.id === pickerIdRef.current) return;
+    clearReplacementPreview();
+    pickerIdRef.current = null;
+  }, [browser?.pickRequest?.id, clearReplacementPreview]);
 
   useEffect(
     () => () => {
+      clearReplacementPreview(settings.selectionKey);
       if (pickerIdRef.current != null) cancelPicker?.(pickerIdRef.current);
     },
-    [cancelPicker]
+    [cancelPicker, clearReplacementPreview, settings.selectionKey]
   );
+
+  const previewWithAsset = (
+    asset: Asset | null,
+    root: string,
+    expectedSelection: string,
+    expectedPickerId?: number
+  ) => {
+    if (!asset) {
+      clearReplacementPreview(expectedSelection, expectedPickerId);
+      return;
+    }
+    const ownsRequest =
+      expectedPickerId != null ? pickerIdRef.current === expectedPickerId : legacyPickerOpen;
+    if (
+      !ownsRequest ||
+      selectionKeyRef.current !== expectedSelection ||
+      !canReplace ||
+      !onPreviewImage
+    )
+      return;
+    try {
+      const webPath = assetWebPath(root, asset.path);
+      activePreviewRef.current = {
+        selectionKey: expectedSelection,
+        signature,
+        pickerId: expectedPickerId,
+      };
+      onPreviewImage(webPath, signature);
+    } catch {
+      clearReplacementPreview(expectedSelection, expectedPickerId);
+    }
+  };
 
   const replaceJsonSource = useCallback(
     async (value: string, confirmedShared = false) => {
@@ -451,8 +521,17 @@ export function ImageSettingsSection({
     return canSaveAttribute ? saveAttribute(name, null) : true;
   };
 
-  const replaceWithAsset = async (asset: Asset, root: string, expectedSelection: string) => {
-    if (selectionKeyRef.current !== expectedSelection) return;
+  const replaceWithAsset = async (
+    asset: Asset,
+    root: string,
+    expectedSelection: string,
+    expectedPickerId?: number
+  ) => {
+    const ownsRequest =
+      expectedPickerId != null ? pickerIdRef.current === expectedPickerId : legacyPickerOpen;
+    if (!ownsRequest) return;
+    if (selectionKeyRef.current !== expectedSelection || !canReplace) return;
+    clearReplacementPreview(expectedSelection, expectedPickerId);
     let webPath: string;
     try {
       webPath = assetWebPath(root, asset.path);
@@ -463,16 +542,22 @@ export function ImageSettingsSection({
     const saved = await saveAttribute('src', webPath);
     if (!saved) throw new Error('The image source could not be updated.');
     pickerIdRef.current = null;
+    if (!browser) setLegacyPickerState({ selectionKey: expectedSelection, open: false });
   };
 
   const openPicker = () => {
     const expectedSelection = settings.selectionKey;
     if (browser) {
-      pickerIdRef.current = browser.openPicker({
+      let requestId = 0;
+      const id = browser.openPicker({
         projectPath,
         title: 'Replace image',
-        onPick: (asset, root) => replaceWithAsset(asset, root, expectedSelection),
+        onPick: (asset, root) => replaceWithAsset(asset, root, expectedSelection, requestId),
+        onPreview: (asset, root) => previewWithAsset(asset, root, expectedSelection, requestId),
       });
+      requestId = id;
+      pickerIdRef.current = id;
+      setPickerIdState(id);
     } else {
       setLegacyPickerState({ selectionKey: settings.selectionKey, open: true });
     }
@@ -560,8 +645,14 @@ export function ImageSettingsSection({
           <Button
             variant="default"
             width="fill"
-            disabled={!canReplace}
-            title={!canReplace ? replaceDisabledReason : undefined}
+            disabled={!canReplace || pickerActive}
+            title={
+              pickerActive
+                ? 'Choose an image or press Escape to cancel.'
+                : !canReplace
+                  ? replaceDisabledReason
+                  : undefined
+            }
             aria-label="Replace image…"
             aria-describedby={fieldDescriptionId(!canReplace)}
             onClick={openPicker}
@@ -598,6 +689,7 @@ export function ImageSettingsSection({
         onOpenInCode={onOpenInCode}
         onSave={(value) => saveAttribute('alt', value)}
         placeholder={fieldPlaceholder(displayedAlt != null)}
+        multiline
       />
       <div className="ss-settings-image__dimensions">
         <ImageDimensionField
@@ -858,10 +950,14 @@ export function ImageSettingsSection({
         <AssetsModal
           projectPath={projectPath}
           isOpen={legacyPickerOpen}
-          onClose={() => setLegacyPickerState({ selectionKey: settings.selectionKey, open: false })}
+          onClose={() => {
+            clearReplacementPreview(settings.selectionKey);
+            setLegacyPickerState({ selectionKey: settings.selectionKey, open: false });
+          }}
           pick={{
             title: 'Replace image',
             onPick: (asset, root) => replaceWithAsset(asset, root, settings.selectionKey),
+            onPreview: (asset, root) => previewWithAsset(asset, root, settings.selectionKey),
           }}
         />
       )}
@@ -880,12 +976,14 @@ export function ImageSettingsSection({
 function ReadonlyFieldSlot({
   children,
   locked = false,
+  lockAlignFirstLine = false,
   label,
   location,
   onOpenInCode,
 }: {
   children: ReactNode;
   locked?: boolean;
+  lockAlignFirstLine?: boolean;
   label: string;
   location?: { file: string; line: number } | null;
   onOpenInCode?: OpenInCode;
@@ -900,6 +998,7 @@ function ReadonlyFieldSlot({
         className={[
           'ss-settings-image__field-shell',
           locked ? 'ss-settings-image__field-shell--locked' : null,
+          lockAlignFirstLine ? 'ss-settings-image__field-shell--lock-first-line' : null,
         ]
           .filter(Boolean)
           .join(' ')}
@@ -911,8 +1010,8 @@ function ReadonlyFieldSlot({
           </span>
         )}
       </div>
-      <span className="ss-settings-image__code-action-slot">
-        {locked && onOpenInCode && location ? (
+      {locked && onOpenInCode && location && (
+        <span className="ss-settings-image__code-action-slot">
           <IconButton
             size="compact"
             variant="ghost"
@@ -922,10 +1021,8 @@ function ReadonlyFieldSlot({
             title={actionLabel}
             onClick={() => onOpenInCode(location.file, location.line)}
           />
-        ) : (
-          <span aria-hidden="true" />
-        )}
-      </span>
+        </span>
+      )}
     </div>
   );
 }
@@ -942,6 +1039,7 @@ function ImageTextAttributeField({
   onOpenInCode,
   onSave,
   placeholder,
+  multiline = false,
 }: {
   id: string;
   label: string;
@@ -954,10 +1052,50 @@ function ImageTextAttributeField({
   onOpenInCode?: OpenInCode;
   onSave: (value: string) => Promise<boolean>;
   placeholder?: string;
+  multiline?: boolean;
 }) {
   const [draftState, setDraftState] = useState({ value, draft: value });
+  const [editingAlt, setEditingAlt] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelPendingBlurRef = useRef(false);
   const draft = draftState.value === value ? draftState.draft : value;
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!multiline || !editingAlt || !textarea) return;
+    const resize = () => {
+      textarea.style.height = 'auto';
+      const styles = window.getComputedStyle(textarea);
+      const line = Number.parseFloat(styles.lineHeight);
+      const padding =
+        (Number.parseFloat(styles.paddingTop) || 0) +
+        (Number.parseFloat(styles.paddingBottom) || 0);
+      const borders =
+        (Number.parseFloat(styles.borderTopWidth) || 0) +
+        (Number.parseFloat(styles.borderBottomWidth) || 0);
+      if (!Number.isFinite(line)) return;
+      const maximum = line * 4 + padding + borders;
+      const content = textarea.scrollHeight + borders;
+      textarea.style.height = `${Math.min(content, maximum)}px`;
+      textarea.style.overflowY = content > maximum ? 'auto' : 'hidden';
+    };
+    resize();
+    let width = textarea.getBoundingClientRect().width;
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            const nextWidth = textarea.getBoundingClientRect().width;
+            if (nextWidth !== width) {
+              width = nextWidth;
+              resize();
+            }
+          });
+    observer?.observe(textarea);
+    return () => observer?.disconnect();
+  }, [draft, multiline, editingAlt]);
+  useLayoutEffect(() => {
+    if (editingAlt) textareaRef.current?.focus();
+  }, [editingAlt]);
   const commit = () => {
     if (cancelPendingBlurRef.current) {
       cancelPendingBlurRef.current = false;
@@ -965,8 +1103,8 @@ function ImageTextAttributeField({
     }
     if (!disabled && draft !== value) void onSave(draft);
   };
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !multiline) {
       event.preventDefault();
       event.currentTarget.blur();
     }
@@ -979,27 +1117,79 @@ function ImageTextAttributeField({
   };
   return (
     <div className="ss-edit-panel__control ss-settings-image__control">
-      <label className="ss-edit-panel__label" htmlFor={id}>
+      <label
+        className={`ss-edit-panel__label${multiline ? ' ss-settings-image__alt-label' : ''}`}
+        htmlFor={multiline && !disabled && !editingAlt ? `${id}-preview` : id}
+      >
         {label}
       </label>
       <ReadonlyFieldSlot
         locked={locked}
+        lockAlignFirstLine={multiline && disabled}
         label={label === 'URL' ? 'selected image source' : label.toLowerCase()}
         location={codeLocation}
         onOpenInCode={onOpenInCode}
       >
-        <TextField
-          id={id}
-          className="ss-settings-image__field-control"
-          value={draft}
-          disabled={disabled}
-          placeholder={placeholder}
-          title={disabled ? disabledReason : undefined}
-          aria-describedby={describedBy}
-          onChange={(event) => setDraftState({ value, draft: event.target.value })}
-          onBlur={commit}
-          onKeyDown={handleKeyDown}
-        />
+        {multiline && disabled ? (
+          <div
+            id={id}
+            className="ss-settings-image__alt-readonly"
+            role="textbox"
+            aria-readonly="true"
+            aria-disabled="true"
+            aria-label={label}
+            aria-describedby={describedBy}
+            title={disabledReason}
+            data-placeholder={!value ? 'true' : undefined}
+          >
+            {value || placeholder}
+          </div>
+        ) : multiline && !editingAlt ? (
+          <div
+            id={`${id}-preview`}
+            className="ss-settings-image__alt-preview"
+            role="textbox"
+            tabIndex={0}
+            aria-label={label}
+            aria-describedby={describedBy}
+            onClick={() => setEditingAlt(true)}
+            onFocus={() => setEditingAlt(true)}
+          >
+            {draft || placeholder}
+          </div>
+        ) : multiline ? (
+          <TextArea
+            ref={textareaRef}
+            id={id}
+            className="ss-settings-image__field-control ss-settings-image__alt-textarea"
+            value={draft}
+            disabled={disabled}
+            placeholder={placeholder}
+            title={disabled ? disabledReason : undefined}
+            aria-describedby={describedBy}
+            rows={1}
+            onFocus={() => setEditingAlt(true)}
+            onChange={(event) => setDraftState({ value, draft: event.target.value })}
+            onBlur={() => {
+              commit();
+              setEditingAlt(false);
+            }}
+            onKeyDown={handleKeyDown}
+          />
+        ) : (
+          <TextField
+            id={id}
+            className="ss-settings-image__field-control"
+            value={draft}
+            disabled={disabled}
+            placeholder={placeholder}
+            title={disabled ? disabledReason : undefined}
+            aria-describedby={describedBy}
+            onChange={(event) => setDraftState({ value, draft: event.target.value })}
+            onBlur={commit}
+            onKeyDown={handleKeyDown}
+          />
+        )}
       </ReadonlyFieldSlot>
     </div>
   );

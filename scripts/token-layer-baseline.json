@@ -328,12 +328,6 @@
     },
     {
       "path": "src/styles/features/assets-panel.css",
-      "token": "--stroke-1",
-      "count": 1,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/assets-panel.css",
       "token": "--transition",
       "count": 11,
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
@@ -761,12 +755,6 @@
     {
       "path": "src/styles/features/css-cascade/popovers.css",
       "token": "--tint",
-      "count": 2,
-      "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/settings.css",
-      "token": "--transition",
       "count": 2,
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
     },

@@ -981,7 +981,22 @@ fn disambiguate_by_text(
 /// Resolve a clicked element to its source className location.
 #[tauri::command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
-pub fn resolve_classname_source(
+pub async fn resolve_classname_source(
+    project_path: String,
+    signature: ElementSignature,
+) -> Result<Resolution, CommandError> {
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _entered = span.enter();
+        resolve_classname_source_blocking(project_path, signature)
+    })
+    .await
+    .map_err(|error| CommandError::Other {
+        message: format!("Editor source lookup task failed: {error}"),
+    })?
+}
+
+fn resolve_classname_source_blocking(
     project_path: String,
     signature: ElementSignature,
 ) -> Result<Resolution, CommandError> {
@@ -2284,7 +2299,22 @@ fn resolve_text_by_content(
 /// search source for the element's text content.
 #[tauri::command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
-pub fn resolve_text_source(
+pub async fn resolve_text_source(
+    project_path: String,
+    signature: ElementSignature,
+) -> Result<TextResolution, CommandError> {
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _entered = span.enter();
+        resolve_text_source_blocking(project_path, signature)
+    })
+    .await
+    .map_err(|error| CommandError::Other {
+        message: format!("Editor source lookup task failed: {error}"),
+    })?
+}
+
+fn resolve_text_source_blocking(
     project_path: String,
     signature: ElementSignature,
 ) -> Result<TextResolution, CommandError> {
@@ -2722,7 +2752,22 @@ fn resolve_src_by_value(
 /// the rendered `src` attribute value.
 #[tauri::command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
-pub fn resolve_image_source(
+pub async fn resolve_image_source(
+    project_path: String,
+    signature: ElementSignature,
+) -> Result<ImageResolution, CommandError> {
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _entered = span.enter();
+        resolve_image_source_blocking(project_path, signature)
+    })
+    .await
+    .map_err(|error| CommandError::Other {
+        message: format!("Editor source lookup task failed: {error}"),
+    })?
+}
+
+fn resolve_image_source_blocking(
     project_path: String,
     signature: ElementSignature,
 ) -> Result<ImageResolution, CommandError> {
@@ -3777,7 +3822,23 @@ pub struct UsageReport {
 /// Used to warn that editing a shared component changes it everywhere it appears.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path, file = %file, line = line))]
-pub fn find_component_usage(
+pub async fn find_component_usage(
+    project_path: String,
+    file: String,
+    line: usize,
+) -> Result<UsageReport, CommandError> {
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _entered = span.enter();
+        find_component_usage_blocking(project_path, file, line)
+    })
+    .await
+    .map_err(|error| CommandError::Other {
+        message: format!("Editor source lookup task failed: {error}"),
+    })?
+}
+
+fn find_component_usage_blocking(
     project_path: String,
     file: String,
     line: usize,
@@ -4441,7 +4502,8 @@ fn locate_element_instances(
             },
         };
     }
-    let resolution = resolve_classname_source(project_path.to_string(), signature.clone())?;
+    let resolution =
+        resolve_classname_source_blocking(project_path.to_string(), signature.clone())?;
     match locate_instances_at(&root, resolution, target, Some(&signature)) {
         Ok(resolved) => Ok(resolved),
         Err(error) => match locate_image_instances_by_src(&root, &signature, target)? {
@@ -4466,7 +4528,8 @@ pub(crate) fn locate_element(
             inst.file, inst.abs, inst.src, inst.line, inst.start, inst.end,
         ));
     }
-    let resolution = resolve_classname_source(project_path.to_string(), signature.clone())?;
+    let resolution =
+        resolve_classname_source_blocking(project_path.to_string(), signature.clone())?;
     if let Resolution::Multi { .. } = resolution {
         return Err(CommandError::Validation {
             field: "element".into(),
@@ -4487,7 +4550,23 @@ pub(crate) fn locate_element(
 /// markup with `locations` listing every spot.
 #[tauri::command]
 #[tracing::instrument(skip(signature), fields(project = %project_path))]
-pub fn resolve_element_html(
+pub async fn resolve_element_html(
+    project_path: String,
+    signature: ElementSignature,
+    location: Option<Location>,
+) -> Result<ElementHtml, CommandError> {
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _entered = span.enter();
+        resolve_element_html_blocking(project_path, signature, location)
+    })
+    .await
+    .map_err(|error| CommandError::Other {
+        message: format!("Editor source lookup task failed: {error}"),
+    })?
+}
+
+fn resolve_element_html_blocking(
     project_path: String,
     signature: ElementSignature,
     location: Option<Location>,

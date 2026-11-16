@@ -122,7 +122,113 @@
   width: 100%;
 }
 
+.ss-settings-image__alt-textarea {
+  --image-settings-alt-block-padding: calc(
+    (
+        var(--size-control-medium) - var(--font-size-control) * var(--line-height-help) -
+          var(--text-field-border-width) * 2
+      ) /
+      2
+  );
+
+  box-sizing: border-box;
+  min-height: calc(
+    var(--font-size-control) * var(--line-height-help) + var(--image-settings-alt-block-padding) *
+      2 + var(--text-field-border-width) * 2
+  );
+  max-height: calc(
+    var(--font-size-control) * var(--line-height-help) * 4 +
+      var(--image-settings-alt-block-padding) * 2 + var(--text-field-border-width) * 2
+  );
+  padding-block: var(--image-settings-alt-block-padding);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-help);
+  resize: none;
+  overflow-y: hidden;
+}
+
+.ss-settings-image__alt-preview {
+  --image-settings-alt-block-padding: calc(
+    (
+        var(--size-control-medium) - var(--font-size-control) * var(--line-height-help) -
+          var(--text-field-border-width) * 2
+      ) /
+      2
+  );
+
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(
+    var(--font-size-control) * var(--line-height-help) + var(--image-settings-alt-block-padding) *
+      2 + var(--text-field-border-width) * 2
+  );
+  max-height: calc(
+    var(--font-size-control) * var(--line-height-help) * 4 +
+      var(--image-settings-alt-block-padding) * 2 + var(--text-field-border-width) * 2
+  );
+  padding: var(--image-settings-alt-block-padding) var(--text-field-padding-inline);
+  overflow: hidden;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+  border: var(--text-field-border-width) solid var(--border-strong);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-help);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  cursor: text;
+}
+
+.ss-settings-image__alt-label {
+  align-self: start;
+  padding-top: calc(
+    var(--text-field-border-width) +
+      (
+        var(--size-control-medium) - var(--font-size-control) * var(--line-height-help) -
+          var(--text-field-border-width) * 2
+      ) /
+      2
+  );
+}
+
+.ss-settings-image__alt-readonly {
+  --image-settings-alt-block-padding: calc(
+    (
+        var(--size-control-medium) - var(--font-size-control) * var(--line-height-help) -
+          var(--text-field-border-width) * 2
+      ) /
+      2
+  );
+
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-height: calc(
+    var(--font-size-control) * var(--line-height-help) * 4 +
+      var(--image-settings-alt-block-padding) * 2 + var(--text-field-border-width) * 2
+  );
+  padding: var(--image-settings-alt-block-padding) var(--text-field-padding-inline);
+  overflow: hidden;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+  border: var(--text-field-border-width) solid var(--border-strong);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-help);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
 .ss-settings-image__field-shell--locked > .ss-settings-image__field-control.ss-text-field,
+.ss-settings-image__field-shell--locked > .ss-settings-image__alt-readonly,
+.ss-settings-image__field-shell--locked > .ss-settings-image__alt-preview,
 .ss-settings-image__field-shell--locked > .ss-enum__trigger {
   padding-inline-end: calc(var(--text-field-padding-inline) + var(--spacing-lg));
 }
@@ -144,6 +250,17 @@
   color: var(--text-muted);
   pointer-events: none;
   transform: translateY(-50%);
+}
+
+.ss-settings-image__field-shell--lock-first-line > .ss-settings-image__lock {
+  top: calc(
+    var(--text-field-border-width) +
+      (
+        var(--size-control-medium) - var(--font-size-control) * var(--line-height-help) -
+          var(--text-field-border-width) * 2
+      ) /
+      2 + var(--font-size-control) * var(--line-height-help) / 2
+  );
 }
 
 .ss-settings-image__code-action-slot {
@@ -429,6 +546,7 @@
 
 .ss-settings__class-chip {
   gap: var(--spacing-xs);
+  min-width: 0;
 }
 
 /* Size the editing chip to the actual class text, including proportional glyphs. */
@@ -444,6 +562,12 @@
 
 .ss-settings__class-name {
   all: unset;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: text;
   color: inherit;
 }
@@ -456,6 +580,7 @@
   all: unset;
   cursor: pointer;
   display: inline-flex;
+  flex: 0 0 auto;
   color: currentColor;
   opacity: 0.65;
   transition: opacity var(--transition-fast);
@@ -473,11 +598,14 @@
   display: inline-flex;
   align-items: center;
   gap: 2px; /* css-ok: icon + label */
-  padding: 2px var(--spacing-sm);
+  padding: var(--spacing-tight) var(--spacing-xs);
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-badge);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-control);
 }
 
 .ss-settings__class-add:hover {
@@ -696,3 +824,5 @@
   color: var(--text-muted);
   font-size: var(--font-size-badge);
 }
+font-size: var(--font-size-control);
+font-size: var(--font-size-control);

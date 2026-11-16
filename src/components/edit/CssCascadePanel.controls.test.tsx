@@ -77,7 +77,8 @@ function panelElement(
   bodies: Record<string, RuleBody>,
   selectedClassName = 'hero',
   onAddSelector: (selector: string, atPrelude?: string) => void | Promise<void> = vi.fn(),
-  settings = makeSettings()
+  settings = makeSettings(),
+  scopeRequest?: { scope: 'style' | 'settings' | 'animations'; id: number }
 ) {
   return (
     <CssCascadePanel
@@ -101,6 +102,7 @@ function panelElement(
       variables={[]}
       animations={[]}
       settings={settings}
+      scopeRequest={scopeRequest}
       animationsState={
         {
           animations: [],
@@ -189,6 +191,43 @@ afterEach(() => {
 });
 
 describe('CssCascadePanel controls', () => {
+  it('keeps the visited Style tree mounted while switching scopes', () => {
+    const row = makeRow(1, '.hero');
+    const bodies = { [rowKey(row)]: makeBody(['color', 'red']) };
+    render(panelElement([row], bodies));
+
+    const findStyleCards = () =>
+      Array.from(document.querySelectorAll('.ss-cascade-cards')).find((cards) =>
+        Array.from(cards.querySelectorAll('.ss-cascade-chip__content')).some(
+          (content) => content.textContent === '.hero'
+        )
+      );
+    const styleCards = findStyleCards();
+    expect(styleCards).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(findStyleCards()).toBe(styleCards);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Animate' }));
+    expect(findStyleCards()).toBe(styleCards);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Style' }));
+    expect(findStyleCards()).toBe(styleCards);
+  });
+
+  it('honors a repeated scope request after the user changes tabs', () => {
+    const { rerender } = render(
+      panelElement([], {}, 'hero', vi.fn(), makeSettings(), { scope: 'settings', id: 1 })
+    );
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Style' }));
+    expect(screen.getByRole('tab', { name: 'Style' })).toHaveAttribute('aria-selected', 'true');
+
+    rerender(panelElement([], {}, 'hero', vi.fn(), makeSettings(), { scope: 'settings', id: 2 }));
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('retains Settings across tabs and bases the empty state on visible attributes', () => {
     const settings = makeSettings({
       tag: 'img',

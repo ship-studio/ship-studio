@@ -38,6 +38,12 @@ import SortVerticalDownSvg from '../../assets/icons/sort-vertical-down.svg?react
 import SortVerticalUpSvg from '../../assets/icons/sort-vertical-up.svg?react';
 import LockedSvg from '../../assets/icons/locked.svg?react';
 import UnlockedSvg from '../../assets/icons/unlocked.svg?react';
+import TileRepeatSvg from '../../assets/icons/tile-repeat.svg?react';
+import TileRepeatXSvg from '../../assets/icons/tile-repeat-x.svg?react';
+import TileRepeatYSvg from '../../assets/icons/tile-repeat-y.svg?react';
+import TileNoRepeatSvg from '../../assets/icons/tile-no-repeat.svg?react';
+import TileRoundSvg from '../../assets/icons/tile-round.svg?react';
+import TileSpaceSvg from '../../assets/icons/tile-space.svg?react';
 import { createIcon } from './icon-base';
 
 export const AlignLeftIcon = createIcon(AlignLeftSvg, {
@@ -319,4 +325,40 @@ export const UnlockedIcon = createIcon(UnlockedSvg, {
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',
+});
+export const TileRepeatIcon = createIcon(TileRepeatSvg, {
+  name: 'TileRepeatIcon',
+  source: 'icons/tile-repeat.svg',
+  kind: 'ui',
+  defaultSize: 16,
+});
+export const TileRepeatXIcon = createIcon(TileRepeatXSvg, {
+  name: 'TileRepeatXIcon',
+  source: 'icons/tile-repeat-x.svg',
+  kind: 'ui',
+  defaultSize: 16,
+});
+export const TileRepeatYIcon = createIcon(TileRepeatYSvg, {
+  name: 'TileRepeatYIcon',
+  source: 'icons/tile-repeat-y.svg',
+  kind: 'ui',
+  defaultSize: 16,
+});
+export const TileNoRepeatIcon = createIcon(TileNoRepeatSvg, {
+  name: 'TileNoRepeatIcon',
+  source: 'icons/tile-no-repeat.svg',
+  kind: 'ui',
+  defaultSize: 16,
+});
+export const TileRoundIcon = createIcon(TileRoundSvg, {
+  name: 'TileRoundIcon',
+  source: 'icons/tile-round.svg',
+  kind: 'ui',
+  defaultSize: 16,
+});
+export const TileSpaceIcon = createIcon(TileSpaceSvg, {
+  name: 'TileSpaceIcon',
+  source: 'icons/tile-space.svg',
+  kind: 'ui',
+  defaultSize: 16,
 });

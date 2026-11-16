@@ -202,8 +202,15 @@ export function PropControlRenderer({
           currentClass={ctx.currentClass}
           layer={ctx.layer}
           computed={ctx.computed?.['background-image']}
+          computedSettings={{
+            size: ctx.computed?.['background-size'],
+            position: ctx.computed?.['background-position'],
+            repeat: ctx.computed?.['background-repeat'],
+            attachment: ctx.computed?.['background-attachment'],
+          }}
           projectPath={ctx.projectPath}
           selectionKey={ctx.selectionKey}
+          variables={ctx.variables}
           onApplyEnum={ctx.onApplyEnum}
           onReset={ctx.onReset}
         />

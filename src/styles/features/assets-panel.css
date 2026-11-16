@@ -35,6 +35,7 @@
 }
 
 .assets-dock-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -42,6 +43,29 @@
   min-height: 0;
   color: var(--text-primary);
   background: var(--surface-panel);
+}
+
+.assets-dock-panel--replacement-picking {
+  outline: var(--focus-ring-width) solid transparent;
+  outline-offset: var(--focus-ring-offset);
+  border-radius: 0;
+  animation: assets-replacement-picker-flash var(--transition-interaction-slow) 1;
+}
+
+@keyframes assets-replacement-picker-flash {
+  0%,
+  18% {
+    outline-color: var(--accent-focus);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assets-dock-panel--replacement-picking {
+    animation: none;
+  }
 }
 
 .assets-dock-header {

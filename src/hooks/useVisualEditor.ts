@@ -36,6 +36,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useFrameRebind } from './useFrameRebind';
 import { useSelectionCleared } from './useSelectionCleared';
 import { twMerge } from 'tailwind-merge';
+import { backgroundResetSpec } from '../lib/cssBackgroundImage';
 import {
   resolveClassnameSource,
   applyClassnameEdit,
@@ -49,6 +50,8 @@ import {
   spacingTokenFor,
   spacingCss,
   stepSpacingValue,
+  readLayer,
+  tailwindUtilityParts,
   boxSide,
   boxSidePrefix,
   boxSideUtilityResetSpec,
@@ -62,6 +65,7 @@ import {
   competesWithUnlayered,
   markImportant,
   radiusResetSpec,
+  lengthResetSpec,
   enumResetSpec,
   ENUM_CONTROLS,
   utilityTokenFor,
@@ -355,6 +359,43 @@ export function useVisualEditor({
   const post = useCallback(
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
+  );
+
+  const previewImageSource = useCallback(
+    (value: string | null, expected: ElementSignature) => {
+      const selected = selectedSigRef.current;
+      const current = contrastSelectionRef.current;
+      if (
+        !selected ||
+        !current ||
+        selected.tagName.toLowerCase() !== 'img' ||
+        expected.tagName.toLowerCase() !== 'img' ||
+        !expected.domPath ||
+        selected.domPath !== expected.domPath ||
+        current.domPath !== expected.domPath ||
+        selected.attrSrc !== expected.attrSrc ||
+        selected.sourceFile !== expected.sourceFile ||
+        selected.sourceLine !== expected.sourceLine ||
+        selected.sourceColumn !== expected.sourceColumn
+      ) {
+        return;
+      }
+      if (value === null) {
+        post({
+          type: 'ss:clearReplacementPreview',
+          selectionId: current.selectionId,
+          domPath: current.domPath,
+        });
+        return;
+      }
+      post({
+        type: 'ss:previewReplacementSrc',
+        selectionId: current.selectionId,
+        domPath: current.domPath,
+        value,
+      });
+    },
+    [post]
   );
 
   // Route a live-preview mutation by edit target: an element edit sets the
@@ -783,6 +824,35 @@ export function useVisualEditor({
       const version: TailwindVersion = setup?.version ?? 'v4';
       const utilityPrefix = setup?.utilityPrefix ?? undefined;
       const prefixed = utilityTokenFor(token, utilityPrefix);
+      const backgroundProperty =
+        style &&
+        (
+          [
+            ['image', 'background-image'],
+            ['size', 'background-size'],
+            ['position', 'background-position'],
+            ['repeat', 'background-repeat'],
+            ['attachment', 'background-attachment'],
+          ] as const
+        ).find(([, property]) => style[property] !== undefined)?.[0];
+      const propertyReset = backgroundProperty
+        ? backgroundResetSpec(backgroundProperty, utilityPrefix)
+        : style?.width !== undefined
+          ? lengthResetSpec('w', 'width', utilityPrefix)
+          : style?.height !== undefined
+            ? lengthResetSpec('h', 'height', utilityPrefix)
+            : undefined;
+      const preservesImportant =
+        propertyReset &&
+        readLayer(
+          currentClassRef.current,
+          { bp: activeBreakpoint, ordered: breakpoints, known, utilityPrefix },
+          (tokens) =>
+            tokens.split(/\s+/).some((item) => {
+              const parts = tailwindUtilityParts(item, utilityPrefix);
+              return !!parts?.important && propertyReset.match(item);
+            }) || null
+        ).value === true;
       const current = style?.position
         ? removeAtLayer(
             currentClassRef.current,
@@ -797,11 +867,14 @@ export function useVisualEditor({
               known,
               radiusResetSpec(utilityPrefix).match
             )
-          : currentClassRef.current;
+          : propertyReset
+            ? removeAtLayer(currentClassRef.current, activeBreakpoint, known, propertyReset.match)
+            : currentClassRef.current;
       // Mark important when the edited property is set by unlayered custom CSS, so
       // the saved utility wins the cascade (the live preview already wins via !important).
       const bare =
-        style && competesWithUnlayered(Object.keys(style), unlayeredPropsRef.current)
+        style &&
+        (competesWithUnlayered(Object.keys(style), unlayeredPropsRef.current) || preservesImportant)
           ? markImportant(prefixed, version)
           : prefixed;
       const merged = twMerge(current, withVariant(activeBreakpoint.prefix, bare));
@@ -809,7 +882,7 @@ export function useVisualEditor({
       const rules: PreviewRule[] = style ? [{ minPx: activeBreakpoint.minPx, decls: style }] : [];
       postMutate(merged, rules);
     },
-    [postMutate, setLiveClass, activeBreakpoint, known]
+    [postMutate, setLiveClass, activeBreakpoint, known, breakpoints]
   );
 
   /** Set one side of a box (padding/margin) at the active breakpoint to a scale
@@ -1370,6 +1443,7 @@ export function useVisualEditor({
     imageResolution,
     /** Write a new src to source and swap the preview (immediate save). */
     replaceImage,
+    previewImageSource,
     multiTarget,
     setMultiTarget,
     autoSave,

@@ -58,8 +58,12 @@ export interface ElementSignature {
    *  inheritance (not an arbitrary `text-[#…]`). */
   computedColor?: string;
   computedBackgroundColor?: string;
-  /** Rendered CSS background image; used only to safely identify a simple URL. */
+  /** Rendered background properties, used when authored utilities do not expose a value. */
   computedBackgroundImage?: string;
+  computedBackgroundSize?: string;
+  computedBackgroundPosition?: string;
+  computedBackgroundRepeat?: string;
+  computedBackgroundAttachment?: string;
   /** CSS properties this element gets from UNLAYERED rules (custom CSS that beats
    *  Tailwind utilities). Edits touching these need the important modifier to win. */
   unlayeredProps?: string[];
@@ -1851,8 +1855,12 @@ export function parseLengthInput(input: string, prefix: string, css: string): Pa
 
 /** Reset spec for a sizing utility — removes any token for this prefix at the
  *  active layer (`w-full`, `w-64`, `w-[…]`) and neutralizes its CSS. */
-export function lengthResetSpec(prefix: string, css: string): ResetSpec {
-  return { match: (t) => t === prefix || t.startsWith(`${prefix}-`), cssProps: [css] };
+export function lengthResetSpec(prefix: string, css: string, utilityPrefix?: string): ResetSpec {
+  return {
+    match: (token) => isValueUtilityToken(token, prefix, utilityPrefix),
+    cssProps: [css],
+    utilityPrefix,
+  };
 }
 
 // ───────────────────── Custom CSS (arbitrary properties) ─────────────────────

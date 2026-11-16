@@ -36,6 +36,7 @@ vi.mock('../lib/logger', () => ({
 }));
 
 import { useElementSettings } from './useElementSettings';
+import { sourceReadySignature, type CascadeSelection } from './useCssCascadeEditor';
 import { logger } from '../lib/logger';
 import {
   resolveClassnameSource,
@@ -135,6 +136,35 @@ beforeEach(() => {
     confidence: 'unique',
   });
   (applyClassnameEdit as Fn).mockResolvedValue(undefined);
+});
+
+it('waits for a full CSS selection before resolving element source', () => {
+  const iframeRef = fakeIframeRef();
+  const onToast = vi.fn();
+  const pendingSelection: CascadeSelection = {
+    signature: CLASSLESS,
+    instanceCount: 1,
+    pending: true,
+  };
+  const { rerender } = renderHook(
+    ({ selection }: { selection: CascadeSelection }) =>
+      useElementSettings({
+        iframeRef,
+        projectPath: '/proj',
+        enabled: true,
+        signature: sourceReadySignature(selection),
+        onToast,
+      }),
+    { initialProps: { selection: pendingSelection } }
+  );
+
+  expect(resolveElementHtml).not.toHaveBeenCalled();
+  expect(resolveTextSource).not.toHaveBeenCalled();
+
+  rerender({ selection: { ...pendingSelection, pending: false } });
+
+  expect(resolveElementHtml).toHaveBeenCalledTimes(1);
+  expect(resolveTextSource).toHaveBeenCalledTimes(1);
 });
 
 describe('useElementSettings addClass', () => {

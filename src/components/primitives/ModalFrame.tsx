@@ -149,6 +149,11 @@ const backgroundStates = new Map<HTMLElement, BackgroundState>();
 let modalRoot: HTMLDivElement | null = null;
 let scrollLockState: ScrollLockState | null = null;
 
+/** Whether a ModalFrame currently owns Escape in the shared modal stack. */
+export function hasOpenModal(): boolean {
+  return modalStack.length > 0;
+}
+
 function isTopmost(id: string): boolean {
   return modalStack[modalStack.length - 1]?.id === id;
 }

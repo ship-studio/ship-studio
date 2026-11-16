@@ -78,6 +78,61 @@ it('commits the complete URL draft on Enter', () => {
   expect(setAttribute).toHaveBeenCalledWith('src', longUrl);
 });
 
+it('keeps the complete long alt text editable in a content-sized textarea', () => {
+  const altText = 'A detailed description that continues beyond four visual lines. '.repeat(12);
+  const setAttribute = vi.fn().mockResolvedValue(true);
+  render(
+    <ImageSettingsSection
+      settings={makeSettings({
+        attributes: [
+          { name: 'src', value: '/old.png' },
+          { name: 'alt', value: altText },
+        ],
+        setAttribute,
+      })}
+      signature={signature}
+      projectPath="/project"
+    />
+  );
+
+  const preview = screen.getByRole('textbox', { name: 'Alt text' });
+  expect(preview).toHaveClass('ss-settings-image__alt-preview');
+  fireEvent.click(preview);
+  const alt = screen.getByRole('textbox', { name: 'Alt text' });
+  expect(alt.tagName).toBe('TEXTAREA');
+  expect(alt).toHaveFocus();
+  expect(alt).toHaveAttribute('rows', '1');
+  expect(alt).toHaveClass('ss-settings-image__alt-textarea');
+  expect(alt).toHaveValue(altText);
+  fireEvent.change(alt, { target: { value: `${altText}More` } });
+  expect(alt).toHaveValue(`${altText}More`);
+  fireEvent.blur(alt);
+  expect(setAttribute).toHaveBeenCalledWith('alt', `${altText}More`);
+});
+
+it('clamps long read-only alt text while keeping its full accessible value', () => {
+  const altText = 'A detailed description that continues beyond four visual lines. '.repeat(12);
+  render(
+    <ImageSettingsSection
+      settings={makeSettings({
+        attributes: [
+          { name: 'src', value: '/old.png' },
+          { name: 'alt', value: altText },
+        ],
+        canEditAttributes: false,
+      })}
+      signature={signature}
+      projectPath="/project"
+    />
+  );
+
+  const alt = screen.getByRole('textbox', { name: 'Alt text' });
+  expect(alt).toHaveAttribute('aria-readonly', 'true');
+  expect(alt).toHaveAttribute('aria-disabled', 'true');
+  expect(alt.textContent).toBe(altText);
+  expect(alt).toHaveClass('ss-settings-image__alt-readonly');
+});
+
 it('disables spread-backed image edits and provides a code handoff', () => {
   const onOpenInCode = vi.fn();
   render(
@@ -93,7 +148,10 @@ it('disables spread-backed image edits and provides a code handoff', () => {
   );
 
   expect(screen.getByRole('textbox', { name: 'URL' })).toBeDisabled();
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toBeDisabled();
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  );
   expect(screen.getByRole('button', { name: 'Replace image…' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Loading' })).toBeDisabled();
   expect(screen.getByText(/spread attribute may provide image values/i)).toBeInTheDocument();
@@ -164,6 +222,14 @@ it('keeps disabled Source and References fields visible when source details are 
   expect(source).toHaveAttribute('placeholder', 'Source unavailable');
   expect(screen.getByRole('textbox', { name: 'References' })).toHaveValue('Unavailable');
   expect(screen.getByRole('textbox', { name: 'References' })).toBeDisabled();
+  expect(source.closest('.ss-settings-image__field-shell')).toContainElement(
+    source.closest('.ss-settings-image__field-shell')?.querySelector('.ss-settings-image__lock') ??
+      null
+  );
+  expect(screen.getByRole('textbox', { name: 'References' })).toHaveClass(
+    'ss-settings-image__field-control'
+  );
+  expect(document.querySelectorAll('.ss-settings-image__code-action-slot')).toHaveLength(0);
 });
 
 it('shows known rendered values when source markup is mismatched, without enabling writes', () => {
@@ -187,7 +253,7 @@ it('shows known rendered values when source markup is mismatched, without enabli
   );
 
   expect(screen.getByRole('textbox', { name: 'URL' })).toHaveValue(longUrl);
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveValue('Rendered hero');
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveTextContent('Rendered hero');
   expect(screen.getByRole('textbox', { name: 'Width' })).toHaveValue('640');
   expect(screen.getByRole('textbox', { name: 'Height' })).toHaveValue('480');
   expect(screen.getByRole('textbox', { name: 'URL' })).toBeDisabled();
@@ -218,10 +284,13 @@ it('shows returned rendered image attributes read-only when source markup is una
   );
 
   expect(screen.getByRole('textbox', { name: 'URL' })).toHaveValue('/rendered/hero.png');
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveValue('Rendered hero');
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveTextContent('Rendered hero');
   expect(screen.getByRole('textbox', { name: 'Width' })).toHaveValue('640');
   expect(screen.getByRole('textbox', { name: 'Height' })).toHaveValue('480');
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toBeDisabled();
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  );
   expect(screen.getByRole('textbox', { name: 'Width' })).toBeDisabled();
   expect(screen.getByRole('textbox', { name: 'Height' })).toBeDisabled();
   expect(screen.getByText(/values below come from the rendered image/i)).toBeInTheDocument();
@@ -240,10 +309,7 @@ it('distinguishes an absent attribute from unresolved markup and source expressi
     />
   );
 
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveAttribute(
-    'placeholder',
-    'Source unavailable'
-  );
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveTextContent('Source unavailable');
   expect(screen.getByRole('textbox', { name: 'Width' })).toHaveAttribute(
     'placeholder',
     'Source unavailable'
@@ -264,8 +330,11 @@ it('distinguishes an absent attribute from unresolved markup and source expressi
     />
   );
 
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveValue('{imageAlt}');
-  expect(screen.getByRole('textbox', { name: 'Alt text' })).toBeDisabled();
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveTextContent('{imageAlt}');
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  );
   expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveAttribute(
     'title',
     'This value is generated by code.'
@@ -294,11 +363,13 @@ it('uses the Visual Editor field primitives for image attributes', () => {
   );
 
   const url = screen.getByRole('textbox', { name: 'URL' });
-  const alt = screen.getByRole('textbox', { name: 'Alt text' });
+  const altPreview = screen.getByRole('textbox', { name: 'Alt text' });
   const width = screen.getByRole('textbox', { name: 'Width' });
   expect(url).toHaveClass('ss-text-field');
   expect(url).not.toHaveClass('ss-text-field--multiline');
-  expect(alt).toHaveClass('ss-text-field');
+  expect(altPreview).toHaveClass('ss-settings-image__alt-preview');
+  fireEvent.click(altPreview);
+  expect(screen.getByRole('textbox', { name: 'Alt text' })).toHaveClass('ss-text-field');
   expect(width.closest('.value-field')).not.toBeNull();
   expect(screen.getByRole('button', { name: 'Loading' })).toHaveClass('property-field--select');
 

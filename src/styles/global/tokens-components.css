@@ -318,6 +318,9 @@
      the fullscreen rail, but below floating panels. */
   --z-dock-drop-indicator: 940;
   --z-floating-panel: 950;
+  /* Body-portaled popovers owned by a floating panel sit above its highest
+     stack order (48) and below the modal overlay. */
+  --z-floating-panel-popover: calc(var(--z-floating-panel) + 49);
   /* The overlay must paint above portaled menus while remaining below
      notifications and app-level surfaces. */
   --z-drag-sort-overlay: 1110;

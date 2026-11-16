@@ -171,6 +171,30 @@
   display: none;
 }
 
+/* The Element / Settings switch uses the same sticky segmented tabs as the CSS
+   Cascade panel. Keep the body as the single scroll owner and let each view own
+   its content inset (Element here, Settings in .ss-settings). */
+.ss-visual-editor-panel .ss-edit-panel__body {
+  padding: 0;
+  gap: 0;
+  overflow-x: hidden;
+}
+.ss-visual-editor-panel .ss-edit-panel__body > .tabs {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  padding-bottom: var(--spacing-sm);
+  border-bottom: var(--border-width-default) solid var(--border-default);
+}
+.ss-visual-editor-panel__element {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: var(--editor-panel-inline-pad);
+}
+
 /* Pinned footer — Save / Saved is always visible regardless of scroll. */
 .ss-edit-panel__footer {
   flex: 0 0 auto;

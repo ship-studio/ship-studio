@@ -124,6 +124,11 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
         requestTree();
       } else if (d.type === 'ss:hover') {
         setHoveredId(typeof d.nodeId === 'number' ? d.nodeId : null);
+      } else if (d.type === 'ss:selectionPending') {
+        // Canvas selection is announced before the iframe builds the full source
+        // signature, so the navigator can highlight the row without waiting for it.
+        setSelectedId(typeof d.nodeId === 'number' ? d.nodeId : null);
+        setAffectedIds([]);
       } else if (d.type === 'ss:select') {
         setSelectedId(typeof d.nodeId === 'number' ? d.nodeId : null);
         setAffectedIds(

@@ -49,6 +49,11 @@ const allowlist = [
     reason: 'anchored spacing value editor; it is not a modal surface',
   },
   {
+    file: 'src/components/edit/BackgroundLayerPopover.tsx',
+    label: 'role="dialog"',
+    reason: 'anchored background-layer settings popover; it is not a modal surface',
+  },
+  {
     file: 'src/components/preview/PreviewSizeControl.tsx',
     label: 'role="dialog"',
     reason: 'anchored preview-size popover; it is not a modal surface',

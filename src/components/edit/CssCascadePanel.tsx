@@ -9,6 +9,7 @@
  */
 
 import {
+  Activity,
   useCallback,
   useEffect,
   useId,
@@ -184,10 +185,11 @@ interface Props {
   hasPendingWrites?: boolean;
   pinned?: boolean;
   onTogglePin?: () => void;
-  /** Controlled view — lets the Cmd+K palette open the panel directly to Style,
-   *  Variables, or Animate. Uncontrolled (local state) when omitted. */
+  /** Optional controlled view for callers that need to own tab selection. */
   scope?: Scope;
   onScopeChange?: (scope: Scope) => void;
+  /** One-shot request for the panel to open a scope without controlling tab clicks. */
+  scopeRequest?: { scope: Scope; id: number };
 }
 
 export function CssCascadePanel({
@@ -219,6 +221,7 @@ export function CssCascadePanel({
   onTogglePin,
   scope: controlledScope,
   onScopeChange,
+  scopeRequest,
   onRefreshCascade,
   hasPendingWrites = false,
 }: Props) {
@@ -226,14 +229,49 @@ export function CssCascadePanel({
     () => colorContrastContexts(selection?.signature.contrastSnapshot),
     [selection?.signature.contrastSnapshot]
   );
-  const [localScope, setLocalScope] = useState<Scope>('style');
-  const scope = controlledScope ?? localScope;
-  const setScope = onScopeChange ?? setLocalScope;
-  const [settingsVisitedSelectionKey, setSettingsVisitedSelectionKey] = useState<string | null>(
-    () => (scope === 'settings' ? settings.selectionKey : null)
-  );
+  const initialScope = controlledScope ?? scopeRequest?.scope ?? 'style';
+  const [scopeState, setScopeState] = useState(() => ({
+    localScope: scopeRequest?.scope ?? ('style' as Scope),
+    handledRequestId: scopeRequest?.id ?? null,
+    styleVisitedSelectionKey: initialScope === 'style' ? settings.selectionKey : null,
+    settingsVisitedSelectionKey: initialScope === 'settings' ? settings.selectionKey : null,
+  }));
+  const scope = controlledScope ?? scopeState.localScope;
+  if (scopeRequest && scopeState.handledRequestId !== scopeRequest.id) {
+    const requestedScope = scopeRequest.scope;
+    setScopeState((previous) => ({
+      ...previous,
+      localScope: requestedScope,
+      handledRequestId: scopeRequest.id,
+      styleVisitedSelectionKey:
+        scope === 'style' || requestedScope === 'style'
+          ? settings.selectionKey
+          : previous.styleVisitedSelectionKey,
+      settingsVisitedSelectionKey:
+        scope === 'settings' || requestedScope === 'settings'
+          ? settings.selectionKey
+          : previous.settingsVisitedSelectionKey,
+    }));
+  }
+  const setScope = (next: Scope) => {
+    setScopeState((previous) => ({
+      ...previous,
+      localScope: next,
+      styleVisitedSelectionKey:
+        scope === 'style' || next === 'style'
+          ? settings.selectionKey
+          : previous.styleVisitedSelectionKey,
+      settingsVisitedSelectionKey:
+        scope === 'settings' || next === 'settings'
+          ? settings.selectionKey
+          : previous.settingsVisitedSelectionKey,
+    }));
+    onScopeChange?.(next);
+  };
+  const mountStylePanel =
+    scopeState.styleVisitedSelectionKey === settings.selectionKey || scope === 'style';
   const mountSettingsPanel =
-    settingsVisitedSelectionKey === settings.selectionKey || scope === 'settings';
+    scopeState.settingsVisitedSelectionKey === settings.selectionKey || scope === 'settings';
   const imageDimensionRule = useMemo(() => {
     const selectedClasses = (selection?.signature.className ?? '').split(/\s+/).filter(Boolean);
     for (const className of selectedClasses) {
@@ -1332,9 +1370,6 @@ export function CssCascadePanel({
           value={scope}
           mode="navigation"
           onValueChange={(next) => {
-            if (scope === 'settings' || next === 'settings') {
-              setSettingsVisitedSelectionKey(settings.selectionKey);
-            }
             setScope(next as Scope);
           }}
         >
@@ -1344,38 +1379,44 @@ export function CssCascadePanel({
             <TabsTab value="animations">Animate</TabsTab>
           </TabsList>
         </Tabs>
-        {scope === 'style' && projectPath && selection && (
-          <CssConsolidationReviewPopover
-            projectPath={projectPath}
-            selection={selection}
-            rows={rows}
-            bodies={bodies}
-            searchTerm={searchTerm}
-            loading={loading}
-            hasPendingWrites={hasPendingWrites}
-            onRefreshCascade={refreshCascade}
-          />
+        {mountStylePanel && selection && (
+          <Activity mode={scope === 'style' ? 'visible' : 'hidden'}>
+            {projectPath && (
+              <CssConsolidationReviewPopover
+                projectPath={projectPath}
+                selection={selection}
+                rows={rows}
+                bodies={bodies}
+                searchTerm={searchTerm}
+                loading={loading}
+                hasPendingWrites={hasPendingWrites}
+                onRefreshCascade={refreshCascade}
+              />
+            )}
+          </Activity>
         )}
         <div className="ss-cascade-content">
           {mountSettingsPanel && selection && (
-            <div
-              className="ss-cascade-settings"
-              hidden={scope !== 'settings'}
-              aria-hidden={scope !== 'settings'}
-            >
-              <ElementSettingsPanel
-                key={settings.selectionKey}
-                settings={settings}
-                signature={selection.signature}
-                projectPath={projectPath}
-                onOpenInCode={onOpenInCode}
-                onSetCssDimension={imageDimensionRule ? setImageCssDimension : undefined}
-                cssDimensions={imageCssDimensions}
-                active={scope === 'settings'}
-              />
-            </div>
+            <Activity mode={scope === 'settings' ? 'visible' : 'hidden'}>
+              <div
+                className="ss-cascade-settings"
+                hidden={scope !== 'settings'}
+                aria-hidden={scope !== 'settings'}
+              >
+                <ElementSettingsPanel
+                  key={settings.selectionKey}
+                  settings={settings}
+                  signature={selection.signature}
+                  projectPath={projectPath}
+                  onOpenInCode={onOpenInCode}
+                  onSetCssDimension={imageDimensionRule ? setImageCssDimension : undefined}
+                  cssDimensions={imageCssDimensions}
+                  active={scope === 'settings'}
+                />
+              </div>
+            </Activity>
           )}
-          {scope === 'animations' ? (
+          {scope === 'animations' && (
             <CssAnimationsPanel
               animations={animationsState.animations}
               loading={animationsState.loading}
@@ -1391,10 +1432,11 @@ export function CssCascadePanel({
               onOpenInCode={onOpenInCode ? openAnimationSourceInCode : undefined}
               onClearSearch={() => changeSearch('')}
             />
-          ) : !selection ? (
+          )}
+          {!selection && scope !== 'animations' ? (
             <p className="ss-cascade-empty">Click an element to see the CSS that styles it.</p>
-          ) : scope === 'style' ? (
-            <>
+          ) : mountStylePanel && selection ? (
+            <Activity mode={scope === 'style' ? 'visible' : 'hidden'}>
               {loading ? (
                 <div className="ss-cascade-loading">
                   <Spinner size="sm" />
@@ -1442,7 +1484,7 @@ export function CssCascadePanel({
                   </div>
                 </>
               )}
-            </>
+            </Activity>
           ) : null}
         </div>
       </div>

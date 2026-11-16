@@ -89,6 +89,7 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
     ? {
         title: request.title,
         onPick: (asset: Asset, root: string) => browser!.pickAsset(request.id, asset, root),
+        onPreview: request.onPreview,
       }
     : undefined;
   return (
@@ -118,6 +119,7 @@ export function AssetsDockPanel({
     ? {
         title: request.title,
         onPick: (asset: Asset, root: string) => browser.pickAsset(request.id, asset, root),
+        onPreview: request.onPreview,
       }
     : undefined;
 
@@ -132,15 +134,13 @@ export function AssetsDockPanel({
       floatingSize={{ width: 360, height: 620 }}
       minFloatingSize={{ width: 260, height: 320 }}
       initialPosition={() => ({ left: 72, top: 96 })}
-      surfaceClassName="dockable-panel__surface--preview"
+      surfaceClassName={`dockable-panel__surface--preview${docked && pick?.title === 'Replace image' ? ' assets-dock-panel--replacement-picking' : ''}`}
     >
       <div className="assets-dock-panel">
         <header className="assets-dock-header" data-dockable-drag-handle>
           <span className="workspace-panel-title">{pick?.title ?? 'Assets'}</span>
           <div className="assets-dock-header-actions">
-            {!pick && (
-              <AssetsPanelPin isPanel onToggle={() => browser.switchPresentation('modal')} />
-            )}
+            <AssetsPanelPin isPanel onToggle={() => browser.switchPresentation('modal')} />
             <IconButton
               variant="ghost"
               size="compact"
@@ -176,6 +176,8 @@ export interface AssetsModalProps {
     /** Modal title, e.g. "Replace image". */
     title: string;
     onPick: (asset: Asset, assetsRoot: string) => void | Promise<void>;
+    /** Transient preview for eligible images while the picker is active. */
+    onPreview?: (asset: Asset | null, assetsRoot: string) => void;
   };
   /** Render the shared browser body as a rail/floating panel instead of a modal. */
   presentation?: 'modal' | 'inline';
@@ -290,6 +292,19 @@ export function AssetsModal({
   const isClickableAsset = (asset: Asset) => asset.isDirectory || Boolean(pick);
   const itemModeClass = (asset: Asset) =>
     asset.isDirectory ? ' is-folder' : pick ? ' is-pickable' : '';
+  const handleAssetPreview = (asset: Asset | null) => {
+    if (!pick?.onPreview) return;
+    pick.onPreview(asset && isImageFile(asset.name) ? asset : null, assetsRoot);
+  };
+  const clearAssetPreviewUnlessMovingToAnotherAsset = (relatedTarget: EventTarget | null) => {
+    if (
+      relatedTarget instanceof Element &&
+      relatedTarget.closest('.assets-item-main__activate, .assets-grid-main')
+    ) {
+      return;
+    }
+    handleAssetPreview(null);
+  };
 
   // Render asset preview (thumbnail for images, icon for others)
   const renderAssetPreview = (asset: Asset) => {
@@ -629,6 +644,14 @@ export function AssetsModal({
                         className="assets-item-main__activate"
                         aria-label={name}
                         onClick={() => handleItemClick(asset)}
+                        onPointerEnter={() => handleAssetPreview(asset)}
+                        onPointerLeave={(event) =>
+                          clearAssetPreviewUnlessMovingToAnotherAsset(event.relatedTarget)
+                        }
+                        onFocus={() => handleAssetPreview(asset)}
+                        onBlur={(event) =>
+                          clearAssetPreviewUnlessMovingToAnotherAsset(event.relatedTarget)
+                        }
                       >
                         {renderAssetPreview(asset)}
                         <MiddleTruncate
@@ -713,6 +736,14 @@ export function AssetsModal({
                       className="assets-grid-main"
                       aria-label={name}
                       onClick={() => handleItemClick(asset)}
+                      onPointerEnter={() => handleAssetPreview(asset)}
+                      onPointerLeave={(event) =>
+                        clearAssetPreviewUnlessMovingToAnotherAsset(event.relatedTarget)
+                      }
+                      onFocus={() => handleAssetPreview(asset)}
+                      onBlur={(event) =>
+                        clearAssetPreviewUnlessMovingToAnotherAsset(event.relatedTarget)
+                      }
                     >
                       {content}
                     </button>
@@ -747,7 +778,7 @@ export function AssetsModal({
       title={pick ? pick.title : 'Assets'}
       className="assets-panel-modal"
       headerActions={
-        onSwitchPresentation && !pick ? (
+        onSwitchPresentation ? (
           <AssetsPanelPin isPanel={false} onToggle={onSwitchPresentation} />
         ) : undefined
       }

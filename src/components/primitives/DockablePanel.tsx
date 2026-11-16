@@ -92,9 +92,9 @@ const VIEWPORT_GUTTER = 8;
 const MIN_VISIBLE_HEADER = 40;
 const DEFAULT_MIN_FLOATING_SIZE = { width: 240, height: 180 };
 const KEYBOARD_RESIZE_STEP = 10;
-// Floating panels must remain beneath the modal overlay and portaled menus
-// (which use the tooltip layer), regardless of how long the app stays open.
-const MAX_FLOATING_PANEL_STACK_ORDER = 49;
+// Reserve the next z-index tier above floating panels for body-portaled panel
+// popovers, then keep floating panels beneath the modal overlay.
+const MAX_FLOATING_PANEL_STACK_ORDER = 48;
 let nextFloatingPanelOrder = 0;
 
 function readPosition(key: string, fallback: () => Point): Point {

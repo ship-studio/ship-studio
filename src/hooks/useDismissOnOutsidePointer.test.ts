@@ -22,8 +22,12 @@ function flushAnimationFrame() {
   pending.forEach((cb) => cb(0));
 }
 
-function dispatch(el: Element, type: string) {
-  el.dispatchEvent(new Event(type, { bubbles: true }));
+function dispatch(el: Element, type: string, timeStamp = performance.now() + 1) {
+  const event = new Event(type, { bubbles: true });
+  // A later gesture must have a later timestamp even when this synchronous
+  // test runs within the same millisecond as the opening effect.
+  Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+  el.dispatchEvent(event);
 }
 
 describe('useDismissOnOutsidePointer', () => {
@@ -53,6 +57,7 @@ describe('useDismissOnOutsidePointer', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
   });
@@ -84,6 +89,21 @@ describe('useDismissOnOutsidePointer', () => {
     dispatch(inside, 'pointerdown');
     expect(onDismiss).not.toHaveBeenCalled();
   });
+
+  it.each(['monotonic', 'epoch'])(
+    'ignores a delayed opening event and accepts a later %s event',
+    (clock) => {
+      vi.spyOn(performance, 'now').mockReturnValue(100);
+      const origin = clock === 'epoch' ? performance.timeOrigin : 0;
+      const onDismiss = vi.fn();
+      renderHook(() => useDismissOnOutsidePointer(true, containerRef, onDismiss));
+      flushAnimationFrame();
+      dispatch(outside, 'pointerdown', origin + 99);
+      expect(onDismiss).not.toHaveBeenCalled();
+      dispatch(outside, 'pointerdown', origin + 101);
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('does nothing while closed', () => {
     const onDismiss = vi.fn();

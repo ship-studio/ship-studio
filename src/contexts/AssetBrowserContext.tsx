@@ -12,6 +12,7 @@ import { useModal } from './ModalContext';
 import type { Asset } from '../lib/assets';
 import { ImageIcon } from '@/components/icons';
 import { useCommands } from '../commands/useCommands';
+import { hasOpenModal } from '../components/primitives/ModalFrame';
 
 export type AssetBrowserPresentation = 'modal' | 'panel';
 export const ASSET_BROWSER_PRESENTATION_KEY = 'shipstudio.assets.browserPresentation';
@@ -21,6 +22,7 @@ export interface AssetPickRequest {
   projectPath: string;
   title: string;
   onPick: (asset: Asset, assetsRoot: string) => void | Promise<void>;
+  onPreview?: (asset: Asset | null, assetsRoot: string) => void;
 }
 
 interface AssetBrowserContextValue {
@@ -33,7 +35,7 @@ interface AssetBrowserContextValue {
   openPicker: (request: Omit<AssetPickRequest, 'id'>) => number;
   closeBrowser: () => void;
   closePanel: () => void;
-  cancelPicker: (id?: number) => void;
+  cancelPicker: (id?: number, preserveOpenBrowser?: boolean) => void;
   pickAsset: (id: number, asset: Asset, assetsRoot: string) => Promise<void>;
   switchPresentation: (next: AssetBrowserPresentation) => void;
 }
@@ -73,6 +75,7 @@ export function AssetBrowserProvider({
   const pickRef = useRef<AssetPickRequest | null>(null);
   const nextPickId = useRef(0);
   const projectRef = useRef(projectPath);
+  const escapeDeferredRef = useRef(false);
 
   const clearPick = useCallback(() => {
     pickRef.current = null;
@@ -163,9 +166,10 @@ export function AssetBrowserProvider({
   );
 
   const cancelPicker = useCallback(
-    (id?: number) => {
+    (id?: number, preserveOpenBrowser = false) => {
       if (id != null && pickRef.current?.id !== id) return;
       clearPick();
+      if (preserveOpenBrowser) return;
       setPanelOpen(false);
       modal.close();
     },
@@ -185,6 +189,44 @@ export function AssetBrowserProvider({
     },
     [clearPick, modal, projectPath, setPanelOpen]
   );
+
+  // The docked browser is not a ModalFrame, so it registers the same bubble-
+  // phase Escape behavior while a picker owns it. An open ModalFrame always
+  // gets first refusal; nested popovers and text controls retain their grace
+  // press before the picker is cancelled.
+  useEffect(() => {
+    if (!panelOpen || !pickRequest || presentation !== 'panel' || modal.isOpen) {
+      escapeDeferredRef.current = false;
+      return;
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        escapeDeferredRef.current = false;
+        return;
+      }
+      if (event.defaultPrevented || hasOpenModal()) {
+        escapeDeferredRef.current = false;
+        return;
+      }
+      const target = event.target;
+      const claimsEscape =
+        target instanceof Element &&
+        (target.matches(
+          'input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable=""], [contenteditable="true"]'
+        ) ||
+          target.closest('[role="menu"],[role="listbox"],[aria-expanded="true"]') !== null);
+      if (!escapeDeferredRef.current && claimsEscape) {
+        escapeDeferredRef.current = true;
+        return;
+      }
+      escapeDeferredRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelPicker(pickRequest.id, true);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [cancelPicker, modal.isOpen, panelOpen, pickRequest, presentation]);
 
   useEffect(() => {
     if (projectRef.current === projectPath) return;

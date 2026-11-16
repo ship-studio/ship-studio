@@ -97,6 +97,7 @@ export function ElementSettingsPanel({
   projectPath,
   onOpenInCode,
   onSetCssDimension,
+  onPreviewImage,
   cssDimensions,
   active = true,
 }: {
@@ -105,6 +106,7 @@ export function ElementSettingsPanel({
   projectPath?: string;
   onOpenInCode?: OpenInCode;
   onSetCssDimension?: ImageCssDimensionSetter;
+  onPreviewImage?: (value: string | null, signature: ElementSignature) => void;
   cssDimensions?: ImageCssDimensions;
   /** Whether this retained panel is currently visible and its palette actions are usable. */
   active?: boolean;
@@ -412,6 +414,7 @@ export function ElementSettingsPanel({
           projectPath={projectPath}
           onOpenInCode={onOpenInCode}
           onSetCssDimension={onSetCssDimension}
+          onPreviewImage={onPreviewImage}
           cssDimensions={cssDimensions}
         />
       )}
