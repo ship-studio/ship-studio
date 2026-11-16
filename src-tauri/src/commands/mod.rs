@@ -13,6 +13,7 @@ pub mod clipboard;
 pub mod code;
 pub mod color_picker;
 pub mod conflicts;
+pub mod css_rule_mutations;
 pub mod custom_classes;
 pub mod edit;
 pub mod edit_css;

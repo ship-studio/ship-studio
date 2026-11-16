@@ -19,6 +19,7 @@ import {
   type ChangeEvent,
   type FocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
@@ -51,6 +52,10 @@ interface Props {
   /** Render the text editor in document flow instead of in a floating surface. */
   inline?: boolean;
   initial: string;
+  /** Reserve the displayed color swatch's space when sizing an inline value. */
+  initialSwatch?: boolean;
+  /** Render the declaration's color picker trigger using the current typed value. */
+  colorSwatchTrigger?: ReactNode | ((value: string, fullValue: string) => ReactNode);
   /** Autocomplete options (text mode) — filtered as you type. */
   options?: string[];
   /** Keep color values in the text editor instead of opening the picker. */
@@ -72,6 +77,8 @@ export function EditPopover({
   anchor,
   inline = false,
   initial,
+  initialSwatch = false,
+  colorSwatchTrigger,
   options,
   enableColorPicker = true,
   colorProperty = false,
@@ -84,7 +91,10 @@ export function EditPopover({
   onClose,
 }: Props) {
   const [text, setText] = useState(initial);
-  const [active, setActive] = useState(0);
+  const [initialDisplay] = useState(() => ({ text: initial, swatch: initialSwatch }));
+  // Keep typed text as the default Enter action; a suggestion is selected only
+  // after the user explicitly moves through the list with an arrow key.
+  const [active, setActive] = useState(-1);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const [pickerHeight, setPickerHeight] = useState(COLOR_PICKER_HEIGHT);
@@ -101,6 +111,10 @@ export function EditPopover({
   const colorText = importantSuffix ? text.slice(0, -importantSuffix.length).trim() : text;
   const resolvedText = resolveColorVariable(colorText, variables ?? [], variableSelector);
   const pickerValue = resolvedText && colorSwatch(resolvedText) ? resolvedText : colorText;
+  const renderedColorSwatchTrigger =
+    typeof colorSwatchTrigger === 'function'
+      ? colorSwatchTrigger(colorText, text)
+      : colorSwatchTrigger;
   const isUnknownColorVariable = /^var\(/i.test(colorText.trim());
   const isColor =
     enableColorPicker &&
@@ -215,7 +229,7 @@ export function EditPopover({
 
   const handleChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setText(event.target.value);
-    setActive(0);
+    setActive(-1);
   };
 
   const handleBlur = (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -228,7 +242,7 @@ export function EditPopover({
     if (event.key === 'Tab' && ghostSuffix) {
       event.preventDefault();
       setText(text + ghostSuffix);
-      setActive(0);
+      setActive(-1);
       return;
     }
     if (event.key === 'Enter') {
@@ -238,7 +252,7 @@ export function EditPopover({
         onClose();
         return;
       }
-      const pick = showMenu ? (matches[active] ?? text) : text;
+      const pick = showMenu && active >= 0 ? (matches[active] ?? text) : text;
       onCommit(pick);
       onClose();
     } else if (event.key === 'ArrowDown' && showMenu) {
@@ -246,7 +260,7 @@ export function EditPopover({
       setActive((a) => Math.min(a + 1, matches.length - 1));
     } else if (event.key === 'ArrowUp' && showMenu) {
       event.preventDefault();
-      setActive((a) => Math.max(a - 1, 0));
+      setActive((a) => (a < 0 ? matches.length - 1 : Math.max(a - 1, 0)));
     } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       // Menu closed: step a numeric value (same conventions as drag-to-scrub)
       // and live-apply. Non-numeric values keep the default caret behavior.
@@ -254,7 +268,7 @@ export function EditPopover({
       if (next === null) return;
       event.preventDefault();
       setText(next);
-      setActive(0);
+      setActive(-1);
       onCommit(next); // live-apply, like scrubbing
     }
   };
@@ -296,11 +310,14 @@ export function EditPopover({
   ) : (
     <div
       ref={popRef}
-      className={`ss-value-pop${inline ? ' ss-value-pop--inline' : ''}`}
+      className={`ss-value-pop${inline ? ' ss-value-pop--inline' : ''}${
+        inline && initialDisplay.swatch ? ' ss-value-pop--inline-has-swatch' : ''
+      }`}
       style={inline ? undefined : { position: 'fixed', top: pos.top, left: pos.left, width }}
     >
       <>
         <div className="ss-value-pop__field">
+          {inline && renderedColorSwatchTrigger}
           {parseNumericValue(text) && (
             <ScrubHandle
               value={text}
@@ -313,7 +330,8 @@ export function EditPopover({
           <span className="ss-value-pop__inputwrap">
             {inline && (
               <span className="ss-value-pop__sizer" aria-hidden="true">
-                <CssValueText value={`${text}${ghostSuffix}` || placeholder || ' '} />
+                {initialDisplay.swatch && <span className="ss-decl__swatch-space" />}
+                <CssValueText value={initialDisplay.text || placeholder || ' '} />
               </span>
             )}
             {ghostSuffix && (
@@ -334,7 +352,7 @@ export function EditPopover({
                 aria-multiline="true"
                 aria-expanded={showMenu}
                 aria-controls={listId}
-                aria-activedescendant={showMenu ? optionId(active) : undefined}
+                aria-activedescendant={showMenu && active >= 0 ? optionId(active) : undefined}
                 aria-autocomplete="list"
                 placeholder={placeholder}
                 onChange={handleChange}
@@ -351,7 +369,7 @@ export function EditPopover({
                 role="combobox"
                 aria-expanded={showMenu}
                 aria-controls={listId}
-                aria-activedescendant={showMenu ? optionId(active) : undefined}
+                aria-activedescendant={showMenu && active >= 0 ? optionId(active) : undefined}
                 aria-autocomplete="list"
                 placeholder={placeholder}
                 onChange={handleChange}

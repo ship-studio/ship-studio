@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { ModalProvider } from '../../contexts/ModalContext';
 import { PaletteContextProvider } from '../CommandPalette/paletteContext';
-import { sessionRegistry } from '../../lib/sessionRegistry';
+import { sessionRegistry, type SessionTerminalTab } from '../../lib/sessionRegistry';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { mockInvokeResponse } from '../../test/setup';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
@@ -362,6 +362,263 @@ describe('WorkspaceSidebar project activity indicator', () => {
     );
     expect(screen.getByText('localhost:3000')).toBeInTheDocument();
     expect(screen.queryByText('running')).not.toBeInTheDocument();
+  });
+
+  const activityCases = [
+    {
+      name: 'error',
+      rowStatus: 'active',
+      label: 'error',
+      status: 'crashed',
+    },
+    {
+      name: 'waiting',
+      rowStatus: 'active',
+      label: 'agent waiting for input',
+      status: 'running',
+      attention: true,
+    },
+    {
+      name: 'working',
+      rowStatus: 'active',
+      label: 'agent working',
+      status: 'thinking',
+    },
+    {
+      name: 'idle',
+      rowStatus: 'active',
+      label: 'open and idle',
+      status: 'running',
+    },
+    {
+      name: 'closed',
+      rowStatus: 'inactive',
+      label: 'closed',
+      status: null,
+    },
+  ] as const;
+
+  const serverStatuses = ['ready', 'starting', 'stopped', 'not-running'] as const;
+  const serverLabels = {
+    ready: 'dev server running',
+    starting: 'dev server starting',
+    stopped: 'dev server stopped',
+    'not-running': null,
+  } as const;
+  const serverDots = {
+    ready: 'dot-server-ready',
+    starting: 'dot-server-starting',
+    stopped: 'dot-server-stopped',
+    'not-running': null,
+  } as const;
+
+  it.each(
+    activityCases.flatMap((activity) =>
+      serverStatuses.map((serverStatus) => ({ activity, serverStatus }))
+    )
+  )(
+    'renders one prioritized title indicator for $activity.name with a $serverStatus server',
+    ({ activity, serverStatus }) => {
+      const currentPath = '/tmp/matrix-current';
+      const backgroundPath = '/tmp/matrix-background';
+      const currentName = 'matrix-current';
+      const backgroundName = 'matrix-background';
+      localStorage.setItem(
+        EXPANDED_PROJECTS_KEY,
+        JSON.stringify({ [currentPath]: false, [backgroundPath]: false })
+      );
+      sessionRegistry._resetForTests();
+
+      const makeTabs = (projectPath: string): SessionTerminalTab[] =>
+        activity.status === null
+          ? []
+          : [
+              {
+                id: 1,
+                agentId: 'claude-code',
+                sessionId: `${projectPath}-agent`,
+                status: activity.status,
+                attention: 'attention' in activity ? activity.attention : undefined,
+              },
+            ];
+      const currentTabs = makeTabs(currentPath);
+      const backgroundTabs = makeTabs(backgroundPath);
+      if (currentTabs.length > 0) sessionRegistry.setTerminalTabs(currentPath, currentTabs, 0);
+      if (backgroundTabs.length > 0) {
+        sessionRegistry.setTerminalTabs(backgroundPath, backgroundTabs, 0);
+      }
+
+      const currentRow = {
+        ...pinnedRow(currentPath, currentName),
+        status: activity.rowStatus,
+      };
+      const backgroundRow = {
+        ...pinnedRow(backgroundPath, backgroundName),
+        status: activity.rowStatus,
+      };
+      const serverLabel = serverLabels[serverStatus];
+      const address = serverStatus === 'ready' ? 'localhost:3000' : null;
+      const { container } = render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={[currentRow, backgroundRow]}
+          currentProjectPath={currentPath}
+          currentProjectName={currentName}
+          terminalTabs={currentTabs}
+          activeTerminalTab={currentTabs[0]?.id ?? 0}
+          attentionTabs={new Set('attention' in activity ? [1] : [])}
+          getProjectDevServerSnapshot={() => ({
+            status: serverStatus,
+            address,
+            instanceId: serverStatus === 'ready' ? 1 : null,
+          })}
+        />,
+        { wrapper: Providers }
+      );
+
+      const projectRow = (name: string) =>
+        [...container.querySelectorAll<HTMLElement>('.sidebar-project-row')].find((candidate) =>
+          candidate.getAttribute('aria-label')?.startsWith(`${name};`)
+        );
+      const expectedIndicator = (isCurrent: boolean, isExpanded: boolean) => {
+        if (activity.name === 'error') return 'dot-error';
+        if (activity.name === 'waiting') return 'dot-waiting';
+        if (activity.name === 'working') return isExpanded ? 'dot-active' : 'pixel-loader';
+        const serverDot = serverDots[serverStatus];
+        if (serverDot) {
+          return serverStatus === 'ready' && isExpanded && !isCurrent ? 'dot-active' : serverDot;
+        }
+        return activity.name === 'idle' ? 'dot-idle' : 'dot-muted';
+      };
+      const expectProjectStatus = (name: string, isCurrent: boolean, isExpanded: boolean) => {
+        const row = projectRow(name);
+        const expectedLabel = [
+          name,
+          activity.label,
+          serverLabel,
+          address,
+          isCurrent ? 'current project' : null,
+        ]
+          .filter(Boolean)
+          .join('; ');
+        expect(row).toHaveAttribute('aria-label', expectedLabel);
+
+        const status = row?.querySelector('.sidebar-project-status');
+        const indicators = status?.querySelectorAll('.sidebar-row-dot, .ss-pixel-loader');
+        expect(status?.children).toHaveLength(1);
+        expect(indicators).toHaveLength(1);
+        const expected = expectedIndicator(isCurrent, isExpanded);
+        if (expected === 'pixel-loader') {
+          expect(indicators?.[0]).toHaveClass('ss-pixel-loader');
+          expect(indicators?.[0]).toHaveAttribute(`aria-label`, `Working on ${name}`);
+        } else {
+          expect(indicators?.[0]).toHaveClass('sidebar-row-dot', expected);
+        }
+      };
+
+      expectProjectStatus(currentName, true, false);
+      expectProjectStatus(backgroundName, false, false);
+      const currentRowElement = projectRow(currentName)!;
+      const backgroundRowElement = projectRow(backgroundName)!;
+      fireEvent.click(currentRowElement.querySelector('.sidebar-project-chevron')!);
+      fireEvent.click(backgroundRowElement.querySelector('.sidebar-project-chevron')!);
+      expect(currentRowElement.querySelector('.sidebar-project-chevron')).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      expect(backgroundRowElement.querySelector('.sidebar-project-chevron')).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      expectProjectStatus(currentName, true, true);
+      expectProjectStatus(backgroundName, false, true);
+    }
+  );
+
+  it('updates the prioritized title indicator across simultaneous tabs and a project error', async () => {
+    const projectPath = '/tmp/priority-project';
+    const projectName = 'priority-project';
+    localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify({ [projectPath]: true }));
+    sessionRegistry._resetForTests();
+
+    const thinkingTab: SessionTerminalTab = {
+      id: 1,
+      agentId: 'claude-code',
+      sessionId: 'thinking-agent',
+      status: 'thinking',
+    };
+    const attentionTab: SessionTerminalTab = {
+      id: 2,
+      agentId: 'claude-code',
+      sessionId: 'waiting-agent',
+      status: 'running',
+      attention: true,
+    };
+    const errorTab: SessionTerminalTab = {
+      id: 3,
+      agentId: 'claude-code',
+      sessionId: 'crashed-agent',
+      status: 'crashed',
+    };
+    sessionRegistry.setTerminalTabs(projectPath, [thinkingTab, attentionTab, errorTab], 0);
+
+    const project = { ...pinnedRow(projectPath, projectName), status: 'active' as const };
+    const baseProps = {
+      ...sidebarProps(),
+      projects: [project],
+      currentProjectPath: projectPath,
+      currentProjectName: projectName,
+      terminalTabs: [thinkingTab, attentionTab, errorTab],
+      activeTerminalTab: 1,
+      attentionTabs: new Set([2]),
+      hasDevServer: true,
+      devServerRunning: true,
+      getProjectDevServerSnapshot: () => ({
+        status: 'ready' as const,
+        address: 'localhost:3000',
+        instanceId: 1,
+      }),
+    };
+    const { container, rerender } = render(<WorkspaceSidebar {...baseProps} />, {
+      wrapper: Providers,
+    });
+    const projectRow = container.querySelector<HTMLElement>('.sidebar-project-row')!;
+    const titleStatus = projectRow.querySelector('.sidebar-project-status')!;
+    const expectTitleDot = async (dot: string, activity: string) => {
+      await waitFor(() => {
+        expect(titleStatus.children).toHaveLength(1);
+        expect(titleStatus.querySelectorAll('.sidebar-row-dot, .ss-pixel-loader')).toHaveLength(1);
+        expect(titleStatus.querySelector('.sidebar-row-dot')).toHaveClass(`dot-${dot}`);
+        expect(projectRow).toHaveAttribute(
+          'aria-label',
+          `${projectName}; ${activity}; dev server running; localhost:3000; current project`
+        );
+      });
+    };
+
+    await expectTitleDot('error', 'error');
+    const childRows = projectRow.parentElement?.querySelector('.sidebar-project-body');
+    expect(childRows?.querySelector('.dot-attention')).toBeInTheDocument();
+    expect(childRows?.querySelector('.dot-server-ready')).toBeInTheDocument();
+
+    act(() => {
+      sessionRegistry.setTerminalTabs(projectPath, [thinkingTab, attentionTab], 0);
+    });
+    await expectTitleDot('waiting', 'agent waiting for input');
+
+    act(() => {
+      sessionRegistry.setTerminalTabs(projectPath, [thinkingTab], 0);
+    });
+    await expectTitleDot('active', 'agent working');
+
+    rerender(
+      <WorkspaceSidebar
+        {...baseProps}
+        projects={[{ ...project, status: 'error' }]}
+        terminalTabs={[thinkingTab]}
+      />
+    );
+    await expectTitleDot('error', 'error');
   });
 
   it('keeps the project dot while expanded and shows the PixelLoader on the tab row', async () => {

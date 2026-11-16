@@ -50,7 +50,7 @@ import { IconButton } from '../primitives/IconButton';
 import { Spinner } from '../primitives/Spinner';
 import { BuildTerminal } from '../terminal/BuildTerminal';
 import { AndroidMirrorStage } from './AndroidMirrorStage';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, isExpectedCommandError } from '../../lib/errors';
 
 interface DeviceMirrorProps {
   /** Project name, for guidance copy. */
@@ -290,7 +290,12 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
       } catch (err) {
         if (cancelled) return;
         const detail = formatCommandError(asCommandError(err));
-        logger.error('[DeviceMirror] failed', { error: detail });
+        // A simulator that is slow to boot, or a wedged mirror, is classified
+        // Expected by the backend — shown the same way, not filed as a bug
+        // (issue #913).
+        logger[isExpectedCommandError(err) ? 'warn' : 'error']('[DeviceMirror] failed', {
+          error: detail,
+        });
         // Remembered so the heal-loop's give-up message can cite the last
         // concrete failure instead of a bare "lost connection".
         lastConnectErrorRef.current = detail;

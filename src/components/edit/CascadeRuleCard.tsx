@@ -23,9 +23,13 @@ import { isKeyframesSelector } from '../../lib/cssStructures';
 import { KeyframesNameChip, keyframesName } from './KeyframesNameChip';
 import { NestedSelectorInput } from './NestedSelectorInput';
 import { RuleContextChips } from './RuleContextChips';
-import { SelectorChip, SelectorDisplay } from './SelectorChip';
+import { SelectorChip, SelectorListDisplay } from './SelectorChip';
 import { TextButton } from '../primitives/TextButton';
-import { nestedRuleCollapseKey } from '../../lib/cascadePresentation';
+import { Button } from '../primitives/Button';
+import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
+import { MenuButton } from '../primitives/MenuButton';
+import { ModalFrame } from '../primitives/ModalFrame';
+import { cascadeSourceFileLabel, nestedRuleCollapseKey } from '../../lib/cascadePresentation';
 import { searchRuleBody } from '../../lib/cascadeSearch';
 import {
   declarations,
@@ -42,6 +46,8 @@ import type { ColorContrastContexts, ColorVariableDefinition } from '../../lib/c
 
 interface CommonHeader {
   selector: string;
+  /** Full source/CSSOM selector-list prelude when available. */
+  selectorList?: string;
   file?: string;
   line?: number;
   /** Candidate source files when the selector is defined by multiple rules. */
@@ -98,6 +104,17 @@ interface EditableCard extends CommonHeader {
   onWrap?: (atPrelude: string) => void;
   /** Present for top-level editable rules — delete the whole rule (🗑). */
   onDelete?: () => void;
+  /** Present when the source rule is a selector list and this member is shared. */
+  sharedSelectors?: string[];
+  /** Whether the backend proved every member can be split without changing specificity. */
+  selectorListSplitSafe?: boolean;
+  /** Request the card's selector field to open from the command palette. */
+  selectorEditRequestId?: number;
+  onSelectorEditRequestHandled?: (requestId: number) => void;
+  /** Remove only this card's matched selector-list member. */
+  onRemoveSelector?: () => void;
+  /** Split every member into its own adjacent source rule with the same body/context. */
+  onSplitSelectorList?: () => void;
   /** Present for top-level editable rules — click-to-edit the selector (any selector). */
   onRename?: (newSelector: string) => void;
   /** Present for a `@keyframes` rule — click-to-rename the animation name. */
@@ -115,6 +132,8 @@ interface EditableCard extends CommonHeader {
   /** A not-yet-created rule (one of the element's own selectors) — shown dashed with a
    *  "new" chip; the rule is written to source on the first property. */
   draft?: boolean;
+  /** Whether this draft has a verified destination stylesheet for its first write. */
+  draftTargetKnown?: boolean;
   /** A local selector waiting for its enclosing construct to become writable. */
   pendingReason?: string;
   /** This created rule's selector doesn't match the selected element — show a note so it
@@ -131,15 +150,6 @@ interface ReadonlyCard extends CommonHeader {
 }
 
 type Props = EditableCard | ReadonlyCard;
-
-const basename = (path: string) => path.split('/').pop() ?? path;
-/** A readable file-chip label. Embedded `<style>` blocks are addressed as
- *  `Foo.astro?style=0`; show them as `Foo.astro › style` rather than the raw query. */
-const fileLabel = (path: string) => {
-  const [file, query] = path.split('?style=');
-  const name = basename(file);
-  return query ? `${name} › style` : name;
-};
 
 export function CascadeRuleCard(props: Props) {
   // Controlled by the panel (persists across element switches) when `onToggleCollapse`
@@ -209,8 +219,11 @@ export function CascadeRuleCard(props: Props) {
   const onRenameAtRule = props.editable ? props.onRenameAtRule : undefined;
   const sourcePaths = props.file ? [props.file] : Array.from(new Set(props.sourceFiles ?? []));
   const sourceTitle = props.file ? `${props.file}:${props.line}` : sourcePaths.join('\n');
-  const sourceLabel = sourcePaths.map(fileLabel).join(', ');
+  const sourceLabel = sourcePaths.map(cascadeSourceFileLabel).join(', ');
   const propertyCount = props.editable ? declarations(props.body).length : props.decls.length;
+  const sharedSelectors = props.editable ? (props.sharedSelectors ?? []) : [];
+  const selectorList = props.selectorList ?? props.selector;
+  const [confirmSharedDelete, setConfirmSharedDelete] = useState(false);
 
   // Focus management after a destructive action (#14): the focused button unmounts, so
   // without intervention focus falls to <body>. Capture a stable target *before* mutating,
@@ -311,52 +324,121 @@ export function CascadeRuleCard(props: Props) {
         >
           <ChevronIcon size={12} />
         </button>
-        {props.editable && isKeyframes && props.onRenameKeyframes ? (
-          <KeyframesNameChip
-            name={keyframesName(props.selector)}
-            onCommit={props.onRenameKeyframes}
-          />
-        ) : editable && props.onSelectorChange ? (
-          <NestedSelectorInput
-            value={props.selector}
-            suggestions={props.selectorSuggestions ?? []}
-            vocab={isStep ? 'keyframe' : 'nesting'}
-            onChange={(sel) => props.onSelectorChange?.(sel)}
-          />
-        ) : props.editable && props.onRename ? (
-          <SelectorChip
-            selector={props.selector}
-            suggestions={props.selectorSuggestions ?? []}
-            onCommit={props.onRename}
-            onWrap={props.onWrap}
-          />
-        ) : (
-          <SelectorDisplay selector={props.selector} />
-        )}
-        <span className="ss-cascade-card__head-spacer" />
-        {!editable && (
-          <span className="ss-cascade-card__src ss-cascade-card__src--ro">read-only</span>
-        )}
-        {editable && props.onDelete && (!props.draft || props.pendingReason) && (
-          <button
-            type="button"
-            className="ss-cascade-card__trash"
-            title="Delete rule"
-            aria-label="Delete rule"
-            onClick={() => {
-              focusAfterCardDelete();
-              props.onDelete?.();
-            }}
-          >
-            <TrashIcon size={12} />
-          </button>
-        )}
-        {sourcePaths.length > 0 && (
-          <span className="ss-cascade-card__src-chip" title={sourceTitle}>
-            <FileTextIcon size={11} />
-            {sourceLabel}
-          </span>
-        )}
+        <div className="ss-cascade-card__selector-main">
+          <div className="ss-cascade-card__selector-field">
+            {props.editable && isKeyframes && props.onRenameKeyframes ? (
+              <KeyframesNameChip
+                name={keyframesName(props.selector)}
+                onCommit={props.onRenameKeyframes}
+              />
+            ) : editable && props.onSelectorChange ? (
+              <NestedSelectorInput
+                value={props.selector}
+                suggestions={props.selectorSuggestions ?? []}
+                vocab={isStep ? 'keyframe' : 'nesting'}
+                onChange={(sel) => props.onSelectorChange?.(sel)}
+              />
+            ) : props.editable && props.onRename ? (
+              <SelectorChip
+                key={props.selectorEditRequestId ?? 'manual'}
+                selector={props.selector}
+                selectorList={selectorList}
+                suggestions={props.selectorSuggestions ?? []}
+                onCommit={props.onRename}
+                onWrap={props.onWrap}
+                editRequestId={props.selectorEditRequestId}
+                onEditRequestHandled={props.onSelectorEditRequestHandled}
+              />
+            ) : (
+              <SelectorListDisplay selectorList={selectorList} />
+            )}
+          </div>
+          {editable &&
+            sharedSelectors.length > 0 &&
+            props.selectorListSplitSafe &&
+            props.onSplitSelectorList && (
+              <TextButton
+                className="ss-cascade-card__split"
+                title={`Split all ${sharedSelectors.length + 1} selectors into adjacent rules with the same declarations`}
+                aria-label={`Split all ${sharedSelectors.length + 1} selectors into individual rules`}
+                onClick={props.onSplitSelectorList}
+              >
+                Split
+              </TextButton>
+            )}
+          {props.editable && props.draft && !props.pendingReason && (
+            <span
+              className="ss-cascade-card__draft-status"
+              title={
+                props.draftTargetKnown === false
+                  ? 'No verified stylesheet destination is known for this selector yet'
+                  : 'No rules applied — add a property to create this selector in your stylesheet'
+              }
+            >
+              No rules applied
+            </span>
+          )}
+          {!editable && (
+            <span className="ss-cascade-card__src ss-cascade-card__src--ro">read-only</span>
+          )}
+          {sourcePaths.length > 0 && (
+            <span className="ss-cascade-card__src-chip" title={sourceTitle}>
+              <FileTextIcon size={11} />
+              <span className="ss-cascade-card__src-label">{sourceLabel}</span>
+            </span>
+          )}
+        </div>
+        {editable &&
+          props.onDelete &&
+          (!props.draft || props.pendingReason) &&
+          (sharedSelectors.length > 0 && props.onRemoveSelector ? (
+            <Dropdown
+              align="right"
+              className="ss-cascade-card__trash-menu"
+              trigger={(triggerProps) => (
+                <MenuButton
+                  {...triggerProps}
+                  variant="ghost"
+                  size="compact"
+                  className="ss-cascade-card__trash"
+                  title="Rule actions"
+                  aria-label="Rule actions"
+                  expanded={triggerProps['aria-expanded']}
+                >
+                  <TrashIcon size={12} />
+                </MenuButton>
+              )}
+            >
+              <DropdownItem
+                icon={<TrashIcon size={13} />}
+                onSelect={() => {
+                  focusAfterCardDelete();
+                  props.onRemoveSelector?.();
+                }}
+              >
+                Remove {props.selector} from this rule
+              </DropdownItem>
+              <DropdownDivider />
+              <DropdownItem variant="danger" onSelect={() => setConfirmSharedDelete(true)}>
+                Delete entire shared rule…
+              </DropdownItem>
+            </Dropdown>
+          ) : (
+            <div className="ss-cascade-card__trash-menu">
+              <button
+                type="button"
+                className="ss-cascade-card__trash"
+                title="Delete rule"
+                aria-label="Delete rule"
+                onClick={() => {
+                  focusAfterCardDelete();
+                  props.onDelete?.();
+                }}
+              >
+                <TrashIcon size={12} />
+              </button>
+            </div>
+          ))}
       </div>
       {collapsed && (
         <span className="ss-cascade-card__collapsed-summary">
@@ -470,7 +552,6 @@ export function CascadeRuleCard(props: Props) {
   const dismissPrediction = () => {
     if (prediction) setDismissedPreds((s) => new Set(s).add(prediction.prop.toLowerCase()));
   };
-
   return (
     <section
       ref={sectionRef}
@@ -493,18 +574,52 @@ export function CascadeRuleCard(props: Props) {
     >
       <header className="ss-cascade-card__head">{headerContent}</header>
 
+      {sharedSelectors.length > 0 && (
+        <ModalFrame
+          isOpen={confirmSharedDelete}
+          onClose={() => setConfirmSharedDelete(false)}
+          title="Delete entire shared rule?"
+          showCloseButton
+          className="ss-cascade-shared-delete-modal"
+        >
+          <div className="ss-cascade-shared-delete-modal__body">
+            <p>
+              This removes the rule and its properties for <code>{props.selector}</code> and every
+              selector listed here:
+            </p>
+            <p className="ss-cascade-shared-delete-modal__selectors">
+              {sharedSelectors.map((selector, index) => (
+                <code key={`${selector}-${index}`}>{selector}</code>
+              ))}
+            </p>
+            <div className="modal-actions">
+              <Button variant="secondary" onClick={() => setConfirmSharedDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setConfirmSharedDelete(false);
+                  focusAfterCardDelete();
+                  props.onDelete?.();
+                }}
+              >
+                Delete entire rule
+              </Button>
+            </div>
+          </div>
+        </ModalFrame>
+      )}
+
       {!collapsed && (
         <div className="ss-cascade-card__body">
-          {props.draft && (
+          {props.draft && props.pendingReason && (
             <div className="ss-cascade-card__draft-row">
               <span
                 className="ss-cascade-card__chip ss-cascade-card__chip--new"
-                title={
-                  props.pendingReason ??
-                  'No rules applied — add a property to create this selector in your stylesheet'
-                }
+                title={props.pendingReason}
               >
-                {props.pendingReason ? 'Pending selector' : 'No rules applied'}
+                Pending selector
               </span>
             </div>
           )}
@@ -601,7 +716,7 @@ export function CascadeRuleCard(props: Props) {
             </div>
           )}
 
-          {!props.pendingReason && (
+          {!props.pendingReason && !isKeyframes && (
             <div className="ss-cascade-card__add-row">
               <AddMenu
                 mode={isKeyframes ? 'keyframes' : isStep ? 'props' : 'full'}
@@ -682,6 +797,19 @@ export function CascadeRuleCard(props: Props) {
               </div>
             );
           })}
+
+          {!props.pendingReason && isKeyframes && (
+            <div className="ss-cascade-card__add-row ss-cascade-card__add-row--keyframes">
+              <AddMenu
+                mode="keyframes"
+                onAddProperty={(prop) => {
+                  onChange(addDeclaration(body, { prop, value: '', important: false }));
+                  setAutoEditProp(prop);
+                }}
+                onNest={(sel) => onChange(addNestedRule(body, sel))}
+              />
+            </div>
+          )}
         </div>
       )}
     </section>

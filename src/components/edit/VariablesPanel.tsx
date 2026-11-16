@@ -1,7 +1,13 @@
 /** Standalone project-level CSS variables panel. */
 
+import { useCallback, useEffect, useRef } from 'react';
 import { CloseIcon, PinIcon } from '@/components/icons';
-import type { useCssVariables } from '../../hooks/useCssVariables';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import type { useCssVariables, VariableRow } from '../../hooks/useCssVariables';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { resolveCssSourceLine } from '../../lib/cssCascade';
+import { cascadeSourceBackingFile } from '../../lib/cascadePresentation';
+import { logger } from '../../lib/logger';
 import { IconButton } from '../primitives/IconButton';
 import { ToggleButton } from '../primitives/ToggleButton';
 import { CssVariablesPanel } from './CssVariablesPanel';
@@ -12,6 +18,7 @@ interface VariablesPanelProps {
   onClose: () => void;
   pinned?: boolean;
   onTogglePin?: () => void;
+  onOpenInCode?: (file: string, line: number) => void;
 }
 
 /** Shared panel chrome for the project-wide Variables editor. */
@@ -21,8 +28,54 @@ export function VariablesPanel({
   onClose,
   pinned = false,
   onTogglePin,
+  onOpenInCode,
 }: VariablesPanelProps) {
   const variableNames = [...new Set(variablesState.variables.map((variable) => variable.name))];
+  const { showToast } = useOptionalToast();
+  const sourceNavigationRequestRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      sourceNavigationRequestRef.current += 1;
+    },
+    [projectPath]
+  );
+
+  const openVariableSourceInCode = useCallback(
+    async (source: Pick<VariableRow, 'file' | 'line' | 'selector'>) => {
+      if (!onOpenInCode) return;
+      const requestId = ++sourceNavigationRequestRef.current;
+      if (!projectPath) {
+        showToast(
+          `Couldn't resolve the matching CSS rule in ${source.file}: project path is unavailable.`,
+          'error'
+        );
+        return;
+      }
+
+      try {
+        const line = await resolveCssSourceLine(
+          projectPath,
+          source.file,
+          { selector: source.selector, mediaText: null, href: null },
+          source.line
+        );
+        if (requestId !== sourceNavigationRequestRef.current) return;
+        onOpenInCode(cascadeSourceBackingFile(source.file), line);
+      } catch (error) {
+        if (requestId !== sourceNavigationRequestRef.current) return;
+        const detail = formatCommandError(asCommandError(error));
+        logger.warn('Could not resolve CSS variable source navigation target', {
+          file: source.file,
+          selector: source.selector,
+          line: source.line,
+          error: detail,
+        });
+        showToast(`Couldn't resolve the matching CSS rule in ${source.file}: ${detail}`, 'error');
+      }
+    },
+    [onOpenInCode, projectPath, showToast]
+  );
 
   return (
     <div
@@ -72,6 +125,13 @@ export function VariablesPanel({
           }
           onReorderVariables={variablesState.reorderVariables}
           projectPath={projectPath}
+          onOpenSource={
+            onOpenInCode
+              ? (source) => {
+                  void openVariableSourceInCode(source);
+                }
+              : undefined
+          }
         />
       </div>
     </div>

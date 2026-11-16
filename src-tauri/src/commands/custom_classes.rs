@@ -100,17 +100,55 @@ pub fn list_custom_classes(project_path: String) -> Result<Vec<CustomClass>, Com
 
 // ───────────────────────── Setup detection ──────────────────────────────────
 
+/// Folders that hold dependencies or build output, never the project's own
+/// authored CSS. The `ignore` walker only skips them via `.gitignore` — and
+/// only inside a git repository — so a project that isn't a repo yet (or
+/// doesn't ignore its `dist/`) had every vendored and compiled stylesheet
+/// scanned. Compiled Tailwind emits each utility as a plain rule
+/// (`.flex-col{flex-direction:column}`), which the @apply guard then took for
+/// hand-written custom classes and refused (issue #1044).
+const NON_SOURCE_DIRS: &[&str] = &[
+    "node_modules",
+    "bower_components",
+    "vendor",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+];
+
+/// Walk the project's own CSS: hidden dirs and ignore files as before (also
+/// outside a git repo), minus dependency and build-output folders.
+fn project_css_walk(root: &Path) -> ignore::Walk {
+    ignore::WalkBuilder::new(root)
+        .standard_filters(true)
+        .require_git(false)
+        .filter_entry(|entry| {
+            let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+            !(is_dir
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| NON_SOURCE_DIRS.contains(&name)))
+        })
+        .build()
+}
+
+/// True for a stylesheet Tailwind itself generated: both v3 and v4 open the
+/// build output with a `/*! tailwindcss v… | MIT License` banner. Every
+/// utility in it is a plain-looking rule, so it says nothing about which
+/// names are the project's own classes (issue #1044).
+fn is_compiled_tailwind_output(css: &str) -> bool {
+    css.trim_start().starts_with("/*! tailwindcss v")
+}
+
 fn detect_setup_at(root: &Path) -> TailwindSetup {
     // Scan project CSS once, bucketing files by the entry signal they carry.
     // `@import "tailwindcss"` is the definitive v4 marker; `@tailwind` directives
     // are the v3 marker. The `ignore` walker skips node_modules/.next/.git.
     let mut v4_entries: Vec<PathBuf> = Vec::new();
     let mut v3_entries: Vec<PathBuf> = Vec::new();
-    for entry in ignore::WalkBuilder::new(root)
-        .standard_filters(true)
-        .build()
-        .flatten()
-    {
+    for entry in project_css_walk(root).flatten() {
         let path = entry.path();
         let is_css = path
             .extension()
@@ -1051,11 +1089,7 @@ fn unsafe_apply_tokens(css: &str, kind: &[CssKind], tokens: &[String]) -> Vec<St
 fn collect_project_class_index(root: &Path) -> (HashSet<String>, HashSet<String>) {
     let mut plains = HashSet::new();
     let mut utils = HashSet::new();
-    for entry in ignore::WalkBuilder::new(root)
-        .standard_filters(true)
-        .build()
-        .flatten()
-    {
+    for entry in project_css_walk(root).flatten() {
         let path = entry.path();
         let is_css = path
             .extension()
@@ -1066,6 +1100,9 @@ fn collect_project_class_index(root: &Path) -> (HashSet<String>, HashSet<String>
             continue;
         }
         if let Ok(css) = std::fs::read_to_string(path) {
+            if is_compiled_tailwind_output(&css) {
+                continue;
+            }
             let kind = css_scan(&css);
             plains.extend(collect_plain_class_names(&css, &kind));
             utils.extend(collect_utility_names(&css, &kind));
@@ -1730,6 +1767,43 @@ div.card { @apply p-4; }
         assert!(
             matches!(err, CommandError::Validation { ref reason, .. } if reason.contains("fancy-spin")),
             "rejects the cross-file plain class: {err:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn project_guard_ignores_vendored_and_compiled_tailwind_css() {
+        // Issue #1044: "Can't put `flex-col`, `justify-center`, `items-center`
+        // in a class — they're a custom class, not a Tailwind utility". The
+        // names came from compiled CSS, not the project's own stylesheets.
+        // tmp() is not a git repo, so .gitignore alone would not skip these.
+        let dir = tmp("apply-guard-compiled");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules/some-ui/dist")).unwrap();
+        std::fs::create_dir_all(dir.join("dist")).unwrap();
+        std::fs::create_dir_all(dir.join("public")).unwrap();
+        std::fs::write(dir.join("src/index.css"), "@import \"tailwindcss\";\n").unwrap();
+        let compiled = ".flex-col{flex-direction:column}.justify-center{justify-content:center}\
+                        .items-center{align-items:center}";
+        std::fs::write(dir.join("node_modules/some-ui/dist/style.css"), compiled).unwrap();
+        std::fs::write(dir.join("dist/output.css"), compiled).unwrap();
+        std::fs::write(
+            dir.join("public/tailwind.css"),
+            format!(
+                "/*! tailwindcss v4.1.4 | MIT License | https://tailwindcss.com */\n{compiled}"
+            ),
+        )
+        .unwrap();
+
+        let tokens = [
+            "flex-col".into(),
+            "justify-center".into(),
+            "items-center".into(),
+        ];
+        assert!(
+            guard_project_apply_safety(&dir, &tokens).is_ok(),
+            "{:?}",
+            guard_project_apply_safety(&dir, &tokens)
         );
         std::fs::remove_dir_all(&dir).ok();
     }

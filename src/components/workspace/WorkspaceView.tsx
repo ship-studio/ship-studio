@@ -13,13 +13,22 @@ export type { WorkspaceViewProps } from './workspaceViewTypes';
  * @module components/WorkspaceView
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
 import type { InspectTab } from '../preview/Preview';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
+import { BranchSwitchModals, useBranchSwitchFlow } from '../branches/BranchSwitchFlow';
 import { useIsCompact } from '../../hooks/useIsCompact';
 import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { WorkspaceModalHost } from './WorkspaceModalHost';
@@ -62,7 +71,10 @@ import '../../styles/features/notifications.css';
  */
 export const WorkspaceView = memo(function WorkspaceView(props: WorkspaceViewProps) {
   return (
-    <PanelDockProvider projectPath={props.currentProject.path}>
+    <PanelDockProvider
+      projectPath={props.currentProject.path}
+      focusMode={props.layout.isPreviewHidden}
+    >
       <WorkspaceViewInner {...props} />
     </PanelDockProvider>
   );
@@ -233,10 +245,16 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
 
   // Jump-to-code: when set, the Code tab opens this file and highlights the line.
   // Driven by openInCode (e.g. the visual editor's source links / usage modal).
-  const [codeTarget, setCodeTarget] = useState<{ file: string; line: number } | null>(null);
+  const [codeTarget, setCodeTarget] = useState<{
+    file: string;
+    line: number;
+    requestId: number;
+  } | null>(null);
+  const codeRequestIdRef = useRef(0);
   const openInCode = useCallback(
     (file: string, line: number) => {
-      setCodeTarget({ file, line });
+      codeRequestIdRef.current += 1;
+      setCodeTarget({ file, line, requestId: codeRequestIdRef.current });
       setWorkspaceTab('code');
     },
     [setWorkspaceTab]
@@ -326,6 +344,23 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     handleAutoAcceptWarningAccept,
     handleSaveDevCommand,
   } = lifecycle;
+
+  // The header's quick Branches menu runs the same switch as the Branches tab:
+  // a real checkout first, and only then the UI sync (#1012).
+  const refreshBranches = useCallback(
+    () => void fetchBranchInfo(currentProject.path),
+    [fetchBranchInfo, currentProject.path]
+  );
+  const syncBranchSwitch = useCallback(
+    (branch: string) => void handleBranchSwitch(branch),
+    [handleBranchSwitch]
+  );
+  const menuBranchSwitch = useBranchSwitchFlow({
+    projectPath: currentProject.path,
+    onBranchSwitch: syncBranchSwitch,
+    onRefresh: refreshBranches,
+    ...worktree.tabProps,
+  });
 
   // Web frameworks always receive the iframe preview. Generic projects only
   // receive it when they have a dev command to run — a configured custom one
@@ -515,7 +550,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     hasPreview,
     projectTypeResolved,
     setIsPreviewHidden,
-    setIsAgentPanelHidden,
     setWorkspaceTab,
     togglePreviewLogs,
     onSelectPreview: handleSelectPreview,
@@ -684,7 +718,6 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
       isPreviewHidden={isPreviewHidden}
       workspaceTab={workspaceTab}
       setIsPreviewHidden={setIsPreviewHidden}
-      setIsAgentPanelHidden={setIsAgentPanelHidden}
       setWorkspaceTab={setWorkspaceTab}
       onSelectPreview={handleSelectPreview}
     />
@@ -702,6 +735,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     compactWorkspaceToolbarEnabled,
     onOpenAssetsPanel: assetsPanelModal.open,
     assetsPanelVisible: assetsPanelModal.isOpen,
+    isFocusMode: isPreviewHidden,
     elementTreeVisible: elementTreePanelVisible,
     elementTreeAvailable,
     onToggleElementTree: toggleElementTree,
@@ -734,7 +768,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     isBranchSwitching,
     isRepositoryViewActive: workspaceTab === 'branches' || workspaceTab === 'prs',
     onPullLatest: () => void handlePullLatest(),
-    onBranchSwitch: (branch) => void handleBranchSwitch(branch),
+    onSwitchBranch: (branch) => void menuBranchSwitch.switchTo(branch),
     onViewBranches: () => {
       setIsPreviewHidden(false);
       setWorkspaceTab('branches');
@@ -895,7 +929,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                     appears: each one's placeholder is portaled into whichever
                     rail slot the layout gives it. This is just the tree. */}
                 <WorkspaceDock
-                  previewHidden={isPreviewHidden}
+                  focusMode={isPreviewHidden}
                   preview={
                     <WorkspacePreviewPane
                       activeCommentAgentId={activeTerminalTab}
@@ -1040,6 +1074,15 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
             {/* .workspace-main */}
           </div>
         )}
+
+        <BranchSwitchModals
+          flow={menuBranchSwitch}
+          projectPath={currentProject.path}
+          currentBranch={currentBranch ?? ''}
+          onBranchSwitch={syncBranchSwitch}
+          onRefresh={refreshBranches}
+          onSendToAgent={sendToClaude}
+        />
 
         <WorkspaceModalHost
           projectPath={currentProject.path}

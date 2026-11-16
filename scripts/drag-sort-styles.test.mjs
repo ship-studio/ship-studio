@@ -54,7 +54,7 @@ test('ordinary sortable rows have no insertion indicator; tree indicators are ex
 
 test('sortable focus indication is keyboard-only', () => {
   assert.doesNotMatch(css, /\.drag-sort__item:focus-within\s*\{/);
-  assert.match(css, /\.drag-sort__item:has\(:focus-visible\)\s*\{/);
+  assert.match(css, /\.drag-sort__item:has\(\.drag-sort__handle:focus-visible\)\s*\{/);
 });
 
 test('hover-revealed handles keep their hit area and reveal on row interaction', () => {

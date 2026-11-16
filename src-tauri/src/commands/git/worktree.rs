@@ -189,6 +189,16 @@ fn is_dirty_worktree_refusal(stderr: &str) -> bool {
     lower.contains("contains modified or untracked files") || lower.contains("use --force")
 }
 
+/// `git worktree remove` without `--force --force` refusing to delete a
+/// *locked* tree — "cannot remove a locked working tree, lock reason: claude
+/// session …\nuse 'remove -f -f' to override or unlock first". Often a tree
+/// an agent session created and locked; the same by-design rail as the dirty
+/// case, with the same force escape the UI offers (issue #1040).
+fn is_locked_worktree_refusal(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("cannot remove a locked working tree") || lower.contains("remove -f -f")
+}
+
 fn process_error(args: &[&str], output: &std::process::Output) -> CommandError {
     CommandError::Process {
         cmd: format!("git {}", args.join(" ")),
@@ -460,11 +470,11 @@ pub async fn remove_worktree(
     let output = run_worktree_git(&validated_path, &args)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if !force && is_dirty_worktree_refusal(&stderr) {
-            // git declining to delete uncommitted work is the safety rail
-            // working; the UI already offers the force path. Expected, with
-            // the raw stderr kept so the frontend's own matcher still fires
-            // (issue #744).
+        if !force && (is_dirty_worktree_refusal(&stderr) || is_locked_worktree_refusal(&stderr)) {
+            // git declining to delete uncommitted work (or a locked tree) is
+            // the safety rail working; the UI already offers the force path.
+            // Expected, with the raw stderr kept so the frontend's own
+            // matcher still fires (issues #744, #1040).
             return Err(CommandError::expected(format!(
                 "`git {}` exited with status {}: {}",
                 args.join(" "),
@@ -622,6 +632,17 @@ branch refs/heads/feature
             "fatal: '/x/y.worktrees/z' contains modified or untracked files, use --force to delete it"
         ));
         assert!(!is_dirty_worktree_refusal(
+            "fatal: '/x/y' is not a working tree"
+        ));
+    }
+
+    /// The #1040 shape: a tree locked by an agent session.
+    #[test]
+    fn locked_worktree_refusal_is_recognized() {
+        let stderr = "fatal: cannot remove a locked working tree, lock reason: claude session vrd-head-no-jump (pid 17245 start Wed Sep 23 15:19:50 2026)\nuse 'remove -f -f' to override or unlock first";
+        assert!(is_locked_worktree_refusal(stderr));
+        assert!(!is_dirty_worktree_refusal(stderr));
+        assert!(!is_locked_worktree_refusal(
             "fatal: '/x/y' is not a working tree"
         ));
     }

@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent } from 'react';
+import { Fragment, useCallback, useId, useState, type KeyboardEvent } from 'react';
 import { WRAP_ITEMS, searchStructures } from '../../lib/cssStructures';
 import { CascadeChip, type CascadeChipTone } from './CascadeChip';
 import { SuggestionPopover, suggestionOptionId, type Suggestion } from './SuggestionPopover';
@@ -24,13 +24,18 @@ export function selectorTone(selector: string): CascadeChipTone {
 }
 
 function SelectorParts({ selector }: { selector: string }) {
-  const parts = splitCompoundClassSelector(selector);
+  const globalWrapper = /^(:global\s*\()([\s\S]*)(\))$/i.exec(selector);
+  const displaySelector = globalWrapper?.[2] ?? selector;
+  const parts = splitCompoundClassSelector(displaySelector);
   if (!parts) {
     return <span className="ss-cascade-chip__content">{selector}</span>;
   }
 
   return (
     <>
+      {globalWrapper && (
+        <span className="ss-cascade-selector-display__wrapper">{globalWrapper[1]}</span>
+      )}
       {parts.map((part, index) => (
         <span className="ss-cascade-selector-display__part" key={part}>
           {index > 0 && (
@@ -43,7 +48,204 @@ function SelectorParts({ selector }: { selector: string }) {
           </CascadeChip>
         </span>
       ))}
+      {globalWrapper && (
+        <span className="ss-cascade-selector-display__wrapper">{globalWrapper[3]}</span>
+      )}
     </>
+  );
+}
+
+function escapeEnd(value: string, index: number): number {
+  let next = index + 1;
+  if (next >= value.length) return next;
+  if (/[\da-f]/i.test(value[next])) {
+    let digits = 0;
+    while (next < value.length && digits < 6 && /[\da-f]/i.test(value[next])) {
+      next += 1;
+      digits += 1;
+    }
+    if (/\s/.test(value[next] ?? '')) {
+      if (value[next] === '\r' && value[next + 1] === '\n') return next + 2;
+      return next + 1;
+    }
+    return next;
+  }
+  if (value[next] === '\r' && value[next + 1] === '\n') return next + 2;
+  return next + (value.codePointAt(next)! > 0xffff ? 2 : 1);
+}
+
+/** Split at selector-list commas only. Escapes, strings, comments, attributes and
+ * functional pseudo arguments keep their commas inside the current selector. */
+function splitTopLevelSelectorList(value: string): string[] {
+  const parts: string[] = [];
+  const stack: string[] = [];
+  let start = 0;
+  let quote = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (quote) {
+      if (char === '\\') {
+        index = escapeEnd(value, index) - 1;
+      } else if (char === quote) {
+        quote = '';
+      }
+      continue;
+    }
+    if (char === '\\') {
+      index = escapeEnd(value, index) - 1;
+      continue;
+    }
+    if (char === '/' && value[index + 1] === '*') {
+      const end = value.indexOf('*/', index + 2);
+      index = end < 0 ? value.length : end + 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '(') {
+      stack.push(')');
+    } else if (char === '[') {
+      stack.push(']');
+    } else if ((char === ')' || char === ']') && stack[stack.length - 1] === char) {
+      stack.pop();
+    } else if (char === ',' && stack.length === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function matchingCloseParen(value: string, open: number): number | null {
+  let depth = 1;
+  let quote = '';
+  for (let index = open + 1; index < value.length; index += 1) {
+    const char = value[index];
+    if (quote) {
+      if (char === '\\') index = escapeEnd(value, index) - 1;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '\\') {
+      index = escapeEnd(value, index) - 1;
+      continue;
+    }
+    if (char === '/' && value[index + 1] === '*') {
+      const end = value.indexOf('*/', index + 2);
+      if (end < 0) return null;
+      index = end + 1;
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === '(') depth += 1;
+    else if (char === ')' && --depth === 0) return index;
+  }
+  return null;
+}
+
+function displaySelectorGroups(selectorList: string): string[] {
+  return splitTopLevelSelectorList(selectorList).flatMap((member) => {
+    const wrapper = /^(:global\s*\()/i.exec(member);
+    if (!wrapper) return [member];
+    const open = wrapper[0].length - 1;
+    const close = matchingCloseParen(member, open);
+    if (close == null || member.slice(close + 1).trim()) return [member];
+    const inner = member.slice(open + 1, close);
+    const innerMembers = splitTopLevelSelectorList(inner);
+    if (innerMembers.length <= 1) return [member];
+    const prefix = member.slice(0, open + 1);
+    const suffix = member.slice(close);
+    return innerMembers.map((part) => `${prefix}${part}${suffix}`);
+  });
+}
+
+function selectorListTail(value: string): { prefix: string; tail: string } {
+  const lastComma = (() => {
+    const depth: string[] = [];
+    let quote = '';
+    let result = -1;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (quote) {
+        if (char === '\\') index = escapeEnd(value, index) - 1;
+        else if (char === quote) quote = '';
+      } else if (char === '\\') {
+        index = escapeEnd(value, index) - 1;
+      } else if (char === '/' && value[index + 1] === '*') {
+        const end = value.indexOf('*/', index + 2);
+        index = end < 0 ? value.length : end + 1;
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === '(') {
+        depth.push(')');
+      } else if (char === '[') {
+        depth.push(']');
+      } else if ((char === ')' || char === ']') && depth[depth.length - 1] === char) {
+        depth.pop();
+      } else if (char === ',' && depth.length === 0) {
+        result = index;
+      }
+    }
+    return result;
+  })();
+  return lastComma < 0
+    ? { prefix: '', tail: value.trim() }
+    : { prefix: value.slice(0, lastComma + 1), tail: value.slice(lastComma + 1).trim() };
+}
+
+/** Display every list member in its own group while keeping compound class chips joined. */
+export function SelectorListDisplay({
+  selectorList,
+  interactive = false,
+  onActivate,
+}: {
+  selectorList: string;
+  interactive?: boolean;
+  onActivate?: () => void;
+}) {
+  const groups = displaySelectorGroups(selectorList);
+  if (groups.length <= 1) {
+    return (
+      <SelectorDisplay
+        selector={groups[0] ?? selectorList}
+        interactive={interactive}
+        onActivate={onActivate}
+      />
+    );
+  }
+  return (
+    <span
+      className="ss-cascade-selector-list"
+      title={interactive ? 'Click to edit the full selector list' : selectorList}
+      aria-label={selectorList}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? onActivate : undefined}
+      onKeyDown={
+        interactive
+          ? (event: KeyboardEvent<HTMLSpanElement>) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onActivate?.();
+              }
+            }
+          : undefined
+      }
+    >
+      {groups.map((group, index) => (
+        <Fragment key={`${index}-${group}`}>
+          {index > 0 && (
+            <span className="ss-cascade-selector-list__separator" aria-hidden="true">
+              ,
+            </span>
+          )}
+          <span className="ss-cascade-selector-list__member">
+            <SelectorDisplay selector={group} />
+          </span>
+        </Fragment>
+      ))}
+    </span>
   );
 }
 
@@ -57,7 +259,8 @@ export function SelectorDisplay({
   interactive?: boolean;
   onActivate?: () => void;
 }) {
-  const parts = splitCompoundClassSelector(selector);
+  const globalWrapper = /^:global\s*\(([\s\S]*)\)$/i.exec(selector);
+  const parts = splitCompoundClassSelector(globalWrapper?.[1] ?? selector);
   const isUniversal = selector.trim() === '*';
   const title = interactive
     ? 'Click to edit — type a selector, or @media (…) to scope this rule'
@@ -118,18 +321,25 @@ export function SelectorDisplay({
  *  and wraps the rule to scope it. No separate "when" box — one field does both. */
 export function SelectorChip({
   selector,
+  selectorList = selector,
   suggestions,
   onCommit,
   onWrap,
+  editRequestId,
+  onEditRequestHandled,
 }: {
   selector: string;
+  /** Full authored prelude; the field edits the entire selector list at once. */
+  selectorList?: string;
   suggestions: string[];
   onCommit: (newSelector: string) => void;
   /** Wrap the rule in a condition when the user types an `@`-rule. */
   onWrap?: (prelude: string) => void;
+  editRequestId?: number;
+  onEditRequestHandled?: (requestId: number) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(selector);
+  const [editing, setEditing] = useState(editRequestId != null);
+  const [text, setText] = useState(selectorList);
   const [active, setActive] = useState(0);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   // `dirty` = the user typed since opening the field; `navigated` = they moved the
@@ -138,25 +348,27 @@ export function SelectorChip({
   const [dirty, setDirty] = useState(false);
   const [navigated, setNavigated] = useState(false);
   const listId = useId();
+  const openEditor = useCallback(() => {
+    setText(selectorList);
+    setActive(0);
+    setDirty(false);
+    setNavigated(false);
+    setEditing(true);
+  }, [selectorList]);
+
+  const finishEditing = () => {
+    setEditing(false);
+    if (editRequestId != null) onEditRequestHandled?.(editRequestId);
+  };
 
   if (!editing) {
-    return (
-      <SelectorDisplay
-        selector={selector}
-        interactive
-        onActivate={() => {
-          setText(selector);
-          setActive(0);
-          setDirty(false);
-          setNavigated(false);
-          setEditing(true);
-        }}
-      />
-    );
+    return <SelectorListDisplay selectorList={selectorList} interactive onActivate={openEditor} />;
   }
 
   const typed = text.trim();
   const isCondition = typed.startsWith('@');
+  const tail = selectorListTail(text);
+  const typedTail = tail.tail.trim();
   // Typing `@…` switches the field into condition mode (wrap the rule); otherwise
   // it autocompletes the project's class names (rename the rule).
   const matches: Suggestion[] = isCondition
@@ -170,23 +382,26 @@ export function SelectorChip({
           hint: w.hint,
         })),
       ]
-    : (typed
-        ? suggestions.filter((s) => s.toLowerCase().includes(typed.toLowerCase()))
+    : (typedTail
+        ? suggestions.filter((s) => s.toLowerCase().includes(typedTail.toLowerCase()))
         : suggestions
       )
         .slice(0, 8)
-        .map((s) => ({ label: s, value: s }));
+        .map((s) => ({
+          label: s,
+          value: tail.prefix ? `${tail.prefix}${/\s$/.test(tail.prefix) ? '' : ' '}${s}` : s,
+        }));
 
   const commit = (value: string) => {
     const v = value.trim();
     if (!v) {
-      setEditing(false);
+      finishEditing();
       return;
     }
     if (v.startsWith('@'))
       onWrap?.(v); // scope the rule in a condition
-    else if (v !== selector) onCommit(v); // rename the selector
-    setEditing(false);
+    else if (v !== selectorList) onCommit(v); // replace the full selector list
+    finishEditing();
   };
 
   return (
@@ -229,11 +444,11 @@ export function SelectorChip({
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Escape') {
             e.preventDefault();
-            setText(selector);
-            setEditing(false);
+            setText(selectorList);
+            finishEditing();
           }
         }}
-        onBlur={() => setEditing(false)}
+        onBlur={finishEditing}
       />
       <SuggestionPopover
         anchor={anchorEl}

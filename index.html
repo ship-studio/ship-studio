@@ -45,6 +45,25 @@
           Try restarting the app. If this keeps happening, reach out on Slack
           and include your app logs (macOS: ~/Library/Logs/ShipStudio).
         </p>
+        <pre
+          id="boot-fallback-error"
+          role="status"
+          aria-live="polite"
+          style="
+            display: none;
+            max-width: 720px;
+            max-height: 180px;
+            margin: 16px 0 0;
+            overflow: auto;
+            color: #fca5a5;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            text-align: left;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+          "
+        ></pre>
       </div>
     </div>
     <!-- Second failure mode, deliberately OUTSIDE #root so React cannot remove
@@ -80,7 +99,56 @@
         (macOS: ~/Library/Logs/ShipStudio) and your OS version.
       </p>
     </div>
+    <!-- Module scripts execute after parsing finishes, so keep this element
+         before the watchdog script that attaches its load/error listeners. -->
+    <script id="app-entry" type="module" src="/src/main.tsx"></script>
     <script>
+      var bootErrors = [];
+      var bootEntryLoaded = false;
+      function reportBootError(message) {
+        if (!message) return;
+        var value = String(message);
+        if (bootErrors.indexOf(value) !== -1) return;
+        bootErrors.push(value);
+        var detail = document.getElementById('boot-fallback-error');
+        if (detail) {
+          detail.textContent = bootErrors.join('\n');
+          detail.style.display = 'block';
+        }
+      }
+
+      // Capture failures before the frontend logger can initialize. These are
+      // otherwise invisible when the module entry never reaches React.
+      window.addEventListener('error', function (event) {
+        var target = event.target;
+        if (target && target !== window) {
+          if (target.tagName === 'SCRIPT') {
+            reportBootError('Failed to load script: ' + (target.src || 'unknown script'));
+          }
+          return;
+        }
+        var location = event.filename
+          ? ' at ' + event.filename + ':' + (event.lineno || 0) + ':' + (event.colno || 0)
+          : '';
+        reportBootError((event.message || 'A JavaScript error prevented startup') + location);
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason;
+        reportBootError(
+          'Unhandled rejection: ' +
+            (reason && reason.message ? reason.message : String(reason))
+        );
+      });
+      var appEntry = document.getElementById('app-entry');
+      if (appEntry) {
+        appEntry.addEventListener('load', function () {
+          bootEntryLoaded = true;
+        });
+        appEntry.addEventListener('error', function () {
+          reportBootError('The app entry module failed to load: ' + (appEntry.src || 'unknown URL'));
+        });
+      }
+
       // Safe-mode watchdog: React's first render removes #boot-fallback from
       // the document. If it is still there after 10s, the bundle never
       // mounted — reveal the fallback instead of leaving a black window.
@@ -88,6 +156,13 @@
         var el = document.getElementById('boot-fallback');
         if (el) {
           el.style.display = 'flex';
+          if (!bootErrors.length) {
+            reportBootError(
+              bootEntryLoaded
+                ? 'The app entry module loaded, but React did not mount. Check the dev terminal for startup output.'
+                : 'The app entry module did not finish loading. Check the dev terminal for module loading errors.'
+            );
+          }
           return;
         }
         // The bundle DID mount. Two independent signals have to agree before we
@@ -106,6 +181,5 @@
         if (styles) styles.style.display = 'flex';
       }, 10000);
     </script>
-    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

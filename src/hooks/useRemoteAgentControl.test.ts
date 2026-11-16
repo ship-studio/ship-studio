@@ -67,4 +67,12 @@ describe('remoteStep', () => {
       reason: 'no_such_tab',
     });
   });
+
+  it('shows a project once it is the one in the workspace, tabs or not', () => {
+    const show: RemoteRequest = { kind: 'show', projectPath: '/p', receivedAt: 1_000 };
+    expect(remoteStep(show, { ...ready, currentProjectPath: '/other' }, 2_000)).toEqual({
+      do: 'wait',
+    });
+    expect(remoteStep(show, { ...ready, terminalTabs: [] }, 2_000)).toEqual({ do: 'shown' });
+  });
 });

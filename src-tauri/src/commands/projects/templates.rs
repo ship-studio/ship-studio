@@ -11,6 +11,13 @@ use walkdir::WalkDir;
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::ZipArchive;
 
+/// The chosen name collides with an existing project folder — a by-design
+/// refusal the user fixes by picking another name, so Expected keeps it out of
+/// telemetry (issue #1146, same as `rename_project`'s collision in #599).
+fn project_exists_error(safe_name: &str) -> CommandError {
+    CommandError::expected(format!("A project named '{safe_name}' already exists"))
+}
+
 /// Extracts a zip template file to create a new project.
 /// The zip file should contain a single root directory (like GitHub downloads).
 /// Returns the path to the created project.
@@ -48,7 +55,7 @@ pub async fn extract_template_zip(
 
     // Check if project already exists
     if project_path.exists() {
-        return Err((format!("A project named '{safe_name}' already exists")).into());
+        return Err(project_exists_error(&safe_name));
     }
 
     // Extract from direct bytes or stream from disk. On-disk zips are opened
@@ -103,6 +110,18 @@ pub async fn extract_template_zip(
 /// markers. Covers an unstripped wrapper dir plus common nesting like
 /// `src/index.html` or `wrapper/dist/index.html`.
 const TEMPLATE_MARKER_SEARCH_DEPTH: usize = 3;
+
+/// A `WalkDir` entry error while exporting a template. Unwrap the underlying
+/// `io::Error` so a macOS TCC/EPERM denial classifies like every other
+/// filesystem read; a symlink loop has no `io::Error` and stays reportable
+/// (issue #946).
+fn walk_error(project: &std::path::Path, e: walkdir::Error) -> CommandError {
+    let path = e.path().unwrap_or(project);
+    match e.io_error() {
+        Some(io) => crate::utils::classify_fs_error("read this project's files", path, io),
+        None => format!("Failed to read directory: {e}").into(),
+    }
+}
 
 /// Whether `dir` (or any subdirectory up to `depth` levels down) contains a
 /// recognizable project marker: a `package.json`, any `.html` file, or a
@@ -179,6 +198,7 @@ fn extract_archive_to<R: std::io::Read + std::io::Seek>(
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?
             .name()
+            .map_err(|e| format!("Failed to read zip entry #{i} name: {e}"))?
             .to_string();
         if is_junk_zip_entry(&name) {
             continue;
@@ -220,7 +240,10 @@ fn extract_archive_to<R: std::io::Read + std::io::Seek>(
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?;
 
-        let mut outpath = file.name().to_string();
+        let mut outpath = file
+            .name()
+            .map_err(|e| format!("Failed to read zip entry #{i} name: {e}"))?
+            .to_string();
 
         // Never materialize packaging junk (issue #641).
         if is_junk_zip_entry(&outpath) {
@@ -380,7 +403,7 @@ pub async fn export_project_as_template(
 
     // Walk the project directory
     for entry in WalkDir::new(&project) {
-        let entry = entry.map_err(|e| format!("Failed to read directory: {e}"))?;
+        let entry = entry.map_err(|e| walk_error(&project, e))?;
         let path = entry.path();
 
         // Get relative path from project root
@@ -435,10 +458,54 @@ pub async fn export_project_as_template(
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_project_markers, extract_archive_to, is_junk_zip_entry};
+    use super::{
+        contains_project_markers, extract_archive_to, is_junk_zip_entry, project_exists_error,
+        walk_error,
+    };
     use std::io::Write;
     use tempfile::TempDir;
     use zip::write::SimpleFileOptions;
+
+    // Issue #946: a TCC/EPERM denial mid-walk ("Failed to read directory:
+    // Operation not permitted (os error 1)") classifies like any other read.
+    // Assumes the test process isn't root.
+    #[test]
+    #[cfg(unix)]
+    fn template_walk_permission_error_is_classified() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let locked = tmp.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let walk_err = walkdir::WalkDir::new(tmp.path())
+            .into_iter()
+            .find_map(Result::err);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = walk_error(tmp.path(), walk_err.expect("locked dir must fail to read"));
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("locked"), "got: {msg}");
+        assert!(!msg.contains("os error"), "got: {msg}");
+    }
+
+    // Issue #1146: a name collision is a by-design refusal, not a bug report.
+    #[test]
+    fn project_name_collision_is_expected() {
+        let err = project_exists_error("wilderful");
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+        assert_eq!(
+            err.to_string(),
+            "A project named 'wilderful' already exists"
+        );
+    }
 
     /// Build an in-memory zip with the given (name, content) entries.
     /// Directory entries are names ending in '/'.

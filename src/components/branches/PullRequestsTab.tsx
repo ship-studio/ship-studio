@@ -189,8 +189,15 @@ export function PullRequestsTab({
           'success'
         );
         onRefresh();
+      } else if (result.error) {
+        // Raw `git checkout` stderr — e.g. the base branch already checked
+        // out in another worktree is a by-design refusal, not a bug, and an
+        // unconditional 'error' toast reported it as one (issue #1047).
+        const ctx = { branch: postMergeInfo.baseBranch };
+        const recognized = isRecognizedGitFailure(result.error, ctx);
+        onToast?.(humanizeGitError(result.error, ctx), recognized ? 'info' : 'error');
       } else {
-        onToast?.(result.error || 'Failed to switch branch', 'error');
+        onToast?.('Failed to switch branch', 'error');
       }
     } catch (e) {
       trackError('pr_post_merge_cleanup', e, 'Workspace');

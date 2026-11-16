@@ -28,7 +28,7 @@
 /* Pointer dragging leaves the handle focused after release so keyboard users
    can continue from the same item. Only expose the ring for keyboard-visible
    focus; pointer focus should not make the dropped row look selected. */
-.drag-sort__item:has(:focus-visible) {
+.drag-sort__item:has(.drag-sort__handle:focus-visible) {
   outline: var(--focus-ring-width) solid var(--accent-focus);
   outline-offset: var(--focus-ring-offset);
 }

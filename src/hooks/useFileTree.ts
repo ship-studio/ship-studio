@@ -7,7 +7,7 @@
  * @module hooks/useFileTree
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   listProjectFiles,
   readProjectFile,
@@ -18,7 +18,12 @@ import {
   type FileContent,
 } from '../lib/code';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { trackEvent } from '../lib/analytics';
 import { useAsyncState } from './useAsyncState';
 
@@ -50,6 +55,28 @@ function isExpectedFileAccessError(message: string): boolean {
   );
 }
 
+/** Return the expanded directory paths leading to a file, or null if absent. */
+function findFileAncestors(
+  nodes: readonly FileTreeNode[],
+  path: string,
+  ancestors: string[] = []
+): { ancestors: string[]; isDirectory: boolean } | null {
+  for (const node of nodes) {
+    if (node.path === path) return { ancestors, isDirectory: node.isDirectory };
+    if (node.isDirectory) {
+      const match = findFileAncestors(node.children, path, [...ancestors, node.path]);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+/** The project folder vanished outside Ship Studio, or the backend otherwise
+ *  classified the failure Expected — not a bug (issues #1021/#1022). */
+function isGoneOrExpected(err: unknown): boolean {
+  return isProjectFolderGoneError(err) || isExpectedCommandError(err);
+}
+
 /**
  * A pending action that would discard the current edit buffer and so needs a
  * discard confirmation first: switching to `path`, or turning Edit mode off.
@@ -72,6 +99,8 @@ interface UseFileTreeResult {
   fileError: string | null;
   toggleDirectory: (path: string) => void;
   selectFile: (path: string) => void;
+  /** Expand the real file-tree ancestors and select a known file path. */
+  revealFile: (path: string) => boolean;
   refreshTree: () => void;
   // Inline editing of the selected file.
   isEditing: boolean;
@@ -97,6 +126,7 @@ interface UseFileTreeResult {
 
 export function useFileTree(projectPath: string): UseFileTreeResult {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [loadedTreeProjectPath, setLoadedTreeProjectPath] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const selectedFileRef = useRef(selectedFilePath);
   useEffect(() => {
@@ -111,7 +141,10 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // CommandError rejections are plain objects — String() renders
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to load file tree', { error: msg });
+      // A project folder moved/deleted outside Ship Studio is a by-design
+      // Expected state, not a bug — the tree's retry UI still shows it
+      // (issue #1021).
+      logger[isGoneOrExpected(err) ? 'warn' : 'error']('Failed to load file tree', { error: msg });
       throw err;
     }
   }, []);
@@ -121,7 +154,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     error: treeErrorObj,
     execute: executeLoadTree,
   } = useAsyncState<FileTreeNode[], [string]>(fetchTree, { initial: [] });
-  const tree = treeData ?? [];
+  const tree = useMemo(() => treeData ?? [], [treeData]);
   const treeError = treeErrorObj ? treeErrorObj.message : null;
 
   const fetchFile = useCallback(async (proj: string, path: string) => {
@@ -132,7 +165,9 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
       // logger.error auto-files a bug report; a gone or locked file isn't one.
-      logger[isExpectedFileAccessError(msg) ? 'warn' : 'error']('Failed to read file', {
+      // …and neither is the whole project folder being gone (issue #1022).
+      const expected = isExpectedFileAccessError(msg) || isGoneOrExpected(err);
+      logger[expected ? 'warn' : 'error']('Failed to read file', {
         path,
         error: msg,
       });
@@ -204,7 +239,16 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     projectPathRef.current = projectPath;
   }, [projectPath]);
 
-  const loadTree = useCallback(() => executeLoadTree(projectPath), [executeLoadTree, projectPath]);
+  const loadTree = useCallback(async () => {
+    const requestedProjectPath = projectPath;
+    try {
+      return await executeLoadTree(requestedProjectPath);
+    } finally {
+      if (projectPathRef.current === requestedProjectPath) {
+        setLoadedTreeProjectPath(requestedProjectPath);
+      }
+    }
+  }, [executeLoadTree, projectPath]);
 
   // Load tree on mount / project change
   useEffect(() => {
@@ -250,6 +294,25 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       await loadFileIntoViewer(path);
     },
     [loadFileIntoViewer]
+  );
+
+  const revealFile = useCallback(
+    (path: string) => {
+      const found = findFileAncestors(tree, path);
+      if (found?.isDirectory) return false;
+      if (found) {
+        setExpandedPaths((previous) => {
+          const next = new Set(previous);
+          found.ancestors.forEach((ancestor) => next.add(ancestor));
+          return next;
+        });
+      }
+      // Source-linked files may be ignored by the project tree while remaining
+      // readable by the backend. The file read decides whether to open them.
+      void selectFile(path);
+      return true;
+    },
+    [selectFile, tree]
   );
 
   const refreshTree = useCallback(() => {
@@ -357,7 +420,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       return 'saved';
     } catch (err) {
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to save file', { path, error: msg });
+      logger[isGoneOrExpected(err) ? 'warn' : 'error']('Failed to save file', { path, error: msg });
       setSaveError(msg);
       return { error: msg };
     } finally {
@@ -370,12 +433,13 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     expandedPaths,
     selectedFilePath,
     fileContent,
-    isLoadingTree,
+    isLoadingTree: isLoadingTree || loadedTreeProjectPath !== projectPath,
     isLoadingFile,
     treeError,
     fileError,
     toggleDirectory,
     selectFile: (path: string) => void selectFile(path),
+    revealFile,
     refreshTree,
     isEditing,
     draft,

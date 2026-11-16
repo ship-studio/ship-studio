@@ -36,12 +36,21 @@ pub(crate) fn truncate_stderr(stderr: &str) -> String {
 /// completely silent stderr (killed by the OS, exec-level failure) — the old
 /// unconditional `: {stderr}` suffix then produced "Failed to get git
 /// status: " with zero diagnostic signal (issue #682). Fall back to the exit
-/// code so telemetry always carries *something*.
-fn git_status_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -> String {
+/// code so telemetry always carries *something* — and for a signal death,
+/// name the signal (issue #1088).
+fn git_status_failure_message(
+    stderr_trimmed: &str,
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+) -> String {
     if stderr_trimmed.is_empty() {
-        return match exit_code {
-            Some(code) => format!("Failed to get git status (exit {code})"),
-            None => "Failed to get git status (terminated by signal)".to_string(),
+        return match (exit_code, signal) {
+            (Some(code), _) => format!("Failed to get git status (exit {code})"),
+            (None, Some(sig)) => format!(
+                "Failed to get git status: git was terminated by {}",
+                crate::external_command::describe_signal(sig)
+            ),
+            (None, None) => "Failed to get git status (terminated by signal)".to_string(),
         };
     }
     // Include (truncated) stderr — a bare "Failed to get git status" is
@@ -142,7 +151,12 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
                 return Err(gap);
             }
         }
-        return Err(git_status_failure_message(stderr.trim(), output.status.code()).into());
+        return Err(git_status_failure_message(
+            stderr.trim(),
+            output.status.code(),
+            crate::external_command::exit_signal(&output.status),
+        )
+        .into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -374,7 +388,7 @@ mod tests {
     #[test]
     fn status_failure_keeps_stderr_when_present() {
         assert_eq!(
-            git_status_failure_message("fatal: bad object HEAD", Some(128)),
+            git_status_failure_message("fatal: bad object HEAD", Some(128), None),
             "Failed to get git status: fatal: bad object HEAD"
         );
     }
@@ -384,7 +398,7 @@ mod tests {
     #[test]
     fn status_failure_falls_back_to_exit_code_when_stderr_is_empty() {
         assert_eq!(
-            git_status_failure_message("", Some(128)),
+            git_status_failure_message("", Some(128), None),
             "Failed to get git status (exit 128)"
         );
     }
@@ -392,8 +406,23 @@ mod tests {
     #[test]
     fn status_failure_names_signal_death_when_no_exit_code() {
         assert_eq!(
-            git_status_failure_message("", None),
+            git_status_failure_message("", None, None),
             "Failed to get git status (terminated by signal)"
+        );
+    }
+
+    // Issue #1088: "Failed to get git status (terminated by signal)" never
+    // said which signal, though ExitStatus::signal() knows.
+    #[test]
+    fn status_failure_names_the_signal_when_known() {
+        assert_eq!(
+            git_status_failure_message("", None, Some(9)),
+            "Failed to get git status: git was terminated by signal 9 (SIGKILL) — likely killed \
+             by the operating system, e.g. because it ran out of memory"
+        );
+        assert_eq!(
+            git_status_failure_message("", None, Some(31)),
+            "Failed to get git status: git was terminated by signal 31"
         );
     }
 }

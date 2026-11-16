@@ -18,7 +18,12 @@ import {
   getFixPrompt,
 } from '../lib/health';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError, isExpectedCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 
 export type CheckStatus = 'idle' | 'running' | 'pass' | 'fail' | 'missing';
 
@@ -130,9 +135,14 @@ export function useCodeHealth({
     } catch (e) {
       // CommandError rejections are plain objects — String() renders
       // "[object Object]" (issue #830); format to the real message.
-      logger.error('Failed to detect health scripts', {
-        error: formatCommandError(asCommandError(e)),
-      });
+      const context = { error: formatCommandError(asCommandError(e)) };
+      // A project folder moved/deleted outside Ship Studio is a by-design
+      // Expected state (canonicalize_tagged), not a bug (issue #1091).
+      if (isProjectFolderGoneError(e) || isExpectedCommandError(e)) {
+        logger.warn('Failed to detect health scripts', context);
+      } else {
+        logger.error('Failed to detect health scripts', context);
+      }
     }
   }, [projectPath]);
 

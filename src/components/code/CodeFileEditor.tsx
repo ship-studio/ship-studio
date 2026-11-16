@@ -55,6 +55,8 @@ interface Props {
   onSave?: () => void;
   /** 1-based line to scroll to + briefly highlight (jump-to-code). */
   revealLine?: number | null;
+  /** Identity changes when a repeated reveal targets the same line. */
+  revealRequestId?: number | null;
   /** Fires with the current text selection in view mode (null when empty/editing). */
   onSelectionChange?: (sel: EditorSelectionInfo | null) => void;
 }
@@ -85,6 +87,7 @@ export function CodeFileEditor({
   editable,
   onSave,
   revealLine,
+  revealRequestId,
   onSelectionChange,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -235,7 +238,11 @@ export function CodeFileEditor({
   // Jump-to-code: scroll the target line into view and briefly highlight it.
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || revealLine == null) return;
+    if (!view) return;
+    if (revealLine == null) {
+      view.dispatch({ effects: setRevealLine.of(null) });
+      return;
+    }
     const lineNo = Math.min(Math.max(revealLine, 1), view.state.doc.lines);
     const pos = view.state.doc.line(lineNo).from;
     view.dispatch({
@@ -245,7 +252,7 @@ export function CodeFileEditor({
       viewRef.current?.dispatch({ effects: setRevealLine.of(null) });
     }, 2000);
     return () => clearTimeout(t);
-  }, [revealLine]);
+  }, [revealLine, revealRequestId]);
 
   return <div ref={hostRef} className="code-file-editor" />;
 }

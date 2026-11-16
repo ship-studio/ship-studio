@@ -16,13 +16,16 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
-import { PinIcon } from '@/components/icons';
+import { PinIcon, FileTextIcon } from '@/components/icons';
 import { CloseIcon, CheckIcon } from '@/components/icons';
 import { PlusIcon } from '@/components/icons';
 import { CopyIcon } from '@/components/icons';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { logger } from '../../lib/logger';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
 import { TextButton } from '../primitives/TextButton';
@@ -32,6 +35,8 @@ import { Tooltip } from '../primitives/Tooltip';
 import { ToggleButton } from '../primitives/ToggleButton';
 import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { CascadeRuleCard } from './CascadeRuleCard';
+import { CascadeSourceGroupCard } from './CascadeSourceGroupCard';
+import { CssConsolidationReviewPopover } from './CssConsolidationReviewPopover';
 import { ElementSettingsPanel } from './ElementSettingsPanel';
 import { CssAnimationsPanel } from './CssAnimationsPanel';
 import { MediaQueryGroupCard } from './MediaQueryGroupCard';
@@ -40,14 +45,30 @@ import { CascadeToolbar } from './CascadeToolbar';
 import { SuggestionPopover, suggestionOptionId, type Suggestion } from './SuggestionPopover';
 import { WRAP_ITEMS, searchStructures, parseRulePrelude } from '../../lib/cssStructures';
 import { isMediaQueryComplete } from '../../lib/mediaQueries';
-import { groupCascadeRows, rowKey, type CascadeRow } from '../../lib/cssCascade';
+import {
+  cascadeSourceProvenance,
+  groupCascadeRows,
+  resolveCssSourceLine,
+  rowKey,
+  type CascadeGroupItem,
+  type CascadeRow,
+  type MatchedRuleQuery,
+} from '../../lib/cssCascade';
 import { searchCascadeRow } from '../../lib/cascadeSearch';
 import {
   cascadeMediaCollapseKey,
+  cascadeFileCollapseKey,
+  cascadeSourceBackingFile,
+  cascadeSourceCollapseKey,
+  cascadeSourceFileLabel,
   CASCADE_DISPLAY_ORDER_PREFERENCE_KEY,
   cascadeRuleCollapseKey,
   collectNestedCollapseKeys,
+  groupCascadeItemsByFile,
+  isCascadeFileGroup,
+  isCascadeGroupCollapseKey,
   orderCascadeRowsForDisplay,
+  type CascadeFileGroup,
   type CascadeDisplayOrder,
 } from '../../lib/cascadePresentation';
 import { parseRuleBody, type RuleBody } from '../../lib/cssBody';
@@ -58,12 +79,60 @@ import { colorContrastContexts, type ColorVariableDefinition } from '../../lib/c
 import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { useElementDisplayPreferences } from '../../hooks/useElementDisplayPreferences';
 import { getElementIcon } from './element-icons';
+import { useCommands } from '../../commands/useCommands';
 
 /** The panel's top-level view: element style/settings, or project-global animation CSS. */
 type Scope = 'style' | 'settings' | 'animations';
+const noRefreshCascade = () => undefined;
 
 function mediaConditionKey(condition: string): string {
   return condition.replace(/\s+/g, '').toLowerCase();
+}
+
+function sourceNavigationQuery(row: CascadeRow): MatchedRuleQuery | null {
+  if (!row.selector) return null;
+  return {
+    selector: row.selector,
+    mediaText: row.mediaText,
+    href: null,
+    layer: row.layer,
+    container: row.container ?? null,
+    supports: row.supports ?? null,
+    selectorMemberIndex: row.selectorMemberIndex,
+    contextPath: row.contextPath,
+    identityDeclarations: row.identityDeclarations,
+    runtimeIdentity: row.runtimeIdentity,
+  };
+}
+
+function rowBelongsToSourceFile(row: CascadeRow, file: string): boolean {
+  const source = cascadeSourceProvenance(row);
+  if (!source) return false;
+  return source.kind === 'resolved' ? source.file === file : source.files.includes(file);
+}
+
+function firstSourceRowForFile(rows: readonly CascadeRow[], file: string): CascadeRow | undefined {
+  return rows.find((row) => row.selector && rowBelongsToSourceFile(row, file));
+}
+
+function firstSourceCandidateLineForFile(
+  rows: readonly CascadeRow[],
+  file: string
+): number | undefined {
+  return (
+    rows
+      .flatMap((row) => row.sourceCandidates ?? [])
+      .find((candidate) => candidate.file === file && candidate.line != null)?.line ?? undefined
+  );
+}
+
+function rowsInCascadeItem(item: CascadeGroupItem): CascadeRow[] {
+  return item.kind === 'media' ? item.rows : [item.row];
+}
+
+function sourceOccurrenceKey(row: CascadeRow): string | null {
+  const identity = row.sourceIdentity;
+  return identity ? JSON.stringify([identity.sourcePath, identity.selectorOffset]) : null;
 }
 
 interface DraftMediaQuery {
@@ -80,6 +149,9 @@ interface Props {
   overridden: Record<string, Map<string, string>>;
   onChangeBody: (key: string, body: RuleBody) => void;
   onDeleteRule: (key: string) => void | Promise<void>;
+  onDeleteRules?: (keys: string[]) => void | Promise<void>;
+  onRemoveSelectorMember?: (key: string) => void | Promise<void>;
+  onSplitSelectorList?: (key: string) => void | Promise<void>;
   onWrapRule: (key: string, atPrelude: string) => void;
   onRenameRule: (key: string, newSelector: string) => void;
   onRenameAtRule: (key: string, newMedia: string) => void;
@@ -99,6 +171,12 @@ interface Props {
   /** Project-global Animations editor state (`@keyframes`). */
   animationsState: ReturnType<typeof useCssAnimations>;
   onClose: () => void;
+  /** Open a known cascade source in the workspace Code tab. */
+  onOpenInCode?: (file: string, line: number) => void;
+  /** Re-read the current selection after a verified source mutation. */
+  onRefreshCascade?: () => void;
+  /** Keep snapshot-sensitive consolidation actions disabled while CSS writes are pending. */
+  hasPendingWrites?: boolean;
   pinned?: boolean;
   onTogglePin?: () => void;
   /** Controlled view — lets the Cmd+K palette open the panel directly to Style,
@@ -115,6 +193,9 @@ export function CssCascadePanel({
   overridden,
   onChangeBody,
   onDeleteRule,
+  onDeleteRules,
+  onRemoveSelectorMember,
+  onSplitSelectorList,
   onWrapRule,
   onRenameRule,
   onRenameAtRule,
@@ -128,10 +209,13 @@ export function CssCascadePanel({
   settings,
   animationsState,
   onClose,
+  onOpenInCode,
   pinned = false,
   onTogglePin,
   scope: controlledScope,
   onScopeChange,
+  onRefreshCascade,
+  hasPendingWrites = false,
 }: Props) {
   const colorContrast = useMemo(
     () => colorContrastContexts(selection?.signature.contrastSnapshot),
@@ -140,6 +224,7 @@ export function CssCascadePanel({
   const [localScope, setLocalScope] = useState<Scope>('style');
   const scope = controlledScope ?? localScope;
   const setScope = onScopeChange ?? setLocalScope;
+  const refreshCascade = onRefreshCascade ?? noRefreshCascade;
   // Refresh the project-global data when its scope becomes visible.
   const reloadAnimations = animationsState.reload;
   useEffect(() => {
@@ -157,6 +242,12 @@ export function CssCascadePanel({
   // switches. Lives on the panel (which stays mounted), so it survives reselection.
   const [collapsedRules, setCollapsedRules] = useState<Set<string>>(() => new Set());
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectorEditRequest, setSelectorEditRequest] = useState<{
+    sourceKey: string;
+    rowKey: string;
+    id: number;
+  } | null>(null);
+  const selectorEditRequestCounter = useRef(0);
   const [newestAtBottom, setNewestAtBottom] = useLocalStorageFlag(
     CASCADE_DISPLAY_ORDER_PREFERENCE_KEY,
     false
@@ -230,15 +321,19 @@ export function CssCascadePanel({
   }, []);
   const allCollapseKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const item of groupCascadeRows(rows)) {
-      if (item.kind === 'media') keys.add(cascadeMediaCollapseKey(item.key));
-      const itemRows = item.kind === 'media' ? item.rows : [item.row];
-      for (const row of itemRows) {
-        const ruleKey = cascadeRuleCollapseKey(row.selector ?? '', row.mediaText ?? '');
-        keys.add(ruleKey);
-        const body = bodies[rowKey(row)];
-        if (body)
-          collectNestedCollapseKeys(body, ruleKey).forEach((nestedKey) => keys.add(nestedKey));
+    // Source headers have their own controls; bulk actions only affect the cards inside them.
+    for (const displayItem of groupCascadeItemsByFile(groupCascadeRows(rows))) {
+      const items = isCascadeFileGroup(displayItem) ? displayItem.items : [displayItem];
+      for (const item of items) {
+        if (item.kind === 'media') keys.add(cascadeMediaCollapseKey(item.key));
+        const itemRows = item.kind === 'media' ? item.rows : [item.row];
+        for (const row of itemRows) {
+          const ruleKey = cascadeRuleCollapseKey(row.selector ?? '', row.mediaText ?? '');
+          keys.add(ruleKey);
+          const body = bodies[rowKey(row)];
+          if (body)
+            collectNestedCollapseKeys(body, ruleKey).forEach((nestedKey) => keys.add(nestedKey));
+        }
       }
     }
     for (const { id, selectors } of draftMediaQueries) {
@@ -262,17 +357,29 @@ export function CssCascadePanel({
   const activeCollapseKeys = scope === 'animations' ? animationCollapseKeys : allCollapseKeys;
   const collapseAll = useCallback(() => {
     if (searchActive) {
-      setSearchCollapsedOverrides(new Map(activeCollapseKeys.map((key) => [key, true])));
+      setSearchCollapsedOverrides((previous) => {
+        const next = new Map([...previous].filter(([key]) => isCascadeGroupCollapseKey(key)));
+        activeCollapseKeys.forEach((key) => next.set(key, true));
+        return next;
+      });
       return;
     }
-    setCollapsedRules(new Set(activeCollapseKeys));
+    setCollapsedRules((previous) => {
+      const next = new Set([...previous].filter(isCascadeGroupCollapseKey));
+      activeCollapseKeys.forEach((key) => next.add(key));
+      return next;
+    });
   }, [activeCollapseKeys, searchActive]);
   const expandAll = useCallback(() => {
     if (searchActive) {
-      setSearchCollapsedOverrides(new Map(activeCollapseKeys.map((key) => [key, false])));
+      setSearchCollapsedOverrides((previous) => {
+        const next = new Map([...previous].filter(([key]) => isCascadeGroupCollapseKey(key)));
+        activeCollapseKeys.forEach((key) => next.set(key, false));
+        return next;
+      });
       return;
     }
-    setCollapsedRules(new Set());
+    setCollapsedRules((previous) => new Set([...previous].filter(isCascadeGroupCollapseKey)));
   }, [activeCollapseKeys, searchActive]);
   const allCollapsed =
     activeCollapseKeys.length > 0 &&
@@ -292,35 +399,293 @@ export function CssCascadePanel({
     () => orderCascadeRowsForDisplay(rows, displayOrder),
     [displayOrder, rows]
   );
-  const displayItems = useMemo(() => {
-    return groupCascadeRows(displayRows);
-  }, [displayRows]);
+  const displayItems = useMemo(() => groupCascadeRows(displayRows), [displayRows]);
+  const displayItemsBySource = useMemo(() => groupCascadeItemsByFile(displayItems), [displayItems]);
+  const requestSelectorEdit = useCallback(
+    (row: CascadeRow) => {
+      const sourceKey = sourceOccurrenceKey(row);
+      if (!sourceKey) return;
+      changeSearch('');
+      setCollapsedRules((previous) => {
+        const next = new Set(previous);
+        next.delete(cascadeRuleCollapseKey(row.selector ?? '', row.mediaText ?? ''));
+        for (const sourceGroup of displayItemsBySource) {
+          const items = isCascadeFileGroup(sourceGroup) ? sourceGroup.items : [sourceGroup];
+          const targetItem = items.find((item) =>
+            rowsInCascadeItem(item).some((candidate) => rowKey(candidate) === rowKey(row))
+          );
+          if (!targetItem) continue;
+          if (isCascadeFileGroup(sourceGroup)) {
+            next.delete(
+              sourceGroup.kind === 'source'
+                ? cascadeSourceCollapseKey(sourceGroup.source)
+                : cascadeFileCollapseKey(sourceGroup.file)
+            );
+          }
+          if (targetItem.kind === 'media') {
+            next.delete(cascadeMediaCollapseKey(targetItem.key));
+          }
+          break;
+        }
+        return next;
+      });
+      setSelectorEditRequest({
+        sourceKey,
+        rowKey: rowKey(row),
+        id: ++selectorEditRequestCounter.current,
+      });
+    },
+    [changeSearch, displayItemsBySource]
+  );
+  const knownSourceFiles = useMemo(() => {
+    const files = new Map<string, boolean>();
+    for (const row of rows) {
+      const source = cascadeSourceProvenance(row);
+      if (source?.kind === 'resolved') {
+        if (!files.has(source.file)) files.set(source.file, false);
+      } else if (source?.kind === 'multiple') {
+        source.files.forEach((file) => files.set(file, true));
+      }
+    }
+    return [...files.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [rows]);
+  const sourceNavigationRequestRef = useRef(0);
+  useEffect(
+    () => () => {
+      sourceNavigationRequestRef.current += 1;
+    },
+    [
+      projectPath,
+      selection?.signature.domPath,
+      selection?.signature.tagName,
+      selection?.signature.className,
+    ]
+  );
+  const openSourceInCode = useCallback(
+    async (file: string, row: CascadeRow | undefined, candidateLine?: number) => {
+      if (!onOpenInCode) return;
+      const requestId = ++sourceNavigationRequestRef.current;
+      if (candidateLine != null) {
+        onOpenInCode(cascadeSourceBackingFile(file), candidateLine);
+        return;
+      }
+      const matched = row && sourceNavigationQuery(row);
+      if (!matched) {
+        showToast(`No displayed CSS rule is available for ${file}.`, 'error');
+        return;
+      }
+      if (!projectPath) {
+        showToast(
+          `Couldn't resolve the matching CSS rule in ${file}: project path is unavailable.`,
+          'error'
+        );
+        return;
+      }
+
+      try {
+        const line = await resolveCssSourceLine(projectPath, file, matched);
+        if (requestId !== sourceNavigationRequestRef.current) return;
+        onOpenInCode(cascadeSourceBackingFile(file), line);
+      } catch (error) {
+        if (requestId !== sourceNavigationRequestRef.current) return;
+        const detail = formatCommandError(asCommandError(error));
+        logger.warn('Could not resolve CSS source navigation target', { file, error: detail });
+        showToast(`Couldn't resolve the matching CSS rule in ${file}: ${detail}`, 'error');
+      }
+    },
+    [onOpenInCode, projectPath, showToast]
+  );
+  const openAnimationSourceInCode = useCallback(
+    (file: string, line: number | undefined, selector: string) => {
+      if (!onOpenInCode) return;
+      const requestId = ++sourceNavigationRequestRef.current;
+      const codeFile = cascadeSourceBackingFile(file);
+      if (line != null) {
+        onOpenInCode(codeFile, line);
+        return;
+      }
+      if (!projectPath) {
+        showToast(
+          `Couldn't resolve the matching CSS rule in ${file}: project path is unavailable.`,
+          'error'
+        );
+        return;
+      }
+
+      void resolveCssSourceLine(projectPath, file, { selector, mediaText: null, href: null })
+        .then((resolvedLine) => {
+          if (requestId === sourceNavigationRequestRef.current) {
+            onOpenInCode(codeFile, resolvedLine);
+          }
+        })
+        .catch((error) => {
+          if (requestId !== sourceNavigationRequestRef.current) return;
+          const detail = formatCommandError(asCommandError(error));
+          logger.warn('Could not resolve animation source navigation target', {
+            file,
+            selector,
+            error: detail,
+          });
+          showToast(`Couldn't resolve the matching CSS rule in ${file}: ${detail}`, 'error');
+        });
+    },
+    [onOpenInCode, projectPath, showToast]
+  );
+  useCommands(
+    () =>
+      onOpenInCode && selection && scope === 'style'
+        ? knownSourceFiles.map(([file, ambiguousCandidate]) => ({
+            id: `css.openSource.${encodeURIComponent(file)}`,
+            title: `Open ${ambiguousCandidate ? 'candidate ' : ''}${cascadeSourceFileLabel(file)} in Code`,
+            subtitle: `${ambiguousCandidate ? 'Ambiguous CSS source candidate' : 'CSS source'} ${file} — opens at its first matching rule`,
+            icon: <FileTextIcon size={14} />,
+            category: 'navigation' as const,
+            when: 'project' as const,
+            keywords: ['css', 'style', 'source', 'file', 'code', 'open'],
+            run: () => {
+              const candidateLine = firstSourceCandidateLineForFile(displayRows, file);
+              void openSourceInCode(file, firstSourceRowForFile(displayRows, file), candidateLine);
+            },
+          }))
+        : [],
+    [displayRows, knownSourceFiles, onOpenInCode, openSourceInCode, scope, selection]
+  );
+  useCommands(() => {
+    if (scope !== 'style' || !projectPath) return [];
+    const sourceRows = new Map<string, CascadeRow>();
+    for (const row of rows) {
+      const sourceKey = sourceOccurrenceKey(row);
+      if (
+        row.editable &&
+        !row.draft &&
+        row.sourceIdentity &&
+        sourceKey &&
+        !sourceRows.has(sourceKey)
+      ) {
+        sourceRows.set(sourceKey, row);
+      }
+    }
+    const memberRows = rows.filter(
+      (row) =>
+        row.editable && !row.draft && row.sourceIdentity && (row.sharedSelectors?.length ?? 0) > 0
+    );
+    return [
+      ...[...sourceRows.entries()].map(([, row]) => ({
+        id: `css.editSelectorList.${encodeURIComponent(row.sourceIdentity!.sourcePath)}.${row.sourceIdentity!.selectorOffset}`,
+        title: `Edit selector list ${row.sourceIdentity!.selector}`,
+        subtitle: `Replace the full selector list in ${row.sourceIdentity!.sourcePath}`,
+        icon: <FileTextIcon size={14} />,
+        category: 'action' as const,
+        when: 'project' as const,
+        keywords: ['css', 'selector', 'list', 'edit', 'rename', 'comma'],
+        run: () => requestSelectorEdit(row),
+      })),
+      ...(onSplitSelectorList
+        ? [...sourceRows.entries()]
+            .filter(
+              ([, row]) =>
+                row.sourceIdentity?.selectorListSplitSafe === true &&
+                row.sourceIdentity.selectorMembers.length > 1
+            )
+            .map(([, row]) => ({
+              id: `css.splitSelectorList.${encodeURIComponent(row.sourceIdentity!.sourcePath)}.${row.sourceIdentity!.selectorOffset}`,
+              title: `Split selector list ${row.sourceIdentity!.selector}`,
+              subtitle: `Create one adjacent rule per selector with the same declarations and cascade location`,
+              icon: <FileTextIcon size={14} />,
+              category: 'action' as const,
+              when: 'project' as const,
+              keywords: ['css', 'selector', 'split', 'shared', 'independent'],
+              run: () => void onSplitSelectorList(rowKey(row)),
+            }))
+        : []),
+      ...(onRemoveSelectorMember
+        ? memberRows.map((row) => ({
+            id: `css.removeSelectorMember.${encodeURIComponent(row.sourceIdentity!.sourcePath)}.${row.sourceIdentity!.selectorOffset}.${row.sourceIdentity!.selectorMemberIndex}`,
+            title: `Remove ${row.selector} from its shared rule`,
+            subtitle: 'Keep the other selectors and declarations in place',
+            icon: <FileTextIcon size={14} />,
+            category: 'action' as const,
+            when: 'project' as const,
+            keywords: ['css', 'selector', 'remove', 'shared', 'member'],
+            run: () => void onRemoveSelectorMember(rowKey(row)),
+          }))
+        : []),
+    ];
+  }, [onRemoveSelectorMember, onSplitSelectorList, projectPath, requestSelectorEdit, rows, scope]);
+  const sourcePathMatchesSearch = (path: string) =>
+    path.toLocaleLowerCase().includes(normalizedQuery) ||
+    cascadeSourceFileLabel(path).toLocaleLowerCase().includes(normalizedQuery);
+  const sourceMatchesSearch = (group: CascadeFileGroup) => {
+    if (!searchActive) return false;
+    if (group.kind === 'destination') return sourcePathMatchesSearch(group.file);
+    const { source } = group;
+    return (
+      (source.kind === 'multiple' && 'ambiguous'.includes(normalizedQuery)) ||
+      (source.kind === 'resolved'
+        ? sourcePathMatchesSearch(source.file)
+        : source.files.some(sourcePathMatchesSearch))
+    );
+  };
+  const rowMatchesSearch = (row: CascadeRow) => {
+    if (!searchActive) return true;
+    const sourceMatches = [
+      row.draft ? row.draftTargetFile : row.file,
+      ...(row.draft ? [] : (row.sourceFiles ?? [])),
+    ]
+      .filter((file): file is string => Boolean(file))
+      .some(sourcePathMatchesSearch);
+    return searchCascadeRow(row, bodies[rowKey(row)], normalizedQuery).matches || sourceMatches;
+  };
+  const itemMatchesSearch = (item: CascadeGroupItem) => {
+    if (!searchActive) return true;
+    return item.kind === 'rule'
+      ? rowMatchesSearch(item.row)
+      : item.condition.toLocaleLowerCase().includes(normalizedQuery) ||
+          item.rows.some(rowMatchesSearch);
+  };
+  const itemHasVisibleGeneratedStyle = (item: CascadeGroupItem, revealAll = false) => {
+    if (item.kind === 'rule') {
+      return Boolean(item.row.generatedCssOutput) && (revealAll || rowMatchesSearch(item.row));
+    }
+
+    const conditionMatches =
+      searchActive && item.condition.toLocaleLowerCase().includes(normalizedQuery);
+    return item.rows.some(
+      (row) =>
+        Boolean(row.generatedCssOutput) && (revealAll || conditionMatches || rowMatchesSearch(row))
+    );
+  };
+  const hasVisibleGeneratedStyles =
+    scope === 'style' &&
+    !loading &&
+    displayItemsBySource.some((item) =>
+      isCascadeFileGroup(item)
+        ? item.items.some((cascadeItem) =>
+            itemHasVisibleGeneratedStyle(cascadeItem, sourceMatchesSearch(item))
+          )
+        : itemHasVisibleGeneratedStyle(item)
+    );
   const orderedDraftMediaQueries = useMemo(
     () => (displayOrder === 'newest-top' ? draftMediaQueries : [...draftMediaQueries].reverse()),
     [displayOrder, draftMediaQueries]
   );
-  const visibleDraftMediaQueries = useMemo(() => {
-    if (!searchActive) return orderedDraftMediaQueries;
-    return orderedDraftMediaQueries.flatMap((draft) => {
-      const conditionMatches = draft.condition.toLocaleLowerCase().includes(normalizedQuery);
-      const selectors = conditionMatches
-        ? draft.selectors
-        : draft.selectors.filter((selector) =>
-            selector.toLocaleLowerCase().includes(normalizedQuery)
-          );
-      return conditionMatches || selectors.length > 0 ? [{ ...draft, selectors }] : [];
-    });
-  }, [normalizedQuery, orderedDraftMediaQueries, searchActive]);
+  const visibleDraftMediaQueries = searchActive
+    ? orderedDraftMediaQueries.flatMap((draft) => {
+        const conditionMatches = draft.condition.toLocaleLowerCase().includes(normalizedQuery);
+        const selectors = conditionMatches
+          ? draft.selectors
+          : draft.selectors.filter((selector) =>
+              selector.toLocaleLowerCase().includes(normalizedQuery)
+            );
+        return conditionMatches || selectors.length > 0 ? [{ ...draft, selectors }] : [];
+      })
+    : orderedDraftMediaQueries;
   const hasVisibleCascadeItems =
     visibleDraftMediaQueries.length > 0 ||
-    displayItems.some((item) =>
-      item.kind === 'rule'
-        ? !searchActive ||
-          searchCascadeRow(item.row, bodies[rowKey(item.row)], normalizedQuery).matches
-        : item.condition.toLocaleLowerCase().includes(normalizedQuery) ||
-          item.rows.some(
-            (row) => searchCascadeRow(row, bodies[rowKey(row)], normalizedQuery).matches
-          )
+    displayItemsBySource.some((item) =>
+      isCascadeFileGroup(item)
+        ? sourceMatchesSearch(item) || item.items.some(itemMatchesSearch)
+        : itemMatchesSearch(item)
     );
   const classes = (selection?.signature.className ?? '').split(/\s+/).filter(Boolean);
   const selectedSelector = selection
@@ -447,12 +812,26 @@ export function CssCascadePanel({
   const renderRuleCard = (
     row: CascadeRow,
     insideMedia = false,
-    enclosingConditionMatches = false
+    enclosingConditionMatches = false,
+    insideSource = false,
+    sourceGroupMatches = false
   ) => {
     const key = rowKey(row);
     const collapseKey = cascadeRuleCollapseKey(row.selector ?? '', row.mediaText ?? '');
     const searchResult = searchCascadeRow(row, bodies[key], normalizedQuery);
-    const searchMatches = searchActive && (searchResult.matches || enclosingConditionMatches);
+    const rowSourceMatches =
+      searchActive &&
+      [row.draft ? row.draftTargetFile : row.file, ...(row.draft ? [] : (row.sourceFiles ?? []))]
+        .filter((file): file is string => Boolean(file))
+        .some(sourcePathMatchesSearch);
+    const matchesAll =
+      searchResult.matchesAll ||
+      enclosingConditionMatches ||
+      sourceGroupMatches ||
+      rowSourceMatches;
+    const searchMatches =
+      searchActive &&
+      (searchResult.matches || enclosingConditionMatches || sourceGroupMatches || rowSourceMatches);
     const searchCollapseOverride = searchCollapsedOverrides.get(collapseKey);
     const collapsed = searchMatches
       ? (searchCollapseOverride ?? false)
@@ -462,14 +841,15 @@ export function CssCascadePanel({
       else toggleCollapsed(collapseKey);
     };
     const mediaText = insideMedia ? null : row.mediaText;
+    const showSource = !insideMedia && !insideSource && !row.draft;
     if (row.editable && bodies[key]) {
       return (
         <CascadeRuleCard
           key={key}
           editable
           selector={row.selector ?? ''}
-          file={insideMedia ? undefined : row.file}
-          line={insideMedia ? undefined : row.line}
+          file={showSource ? row.file : undefined}
+          line={showSource ? row.line : undefined}
           mediaText={mediaText}
           layer={row.layer}
           container={row.container}
@@ -480,11 +860,27 @@ export function CssCascadePanel({
           collapseKey={collapseKey}
           collapseControl={collapseControl}
           draft={row.draft}
+          draftTargetKnown={row.draft ? row.draftTargetFile != null : undefined}
           unmatched={row.unmatched}
           onChange={(b) => onChangeBody(key, b)}
           onDelete={() => {
             void onDeleteRule(key);
           }}
+          sharedSelectors={row.sharedSelectors}
+          selectorList={row.sourceIdentity?.selector ?? row.runtimeIdentity?.selectorList}
+          selectorListSplitSafe={row.sourceIdentity?.selectorListSplitSafe}
+          selectorEditRequestId={
+            selectorEditRequest?.rowKey === key ? selectorEditRequest.id : undefined
+          }
+          onSelectorEditRequestHandled={(requestId) =>
+            setSelectorEditRequest((current) => (current?.id === requestId ? null : current))
+          }
+          onRemoveSelector={
+            onRemoveSelectorMember ? () => void onRemoveSelectorMember(key) : undefined
+          }
+          onSplitSelectorList={
+            onSplitSelectorList ? () => void onSplitSelectorList(key) : undefined
+          }
           // A draft rule doesn't exist in source yet — no rename/wrap until it is
           // created by adding the first property.
           onWrap={row.draft || insideMedia ? undefined : (at) => onWrapRule(key, at)}
@@ -499,7 +895,7 @@ export function CssCascadePanel({
           collapsed={collapsed}
           onToggleCollapse={onToggleCollapse}
           searchTerm={searchTerm}
-          searchMatchesAll={searchResult.matchesAll || enclosingConditionMatches}
+          searchMatchesAll={matchesAll}
           searchCollapseOverride={searchMatches ? searchCollapseOverride : undefined}
         />
       );
@@ -513,12 +909,13 @@ export function CssCascadePanel({
         collapseKey={collapseKey}
         collapseControl={collapseControl}
         searchTerm={searchTerm}
-        searchMatchesAll={searchResult.matchesAll || enclosingConditionMatches}
+        searchMatchesAll={matchesAll}
         searchCollapseOverride={searchMatches ? searchCollapseOverride : undefined}
         selector={row.selector ?? 'element.style'}
-        file={insideMedia ? undefined : row.file}
-        line={insideMedia ? undefined : row.line}
-        sourceFiles={insideMedia ? undefined : row.sourceFiles}
+        selectorList={row.sourceIdentity?.selector ?? row.runtimeIdentity?.selectorList}
+        file={showSource ? row.file : undefined}
+        line={showSource ? row.line : undefined}
+        sourceFiles={showSource ? row.sourceFiles : undefined}
         mediaText={mediaText}
         layer={row.layer}
         container={row.container}
@@ -534,6 +931,158 @@ export function CssCascadePanel({
         }))}
       />
     );
+  };
+
+  const renderCascadeItem = (
+    item: CascadeGroupItem,
+    insideSource = false,
+    sourceGroupMatches = false
+  ) => {
+    if (item.kind === 'rule') {
+      if (searchActive && !sourceGroupMatches && !rowMatchesSearch(item.row)) return null;
+      return renderRuleCard(item.row, false, false, insideSource, sourceGroupMatches);
+    }
+
+    const conditionMatches =
+      searchActive && item.condition.toLocaleLowerCase().includes(normalizedQuery);
+    const visibleRows =
+      sourceGroupMatches || conditionMatches ? item.rows : item.rows.filter(rowMatchesSearch);
+    if (searchActive && !sourceGroupMatches && !conditionMatches && visibleRows.length === 0)
+      return null;
+    const groupCollapseKey = cascadeMediaCollapseKey(item.key);
+    const groupMatches =
+      searchActive && (sourceGroupMatches || conditionMatches || visibleRows.length > 0);
+    const searchCollapseOverride = searchCollapsedOverrides.get(groupCollapseKey);
+    const groupCollapsed = groupMatches
+      ? (searchCollapseOverride ?? false)
+      : collapsedRules.has(groupCollapseKey);
+    const groupEditableRow = item.rows.find(
+      (row) => row.editable && !row.draft && bodies[rowKey(row)]
+    );
+    const groupDeletableRows = item.rows.filter(
+      (row) => row.editable && !row.draft && bodies[rowKey(row)]
+    );
+    const sourceFiles = insideSource
+      ? []
+      : [...new Set(item.rows.flatMap((row) => (row.file ? [row.file] : (row.sourceFiles ?? []))))];
+
+    return (
+      <MediaQueryGroupCard
+        key={item.key}
+        condition={item.condition}
+        file={sourceFiles.length === 1 ? sourceFiles[0] : undefined}
+        sourceFiles={sourceFiles}
+        inactive={item.rows.some((row) => row.inactiveMedia)}
+        collapsed={groupCollapsed}
+        onToggleCollapse={() => {
+          if (groupMatches) {
+            toggleSearchCollapsed(groupCollapseKey, !groupCollapsed);
+          } else {
+            toggleCollapsed(groupCollapseKey);
+          }
+        }}
+        onRename={
+          groupEditableRow
+            ? (condition) => onRenameAtRule(rowKey(groupEditableRow), condition)
+            : undefined
+        }
+        onDelete={
+          onDeleteRules && groupDeletableRows.length === item.rows.length
+            ? () => void onDeleteRules(groupDeletableRows.map(rowKey))
+            : undefined
+        }
+        addSelector={
+          groupEditableRow ? (
+            <AddSelectorBar
+              onAddSelector={onAddSelector}
+              suggestions={addSelectorOptions}
+              existing={existingSelectors}
+              fixedCondition={`@media ${item.condition}`}
+            />
+          ) : undefined
+        }
+      >
+        {visibleRows.map((row) =>
+          renderRuleCard(
+            row,
+            true,
+            conditionMatches || sourceGroupMatches,
+            insideSource,
+            sourceGroupMatches
+          )
+        )}
+      </MediaQueryGroupCard>
+    );
+  };
+
+  const renderSourceGroup = (group: CascadeFileGroup) => {
+    const groupSourceMatches = sourceMatchesSearch(group);
+    if (searchActive && !groupSourceMatches && !group.items.some(itemMatchesSearch)) return null;
+    const displayedSourceRows = group.items.flatMap((item) => {
+      const itemRows = rowsInCascadeItem(item);
+      if (!searchActive || groupSourceMatches) return itemRows;
+      if (item.kind === 'media' && item.condition.toLocaleLowerCase().includes(normalizedQuery)) {
+        return itemRows;
+      }
+      return itemRows.filter(rowMatchesSearch);
+    });
+    const collapseKey =
+      group.kind === 'source'
+        ? cascadeSourceCollapseKey(group.source)
+        : cascadeFileCollapseKey(group.file);
+    const groupMatches =
+      searchActive && (groupSourceMatches || group.items.some(itemMatchesSearch));
+    const searchCollapseOverride = searchCollapsedOverrides.get(collapseKey);
+    const collapsed = groupMatches
+      ? (searchCollapseOverride ?? false)
+      : collapsedRules.has(collapseKey);
+    const count = group.items.reduce(
+      (total, item) => total + (item.kind === 'rule' ? 1 : item.rows.length),
+      0
+    );
+
+    return (
+      <CascadeSourceGroupCard
+        key={group.key}
+        runKey={group.key}
+        source={group.kind === 'source' ? group.source : undefined}
+        destinationFile={group.kind === 'destination' ? group.file : undefined}
+        count={count}
+        collapsed={collapsed}
+        onOpenInCode={
+          group.kind === 'source' && onOpenInCode
+            ? (file, line) => {
+                void openSourceInCode(file, firstSourceRowForFile(displayedSourceRows, file), line);
+              }
+            : undefined
+        }
+        onToggleCollapse={() => {
+          if (groupMatches) toggleSearchCollapsed(collapseKey, !collapsed);
+          else toggleCollapsed(collapseKey);
+        }}
+      >
+        {group.items.map((item) => renderCascadeItem(item, true, groupSourceMatches))}
+      </CascadeSourceGroupCard>
+    );
+  };
+
+  const renderCascadeDisplayItems = () => {
+    const renderedItems: ReactNode[] = [];
+    let index = 0;
+
+    while (index < displayItemsBySource.length) {
+      const item = displayItemsBySource[index];
+      if (isCascadeFileGroup(item)) {
+        renderedItems.push(renderSourceGroup(item));
+        index += 1;
+        continue;
+      }
+
+      renderedItems.push(renderCascadeItem(item));
+      index += 1;
+    }
+
+    return renderedItems;
   };
 
   const renderDraftMediaQuery = ({ id, condition, selectors }: DraftMediaQuery) => {
@@ -734,6 +1283,18 @@ export function CssCascadePanel({
             <TabsTab value="animations">Animate</TabsTab>
           </TabsList>
         </Tabs>
+        {scope === 'style' && projectPath && selection && (
+          <CssConsolidationReviewPopover
+            projectPath={projectPath}
+            selection={selection}
+            rows={rows}
+            bodies={bodies}
+            searchTerm={searchTerm}
+            loading={loading}
+            hasPendingWrites={hasPendingWrites}
+            onRefreshCascade={refreshCascade}
+          />
+        )}
         <div className="ss-cascade-content">
           {scope === 'animations' ? (
             <CssAnimationsPanel
@@ -748,6 +1309,7 @@ export function CssCascadePanel({
               searchTerm={searchTerm}
               displayOrder={displayOrder}
               collapseControl={collapseControl}
+              onOpenInCode={onOpenInCode ? openAnimationSourceInCode : undefined}
               onClearSearch={() => changeSearch('')}
             />
           ) : !selection ? (
@@ -763,128 +1325,47 @@ export function CssCascadePanel({
                       <Spinner size="sm" />
                     </div>
                   ) : (
-                    <div className="ss-cascade-cards">
-                      {displayOrder === 'newest-top' && (
-                        <AddSelectorBar
-                          onAddSelector={onAddSelector}
-                          onAddMediaQuery={addDraftMediaQuery}
-                          suggestions={addSelectorOptions}
-                          existing={existingSelectors}
-                        />
-                      )}
-                      {displayOrder === 'newest-top' &&
-                        visibleDraftMediaQueries.map(renderDraftMediaQuery)}
-                      {displayItems.map((item) => {
-                        if (item.kind === 'rule') {
-                          if (
-                            searchActive &&
-                            !searchCascadeRow(item.row, bodies[rowKey(item.row)], normalizedQuery)
-                              .matches
-                          ) {
-                            return null;
-                          }
-                          return renderRuleCard(item.row);
-                        }
-
-                        const conditionMatches =
-                          searchActive &&
-                          item.condition.toLocaleLowerCase().includes(normalizedQuery);
-                        const visibleRows = conditionMatches
-                          ? item.rows
-                          : item.rows.filter(
-                              (row) =>
-                                searchCascadeRow(row, bodies[rowKey(row)], normalizedQuery).matches
-                            );
-                        if (searchActive && !conditionMatches && visibleRows.length === 0)
-                          return null;
-                        const groupCollapseKey = cascadeMediaCollapseKey(item.key);
-                        const groupMatches =
-                          searchActive && (conditionMatches || visibleRows.length > 0);
-                        const searchCollapseOverride =
-                          searchCollapsedOverrides.get(groupCollapseKey);
-                        const groupCollapsed = groupMatches
-                          ? (searchCollapseOverride ?? false)
-                          : collapsedRules.has(groupCollapseKey);
-                        const groupEditableRow = item.rows.find(
-                          (row) => row.editable && !row.draft && bodies[rowKey(row)]
-                        );
-                        const groupDeletableRows = item.rows.filter(
-                          (row) => row.editable && !row.draft && bodies[rowKey(row)]
-                        );
-                        const sourceFiles = [
-                          ...new Set(
-                            item.rows.flatMap((row) =>
-                              row.file ? [row.file] : (row.sourceFiles ?? [])
-                            )
-                          ),
-                        ];
-                        return (
-                          <MediaQueryGroupCard
-                            key={item.key}
-                            condition={item.condition}
-                            file={sourceFiles.length === 1 ? sourceFiles[0] : undefined}
-                            sourceFiles={sourceFiles}
-                            inactive={item.rows.some((row) => row.inactiveMedia)}
-                            collapsed={groupCollapsed}
-                            onToggleCollapse={() => {
-                              if (groupMatches) {
-                                toggleSearchCollapsed(groupCollapseKey, !groupCollapsed);
-                              } else {
-                                toggleCollapsed(groupCollapseKey);
-                              }
-                            }}
-                            onRename={
-                              groupEditableRow
-                                ? (condition) => onRenameAtRule(rowKey(groupEditableRow), condition)
-                                : undefined
-                            }
-                            onDelete={
-                              groupDeletableRows.length === item.rows.length
-                                ? () => {
-                                    void (async () => {
-                                      for (const row of groupDeletableRows) {
-                                        await onDeleteRule(rowKey(row));
-                                      }
-                                    })();
-                                  }
-                                : undefined
-                            }
-                            addSelector={
-                              groupEditableRow ? (
-                                <AddSelectorBar
-                                  onAddSelector={onAddSelector}
-                                  suggestions={addSelectorOptions}
-                                  existing={existingSelectors}
-                                  fixedCondition={`@media ${item.condition}`}
-                                />
-                              ) : undefined
-                            }
-                          >
-                            {visibleRows.map((row) => renderRuleCard(row, true, conditionMatches))}
-                          </MediaQueryGroupCard>
-                        );
-                      })}
-                      {displayOrder === 'newest-bottom' &&
-                        visibleDraftMediaQueries.map(renderDraftMediaQuery)}
-
-                      {searchActive && !hasVisibleCascadeItems && (
-                        <p className="ss-cascade-empty" role="status">
-                          No CSS selectors or properties match “{query}”.
-                          <TextButton onClick={() => changeSearch('')}>Clear search</TextButton>
+                    <>
+                      {hasVisibleGeneratedStyles && (
+                        <p className="ss-cascade-generated-note" role="note">
+                          These styles are generated from source files. Source edits appear after
+                          the stylesheet rebuilds.
                         </p>
                       )}
-                      {!searchActive && rows.length === 0 && draftMediaQueries.length === 0 && (
-                        <p className="ss-cascade-empty">No CSS rules match this element.</p>
-                      )}
-                      {displayOrder === 'newest-bottom' && (
-                        <AddSelectorBar
-                          onAddSelector={onAddSelector}
-                          onAddMediaQuery={addDraftMediaQuery}
-                          suggestions={addSelectorOptions}
-                          existing={existingSelectors}
-                        />
-                      )}
-                    </div>
+                      <div className="ss-cascade-cards">
+                        {displayOrder === 'newest-top' && (
+                          <AddSelectorBar
+                            onAddSelector={onAddSelector}
+                            onAddMediaQuery={addDraftMediaQuery}
+                            suggestions={addSelectorOptions}
+                            existing={existingSelectors}
+                          />
+                        )}
+                        {displayOrder === 'newest-top' &&
+                          visibleDraftMediaQueries.map(renderDraftMediaQuery)}
+                        {renderCascadeDisplayItems()}
+                        {displayOrder === 'newest-bottom' &&
+                          visibleDraftMediaQueries.map(renderDraftMediaQuery)}
+
+                        {searchActive && !hasVisibleCascadeItems && (
+                          <p className="ss-cascade-empty" role="status">
+                            No CSS selectors or properties match “{query}”.
+                            <TextButton onClick={() => changeSearch('')}>Clear search</TextButton>
+                          </p>
+                        )}
+                        {!searchActive && rows.length === 0 && draftMediaQueries.length === 0 && (
+                          <p className="ss-cascade-empty">No CSS rules match this element.</p>
+                        )}
+                        {displayOrder === 'newest-bottom' && (
+                          <AddSelectorBar
+                            onAddSelector={onAddSelector}
+                            onAddMediaQuery={addDraftMediaQuery}
+                            suggestions={addSelectorOptions}
+                            existing={existingSelectors}
+                          />
+                        )}
+                      </div>
+                    </>
                   )}
                 </>
               )}

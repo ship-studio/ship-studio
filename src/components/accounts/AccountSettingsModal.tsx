@@ -189,12 +189,10 @@ export function AccountSettingsModal({
                   placeholder="Workspace name"
                 />
               </div>
-              {!account.isDefault && (
-                <div style={{ marginTop: 'var(--spacing-sm)' }}>
-                  <div className="account-section-title">Color</div>
-                  <AccountColorPicker value={editColor} onChange={setEditColor} />
-                </div>
-              )}
+              <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                <div className="account-section-title">Color</div>
+                <AccountColorPicker value={editColor} onChange={setEditColor} />
+              </div>
             </div>
 
             {/* Coding agents — status only; sign-in is managed from the dashboard's
@@ -428,18 +426,18 @@ export function AccountSettingsModal({
                 </div>
               </div>
             ) : (
-              <>
-                <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
-                  Delete Workspace
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => void handleSave()}
-                  disabled={!editName.trim() || isSaving}
-                >
-                  {isSaving ? <Spinner size="sm" /> : 'Save Changes'}
-                </Button>
-              </>
+              <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
+                Delete Workspace
+              </Button>
+            )}
+            {!confirmingDelete && (
+              <Button
+                variant="primary"
+                onClick={() => void handleSave()}
+                disabled={!editName.trim() || isSaving}
+              >
+                {isSaving ? <Spinner size="sm" /> : 'Save Changes'}
+              </Button>
             )}
           </div>
         </div>

@@ -8,7 +8,12 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../lib/errors';
 import { listen } from '@tauri-apps/api/event';
 import {
   executeBridgeTool,
@@ -101,7 +106,12 @@ export function useAgentBridge({
       try {
         url = await getAgentBridgeUrl(projectPath);
       } catch (err) {
-        logger.error('[AgentBridge] Failed to get bridge URL', {
+        // The project folder vanished outside Ship Studio (#973), or its path
+        // is no longer one the backend accepts — e.g. an external project
+        // dropped from the registry (#974). Both are Expected backend
+        // refusals, not bugs; the preview works without the bridge.
+        const expected = isProjectFolderGoneError(err) || isExpectedCommandError(err);
+        logger[expected ? 'warn' : 'error']('[AgentBridge] Failed to get bridge URL', {
           // CommandError rejections are plain objects — String() logs
           // "[object Object]" (issue #405).
           error: formatCommandError(asCommandError(err)),

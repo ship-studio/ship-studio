@@ -120,21 +120,51 @@ pub fn find_validated_binary(binary_name: &str, version_flag: &str) -> Option<st
 /// validation timeout. Used to skip installs that exist on disk but are
 /// non-functional (broken npm wrappers, partial extracts, etc.).
 fn binary_runs(path: &std::path::Path, version_flag: &str) -> bool {
-    use std::sync::mpsc;
-    use std::time::Duration;
+    binary_runs_within(
+        path,
+        version_flag,
+        std::time::Duration::from_secs(BINARY_VALIDATION_TIMEOUT_SECS),
+    )
+}
 
-    let path = path.to_path_buf();
-    let flag = version_flag.to_string();
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let result = create_command(&path)
-            .args([&flag])
-            .env("PATH", get_extended_path())
-            .output();
-        let _ = tx.send(matches!(result, Ok(out) if out.status.success()));
-    });
-    rx.recv_timeout(Duration::from_secs(BINARY_VALIDATION_TIMEOUT_SECS))
-        .unwrap_or(false)
+/// [`binary_runs`] with an explicit timeout. Polls the child on the calling
+/// thread and kills + reaps it on timeout. The previous version ran
+/// `.output()` on a detached helper thread and simply stopped listening when
+/// the timeout fired, abandoning both the thread and the still-running probe —
+/// on every agent lookup (scheduled workflow runs, PR generation, MCP), for as
+/// long as a hung install stayed hung.
+fn binary_runs_within(
+    path: &std::path::Path,
+    version_flag: &str,
+    timeout: std::time::Duration,
+) -> bool {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    // Only the exit status matters; null stdio also means a chatty binary
+    // can't stall on a full pipe nobody drains.
+    let Ok(mut child) = create_command(path)
+        .arg(version_flag)
+        .env("PATH", get_extended_path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }
 
 /// Returns the ordered list of locations to probe for a CLI binary.
@@ -488,6 +518,51 @@ mod tests {
         if path.exists() {
             assert!(!binary_runs(path, "--version"));
         }
+    }
+
+    /// A probe that hangs must be killed when the timeout fires, not
+    /// abandoned: the old helper-thread version leaked a thread and a live
+    /// process on every hung lookup.
+    #[cfg(unix)]
+    #[test]
+    fn binary_runs_kills_a_hung_probe_on_timeout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("pid");
+        let script = dir.path().join("hangs");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho $$ > '{}'\nexec sleep 30\n",
+                pid_file.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let started = std::time::Instant::now();
+        assert!(!binary_runs_within(
+            &script,
+            "--version",
+            std::time::Duration::from_millis(500)
+        ));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "binary_runs waited {:?} — it did not honour its timeout",
+            started.elapsed()
+        );
+
+        let pid = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .to_string();
+        let still_running = std::process::Command::new("kill")
+            .args(["-0", &pid])
+            .status()
+            .unwrap()
+            .success();
+        assert!(!still_running, "hung probe {pid} was left running");
     }
 
     #[test]

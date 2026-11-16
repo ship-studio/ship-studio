@@ -3,7 +3,12 @@ import { getDashboardProjects, getProjectThumbnail } from '../../lib/project';
 import { listFolders, getFiledProjectPaths } from '../../lib/folders';
 import type { DashboardProject } from '../../lib/project';
 import type { FolderInfo } from '../../lib/folders';
-import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isProjectFolderGoneError,
+} from '../../lib/errors';
 import { TimeoutError, withTimeout } from '../../lib/withTimeout';
 import { logger } from '../../lib/logger';
 import { classifyThumbnailLoadFailure } from './projectThumbnailErrors';
@@ -97,7 +102,14 @@ export function useProjectListData(activeAccountId: string | null | undefined) {
       }
     } catch (error) {
       const message = formatCommandError(asCommandError(error));
-      logger.error('Failed to load projects', { error: message });
+      // A backend-Expected refusal (e.g. a macOS Full Disk Access / EPERM
+      // denial on the projects folder) is a user-fixable environment state,
+      // not a bug — warn instead of auto-filing a report (issue #1139).
+      if (isExpectedCommandError(error)) {
+        logger.warn('Failed to load projects', { error: message });
+      } else {
+        logger.error('Failed to load projects', { error: message });
+      }
       if (seq === undefined || seq === loadSeqRef.current) {
         // A backend refusal reaches the user in the backend's own words. A
         // timeout does not: `TimeoutError`'s message is written for a log line

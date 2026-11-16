@@ -26,6 +26,56 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.7.0', // v1.7.0
+    items: [
+      'CSS Editor: rules and variables show which stylesheet they come from, and one click opens that file at the right line in Code view — including styles inside Astro components (Martin Crandon)',
+      'CSS Editor: edit or split shared selectors, and review safe merges of duplicate rules before anything changes (Martin Crandon)',
+      'CSS Editor: edit scoped CSS variables where they live, with the colour picker for colours — ambiguous values are refused rather than guessed (Martin Crandon)',
+      'CSS Editor: value fields, animation headers and Add step stay put when you start editing (Martin Crandon)',
+      'Focus mode opens Agent and Preview side by side at 50/50, remembers your split, and no longer leaves panels floating over the agent (Martin Crandon)',
+      'The workspace sidebar shows a single status light per project (error, then waiting, working, then dev server) instead of two side by side, and every status dot now has the same look (Martin Crandon)',
+      'Fixed: a Windows crash (os error 1450) in long sessions',
+      'Fixed: a stuck full-window spinner after leaving a project mid-open',
+      'Fixed: “too many open files” when checking out a pull request',
+      'Fixed: the animation name chip in the Animate tab no longer cuts off at “@keyfra”',
+      'Fixed: deleting a shared rule or a rule inside a media query now asks first',
+      'Fixed: clearer details when the app fails to start',
+    ],
+  },
+  {
+    version: '1.6.5', // v1.6.5
+    items: [
+      'Remote access now reports back: when you message an agent from your phone, your assistant waits and tells you when it’s finished (with its reply, the files it changed and a screenshot), or asks you when the agent needs a decision — instead of stopping at “sent”',
+      'Remote access can tell you whether a push went live on Vercel, Cloudflare Pages or Netlify, with the address or the build error',
+      'Remote access marks which tools only read, so assistants can ask you to approve fewer steps',
+    ],
+  },
+  {
+    version: '1.6.4', // v1.6.4
+    items: [
+      'You can now change the colour of your Default workspace (Martin Crandon)',
+      'Fixed: Focus mode now actually hides the preview and every panel except the agent',
+      'Fixed: picking a branch from the Branches menu now checks it out',
+      'Fixed: monorepo projects opened at a workspace subpath now list their pages',
+      'Fixed: the finish sound plays again with Claude Code 2.1',
+      'Fixed: a restarted dev server could be left running after a timeout',
+      'Clearer messages for dozens of git, GitHub, install, clipboard, screenshot and agent failures — including locked worktrees, rate limits, missing simulators and folders that were moved or deleted',
+    ],
+  },
+  {
+    version: '1.6.3', // v1.6.3
+    items: [
+      'Security updates: Ship Studio’s own dependencies are patched against the latest advisories, and every starter template now begins on patched versions — including the October Next.js and Astro fixes',
+    ],
+  },
+  {
+    version: '1.6.2', // v1.6.2
+    items: [
+      'Remote access can now create a new project for you — ask your assistant for “a new Next.js project called bakery” and it’s made, shared for remote access and opened, ready for an agent to build in',
+      'Remote access can switch between your shared projects, and screenshots of a project that isn’t showing now open it and wait for its preview instead of asking you to switch over',
+    ],
+  },
+  {
     version: '1.6.1', // v1.6.1
     items: [
       'Fixed: remote access could say “Not reachable” and never finish setting up when Tailscale was installed from its website or the App Store',

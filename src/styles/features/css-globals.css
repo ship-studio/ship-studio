@@ -75,9 +75,8 @@
   flex-direction: column;
 }
 
-/* Editable rows use the same leading, hover-revealed grab affordance as the
-   Projects list. The handle stays mounted for keyboard sorting while its
-   collapsed slot leaves the ordinary variable layout unchanged. */
+/* Editable rows keep the keyboard-reachable grab handle mounted over the
+   leading cell. Revealing it never reserves space in the value grid. */
 .ss-var-sort-item {
   width: 100%;
 }
@@ -86,8 +85,7 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 }
 
-.ss-var-sort-item > .ss-var-row > .ss-var-row__name,
-.ss-var-sort-item > .ss-var-row > .ss-var-row__drag-handle {
+.ss-var-sort-item > .ss-var-row > .ss-var-row__name {
   grid-column: 1;
   grid-row: 1;
 }
@@ -107,7 +105,11 @@
 }
 
 .ss-var-row__drag-handle {
-  position: relative;
+  /* The reveal animation changes the handle's width. Keep it out of grid
+     sizing so the name, value column, and swatch retain their resting boxes. */
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
   z-index: var(--z-dropdown);
   align-self: start;
   background: transparent;
@@ -212,6 +214,11 @@
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
 }
+.ss-vars__scope-sel.button.text-button,
+.ss-vars__scope-sel.button.text-button:hover:not(:disabled),
+.ss-vars__scope-sel.button.text-button:focus-visible {
+  color: var(--code-property);
+}
 .ss-vars__scope-note {
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
@@ -235,11 +242,13 @@
 
 /* Variable item row */
 .ss-var-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  /* Match CSS declaration rows: align the first line, then let a long value
-     continue below it without vertically centering the name and colon. */
-  align-items: baseline;
+  /* The value cell swaps a button for a nested flex editor, whose synthesized
+     baseline differs. Start-align grid cells so that change cannot move the
+     name or colon; each cell's first text line uses this row's line-height. */
+  align-items: start;
   column-gap: var(--spacing-xs);
   padding: 3px 4px; /* css-ok: dense token row */
   margin: 0 -4px; /* css-ok: edge-to-edge row */
@@ -300,7 +309,7 @@
 
 .ss-var-row__name {
   display: inline-flex;
-  align-items: flex-start;
+  align-items: baseline;
   min-width: 0;
   position: relative;
   gap: var(--spacing-xs);
@@ -358,6 +367,36 @@
   gap: var(--spacing-xs);
 }
 
+/* The value column already has a definite width from the row grid. Keep its
+   contents in one flex item so percentage widths cannot feed back into the row
+   grid's intrinsic sizing. The active editor takes the same item slot. */
+.ss-var-row__value-group--editable {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+.ss-var-row__value-group--editable > .ss-var-row__value.property-field,
+.ss-var-row__value-group--editable > .ss-value-pop--inline {
+  flex: 1 1 0;
+  width: auto;
+  align-self: flex-start;
+}
+.ss-var-row__value-group > .ss-var-row__swatch {
+  position: absolute;
+  inset-block-start: var(--spacing-2xs);
+  inset-inline-start: 0;
+  margin-block-start: 0;
+}
+.ss-var-row__value-group:has(> .ss-var-row__swatch):not(.ss-var-row__value-group--editable) {
+  position: relative;
+  padding-inline-start: calc(var(--size-icon-button) + var(--spacing-xs));
+}
+
+.ss-var-row__value-group--has-swatch {
+  --ss-var-row-value-inset: calc(var(--size-icon-button) + var(--spacing-xs));
+}
+
 .ss-var-row__value {
   display: block;
   align-self: baseline;
@@ -376,7 +415,11 @@
 }
 
 .ss-var-row__value.property-field {
-  display: block;
+  /* PropertyField is a native button with a compact minimum height. Keep its
+     text at the same top edge as the inline textarea when that height exceeds
+     the value's first line box. */
+  display: flex;
+  align-items: flex-start;
   height: auto;
   border: 0;
   background: transparent;
@@ -385,6 +428,19 @@
   justify-content: flex-start;
   text-align: left;
   transition: color var(--transition);
+}
+.ss-var-row__value.property-field,
+.ss-var-row .ss-value-pop--inline .ss-value-pop__input {
+  /* Keep native appearance from adding a horizontal text inset to either
+     control; the variable editor needs the same value-column start edge. */
+  appearance: none;
+  -webkit-appearance: none;
+}
+.ss-var-row__value-group--has-swatch > .ss-var-row__value.property-field {
+  padding-inline-start: var(--ss-var-row-value-inset);
+}
+.ss-var-row__value.property-field[aria-hidden='true'] {
+  display: none;
 }
 .ss-var-row__value.property-field:hover,
 .ss-var-row__value.property-field[aria-expanded='true'] {
@@ -396,13 +452,44 @@
   border-color: transparent;
 }
 
-/* The inline editor mirrors this cell's borderless, zero-padding display text;
-   keeping the same content box prevents both wrapping and the text's x-position
-   from changing while a variable is being edited. */
+/* Match the displayed field's wrapping width and swatch inset while editing so
+   the editor stays aligned when it takes the value column. */
+.ss-var-row .ss-value-pop--inline:not(.ss-value-pop--inline-has-swatch) .ss-value-pop__sizer,
+.ss-var-row .ss-value-pop--inline:not(.ss-value-pop--inline-has-swatch) .ss-value-pop__input,
+.ss-var-row .ss-value-pop--inline:not(.ss-value-pop--inline-has-swatch) .ss-value-pop__ghost {
+  padding: 0;
+}
 .ss-var-row .ss-value-pop--inline .ss-value-pop__sizer,
 .ss-var-row .ss-value-pop--inline .ss-value-pop__input,
 .ss-var-row .ss-value-pop--inline .ss-value-pop__ghost {
+  line-height: inherit;
+}
+.ss-var-row .ss-value-pop--inline-has-swatch .ss-value-pop__sizer {
   padding: 0;
+  padding-inline-start: var(--ss-var-row-value-inset);
+}
+.ss-var-row .ss-value-pop--inline-has-swatch .ss-value-pop__input,
+.ss-var-row .ss-value-pop--inline-has-swatch .ss-value-pop__ghost {
+  padding: 0;
+  padding-inline-start: var(--ss-var-row-value-inset);
+}
+.ss-var-row .ss-value-pop--inline-has-swatch .ss-value-pop__sizer > .ss-decl__swatch-space {
+  display: none;
+}
+.ss-var-row .ss-value-pop--inline .ss-var-row__swatch--editor {
+  position: absolute;
+  inset-block-start: var(--spacing-2xs);
+  inset-inline-start: 0;
+  margin-block-start: 0;
+}
+.ss-var-row .ss-value-pop--inline .ss-value-pop__field {
+  box-shadow: none;
+  outline: var(--border-width-default) solid var(--accent-active);
+  outline-offset: 0;
+}
+
+.ss-vars__scope-menu {
+  z-index: var(--z-tooltip);
 }
 
 .ss-var-row__value--ro {
@@ -493,6 +580,16 @@
   display: flex;
   flex-direction: column;
 }
+
+.ss-anims .ss-cascade-card__body {
+  padding-block-end: var(--spacing-sm);
+}
+
+.ss-anims .ss-cascade-card__add-row--keyframes {
+  margin-block-start: var(--spacing-sm);
+  padding-inline-start: 0;
+}
+
 .ss-anims__add {
   display: flex;
   align-items: center;

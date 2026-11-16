@@ -41,7 +41,7 @@ import {
 import { ElementHtmlEditor } from './ElementHtmlEditor';
 import { InsertMenu } from './InsertMenu';
 import { getElementIcon } from './element-icons';
-import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { describeClipboardError, useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useElementDisplayPreferences } from '../../hooks/useElementDisplayPreferences';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import {
@@ -384,9 +384,12 @@ export function ElementTreePanel({
     y: number;
   } | null>(null);
   const { showToast } = useOptionalToast();
+  // Name the reason a copy failed, like the other clipboard call sites — a bare
+  // "Could not copy" told neither the user nor the report why (issue #1049).
   const { copy: copySelector } = useCopyToClipboard({
     onCopy: () => showToast('Selector copied', 'success'),
-    onError: () => showToast('Could not copy the selector', 'error'),
+    onError: (err) =>
+      showToast(`Could not copy the selector (${describeClipboardError(err)})`, 'error'),
   });
   const [insertFor, setInsertFor] = useState<{
     nodeId: number;
@@ -399,6 +402,8 @@ export function ElementTreePanel({
   );
   const { copy: copyElementId, isCopied: elementIdCopied } = useCopyToClipboard({
     onCopy: notifyCopy,
+    onError: (err) =>
+      showToast(`Could not copy the element id (${describeClipboardError(err)})`, 'error'),
   });
   const selectView = (next: 'visual' | 'code') => {
     setView(next);

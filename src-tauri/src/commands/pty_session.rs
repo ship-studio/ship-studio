@@ -617,6 +617,13 @@ pub async fn pty_session_open(
         if crate::external_command::is_spawn_resource_pressure(&message) {
             return crate::external_command::spawn_resource_pressure_error(&command);
         }
+        // Windows refusing the memory commit for the new process (pagefile
+        // too small, os error 1455/1450/8). portable_pty hands back an
+        // `anyhow::Error`, so classify from the text (issue #1138).
+        if let Some(oom) = crate::errors::windows_out_of_memory_in_message(&message, Some(&command))
+        {
+            return oom;
+        }
         // portable_pty's binary-not-found phrasings. A missing/unresolvable
         // agent CLI is an environment gap ("install X first") the frontend
         // already turns into the agent's install hint — Expected keeps it out

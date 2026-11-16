@@ -66,7 +66,7 @@ export interface WorkspacePreviewPaneProps {
   handleRestartDevServer: () => Promise<void>;
   onRunInstall: () => void;
   openInCode: (file: string, line: number) => void;
-  codeTarget: { file: string; line: number } | null;
+  codeTarget: { file: string; line: number; requestId: number } | null;
   canUndo: boolean;
   canRedo: boolean;
   undoTitle: string;

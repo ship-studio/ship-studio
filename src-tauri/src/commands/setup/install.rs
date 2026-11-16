@@ -95,6 +95,96 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
         ));
     }
 
+    // "Error: 'git' must be installed and in your PATH!" — Homebrew needs a
+    // working git for its own bookkeeping, even when the package being
+    // installed is git itself. Missing/broken Xcode CLT, not the app
+    // (issue #1132).
+    if stderr.contains("must be installed and in your PATH") {
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew needs a working `git` on your PATH to install anything (even \
+             to install git itself). Open Terminal and run: xcode-select --install — then \
+             retry this step."
+        ));
+    }
+
+    // "Bottle destination already exists: …/var/homebrew/tmp/.cellar/<f>/<v>"
+    // — a previous brew install was interrupted mid-extraction and left its
+    // staged copy behind, so every retry refuses (issues #1081, #1082).
+    if let Some(line) = stderr
+        .lines()
+        .find(|l| l.contains("Bottle destination already exists"))
+    {
+        let path = line
+            .split_once("already exists:")
+            .map(|(_, p)| p.trim())
+            .filter(|p| p.starts_with('/'))
+            // The whole temp cellar is safe to clear if the format changes.
+            .unwrap_or("$(brew --prefix)/var/homebrew/tmp/.cellar");
+        return crate::errors::CommandError::expected(format!(
+            "{context}: a previous, interrupted Homebrew install left a stale staged copy at \
+             {path}. Open Terminal and run: rm -rf \"{path}\" — then retry this step."
+        ));
+    }
+
+    // "Error: Xcode alone is not sufficient on Sequoia." — Homebrew needs the
+    // Command Line Tools to build from source, and Xcode.app doesn't count
+    // (issue #1068).
+    if stderr.contains("Xcode alone is not sufficient") {
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew needs the Xcode Command Line Tools installed separately — \
+             having Xcode.app alone isn't enough. Open Terminal and run: xcode-select --install \
+             — then retry this step."
+        ));
+    }
+
+    // "Error: The `brew link` step did not complete successfully" — the package
+    // installed, but a file already at the target path blocked the symlink.
+    // Homebrew prints the exact fix further down (issue #1069).
+    if stderr.contains("`brew link` step did not complete successfully") {
+        let fix = stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("brew link --overwrite"))
+            .unwrap_or("brew link --overwrite <formula>");
+        return crate::errors::CommandError::expected(format!(
+            "{context}: the package installed, but Homebrew couldn't link it into place because \
+             a file from an earlier install is in the way. Open Terminal and run: {fix} — then \
+             retry this step."
+        ));
+    }
+
+    // "Error: SIGTERM" — Homebrew's top-level rescue printing the signal that
+    // stopped it (the app quitting, the OS, a force-quit). An interrupted
+    // install, not a package failure (issue #1070).
+    if let Some(signal) = stderr.lines().map(str::trim).find_map(|l| {
+        l.strip_prefix("Error: ")
+            .filter(|s| s.starts_with("SIG") && s[3..].chars().all(|c| c.is_ascii_uppercase()))
+    }) {
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew was stopped partway through ({signal}) — usually the app or \
+             computer closing during the install. Retry this step."
+        ));
+    }
+
+    // "Error: Failed to download ruby from the following locations:" —
+    // Homebrew fetching its own bundled Ruby, before any package is touched.
+    // A network/firewall state; the URLs and curl's reason follow on later
+    // lines, so keep curl's line when there is one (issue #1025).
+    if stderr.contains("Failed to download ruby") {
+        let reason = stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("curl:"))
+            .map(|l| format!(" ({l})"))
+            .unwrap_or_default();
+        return crate::errors::CommandError::expected(format!(
+            "{context}: Homebrew couldn't download its own Ruby runtime from GitHub{reason}. \
+             This is usually a network, VPN, or firewall blocking ghcr.io or github.com. Check \
+             your connection and retry this step; if it keeps failing, run brew update-reset \
+             in Terminal."
+        ));
+    }
+
     // version.rb TypeError ("Version value must be a string; got a NilClass")
     // — Homebrew's own Ruby crashing because it can't read the macOS version;
     // a broken/mixed Homebrew install, not something the app did (issue #571).
@@ -119,6 +209,10 @@ fn humanize_brew_failure(context: &str, stderr: &str) -> crate::errors::CommandE
 /// first line surfaces the banner and swallows the error (issue #580).
 /// Prefer the first `Error:` line (brew prefixes real errors with it); fall
 /// back to the last non-banner line.
+///
+/// An uncaught Ruby exception has no `Error:` line — it's a backtrace whose
+/// *first* line carries the message and whose last is always brew.rb's
+/// `<main>` frame, so skip the `from …:in` continuation lines (issue #957).
 fn brew_error_line(stderr: &str) -> &str {
     let is_banner = |l: &str| {
         l.is_empty()
@@ -128,9 +222,18 @@ fn brew_error_line(stderr: &str) -> &str {
             || l.chars()
                 .all(|c| matches!(c, '#' | '%' | '.' | ' ' | '-' | '=') || c.is_ascii_digit())
     };
+    let is_backtrace_frame = |l: &str| l.starts_with("from ") && l.contains(":in ");
     let mut lines = stderr.lines().map(str::trim);
     if let Some(err) = lines.clone().find(|l| l.starts_with("Error:")) {
         return err;
+    }
+    if lines.clone().any(is_backtrace_frame) {
+        if let Some(raised) = lines
+            .clone()
+            .find(|l| !is_banner(l) && !is_backtrace_frame(l))
+        {
+            return raised;
+        }
     }
     lines.rfind(|l| !is_banner(l)).unwrap_or("Unknown error")
 }
@@ -235,10 +338,52 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
 /// delete loses a race against antivirus (or the installer itself) still
 /// holding the file open. The package is usually installed by then, so this
 /// exit code says nothing about whether the install worked (issue #780).
+///
+/// The same sharing violation also arrives HRESULT-formatted ("0x80070020 :
+/// The process cannot access the file…") with no `remove:` prefix; it gets the
+/// same did-it-install-anyway check (issue #976).
 #[cfg_attr(not(windows), allow(dead_code))]
 fn is_winget_cleanup_race(stderr: &str, stdout: &str) -> bool {
     let combined = format!("{stderr}\n{stdout}").to_lowercase();
-    combined.contains("remove:") && combined.contains("being used by another process")
+    (combined.contains("remove:") && combined.contains("being used by another process"))
+        || combined.contains("0x80070020")
+}
+
+/// The wrapped MSI installer ending with ERROR_INSTALL_ALREADY_RUNNING
+/// ("Installer failed with exit code: 1618"): another install — winget,
+/// msiexec, Windows Update — held the Windows Installer mutex at the same
+/// moment. A timing state, not an app malfunction (issue #1064).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn winget_installer_busy_error(package: &str, stderr: &str, stdout: &str) -> Option<CommandError> {
+    let combined = format!("{stderr}\n{stdout}").to_lowercase();
+    combined.contains("exit code: 1618").then(|| {
+        CommandError::expected(format!(
+            "Windows was busy running another installer (another app's setup or Windows \
+             Update), so it couldn't install {package}. Wait for that to finish, then try this \
+             step again."
+        ))
+    })
+}
+
+/// The wrapped MSI installer ending with ERROR_INSTALL_USEREXIT ("Installer
+/// failed with exit code: 1602"). Despite the name it rarely means a person
+/// clicked Cancel: antivirus killing the installer, or an elevation prompt a
+/// silent, non-interactive install can't answer, both report it. A machine
+/// state, not an app malfunction (issue #1102).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn winget_installer_cancelled_error(
+    package: &str,
+    stderr: &str,
+    stdout: &str,
+) -> Option<CommandError> {
+    let combined = format!("{stderr}\n{stdout}").to_lowercase();
+    combined.contains("exit code: 1602").then(|| {
+        CommandError::expected(format!(
+            "Windows reported the {package} install as cancelled — usually antivirus \
+             interrupted it, or it needed a permission prompt this automatic install couldn't \
+             answer. Try this step again; if it keeps happening, install {package} manually."
+        ))
+    })
 }
 
 /// Turn a winget *spawn* failure (the process never started, so there's no
@@ -381,9 +526,15 @@ pub async fn install_winget_packages(
                 }
                 return Err(CommandError::expected(format!(
                     "Windows couldn't finish installing {package} because another program \
-                     (usually antivirus) still had winget's temporary installer file open. \
+                     (usually antivirus) still had one of the installer's files open. \
                      Try this step again in a moment."
                 )));
+            }
+            if let Some(err) = winget_installer_cancelled_error(package, &stderr, &stdout) {
+                return Err(err);
+            }
+            if let Some(err) = winget_installer_busy_error(package, &stderr, &stdout) {
+                return Err(err);
             }
             return Err((format!(
                 "Failed to install {}: {}",
@@ -437,7 +588,7 @@ pub async fn check_npm_cache_permissions() -> String {
 mod tests {
     use super::{
         brew_error_line, extract_winget_error, humanize_brew_failure, is_winget_cleanup_race,
-        winget_spawn_error,
+        winget_installer_busy_error, winget_installer_cancelled_error, winget_spawn_error,
     };
     use crate::errors::CommandError;
 
@@ -488,6 +639,176 @@ mod tests {
         assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
         let msg = err.to_string();
         assert!(msg.contains("brew update-reset"), "got: {msg}");
+    }
+
+    /// Issue #1068: Xcode.app without the Command Line Tools.
+    #[test]
+    fn xcode_alone_not_sufficient_is_expected_with_clt_advice() {
+        let stderr = "Error: Xcode alone is not sufficient on Sequoia.\n\
+                      Install the Command Line Tools:\n  xcode-select --install";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(
+            err.to_string().contains("xcode-select --install"),
+            "got: {err}"
+        );
+    }
+
+    /// Issue #1069: a link conflict after a successful install, carrying the
+    /// formula-specific fix when Homebrew printed one.
+    #[test]
+    fn brew_link_failure_is_expected_and_carries_the_fix() {
+        let stderr = "Error: The `brew link` step did not complete successfully\n\
+                      The formula built, but is not symlinked into /opt/homebrew\n\
+                      Could not symlink bin/node\n\
+                      Target /opt/homebrew/bin/node already exists.\n\
+                      To force the link and overwrite all conflicting files:\n  \
+                      brew link --overwrite node";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(
+            err.to_string().contains("brew link --overwrite node"),
+            "got: {err}"
+        );
+
+        let bare = humanize_brew_failure(
+            "Failed to install packages",
+            "Error: The `brew link` step did not complete successfully",
+        );
+        assert!(
+            matches!(bare, CommandError::Expected { .. }),
+            "got: {bare:?}"
+        );
+        assert!(
+            bare.to_string().contains("brew link --overwrite <formula>"),
+            "got: {bare}"
+        );
+    }
+
+    /// Issue #1070: brew stopped by a signal is an interrupted install.
+    #[test]
+    fn signal_terminated_brew_is_expected() {
+        let err = humanize_brew_failure("Failed to install packages", "Error: SIGTERM");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("SIGTERM"), "got: {err}");
+        // A real error that merely starts with "SIG" isn't a signal.
+        let other = humanize_brew_failure("Failed to install packages", "Error: SIGN failed");
+        assert!(
+            !matches!(other, CommandError::Expected { .. }),
+            "got: {other:?}"
+        );
+    }
+
+    /// Issue #1025: Homebrew failing to fetch its own portable Ruby.
+    #[test]
+    fn portable_ruby_download_failure_is_expected_and_keeps_curl_reason() {
+        let stderr = "Error: Failed to download ruby from the following locations:\n\
+                      - https://ghcr.io/v2/homebrew/portable-ruby/portable-ruby/blobs/sha256:abc\n\
+                      curl: (23) Failure writing output to destination";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("Ruby runtime"), "got: {msg}");
+        assert!(msg.contains("curl: (23)"), "got: {msg}");
+
+        let header_only = humanize_brew_failure(
+            "Failed to install packages",
+            "Error: Failed to download ruby from the following locations:",
+        );
+        assert!(
+            matches!(header_only, CommandError::Expected { .. }),
+            "got: {header_only:?}"
+        );
+    }
+
+    /// Issue #957: an uncaught Ruby exception must surface its message, not
+    /// brew.rb's `<main>` frame.
+    #[test]
+    fn ruby_backtrace_surfaces_the_raised_message() {
+        let stderr = "/opt/homebrew/Library/Homebrew/cmd/install.rb:123:in `install': \
+                      undefined method `foo' for nil (NoMethodError)\n\
+                      \tfrom /opt/homebrew/Library/Homebrew/cmd/install.rb:45:in `run'\n\
+                      \tfrom /opt/homebrew/Library/Homebrew/brew.rb:26:in `<main>'";
+        let line = brew_error_line(stderr);
+        assert!(line.contains("NoMethodError"), "got: {line}");
+        assert!(!line.contains("<main>"), "got: {line}");
+        // Still reportable: an unknown crash is a real defect signal.
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(
+            !matches!(err, CommandError::Expected { .. }),
+            "got: {err:?}"
+        );
+    }
+
+    /// Issue #1064: MSI exit 1618 — another installer held the mutex.
+    #[test]
+    fn winget_installer_exit_1618_is_expected() {
+        let err =
+            winget_installer_busy_error("GitHub.cli", "", "Installer failed with exit code: 1618")
+                .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("GitHub.cli"), "got: {err}");
+        assert!(winget_installer_busy_error(
+            "GitHub.cli",
+            "",
+            "Installer failed with exit code: 1603"
+        )
+        .is_none());
+    }
+
+    /// Issue #976: the HRESULT-formatted sharing violation is the same race.
+    #[test]
+    fn recognizes_hresult_sharing_violation_as_cleanup_race() {
+        let stderr = "0x80070020 : The process cannot access the file because it is being used \
+                      by another process.";
+        assert!(is_winget_cleanup_race(stderr, ""));
+        assert!(is_winget_cleanup_race("", stderr));
+    }
+
+    /// Issue #1132: Homebrew can't find a working git for its own bookkeeping.
+    #[test]
+    fn missing_git_for_homebrew_is_expected_with_clt_advice() {
+        let stderr = "Error: 'git' must be installed and in your PATH!";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(
+            err.to_string().contains("xcode-select --install"),
+            "got: {err}"
+        );
+    }
+
+    /// Issues #1081/#1082: a stale staged bottle from an interrupted install.
+    #[test]
+    fn stale_bottle_destination_is_expected_and_names_the_path() {
+        let stderr = "Error: Bottle destination already exists: \
+                      /usr/local/var/homebrew/tmp/.cellar/libffi/3.8.0";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("rm -rf \"/usr/local/var/homebrew/tmp/.cellar/libffi/3.8.0\""),
+            "got: {msg}"
+        );
+    }
+
+    /// Issue #1102: MSI exit 1602 (ERROR_INSTALL_USEREXIT) under a silent
+    /// winget install is a machine state, not an app bug.
+    #[test]
+    fn winget_installer_exit_1602_is_expected() {
+        let err = winget_installer_cancelled_error(
+            "GitHub.cli",
+            "",
+            "Installer failed with exit code: 1602",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("GitHub.cli"), "got: {err}");
+        assert!(winget_installer_cancelled_error(
+            "GitHub.cli",
+            "",
+            "Installer failed with exit code: 1603"
+        )
+        .is_none());
     }
 
     /// Issue #571: Homebrew's version.rb TypeError is a broken Homebrew

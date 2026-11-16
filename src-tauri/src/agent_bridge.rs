@@ -86,7 +86,7 @@ pub fn set_project_attached(canonical_project_path: &str, attached: bool) {
     }
 }
 
-fn is_project_attached(canonical_project_path: &str) -> bool {
+pub(crate) fn is_project_attached(canonical_project_path: &str) -> bool {
     ATTACHED_PROJECTS
         .lock()
         .map(|set| set.contains(canonical_project_path))

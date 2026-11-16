@@ -25,6 +25,7 @@ export function KeyframesNameChip({
     return (
       <CascadeChip
         tone="media"
+        className="ss-keyframes-name-chip"
         interactive
         title="Click to rename the animation"
         role="button"
@@ -41,8 +42,9 @@ export function KeyframesNameChip({
           }
         }}
       >
-        <span className="ss-cascade-chip__content">
-          <span className="ss-cascade-card__media-at">@keyframes</span> {name}
+        <span className="ss-cascade-chip__content ss-keyframes-name-chip__content">
+          <span className="ss-cascade-card__media-at">@keyframes</span>
+          <span className="ss-keyframes-name-chip__name">{name}</span>
         </span>
       </CascadeChip>
     );
@@ -55,13 +57,12 @@ export function KeyframesNameChip({
   };
 
   return (
-    <CascadeChip tone="media" editing>
+    <CascadeChip tone="media" editing className="ss-keyframes-name-chip">
       <span className="ss-cascade-card__media-at">@keyframes</span>
       <input
-        className="ss-cascade-chip__input"
+        className="ss-cascade-chip__input ss-keyframes-name-chip__input"
         autoFocus
         value={text}
-        size={Math.max(text.length, 1)}
         spellCheck={false}
         autoComplete="off"
         aria-label="Animation name"

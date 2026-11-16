@@ -1,5 +1,6 @@
 /**
- * Starts and closes agent tabs when remote access asks.
+ * Starts and closes agent tabs, and switches projects, when remote access
+ * asks.
  *
  * The remote server (src-tauri/src/remote_access) can't touch tabs itself —
  * they belong to the workspace's terminal model — so `start_agent` and
@@ -11,6 +12,8 @@
  *
  * - **Start** adds a tab whose CLI *starts with* the prompt — the same
  *   spawn-not-paste delivery the Inbox uses (see useWorkflowHandoff).
+ * - **Show** only opens the project, so its preview comes up for a
+ *   screenshot (`remote-show-project`).
  * - **Close** is the tab's ×: `closeTerminalTab`, which also kills the PTY
  *   and tidies split panes. The last tab is never closed — the workspace
  *   always keeps one.
@@ -40,7 +43,9 @@ export type RemoteRequest =
       sessionId: string;
       receivedAt: number;
     }
-  | { kind: 'close'; projectPath: string; sessionId: string; receivedAt: number };
+  | { kind: 'close'; projectPath: string; sessionId: string; receivedAt: number }
+  /** Just bring the project up, so its preview can be screenshotted. */
+  | { kind: 'show'; projectPath: string; receivedAt: number };
 
 interface TabRef {
   id: number;
@@ -71,6 +76,7 @@ export type RemoteStep =
   | { do: 'wait' }
   | { do: 'start' }
   | { do: 'close'; tabId: number }
+  | { do: 'shown' }
   | { do: 'drop'; reason: 'expired' | 'no_room' | 'no_such_tab' | 'last_tab' };
 
 /**
@@ -84,6 +90,10 @@ export function remoteStep(
 ): RemoteStep {
   if (!pending) return { do: 'idle' };
   if (now - pending.receivedAt > GIVE_UP_MS) return { do: 'drop', reason: 'expired' };
+  if (pending.kind === 'show') {
+    const showing = state.inWorkspace && state.currentProjectPath === pending.projectPath;
+    return showing ? { do: 'shown' } : { do: 'wait' };
+  }
   const tabs = state.terminalTabs;
   const ready =
     state.inWorkspace && state.currentProjectPath === pending.projectPath && tabs.length > 0;
@@ -133,9 +143,15 @@ export function useRemoteAgentControl(
         enqueue({ kind: 'close', projectPath, sessionId, receivedAt: Date.now() });
       }
     );
+    const unlistenShow = listen<{ projectPath: string }>('remote-show-project', (event) => {
+      const { projectPath } = event.payload;
+      logger.info('[Remote] Asked to show a project', { projectPath });
+      enqueue({ kind: 'show', projectPath, receivedAt: Date.now() });
+    });
     return () => {
       void unlistenStart.then((fn) => fn());
       void unlistenClose.then((fn) => fn());
+      void unlistenShow.then((fn) => fn());
     };
   }, []);
 
@@ -176,6 +192,8 @@ export function useRemoteAgentControl(
       finish(pending);
     } else if (step.do === 'close') {
       closeTerminalTab(step.tabId);
+      finish(pending);
+    } else if (step.do === 'shown') {
       finish(pending);
     } else if (step.do === 'drop') {
       logger.warn('[Remote] Did not act on a remote request', {

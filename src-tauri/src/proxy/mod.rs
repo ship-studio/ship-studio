@@ -657,7 +657,8 @@ async fn handle_request(
             // Every environment condition is handled inline in
             // proxy_http_request with a warn-level log and a plain-English
             // 502: connect failures (issue #683), handshake/send breakage
-            // (issue #709) and the response-budget timeout (issue #795).
+            // (issue #709), the response-budget timeout (issue #795) and an
+            // error page body that stalls after its headers (issue #1090).
             // What reaches here is a genuine proxy defect — malformed
             // headers, body-buffering faults — so it keeps reporting.
             tracing::error!("[Proxy] Request failed: {}", e);
@@ -913,14 +914,19 @@ async fn proxy_http_request(
                 "[Proxy] Dev server returned {} for HTML response, injecting error overlay",
                 status.as_u16()
             );
-            let body_bytes = tokio::time::timeout(HTML_BODY_TIMEOUT, resp.collect())
-                .await
-                .map_err(|_| {
-                    format!(
-                        "reading error page body from localhost:{target_port} timed out after {HTML_BODY_TIMEOUT:?}"
-                    )
-                })??
-                .to_bytes();
+            let Some(body_bytes) = collect_error_body(resp.into_body(), HTML_BODY_TIMEOUT).await?
+            else {
+                // Headers arrived, then the dev server stalled or died while
+                // streaming its error page — the same restart race as the
+                // connect/send/response-budget cases above, one step later
+                // (issue #1090). An environment state, not a proxy defect.
+                tracing::warn!(
+                    "[Proxy] Reading error page body from localhost:{} timed out after {:?} (dev server stalled or restarting)",
+                    target_port,
+                    HTML_BODY_TIMEOUT
+                );
+                return Ok(dev_server_unavailable_response(target_port)?);
+            };
             if body_bytes.len() < MAX_BODY_SIZE {
                 full_body(Bytes::from(inject_error_into_html(
                     &body_bytes,
@@ -1114,6 +1120,21 @@ fn upstream_connection_lost(err: &hyper::Error) -> bool {
         || err.is_incomplete_message()
         || err.is_canceled()
         || upstream_connection_lost_source(err)
+}
+
+/// Buffer an HTML error body within `budget`. `Ok(None)` means the budget
+/// elapsed — the dev server sent its 5xx headers and then stalled.
+async fn collect_error_body<B>(
+    body: B,
+    budget: std::time::Duration,
+) -> Result<Option<Bytes>, B::Error>
+where
+    B: hyper::body::Body,
+{
+    match tokio::time::timeout(budget, body.collect()).await {
+        Ok(collected) => Ok(Some(collected?.to_bytes())),
+        Err(_elapsed) => Ok(None),
+    }
 }
 
 /// The 502 shown whenever the dev server isn't answering for an expected
@@ -1561,14 +1582,42 @@ mod injector_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        connect_upstream_with_retry, is_auth_redirect_loop, is_document_navigation,
-        local_ports_exhausted, redact_handshake_values, rewrite_localhost_origin,
-        sanitize_csp_for_preview, upstream_connect_retryable, upstream_connection_lost_kind,
-        upstream_connection_lost_source, upstream_unavailable,
+        collect_error_body, connect_upstream_with_retry, is_auth_redirect_loop,
+        is_document_navigation, local_ports_exhausted, redact_handshake_values,
+        rewrite_localhost_origin, sanitize_csp_for_preview, upstream_connect_retryable,
+        upstream_connection_lost_kind, upstream_connection_lost_source, upstream_unavailable,
         websocket_retry_exhausted_is_expected,
     };
     use hyper::header::HeaderValue;
     use hyper::StatusCode;
+
+    /// A body that never yields a frame: 5xx headers sent, then a stall.
+    struct StalledBody;
+
+    impl hyper::body::Body for StalledBody {
+        type Data = bytes::Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    #[tokio::test]
+    async fn stalled_error_page_body_is_a_timeout_not_an_error() {
+        // Issue #1090: "reading error page body from localhost:3001 timed out
+        // after 60s" fell through to the catch-all and auto-filed a bug.
+        let budget = std::time::Duration::from_millis(20);
+        assert_eq!(collect_error_body(StalledBody, budget).await, Ok(None));
+        let full = http_body_util::Full::new(bytes::Bytes::from_static(b"<h1>500</h1>"));
+        assert_eq!(
+            collect_error_body(full, budget).await,
+            Ok(Some(bytes::Bytes::from_static(b"<h1>500</h1>")))
+        );
+    }
 
     #[test]
     fn upstream_connect_failure_classification() {

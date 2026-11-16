@@ -132,6 +132,35 @@ export const layoutScenarios: Scenario[] = [
   },
 
   {
+    id: 'layout-focus-with-team-docked',
+    title: 'Flexible panels — Focus with Team docked',
+    looksRightWhen:
+      'Agent on the left, Preview on the right, split evenly with a resize handle between them, and no Team panel drawn over either. A docked Team panel keeps its place in the saved layout but is not shown until Focus ends (#1147).',
+    project: WORKSPACE_PROJECT,
+    storage: {
+      [LAYOUT_KEY]: layout(['team', 'agent', 'preview'], [], { team: 340, agent: 320 }),
+      ...teamOpen,
+    },
+    steps: [{ click: '.workspace-tab[aria-label="Focus"]' }],
+    requires: '.workspace-dock__center:not([hidden])',
+    commands: { ...workspaceCommands, ...teamCommands },
+  },
+
+  {
+    id: 'layout-focus-from-code',
+    title: 'Flexible panels — Focus entered from Code mode',
+    looksRightWhen:
+      'Agent on the left and the code browser on the right, split evenly with a working resize handle between them — not a stretched agent with no handle (#1019).',
+    project: WORKSPACE_PROJECT,
+    steps: [
+      { click: '.workspace-tab[aria-label="Code"]' },
+      { click: '.workspace-tab[aria-label="Focus"]' },
+    ],
+    requires: '.workspace-dock__center:not([hidden])',
+    commands: workspaceCommands,
+  },
+
+  {
     id: 'layout-repairs-nonsense',
     title: 'Flexible panels — a saved layout that makes no sense',
     looksRightWhen:

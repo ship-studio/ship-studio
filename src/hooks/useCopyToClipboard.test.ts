@@ -51,12 +51,25 @@ describe('writeTextWithFocusRetry (issue #753)', () => {
     expect(writeText).toHaveBeenCalledTimes(2);
   });
 
-  it('gives up after the second denial and rethrows', async () => {
+  it('backs off and retries again while the write is still denied (issue #1010)', async () => {
+    // Focus came back but the webview still refused the first retry.
+    writeText
+      .mockRejectedValueOnce(notAllowed())
+      .mockRejectedValueOnce(notAllowed())
+      .mockResolvedValueOnce(undefined);
+    const pending = writeTextWithFocusRetry('hello');
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(writeText).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives up after the retries run out and rethrows', async () => {
     writeText.mockRejectedValue(notAllowed());
-    await expect(writeTextWithFocusRetry('hello')).rejects.toMatchObject({
-      name: 'NotAllowedError',
-    });
-    expect(writeText).toHaveBeenCalledTimes(2);
+    const pending = writeTextWithFocusRetry('hello');
+    const settled = expect(pending).rejects.toMatchObject({ name: 'NotAllowedError' });
+    await vi.runAllTimersAsync();
+    await settled;
+    expect(writeText).toHaveBeenCalledTimes(4);
   });
 
   it('does not retry unrelated failures', async () => {

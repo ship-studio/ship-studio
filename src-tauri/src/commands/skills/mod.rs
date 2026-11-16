@@ -90,7 +90,7 @@ pub(super) fn extract_skills_cli_error(stdout: &str, stderr: &str) -> String {
 
     // Replace all non-ASCII characters (box-drawing, spinners) with spaces,
     // then normalize whitespace per line.
-    let error_lines: Vec<String> = clean
+    let lines: Vec<String> = clean
         .lines()
         .map(|l| {
             l.chars()
@@ -98,18 +98,55 @@ pub(super) fn extract_skills_cli_error(stdout: &str, stderr: &str) -> String {
                 .collect::<String>()
         })
         .map(|l| l.trim().to_string())
-        .filter(|l| {
-            !l.is_empty()
-                && (l.contains("Failed")
-                    || l.contains("failed")
-                    || l.contains("Authentication")
-                    || l.contains("Invalid")
-                    || l.contains("No matching")
-                    || l.contains("not found")
-                    || l.contains("Valid agents")
-                    || l.contains("Available skills"))
-        })
         .collect();
+
+    let mut error_lines: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let l = &lines[i];
+        i += 1;
+        let is_list_header = l.contains("Valid agents") || l.contains("Available skills");
+        if l.is_empty()
+            || !(is_list_header
+                || l.contains("Failed")
+                || l.contains("failed")
+                || l.contains("Authentication")
+                || l.contains("Invalid")
+                || l.contains("No matching")
+                || l.contains("not found"))
+        {
+            continue;
+        }
+        // "Valid agents: a, b" carries its values on the same line, but
+        // "Available skills:" lists them one per line below — which no
+        // keyword matched, leaving the bare header as the whole error
+        // (issue #995). Take the lines under a bare header, up to the next
+        // blank line.
+        let header = l.trim_end_matches(':').trim_end();
+        let bare_header = header.ends_with("Available skills") || header.ends_with("Valid agents");
+        if bare_header {
+            let mut items: Vec<&str> = Vec::new();
+            while i < lines.len() && !lines[i].is_empty() {
+                items.push(lines[i].trim_start_matches(['-', '*', ' ']));
+                i += 1;
+            }
+            if !items.is_empty() {
+                const MAX_LISTED: usize = 20;
+                let mut list = items
+                    .iter()
+                    .take(MAX_LISTED)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if items.len() > MAX_LISTED {
+                    list.push_str(&format!(" and {} more", items.len() - MAX_LISTED));
+                }
+                error_lines.push(format!("{header}: {list}"));
+                continue;
+            }
+        }
+        error_lines.push(l.clone());
+    }
 
     if !error_lines.is_empty() {
         return error_lines.join(". ");
@@ -152,6 +189,26 @@ mod tests {
         let result = extract_skills_cli_error(stdout, stderr);
         assert!(result.contains("Invalid agents: claude"), "got: {result}");
         assert!(result.contains("Valid agents:"), "got: {result}");
+    }
+
+    // Issue #995: "Available skills" lists its names on the lines below, and
+    // the error used to end at the bare header.
+    #[test]
+    fn test_extract_skills_cli_error_keeps_multiline_skill_list() {
+        let stdout = "\u{25c7}  Found 3 skills\n\u{25a0}  No matching skills found for: nope\n\u{2502}\n\u{25cf}  Available skills:\n\u{2502}    - react-best-practices\n\u{2502}    - web-design-guidelines\n\u{2502}    - frontend-design\n\u{2502}\n\u{2514}  Installation failed\n";
+        let result = extract_skills_cli_error(stdout, "");
+        assert!(
+            result.contains(
+                "Available skills: react-best-practices, web-design-guidelines, frontend-design"
+            ),
+            "got: {result}"
+        );
+        assert!(result.contains("No matching skills"), "got: {result}");
+        // The reported shape: a bare header with nothing under it stays as is.
+        assert_eq!(
+            extract_skills_cli_error("Available skills\n", ""),
+            "Available skills"
+        );
     }
 
     #[test]

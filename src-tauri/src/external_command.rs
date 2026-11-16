@@ -124,6 +124,17 @@ fn map_spawn_io_error(label: &str, io_err: &std::io::Error) -> CommandError {
              incomplete (side-by-side configuration is incorrect). Reinstall or repair that \
              program, then try again."
         ))
+    } else if cfg!(target_os = "macos") && io_err.raw_os_error() == Some(86) {
+        // EBADARCH ("Bad CPU type in executable"): an Intel-only binary — most
+        // often an old Homebrew/nvm `node` carried over from an Intel Mac — on
+        // Apple Silicon without Rosetta. A broken install, not the app
+        // (issue #1000). 86 means something else off macOS.
+        CommandError::expected(format!(
+            "`{label}` couldn't be launched: the program on your PATH is built for a different \
+             CPU (an Intel-only install on an Apple Silicon Mac). Reinstall an Apple Silicon \
+             build of it — usually Node.js — or install Rosetta with \
+             `softwareupdate --install-rosetta`, then try again."
+        ))
     } else if io_err.kind() == std::io::ErrorKind::InvalidInput
         && io_err
             .to_string()
@@ -369,6 +380,42 @@ pub fn spawn_with_pressure_retry<T>(
     })
 }
 
+/// Stack size for helper threads that shuttle process output or wait on a
+/// child. They hold no deep call stacks, and std's 2 MiB default multiplies
+/// across every open terminal and dev server.
+pub const HELPER_THREAD_STACK_SIZE: usize = 512 * 1024;
+
+/// Spawn a named helper thread with a small stack, returning the OS failure
+/// instead of panicking. `std::thread::spawn` panics when the OS refuses a new
+/// thread (Windows `ERROR_NO_SYSTEM_RESOURCES`, os error 1450; Unix EAGAIN);
+/// pair with [`thread_spawn_error`] to surface that as a command error.
+pub fn spawn_helper_thread<F, T>(name: String, f: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(name)
+        .stack_size(HELPER_THREAD_STACK_SIZE)
+        .spawn(f)
+}
+
+/// Map a failed thread spawn into a `CommandError`. Windows resource
+/// exhaustion (1450/1455/8) and Unix EAGAIN keep their existing friendly,
+/// `Expected` messages; anything else stays a labeled `Io` error.
+pub fn thread_spawn_error(label: &str, io_err: &std::io::Error) -> CommandError {
+    warn!(cmd = %label, error = %io_err, "couldn't spawn helper thread");
+    if let Some(err) = crate::errors::windows_out_of_memory(io_err, Some(label)) {
+        return err;
+    }
+    if is_spawn_resource_pressure(&io_err.to_string()) {
+        return spawn_resource_pressure_error(label);
+    }
+    CommandError::Io {
+        message: format!("`{label}`: couldn't start a background thread: {io_err}"),
+    }
+}
+
 /// Cap on CLI output forwarded into user-facing error messages (and thus into
 /// telemetry). A crashing subprocess can dump arbitrarily much — a Go runtime
 /// stack trace, a full agent session transcript — and nothing past the head is
@@ -391,6 +438,43 @@ pub fn truncate_output(text: &str) -> String {
     }
     let head: String = trimmed.chars().take(MAX_ERROR_OUTPUT_CHARS).collect();
     format!("{}… (truncated)", head.trim_end())
+}
+
+/// The signal that terminated a process which exited without a code. Always
+/// `None` off Unix, where `ExitStatus::code()` is always present.
+pub fn exit_signal(status: &std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
+    }
+}
+
+/// "signal 9 (SIGKILL) — likely killed by …": names the common signals and
+/// hints at the usual culprit, so a signal death says *which* signal and what
+/// it usually means (issues #589/#1088).
+pub fn describe_signal(sig: i32) -> String {
+    let name = match sig {
+        1 => " (SIGHUP)",
+        2 => " (SIGINT)",
+        6 => " (SIGABRT)",
+        9 => " (SIGKILL)",
+        11 => " (SIGSEGV)",
+        13 => " (SIGPIPE)",
+        15 => " (SIGTERM)",
+        _ => "",
+    };
+    let hint = match sig {
+        9 => " — likely killed by the operating system, e.g. because it ran out of memory",
+        11 => " — the program crashed (segmentation fault)",
+        _ => "",
+    };
+    format!("signal {sig}{name}{hint}")
 }
 
 /// Like [`truncate_output`], but keeps both ends: the first and last
@@ -574,6 +658,18 @@ mod tests {
             }
             other => panic!("expected Expected, got {other:?}"),
         }
+    }
+
+    // The #1000 shape: "Bad CPU type in executable (os error 86)" spawning an
+    // Intel-only `node` on Apple Silicon.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn map_spawn_io_error_classifies_bad_cpu_type_as_expected() {
+        let err = map_spawn_io_error("playwright capture", &std::io::Error::from_raw_os_error(86));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("`playwright capture`"), "got: {msg}");
+        assert!(msg.contains("Rosetta"), "got: {msg}");
     }
 
     #[test]

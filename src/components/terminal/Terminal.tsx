@@ -62,7 +62,11 @@ import {
 } from '../../lib/containerVisibility';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { attachedLibraryDirs } from '../../lib/attached-libraries';
-import { sanitizeTerminalTitle } from '../../lib/terminalTitle';
+import {
+  agentStatusFromTitle,
+  isFocusReport,
+  sanitizeTerminalTitle,
+} from '../../lib/terminalTitle';
 import {
   decideStartupTimeoutAction,
   RESPAWN_GRACE_MS,
@@ -471,10 +475,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       textarea.addEventListener('blur', onTextareaBlur);
     }
 
-    // Listen for terminal title changes to detect agent's status
-    // Claude Code updates the terminal title with icons:
-    // - Dot (· char ~10242/10256) when thinking/processing
-    // - Star (* char ~10035) when done/waiting for input
+    // Listen for terminal title changes to detect the agent's status from
+    // the leading glyph Claude Code puts in its title (see lib/terminalTitle).
     term.onTitleChange((title) => {
       // Forward the display title (strip leading status icon if present)
       const displayTitle = sanitizeTerminalTitle(title);
@@ -487,31 +489,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       }
 
       if (agent.supportsStatusDetection) {
-        let status: AgentStatus = 'idle';
-
-        // Check first character code to detect status
-        const firstCharCode = title.charCodeAt(0);
-
-        // Dot variants (thinking/processing) - char codes around 10242, 10256, or literal dot
-        if (
-          firstCharCode === 10242 ||
-          firstCharCode === 10256 ||
-          firstCharCode === 183 ||
-          title.startsWith('·') ||
-          title.startsWith('•')
-        ) {
-          status = 'thinking';
-        }
-        // Star variants (done/waiting) - char code 10035 or asterisk-like
-        else if (
-          firstCharCode === 10035 ||
-          title.startsWith('*') ||
-          title.startsWith('✳') ||
-          title.startsWith('✱') ||
-          title.startsWith('✲')
-        ) {
-          status = 'waiting';
-        }
+        const status: AgentStatus = agentStatusFromTitle(title);
 
         // Only fire callback if status actually changed
         if (status !== lastStatusRef.current) {
@@ -1135,6 +1113,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             }
             return;
           }
+          // Keep the agent's title honest: see isFocusReport.
+          if (agent.supportsStatusDetection && isFocusReport(data)) return;
           const sid = ptyRef.current?.sessionId;
           if (sid) writePtySessionLogged(sid, data);
           // When user sends input to an agent without title-based status detection,

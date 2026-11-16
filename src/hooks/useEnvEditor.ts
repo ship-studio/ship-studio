@@ -85,6 +85,23 @@ export function describeInvalidEnvKey(key: string): string | null {
   return null;
 }
 
+/**
+ * Plain-language reason a new env file name would be rejected, or null when
+ * it's fine. Mirrors `create_env_file`'s rules (no path separators or `..`;
+ * starts with `.` and contains `env`) so a typo gets inline guidance instead
+ * of the backend's raw "Invalid filename" string in an error toast — which
+ * also filed a bug report for what is a typo (issue #989).
+ */
+export function describeInvalidEnvFileName(name: string): string | null {
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+    return `"${name}" can't be used — an env file name can't contain slashes or "..".`;
+  }
+  if (!name.startsWith('.') || !name.includes('env')) {
+    return `"${name}" isn't an env file name. It must start with "." and contain "env", like .env or .env.local.`;
+  }
+  return null;
+}
+
 /** Params for the useEnvEditor hook */
 interface UseEnvEditorParams {
   /** Absolute path to the project directory */
@@ -515,6 +532,12 @@ export function useEnvEditor({
     if (!newFileName.trim()) return;
 
     const fileName = newFileName.trim();
+    const invalid = describeInvalidEnvFileName(fileName);
+    if (invalid) {
+      setError(invalid);
+      onToast?.(invalid, 'info');
+      return;
+    }
     try {
       const path = await invoke<string>('create_env_file', {
         projectPath,

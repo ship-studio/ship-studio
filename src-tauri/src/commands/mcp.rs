@@ -197,9 +197,11 @@ pub async fn list_mcp_servers(
         .unwrap_or_else(crate::agent::get_active_agent);
 
     let binary = find_agent_binary(agent)?;
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
+    // Only set HOME when it resolved: an explicitly empty HOME stopped Codex
+    // finding its own home directory and crashed it (issue #1117). Otherwise the
+    // child inherits the app's environment and the CLI's own lookup (USERPROFILE
+    // on Windows).
+    let home = dirs::home_dir();
 
     // Constrain the agent's working directory to a known project.
     let validated_cwd = match &project_path {
@@ -212,11 +214,12 @@ pub async fn list_mcp_servers(
     list_cmd
         .args(["mcp", "list"])
         .env("PATH", get_extended_path())
-        .env("HOME", &home);
+        .envs(home.as_ref().map(|h| ("HOME", h)));
 
     // For Claude Code, unset CLAUDECODE to avoid nested-session error
     if agent.id == "claude-code" {
         list_cmd.env_remove("CLAUDECODE");
+        drop_stale_git_bash_path(&mut list_cmd);
     }
 
     if let Some(ref path) = validated_cwd {
@@ -225,7 +228,7 @@ pub async fn list_mcp_servers(
 
     let list_output = list_cmd
         .output()
-        .map_err(|e| format!("Failed to run {} mcp list: {}", agent.display_name, e))?;
+        .map_err(|e| mcp_spawn_error(agent, "list", &e))?;
 
     let stdout = String::from_utf8_lossy(&list_output.stdout);
 
@@ -254,11 +257,12 @@ pub async fn list_mcp_servers(
         get_cmd
             .args(["mcp", "get", &server.name])
             .env("PATH", get_extended_path())
-            .env("HOME", &home)
+            .envs(home.as_ref().map(|h| ("HOME", h)))
             .envs(crate::commands::accounts::get_env_vars_for_active_account());
 
         if agent.id == "claude-code" {
             get_cmd.env_remove("CLAUDECODE");
+            drop_stale_git_bash_path(&mut get_cmd);
         }
 
         if let Some(ref path) = validated_cwd {
@@ -439,9 +443,7 @@ pub async fn add_mcp_server(
         .unwrap_or_else(crate::agent::get_active_agent);
 
     let binary = find_agent_binary(agent)?;
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let home = dirs::home_dir();
 
     // Strip any leading binary name / "mcp add" prefix the user may have included
     let args_str = raw_args.trim();
@@ -464,16 +466,20 @@ pub async fn add_mcp_server(
     if agent.id == "opencode" {
         return add_opencode_mcp_server(args_str);
     }
+    if agent.id == "cursor" {
+        return Err(cursor_has_no_mcp_cli("add"));
+    }
 
     // Build the command: <binary> mcp add <args>
     let mut cmd = create_command(&binary);
     cmd.arg("mcp")
         .arg("add")
         .env("PATH", get_extended_path())
-        .env("HOME", &home);
+        .envs(home.as_ref().map(|h| ("HOME", h)));
 
     if agent.id == "claude-code" {
         cmd.env_remove("CLAUDECODE");
+        drop_stale_git_bash_path(&mut cmd);
         // Add scope flag for Claude Code
         if let Some(ref s) = scope {
             cmd.args(["-s", s]);
@@ -491,7 +497,7 @@ pub async fn add_mcp_server(
 
     let output = cmd
         .output()
-        .map_err(|e| format!("Failed to run {} mcp add: {}", agent.display_name, e))?;
+        .map_err(|e| mcp_spawn_error(agent, "add", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -501,6 +507,11 @@ pub async fn add_mcp_server(
         } else {
             stderr
         };
+        if details.trim().is_empty() {
+            if let Some(err) = agent_cli_crash(agent, "add", output.status.code()) {
+                return Err(err);
+            }
+        }
         return Err(classify_mcp_failure("add MCP server", &details));
     }
 
@@ -629,7 +640,166 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
+    // The agent CLI itself crashed — a Rust stack overflow in Codex
+    // ("thread 'codex-main' has overflowed its stack"), seen after its
+    // "could not create PATH aliases: Could not find home directory" warning.
+    // An upstream CLI crash on the user's machine, not a Ship Studio bug
+    // (issue #1117).
+    if lower.contains("has overflowed its stack") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent CLI crashed while running this command. Update the agent CLI to its latest version and try again."
+        ));
+    }
+
+    // The add input used a flag the active agent's CLI doesn't have: Claude
+    // Code has `--transport` but no `--url` (the URL is a plain argument),
+    // Codex has `--url` but no `--transport`. Commander (Claude Code) says
+    // "error: unknown option '--url'"; clap (Codex) says "error: unexpected
+    // argument '--transport' found". The typed command is the user's, so
+    // point at the right syntax for both CLIs (issues #998, #1061).
+    if lower.contains("unknown option '--url'") || lower.contains("unexpected argument '--url'") {
+        return CommandError::expected(format!(
+            "{message}\n\nThis agent's CLI has no `--url` flag. For Claude Code, give the transport and the URL as plain arguments: `--transport http my-server https://example.com/mcp`."
+        ));
+    }
+    if lower.contains("unknown option '--transport'")
+        || lower.contains("unexpected argument '--transport'")
+    {
+        return CommandError::expected(format!(
+            "{message}\n\nThis agent's CLI has no `--transport` flag. For Codex, add a remote server with `my-server --url https://example.com/mcp`."
+        ));
+    }
+
+    // Codex (clap) refusing a flag-like token in the command because no `--`
+    // separated it from the server name: "error: unexpected argument '-y'
+    // found\n\n  tip: to pass '-y' as a value, use '-- -y'" for input like
+    // `my-server npx -y @some/mcp-server` (issue #1059). Not the older-CLI
+    // shape where `add`/`list`/… itself is the unexpected argument — that
+    // CLI has no MCP subcommands at all (issue #550).
+    let missing_subcommand = ["add", "list", "remove", "get"]
+        .iter()
+        .any(|sub| lower.contains(&format!("unexpected argument '{sub}'")));
+    if lower.contains("unexpected argument")
+        && lower.contains("as a value, use '--")
+        && !missing_subcommand
+    {
+        return CommandError::expected(format!(
+            "{message}\n\nPut `--` between the server name and its command, e.g. `my-server -- npx -y @some/mcp-server`."
+        ));
+    }
+
+    // Codex's server-name check, usually tripped by pasting a config.toml
+    // table header (`[mcp_servers.heroui-react]`) in place of the name
+    // (issue #1058).
+    if lower.contains("invalid server name") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe server name can only use letters, numbers and - _ : @ / . — enter just the name (e.g. `context7`, not `[mcp_servers.context7]`)."
+        ));
+    }
+
+    // Codex with no sign-in and no OPENAI_API_KEY refuses to run at all
+    // ("Missing openai API key. Set the environment variable OPENAI_API_KEY
+    // and re-run this command."). The user's CLI auth state (issue #1016).
+    if lower.contains("missing openai api key") {
+        return CommandError::expected(format!(
+            "{message}\n\nCodex isn't signed in. Run `codex login` in a terminal (or set OPENAI_API_KEY), then try again."
+        ));
+    }
+
+    // Claude Code's Windows Git Bash check. `drop_stale_git_bash_path`
+    // already leaves out a variable naming a missing file, so what reaches
+    // here is Claude Code still not finding Git Bash (issues #1013, #1014).
+    if lower.contains("claude_code_git_bash_path") {
+        return CommandError::expected(format!(
+            "{message}\n\nClaude Code couldn't find Git Bash, which it needs on Windows. Install (or reinstall) Git for Windows, and if you set the CLAUDE_CODE_GIT_BASH_PATH environment variable, point it at your current bash.exe or remove it, then try again."
+        ));
+    }
+
+    // cmd.exe running the agent CLI's npm `.cmd` shim, whose target file is
+    // gone — a broken or half-finished global install, or antivirus
+    // quarantine (issue #991).
+    if lower.contains("the batch file cannot be found") {
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent CLI's install looks broken (Windows can't find the file its launcher points to). Reinstall it — e.g. `npm install -g @anthropic-ai/claude-code` or `npm install -g @openai/codex` — then try again."
+        ));
+    }
+
     message.into()
+}
+
+/// The agent CLI's `mcp <subcommand>` process failed to start at all. Formatting
+/// the `io::Error` straight into a string skipped `windows_out_of_memory`, so a
+/// Windows pagefile exhaustion (os error 1455) reached telemetry as a raw OS
+/// string (issue #1137, the #742 fix for this file's three spawn sites).
+fn mcp_spawn_error(
+    agent: &crate::agent::AgentConfig,
+    subcommand: &str,
+    e: &std::io::Error,
+) -> CommandError {
+    let label = format!("{} mcp {subcommand}", agent.binary_name);
+    if let Some(oom) = crate::errors::windows_out_of_memory(e, Some(&label)) {
+        return oom;
+    }
+    format!("Failed to run {} mcp {subcommand}: {e}", agent.display_name).into()
+}
+
+/// Cursor's CLI has no `mcp add` or `mcp remove` — only login, list,
+/// list-tools, enable and disable. Shelling out anyway failed with commander's
+/// parse error for whatever flag came first ("error: unknown option
+/// '--transport'", issue #1061; "unknown option '--url'", issue #998), which
+/// reads like a typo in the user's input. Cursor reads its servers from
+/// `mcp.json`, so say that instead.
+fn cursor_has_no_mcp_cli(subcommand: &str) -> CommandError {
+    CommandError::expected(format!(
+        "Cursor's CLI can't {subcommand} MCP servers from the command line. Edit \
+         ~/.cursor/mcp.json (or this project's .cursor/mcp.json) instead — Cursor reads its \
+         MCP servers from there."
+    ))
+}
+
+/// Claude Code on Windows refuses to run ANY subcommand when the user's
+/// `CLAUDE_CODE_GIT_BASH_PATH` names a file that isn't there ("Claude Code was
+/// unable to find CLAUDE_CODE_GIT_BASH_PATH path …") — typically left behind
+/// after Git for Windows moved or was reinstalled. That broke adding and
+/// removing MCP servers, including the preview bridge's own registration
+/// (issues #1013, #1014). A path that doesn't exist can't be what the user
+/// meant, so leave it out and let Claude Code find Git Bash itself; a path
+/// that does exist is passed through untouched.
+fn drop_stale_git_bash_path(cmd: &mut std::process::Command) {
+    const VAR: &str = "CLAUDE_CODE_GIT_BASH_PATH";
+    if let Some(path) = std::env::var_os(VAR) {
+        if !std::path::Path::new(&path).is_file() {
+            tracing::warn!(
+                path = ?path,
+                "{VAR} points at a missing file; leaving it out of the claude mcp call"
+            );
+            cmd.env_remove(VAR);
+        }
+    }
+}
+
+/// The agent CLI exiting on a Windows crash status with nothing on either
+/// stream. `STATUS_STACK_BUFFER_OVERRUN` (0xC0000409, -1073740791) is a
+/// fail-fast termination — the CLI process itself was killed, usually by
+/// antivirus/EDR interference or a corrupted install, not by anything in the
+/// arguments we passed (issue #917; the git-side equivalent is
+/// `git_exit_code_gap`).
+fn agent_cli_crash(
+    agent: &crate::agent::AgentConfig,
+    subcommand: &str,
+    exit_code: Option<i32>,
+) -> Option<CommandError> {
+    const STATUS_STACK_BUFFER_OVERRUN: i32 = 0xC0000409_u32 as i32; // -1073740791
+    if exit_code != Some(STATUS_STACK_BUFFER_OVERRUN) {
+        return None;
+    }
+    Some(CommandError::expected(format!(
+        "{} crashed while running `mcp {subcommand}` (Windows stopped it after a stack check \
+         failed). This is usually antivirus software interfering with the CLI or a corrupted \
+         install: reinstall {}, or check whether your antivirus quarantined one of its files, \
+         then try again.",
+        agent.display_name, agent.display_name
+    )))
 }
 
 /// Pull the line number out of a TOML syntax error, which reports its
@@ -703,23 +873,25 @@ pub async fn remove_mcp_server(
         .unwrap_or_else(crate::agent::get_active_agent);
 
     let binary = find_agent_binary(agent)?;
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let home = dirs::home_dir();
 
     // OpenCode has no `mcp remove` subcommand — edit its config file instead
     // (issue #308).
     if agent.id == "opencode" {
         return remove_opencode_mcp_server(&name);
     }
+    if agent.id == "cursor" {
+        return Err(cursor_has_no_mcp_cli("remove"));
+    }
 
     let mut cmd = create_command(&binary);
     cmd.args(["mcp", "remove"])
         .env("PATH", get_extended_path())
-        .env("HOME", &home);
+        .envs(home.as_ref().map(|h| ("HOME", h)));
 
     if agent.id == "claude-code" {
         cmd.env_remove("CLAUDECODE");
+        drop_stale_git_bash_path(&mut cmd);
         if let Some(ref s) = scope {
             cmd.args(["-s", s]);
         }
@@ -733,7 +905,7 @@ pub async fn remove_mcp_server(
 
     let output = cmd
         .output()
-        .map_err(|e| format!("Failed to run {} mcp remove: {}", agent.display_name, e))?;
+        .map_err(|e| mcp_spawn_error(agent, "remove", &e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -757,6 +929,11 @@ pub async fn remove_mcp_server(
         // "Failed to remove MCP server: " — an empty string with no signal
         // for the user or for telemetry. Keep the exit code instead (#710).
         if details.trim().is_empty() {
+            // A hard crash writes nothing either, but its exit code still says
+            // what happened (issue #917).
+            if let Some(err) = agent_cli_crash(agent, "remove", output.status.code()) {
+                return Err(err);
+            }
             return Err(CommandError::Process {
                 cmd: format!("{} mcp remove", agent.binary_name),
                 exit_code: output.status.code().unwrap_or(-1),
@@ -823,6 +1000,155 @@ fn shell_split(input: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Issue #1137: pagefile exhaustion spawning `codex mcp remove`.
+    #[test]
+    fn mcp_spawn_pagefile_exhaustion_is_expected() {
+        let agent = crate::agent::get_agent_by_id("codex");
+        let err = mcp_spawn_error(agent, "remove", &std::io::Error::from_raw_os_error(1455));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("paging file"), "got: {err}");
+        let other = mcp_spawn_error(agent, "remove", &std::io::Error::other("boom"));
+        assert!(
+            matches!(other, CommandError::Other { .. }),
+            "got: {other:?}"
+        );
+    }
+
+    // Issue #1117: Codex crashing with a stack overflow during `mcp remove`.
+    #[test]
+    fn classify_mcp_failure_agent_stack_overflow_is_expected() {
+        let details = "WARNING: proceeding, even though we could not create PATH aliases: \
+                       Could not find home directory\n\n\
+                       thread 'codex-main' (63760) has overflowed its stack";
+        let err = classify_mcp_failure("remove MCP server", details);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("crashed"), "got: {err}");
+    }
+
+    fn assert_expected_with(details: &str, needle: &str) {
+        for action in ["add MCP server", "remove MCP server"] {
+            match classify_mcp_failure(action, details) {
+                CommandError::Expected { message } => {
+                    assert!(message.contains(needle), "{action}: {message}")
+                }
+                other => panic!("expected Expected for {details:?}, got {other:?}"),
+            }
+        }
+    }
+
+    // Issues #998 and #1061: a flag the active agent's CLI doesn't have.
+    #[test]
+    fn wrong_flag_for_this_cli_is_expected_with_the_right_syntax() {
+        // Commander's wording (Claude Code / Cursor), exact from the issues.
+        assert_expected_with(
+            "error: unknown option '--url'",
+            "--transport http my-server",
+        );
+        assert_expected_with(
+            "error: unknown option '--transport'",
+            "my-server --url https://",
+        );
+        // Clap's wording (Codex), as the installed CLI prints it.
+        assert_expected_with(
+            "error: unexpected argument '--transport' found\n\n  tip: to pass '--transport' as a value, use '-- --transport'\n\nUsage: codex mcp add [OPTIONS] <NAME> (--url <URL> | -- <COMMAND>...)",
+            "my-server --url https://",
+        );
+    }
+
+    // Issue #1059: a flag-like command token without the `--` separator.
+    #[test]
+    fn missing_separator_is_expected() {
+        assert_expected_with(
+            "error: unexpected argument '-y' found\n\n  tip: to pass '-y' as a value, use '-- -y'\n\nUsage: codex mcp add [OPTIONS] <NAME> (--url <URL> | -- <COMMAND>...)",
+            "my-server -- npx",
+        );
+        // The older-CLI "no mcp add at all" shape keeps its own handling.
+        let old = classify_mcp_failure(
+            "add MCP server",
+            "error: unexpected argument 'add' found\n\n  tip: to pass 'add' as a value, use '-- add'\n\nUsage: codex mcp [OPTIONS]",
+        );
+        assert!(!old.to_string().contains("Put `--`"), "got: {old}");
+    }
+
+    // Issue #1058: a config.toml table header pasted as the server name.
+    #[test]
+    fn invalid_server_name_is_expected() {
+        assert_expected_with(
+            "Error: invalid server name '[mcp_servers.heroui-react]' (use letters, numbers, '-', '_', ':', '@', '/', '.')",
+            "not `[mcp_servers.context7]`",
+        );
+    }
+
+    // Issue #1016: Codex with no sign-in and no API key.
+    #[test]
+    fn codex_missing_api_key_is_expected() {
+        assert_expected_with(
+            "\n\nMissing openai API key.\n\nSet the environment variable OPENAI_API_KEY and re-run this command.\nYou can create a key here: https://platform.openai.com/account/api-keys\n",
+            "codex login",
+        );
+    }
+
+    // Issues #1013 and #1014: Claude Code's Windows Git Bash check.
+    #[test]
+    fn stale_git_bash_path_is_expected() {
+        assert_expected_with(
+            "Claude Code was unable to find CLAUDE_CODE_GIT_BASH_PATH path \"C:\\Program Files\\Git\\bin\\bash.exe\"",
+            "Git for Windows",
+        );
+    }
+
+    // Issue #1014: a variable naming a missing file is left out of the call;
+    // one naming a real file is passed through.
+    #[test]
+    fn drop_stale_git_bash_path_only_drops_a_missing_file() {
+        let removed = |cmd: &std::process::Command| {
+            cmd.get_envs()
+                .any(|(k, v)| k == "CLAUDE_CODE_GIT_BASH_PATH" && v.is_none())
+        };
+        let original = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH");
+
+        std::env::set_var("CLAUDE_CODE_GIT_BASH_PATH", "/definitely/not/here/bash.exe");
+        let mut cmd = std::process::Command::new("claude");
+        drop_stale_git_bash_path(&mut cmd);
+        assert!(removed(&cmd));
+
+        let real = std::env::current_exe().unwrap();
+        std::env::set_var("CLAUDE_CODE_GIT_BASH_PATH", &real);
+        let mut cmd = std::process::Command::new("claude");
+        drop_stale_git_bash_path(&mut cmd);
+        assert!(!removed(&cmd));
+
+        match original {
+            Some(v) => std::env::set_var("CLAUDE_CODE_GIT_BASH_PATH", v),
+            None => std::env::remove_var("CLAUDE_CODE_GIT_BASH_PATH"),
+        }
+    }
+
+    // Issue #991: cmd.exe can't find the npm shim's target.
+    #[test]
+    fn broken_windows_shim_is_expected() {
+        assert_expected_with("The batch file cannot be found.", "Reinstall it");
+    }
+
+    // Issue #917: `claude mcp remove` killed with STATUS_STACK_BUFFER_OVERRUN.
+    #[test]
+    fn stack_buffer_overrun_exit_is_expected() {
+        let agent = crate::agent::get_agent_by_id("claude-code");
+        let err = agent_cli_crash(agent, "remove", Some(-1073740791)).expect("classified");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("antivirus"), "got: {err}");
+        assert!(agent_cli_crash(agent, "remove", Some(1)).is_none());
+        assert!(agent_cli_crash(agent, "remove", None).is_none());
+    }
+
+    // Issues #998 and #1061: Cursor's CLI has no `mcp add`/`mcp remove`.
+    #[test]
+    fn cursor_mcp_add_is_refused_up_front() {
+        let err = cursor_has_no_mcp_cli("add");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("mcp.json"), "got: {err}");
+    }
 
     #[test]
     fn opencode_entry_remote_url() {
@@ -1062,8 +1388,10 @@ mod tests {
     fn add_failure_generic_stays_reportable() {
         // Unrecognized failures must remain `Other` so telemetry still sees
         // genuine bugs.
+        // (`--transport` used to be the example here; that one is now a known
+        // wrong-flag-for-this-CLI shape, issue #1061.)
         assert!(matches!(
-            classify_mcp_failure("add MCP server", "unexpected argument '--transport'"),
+            classify_mcp_failure("add MCP server", "unexpected argument '--frobnicate'"),
             CommandError::Other { .. }
         ));
         // Access-denied wording without any config-write context isn't the

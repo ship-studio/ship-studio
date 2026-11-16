@@ -4,7 +4,10 @@ import type { useCssAnimations } from '../../hooks/useCssAnimations';
 import type { ElementSettings } from '../../hooks/useElementSettings';
 import type { CascadeRow } from '../../lib/cssCascade';
 import type { RuleBody } from '../../lib/cssBody';
-import { CASCADE_DISPLAY_ORDER_PREFERENCE_KEY } from '../../lib/cascadePresentation';
+import {
+  CASCADE_DISPLAY_ORDER_PREFERENCE_KEY,
+  orderCascadeRowsForDisplay,
+} from '../../lib/cascadePresentation';
 import { rowKey } from '../../lib/cssCascade';
 import { CssCascadePanel } from './CssCascadePanel';
 
@@ -33,7 +36,11 @@ function makeSettings(): ElementSettings {
   };
 }
 
-function makeRow(index: number, selector: string, options: Partial<CascadeRow> = {}): CascadeRow {
+function makeRow(
+  index: number,
+  selector: string | null,
+  options: Partial<CascadeRow> = {}
+): CascadeRow {
   return {
     index,
     selector,
@@ -63,12 +70,13 @@ function makeBody(...properties: Array<[string, string]>): RuleBody {
   };
 }
 
-function renderPanel(
+function panelElement(
   rows: CascadeRow[],
   bodies: Record<string, RuleBody>,
-  selectedClassName = 'hero'
+  selectedClassName = 'hero',
+  onAddSelector: (selector: string, atPrelude?: string) => void | Promise<void> = vi.fn()
 ) {
-  return render(
+  return (
     <CssCascadePanel
       selection={{
         signature: { tagName: 'div', className: selectedClassName, ancestorClasses: [] },
@@ -80,10 +88,11 @@ function renderPanel(
       overridden={{}}
       onChangeBody={vi.fn()}
       onDeleteRule={vi.fn()}
+      onDeleteRules={vi.fn()}
       onWrapRule={vi.fn()}
       onRenameRule={vi.fn()}
       onRenameAtRule={vi.fn()}
-      onAddSelector={vi.fn()}
+      onAddSelector={onAddSelector}
       selectorSuggestions={[]}
       existingSelectors={[]}
       variables={[]}
@@ -103,6 +112,14 @@ function renderPanel(
       onClose={vi.fn()}
     />
   );
+}
+
+function renderPanel(
+  rows: CascadeRow[],
+  bodies: Record<string, RuleBody>,
+  selectedClassName = 'hero'
+) {
+  return render(panelElement(rows, bodies, selectedClassName));
 }
 
 function selectorCard(panel: HTMLElement, selector: string): HTMLElement {
@@ -138,9 +155,19 @@ function addIncompleteMediaSelector(selector: string) {
 }
 
 function cardOrder(list: HTMLElement): string[] {
-  return Array.from(list.querySelectorAll(':scope > [data-testid="cascade-card"]')).map(
-    (card) => card.querySelector('.ss-cascade-chip__content')?.textContent ?? ''
-  );
+  return Array.from(list.querySelectorAll<HTMLElement>('[data-testid="cascade-card"]'))
+    .filter(
+      (card) =>
+        card.parentElement === list ||
+        card.parentElement?.parentElement?.matches('[data-testid="cascade-source-group"]')
+    )
+    .map((card) => card.querySelector('.ss-cascade-chip__content')?.textContent ?? '');
+}
+
+function renderedRowSelectors(panel: HTMLElement): string[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>('[data-testid="cascade-card"]'))
+    .filter((card) => !card.parentElement?.closest('[data-testid="cascade-card"]'))
+    .map((card) => card.querySelector('.ss-cascade-chip__content')?.textContent ?? '');
 }
 
 const ELEMENT_DISPLAY_PREFERENCE_KEYS = [
@@ -348,26 +375,29 @@ describe('CssCascadePanel controls', () => {
 
     fireEvent.change(search, { target: { value: 'font-family' } });
     const panel = screen.getByTestId('css-cascade-panel');
-    const rootCard = selectorCard(panel, '.hero');
-    expect(within(rootCard).getByText('font-family')).toBeInTheDocument();
-    expect(within(rootCard).queryByText('display')).not.toBeInTheDocument();
+    const getRootCard = () => selectorCard(panel, '.hero');
+    expect(within(getRootCard()).getByText('font-family')).toBeInTheDocument();
+    expect(within(getRootCard()).queryByText('display')).not.toBeInTheDocument();
     expect(selectorCard(panel, '.hero-readonly')).toBeInTheDocument();
     expect(selectorCard(panel, '.hero-responsive')).toBeInTheDocument();
 
     fireEvent.change(search, { target: { value: 'hero' } });
     expect(draftMediaGroup(panel)).not.toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-new')).toBeInTheDocument();
-    expect(rootCard.querySelector('[data-testid="cascade-card"]')).toBeInTheDocument();
+    expect(getRootCard().querySelector('[data-testid="cascade-card"]')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse all CSS selector cards' }));
-    expect(rootCard).toHaveClass('is-collapsed');
+    const fileGroup = panel.querySelector<HTMLElement>('[data-source-file="src/styles.css"]');
+    if (!fileGroup) throw new Error('Expected the resolved stylesheet group');
+    expect(fileGroup).not.toHaveClass('is-collapsed');
+    expect(getRootCard()).toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-readonly')).toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-new')).toHaveClass('is-collapsed');
     expect(draftMediaGroup(panel)).toHaveClass('is-collapsed');
 
-    fireEvent.click(within(rootCard).getByRole('button', { name: 'Expand rule' }));
+    fireEvent.click(within(getRootCard()).getByRole('button', { name: 'Expand rule' }));
     const getNestedCard = () => {
-      const card = rootCard.querySelector<HTMLElement>('[data-testid="cascade-card"]');
+      const card = getRootCard().querySelector<HTMLElement>('[data-testid="cascade-card"]');
       if (!card) throw new Error('Expected the nested rule card to match search');
       return card;
     };
@@ -380,7 +410,7 @@ describe('CssCascadePanel controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse all CSS selector cards' }));
     fireEvent.click(screen.getByRole('button', { name: 'Expand all CSS selector cards' }));
-    expect(rootCard).not.toHaveClass('is-collapsed');
+    expect(getRootCard()).not.toHaveClass('is-collapsed');
     expect(getNestedCard()).not.toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-readonly')).not.toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-responsive')).not.toHaveClass('is-collapsed');
@@ -393,10 +423,394 @@ describe('CssCascadePanel controls', () => {
       panel.querySelectorAll<HTMLElement>('[data-testid="media-query-group"]')
     ).find((group) => group.textContent?.includes('700px'));
     expect(mediaGroup).toHaveClass('is-collapsed');
-    expect(rootCard).not.toHaveClass('is-collapsed');
+    expect(getRootCard()).not.toHaveClass('is-collapsed');
     expect(getNestedCard()).not.toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-readonly')).not.toHaveClass('is-collapsed');
     expect(draftMediaGroup(panel)).not.toHaveClass('is-collapsed');
     expect(selectorCard(panel, '.hero-draft')).not.toHaveClass('is-collapsed');
+  });
+
+  it('groups contiguous identical source runs without changing selector order or controls', () => {
+    const componentFile = '/project/src/components/Card.astro?style=0';
+    const pageFile = '/project/src/pages/Card.astro?style=1';
+    const base = makeRow(1, '.card', { file: componentFile });
+    const componentMedia = makeRow(2, '.card-responsive', {
+      file: componentFile,
+      mediaText: '(min-width: 600px)',
+      mediaMinPx: 600,
+    });
+    const componentMediaSibling = makeRow(9, '.card-responsive-alt', {
+      file: componentFile,
+      mediaText: '(min-width: 600px)',
+      mediaMinPx: 600,
+    });
+    const pageMedia = makeRow(3, '.page-card-responsive', {
+      file: pageFile,
+      mediaText: '(min-width: 600px)',
+      mediaMinPx: 600,
+    });
+    const componentMediaLater = makeRow(10, '.card-responsive-later', {
+      file: componentFile,
+      mediaText: '(min-width: 600px)',
+      mediaMinPx: 600,
+    });
+    const pageBase = makeRow(8, '.page-card', { file: pageFile });
+    const ambiguous = makeRow(4, '.ambiguous', {
+      file: undefined,
+      editable: false,
+      sourceFiles: ['/project/src/one.css', '/project/src/two.css'],
+      readonlyReason:
+        'this selector matches multiple source rules across 2 files; inspect the candidates in Code',
+      declarations: [{ prop: 'color', value: 'purple', important: false, active: true }],
+    });
+    const ambiguousMedia = makeRow(11, '.ambiguous-responsive', {
+      file: undefined,
+      editable: false,
+      sourceFiles: ['/project/src/two.css', '/project/src/one.css'],
+      mediaText: '(min-width: 600px)',
+      mediaMinPx: 600,
+      readonlyReason:
+        'this selector matches multiple source rules across 2 files; inspect the candidates in Code',
+      declarations: [{ prop: 'display', value: 'grid', important: false, active: true }],
+    });
+    const ambiguousMediaSibling = makeRow(12, '.ambiguous-responsive-alt', {
+      file: undefined,
+      editable: false,
+      sourceFiles: ['/project/src/one.css', '/project/src/two.css'],
+      mediaText: '(min-width: 600px)',
+      mediaMinPx: 600,
+      readonlyReason:
+        'this selector matches multiple source rules across 2 files; inspect the candidates in Code',
+      declarations: [{ prop: 'display', value: 'flex', important: false, active: true }],
+    });
+    const differentAmbiguous = makeRow(13, '.different-ambiguous', {
+      file: undefined,
+      editable: false,
+      sourceFiles: ['/project/src/one.css', '/project/src/three.css'],
+      readonlyReason:
+        'this selector matches multiple source rules across 2 files; inspect the candidates in Code',
+      declarations: [{ prop: 'color', value: 'orange', important: false, active: true }],
+    });
+    const ambiguousRecurring = makeRow(14, '.ambiguous-recurring', {
+      file: undefined,
+      editable: false,
+      sourceFiles: ['/project/src/one.css', '/project/src/two.css'],
+      readonlyReason:
+        'this selector matches multiple source rules across 2 files; inspect the candidates in Code',
+      declarations: [{ prop: 'color', value: 'purple', important: false, active: true }],
+    });
+    const inline = makeRow(5, null, {
+      file: undefined,
+      selector: null,
+      origin: 'inline',
+      editable: false,
+      readonlyReason: 'inline style — move it to a class to edit',
+      declarations: [{ prop: 'color', value: 'teal', important: false, active: true }],
+    });
+    const draft = makeRow(6, '.new-draft', {
+      file: undefined,
+      line: undefined,
+      innerText: undefined,
+      draft: true,
+      draftTargetFile: componentFile,
+    });
+    const noSource = makeRow(7, '.framework-rule', {
+      file: undefined,
+      editable: false,
+      readonlyReason: 'stylesheet source could not be mapped',
+    });
+    const rows = [
+      base,
+      componentMedia,
+      componentMediaSibling,
+      pageMedia,
+      componentMediaLater,
+      pageBase,
+      ambiguous,
+      ambiguousMedia,
+      ambiguousMediaSibling,
+      differentAmbiguous,
+      ambiguousRecurring,
+      inline,
+      draft,
+      noSource,
+    ];
+    const bodies: Record<string, RuleBody> = {
+      [rowKey(base)]: makeBody(['padding', '1rem'], ['display', 'grid']),
+      [rowKey(componentMedia)]: makeBody(['display', 'flex']),
+      [rowKey(componentMediaSibling)]: makeBody(['display', 'grid']),
+      [rowKey(pageMedia)]: makeBody(['display', 'block']),
+      [rowKey(componentMediaLater)]: makeBody(['display', 'contents']),
+      [rowKey(pageBase)]: makeBody(['color', 'navy']),
+      [rowKey(draft)]: makeBody(),
+    };
+    const onAddSelector = vi.fn();
+    const view = render(panelElement(rows, bodies, 'hero', onAddSelector));
+    const panel = screen.getByTestId('css-cascade-panel');
+    const expectedSelectors = (order: 'newest-top' | 'newest-bottom') =>
+      orderCascadeRowsForDisplay(rows, order).map((row) => row.selector ?? 'element.style');
+    const sourceRunKeys = () =>
+      Array.from(panel.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]'))
+        .map((group) => group.dataset.sourceGroupKey)
+        .sort();
+    const newestTopSourceRunKeys = sourceRunKeys();
+
+    expect(renderedRowSelectors(panel)).toEqual(expectedSelectors('newest-top'));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'CSS rule order: newest at top. Change to newest at bottom',
+      })
+    );
+    expect(renderedRowSelectors(panel)).toEqual(expectedSelectors('newest-bottom'));
+    expect(sourceRunKeys()).toEqual(newestTopSourceRunKeys);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'CSS rule order: newest at bottom. Change to newest at top',
+      })
+    );
+    expect(renderedRowSelectors(panel)).toEqual(expectedSelectors('newest-top'));
+
+    const fileGroups = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]')
+    );
+    const resolvedGroups = fileGroups.filter((group) => group.dataset.sourceKind === 'resolved');
+    expect(resolvedGroups.map((group) => group.dataset.sourceFile)).toEqual([
+      componentFile,
+      pageFile,
+      componentFile,
+      pageFile,
+    ]);
+    const componentGroups = resolvedGroups.filter(
+      (group) => group.dataset.sourceFile === componentFile
+    );
+    const pageGroups = resolvedGroups.filter((group) => group.dataset.sourceFile === pageFile);
+    expect(componentGroups).toHaveLength(2);
+    expect(pageGroups).toHaveLength(2);
+    const componentGroup = componentGroups[0];
+    const pageGroup = pageGroups[0];
+    if (!componentGroup || !pageGroup) throw new Error('Expected both resolved source groups');
+    expect(
+      within(componentGroup).getByText('Card.astro › style').closest('[title]')
+    ).toHaveAttribute('title', expect.stringContaining(componentFile));
+    expect(within(pageGroup).getByText('Card.astro › style').closest('[title]')).toHaveAttribute(
+      'title',
+      expect.stringContaining(pageFile)
+    );
+
+    const mediaGroups = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-testid="media-query-group"]')
+    );
+    expect(mediaGroups).toHaveLength(4);
+    expect(mediaGroups[0]?.querySelectorAll('[data-testid="cascade-card"]')).toHaveLength(2);
+    expect(mediaGroups[1]).not.toHaveClass('is-inactive');
+    expect(componentGroup.querySelector('.ss-cascade-card__src-chip')).not.toBeInTheDocument();
+    expect(pageGroup.querySelector('.ss-cascade-card__src-chip')).not.toBeInTheDocument();
+    expect(selectorCard(panel, '.card')).toBeInTheDocument();
+    expect(selectorCard(panel, '.card-responsive')).toBeInTheDocument();
+    expect(selectorCard(panel, '.card-responsive-alt')).toBeInTheDocument();
+    expect(selectorCard(panel, '.page-card-responsive')).toBeInTheDocument();
+    expect(selectorCard(panel, '.card-responsive-later')).toBeInTheDocument();
+    expect(selectorCard(panel, '.page-card')).toBeInTheDocument();
+    const ambiguousGroups = fileGroups.filter((group) => group.dataset.sourceKind === 'multiple');
+    expect(ambiguousGroups.map((group) => group.dataset.sourceFiles)).toEqual([
+      '/project/src/one.css\n/project/src/two.css',
+      '/project/src/one.css\n/project/src/three.css',
+      '/project/src/one.css\n/project/src/two.css',
+    ]);
+    expect(new Set(ambiguousGroups.map((group) => group.dataset.sourceGroupKey)).size).toBe(3);
+    const firstAmbiguousGroup = ambiguousGroups[0];
+    const differentAmbiguousGroup = ambiguousGroups[1];
+    const recurringAmbiguousGroup = ambiguousGroups[2];
+    if (!firstAmbiguousGroup || !differentAmbiguousGroup || !recurringAmbiguousGroup) {
+      throw new Error('Expected three contiguous ambiguous-source runs');
+    }
+    expect(within(firstAmbiguousGroup).getByText('Ambiguous')).toBeInTheDocument();
+    expect(
+      within(firstAmbiguousGroup).getByText('one.css, two.css').closest('[title]')
+    ).toHaveAttribute('title', '/project/src/one.css\n/project/src/two.css');
+    expect(selectorCard(panel, '.ambiguous').closest('[data-testid="cascade-source-group"]')).toBe(
+      firstAmbiguousGroup
+    );
+    expect(
+      within(selectorCard(panel, '.ambiguous')).getByText(
+        'this selector matches multiple source rules across 2 files; inspect the candidates in Code'
+      )
+    ).toBeInTheDocument();
+    expect(firstAmbiguousGroup.querySelector('.ss-cascade-card__src-chip')).toBeNull();
+    expect(within(firstAmbiguousGroup).getByText('.ambiguous-responsive')).toBeInTheDocument();
+    expect(within(firstAmbiguousGroup).getByText('.ambiguous-responsive-alt')).toBeInTheDocument();
+    expect(differentAmbiguousGroup).toContainElement(selectorCard(panel, '.different-ambiguous'));
+    expect(recurringAmbiguousGroup).toContainElement(selectorCard(panel, '.ambiguous-recurring'));
+    expect(screen.getByText('element.style')).toBeInTheDocument();
+    expect(
+      selectorCard(panel, 'element.style').closest('[data-testid="cascade-source-group"]')
+    ).toBeNull();
+    expect(selectorCard(panel, 'element.style')).toHaveTextContent(
+      'inline style — move it to a class to edit'
+    );
+    const draftCard = selectorCard(panel, '.new-draft');
+    expect(draftCard.querySelector('.ss-cascade-card__src-chip')).toBeNull();
+    expect(draftCard.closest('[data-testid="cascade-source-group"]')).toBeNull();
+    expect(draftCard.closest('[data-testid="cascade-destination-group"]')).toHaveAttribute(
+      'data-destination-file',
+      componentFile
+    );
+    expect(selectorCard(panel, '.framework-rule')).toBeInTheDocument();
+    expect(
+      selectorCard(panel, '.framework-rule').closest('[data-testid="cascade-source-group"]')
+    ).toBeNull();
+    expect(selectorCard(panel, '.framework-rule')).toHaveTextContent(
+      'stylesheet source could not be mapped'
+    );
+
+    expect(
+      within(mediaGroups[0]).getByRole('button', { name: 'Delete media query' })
+    ).toBeInTheDocument();
+    fireEvent.click(within(mediaGroups[1]).getByRole('button', { name: 'Add selector' }));
+    const mediaSelectorInput = within(mediaGroups[1]).getByRole('combobox', {
+      name: 'Add selector',
+    });
+    fireEvent.change(mediaSelectorInput, { target: { value: '.added-to-media' } });
+    fireEvent.keyDown(mediaSelectorInput, { key: 'Enter' });
+    expect(onAddSelector).toHaveBeenCalledWith('.added-to-media', '@media (min-width: 600px)');
+
+    fireEvent.click(within(mediaGroups[0]).getByRole('button', { name: 'Collapse media query' }));
+    expect(mediaGroups[0]).toHaveClass('is-collapsed');
+    expect(mediaGroups[2]).not.toHaveClass('is-collapsed');
+
+    fireEvent.click(
+      within(componentGroup).getByRole('button', {
+        name: 'Collapse source file Card.astro › style',
+      })
+    );
+    expect(componentGroups.every((group) => group.classList.contains('is-collapsed'))).toBe(true);
+    expect(pageGroups.every((group) => !group.classList.contains('is-collapsed'))).toBe(true);
+    fireEvent.click(
+      within(firstAmbiguousGroup).getByRole('button', {
+        name: 'Collapse ambiguous source rules one.css, two.css',
+      })
+    );
+    expect(firstAmbiguousGroup).toHaveClass('is-collapsed');
+    expect(recurringAmbiguousGroup).toHaveClass('is-collapsed');
+    expect(differentAmbiguousGroup).not.toHaveClass('is-collapsed');
+    view.rerender(panelElement(rows, bodies, 'other-selection', onAddSelector));
+    const reselectedComponentGroups = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]')
+    ).filter((group) => group.dataset.sourceFile === componentFile);
+    expect(reselectedComponentGroups).toHaveLength(2);
+    expect(
+      reselectedComponentGroups.every((group) => group.classList.contains('is-collapsed'))
+    ).toBe(true);
+    const reselectedAmbiguousGroups = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]')
+    ).filter((group) => group.dataset.sourceKind === 'multiple');
+    expect(reselectedAmbiguousGroups[0]).toHaveClass('is-collapsed');
+    expect(reselectedAmbiguousGroups[1]).not.toHaveClass('is-collapsed');
+    expect(reselectedAmbiguousGroups[2]).toHaveClass('is-collapsed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all CSS selector cards' }));
+    expect(
+      reselectedComponentGroups.every((group) => group.classList.contains('is-collapsed'))
+    ).toBe(true);
+    expect(reselectedAmbiguousGroups[0]).toHaveClass('is-collapsed');
+    expect(reselectedAmbiguousGroups[1]).not.toHaveClass('is-collapsed');
+    expect(reselectedAmbiguousGroups[2]).toHaveClass('is-collapsed');
+    expect(pageGroups.every((group) => !group.classList.contains('is-collapsed'))).toBe(true);
+    expect(selectorCard(panel, '.page-card')).toHaveClass('is-collapsed');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all CSS selector cards' }));
+    expect(
+      reselectedComponentGroups.every((group) => group.classList.contains('is-collapsed'))
+    ).toBe(true);
+    expect(reselectedAmbiguousGroups[0]).toHaveClass('is-collapsed');
+    expect(reselectedAmbiguousGroups[1]).not.toHaveClass('is-collapsed');
+    expect(reselectedAmbiguousGroups[2]).toHaveClass('is-collapsed');
+    expect(pageGroups.every((group) => !group.classList.contains('is-collapsed'))).toBe(true);
+    expect(selectorCard(panel, '.page-card')).not.toHaveClass('is-collapsed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search CSS rules' }));
+    const search = screen.getByRole('searchbox', {
+      name: 'Search CSS selectors, properties, and values',
+    });
+    fireEvent.change(search, { target: { value: 'padding' } });
+    const paddingSourceGroups = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]')
+    ).filter((group) => group.dataset.sourceFile === componentFile);
+    expect(paddingSourceGroups).toHaveLength(1);
+    expect(paddingSourceGroups[0]).not.toHaveClass('is-collapsed');
+    expect(selectorCard(panel, '.card')).toBeInTheDocument();
+    expect(panel.querySelector(`[data-source-file="${pageFile}"]`)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all CSS selector cards' }));
+    expect(paddingSourceGroups[0]).not.toHaveClass('is-collapsed');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all CSS selector cards' }));
+    expect(paddingSourceGroups[0]).not.toHaveClass('is-collapsed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear CSS search' }));
+    fireEvent.change(search, { target: { value: pageFile } });
+    const pageSearchResults = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]')
+    ).filter((group) => group.dataset.sourceFile === pageFile);
+    expect(pageSearchResults).toHaveLength(2);
+    expect(pageSearchResults.every((group) => !group.classList.contains('is-collapsed'))).toBe(
+      true
+    );
+    expect(selectorCard(panel, '.page-card-responsive')).toBeInTheDocument();
+    expect(panel.querySelector(`[data-source-file="${componentFile}"]`)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear CSS search' }));
+    fireEvent.change(search, { target: { value: '/project/src/two.css' } });
+    const ambiguousSearchResults = Array.from(
+      panel.querySelectorAll<HTMLElement>('[data-testid="cascade-source-group"]')
+    ).filter((group) => group.dataset.sourceKind === 'multiple');
+    expect(ambiguousSearchResults).toHaveLength(2);
+    expect(
+      ambiguousSearchResults.every(
+        (group) => group.dataset.sourceFiles === '/project/src/one.css\n/project/src/two.css'
+      )
+    ).toBe(true);
+    expect(ambiguousSearchResults.every((group) => !group.classList.contains('is-collapsed'))).toBe(
+      true
+    );
+    expect(selectorCard(panel, '.ambiguous-responsive')).toBeInTheDocument();
+    expect(selectorCard(panel, '.ambiguous-recurring')).toBeInTheDocument();
+    expect(panel.textContent).not.toContain('.different-ambiguous');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all CSS selector cards' }));
+    expect(ambiguousSearchResults.every((group) => !group.classList.contains('is-collapsed'))).toBe(
+      true
+    );
+  });
+
+  it('bulk collapse and expand keeps source headers open across repeated cycles', () => {
+    const hero = makeRow(1, '.hero');
+    const heroLabel = makeRow(2, '.hero-label');
+    const panel = renderPanel([hero, heroLabel], {
+      [rowKey(hero)]: makeBody(['color', 'red']),
+      [rowKey(heroLabel)]: makeBody(['font-weight', 'bold']),
+    });
+    const sourceGroup = panel.container.querySelector<HTMLElement>(
+      '[data-testid="cascade-source-group"]'
+    );
+    if (!sourceGroup) throw new Error('Expected the stylesheet source group');
+
+    const expectSourceHeaderOpen = () => {
+      expect(sourceGroup).not.toHaveClass('is-collapsed');
+      expect(
+        within(sourceGroup).getByRole('button', { name: 'Collapse source file styles.css' })
+      ).toHaveAttribute('aria-expanded', 'true');
+    };
+
+    expectSourceHeaderOpen();
+    expect(within(sourceGroup).getByText('styles.css')).toBeInTheDocument();
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse all CSS selector cards' }));
+      expectSourceHeaderOpen();
+      expect(selectorCard(panel.container, '.hero')).toHaveClass('is-collapsed');
+      expect(selectorCard(panel.container, '.hero-label')).toHaveClass('is-collapsed');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Expand all CSS selector cards' }));
+      expectSourceHeaderOpen();
+      expect(selectorCard(panel.container, '.hero')).not.toHaveClass('is-collapsed');
+      expect(selectorCard(panel.container, '.hero-label')).not.toHaveClass('is-collapsed');
+    }
   });
 });

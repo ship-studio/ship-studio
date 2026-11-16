@@ -438,6 +438,10 @@ export function describeAudit(entry: AuditEntry): string {
       return entry.ok ? `Pushed${project}` : `Push refused${project}`;
     case 'preview_screenshot':
       return `Took a preview screenshot${project}`;
+    case 'create_project':
+      return entry.ok ? `Created a new project${quote}` : `Couldn’t create a project${quote}`;
+    case 'open_project':
+      return `Switched to${project.replace(' in', '')}`;
     case 'push_pin':
     case 'new_link':
       return entry.detail.charAt(0).toUpperCase() + entry.detail.slice(1);

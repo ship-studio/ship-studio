@@ -61,9 +61,13 @@ describe('index.html boot watchdogs', () => {
     document.documentElement.style.cssText = '';
   });
 
-  const runWatchdog = () => {
+  const runInlineScript = () => {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call
     new Function(SCRIPT)();
+  };
+
+  const runWatchdog = () => {
+    runInlineScript();
     vi.advanceTimersByTime(10_000);
   };
 
@@ -72,6 +76,31 @@ describe('index.html boot watchdogs', () => {
     runWatchdog();
     expect(shown('boot-fallback')).toBe(true);
     expect(shown('styles-fallback')).toBe(false);
+  });
+
+  it('reports a failed app entry module', () => {
+    runInlineScript();
+    const entry = document.getElementById('app-entry');
+    if (!entry) throw new Error('#app-entry missing');
+
+    entry.dispatchEvent(new Event('error'));
+
+    expect(document.getElementById('boot-fallback-error')?.textContent).toContain(
+      'The app entry module failed to load'
+    );
+  });
+
+  it('distinguishes a loaded entry module that did not mount React', () => {
+    runInlineScript();
+    const entry = document.getElementById('app-entry');
+    if (!entry) throw new Error('#app-entry missing');
+    entry.dispatchEvent(new Event('load'));
+
+    vi.advanceTimersByTime(10_000);
+
+    expect(document.getElementById('boot-fallback-error')?.textContent).toContain(
+      'The app entry module loaded, but React did not mount'
+    );
   });
 
   it('explains an app that mounted without its stylesheet', () => {

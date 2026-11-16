@@ -69,4 +69,29 @@ describe('describeRejectionReason', () => {
     expect(describeRejectionReason(circular)).toBe('[object Object]');
     expect(describeRejectionReason(undefined)).toBe('undefined');
   });
+
+  // Issue #1114: reasons with no own enumerable data reported as the literal "{}".
+  it('does not report an opaque object as a bare "{}"', () => {
+    const abort = new DOMException('The operation was aborted.', 'AbortError');
+    const described = describeRejectionReason(abort);
+    expect(described).not.toBe('{}');
+    expect(described).toContain('AbortError');
+    expect(described).toContain('The operation was aborted.');
+
+    expect(describeRejectionReason(new Map([['a', 1]]))).toBe('[object Map]');
+
+    class Opaque {
+      get code() {
+        return 'E_STALE';
+      }
+    }
+    expect(describeRejectionReason(new Opaque())).toBe('Opaque {"code":"E_STALE"}');
+
+    class Empty {}
+    expect(describeRejectionReason(new Empty())).toBe('Empty {}');
+  });
+
+  it('keeps a genuinely empty plain object as "{}"', () => {
+    expect(describeRejectionReason({})).toBe('{}');
+  });
 });

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CssVariablesPanel } from './CssVariablesPanel';
 
@@ -201,6 +201,124 @@ describe('CssVariablesPanel', () => {
     expect(screen.getByText('2 CSS rules')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Delete variable' }));
     expect(onDeleteVariable).toHaveBeenCalledWith(variable, impact);
+  });
+
+  it('navigates from single selector sources without showing separate file buttons', () => {
+    const variable = {
+      name: '--space-sm',
+      value: '8px',
+      selector: ':root',
+      file: 'tokens.css',
+      line: 12,
+      editable: true,
+    };
+    const scopedVariable = {
+      name: '--surface',
+      value: 'white',
+      selector: '.theme-dark',
+      file: 'theme.css',
+      line: 4,
+      editable: true,
+    };
+    const onOpenInCode = vi.fn();
+
+    render(
+      <CssVariablesPanel
+        variables={[variable, scopedVariable]}
+        loading={false}
+        variableNames={[variable.name, scopedVariable.name]}
+        onSetValue={vi.fn()}
+        onAddVariable={vi.fn()}
+        onAnalyzeDelete={vi.fn()}
+        onDeleteVariable={vi.fn()}
+        onOpenInCode={onOpenInCode}
+      />
+    );
+
+    const sourceLink = screen.getByRole('button', {
+      name: 'Open :root in tokens.css at line 12 in Code tab',
+    });
+    expect(sourceLink).toHaveTextContent(':root');
+    expect(sourceLink).not.toHaveTextContent('tokens.css');
+    expect(screen.queryByRole('button', { name: 'tokens.css' })).not.toBeInTheDocument();
+
+    fireEvent.click(sourceLink);
+    expect(onOpenInCode).toHaveBeenCalledWith('tokens.css', 12);
+
+    const scopedSourceLink = screen.getByRole('button', {
+      name: 'Open .theme-dark in theme.css at line 4 in Code tab',
+    });
+    expect(scopedSourceLink).toHaveTextContent('.theme-dark');
+    expect(scopedSourceLink).not.toHaveTextContent('theme.css');
+    fireEvent.click(scopedSourceLink);
+    expect(onOpenInCode).toHaveBeenLastCalledWith('theme.css', 4);
+  });
+
+  it('lists each exact source location in the selector menu when a scope is ambiguous', () => {
+    const variables = [
+      {
+        name: '--space-sm',
+        value: '8px',
+        selector: ':root',
+        file: 'tokens.css',
+        line: 12,
+        editable: true,
+      },
+      {
+        name: '--space-md',
+        value: '16px',
+        selector: ':root',
+        file: 'tokens.css',
+        line: 12,
+        editable: true,
+      },
+      {
+        name: '--space-lg',
+        value: '24px',
+        selector: ':root',
+        file: 'theme.css',
+        line: 8,
+        editable: true,
+      },
+      {
+        name: '--space-xl',
+        value: '32px',
+        selector: ':root',
+        file: 'tokens.css',
+        line: 26,
+        editable: true,
+      },
+    ];
+    const onOpenInCode = vi.fn();
+
+    render(
+      <CssVariablesPanel
+        variables={variables}
+        loading={false}
+        variableNames={variables.map((variable) => variable.name)}
+        onSetValue={vi.fn()}
+        onAddVariable={vi.fn()}
+        onAnalyzeDelete={vi.fn()}
+        onDeleteVariable={vi.fn()}
+        onOpenInCode={onOpenInCode}
+      />
+    );
+
+    const scopeTrigger = screen.getByRole('button', { name: 'Choose a source for :root' });
+    expect(scopeTrigger).toHaveTextContent(':root');
+    expect(screen.queryByRole('button', { name: 'tokens.css:12' })).not.toBeInTheDocument();
+
+    fireEvent.click(scopeTrigger);
+    const menuItems = within(screen.getByRole('menu')).getAllByRole('menuitem');
+    expect(menuItems).toHaveLength(3);
+    expect(menuItems.map((item) => item.textContent)).toEqual([
+      'tokens.css:12',
+      'theme.css:8',
+      'tokens.css:26',
+    ]);
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'tokens.css:26' }));
+    expect(onOpenInCode).toHaveBeenCalledWith('tokens.css', 26);
   });
 
   it('keeps long values in an independently wrapping value cell', () => {

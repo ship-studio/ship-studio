@@ -443,7 +443,9 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
         .map_err(|e| format!("Failed to get GitHub user info: {e}"))?;
 
     if !gh_output.status.success() {
-        return Err(("Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string()).into());
+        return Err(git_identity_lookup_error(&String::from_utf8_lossy(
+            &gh_output.stderr,
+        )));
     }
 
     let info = String::from_utf8_lossy(&gh_output.stdout);
@@ -478,6 +480,17 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
     }
 
     Ok(())
+}
+
+/// Why `gh api user` couldn't supply a commit identity. Not signed in, a
+/// network blip or a GitHub hiccup get the same classification every other
+/// `gh` call gives them; only an unrecognised failure falls back to "configure
+/// git manually", which used to be the answer to all of them (issue #1006).
+fn git_identity_lookup_error(stderr: &str) -> CommandError {
+    if let Some(err) = gh_auth_error(stderr).or_else(|| gh_common_error(stderr)) {
+        return err;
+    }
+    "Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string().into()
 }
 
 /// The project's configured `origin` remote URL, if it has one. A missing
@@ -532,6 +545,14 @@ async fn push_to_existing_origin(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("Everything up-to-date") {
+            // GitHub's pre-receive declines (GH001 large file, GH005) and its
+            // transient 5xx, checked first as publish_branch does (#999).
+            if let Some(err) = crate::commands::publishing::push_pre_receive_error(&stderr)
+                .or_else(|| crate::commands::publishing::push_transient_server_error(&stderr))
+            {
+                warn!(error = %stderr, "Push to existing origin declined by GitHub");
+                return Err(err);
+            }
             if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
                 return Err(err);
             }
@@ -782,6 +803,29 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// git's smart-HTTP transfer to GitHub cut off partway — "error: RPC failed;
+/// HTTP 400 curl 22 …\nsend-pack: unexpected disconnect while reading sideband
+/// packet\nfatal: the remote end hung up unexpectedly", surfacing from
+/// `gh repo create --push` or a plain push (issue #1087). The connection
+/// dropped mid-pack, not a parseable API response, so neither
+/// `gh_network_error` nor `gh_malformed_request_error` matched it. Same
+/// literals the frontend's clone-side `describeProcessError` already treats
+/// as a cut-off transfer (issue #902).
+pub(crate) fn gh_transport_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    let cut_off = s.contains("rpc failed")
+        || s.contains("was not closed cleanly")
+        || s.contains("unexpected disconnect while reading sideband packet")
+        || s.contains("early eof")
+        || s.contains("invalid index-pack output");
+    cut_off.then(|| {
+        CommandError::expected(
+            "The connection to GitHub was cut off partway through the transfer — usually a \
+             network blip, proxy, or VPN. Check your internet connection and try again.",
+        )
+    })
+}
+
 /// Go's `crypto/tls`/`crypto/x509` error when gh can reach a server but can't
 /// verify the certificate chain it presents — "tls: failed to verify
 /// certificate: x509: certificate signed by unknown authority". Almost always
@@ -796,7 +840,12 @@ pub(crate) fn gh_tls_error(stderr: &str) -> Option<CommandError> {
     // "x509:" prefixes every Go certificate-verification failure variant
     // (unknown authority, expired, hostname mismatch, …) and appears nowhere
     // in ordinary gh/GraphQL output.
-    let cert_unverifiable = s.contains("failed to verify certificate") || s.contains("x509:");
+    // "server did not echo the legacy session ID" is the handshake itself
+    // being mangled by the same kind of interceptor (one that doesn't do TLS
+    // 1.3's middlebox-compatibility mode) — same cause, same remedy (#990).
+    let cert_unverifiable = s.contains("failed to verify certificate")
+        || s.contains("x509:")
+        || s.contains("did not echo the legacy session id");
     cert_unverifiable.then(|| {
         CommandError::expected(
             "GitHub's secure connection couldn't be verified. This usually means a corporate \
@@ -849,11 +898,30 @@ pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
         || s.contains("gateway timeout")
         // The prose GitHub uses for its GraphQL 504s ("We couldn't respond to
         // your request in time. Sorry about that. Please try resubmitting…").
-        || s.contains("respond to your request in time");
+        || s.contains("respond to your request in time")
+        // GraphQL's generic internal error: "Something went wrong while
+        // executing your query on <time>. Please include `<id>` when
+        // reporting this issue." (issue #978).
+        || s.contains("something went wrong while executing your query");
     is_transient.then(|| {
         CommandError::expected(
             "GitHub's API is temporarily unavailable (a GitHub server error). \
              Try again in a moment.",
+        )
+    })
+}
+
+/// GitHub's API rate limit — "GraphQL: API rate limit already exceeded for
+/// user ID N." / "API rate limit exceeded for …" / "You have exceeded a
+/// secondary rate limit". A burst of GitHub activity on this account (often
+/// other tools sharing the token), cleared by waiting, not a malfunction
+/// (issue #1002).
+pub(crate) fn gh_rate_limit_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    (s.contains("api rate limit") || s.contains("secondary rate limit")).then(|| {
+        CommandError::expected(
+            "GitHub's API rate limit for your account has been reached. Wait a few minutes, \
+             then try again.",
         )
     })
 }
@@ -897,6 +965,24 @@ pub(crate) fn gh_permission_error(stderr: &str) -> Option<CommandError> {
             "Your GitHub token doesn't have permission to do this for this repository. Check \
              the token's scopes (it needs `repo`/pull request access), or reconnect GitHub, then \
              try again.",
+        )
+    })
+}
+
+/// gh's passthrough of a GitHub Enterprise IP-allow-list refusal — "GraphQL:
+/// Although you appear to have the correct authorization credentials, the
+/// `<org>` enterprise has an IP allow list enabled, and your IP address is not
+/// permitted to access this resource." The token is fine; the network isn't
+/// on the org's list. A by-design refusal with a user-side fix, and distinct
+/// from `gh_permission_error` because no scope change or reconnect helps
+/// (issue #1080).
+pub(crate) fn gh_ip_allow_list_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    (s.contains("ip allow list") || s.contains("your ip address is not permitted")).then(|| {
+        CommandError::expected(
+            "Your network's IP address isn't allowed to access this repository — its GitHub \
+             organization restricts access to an IP allow list. Connect from an allowed network \
+             (e.g. your company VPN), then try again.",
         )
     })
 }
@@ -984,7 +1070,7 @@ fn stderr_names_gh_program(stderr: &str) -> bool {
 
 /// A `gh` invocation that hits GitHub can fail these ways regardless of which
 /// subcommand ran: a connectivity blip, GitHub's transient HTTP 400 or 5xx,
-/// an unreadable gh config file, gh itself crashing, or `gh` not being
+/// its rate limit, an unreadable gh config file, gh itself crashing, or `gh` not being
 /// GitHub's CLI at all. One-stop classification for the shared cases — call
 /// sites still layer their own auth / subcommand-specific checks on top.
 pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
@@ -992,9 +1078,12 @@ pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
     // not the generic "check your internet connection" message (issue #658).
     gh_tls_error(stderr)
         .or_else(|| gh_network_error(stderr))
+        .or_else(|| gh_transport_error(stderr))
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
+        .or_else(|| gh_rate_limit_error(stderr))
         .or_else(|| gh_config_error(stderr))
+        .or_else(|| gh_ip_allow_list_error(stderr))
         .or_else(|| gh_permission_error(stderr))
         // Before gh_crash_error: a wrong-binary crash needs its own remedy,
         // not "reinstalling the GitHub CLI may help" (issue #737).
@@ -1660,6 +1749,33 @@ mod tests {
         assert!(gh_common_error("").is_none());
     }
 
+    // The #1087 shape: `gh repo create --push` whose pack upload was cut off.
+    #[test]
+    fn gh_transport_error_classifies_cut_off_push() {
+        let stderr = "error: RPC failed; HTTP 400 curl 22 The requested URL returned error: 400\n\
+                      send-pack: unexpected disconnect while reading sideband packet\n\
+                      fatal: the remote end hung up unexpectedly\n\
+                      Everything up-to-date\n\
+                      failed to run git: exit status 1";
+        let err = gh_common_error(stderr).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("cut off"), "got: {err}");
+        assert!(gh_transport_error("fatal: not a git repository").is_none());
+    }
+
+    // The #1080 shape: an enterprise IP allow list refusing a valid token.
+    #[test]
+    fn gh_ip_allow_list_error_is_expected_and_not_a_scope_problem() {
+        let stderr = "GraphQL: Although you appear to have the correct authorization \
+                      credentials, the `databricks-internal` enterprise has an IP allow list \
+                      enabled, and your IP address is not permitted to access this resource. \
+                      (repository)";
+        let err = gh_common_error(stderr).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("IP allow list"), "got: {err}");
+        assert!(gh_auth_error(stderr).is_none());
+    }
+
     // The #610 shape: gh's Go runtime failing to reserve its heap arena at
     // startup on a memory-starved Windows box — stderr is a full crash dump.
     #[test]
@@ -1770,6 +1886,68 @@ mod tests {
         assert!(err.to_string().contains("Try again"), "got: {err}");
         // And through the shared classifier every gh call site funnels into.
         assert!(gh_common_error(stderr).is_some());
+    }
+
+    /// Issue #978: GraphQL's generic internal error, from `gh pr create`.
+    #[test]
+    fn gh_server_error_classifies_graphql_internal_error() {
+        let stderr = "pull request create failed: GraphQL: Something went wrong while executing your query on 2026-09-13T08:56:01Z. Please include `ED52:33E5F1:1321910:179CD48:6AA6651C` when reporting this issue.";
+        let err = gh_server_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(gh_common_error(stderr).is_some());
+    }
+
+    /// Issue #1002: GitHub's GraphQL rate limit.
+    #[test]
+    fn gh_rate_limit_error_is_expected() {
+        let stderr = "GraphQL: API rate limit already exceeded for user ID 1234567.";
+        let err = gh_common_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("rate limit"), "got: {err}");
+        assert!(gh_rate_limit_error(
+            "You have exceeded a secondary rate limit. Please wait a few minutes"
+        )
+        .is_some());
+        assert!(gh_rate_limit_error("HTTP 404: Not Found").is_none());
+    }
+
+    /// Issue #990: a TLS 1.3 handshake mangled by an intercepting proxy.
+    #[test]
+    fn gh_tls_error_classifies_legacy_session_id_handshake_failure() {
+        let stderr =
+            "Post \"https://api.github.com/graphql\": tls: server did not echo the legacy session ID";
+        let err = gh_common_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("proxy"), "got: {err}");
+    }
+
+    /// Issue #1006: `gh api user` failing inside ensure_git_identity must get
+    /// the same classification as every other gh call, not the blanket
+    /// "configure git manually".
+    #[test]
+    fn git_identity_lookup_error_classifies_known_gh_failures() {
+        let auth = git_identity_lookup_error(
+            "To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.",
+        );
+        assert!(matches!(auth, CommandError::NotAuthenticated { .. }));
+        let net = git_identity_lookup_error(
+            "Get \"https://api.github.com/user\": dial tcp: lookup api.github.com: no such host",
+        );
+        assert!(matches!(net, CommandError::Expected { .. }));
+        let other = git_identity_lookup_error("something unexplained");
+        assert!(other.to_string().contains("configure git manually"));
+    }
+
+    /// Issue #999: the GH001 large-file decline as `push_to_existing_origin`
+    /// sees it. The pre-receive classifier must claim it, and the generic net
+    /// classifier it used to rely on alone must not.
+    #[test]
+    fn existing_origin_push_large_file_decline_is_classified() {
+        let stderr = "remote: error: Trace: 329cd7170dcf55560c8bb70e30441052949fef494525d39e82ab791c7c54c6ce\nremote: error: See https://gh.io/lfs for more information.\nremote: error: File .wrangler/state/v3/observability/miniflare-wobs-trace-store/a590acd76969f996ec6e4b599c3c09f58c283a76f2d61392b5d3046caf557602.sqlite is 170.88 MB; this exceeds GitHub's file size limit of 100.00 MB\nremote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.\nTo https://github.com/o/r.git\n ! [remote rejected] HEAD -> main (pre-receive hook declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        let err = crate::commands::publishing::push_pre_receive_error(stderr)
+            .expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(crate::commands::git::classify_git_net_error(stderr).is_none());
     }
 
     #[test]

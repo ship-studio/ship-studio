@@ -24,7 +24,13 @@ import {
   setDevServerPort,
 } from '../../lib/project';
 import { preferredPortForProject } from '../../lib/ports';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  isExpectedCommandError,
+  isExpectedRenameRefusal,
+  isProjectFolderGoneError,
+} from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
 import {
@@ -331,11 +337,10 @@ export function ProjectList({
       await loadAll();
     } catch (error) {
       const message = formatCommandError(asCommandError(error));
-      // Anticipated refusals (name taken, project open elsewhere) are rendered
-      // inline by the modal — they're user states, not malfunctions.
-      const isExpectedRefusal =
-        message.includes('already exists') || message.includes('Close this project');
-      if (isExpectedRefusal) {
+      // Anticipated refusals (name taken, project open elsewhere, invalid
+      // name, external project) are rendered inline by the modal — they're
+      // user states, not malfunctions.
+      if (isExpectedRenameRefusal(error)) {
         logger.warn('Rename refused', { error: message });
       } else {
         trackError('project_rename', error, 'Dashboard');
@@ -517,9 +522,13 @@ export function ProjectList({
         setProjectSettingsPort(savedPort ?? preferredPortForProject(project.path));
         projectSettingsModal.open();
       } catch (error) {
+        // A folder moved/deleted outside Ship Studio is Expected — still shown,
+        // not filed as a bug (issue #951).
         showToast(
           `Couldn't load settings for ${project.name}: ${formatCommandError(asCommandError(error))}`,
-          'error'
+          'error',
+          undefined,
+          { expected: isProjectFolderGoneError(error) || isExpectedCommandError(error) }
         );
       }
     },

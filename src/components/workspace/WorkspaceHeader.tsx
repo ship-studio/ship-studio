@@ -77,6 +77,7 @@ export interface WorkspaceHeaderProps {
   // to the Cmd+K palette.
   onOpenAssetsPanel: () => void;
   assetsPanelVisible: boolean;
+  isFocusMode: boolean;
   elementTreeVisible: boolean;
   elementTreeAvailable: boolean;
   onToggleElementTree: () => void;
@@ -123,7 +124,8 @@ export interface WorkspaceHeaderProps {
   isBranchSwitching: boolean;
   isRepositoryViewActive: boolean;
   onPullLatest: () => void;
-  onBranchSwitch: (branch: string) => void;
+  /** Performs the checkout (with its unsaved-changes and worktree handling). */
+  onSwitchBranch: (branch: string) => void;
   onViewBranches: () => void;
   onCreateBranch: () => void;
   onViewPRs: () => void;
@@ -295,6 +297,7 @@ export function WorkspaceHeader({
   compactWorkspaceToolbarEnabled,
   onOpenAssetsPanel,
   assetsPanelVisible,
+  isFocusMode,
   elementTreeVisible,
   elementTreeAvailable,
   onToggleElementTree,
@@ -320,7 +323,7 @@ export function WorkspaceHeader({
   isBranchSwitching,
   isRepositoryViewActive,
   onPullLatest,
-  onBranchSwitch,
+  onSwitchBranch,
   onViewBranches,
   onCreateBranch,
   onViewPRs,
@@ -415,7 +418,7 @@ export function WorkspaceHeader({
         isOpen={openSourceMenu === 'branches'}
         onOpenChange={(open) => setOpenSourceMenu(open ? 'branches' : null)}
         onPullLatest={onPullLatest}
-        onBranchSwitch={onBranchSwitch}
+        onSwitchBranch={onSwitchBranch}
         onViewBranches={onViewBranches}
         onCreateBranch={onCreateBranch}
         onViewPRs={onViewPRs}
@@ -491,7 +494,13 @@ export function WorkspaceHeader({
         pressed={elementTreeVisible}
         onClick={onToggleElementTree}
         disabled={!elementTreeAvailable}
-        title={elementTreeAvailable ? 'Elements' : 'Elements are available in Preview'}
+        title={
+          elementTreeAvailable
+            ? 'Elements'
+            : isFocusMode
+              ? 'Elements are hidden in Focus mode'
+              : 'Elements are available in Preview'
+        }
         leftIcon={<ElementsIcon size={16} />}
         aria-label="Elements"
         data-workspace-panel="elements"

@@ -6,10 +6,15 @@ import {
   formatRuleCss,
   rowKey,
   groupCascadeRows,
+  cascadeSourceProvenance,
+  cssRuleWriteTargetFile,
+  selectCssRuleTargetFile,
   looksLikeCssModuleSelector,
   cssModuleFileHint,
+  type CascadeRow,
   type MatchedRule,
   type RuleLocation,
+  type CssRuleSourceIdentity,
 } from './cssCascade';
 
 function rule(partial: Partial<MatchedRule>): MatchedRule {
@@ -25,6 +30,26 @@ function rule(partial: Partial<MatchedRule>): MatchedRule {
     href: null,
     origin: 'author',
     ...partial,
+  };
+}
+
+function sourceIdentity(
+  selector: string,
+  file: string,
+  innerText: string,
+  selectorMembers = [selector],
+  selectorMemberIndex = 0
+): CssRuleSourceIdentity {
+  return {
+    sourcePath: file,
+    sourceVersion: 'sha256:test',
+    selectorOffset: 0,
+    selector: selectorMembers.join(', '),
+    selectorMemberIndex,
+    matchedSelector: selector,
+    selectorMembers,
+    innerText,
+    contextPath: [],
   };
 }
 
@@ -64,12 +89,80 @@ describe('mergeCascade', () => {
       file: 'a.css',
       line: 4,
       inner_text: '\n  color: red;\n',
+      source_identity: sourceIdentity('.btn', 'a.css', '\n  color: red;\n'),
     };
     const [row] = mergeCascade(matched, new Map([[0, loc]]));
     expect(row.editable).toBe(true);
     expect(row.file).toBe('a.css');
     expect(row.line).toBe(4);
     expect(row.innerText).toBe('\n  color: red;\n');
+  });
+
+  it('uses the resolved author target for drafts without assigning them source provenance', () => {
+    const file = 'src/components/ProjectMedia.astro?style=2';
+    const [resolved] = mergeCascade(
+      [rule({ selector: '.hero' })],
+      new Map<number, RuleLocation>([
+        [
+          0,
+          {
+            status: 'resolved',
+            file,
+            line: 8,
+            inner_text: '\n  color: red;\n',
+            source_identity: sourceIdentity('.hero', file, '\n  color: red;\n'),
+          },
+        ],
+      ])
+    );
+    if (!resolved) throw new Error('Expected the authored rule to resolve');
+
+    const destination = selectCssRuleTargetFile([resolved]);
+    const draft: CascadeRow = {
+      index: 1_000_001,
+      selector: 'div',
+      declarations: [],
+      specificity: [0, 0, 1],
+      mediaText: null,
+      mediaMinPx: null,
+      inactiveMedia: false,
+      layer: null,
+      origin: 'author',
+      editable: true,
+      draft: true,
+      draftTargetFile: destination,
+    };
+
+    expect(destination).toBe(file);
+    expect(cssRuleWriteTargetFile(draft)).toBe(file);
+    expect(cascadeSourceProvenance(draft)).toBeUndefined();
+    expect(draft).not.toHaveProperty('file');
+    expect(draft).not.toHaveProperty('line');
+    expect(draft).not.toHaveProperty('innerText');
+  });
+
+  it('leaves the destination unknown for ambiguous or unmapped source rows', () => {
+    const [ambiguous] = mergeCascade(
+      [rule({ selector: '.dup' })],
+      new Map<number, RuleLocation>([
+        [
+          0,
+          {
+            status: 'multiple',
+            files: ['src/a.css', 'src/b.css'],
+            rule_count: 2,
+            candidates: [
+              { file: 'src/a.css', line: 4 },
+              { file: 'src/b.css', line: 9 },
+            ],
+          },
+        ],
+      ])
+    );
+    const unmapped = mergeCascade([rule({ selector: '.missing' })], new Map())[0];
+
+    expect(selectCssRuleTargetFile([ambiguous])).toBeUndefined();
+    expect(selectCssRuleTargetFile([unmapped])).toBeUndefined();
   });
 
   it('leaves inline, not_found, and multiple rules read-only with a reason', () => {
@@ -82,7 +175,18 @@ describe('mergeCascade', () => {
       matched,
       new Map<number, RuleLocation>([
         [1, { status: 'not_found' }],
-        [2, { status: 'multiple', files: ['a.css', 'b.css'] }],
+        [
+          2,
+          {
+            status: 'multiple',
+            files: ['a.css', 'b.css'],
+            rule_count: 2,
+            candidates: [
+              { file: 'a.css', line: 3 },
+              { file: 'b.css', line: 8 },
+            ],
+          },
+        ],
       ])
     );
     expect(rows[0].editable).toBe(false);
@@ -90,8 +194,40 @@ describe('mergeCascade', () => {
     expect(rows[1].editable).toBe(false);
     expect(rows[1].readonlyReason).toMatch(/stylesheet/);
     expect(rows[2].editable).toBe(false);
-    expect(rows[2].readonlyReason).toMatch(/multiple/);
+    expect(rows[2].readonlyReason).toContain('source rules');
+    expect(rows[2].readonlyReason).toContain('across 2 files');
     expect(rows[2].sourceFiles).toEqual(['a.css', 'b.css']);
+    expect(rows[2].sourceCandidates).toEqual([
+      { file: 'a.css', line: 3 },
+      { file: 'b.css', line: 8 },
+    ]);
+  });
+
+  it('explains repeated rules in one file as rule ambiguity and retains candidate lines', () => {
+    const [row] = mergeCascade(
+      [rule({ selector: '.dup' })],
+      new Map<number, RuleLocation>([
+        [
+          0,
+          {
+            status: 'multiple',
+            files: ['src/site.css'],
+            rule_count: 2,
+            candidates: [
+              { file: 'src/site.css', line: 4 },
+              { file: 'src/site.css', line: 19 },
+            ],
+          },
+        ],
+      ])
+    );
+
+    expect(row.editable).toBe(false);
+    expect(row.sourceFiles).toEqual(['src/site.css']);
+    expect(row.sourceRuleCount).toBe(2);
+    expect(row.readonlyReason).toBe(
+      'this selector matches 2 source rules in this file; inspect the candidate rules in Code'
+    );
   });
 
   it('carries the @container / @supports context onto the row for the chips', () => {
@@ -103,6 +239,7 @@ describe('mergeCascade', () => {
       file: 'a.css',
       line: 1,
       inner_text: '\n  color: red;\n',
+      source_identity: sourceIdentity('.card', 'a.css', '\n  color: red;\n'),
     };
     const [row] = mergeCascade(matched, new Map([[0, loc]]));
     expect(row.container).toBe('(min-width: 400px)');
@@ -188,7 +325,18 @@ describe('rowKey', () => {
   it('is stable for a row and distinguishes rows that differ only by index', () => {
     const a = mergeCascade(
       [rule({ selector: '.btn' })],
-      new Map([[0, { status: 'resolved', file: 'a.css', line: 1, inner_text: '' }]])
+      new Map([
+        [
+          0,
+          {
+            status: 'resolved',
+            file: 'a.css',
+            line: 1,
+            inner_text: '',
+            source_identity: sourceIdentity('.btn', 'a.css', ''),
+          },
+        ],
+      ])
     )[0];
     expect(rowKey(a)).toBe(rowKey({ ...a }));
     expect(rowKey(a)).not.toBe(rowKey({ ...a, index: 1 }));
@@ -232,7 +380,18 @@ describe('groupCascadeRows', () => {
     const makeRow = (selector: string, file: string, index: number) => ({
       ...mergeCascade(
         [rule({ selector, mediaText: '(max-width: 767px)' })],
-        new Map([[0, { status: 'resolved', file, line: 1, inner_text: '' }]])
+        new Map([
+          [
+            0,
+            {
+              status: 'resolved',
+              file,
+              line: 1,
+              inner_text: '',
+              source_identity: sourceIdentity(selector, file, ''),
+            },
+          ],
+        ])
       )[0],
       index,
     });

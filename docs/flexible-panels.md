@@ -171,6 +171,26 @@ Legacy preferences (`agentPanelPinned`, `elementTreePinned`,
 docked-width keys) are read once to build the first default, so an existing
 install opens on the arrangement it already had.
 
+## Topbar Focus mode
+
+The topbar's **Focus** mode is a temporary workspace projection: Agent stays on
+the left, the currently selected Preview or Code surface stays on the right,
+and the two panes start evenly split. Focus remembers an adjusted split in the
+per-project `shipstudio.focus.split:<path>` localStorage preference; it is a
+ratio separate from the workspace layout and is only written by an explicit
+pointer or keyboard resize. The measured rail width drives the split as the
+window or sidebar changes. Focus keeps each pane at least 260px wide when the
+rail permits it, reducing both minima evenly below 520px; a viewport clamp
+never replaces the saved ratio. Its bounds do not depend on other panels in
+Agent's saved stack or the normal 900px docked-column limit.
+
+Other workspace panel surfaces are hidden while Focus is active. Their docked
+or floating placement and their open state are preserved, so leaving Focus
+restores the arrangement the user had before entering it.
+
+This is separate from the Panel Layout menu's **Focus** preset below. That
+preset still writes an ordinary, editable layout.
+
 ## Presets
 
 `Default`, `Focus`, `Design` and `Review` are starting points, not modes —

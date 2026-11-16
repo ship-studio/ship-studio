@@ -3,6 +3,8 @@
 //! Commands for pseudo-terminal management and port operations.
 //! Supports multi-window isolation by tracking PTY ownership per window.
 
+#[cfg(windows)]
+mod job;
 mod spawn;
 mod stream;
 

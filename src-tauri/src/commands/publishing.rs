@@ -201,6 +201,12 @@ pub(crate) fn classify_push_failure(
     if stderr.contains("Everything up-to-date") {
         return None;
     }
+    // Offline/DNS blips, TLS, gh crashes — the shared classifier every other
+    // push call site already uses; this one never consulted it (issue #1145).
+    if let Some(err) = crate::commands::git::classify_git_net_error(stderr) {
+        warn!(error = %stderr, branch = %branch, "Push failed on a network/environment error");
+        return Some(err);
+    }
     error!(error = %stderr, branch = %branch, "Push failed");
     Some(CommandError::Process {
         cmd: "git push".to_string(),
@@ -281,11 +287,27 @@ pub async fn publish_branch(
 #[cfg(test)]
 mod tests {
     use super::{
-        push_pre_receive_error, push_transient_server_error, push_unresolvable_branch_error,
+        classify_push_failure, push_pre_receive_error, push_transient_server_error,
+        push_unresolvable_branch_error,
     };
     use crate::commands::git::run_git_net;
     use crate::errors::CommandError;
     use std::path::Path;
+
+    // The #1145 shape: an offline/DNS failure during the Publish push must
+    // classify Expected instead of falling through to a reported Process.
+    #[test]
+    fn push_failure_classifies_dns_failure_as_expected() {
+        let stderr = "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve \
+                      host: github.com";
+        let err = classify_push_failure(stderr, "main", Some(128)).expect("an error");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        // Genuinely unexplained failures still reach the Process fallback.
+        assert!(matches!(
+            classify_push_failure("fatal: something new", "main", Some(128)),
+            Some(CommandError::Process { .. })
+        ));
+    }
 
     // The #678 shape: GitHub's edge returning a transient 5xx while accepting
     // the push. Contains "! [remote rejected]" — must classify Expected with

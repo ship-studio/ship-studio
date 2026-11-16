@@ -591,6 +591,66 @@
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
     },
     {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--font-weight-regular",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--radius-4",
+      "count": 2,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--space-02",
+      "count": 3,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--space-04",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--space-08",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--space-16",
+      "count": 2,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--space-24",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--stroke-1",
+      "count": 8,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--transition",
+      "count": 1,
+      "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/cards.css",
+      "token": "--transition-fast",
+      "count": 8,
+      "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
+    },
+    {
       "path": "src/styles/features/css-cascade/chips.css",
       "token": "--font-size-11",
       "count": 1,
@@ -640,14 +700,26 @@
     },
     {
       "path": "src/styles/features/css-cascade/declarations.css",
+      "token": "--color-black-o38",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/declarations.css",
+      "token": "--color-white-o15",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/css-cascade/declarations.css",
       "token": "--space-02",
-      "count": 3,
+      "count": 2,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {
       "path": "src/styles/features/css-cascade/declarations.css",
       "token": "--space-06",
-      "count": 3,
+      "count": 1,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {
@@ -659,7 +731,7 @@
     {
       "path": "src/styles/features/css-cascade/declarations.css",
       "token": "--stroke-1",
-      "count": 2,
+      "count": 4,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {
@@ -676,57 +748,15 @@
     },
     {
       "path": "src/styles/features/css-cascade/main.css",
-      "token": "--font-weight-regular",
-      "count": 1,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
-      "token": "--radius-4",
-      "count": 1,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
       "token": "--space-02",
-      "count": 3,
+      "count": 1,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {
       "path": "src/styles/features/css-cascade/main.css",
       "token": "--space-04",
-      "count": 2,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
-      "token": "--space-16",
-      "count": 2,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
-      "token": "--space-24",
       "count": 1,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
-      "token": "--stroke-1",
-      "count": 4,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
-      "token": "--transition",
-      "count": 1,
-      "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
-    },
-    {
-      "path": "src/styles/features/css-cascade/main.css",
-      "token": "--transition-fast",
-      "count": 7,
-      "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
     },
     {
       "path": "src/styles/features/css-cascade/popovers.css",

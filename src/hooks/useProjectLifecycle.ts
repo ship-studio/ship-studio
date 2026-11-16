@@ -452,6 +452,15 @@ export function useProjectLifecycle({
       setAutoAcceptMode(false);
     }
 
+    // The user may have gone home (or picked another project) during that
+    // read. Committing the workspace now would reopen a project they just
+    // left.
+    if (navigationVersionRef.current !== navVersion) {
+      logger.info(`[OpenProject] Aborted (superseded) before showing workspace: ${project.name}`);
+      openingProjectPathRef.current = null;
+      return;
+    }
+
     // ─── IMMEDIATE: Show workspace right away ───
     // We always land in the workspace view so WorkspaceView stays mounted
     // continuously — unmounting it would take every Terminal child (and
@@ -749,6 +758,15 @@ export function useProjectLifecycle({
         project.path,
         resolveWorkspacePath(project.path, subpath)
       ).catch(() => ({ custom: null, packageScript: null }));
+      // Leaving during these reads used to fall through to setView below:
+      // back-to-projects had already cleared currentProject, so the app was
+      // left on the workspace view with no project — a full-window spinner
+      // with no way out but restarting.
+      if (navigationVersionRef.current !== navVersion) {
+        logger.info(`[OpenProject] Aborted (superseded) after dev-command lookup: ${project.name}`);
+        openingProjectPathRef.current = null;
+        return;
+      }
       if (!custom && !packageScript) {
         setWorkspaceTab('branches');
       }

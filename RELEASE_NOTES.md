@@ -6,6 +6,46 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.7.0
+
+- **CSS Editor: edit the CSS you actually wrote** - Rules and variables now show which stylesheet they come from, and one click opens that file at the right line in Code view, including styles inside Astro components. Edit or split shared selectors, and review safe merges of duplicate rules before anything is changed (Martin Crandon)
+- **CSS Editor: scoped variables** - Edit a CSS variable where it's scoped, not just at the root, with the colour picker for colours. Ship Studio refuses rather than guesses when a value could belong to more than one rule (Martin Crandon)
+- **CSS Editor: steadier controls** - Value fields, animation headers and Add step stay put when you start editing, across Style, Settings, Animate and Variables (Martin Crandon)
+- **Balanced Focus mode** - Focus now opens Agent and Preview (or Code) side by side at an even 50/50 split and remembers your split per project. Other panels no longer float over the Agent panel while you're focused (Martin Crandon)
+- **One status light per project** - The workspace sidebar shows a single status light per project (error, then waiting, working, then dev server) instead of two side by side, and every status dot now has the same look (Martin Crandon)
+- **Fixed** - On Windows, long sessions could crash with "os error 1450"
+- **Fixed** - Leaving a project while it was still opening could leave a full-window spinner stuck on screen
+- **Fixed** - Checking out a pull request could fail with a bare "too many open files"; it now retries, and explains the problem if it still can't
+- **Fixed** - The animation name chip in the Animate tab could be cut off at "@keyfra"; it now always shows "@keyframes" and the full name, shortening only very long names
+- **Fixed** - Deleting a shared rule or a rule inside a media query now asks first
+- **Fixed** - If the app fails to start, the error now says more about why
+
+## What's New in v1.6.5
+
+- **Remote access reports back** - Message an agent from your phone and your assistant now waits and tells you when it's finished (its reply, the files it changed and a screenshot), or asks you when the agent needs a decision, instead of stopping at "sent"
+- **Did it deploy?** - Remote access can tell you whether a push went live on Vercel, Cloudflare Pages or Netlify, with the address or the build error
+
+
+## What's New in v1.6.4
+
+- **Change your Default workspace colour** - The Default workspace's colour can now be changed like any other (Martin Crandon)
+- **Fixed** - Focus mode now actually hides the preview and every panel except the agent
+- **Fixed** - Picking a branch from the Branches menu now checks it out
+- **Fixed** - Monorepo projects opened at a workspace subpath now list their pages
+- **Fixed** - The finish sound plays again with Claude Code 2.1
+- **Clearer errors** - Dozens of git, GitHub, install, clipboard, screenshot and agent failures now explain what happened and what to do, instead of a generic error
+
+
+## What's New in v1.6.3
+
+- **Security updates** - Ship Studio's dependencies are patched against the latest advisories, and every starter template now starts on patched versions (including the October Next.js and Astro fixes)
+
+
+## What's New in v1.6.2
+
+- **Remote access: new projects and switching** - Your assistant can create a new project (shared and opened automatically), switch between shared projects, and screenshot a project that isn't showing without asking you to switch over
+
+
 ## What's New in v1.6.1
 
 - **Fixed remote access with the Tailscale app** - Remote access could show "Not reachable" and never finish setting up when Tailscale was installed from its website or the App Store
