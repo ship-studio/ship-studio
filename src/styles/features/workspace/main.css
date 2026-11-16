@@ -241,12 +241,14 @@
   background: transparent;
   color: var(--button-text-default);
   border-color: var(--button-border);
+  box-shadow: var(--shadow-input-inset);
 }
 
 .workspace-panel-toggle.button--secondary[aria-pressed='true']:hover:not(:disabled) {
   background: transparent;
   color: var(--button-text-hover);
   border-color: var(--button-border-outline);
+  box-shadow: var(--shadow-input-inset);
 }
 
 /* Collapse the header's text labels to icon-only so every control stays

@@ -598,6 +598,7 @@ pub fn run() {
             commands::edit::apply_text_edit,
             commands::edit::resolve_image_source,
             commands::edit::apply_src_edit,
+            commands::edit_json_image::apply_json_image_edit,
             commands::edit::find_component_usage,
             commands::edit::resolve_element_html,
             commands::edit::apply_element_html,

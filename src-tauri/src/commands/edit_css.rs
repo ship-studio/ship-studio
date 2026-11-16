@@ -3149,7 +3149,7 @@ fn set_custom_property_in_source(
             .into_iter()
             .filter(|declaration| declaration.property == property)
         {
-            definitions.push((rule, definition));
+            definitions.push(definition);
         }
     }
     if definitions.len() != 1 {
@@ -3160,7 +3160,7 @@ fn set_custom_property_in_source(
         });
     }
 
-    let (rule, definition) = &definitions[0];
+    let definition = &definitions[0];
     let existing = src[definition.value_start..definition.value_end].trim_end();
     let keep_important = existing.to_ascii_lowercase().ends_with("!important")
         && !value.to_ascii_lowercase().contains("!important");

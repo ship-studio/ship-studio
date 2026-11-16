@@ -12,6 +12,7 @@ import type { CascadeDisplayOrder } from '../../lib/cascadePresentation';
 
 interface Props {
   kind?: 'rules' | 'animations';
+  disabled?: boolean;
   searchOpen: boolean;
   searchButtonRef: RefObject<HTMLButtonElement | null>;
   searchFieldId: string;
@@ -27,6 +28,7 @@ interface Props {
 /** Search, display-order, and all-card controls for the CSS cascade. */
 export function CascadeToolbar({
   kind = 'rules',
+  disabled = false,
   searchOpen,
   searchButtonRef,
   searchFieldId,
@@ -42,7 +44,22 @@ export function CascadeToolbar({
   const searchLabel = isAnimationToolbar ? 'Search CSS animations' : 'Search CSS rules';
   const orderLabel = isAnimationToolbar ? 'CSS animation order' : 'CSS rule order';
   const cardLabel = isAnimationToolbar ? 'CSS animation cards' : 'CSS selector cards';
-  const toggleOrder = () => onOrderChange(order === 'newest-top' ? 'newest-bottom' : 'newest-top');
+  const unavailableTitle = 'Unavailable while Settings is open';
+  const runSearchOpen = () => {
+    if (!disabled) onSearchOpen();
+  };
+  const runSearchToggle = () => {
+    if (!disabled) onSearchToggle();
+  };
+  const toggleOrder = () => {
+    if (!disabled) onOrderChange(order === 'newest-top' ? 'newest-bottom' : 'newest-top');
+  };
+  const runCollapseAll = () => {
+    if (!disabled) onCollapseAll();
+  };
+  const runExpandAll = () => {
+    if (!disabled) onExpandAll();
+  };
 
   useCommands(
     () => [
@@ -51,9 +68,9 @@ export function CascadeToolbar({
         title: searchLabel,
         icon: <SearchIcon size={14} />,
         category: 'action',
-        when: 'project',
+        when: ({ kind }) => kind === 'project' && !disabled,
         keywords: ['selector', 'property', 'value', 'filter'],
-        run: onSearchOpen,
+        run: runSearchOpen,
       },
       {
         id: 'cssCascade.toggleOrder',
@@ -62,7 +79,7 @@ export function CascadeToolbar({
             ? `Show newest ${isAnimationToolbar ? 'CSS animations' : 'CSS rules'} at the bottom`
             : `Show newest ${isAnimationToolbar ? 'CSS animations' : 'CSS rules'} at the top`,
         category: 'action',
-        when: 'project',
+        when: ({ kind }) => kind === 'project' && !disabled,
         keywords: ['reverse', 'sort', 'cascade', 'order'],
         run: toggleOrder,
       },
@@ -70,26 +87,27 @@ export function CascadeToolbar({
         id: 'cssCascade.collapseAll',
         title: `Collapse all ${cardLabel}`,
         category: 'action',
-        when: 'project',
+        when: ({ kind }) => kind === 'project' && !disabled,
         keywords: ['rules', 'media query', 'minimize'],
-        run: onCollapseAll,
+        run: runCollapseAll,
       },
       {
         id: 'cssCascade.expandAll',
         title: `Expand all ${cardLabel}`,
         category: 'action',
-        when: 'project',
+        when: ({ kind }) => kind === 'project' && !disabled,
         keywords: ['rules', 'media query', 'show'],
-        run: onExpandAll,
+        run: runExpandAll,
       },
     ],
     [
       cardLabel,
+      disabled,
       isAnimationToolbar,
-      onCollapseAll,
-      onExpandAll,
       onOrderChange,
-      onSearchOpen,
+      runCollapseAll,
+      runExpandAll,
+      runSearchOpen,
       order,
       searchLabel,
     ]
@@ -109,24 +127,28 @@ export function CascadeToolbar({
         aria-label={searchOpen ? 'Close CSS search' : searchLabel}
         aria-controls={searchOpen ? searchFieldId : undefined}
         aria-expanded={searchOpen}
-        title={searchOpen ? 'Close CSS search' : searchLabel}
+        disabled={disabled}
+        title={disabled ? unavailableTitle : searchOpen ? 'Close CSS search' : searchLabel}
         icon={<SearchIcon size={11} />}
-        onClick={onSearchToggle}
+        onClick={runSearchToggle}
       />
 
       <IconButton
         variant="ghost"
         size="compact"
         className="button--icon-only ss-cascade-toolbar__order"
+        disabled={disabled}
         aria-label={
           order === 'newest-top'
             ? `${orderLabel}: newest at top. Change to newest at bottom`
             : `${orderLabel}: newest at bottom. Change to newest at top`
         }
         title={
-          order === 'newest-top'
-            ? `Newest ${isAnimationToolbar ? 'animations' : 'rules'} at top — change to newest at bottom`
-            : `Newest ${isAnimationToolbar ? 'animations' : 'rules'} at bottom — change to newest at top`
+          disabled
+            ? unavailableTitle
+            : order === 'newest-top'
+              ? `Newest ${isAnimationToolbar ? 'animations' : 'rules'} at top — change to newest at bottom`
+              : `Newest ${isAnimationToolbar ? 'animations' : 'rules'} at bottom — change to newest at top`
         }
         icon={
           order === 'newest-top' ? (
@@ -142,10 +164,17 @@ export function CascadeToolbar({
         variant="ghost"
         size="compact"
         className="button--icon-only ss-cascade-toolbar__collapse"
+        disabled={disabled}
         aria-label={allCollapsed ? `Expand all ${cardLabel}` : `Collapse all ${cardLabel}`}
-        title={allCollapsed ? `Expand all ${cardLabel}` : `Collapse all ${cardLabel}`}
+        title={
+          disabled
+            ? unavailableTitle
+            : allCollapsed
+              ? `Expand all ${cardLabel}`
+              : `Collapse all ${cardLabel}`
+        }
         icon={allCollapsed ? <ExpandVerticalIcon size={14} /> : <ContractVerticalIcon size={14} />}
-        onClick={allCollapsed ? onExpandAll : onCollapseAll}
+        onClick={allCollapsed ? runExpandAll : runCollapseAll}
       />
     </div>
   );

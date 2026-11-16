@@ -81,9 +81,9 @@ function v2Layout(columns: unknown[], floating: PanelId[] = []) {
       }
     }
   }
-  const missing = (['agent', 'navigator', 'variables', 'editor', 'team'] as PanelId[]).filter(
-    (panel) => !known.has(panel)
-  );
+  const missing = (
+    ['agent', 'navigator', 'variables', 'editor', 'team', 'assets'] as PanelId[]
+  ).filter((panel) => !known.has(panel));
   return {
     version: 2,
     columns: [

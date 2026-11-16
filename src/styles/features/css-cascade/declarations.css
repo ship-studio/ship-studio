@@ -133,6 +133,19 @@
   outline: var(--border-width-emphasis) solid var(--accent-focus);
   outline-offset: calc(var(--border-width-emphasis) * -1);
 }
+.ss-decl__image-swatch {
+  overflow: hidden;
+}
+.ss-decl__image-swatch > span {
+  display: block;
+  width: calc(var(--size-icon-button) - var(--spacing-2xs));
+  height: calc(var(--size-icon-button) - var(--spacing-2xs));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
 
 .ss-decl__ph {
   color: var(--text-muted);

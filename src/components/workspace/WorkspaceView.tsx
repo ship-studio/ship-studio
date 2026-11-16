@@ -25,6 +25,7 @@ import {
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
+import type { CodeRevealTarget, OpenInCode } from '../../lib/code';
 import type { InspectTab } from '../preview/Preview';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
@@ -37,7 +38,13 @@ import { WorkspaceDock } from './WorkspaceDock';
 import { WorkspaceLayoutMenu } from './WorkspaceLayoutMenu';
 import { WorkspacePreviewPane } from './WorkspacePreviewPane';
 import { WorkspaceTerminalPane } from './WorkspaceTerminalPane';
-import { PanelDockProvider, usePanelDock } from '../../contexts/PanelDockContext';
+import {
+  PanelDockProvider,
+  usePanelDock,
+  usePanelDockBinding,
+} from '../../contexts/PanelDockContext';
+import { AssetBrowserProvider, useAssetBrowser } from '../../contexts/AssetBrowserContext';
+import { AssetsDockPanel } from './AssetsPanel';
 import { useLayoutCommands } from '../../commands/useLayoutCommands';
 import { isDocked } from '../../lib/workspaceLayout';
 import { WorkspaceHeader } from './WorkspaceHeader';
@@ -75,7 +82,12 @@ export const WorkspaceView = memo(function WorkspaceView(props: WorkspaceViewPro
       projectPath={props.currentProject.path}
       focusMode={props.layout.isPreviewHidden}
     >
-      <WorkspaceViewInner {...props} />
+      <AssetBrowserProvider
+        projectPath={props.currentProject.path}
+        focusMode={props.layout.isPreviewHidden}
+      >
+        <WorkspaceViewInner {...props} />
+      </AssetBrowserProvider>
     </PanelDockProvider>
   );
 });
@@ -122,6 +134,9 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
   // resize calls, no pinning. See src/hooks/useIsCompact.ts for the threshold.
   const isCompact = useIsCompact();
   const currentDevServerSnapshot = getProjectDevServerSnapshot(currentProject.path);
+  const assetsBrowser = useAssetBrowser();
+  const assetsDock = usePanelDockBinding('assets');
+  const { layout: workspaceLayout } = usePanelDock();
 
   // Destructure domain groups for readability in JSX
   const {
@@ -245,20 +260,16 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
 
   // Jump-to-code: when set, the Code tab opens this file and highlights the line.
   // Driven by openInCode (e.g. the visual editor's source links / usage modal).
-  const [codeTarget, setCodeTarget] = useState<{
-    file: string;
-    line: number;
-    requestId: number;
-  } | null>(null);
+  const [codeTarget, setCodeTarget] = useState<CodeRevealTarget | null>(null);
   const codeRequestIdRef = useRef(0);
   const openInCode = useCallback(
-    (file: string, line: number) => {
+    (file: string, line: number, range?: CodeRevealTarget['range']) => {
       codeRequestIdRef.current += 1;
-      setCodeTarget({ file, line, requestId: codeRequestIdRef.current });
+      setCodeTarget({ file, line, range, requestId: codeRequestIdRef.current });
       setWorkspaceTab('code');
     },
     [setWorkspaceTab]
-  );
+  ) satisfies OpenInCode;
 
   // Split view is only meaningful when focus mode is on AND the current
   // project has ≥2 tabs AND the user has opted in (splitPaneTabIds set).
@@ -733,8 +744,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     isSidebarHidden,
     onToggleSidebar,
     compactWorkspaceToolbarEnabled,
-    onOpenAssetsPanel: assetsPanelModal.open,
-    assetsPanelVisible: assetsPanelModal.isOpen,
+    onOpenAssetsPanel: () => assetsBrowser.toggleManager(isPreviewHidden),
+    assetsPanelVisible: assetsBrowser.panelOpen || assetsBrowser.modalOpen,
     isFocusMode: isPreviewHidden,
     elementTreeVisible: elementTreePanelVisible,
     elementTreeAvailable,
@@ -1074,6 +1085,12 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
             {/* .workspace-main */}
           </div>
         )}
+
+        <AssetsDockPanel
+          projectPath={currentProject.path}
+          dock={assetsDock}
+          docked={isDocked(workspaceLayout, 'assets')}
+        />
 
         <BranchSwitchModals
           flow={menuBranchSwitch}

@@ -1275,6 +1275,10 @@ mod tests {
             source_column: None,
             dom_path: None,
             attr_src: None,
+            attr_alt: None,
+            attr_width: None,
+            attr_height: None,
+            attr_loading: None,
         }
     }
 

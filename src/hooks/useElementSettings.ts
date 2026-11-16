@@ -17,7 +17,7 @@
  * a foreign page loaded in the preview can't drive edits.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   resolveClassnameSource,
   applyClassnameEdit,
@@ -27,7 +27,7 @@ import {
   applyTextEdit,
   type ElementSignature,
 } from '../lib/edit';
-import { resolveElementHtml, applyElementHtml } from '../lib/edit-html';
+import { resolveElementHtml, applyElementHtml, type ElementSourceAnchor } from '../lib/edit-html';
 import { setAttribute as setAttrInHtml } from '../lib/htmlAttrs';
 import {
   compatibleMarkupTags,
@@ -74,6 +74,8 @@ function reportSettingsFailure(
 export interface ElementAttr {
   name: string;
   value: string;
+  /** True when this JSX/templating value is an expression rather than a literal. */
+  isExpression?: boolean;
 }
 
 export interface ElementSettings {
@@ -93,12 +95,16 @@ export interface ElementSettings {
   renameClass: (oldName: string, newName: string) => void;
   removeClass: (name: string) => void;
   /** Set or add an attribute on the element's opening tag (written to source). */
-  setAttribute: (name: string, value: string) => void;
+  setAttribute: (name: string, value: string | null) => Promise<boolean>;
   /** Rename an attribute's key, preserving its value (one source write). */
   renameAttribute: (oldName: string, newName: string, value: string) => void;
   removeAttribute: (name: string) => void;
   /** Whether the element resolved to editable source markup (attributes editable). */
   canEditAttributes: boolean;
+  /** State of the selected element's source markup lookup. */
+  sourceMarkupStatus: 'idle' | 'resolving' | 'resolved' | 'unavailable';
+  /** Why image attribute writes are disabled, when source targeting is unsafe. */
+  imageAttributeEditBlockReason?: 'ambiguous' | 'spread' | 'mismatch' | null;
   /** The element's resolved markup location in source (file + 1-based line), if known. */
   location: { file: string; line: number } | null;
   busy: boolean;
@@ -170,6 +176,7 @@ function parseAttributes(html: string): ElementAttr[] {
     const name = source.slice(nameStart, index);
     while (/\s/.test(source[index] ?? '')) index += 1;
     let value = '';
+    let isExpression = false;
     if (source[index] === '=') {
       index += 1;
       while (/\s/.test(source[index] ?? '')) index += 1;
@@ -188,6 +195,7 @@ function parseAttributes(html: string): ElementAttr[] {
         const after = skipAttributeExpression(source, index);
         if (after === null) break;
         value = source.slice(start, after);
+        isExpression = true;
         index = after;
       } else {
         const start = index;
@@ -195,9 +203,62 @@ function parseAttributes(html: string): ElementAttr[] {
         value = source.slice(start, index);
       }
     }
-    if (!['class', 'classname'].includes(name.toLowerCase())) out.push({ name, value });
+    if (!['class', 'classname'].includes(name.toLowerCase()))
+      out.push(isExpression ? { name, value, isExpression } : { name, value });
   }
   return out;
+}
+
+/** True when a spread could supply any image attribute, which this editor cannot
+ *  inspect or safely preserve during an attribute write. */
+function hasAttributeSpread(html: string): boolean {
+  const source = html.trim();
+  const open = /^<[a-zA-Z][\w:-]*/.exec(source);
+  if (!open) return true;
+  let index = open[0].length;
+  while (index < source.length) {
+    while (/\s/.test(source[index] ?? '')) index += 1;
+    if (index >= source.length || source[index] === '>' || source[index] === '/') return false;
+    if (source[index] === '{') {
+      const start = index;
+      const after = skipAttributeExpression(source, index);
+      if (after === null) return true;
+      if (
+        source
+          .slice(start + 1, after - 1)
+          .trimStart()
+          .startsWith('...')
+      )
+        return true;
+      index = after;
+      continue;
+    }
+    const nameStart = index;
+    while (index < source.length && !/[\s=/>]/.test(source[index])) index += 1;
+    if (index === nameStart) return true;
+    while (/\s/.test(source[index] ?? '')) index += 1;
+    if (source[index] !== '=') continue;
+    index += 1;
+    while (/\s/.test(source[index] ?? '')) index += 1;
+    const quote = source[index];
+    if (quote === '"' || quote === "'") {
+      index += 1;
+      while (index < source.length) {
+        if (source[index] === '\\') index += 2;
+        else if (source[index] === quote) {
+          index += 1;
+          break;
+        } else index += 1;
+      }
+    } else if (source[index] === '{') {
+      const after = skipAttributeExpression(source, index);
+      if (after === null) return true;
+      index = after;
+    } else {
+      while (index < source.length && !/[\s>]/.test(source[index])) index += 1;
+    }
+  }
+  return true;
 }
 
 function ancestorTags(signature: ElementSignature): string[] {
@@ -229,11 +290,22 @@ export function useElementSettings({
         tagName: signature.tagName,
         className: signature.className,
         text: signature.text,
+        attrSrc: signature.attrSrc,
+        attrAlt: signature.attrAlt,
+        attrWidth: signature.attrWidth,
+        attrHeight: signature.attrHeight,
+        attrLoading: signature.attrLoading,
       })
     : '';
   const [classes, setClasses] = useState<string[]>([]);
   const [attributes, setAttributes] = useState<ElementAttr[]>([]);
   const [canEditAttributes, setCanEditAttributes] = useState(false);
+  const [sourceMarkupStatus, setSourceMarkupStatus] = useState<
+    'idle' | 'resolving' | 'resolved' | 'unavailable'
+  >('idle');
+  const [imageAttributeEditBlockReason, setImageAttributeEditBlockReason] = useState<
+    'ambiguous' | 'spread' | 'mismatch' | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [tag, setTagValue] = useState(signature?.tagName ?? '');
   const [tagOptions, setTagOptions] = useState<MarkupTagOption[]>([]);
@@ -245,8 +317,16 @@ export function useElementSettings({
   const [location, setLocation] = useState<{ file: string; line: number } | null>(null);
 
   const sigRef = useRef<ElementSignature | null>(signature);
+  // Preview-only iframe updates create a fresh signature object. Keep the latest
+  // selection available to writes without restarting source resolution unless
+  // its source-relevant selection key changes.
+  useLayoutEffect(() => {
+    sigRef.current = signature;
+  }, [signature]);
   // The element's current source markup (drift-guard baseline for attribute writes).
   const htmlRef = useRef<string | null>(null);
+  const imageSourceAnchorRef = useRef<ElementSourceAnchor | null>(null);
+  const imageAttributeEditBlockRef = useRef<'ambiguous' | 'spread' | 'mismatch' | null>(null);
   const textTargetRef = useRef<{
     file: string;
     line: number;
@@ -278,11 +358,14 @@ export function useElementSettings({
   // overwriting the current element's text, tag options, or write baseline.
   useEffect(() => {
     const token = ++selectionTokenRef.current;
-    sigRef.current = signature;
-    if (!enabled || !signature) {
+    const selectedSignature = sigRef.current;
+    if (!enabled || !selectedSignature) {
       setClasses([]);
       setAttributes([]);
       setCanEditAttributes(false);
+      setSourceMarkupStatus('idle');
+      setImageAttributeEditBlockReason(null);
+      imageAttributeEditBlockRef.current = null;
       setLocation(null);
       setTagValue('');
       setTagOptions([]);
@@ -291,44 +374,96 @@ export function useElementSettings({
       setTextReason(null);
       setCanEditText(false);
       htmlRef.current = null;
+      imageSourceAnchorRef.current = null;
       textTargetRef.current = null;
       return;
     }
-    setTagValue(signature.tagName);
-    setTagOptions([{ tag: signature.tagName, label: signature.tagName }]);
+    setTagValue(selectedSignature.tagName);
+    setTagOptions([{ tag: selectedSignature.tagName, label: selectedSignature.tagName }]);
     setCanEditTag(false);
-    setClasses(signature.className.split(/\s+/).filter(Boolean));
+    setClasses(selectedSignature.className.split(/\s+/).filter(Boolean));
     setAttributes([]);
     setCanEditAttributes(false);
+    setSourceMarkupStatus('resolving');
+    setImageAttributeEditBlockReason(null);
+    imageAttributeEditBlockRef.current = null;
     setLocation(null);
     setTextValue('');
     setTextReason('Resolving selected text…');
     setCanEditText(false);
     htmlRef.current = null;
+    imageSourceAnchorRef.current = null;
     textTargetRef.current = null;
     let cancelled = false;
-    void resolveElementHtml(projectPath, signature)
+    void resolveElementHtml(projectPath, selectedSignature)
       .then((res) => {
         if (cancelled || token !== selectionTokenRef.current) return;
         htmlRef.current = res.html;
-        setAttributes(parseAttributes(res.html));
-        setCanEditAttributes(true);
+        const sourceAttributes = parseAttributes(res.html);
+        setAttributes(sourceAttributes);
+        setSourceMarkupStatus('resolved');
+        const sourceAttributeNames = new Set(
+          sourceAttributes.map((attribute) => attribute.name.toLowerCase())
+        );
+        const renderedImageAttributes = [
+          ['src', selectedSignature.attrSrc],
+          ['alt', selectedSignature.attrAlt],
+          ['width', selectedSignature.attrWidth],
+          ['height', selectedSignature.attrHeight],
+          ['loading', selectedSignature.attrLoading],
+        ] as const;
+        const hasUnmatchedRenderedAttribute = renderedImageAttributes.some(
+          ([name, value]) => value != null && !sourceAttributeNames.has(name)
+        );
+        const imageBlockReason =
+          selectedSignature.tagName.toLowerCase() === 'img'
+            ? res.locations && res.locations.length > 1
+              ? 'ambiguous'
+              : hasAttributeSpread(res.html)
+                ? 'spread'
+                : hasUnmatchedRenderedAttribute
+                  ? 'mismatch'
+                  : null
+            : null;
+        imageAttributeEditBlockRef.current = imageBlockReason;
+        setImageAttributeEditBlockReason(imageBlockReason);
+        setCanEditAttributes(imageBlockReason === null);
+        imageSourceAnchorRef.current =
+          selectedSignature.tagName.toLowerCase() === 'img' &&
+          imageBlockReason === null &&
+          !res.locations?.length &&
+          res.sourceStart != null &&
+          res.sourceHash
+            ? { file: res.file, sourceStart: res.sourceStart, sourceHash: res.sourceHash }
+            : null;
         setLocation({ file: res.file, line: res.line });
-        const options = compatibleMarkupTags(res.html, signature.tagName, ancestorTags(signature));
+        const options = compatibleMarkupTags(
+          res.html,
+          selectedSignature.tagName,
+          ancestorTags(selectedSignature)
+        );
         setTagOptions(options);
         setCanEditTag(options.length > 1);
       })
       .catch(() => {
         if (cancelled || token !== selectionTokenRef.current) return;
         htmlRef.current = null;
+        imageSourceAnchorRef.current = null;
         setAttributes([]);
         setCanEditAttributes(false);
+        setSourceMarkupStatus('unavailable');
+        setImageAttributeEditBlockReason(null);
+        imageAttributeEditBlockRef.current = null;
         setLocation(null);
-        const options = compatibleMarkupTags(null, signature.tagName, ancestorTags(signature));
+        const options = compatibleMarkupTags(
+          null,
+          selectedSignature.tagName,
+          ancestorTags(selectedSignature)
+        );
         setTagOptions(options);
         setCanEditTag(false);
       });
-    void resolveTextSource(projectPath, signature)
+    void resolveTextSource(projectPath, selectedSignature)
       .then((res) => {
         if (cancelled || token !== selectionTokenRef.current) return;
         if (res.status === 'resolved') {
@@ -359,38 +494,101 @@ export function useElementSettings({
     return () => {
       cancelled = true;
     };
-  }, [enabled, projectPath, signature]);
+  }, [enabled, projectPath, selectionKey]);
 
   /** Set/add/remove (value === null) an attribute on the element's opening tag,
    *  drift-guarded against the resolved markup, then refresh the local list. */
   const applyAttr = useCallback(
-    async (name: string, value: string | null) => {
+    async (name: string, value: string | null): Promise<boolean> => {
       const sig = sigRef.current;
       const token = selectionTokenRef.current;
       const oldHtml = htmlRef.current;
       if (!sig || oldHtml == null) {
         onToast("Can't edit this element's attributes in source.", 'error');
-        return;
+        return false;
       }
-      const newHtml = setAttrInHtml(oldHtml, name, value);
-      if (newHtml == null || newHtml === oldHtml) return;
-      if (!beginWrite()) return;
+      if (sig.tagName.toLowerCase() === 'img' && imageAttributeEditBlockRef.current) {
+        onToast(
+          imageAttributeEditBlockRef.current === 'ambiguous'
+            ? 'This image appears in several source locations. Update it in code so only the intended image changes.'
+            : imageAttributeEditBlockRef.current === 'spread'
+              ? 'This image uses a spread attribute that may provide its values. Update it in code so its attributes stay in sync.'
+              : 'The selected image’s rendered attributes do not match the source markup found. Update it in code so the intended image stays in sync.',
+          'info'
+        );
+        return false;
+      }
+      if (name.toLowerCase() === 'src' && value !== null) {
+        const oldAttributes = parseAttributes(oldHtml);
+        const currentSrc = oldAttributes.find((attr) => attr.name.toLowerCase() === 'src');
+        if (currentSrc?.isExpression) {
+          onToast("This image source is set by code and can't be replaced here.", 'info');
+          return false;
+        }
+        if (currentSrc?.value === value) return true;
+        if (ancestorTags(sig).some((tag) => tag.toLowerCase() === 'picture')) {
+          onToast(
+            'This image is inside a <picture> element. Update it in code so responsive sources stay in sync.',
+            'info'
+          );
+          return false;
+        }
+        if (hasAttributeSpread(oldHtml)) {
+          onToast(
+            'This image uses a spread attribute. Update its source in code so responsive images stay in sync.',
+            'info'
+          );
+          return false;
+        }
+        const srcset = oldAttributes.find((attr) => attr.name.toLowerCase() === 'srcset');
+        if (srcset?.isExpression) {
+          onToast(
+            'This image uses a code-generated srcset. Update the image source in code so its responsive sources stay in sync.',
+            'info'
+          );
+          return false;
+        }
+      }
+      let newHtml = setAttrInHtml(oldHtml, name, value);
+      if (newHtml == null) return false;
+      if (name.toLowerCase() === 'src' && value !== null) {
+        const srcset = parseAttributes(oldHtml).find(
+          (attr) => attr.name.toLowerCase() === 'srcset'
+        );
+        if (srcset) newHtml = setAttrInHtml(newHtml, 'srcset', null) ?? newHtml;
+      }
+      if (newHtml === oldHtml) return true;
+      if (!beginWrite()) return false;
       try {
-        await applyElementHtml(projectPath, sig, oldHtml, newHtml);
-        if (token !== selectionTokenRef.current) return;
+        if (name.toLowerCase() === 'src' && value !== null) post({ type: 'ss:suppressReload' });
+        const sourceAnchor =
+          sig.tagName.toLowerCase() === 'img' && !imageAttributeEditBlockRef.current
+            ? imageSourceAnchorRef.current
+            : null;
+        const result = sourceAnchor
+          ? await applyElementHtml(projectPath, sig, oldHtml, newHtml, undefined, sourceAnchor)
+          : await applyElementHtml(projectPath, sig, oldHtml, newHtml);
+        if (token !== selectionTokenRef.current) return false;
+        if (sourceAnchor) imageSourceAnchorRef.current = result?.sourceAnchor ?? null;
         htmlRef.current = newHtml;
         setAttributes(parseAttributes(newHtml));
         const options = compatibleMarkupTags(newHtml, sig.tagName, ancestorTags(sig));
         setTagOptions(options);
         setCanEditTag(options.length > 1);
+        if (name.toLowerCase() === 'src' && value !== null) {
+          post({ type: 'ss:setSrc', value });
+          post({ type: 'ss:commit' });
+        }
         void trackEvent('visual_edit_saved', { kind: 'attribute', mode: 'css-code' });
+        return true;
       } catch (err) {
         reportSettingsFailure('attribute edit', err, onToast);
+        return false;
       } finally {
         endWrite();
       }
     },
-    [projectPath, onToast, beginWrite, endWrite]
+    [projectPath, onToast, beginWrite, endWrite, post]
   );
 
   /** Rename an attribute's key (remove old + add new in ONE source write so it never
@@ -405,14 +603,32 @@ export function useElementSettings({
         onToast("Can't edit this element's attributes in source.", 'error');
         return;
       }
+      if (sig.tagName.toLowerCase() === 'img' && imageAttributeEditBlockRef.current) {
+        onToast(
+          imageAttributeEditBlockRef.current === 'ambiguous'
+            ? 'This image appears in several source locations. Update it in code so only the intended image changes.'
+            : imageAttributeEditBlockRef.current === 'spread'
+              ? 'This image uses a spread attribute that may provide its values. Update it in code so its attributes stay in sync.'
+              : 'The selected image’s rendered attributes do not match the source markup found. Update it in code so the intended image stays in sync.',
+          'info'
+        );
+        return;
+      }
       if (!n || n === oldName) return;
       const without = setAttrInHtml(oldHtml, oldName, null) ?? oldHtml;
       const newHtml = setAttrInHtml(without, n, value);
       if (newHtml == null || newHtml === oldHtml) return;
       if (!beginWrite()) return;
       try {
-        await applyElementHtml(projectPath, sig, oldHtml, newHtml);
+        const sourceAnchor =
+          sig.tagName.toLowerCase() === 'img' && !imageAttributeEditBlockRef.current
+            ? imageSourceAnchorRef.current
+            : null;
+        const result = sourceAnchor
+          ? await applyElementHtml(projectPath, sig, oldHtml, newHtml, undefined, sourceAnchor)
+          : await applyElementHtml(projectPath, sig, oldHtml, newHtml);
         if (token !== selectionTokenRef.current) return;
+        if (sourceAnchor) imageSourceAnchorRef.current = result?.sourceAnchor ?? null;
         htmlRef.current = newHtml;
         setAttributes(parseAttributes(newHtml));
         const options = compatibleMarkupTags(newHtml, sig.tagName, ancestorTags(sig));
@@ -752,10 +968,12 @@ export function useElementSettings({
     addClass: (n) => void addClass(n),
     renameClass: (oldName, newName) => void renameClass(oldName, newName),
     removeClass: (n) => void removeClass(n),
-    setAttribute: (name, value) => void applyAttr(name, value),
+    setAttribute: (name, value) => applyAttr(name, value),
     renameAttribute: (oldName, newName, value) => void renameAttr(oldName, newName, value),
     removeAttribute: (name) => void applyAttr(name, null),
     canEditAttributes,
+    sourceMarkupStatus,
+    imageAttributeEditBlockReason,
     location,
     busy,
   };

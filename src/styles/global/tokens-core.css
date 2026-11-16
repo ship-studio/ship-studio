@@ -3,9 +3,11 @@
 
 :root {
   --color-white: #ffffff;
+  --color-white-o10: rgba(255, 255, 255, 0.1);
   --color-white-o15: rgba(255, 255, 255, 0.15);
 
   --color-black: #000000;
+  --color-black-o10: rgba(0, 0, 0, 0.1);
   --color-black-o15: rgba(0, 0, 0, 0.15);
   --color-black-o38: rgba(0, 0, 0, 0.38);
   --color-black-o75: rgba(0, 0, 0, 0.75);

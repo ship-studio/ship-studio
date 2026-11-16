@@ -45,6 +45,7 @@ import {
   insertClassAttr,
   BASE_BREAKPOINT,
   DEFAULT_BREAKPOINTS,
+  type Breakpoint,
 } from '../lib/edit';
 import {
   detectTailwindSetup,
@@ -70,7 +71,7 @@ function fakeIframeRef() {
   } as unknown as React.RefObject<HTMLIFrameElement | null>;
 }
 
-function setup() {
+function setup(activeBreakpoint: Breakpoint = BASE_BREAKPOINT) {
   const iframeRef = fakeIframeRef();
   const onToast = vi.fn();
   const hook = renderHook(() =>
@@ -78,7 +79,7 @@ function setup() {
       iframeRef,
       projectPath: '/proj',
       enabled: true,
-      activeBreakpoint: BASE_BREAKPOINT,
+      activeBreakpoint,
       breakpoints: BREAKPOINTS,
       onToast,
     })
@@ -105,6 +106,7 @@ async function select(
     direction: 'ltr' | 'rtl';
     writingMode: string;
     spacingUnit: string;
+    unlayeredProps: string[];
     domPath: string;
     contrastSnapshot: unknown;
     selectionId: string;
@@ -161,6 +163,65 @@ afterEach(() => {
 });
 
 describe('useVisualEditor selection', () => {
+  it('ignores a stale class resolution after a same-path selection changes', async () => {
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    const source = iframeRef.current!.contentWindow!;
+    let finishOldResolution!: (value: Awaited<ReturnType<typeof resolveClassnameSource>>) => void;
+    vi.mocked(resolveClassnameSource)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldResolution = resolve;
+          })
+      )
+      .mockImplementationOnce((_projectPath, signature) =>
+        Promise.resolve({
+          status: 'resolved',
+          file: 'app/page.tsx',
+          line: 2,
+          column: 1,
+          class_name: signature.className,
+          confidence: 'unique',
+        })
+      );
+    const dispatch = async (className: string, selectionId: string) =>
+      act(async () => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            source,
+            data: {
+              type: 'ss:select',
+              selectionId,
+              signature: { className, tagName: 'div', domPath: '/same/path', ancestorClasses: [] },
+            },
+          })
+        );
+        await Promise.resolve();
+      });
+
+    await dispatch('old-class', 'selection-old');
+    await dispatch('new-class', 'selection-new');
+    await flush();
+    expect(result.current.selection?.signature.className).toBe('new-class');
+    expect(result.current.selection?.resolution).toMatchObject({ class_name: 'new-class' });
+
+    await act(async () => {
+      finishOldResolution({
+        status: 'resolved',
+        file: 'app/page.tsx',
+        line: 1,
+        column: 1,
+        class_name: 'old-class',
+        confidence: 'unique',
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.selection?.signature.className).toBe('new-class');
+    expect(result.current.selection?.resolution).toMatchObject({ class_name: 'new-class' });
+  });
+
   it('keeps a newer contrast snapshot when source resolution finishes later', async () => {
     const { result, iframeRef } = setup();
     act(() => result.current.toggleEditMode());
@@ -367,6 +428,134 @@ describe('useVisualEditor selection', () => {
 });
 
 describe('useVisualEditor auto-save', () => {
+  it('replaces an important image dimension utility without leaving the old dimension in control', async () => {
+    (detectTailwindSetup as ReturnType<typeof vi.fn>).mockResolvedValue({
+      version: 'v4',
+      entryCss: 'app.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw:',
+    });
+    const md = DEFAULT_BREAKPOINTS.find((breakpoint) => breakpoint.name === 'md')!;
+    const { result, iframeRef } = setup(md);
+    act(() => result.current.toggleEditMode());
+    await select(
+      'tw:w-32 md:tw:w-64! md:tw:h-40 hover:tw:w-full',
+      iframeRef.current!.contentWindow!
+    );
+    act(() => result.current.applyEnum('w-[12rem]', { width: '12rem' }));
+    expect(result.current.currentClass).toContain('md:tw:w-[12rem]!');
+    expect(result.current.currentClass).not.toContain('md:tw:w-64!');
+    expect(result.current.currentClass).toContain('tw:w-32');
+    expect(result.current.currentClass).toContain('md:tw:h-40');
+    expect(result.current.currentClass).toContain('hover:tw:w-full');
+  });
+
+  it('replaces only the active background property family across prefixed breakpoint edits', async () => {
+    (detectTailwindSetup as ReturnType<typeof vi.fn>).mockResolvedValue({
+      version: 'v4',
+      entryCss: 'app.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw:',
+    });
+    const md = DEFAULT_BREAKPOINTS.find((breakpoint) => breakpoint.name === 'md')!;
+    const { result, iframeRef } = setup(md);
+    act(() => result.current.toggleEditMode());
+    await select(
+      'bg-red-500 bg-cover md:tw:bg-cover md:tw:bg-[url(/old.png)] md:tw:[background-size:cover] text-lg',
+      iframeRef.current!.contentWindow!,
+      { unlayeredProps: ['background-image', 'background-size'] }
+    );
+
+    act(() => {
+      result.current.applyEnum('bg-[image:url("/hero_(wide)_asset.png?x=a,b")]', {
+        'background-image': 'url("/hero_(wide)_asset.png?x=a,b")',
+      });
+    });
+    expect(result.current.currentClass).toContain('bg-red-500');
+    expect(result.current.currentClass).toContain('text-lg');
+    expect(result.current.currentClass).toContain('bg-cover');
+    expect(result.current.currentClass).not.toContain('md:tw:bg-[url(/old.png)]');
+    expect(result.current.currentClass).toContain(
+      'md:tw:bg-[image:url("/hero_(wide)_asset.png?x=a,b")]!'
+    );
+
+    act(() => {
+      result.current.applyEnum('[background-size:cover,_contain]', {
+        'background-size': 'cover, contain',
+      });
+    });
+    expect(result.current.currentClass).not.toContain('md:tw:bg-cover');
+    expect(result.current.currentClass).toContain('md:tw:[background-size:cover,_contain]!');
+
+    act(() => result.current.applyEnum('bg-contain', { 'background-size': 'contain' }));
+    expect(result.current.currentClass).toContain('bg-red-500');
+    expect(result.current.currentClass).toContain('md:tw:bg-contain!');
+    expect(result.current.currentClass).not.toContain('md:tw:[background-size:cover,_contain]');
+  });
+
+  it('keeps an authored important modifier when replacing a background image', async () => {
+    (detectTailwindSetup as ReturnType<typeof vi.fn>).mockResolvedValue({
+      version: 'v4',
+      entryCss: 'app.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw:',
+    });
+    const md = DEFAULT_BREAKPOINTS.find((breakpoint) => breakpoint.name === 'md')!;
+    const { result, iframeRef } = setup(md);
+    act(() => result.current.toggleEditMode());
+    await select(
+      'bg-red-500 md:tw:bg-[image:url(/old.png)]! md:tw:bg-cover! text-lg',
+      iframeRef.current!.contentWindow!,
+      { unlayeredProps: [] }
+    );
+
+    act(() => {
+      result.current.applyEnum('bg-[image:url(/new.png)]', {
+        'background-image': 'url(/new.png)',
+      });
+    });
+
+    expect(result.current.currentClass).toContain('bg-red-500');
+    expect(result.current.currentClass).toContain('md:tw:bg-[image:url(/new.png)]!');
+    expect(result.current.currentClass).toContain('md:tw:bg-cover!');
+    expect(result.current.currentClass).toContain('text-lg');
+  });
+
+  it('keeps every important background family and unrelated responsive utilities through the layer handler sequence', async () => {
+    (detectTailwindSetup as ReturnType<typeof vi.fn>).mockResolvedValue({
+      version: 'v4',
+      entryCss: 'app.css',
+      componentsLayer: false,
+      utilityPrefix: 'tw:',
+    });
+    const md = DEFAULT_BREAKPOINTS.find((breakpoint) => breakpoint.name === 'md')!;
+    const { result, iframeRef } = setup(md);
+    act(() => result.current.toggleEditMode());
+    await select(
+      'bg-red-500 md:tw:bg-[image:url(/old.png)]! md:tw:bg-cover! md:tw:[background-position:center]! md:tw:bg-repeat-round! md:tw:bg-fixed! md:p-4',
+      iframeRef.current!.contentWindow!,
+      { unlayeredProps: [] }
+    );
+
+    act(() => {
+      result.current.applyEnum('bg-[image:url(/new.png)]', { 'background-image': 'url(/new.png)' });
+      result.current.applyEnum('[background-size:cover]', { 'background-size': 'cover' });
+      result.current.applyEnum('[background-position:center]', { 'background-position': 'center' });
+      result.current.applyEnum('[background-repeat:round]', { 'background-repeat': 'round' });
+      result.current.applyEnum('[background-attachment:fixed]', {
+        'background-attachment': 'fixed',
+      });
+    });
+
+    expect(result.current.currentClass).toContain('md:tw:bg-[image:url(/new.png)]!');
+    expect(result.current.currentClass).toContain('md:tw:[background-size:cover]!');
+    expect(result.current.currentClass).toContain('md:tw:[background-position:center]!');
+    expect(result.current.currentClass).toContain('md:tw:[background-repeat:round]!');
+    expect(result.current.currentClass).toContain('md:tw:[background-attachment:fixed]!');
+    expect(result.current.currentClass).toContain('md:p-4');
+    expect(result.current.currentClass).toContain('bg-red-500');
+  });
+
   it('does NOT save automatically when auto-save is off', async () => {
     const { result, iframeRef } = setup();
     act(() => result.current.toggleEditMode());

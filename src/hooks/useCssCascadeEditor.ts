@@ -68,8 +68,15 @@ function draftSpecificity(selector: string): [number, number, number] {
 export interface CascadeSelection {
   signature: ElementSignature;
   instanceCount: number;
+  /** Provisional identity from `ss:selectionPending`; no source work is valid yet. */
+  pending?: boolean;
   /** Proxy-issued selection identity, used to expire selection-scoped review plans. */
   selectionId?: string;
+}
+
+/** Source-backed consumers must wait for the complete `ss:select` signature. */
+export function sourceReadySignature(selection: CascadeSelection | null): ElementSignature | null {
+  return selection && !selection.pending ? selection.signature : null;
 }
 
 interface Params {
@@ -414,8 +421,60 @@ export function useCssCascadeEditor({
         computedBackgroundColor?: string;
         count?: number;
         rules?: MatchedRule[];
+        timing?: {
+          scheduledWaitMs?: number;
+          inspectionMs?: number;
+          postedAtEpochMs?: number;
+          scheduledToScanMs?: number;
+          scanMs?: number;
+        };
+        currentSrc?: string | null;
+        currentPreview?: string | null;
       } | null;
       if (!d) return;
+
+      const pendingSignature = d.signature;
+      const pendingDomPath = pendingSignature?.domPath;
+
+      if (
+        d.type === 'ss:selectionPending' &&
+        pendingSignature &&
+        typeof d.selectionId === 'string' &&
+        d.selectionId.length > 0 &&
+        d.selectionId.length <= 128 &&
+        typeof pendingDomPath === 'string' &&
+        pendingDomPath.length > 0
+      ) {
+        const signature = pendingSignature;
+        const previous = lastSignatureRef.current;
+        const samePath = previous?.domPath === pendingDomPath;
+        lastSignatureRef.current = signature;
+        contrastSelectionRef.current = {
+          selectionId: d.selectionId,
+          domPath: pendingDomPath,
+          requestId: ++contrastRequestIdRef.current,
+        };
+        selectedInstanceCountRef.current = 1;
+        activityRef.current = null;
+        // A previously-running source lookup belongs to the element we just left.
+        // Invalidate it now, before the full signature and cascade arrive.
+        ++selTokenRef.current;
+        clearTimers();
+        post({ type: 'ss:clearRulePreview' });
+        setSelection({ signature, instanceCount: 1, selectionId: d.selectionId, pending: true });
+        if (!samePath) {
+          createdRowsRef.current = new Map();
+          draftIndexRef.current = new Map();
+          setRows([]);
+          setBodies({});
+          bodiesRef.current = {};
+          baselineInner.current = {};
+          setOverridden({});
+          setSavingKeys(new Set());
+        }
+        setLoading(true);
+        return;
+      }
 
       if (d.type === 'ss:contrastDirty') {
         const current = contrastSelectionRef.current;
@@ -485,6 +544,34 @@ export function useCssCascadeEditor({
         return;
       }
 
+      if (d.type === 'ss:imageState') {
+        const current = contrastSelectionRef.current;
+        const selected = lastSignatureRef.current;
+        if (
+          !current ||
+          !selected ||
+          selected.tagName.toLowerCase() !== 'img' ||
+          d.selectionId !== current.selectionId ||
+          d.domPath !== current.domPath ||
+          selected.domPath !== current.domPath
+        ) {
+          return;
+        }
+        const currentSrc = typeof d.currentSrc === 'string' ? d.currentSrc : null;
+        const currentPreview =
+          typeof d.currentPreview === 'string' &&
+          d.currentPreview.startsWith('data:image/png;base64,')
+            ? d.currentPreview
+            : null;
+        lastSignatureRef.current = { ...selected, currentSrc, currentPreview };
+        setSelection((prev) =>
+          prev && prev.signature.domPath === current.domPath
+            ? { ...prev, signature: { ...prev.signature, currentSrc, currentPreview } }
+            : prev
+        );
+        return;
+      }
+
       if (d.type === 'ss:select' && d.signature) {
         const instanceCount = d.count ?? 1;
         selectedInstanceCountRef.current = instanceCount;
@@ -526,6 +613,7 @@ export function useCssCascadeEditor({
         setSelection({
           signature,
           instanceCount,
+          pending: false,
           ...(typeof d.selectionId === 'string' && d.selectionId.length > 0
             ? { selectionId: d.selectionId }
             : {}),
@@ -557,6 +645,12 @@ export function useCssCascadeEditor({
       }
 
       if (d.type === 'ss:cascade' && Array.isArray(d.rules)) {
+        if (
+          typeof d.selectionId === 'string' &&
+          d.selectionId !== contrastSelectionRef.current?.selectionId
+        ) {
+          return;
+        }
         const matched = d.rules;
         const token = selTokenRef.current;
         // The initial cascade contains the same exact runtime identities as a

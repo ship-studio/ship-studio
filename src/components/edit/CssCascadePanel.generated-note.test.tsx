@@ -80,6 +80,7 @@ function panel(rows: CascadeRow[], selectionClass = 'hero') {
           renameAttribute: vi.fn(),
           removeAttribute: vi.fn(),
           canEditAttributes: false,
+          sourceMarkupStatus: 'resolved',
           location: null,
           busy: false,
         } satisfies ElementSettings

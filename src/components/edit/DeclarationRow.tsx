@@ -5,7 +5,7 @@
  * Overridden declarations render struck-through, with a tooltip naming what wins.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { CloseIcon, NestRuleIcon, PlusIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
@@ -19,6 +19,11 @@ import {
   type ColorVariableDefinition,
 } from '../../lib/colorContrast';
 import { colorPickerDraftOrFallback } from './colorPickerDraft';
+import { ImageIcon } from '@/components/icons';
+import { useOptionalAssetBrowser } from '../../contexts/AssetBrowserContext';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import { assetWebPath } from '../../lib/assets';
+import { cssUrlValue, isSimpleCssBackgroundUrl } from '../../lib/cssBackgroundImage';
 
 interface EditableProps {
   decl: Decl;
@@ -158,6 +163,15 @@ export function DeclarationRow(props: Props) {
   const tipProps = overriddenTooltipProps(overridden, props.overriddenBy);
   const autoEditValue = props.editable && props.autoEditValue;
   const swatchColor = resolveSwatchColor(decl.value, props.colorVariables, props.variableSelector);
+  const assetBrowser = useOptionalAssetBrowser();
+  const { showToast } = useOptionalToast();
+  const imagePickerIdRef = useRef<number | null>(null);
+  const declarationIdentity = `${props.editable ? (props.projectPath ?? '') : ''}:${props.editable ? (props.variableSelector ?? '') : ''}:${decl.prop}:${decl.value}:${decl.important}`;
+  const declarationIdentityRef = useRef(declarationIdentity);
+  const isBackgroundImage = decl.prop.trim().toLowerCase() === 'background-image';
+  const hasSimpleImage = isBackgroundImage && isSimpleCssBackgroundUrl(decl.value);
+  const imageOnChange = props.editable ? props.onChange : null;
+  const cancelPicker = assetBrowser?.cancelPicker;
   // Editing-flow: a newly added row mounts directly into its inline value input.
   const [editing, setEditing] = useState<null | 'prop' | 'value' | 'color'>(
     autoEditValue ? 'value' : null
@@ -165,6 +179,36 @@ export function DeclarationRow(props: Props) {
   // The clicked value or swatch button anchors its editor or color picker.
   const [valueAnchor, setValueAnchor] = useState<HTMLElement | null>(null);
   const [colorPickerInitial, setColorPickerInitial] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    declarationIdentityRef.current = declarationIdentity;
+  }, [declarationIdentity]);
+
+  useEffect(
+    () => () => {
+      if (imagePickerIdRef.current != null) cancelPicker?.(imagePickerIdRef.current);
+    },
+    [cancelPicker, declarationIdentity]
+  );
+
+  const openImagePicker = () => {
+    if (!props.editable || !imageOnChange || !props.projectPath || !assetBrowser) return;
+    const expectedIdentity = declarationIdentity;
+    imagePickerIdRef.current = assetBrowser.openPicker({
+      projectPath: props.projectPath,
+      title: 'Choose background image',
+      onPick: (asset, root) => {
+        if (declarationIdentityRef.current !== expectedIdentity) return;
+        try {
+          imageOnChange({ ...decl, value: cssUrlValue(assetWebPath(root, asset.path)) });
+          imagePickerIdRef.current = null;
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : String(error), 'error');
+          throw error;
+        }
+      },
+    });
+  };
 
   if (!props.editable) {
     return (
@@ -278,9 +322,26 @@ export function DeclarationRow(props: Props) {
         />
       ) : (
         <div className="ss-decl__value">
+          {props.editable && isBackgroundImage && (
+            <Button
+              className={`ss-decl__swatch-trigger ss-decl__image-swatch${hasSimpleImage ? ' has-image' : ''}`}
+              size="compact"
+              variant="ghost"
+              aria-label="Choose background image"
+              title="Choose background image"
+              disabled={!props.projectPath || !assetBrowser}
+              onClick={openImagePicker}
+            >
+              {hasSimpleImage ? (
+                <span style={{ backgroundImage: decl.value }} aria-hidden="true" />
+              ) : (
+                <ImageIcon size={13} />
+              )}
+            </Button>
+          )}
           <Button
             className={`ss-decl__edit ss-decl__value-text${
-              swatchColor ? ' ss-decl__value-text--has-swatch' : ''
+              swatchColor || isBackgroundImage ? ' ss-decl__value-text--has-swatch' : ''
             }`}
             size="compact"
             variant="ghost"
@@ -290,7 +351,9 @@ export function DeclarationRow(props: Props) {
               setEditing('value');
             }}
           >
-            {swatchColor && <span className="ss-decl__swatch-space" aria-hidden="true" />}
+            {(swatchColor || isBackgroundImage) && (
+              <span className="ss-decl__swatch-space" aria-hidden="true" />
+            )}
             {valueText(decl.value)}
             {decl.important && <span className="ss-decl__imp"> !important</span>}
           </Button>

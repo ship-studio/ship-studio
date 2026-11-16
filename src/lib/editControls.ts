@@ -37,6 +37,7 @@ export type RegistryControl =
         | 'letter-spacing';
     }
   | { kind: 'enum'; key: string; control: EnumControl }
+  | { kind: 'backgroundImage'; key: string }
   | { kind: 'color'; key: string; label: string; css: string; prefix: ColorPrefix }
   | {
       kind: 'length';
@@ -68,17 +69,24 @@ export interface ControlSection {
 
 /** Reference one of the declared enum controls by its label. Throws at module load
  *  if the label is misspelled, so a bad registry entry fails fast in dev/tests. */
-function enumRow(label: string): RegistryControl {
-  const control = ENUM_CONTROLS.find((c) => c.label === label);
-  if (!control) throw new Error(`editControls: unknown enum control "${label}"`);
-  return { kind: 'enum', key: `enum:${label}`, control };
+function enumRow(label: string, sourceLabel = label): RegistryControl {
+  const source = ENUM_CONTROLS.find((c) => c.label === sourceLabel);
+  if (!source) throw new Error(`editControls: unknown enum control "${sourceLabel}"`);
+  const control = source.label === label ? source : { ...source, label };
+  return { kind: 'enum', key: `enum:${sourceLabel}`, control };
 }
 
 /** Reference one of the declared color controls by its Tailwind prefix. */
-function colorRow(prefix: ColorPrefix): RegistryControl {
+function colorRow(prefix: ColorPrefix, label?: string): RegistryControl {
   const c = COLOR_CONTROLS.find((x) => x.prefix === prefix);
   if (!c) throw new Error(`editControls: unknown color control "${prefix}"`);
-  return { kind: 'color', key: `color:${prefix}`, label: c.label, css: c.css, prefix: c.prefix };
+  return {
+    kind: 'color',
+    key: `color:${prefix}`,
+    label: label ?? c.label,
+    css: c.css,
+    prefix: c.prefix,
+  };
 }
 
 function valueRow(
@@ -155,15 +163,22 @@ export const CONTROL_SECTIONS: ControlSection[] = [
   },
   {
     id: 'backgrounds',
-    title: 'Backgrounds & Borders',
+    title: 'Backgrounds',
     defaultOpen: false,
     controls: [
-      colorRow('bg'),
-      valueRow('border'),
-      colorRow('border'),
-      valueRow('radius'),
-      enumRow('Shadow'),
+      { kind: 'backgroundImage', key: 'backgroundImage' },
+      colorRow('bg', 'Color'),
+      enumRow('Size', 'Background size'),
+      enumRow('Position', 'Background position'),
+      enumRow('Repeat', 'Background repeat'),
+      enumRow('Attachment', 'Background attachment'),
     ],
+  },
+  {
+    id: 'borders',
+    title: 'Borders',
+    defaultOpen: false,
+    controls: [valueRow('border'), colorRow('border'), valueRow('radius'), enumRow('Shadow')],
   },
   {
     id: 'effects',

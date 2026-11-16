@@ -36,6 +36,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useFrameRebind } from './useFrameRebind';
 import { useSelectionCleared } from './useSelectionCleared';
 import { twMerge } from 'tailwind-merge';
+import { backgroundResetSpec } from '../lib/cssBackgroundImage';
 import {
   resolveClassnameSource,
   applyClassnameEdit,
@@ -43,11 +44,14 @@ import {
   insertClassAttr,
   resolveImageSource,
   applySrcEdit,
+  applyJsonImageSourceEdit,
   findComponentUsage,
   spacingValue,
   spacingTokenFor,
   spacingCss,
   stepSpacingValue,
+  readLayer,
+  tailwindUtilityParts,
   boxSide,
   boxSidePrefix,
   boxSideUtilityResetSpec,
@@ -61,6 +65,7 @@ import {
   competesWithUnlayered,
   markImportant,
   radiusResetSpec,
+  lengthResetSpec,
   enumResetSpec,
   ENUM_CONTROLS,
   utilityTokenFor,
@@ -331,17 +336,11 @@ export function useVisualEditor({
   // the element isn't an image or its src isn't a static literal). Mirrored into a
   // ref so `replaceImage` reads the latest baseline without re-subscribing.
   const [imageResolution, setImageResolution] = useState<ImageResolution | null>(null);
-  const imageTargetRef = useRef<{
-    file: string;
-    line: number;
-    column: number;
-    src: string;
-  } | null>(null);
+  type WritableImageResolution = Extract<ImageResolution, { status: 'resolved' | 'json_property' }>;
+  const imageTargetRef = useRef<WritableImageResolution | null>(null);
   const setImageTarget = useCallback((res: ImageResolution | null) => {
     imageTargetRef.current =
-      res?.status === 'resolved'
-        ? { file: res.file, line: res.line, column: res.column, src: res.src }
-        : null;
+      res?.status === 'resolved' || res?.status === 'json_property' ? res : null;
     setImageResolution(res);
   }, []);
 
@@ -360,6 +359,43 @@ export function useVisualEditor({
   const post = useCallback(
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
+  );
+
+  const previewImageSource = useCallback(
+    (value: string | null, expected: ElementSignature) => {
+      const selected = selectedSigRef.current;
+      const current = contrastSelectionRef.current;
+      if (
+        !selected ||
+        !current ||
+        selected.tagName.toLowerCase() !== 'img' ||
+        expected.tagName.toLowerCase() !== 'img' ||
+        !expected.domPath ||
+        selected.domPath !== expected.domPath ||
+        current.domPath !== expected.domPath ||
+        selected.attrSrc !== expected.attrSrc ||
+        selected.sourceFile !== expected.sourceFile ||
+        selected.sourceLine !== expected.sourceLine ||
+        selected.sourceColumn !== expected.sourceColumn
+      ) {
+        return;
+      }
+      if (value === null) {
+        post({
+          type: 'ss:clearReplacementPreview',
+          selectionId: current.selectionId,
+          domPath: current.domPath,
+        });
+        return;
+      }
+      post({
+        type: 'ss:previewReplacementSrc',
+        selectionId: current.selectionId,
+        domPath: current.domPath,
+        value,
+      });
+    },
+    [post]
   );
 
   // Route a live-preview mutation by edit target: an element edit sets the
@@ -439,6 +475,9 @@ export function useVisualEditor({
   // frame (the breakpoint canvas), where nothing is marked, or the user clicked
   // the canvas background and dropped the selection.
   const forgetSelection = useCallback(() => {
+    // Invalidate source and usage lookups before clearing the selection. A slow
+    // resolver from the selection we just left must not update a later panel.
+    usageTokenRef.current += 1;
     contrastSelectionRef.current = null;
     selectedInstanceCountRef.current = 1;
     setSelection(null);
@@ -482,6 +521,10 @@ export function useVisualEditor({
         computedBackgroundColor?: string;
         count?: number;
         leafText?: boolean;
+        currentSrc?: string | null;
+        currentPreview?: string | null;
+        naturalWidth?: number | null;
+        naturalHeight?: number | null;
       } | null;
       if (!d) return;
 
@@ -555,6 +598,61 @@ export function useVisualEditor({
         return;
       }
 
+      if (d.type === 'ss:imageState') {
+        const current = contrastSelectionRef.current;
+        const selectedSignature = selectedSigRef.current;
+        if (
+          !current ||
+          !selectedSignature ||
+          selectedSignature.tagName.toLowerCase() !== 'img' ||
+          d.selectionId !== current.selectionId ||
+          d.domPath !== current.domPath ||
+          selectedSignature.domPath !== current.domPath
+        ) {
+          return;
+        }
+        const currentSrc = typeof d.currentSrc === 'string' ? d.currentSrc : null;
+        const currentPreview =
+          typeof d.currentPreview === 'string' &&
+          d.currentPreview.startsWith('data:image/png;base64,')
+            ? d.currentPreview
+            : null;
+        const naturalWidth =
+          typeof d.naturalWidth === 'number' &&
+          Number.isSafeInteger(d.naturalWidth) &&
+          d.naturalWidth > 0
+            ? d.naturalWidth
+            : null;
+        const naturalHeight =
+          typeof d.naturalHeight === 'number' &&
+          Number.isSafeInteger(d.naturalHeight) &&
+          d.naturalHeight > 0
+            ? d.naturalHeight
+            : null;
+        selectedSigRef.current = {
+          ...selectedSignature,
+          currentSrc,
+          currentPreview,
+          naturalWidth,
+          naturalHeight,
+        };
+        setSelection((prev) =>
+          prev && prev.signature.domPath === current.domPath
+            ? {
+                ...prev,
+                signature: {
+                  ...prev.signature,
+                  currentSrc,
+                  currentPreview,
+                  naturalWidth,
+                  naturalHeight,
+                },
+              }
+            : prev
+        );
+        return;
+      }
+
       // Text-edit messages (ss:textBlocked / ss:textCommit) are handled by the
       // shared useTextEditing hook, not here.
       if (d.type !== 'ss:select' || !d.signature) return;
@@ -590,7 +688,12 @@ export function useVisualEditor({
         try {
           const resolution = await resolveClassnameSource(projectPath, sig);
           setSelection((prev) => {
-            if (!prev || prev.signature.domPath !== sig.domPath) return prev;
+            if (
+              usageTokenRef.current !== usageToken ||
+              !prev ||
+              prev.signature.domPath !== sig.domPath
+            )
+              return prev;
             return { ...prev, resolution };
           });
           // Best-effort scope hint: where else this component is rendered.
@@ -607,12 +710,18 @@ export function useVisualEditor({
             }
           }
         } catch (err) {
+          if (usageTokenRef.current !== usageToken) return;
           logger.error('[VisualEditor] resolve failed', {
             error: formatCommandError(asCommandError(err)),
           });
           onToast?.(formatCommandError(asCommandError(err)), 'error');
           setSelection((prev) => {
-            if (!prev || prev.signature.domPath !== sig.domPath) return prev;
+            if (
+              usageTokenRef.current !== usageToken ||
+              !prev ||
+              prev.signature.domPath !== sig.domPath
+            )
+              return prev;
             return {
               ...prev,
               resolution: {
@@ -715,6 +824,35 @@ export function useVisualEditor({
       const version: TailwindVersion = setup?.version ?? 'v4';
       const utilityPrefix = setup?.utilityPrefix ?? undefined;
       const prefixed = utilityTokenFor(token, utilityPrefix);
+      const backgroundProperty =
+        style &&
+        (
+          [
+            ['image', 'background-image'],
+            ['size', 'background-size'],
+            ['position', 'background-position'],
+            ['repeat', 'background-repeat'],
+            ['attachment', 'background-attachment'],
+          ] as const
+        ).find(([, property]) => style[property] !== undefined)?.[0];
+      const propertyReset = backgroundProperty
+        ? backgroundResetSpec(backgroundProperty, utilityPrefix)
+        : style?.width !== undefined
+          ? lengthResetSpec('w', 'width', utilityPrefix)
+          : style?.height !== undefined
+            ? lengthResetSpec('h', 'height', utilityPrefix)
+            : undefined;
+      const preservesImportant =
+        propertyReset &&
+        readLayer(
+          currentClassRef.current,
+          { bp: activeBreakpoint, ordered: breakpoints, known, utilityPrefix },
+          (tokens) =>
+            tokens.split(/\s+/).some((item) => {
+              const parts = tailwindUtilityParts(item, utilityPrefix);
+              return !!parts?.important && propertyReset.match(item);
+            }) || null
+        ).value === true;
       const current = style?.position
         ? removeAtLayer(
             currentClassRef.current,
@@ -729,11 +867,14 @@ export function useVisualEditor({
               known,
               radiusResetSpec(utilityPrefix).match
             )
-          : currentClassRef.current;
+          : propertyReset
+            ? removeAtLayer(currentClassRef.current, activeBreakpoint, known, propertyReset.match)
+            : currentClassRef.current;
       // Mark important when the edited property is set by unlayered custom CSS, so
       // the saved utility wins the cascade (the live preview already wins via !important).
       const bare =
-        style && competesWithUnlayered(Object.keys(style), unlayeredPropsRef.current)
+        style &&
+        (competesWithUnlayered(Object.keys(style), unlayeredPropsRef.current) || preservesImportant)
           ? markImportant(prefixed, version)
           : prefixed;
       const merged = twMerge(current, withVariant(activeBreakpoint.prefix, bare));
@@ -741,7 +882,7 @@ export function useVisualEditor({
       const rules: PreviewRule[] = style ? [{ minPx: activeBreakpoint.minPx, decls: style }] : [];
       postMutate(merged, rules);
     },
-    [postMutate, setLiveClass, activeBreakpoint, known]
+    [postMutate, setLiveClass, activeBreakpoint, known, breakpoints]
   );
 
   /** Set one side of a box (padding/margin) at the active breakpoint to a scale
@@ -1197,7 +1338,7 @@ export function useVisualEditor({
    * Throws on failure so the picker can stay open for another try.
    */
   const replaceImage = useCallback(
-    async (newSrc: string) => {
+    async (newSrc: string, confirmedShared = false) => {
       const target = imageTargetRef.current;
       if (!target) {
         onToast?.('Lost track of this image — reselect it and try again.', 'error');
@@ -1207,18 +1348,24 @@ export function useVisualEditor({
       // Arm reload suppression before writing (same reasoning as a class commit).
       post({ type: 'ss:suppressReload' });
       try {
-        await applySrcEdit(
-          projectPath,
-          target.file,
-          target.line,
-          target.column,
-          target.src,
-          newSrc
-        );
+        if (target.status === 'json_property') {
+          await applyJsonImageSourceEdit(projectPath, target, newSrc, confirmedShared);
+        } else {
+          await applySrcEdit(
+            projectPath,
+            target.file,
+            target.line,
+            target.column,
+            target.src,
+            newSrc
+          );
+        }
         // Advance the drift baseline so consecutive replacements keep working.
         target.src = newSrc;
         setImageResolution((prev) =>
-          prev?.status === 'resolved' ? { ...prev, src: newSrc } : prev
+          prev?.status === 'resolved' || prev?.status === 'json_property'
+            ? { ...prev, src: newSrc }
+            : prev
         );
         post({ type: 'ss:setSrc', value: newSrc }); // instant preview (HMR confirms)
         post({ type: 'ss:commit' });
@@ -1296,6 +1443,7 @@ export function useVisualEditor({
     imageResolution,
     /** Write a new src to source and swap the preview (immediate save). */
     replaceImage,
+    previewImageSource,
     multiTarget,
     setMultiTarget,
     autoSave,

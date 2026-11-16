@@ -45,6 +45,7 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { DevServerStatus } from '../terminal/DevServerStatus';
 import { stripAnsi } from '../../lib/ansi';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import type { OpenInCode } from '../../lib/code';
 import { trackEvent } from '../../lib/analytics';
 import { type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
@@ -53,7 +54,7 @@ import { useTextEditing } from '../../hooks/useTextEditing';
 import { useElementStructure, type StructureSelection } from '../../hooks/useElementStructure';
 import { ElementToolbar } from '../edit/ElementToolbar';
 import { PreviewBreadcrumb } from './PreviewBreadcrumb';
-import { useCssCascadeEditor } from '../../hooks/useCssCascadeEditor';
+import { sourceReadySignature, useCssCascadeEditor } from '../../hooks/useCssCascadeEditor';
 import { useElementSettings } from '../../hooks/useElementSettings';
 import { useCssVariables } from '../../hooks/useCssVariables';
 import { useCssAnimations } from '../../hooks/useCssAnimations';
@@ -242,7 +243,7 @@ interface PreviewProps {
   /** Action wired to the install CTA — kicks off the install flow + restart. */
   onRunInstall?: () => void;
   /** Jump to a source file:line in the Code tab (from the visual editor). */
-  onOpenInCode?: (file: string, line: number) => void;
+  onOpenInCode?: OpenInCode;
   /** Snapshot undo/redo, surfaced in the fullscreen toolbar. */
   canUndo?: boolean;
   canRedo?: boolean;
@@ -780,13 +781,20 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const elementSettings = useElementSettings({
     iframeRef: editorFrameRef,
     projectPath,
-    enabled: cssEditorEnabled,
-    signature: cssEditor.selection?.signature ?? null,
+    enabled: cssEditorEnabled || (editorEnabled && editor.editMode),
+    signature: cssEditorEnabled
+      ? sourceReadySignature(cssEditor.selection)
+      : editorEnabled && editor.editMode
+        ? (editor.selection?.signature ?? null)
+        : null,
     onToast,
   });
-  // The CSS panel's active view (Style / Settings / Animate), lifted so the Cmd+K
-  // palette can open the editor straight to a given view.
-  const [cssScope, setCssScope] = useState<'style' | 'settings' | 'animations'>('style');
+  // One-shot CSS scope requests let Cmd+K open the editor on a chosen view without
+  // lifting ordinary tab clicks into Preview's workspace state.
+  const [cssScopeRequest, setCssScopeRequest] = useState<{
+    scope: 'style' | 'settings' | 'animations';
+    id: number;
+  }>({ scope: 'style', id: 0 });
   // Project-global CSS variables are available from their own workspace panel.
   const cssVariables = useCssVariables({
     iframeRef: editorFrameRef,
@@ -890,7 +898,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const openCssEditor = useCallback(
     (scope: 'style' | 'settings' | 'animations') => {
       try {
-        setCssScope(scope);
+        setCssScopeRequest((current) => ({ scope, id: current.id + 1 }));
         if (!cssEditorOn) cssToggleEditMode();
       } catch (err) {
         const detail = formatCommandError(asCommandError(err));
@@ -2030,7 +2038,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               projectPath={projectPath}
               selectedSignature={
                 (editorMode === 'css'
-                  ? cssEditor.selection?.signature
+                  ? sourceReadySignature(cssEditor.selection)
                   : editor.selection?.signature) ?? null
               }
               onViewChange={(v) => setTreeCodeView(v === 'code')}
@@ -2087,7 +2095,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             spacingScale={editor.spacingScale ?? undefined}
             textResolution={textEditing.textResolution}
             imageResolution={editor.imageResolution}
+            imageSettings={elementSettings}
             onReplaceImage={editor.replaceImage}
+            onPreviewImage={editor.previewImageSource}
             textBlockedNonce={textEditing.textBlockedNonce}
             breakpoints={breakpoints}
             activeBreakpoint={activeBreakpoint}
@@ -2168,8 +2178,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             hasPendingWrites={cssEditor.hasPendingWrites}
             pinned={editorPinned}
             onTogglePin={toggleEditorPinned}
-            scope={cssScope}
-            onScopeChange={setCssScope}
+            scopeRequest={cssScopeRequest}
           />
         </DockablePanel>
       )}

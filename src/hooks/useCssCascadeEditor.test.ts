@@ -21,7 +21,8 @@ vi.mock('../lib/logger', () => ({
 }));
 
 import { applyCssRuleText, createCssRule, locateCssRules, rowKey } from '../lib/cssCascade';
-import { useCssCascadeEditor } from './useCssCascadeEditor';
+import { sourceReadySignature, useCssCascadeEditor } from './useCssCascadeEditor';
+import { useElementTree } from './useElementTree';
 
 function identity(
   selector: string,
@@ -128,6 +129,189 @@ async function openCascade(rules: MatchedRule[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+it('propagates each preview selection to the CSS panel and Elements tree', async () => {
+  const iframe = document.createElement('iframe');
+  document.body.appendChild(iframe);
+  const previewWindow = iframe.contentWindow;
+  expect(previewWindow).not.toBeNull();
+  vi.spyOn(previewWindow!, 'postMessage').mockImplementation(() => {});
+  const iframeRef = { current: iframe };
+  const onToast = vi.fn();
+  const { result, unmount } = renderHook(() => ({
+    css: useCssCascadeEditor({ iframeRef, projectPath: '/project', enabled: true, onToast }),
+    tree: useElementTree({ iframeRef, enabled: true }),
+  }));
+
+  act(() => result.current.css.toggleEditMode());
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const selectPending = (nodeId: number, className: string, domPath: string) => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:selectionPending',
+          selectionId: `selection-${nodeId}`,
+          nodeId,
+          domPath,
+          signature: {
+            tagName: 'DIV',
+            className,
+            domPath,
+            ancestorClasses: [],
+          } as unknown as ElementSignature,
+        },
+      })
+    );
+  };
+  const select = (nodeId: number, className: string, domPath: string) => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:select',
+          selectionId: `selection-${nodeId}`,
+          nodeId,
+          count: 1,
+          signature: {
+            tagName: 'DIV',
+            className,
+            text: '',
+            domPath,
+            ancestorClasses: [],
+          } as unknown as ElementSignature,
+        },
+      })
+    );
+  };
+
+  act(() => selectPending(4, 'first', '0/0'));
+  expect(result.current.css.selection?.signature.className).toBe('first');
+  expect(result.current.css.selection?.pending).toBe(true);
+  expect(sourceReadySignature(result.current.css.selection)).toBeNull();
+  expect(result.current.tree.selectedId).toBe(4);
+  act(() => select(4, 'first', '0/0'));
+  expect(result.current.css.selection?.pending).toBe(false);
+  expect(sourceReadySignature(result.current.css.selection)?.className).toBe('first');
+  expect(result.current.css.selection?.signature).toMatchObject({
+    className: 'first',
+    domPath: '0/0',
+  });
+
+  act(() => selectPending(7, 'second', '0/1'));
+  expect(result.current.css.selection?.signature.className).toBe('second');
+  expect(result.current.tree.selectedId).toBe(7);
+  act(() => select(7, 'second', '0/1'));
+  expect(result.current.css.selection?.signature).toMatchObject({
+    className: 'second',
+    domPath: '0/1',
+  });
+  expect(result.current.tree.selectedId).toBe(7);
+
+  unmount();
+  iframe.remove();
+});
+
+it('ignores an old cascade lookup as soon as a new selection is pending', async () => {
+  const iframe = document.createElement('iframe');
+  document.body.appendChild(iframe);
+  const previewWindow = iframe.contentWindow;
+  expect(previewWindow).not.toBeNull();
+  vi.spyOn(previewWindow!, 'postMessage').mockImplementation(() => {});
+  const iframeRef = { current: iframe };
+  let resolveLocations!: (locations: RuleLocation[]) => void;
+  const oldLookup = new Promise<RuleLocation[]>((resolve) => {
+    resolveLocations = resolve;
+  });
+  vi.mocked(locateCssRules).mockReturnValueOnce(oldLookup);
+  const { result, unmount } = renderHook(() =>
+    useCssCascadeEditor({ iframeRef, projectPath: '/project', enabled: true, onToast: vi.fn() })
+  );
+
+  act(() => result.current.toggleEditMode());
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:select',
+          selectionId: 'selection-first',
+          count: 1,
+          signature: {
+            tagName: 'DIV',
+            className: 'first',
+            text: '',
+            domPath: '0/0',
+            ancestorClasses: [],
+          } as unknown as ElementSignature,
+        },
+      })
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:cascade',
+          selectionId: 'selection-first',
+          rules: [matchedRule('.first', 0)],
+        },
+      })
+    );
+  });
+  expect(locateCssRules).toHaveBeenCalledTimes(1);
+
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:selectionPending',
+          selectionId: 'selection-second',
+          domPath: '0/1',
+          signature: {
+            tagName: 'DIV',
+            className: 'second',
+            domPath: '0/1',
+            ancestorClasses: [],
+          } as unknown as ElementSignature,
+        },
+      })
+    );
+  });
+  expect(result.current.selection?.signature.domPath).toBe('0/1');
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: previewWindow,
+        data: {
+          type: 'ss:cascade',
+          selectionId: 'selection-first',
+          rules: [matchedRule('.stale', 1)],
+        },
+      })
+    );
+  });
+  expect(locateCssRules).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    resolveLocations([location(identity('.first', 'source-v1', '\n  color: red;\n', 0), 1)]);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(result.current.rows).toEqual([]);
+  expect(result.current.loading).toBe(true);
+
+  unmount();
+  iframe.remove();
 });
 
 describe('useCssCascadeEditor source identity refresh', () => {

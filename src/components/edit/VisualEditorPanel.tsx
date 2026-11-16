@@ -7,7 +7,7 @@
  * shown read-only with the reason, matching the resolver's safe fallback.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button, buttonClassNames } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -32,7 +32,7 @@ import { HelpIcon } from '@/components/icons';
 import { PinIcon } from '@/components/icons';
 import { Tooltip } from '../primitives/Tooltip';
 import { PropSection } from './PropSection';
-import { ImageSection } from './ImageSection';
+import { ElementSettingsPanel } from './ElementSettingsPanel';
 import { PropControlRenderer, type ControlRenderCtx } from './PropControlRenderer';
 import type { ValueFieldVariable } from '../primitives/ValueField';
 import { ClassBar } from './ClassBar';
@@ -43,7 +43,11 @@ import {
   activeEnumToken,
   breakpointPrefixes,
   ENUM_CONTROLS,
+  lengthResetSpec,
+  lengthValue,
+  parseLengthInput,
   readLayer,
+  tailwindUtilityParts,
   type UsageReport,
 } from '../../lib/edit';
 import type {
@@ -60,8 +64,12 @@ import type {
 } from '../../lib/edit';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import type { Selection } from '../../hooks/useVisualEditor';
+import type { ElementSettings } from '../../hooks/useElementSettings';
+import type { OpenInCode } from '../../lib/code';
 import { SLACK_INVITE_URL } from '../../lib/links';
 import { colorContrastContexts } from '../../lib/colorContrast';
+import { backgroundImageForLayer } from '../../lib/cssBackgroundImage';
+import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 
 /** Build a ready-to-paste request for the coding agent to change text that's rendered
  *  from code/data (so it can't be edited inline). The user pastes it into the terminal
@@ -270,7 +278,7 @@ function breakpointIcon(bp: Breakpoint): ReactNode {
 
 interface Props {
   selection: Selection | null;
-  /** Project root — the Image section's asset picker lists assets from it. */
+  /** Project root — shared element and image settings resolve source locations under it. */
   projectPath: string;
   /** The class string currently applied live (what "Save" will persist). */
   currentClass: string;
@@ -283,10 +291,14 @@ interface Props {
   /** Text-editability of the selection. When read-only (dynamic text), the panel
    *  offers a copy-able request to hand the edit to the coding agent. */
   textResolution?: TextResolution | null;
-  /** Image-src editability of the selection — drives the Image section. */
+  /** Legacy caller input retained for compatibility; shared Settings resolve the image source. */
   imageResolution?: ImageResolution | null;
-  /** Write a new src to source and swap the preview (immediate save). */
-  onReplaceImage: (webPath: string) => Promise<void>;
+  /** Safe source-markup settings used by supported image attribute controls. */
+  imageSettings?: ElementSettings;
+  /** Legacy caller callback retained for compatibility; shared Settings write image attributes. */
+  onReplaceImage: (webPath: string, confirmedShared?: boolean) => Promise<void>;
+  /** Preview an asset in the selected image without writing its source. */
+  onPreviewImage?: (value: string | null, signature: ElementSignature) => void;
   /** Bumps each time a double-click hits dynamic text — pulses the hand-off block
    *  so the user's eye is drawn to the panel after their click did nothing. */
   textBlockedNonce?: number;
@@ -335,7 +347,7 @@ interface Props {
   /** Where the selected element's component is used project-wide (scope hint). */
   usage: UsageReport | null;
   /** Jump to a source file:line in the Code tab. */
-  onOpenInCode?: (file: string, line: number) => void;
+  onOpenInCode?: OpenInCode;
   onCommit: () => void;
   onClose: () => void;
   /** Docked as a sidebar column inside the preview container instead of
@@ -356,8 +368,8 @@ export function VisualEditorPanel({
   utilityPrefix,
   spacingScale,
   textResolution,
-  imageResolution,
-  onReplaceImage,
+  imageSettings,
+  onPreviewImage,
   textBlockedNonce,
   breakpoints,
   activeBreakpoint,
@@ -389,7 +401,6 @@ export function VisualEditorPanel({
   onTogglePin,
 }: Props) {
   const resolution = selection?.resolution ?? null;
-  // Images get an Image section (current asset + Replace) on top of style controls.
   const isImage = selection?.signature.tagName === 'img';
   // Both 'resolved' (one spot) and 'multi' (several identical spots) are editable.
   const editable = resolution?.status === 'resolved' || resolution?.status === 'multi';
@@ -410,6 +421,15 @@ export function VisualEditorPanel({
   // there's nothing for the style controls to write to yet.
   const controlsVisible =
     !!selection && resolution?.status !== 'read_only' && resolution?.status !== 'no_class';
+  const [scope, setScope] = useState<'element' | 'settings'>('element');
+  const settingsSelectionKey = imageSettings?.selectionKey ?? '';
+  const [settingsVisitedSelectionKey, setSettingsVisitedSelectionKey] = useState<string | null>(
+    null
+  );
+  const mountSettingsPanel =
+    !!selection &&
+    !!imageSettings &&
+    (scope === 'settings' || settingsVisitedSelectionKey === settingsSelectionKey);
 
   const colorContrast = useMemo(
     () => colorContrastContexts(selection?.signature.contrastSnapshot),
@@ -432,6 +452,47 @@ export function VisualEditorPanel({
     }),
     [activeBreakpoint, breakpoints, selection, spacingScale, tailwindVersion, utilityPrefix]
   );
+  const cssImageDimensions = useMemo(() => {
+    const readDimension = (utilityPrefix: string, property: 'width' | 'height') => {
+      const value = readLayer(currentClass, layer, (tokens) => {
+        const normalized = tokens
+          .split(/\s+/)
+          .map((token) => {
+            const parts = tailwindUtilityParts(token, layer.utilityPrefix);
+            return parts && !parts.negative ? parts.base : '';
+          })
+          .join(' ');
+        return lengthValue(normalized, utilityPrefix);
+      }).value;
+      if (value == null) return undefined;
+      const parsed = parseLengthInput(value, utilityPrefix, property);
+      if (parsed.kind === 'invalid') return undefined;
+      return /^\d+$/.test(value) && layer.spacingScale?.[value]
+        ? layer.spacingScale[value]
+        : parsed.css;
+    };
+    const width = readDimension('w', 'width');
+    const height = readDimension('h', 'height');
+    return {
+      ...(width !== undefined ? { width } : {}),
+      ...(height !== undefined ? { height } : {}),
+    };
+  }, [currentClass, layer]);
+  const setImageCssDimension = useCallback(
+    (property: 'width' | 'height', value: string | null) => {
+      if (!editable) return false;
+      const prefix = property === 'width' ? 'w' : 'h';
+      if (value === null) {
+        onReset(lengthResetSpec(prefix, property, layer.utilityPrefix));
+        return true;
+      }
+      const parsed = parseLengthInput(value, prefix, property);
+      if (parsed.kind === 'invalid') return false;
+      onApplyEnum(parsed.token, { [property]: parsed.css });
+      return true;
+    },
+    [editable, layer.utilityPrefix, onApplyEnum, onReset]
+  );
   const breakpointIcons = useMemo(
     () => Object.fromEntries(breakpoints.map((bp) => [bp.name, breakpointIcon(bp)])),
     [breakpoints]
@@ -440,11 +501,27 @@ export function VisualEditorPanel({
     () => [...breakpoints].sort((a, b) => b.minPx - a.minPx),
     [breakpoints]
   );
+  const backgroundImage = backgroundImageForLayer(
+    currentClass,
+    layer,
+    selection?.signature.computedBackgroundImage,
+    editTarget.kind === 'class' ? editTarget.baseline : selection?.signature.className
+  );
 
   // Shared render context for every control row (the registry renders generically).
   const controlCtx = useMemo<ControlRenderCtx>(
     () => ({
       currentClass,
+      selectionKey: selection
+        ? [
+            selection.signature.domPath ?? '',
+            selection.signature.sourceFile ?? '',
+            selection.signature.sourceLine ?? '',
+            selection.signature.sourceColumn ?? '',
+            selection.signature.className,
+            selection.signature.attrSrc ?? '',
+          ].join(':')
+        : undefined,
       layer,
       onApplyEnum,
       onReset,
@@ -456,6 +533,11 @@ export function VisualEditorPanel({
       computed: {
         color: selection?.signature.computedColor,
         'background-color': selection?.signature.computedBackgroundColor,
+        'background-image': backgroundImage,
+        'background-size': selection?.signature.computedBackgroundSize,
+        'background-position': selection?.signature.computedBackgroundPosition,
+        'background-repeat': selection?.signature.computedBackgroundRepeat,
+        'background-attachment': selection?.signature.computedBackgroundAttachment,
       },
       inherited: selection?.signature.inheritedProps,
       projectPath,
@@ -472,6 +554,7 @@ export function VisualEditorPanel({
       selection,
       variables,
       colorContrast,
+      backgroundImage,
       projectPath,
       onOpenInCode,
     ]
@@ -588,139 +671,175 @@ export function VisualEditorPanel({
         </div>
       )}
 
-      <div className="ss-edit-panel__body" data-value-field-menu-boundary>
-        {!selection && <EditorIntro />}
+      <div className="ss-edit-panel__body" data-value-field-menu-boundary data-scope={scope}>
+        <Tabs
+          value={scope}
+          mode="navigation"
+          onValueChange={(next) => {
+            if (next === 'settings' && settingsSelectionKey) {
+              setSettingsVisitedSelectionKey(settingsSelectionKey);
+            }
+            setScope(next as 'element' | 'settings');
+          }}
+        >
+          <TabsList className="ss-cascade-scope" aria-label="Visual editor view">
+            <TabsTab value="element">Element</TabsTab>
+            <TabsTab value="settings">Settings</TabsTab>
+          </TabsList>
+        </Tabs>
 
-        {textResolution?.status === 'read_only' && selection && (
-          <DynamicTextHelp
-            signature={selection.signature}
-            resolution={resolution}
-            pulseKey={textBlockedNonce}
-          />
-        )}
+        {scope === 'element' ? (
+          <div className="ss-visual-editor-panel__element">
+            {!selection && <EditorIntro />}
 
-        {/* No class at all: offer inserting the first one (writes a fresh class
-            attribute to source) instead of a dead-end banner. Classless images
-            skip it — the Image section already carries their state. */}
-        {resolution?.status === 'no_class' && selection && !isImage && onAddFirstClass && (
-          <NoClassState tag={selection.signature.tagName} onAddClass={onAddFirstClass} />
-        )}
+            {/* No class at all: offer inserting the first one instead of a dead-end banner. */}
+            {resolution?.status === 'no_class' && selection && !isImage && onAddFirstClass && (
+              <NoClassState tag={selection.signature.tagName} onAddClass={onAddFirstClass} />
+            )}
 
-        {/* For a classless image the class resolver's "not a static string" verdict is
-            expected (there's nothing to style-edit) — the Image section carries the
-            state instead of a confusing read-only banner. */}
-        {resolution?.status === 'read_only' &&
-          textResolution?.status !== 'read_only' &&
-          (!isImage || !!selection?.signature.className) && (
-            <p className="ss-edit-panel__readonly">{resolution.reason}</p>
-          )}
+            {resolution?.status === 'read_only' &&
+              textResolution?.status !== 'read_only' &&
+              (!isImage || !!selection?.signature.className) && (
+                <p className="ss-edit-panel__readonly">{resolution.reason}</p>
+              )}
 
-        {isImage && selection && (
-          <ImageSection
-            signature={selection.signature}
-            resolution={imageResolution ?? null}
-            projectPath={projectPath}
-            onReplace={onReplaceImage}
-          />
-        )}
+            {controlsVisible && (
+              <>
+                {resolution?.status === 'resolved' && (
+                  <div className="ss-edit-panel__source-context">
+                    <div className="ss-edit-panel__source">
+                      {onOpenInCode ? (
+                        <button
+                          type="button"
+                          className="ss-edit-panel__srclink"
+                          title="Open in the Code tab"
+                          onClick={() => onOpenInCode(resolution.file, resolution.line)}
+                        >
+                          <code>
+                            {resolution.file}:{resolution.line}
+                          </code>
+                          <CodeIcon size={12} />
+                        </button>
+                      ) : (
+                        <code>
+                          {resolution.file}:{resolution.line}
+                        </code>
+                      )}
+                      {resolution.confidence !== 'unique' && resolution.confidence !== 'source' && (
+                        <span
+                          className="ss-edit-panel__badge ss-edit-panel__badge--approx"
+                          title="These classes appear more than once in your code, so the source was located by surrounding context — double-check before saving."
+                        >
+                          approx.
+                        </span>
+                      )}
+                      {(selection?.signature.unlayeredProps?.length ?? 0) > 0 && <CustomCssHint />}
+                    </div>
 
-        {controlsVisible && (
-          <>
-            {resolution?.status === 'resolved' && (
-              <div className="ss-edit-panel__source-context">
-                <div className="ss-edit-panel__source">
-                  {onOpenInCode ? (
-                    <button
-                      type="button"
-                      className="ss-edit-panel__srclink"
-                      title="Open in the Code tab"
-                      onClick={() => onOpenInCode(resolution.file, resolution.line)}
-                    >
-                      <code>
-                        {resolution.file}:{resolution.line}
-                      </code>
-                      <CodeIcon size={12} />
-                    </button>
-                  ) : (
-                    <code>
-                      {resolution.file}:{resolution.line}
-                    </code>
-                  )}
-                  {resolution.confidence !== 'unique' && resolution.confidence !== 'source' && (
-                    <span
-                      className="ss-edit-panel__badge ss-edit-panel__badge--approx"
-                      title="These classes appear more than once in your code, so the source was located by surrounding context — double-check before saving."
-                    >
-                      approx.
-                    </span>
-                  )}
-                  {(selection?.signature.unlayeredProps?.length ?? 0) > 0 && <CustomCssHint />}
-                </div>
-
-                {selection && selection.instanceCount > 1 && (
-                  <p className="ss-edit-panel__multi">
-                    Editing {selection.instanceCount} elements that share this source
-                  </p>
+                    {selection && selection.instanceCount > 1 && (
+                      <p className="ss-edit-panel__multi">
+                        Editing {selection.instanceCount} elements that share this source
+                      </p>
+                    )}
+                    <UsageScope
+                      usage={usage}
+                      instanceCount={selection?.instanceCount ?? 1}
+                      onOpenInCode={onOpenInCode}
+                    />
+                  </div>
                 )}
-                <UsageScope
-                  usage={usage}
-                  instanceCount={selection?.instanceCount ?? 1}
-                  onOpenInCode={onOpenInCode}
+                {resolution?.status === 'multi' && (
+                  <MultiSourceControl
+                    locations={resolution.locations}
+                    target={multiTarget}
+                    onChange={onMultiTargetChange}
+                  />
+                )}
+
+                {CONTROL_SECTIONS.map((section) => (
+                  <PropSection
+                    key={section.id}
+                    title={section.title}
+                    sectionId={section.id}
+                    defaultOpen={section.defaultOpen}
+                  >
+                    {section.controls.map((control) => {
+                      if (control.kind === 'positionBox' && !positioned) return null;
+                      if (control.kind === 'enum') {
+                        const label = control.control.label;
+                        if ((label === 'Direction' || label === 'Wrap') && !flexLayout) return null;
+                        if ((label === 'Justify' || label === 'Align items') && !flexOrGridLayout)
+                          return null;
+                      }
+                      return (
+                        <PropControlRenderer key={control.key} control={control} ctx={controlCtx} />
+                      );
+                    })}
+                  </PropSection>
+                ))}
+
+                <PropSection title="Applied classes" sectionId="classes" defaultOpen>
+                  <div className="ss-edit-panel__classes" title={currentClass}>
+                    {currentClass}
+                  </div>
+                </PropSection>
+              </>
+            )}
+          </div>
+        ) : (
+          <>
+            {textResolution?.status === 'read_only' && selection && (
+              <div className="ss-visual-editor-panel__element">
+                <DynamicTextHelp
+                  signature={selection.signature}
+                  resolution={resolution}
+                  pulseKey={textBlockedNonce}
                 />
               </div>
             )}
-            {resolution?.status === 'multi' && (
-              <MultiSourceControl
-                locations={resolution.locations}
-                target={multiTarget}
-                onChange={onMultiTargetChange}
-              />
-            )}
-
-            {CONTROL_SECTIONS.map((section) => (
-              <PropSection
-                key={section.id}
-                title={section.title}
-                sectionId={section.id}
-                defaultOpen={section.defaultOpen}
+            {mountSettingsPanel && selection && imageSettings && (
+              <div
+                className="ss-cascade-settings"
+                hidden={scope !== 'settings'}
+                aria-hidden={scope !== 'settings'}
               >
-                {section.controls.map((control) => {
-                  if (control.kind === 'positionBox' && !positioned) return null;
-                  if (control.kind === 'enum') {
-                    const label = control.control.label;
-                    if ((label === 'Direction' || label === 'Wrap') && !flexLayout) return null;
-                    if ((label === 'Justify' || label === 'Align items') && !flexOrGridLayout)
-                      return null;
-                  }
-                  return (
-                    <PropControlRenderer key={control.key} control={control} ctx={controlCtx} />
-                  );
-                })}
-              </PropSection>
-            ))}
-
-            <PropSection title="Applied classes" sectionId="classes" defaultOpen>
-              <div className="ss-edit-panel__classes" title={currentClass}>
-                {currentClass}
+                <ElementSettingsPanel
+                  key={settingsSelectionKey}
+                  settings={imageSettings}
+                  signature={selection.signature}
+                  projectPath={projectPath}
+                  onOpenInCode={onOpenInCode}
+                  onSetCssDimension={editable ? setImageCssDimension : undefined}
+                  onPreviewImage={onPreviewImage}
+                  cssDimensions={cssImageDimensions}
+                  active={scope === 'settings'}
+                />
               </div>
-            </PropSection>
+            )}
+            {!selection && (
+              <div className="ss-visual-editor-panel__element">
+                <p className="ss-cascade-empty">Click an element to edit its settings.</p>
+              </div>
+            )}
           </>
         )}
 
-        <p className="ss-edit-panel__beta">
-          <strong>Visual editor is in beta.</strong> Hit a bug or have feedback? We'd genuinely
-          appreciate hearing about it.
-        </p>
-        <Button
-          variant="default"
-          width="fill"
-          leftIcon={<SlackIcon size={12} />}
-          className="ss-edit-panel__slack"
-          onClick={() => void openUrl(SLACK_INVITE_URL)}
-          title="Join the Ship Studio community on Slack"
-        >
-          Join the Slack
-        </Button>
+        <div className="ss-visual-editor-panel__element">
+          <p className="ss-edit-panel__beta">
+            <strong>Visual editor is in beta.</strong> Hit a bug or have feedback? We'd genuinely
+            appreciate hearing about it.
+          </p>
+          <Button
+            variant="default"
+            width="fill"
+            leftIcon={<SlackIcon size={12} />}
+            className="ss-edit-panel__slack"
+            onClick={() => void openUrl(SLACK_INVITE_URL)}
+            title="Join the Ship Studio community on Slack"
+          >
+            Join the Slack
+          </Button>
+        </div>
       </div>
 
       {controlsVisible && (

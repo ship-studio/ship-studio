@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { VisualEditorPanel } from './VisualEditorPanel';
+import { DockablePanel } from '../primitives/DockablePanel';
+import { useImageSourceResolution } from '../../hooks/useImageSourceEditing';
+import type { ElementSettings } from '../../hooks/useElementSettings';
 import {
   BASE_BREAKPOINT,
   DEFAULT_BREAKPOINTS,
@@ -11,8 +17,66 @@ import {
 import type { Selection } from '../../hooks/useVisualEditor';
 import type { ValueFieldVariable } from '../primitives/ValueField';
 
+vi.mock('../../hooks/useImageSourceEditing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useImageSourceEditing')>();
+  return { ...actual, useImageSourceResolution: vi.fn() };
+});
+
 const BREAKPOINTS: Breakpoint[] = [BASE_BREAKPOINT, ...DEFAULT_BREAKPOINTS];
 const MD = BREAKPOINTS.find((b) => b.name === 'md')!;
+
+const resolvedImageSource = {
+  status: 'resolved' as const,
+  file: 'components/Hero.tsx',
+  line: 12,
+  column: 4,
+  src: '/hero.png',
+  confidence: 'src',
+};
+
+function imageElementSettings(overrides: Partial<ElementSettings> = {}): ElementSettings {
+  return {
+    selectionKey: 'image-selection',
+    tag: 'img',
+    tagOptions: [{ tag: 'img', label: 'Image' }],
+    canEditTag: false,
+    setTag: vi.fn().mockResolvedValue(true),
+    classes: ['hero'],
+    attributes: [
+      { name: 'src', value: '/hero.png' },
+      { name: 'alt', value: 'Hero' },
+      { name: 'width', value: '320' },
+      { name: 'height', value: '180' },
+    ],
+    text: '',
+    textReason: null,
+    canEditText: false,
+    setText: vi.fn().mockResolvedValue(true),
+    addClass: vi.fn(),
+    renameClass: vi.fn(),
+    removeClass: vi.fn(),
+    setAttribute: vi.fn().mockResolvedValue(true),
+    renameAttribute: vi.fn(),
+    removeAttribute: vi.fn(),
+    canEditAttributes: true,
+    sourceMarkupStatus: 'resolved',
+    imageAttributeEditBlockReason: null,
+    location: { file: 'components/Hero.tsx', line: 12 },
+    busy: false,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.mocked(useImageSourceResolution).mockReturnValue({
+    resolution: resolvedImageSource,
+    setResolution: vi.fn(),
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const resolvedSelection: Selection = {
   signature: { className: 'p-3', tagName: 'div', ancestorClasses: [] },
@@ -646,9 +710,11 @@ describe('VisualEditorPanel', () => {
       vi.fn(), // onSetSide
       onReset
     );
-    expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument();
+    expect(document.querySelector('.ss-reset-pop')).not.toBeInTheDocument();
     fireEvent.click(document.querySelector('.ss-edit-panel__labelbtn')!); // click the name
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' })); // confirm
+    const resetButton = document.querySelector('.ss-reset-pop');
+    expect(resetButton).toBeInTheDocument();
+    fireEvent.click(resetButton!); // confirm
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
@@ -743,6 +809,227 @@ describe('VisualEditorPanel', () => {
     usage: null,
     onCommit: vi.fn(),
     onClose: vi.fn(),
+  });
+
+  it('keeps the background layer popover above its raised floating panel', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    );
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    const backgroundSelection: Selection = {
+      ...resolvedSelection,
+      signature: {
+        ...resolvedSelection.signature,
+        className: 'bg-[image:url(/one.png)]',
+        computedBackgroundImage: 'url(/one.png)',
+      },
+    };
+    function StatefulPanel({ selectionKey }: { selectionKey: string }) {
+      const [currentClass, setCurrentClass] = useState('bg-[image:url(/one.png)]');
+      const [revision, setRevision] = useState(0);
+      const selection: Selection = {
+        ...backgroundSelection,
+        signature: {
+          ...backgroundSelection.signature,
+          domPath: selectionKey,
+          computedBackgroundSize: revision > 0 ? 'cover' : 'auto',
+        },
+      };
+      return (
+        <VisualEditorPanel
+          {...mk()}
+          selection={selection}
+          currentClass={currentClass}
+          onApplyEnum={(token) => {
+            setCurrentClass((value) => `${value} ${token}`);
+            setRevision((value) => value + 1);
+          }}
+        />
+      );
+    }
+    const { rerender } = render(
+      <DockablePanel
+        docked={false}
+        ariaLabel="Edit panel"
+        positionKey="testEditPanelPosition"
+        sizeKey="testEditPanelSize"
+        floatingSize={{ width: 300, height: 600 }}
+        initialPosition={() => ({ left: 10, top: 10 })}
+        resizable={false}
+      >
+        <StatefulPanel selectionKey="one-element" />
+      </DockablePanel>
+    );
+
+    const backgrounds = document.querySelector<HTMLElement>('.ss-edit-panel__section--backgrounds');
+    expect(backgrounds).not.toHaveAttribute('open');
+    fireEvent.click(backgrounds?.querySelector('summary') as HTMLElement);
+    expect(backgrounds).toHaveAttribute('open');
+
+    const layer = screen.getByRole('button', { name: 'Edit one.png layer 1' });
+    fireEvent.pointerDown(layer, { pointerId: 22 });
+    const surface = screen.getByLabelText('Edit panel');
+    expect(surface.style.zIndex).toMatch(/^calc\(var\(--z-floating-panel\) \+ [1-9]/);
+
+    fireEvent.click(layer);
+    const popover = screen.getByRole('dialog', { name: 'Image settings' });
+    expect(popover.parentElement).toBe(document.body);
+    expect(popover).toHaveClass('ss-background-layer-popover');
+
+    const editPanel = document.querySelector('.ss-edit-panel');
+    const panelScrim = editPanel?.querySelector('[data-testid="background-layer-panel-scrim"]');
+    expect(panelScrim).toBeInTheDocument();
+    expect(panelScrim?.parentElement).toBe(editPanel);
+
+    act(() => {
+      fireEvent.click(within(popover).getByRole('button', { name: 'Cover' }));
+    });
+    expect(screen.getByRole('dialog', { name: 'Image settings' })).toBeInTheDocument();
+
+    // The real panel context recomputes its selection and computed-settings
+    // objects as the live class changes. Selection identity remains stable, so
+    // the selected row and its editor survive the rerender.
+    const sameTargetRow = screen.getByRole('button', { name: 'Edit one.png layer 1' });
+    expect(sameTargetRow).toHaveAttribute('aria-expanded', 'true');
+
+    rerender(
+      <DockablePanel
+        docked={false}
+        ariaLabel="Edit panel"
+        positionKey="testEditPanelPosition"
+        sizeKey="testEditPanelSize"
+        floatingSize={{ width: 300, height: 600 }}
+        initialPosition={() => ({ left: 10, top: 10 })}
+        resizable={false}
+      >
+        <StatefulPanel selectionKey="another-element" />
+      </DockablePanel>
+    );
+    expect(screen.queryByRole('dialog', { name: 'Image settings' })).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-testid="background-layer-panel-scrim"]')
+    ).not.toBeInTheDocument();
+  });
+
+  it('dims only the Edit panel while the layer popover is open and clears on Escape or outside click', async () => {
+    renderPanel(resolvedSelection, 'bg-[image:url(/one.png)]');
+    const backgrounds = document.querySelector<HTMLElement>('.ss-edit-panel__section--backgrounds');
+    fireEvent.click(backgrounds?.querySelector('summary') as HTMLElement);
+    const layer = screen.getByRole('button', { name: 'Edit one.png layer 1' });
+    fireEvent.click(layer);
+
+    const editPanel = document.querySelector('.ss-edit-panel');
+    expect(
+      editPanel?.querySelector('[data-testid="background-layer-panel-scrim"]')
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Image settings' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Image settings' })).not.toBeInTheDocument();
+    expect(
+      editPanel?.querySelector('[data-testid="background-layer-panel-scrim"]')
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(layer);
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        })
+    );
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('dialog', { name: 'Image settings' })).not.toBeInTheDocument();
+    expect(
+      editPanel?.querySelector('[data-testid="background-layer-panel-scrim"]')
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps layer rows as the shared hover surface and disables active scaling only there', () => {
+    const imageStyles = readFileSync(
+      resolve('src/styles/features/visual-editor-image.css'),
+      'utf8'
+    );
+    expect(imageStyles).toMatch(
+      /\.ss-background-image-control__row:hover,\s*\.ss-background-image-control__row--selected\s*\{[^}]*background-color:\s*var\(--surface-control-hover\)/
+    );
+    expect(imageStyles).toMatch(
+      /\.ss-background-image-control__row > \.button:active:not\(:disabled\)\s*\{\s*transform:\s*none;/
+    );
+    expect(imageStyles).toMatch(
+      /\.ss-background-image-control__row > \.button--icon-only:hover:not\(:disabled\)\s*\{[^}]*background-color:\s*transparent/
+    );
+  });
+
+  it('keeps the background popover controls compact and aligned at narrow panel widths', () => {
+    const imageStyles = readFileSync(
+      resolve('src/styles/features/visual-editor-image.css'),
+      'utf8'
+    );
+    const panelStyles = readFileSync(
+      resolve('src/styles/features/visual-editor/panel.css'),
+      'utf8'
+    );
+    const typeRule =
+      imageStyles.match(
+        /\.ss-background-layer-popover__type-options > \.button\s*\{([^}]*)\}/
+      )?.[1] ?? '';
+    const colorRule =
+      imageStyles.match(/\.ss-background-layer-popover__color-property\s*\{([^}]*)\}/)?.[1] ?? '';
+    const swatchRule =
+      imageStyles.match(/\.ss-background-layer-popover__color-swatch\s*\{([^}]*)\}/)?.[1] ?? '';
+    const tileRule =
+      imageStyles.match(/\.ss-background-layer-popover__repeat-presets\s*\{([^}]*)\}/)?.[1] ?? '';
+    const scrimRule =
+      imageStyles.match(/\.ss-background-image-control__panel-scrim\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(typeRule).toMatch(/height:\s*var\(--size-control-medium\)/);
+    expect(imageStyles).toMatch(
+      /grid-template-columns:\s*minmax\(calc\(var\(--spacing-2xl\) \* 2\), 0\.8fr\) minmax\(0, 2\.5fr\)/
+    );
+    expect(colorRule).toMatch(/height:\s*var\(--size-control-medium\)/);
+    expect(colorRule).toMatch(/background:\s*var\(--surface-panel\)/);
+    expect(swatchRule).toMatch(/width:\s*var\(--spacing-lg\)/);
+    expect(tileRule).toMatch(/min-width:\s*0/);
+    expect(panelStyles).toMatch(/\.ss-edit-panel__align-tabs > \.button\s*\{[^}]*flex:\s*1 1 0/);
+    expect(imageStyles).toMatch(/\.ss-background-layer-popover__solid-icon\s*\{/);
+    expect(scrimRule).toMatch(/position:\s*absolute/);
+    expect(scrimRule).toMatch(/background:\s*var\(--overlay-30\)/);
+  });
+
+  it('reserves a z-index tier above raised panels and below modal overlays', () => {
+    const tokens = readFileSync(resolve('src/styles/global/tokens-components.css'), 'utf8');
+    const imageStyles = readFileSync(
+      resolve('src/styles/features/visual-editor-image.css'),
+      'utf8'
+    );
+    const panelSource = readFileSync(
+      resolve('src/components/primitives/DockablePanel.tsx'),
+      'utf8'
+    );
+    const popoverRule = imageStyles.match(/\.ss-background-layer-popover\s*\{([^}]*)\}/)?.[1] ?? '';
+    const floatingZ = Number(tokens.match(/--z-floating-panel:\s*(\d+)/)?.[1]);
+    const popoverOffset = Number(
+      tokens.match(/--z-floating-panel-popover:\s*calc\(var\(--z-floating-panel\) \+ (\d+)\)/)?.[1]
+    );
+    const modalZ = Number(tokens.match(/--z-modal-overlay:\s*(\d+)/)?.[1]);
+    const maxPanelOrder = Number(panelSource.match(/MAX_FLOATING_PANEL_STACK_ORDER = (\d+)/)?.[1]);
+
+    expect(Number.isFinite(floatingZ + popoverOffset + modalZ + maxPanelOrder)).toBe(true);
+    expect(popoverRule).toMatch(/z-index:\s*var\(--z-floating-panel-popover\)/);
+    expect(floatingZ + maxPanelOrder).toBeLessThan(floatingZ + popoverOffset);
+    expect(floatingZ + popoverOffset).toBeLessThan(modalZ);
+  });
+
+  it('uses the requested concise labels for the background image and colour controls', () => {
+    renderPanel(resolvedSelection, 'bg-[image:url(/one.png)] bg-[#123456]');
+    const backgrounds = document.querySelector<HTMLElement>('.ss-edit-panel__section--backgrounds');
+    fireEvent.click(backgrounds?.querySelector('summary') as HTMLElement);
+
+    expect(screen.getByText('Image, gradient, or color')).toBeInTheDocument();
+    expect(screen.getByText('Color')).toBeInTheDocument();
+    expect(screen.queryByText('Background')).not.toBeInTheDocument();
   });
 
   it('jumps to the Code tab from the source badge', () => {
@@ -1136,7 +1423,7 @@ describe('VisualEditorPanel', () => {
     expect(onApplyEnum).toHaveBeenLastCalledWith('w-65', { width: '16.25rem' });
   });
 
-  // ── Image section (asset replacement) ──
+  // ── Element / Settings tabs ──
 
   const imgSelection: Selection = {
     signature: {
@@ -1154,41 +1441,51 @@ describe('VisualEditorPanel', () => {
     instanceCount: 1,
   };
 
-  it('shows the Image section with Replace for a resolved image src', () => {
-    render(
+  it('keeps Settings available for a classless image and uses one shared image settings section', () => {
+    const settings = imageElementSettings();
+    const { container } = render(
       <VisualEditorPanel
         {...mk()}
         selection={imgSelection}
         currentClass=""
-        imageResolution={{
-          status: 'resolved',
-          file: 'app/page.tsx',
-          line: 3,
-          column: 11,
-          src: '/hero.png',
-          confidence: 'src',
-        }}
+        imageSettings={settings}
       />
     );
-    expect(screen.getByText('Image')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Replace image/ })).toBeInTheDocument();
-    expect(screen.getByText('/hero.png')).toBeInTheDocument();
-    // …and that class verdict is expected for a classless image, so the generic
-    // read-only banner is suppressed (the Image section carries the state).
+
+    expect(screen.getByRole('tab', { name: 'Element' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Settings' })).toBeEnabled();
+    expect(screen.queryByText('Image settings')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+
+    expect(screen.getByText('Tag')).toBeInTheDocument();
+    expect(screen.getByText('Attributes')).toBeInTheDocument();
+    expect(screen.getByText('Image Settings')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Replace image…' })).toBeInTheDocument();
+    expect(screen.getAllByText('Image Settings')).toHaveLength(1);
+    expect(container.querySelector('.ss-edit-image')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'URL' })).toHaveValue('/hero.png');
+    // A classless image has no style controls, but markup settings remain available.
     expect(screen.queryByText(/aren’t a static string/)).not.toBeInTheDocument();
   });
 
-  it('shows the reason instead of Replace when the image src is dynamic', () => {
+  it('shows the shared image source guard for a dynamic image src', () => {
+    vi.mocked(useImageSourceResolution).mockReturnValueOnce({
+      resolution: { status: 'read_only', reason: 'This image’s source is set in code.' },
+      setResolution: vi.fn(),
+    });
     render(
       <VisualEditorPanel
         {...mk()}
         selection={imgSelection}
         currentClass=""
-        imageResolution={{ status: 'read_only', reason: 'This image’s source is set in code.' }}
+        imageSettings={imageElementSettings({
+          attributes: [{ name: 'src', value: '{heroImage}', isExpression: true }],
+        })}
       />
     );
-    expect(screen.getByText('This image’s source is set in code.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Replace image/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(screen.getByRole('button', { name: 'Replace image…' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'URL' })).toBeDisabled();
   });
 
   it('keeps the class read-only banner for an image that HAS classes', () => {
@@ -1200,13 +1497,71 @@ describe('VisualEditorPanel', () => {
           signature: { ...imgSelection.signature, className: 'h-12 w-auto' },
         }}
         currentClass="h-12 w-auto"
+        imageSettings={imageElementSettings()}
         imageResolution={{ status: 'read_only', reason: 'This image’s source is set in code.' }}
       />
     );
     // Styles genuinely aren't editable here — that's worth surfacing alongside Image.
     expect(screen.getByText(/aren’t a static string/)).toBeInTheDocument();
-    expect(screen.getByText('Image')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(screen.getByText('Image Settings')).toBeInTheDocument();
   });
+
+  it.each([
+    ['tw-', 'tw-w-64 tw-h-40'],
+    ['tw-', '!tw-w-64 !tw-h-40 hover:!tw-w-full'],
+    ['tw:', 'tw:w-64! tw:h-40! tw:hover:w-full'],
+  ])(
+    'reads and writes image dimensions through %s utilities: %s',
+    (utilityPrefix, currentClass) => {
+      vi.stubGlobal('CSS', { supports: () => true });
+      const onApplyEnum = vi.fn();
+      const resetSpecs: ResetSpec[] = [];
+      const settings = imageElementSettings();
+      const selection: Selection = {
+        signature: {
+          ...imgSelection.signature,
+          className: 'w-64 h-40',
+        },
+        resolution: {
+          status: 'resolved',
+          file: 'components/Hero.tsx',
+          line: 12,
+          column: 4,
+          class_name: 'w-64 h-40',
+          confidence: 'unique',
+        },
+        instanceCount: 1,
+      };
+      render(
+        <VisualEditorPanel
+          {...mk()}
+          selection={selection}
+          currentClass={currentClass}
+          utilityPrefix={utilityPrefix}
+          imageSettings={settings}
+          onApplyEnum={onApplyEnum}
+          onReset={(spec) => resetSpecs.push(spec)}
+        />
+      );
+      fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+
+      const width = screen.getByLabelText<HTMLInputElement>('Width');
+      expect(width).toHaveValue('16');
+      expect(width.closest('.value-field')).toHaveTextContent(/rem/i);
+      fireEvent.change(width, { target: { value: '12' } });
+      fireEvent.keyDown(width, { key: 'Enter' });
+
+      expect(onApplyEnum).toHaveBeenCalledWith('w-[12rem]', { width: '12rem' });
+      expect(settings.setAttribute).toHaveBeenCalledWith('width', null);
+      fireEvent.change(width, { target: { value: '' } });
+      fireEvent.keyDown(width, { key: 'Enter' });
+      const resetSpec = resetSpecs[resetSpecs.length - 1];
+      expect(resetSpec).toEqual(expect.objectContaining({ cssProps: ['width'] }));
+      expect(resetSpec?.match(`${utilityPrefix}w-64`)).toBe(true);
+      vi.unstubAllGlobals();
+    }
+  );
 
   // ── Class-less elements (no_class → Add class) ──
 

@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import type { FileContent } from '../../lib/code';
+import type { CodeRevealRange, FileContent } from '../../lib/code';
 import { checkIdeAvailability, openInIde } from '../../lib/ide';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
@@ -48,6 +48,8 @@ interface CodeViewerProps {
   onSendToAgent?: (text: string) => void;
   /** A 1-based line to highlight + scroll into view (jump-to-code). */
   revealLine?: number | null;
+  /** Exact authored source range to select after opening a file. */
+  revealRange?: CodeRevealRange | null;
   /** Identity of the current reveal request; changes even for the same file/line. */
   revealRequestId?: number | null;
   // Inline editing (Code tab). When `isEditing`, the read-only view is replaced
@@ -88,6 +90,7 @@ export function CodeViewer({
   error,
   onSendToAgent,
   revealLine,
+  revealRange,
   revealRequestId,
   isEditing = false,
   draft = '',
@@ -431,6 +434,7 @@ export function CodeViewer({
           onSave={() => void handleSave()}
           revealLine={revealLine}
           revealRequestId={revealRequestId}
+          revealRange={revealRange}
           onSelectionChange={handleSelectionChange}
         />
         {isEditing && saveError && (

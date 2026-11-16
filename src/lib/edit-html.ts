@@ -21,8 +21,21 @@ export interface ElementHtml {
   sourceColumn?: number;
   /** Present when the element's class string resolves to several identical
    *  source spots with byte-identical markup: every candidate location.
-   *  Edits apply to all of them by default; pass a `location` to target one. */
+   *  General markup edits apply to all by default; image attribute edits refuse
+   *  ambiguity unless a single source location is explicitly targeted. */
   locations?: SourceLocation[];
+}
+
+/** Exact image source location kept fresh across consecutive markup writes. */
+export interface ElementSourceAnchor {
+  file: string;
+  sourceStart: number;
+  sourceHash: string;
+}
+
+export interface ElementHtmlApplyResult {
+  updated: number;
+  sourceAnchor: ElementSourceAnchor | null;
 }
 
 /** Resolve a clicked element to its source HTML. Pass `location` (one of the
@@ -37,19 +50,22 @@ export function resolveElementHtml(
 
 /** Replace an element's source markup, verifying it still equals `oldHtml`.
  *  A multi-sourced element writes to every instance — or just `location`, if
- *  given. Resolves with how many instances were updated. */
+ *  given. Image markup writes refuse ambiguity and spreads. Resolves with how
+ *  many instances were updated. */
 export function applyElementHtml(
   projectPath: string,
   signature: ElementSignature,
   oldHtml: string,
   newHtml: string,
-  location?: SourceLocation
-): Promise<number> {
-  return invoke<number>('apply_element_html', {
+  location?: SourceLocation,
+  sourceAnchor?: ElementSourceAnchor
+): Promise<ElementHtmlApplyResult> {
+  return invoke<ElementHtmlApplyResult>('apply_element_html', {
     projectPath,
     signature,
     oldHtml,
     newHtml,
     location,
+    sourceAnchor,
   });
 }

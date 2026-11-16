@@ -39,6 +39,48 @@ export interface FileContent {
   language: string;
 }
 
+/** Exact UTF-8 byte range selected by a source-resolution result. */
+export interface CodeRevealRange {
+  startUtf8Byte: number;
+  endUtf8Byte: number;
+}
+
+/** Optional range-aware route into the in-app Code tab. */
+export type OpenInCode = (file: string, line: number, range?: CodeRevealRange) => void;
+
+export interface CodeRevealTarget {
+  file: string;
+  line: number;
+  range?: CodeRevealRange;
+  requestId: number;
+}
+
+/** Convert a UTF-8 byte offset from Rust source mapping to a JS/CodeMirror offset. */
+export function utf8ByteOffsetToUtf16Offset(text: string, byteOffset: number): number | null {
+  if (!Number.isInteger(byteOffset) || byteOffset < 0) return null;
+  let bytes = 0;
+  let utf16 = 0;
+  for (const character of text) {
+    if (bytes === byteOffset) return utf16;
+    const codePoint = character.codePointAt(0)!;
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+    utf16 += character.length;
+    if (bytes > byteOffset) return null;
+  }
+  return bytes === byteOffset ? utf16 : null;
+}
+
+/** Convert an exact UTF-8 source range to JS/CodeMirror offsets, rejecting split characters. */
+export function utf8ByteRangeToUtf16Range(
+  text: string,
+  range: CodeRevealRange
+): { start: number; end: number } | null {
+  if (range.endUtf8Byte <= range.startUtf8Byte) return null;
+  const start = utf8ByteOffsetToUtf16Offset(text, range.startUtf8Byte);
+  const end = utf8ByteOffsetToUtf16Offset(text, range.endUtf8Byte);
+  return start == null || end == null || end <= start ? null : { start, end };
+}
+
 /** A node in the nested file tree structure. */
 export interface FileTreeNode {
   name: string;

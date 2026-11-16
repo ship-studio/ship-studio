@@ -11,7 +11,7 @@ import {
 import { rowKey } from '../../lib/cssCascade';
 import { CssCascadePanel } from './CssCascadePanel';
 
-function makeSettings(): ElementSettings {
+function makeSettings(overrides: Partial<ElementSettings> = {}): ElementSettings {
   return {
     selectionKey: 'selected-element',
     tag: 'div',
@@ -31,8 +31,10 @@ function makeSettings(): ElementSettings {
     renameAttribute: vi.fn(),
     removeAttribute: vi.fn(),
     canEditAttributes: false,
+    sourceMarkupStatus: 'resolved',
     location: null,
     busy: false,
+    ...overrides,
   };
 }
 
@@ -74,7 +76,9 @@ function panelElement(
   rows: CascadeRow[],
   bodies: Record<string, RuleBody>,
   selectedClassName = 'hero',
-  onAddSelector: (selector: string, atPrelude?: string) => void | Promise<void> = vi.fn()
+  onAddSelector: (selector: string, atPrelude?: string) => void | Promise<void> = vi.fn(),
+  settings = makeSettings(),
+  scopeRequest?: { scope: 'style' | 'settings' | 'animations'; id: number }
 ) {
   return (
     <CssCascadePanel
@@ -97,7 +101,8 @@ function panelElement(
       existingSelectors={[]}
       variables={[]}
       animations={[]}
-      settings={makeSettings()}
+      settings={settings}
+      scopeRequest={scopeRequest}
       animationsState={
         {
           animations: [],
@@ -186,6 +191,90 @@ afterEach(() => {
 });
 
 describe('CssCascadePanel controls', () => {
+  it('keeps the visited Style tree mounted while switching scopes', () => {
+    const row = makeRow(1, '.hero');
+    const bodies = { [rowKey(row)]: makeBody(['color', 'red']) };
+    render(panelElement([row], bodies));
+
+    const findStyleCards = () =>
+      Array.from(document.querySelectorAll('.ss-cascade-cards')).find((cards) =>
+        Array.from(cards.querySelectorAll('.ss-cascade-chip__content')).some(
+          (content) => content.textContent === '.hero'
+        )
+      );
+    const styleCards = findStyleCards();
+    expect(styleCards).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(findStyleCards()).toBe(styleCards);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Animate' }));
+    expect(findStyleCards()).toBe(styleCards);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Style' }));
+    expect(findStyleCards()).toBe(styleCards);
+  });
+
+  it('honors a repeated scope request after the user changes tabs', () => {
+    const { rerender } = render(
+      panelElement([], {}, 'hero', vi.fn(), makeSettings(), { scope: 'settings', id: 1 })
+    );
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Style' }));
+    expect(screen.getByRole('tab', { name: 'Style' })).toHaveAttribute('aria-selected', 'true');
+
+    rerender(panelElement([], {}, 'hero', vi.fn(), makeSettings(), { scope: 'settings', id: 2 }));
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('retains Settings across tabs and bases the empty state on visible attributes', () => {
+    const settings = makeSettings({
+      tag: 'img',
+      attributes: [
+        { name: 'src', value: '/hero.webp' },
+        { name: 'alt', value: 'Hero' },
+        { name: 'width', value: '320' },
+        { name: 'height', value: '180' },
+        { name: 'loading', value: 'lazy' },
+      ],
+      canEditAttributes: false,
+      imageAttributeEditBlockReason: 'spread',
+    });
+    render(panelElement([], {}, 'hero', vi.fn(), settings));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    const panel = screen.getByTestId('css-cascade-panel');
+    const settingsSurface = panel.querySelector<HTMLElement>('.ss-cascade-settings');
+    if (!settingsSurface) throw new Error('Expected Settings to mount on first visit');
+    expect(settingsSurface).not.toHaveAttribute('hidden');
+
+    const attributesSection = [...settingsSurface.querySelectorAll('details')].find((section) =>
+      section.querySelector('.ss-edit-panel__section-title')?.textContent?.includes('Attributes')
+    );
+    const attributesBody = attributesSection?.querySelector<HTMLElement>(
+      '.ss-edit-panel__section-body'
+    );
+    if (!attributesBody) throw new Error('Expected the Attributes section body');
+    expect(attributesBody.querySelector('.ss-settings__attrs')).not.toBeInTheDocument();
+    const emptyState = screen.getByText('No other attributes.');
+    const addAttribute = within(attributesBody).getByRole('button', { name: 'Add attribute' });
+    expect(
+      emptyState.compareDocumentPosition(addAttribute) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(addAttribute).toBeDisabled();
+    expect(addAttribute).toHaveAttribute(
+      'title',
+      'A spread attribute may provide this image’s values.'
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Style' }));
+    expect(settingsSurface).toHaveAttribute('hidden');
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(settingsSurface).not.toHaveAttribute('hidden');
+    expect(panel.querySelector('.ss-cascade-settings')).toBe(settingsSurface);
+  });
+
   it('applies the shared Elements display preferences to the selected element label', () => {
     localStorage.setItem('elementTreeShowTagIcons', '1');
     localStorage.setItem('elementTreeShowTagSansSerif', '1');

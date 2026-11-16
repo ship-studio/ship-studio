@@ -48,6 +48,9 @@ A project/page is "CSS-editable" when:
 
 1. **Pages are real HTML** — `.html` files, or `.astro` files with static
    template markup (no `{expr}` / component on the edited node).
+   Astro also indexes authored HTML fragments under `src/`, such as files
+   imported with `?raw` and rendered with `set:html`; generated/export HTML
+   outside `src/` stays excluded.
 2. **Styling is external and class-based** — linked stylesheet(s); managed
    styles do not live in inline `style="…"` (inline → read-only + "extract to
    class").

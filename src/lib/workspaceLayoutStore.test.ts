@@ -148,7 +148,7 @@ describe('migration from the pre-rail preferences', () => {
     localStorage.setItem('elementTreeDockedWidth', '320');
 
     const migrated = readDefaultLayout();
-    expect(dockedPanels(migrated)).toEqual(['agent', 'navigator']);
+    expect(dockedPanels(migrated)).toEqual(['assets', 'agent', 'navigator']);
     expect(widthOf(migrated, 'navigator')).toBe(320);
   });
 

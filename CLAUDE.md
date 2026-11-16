@@ -5,7 +5,7 @@
 Ship Studio is a desktop app for web developers that provides:
 - **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
 - **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
-- **Flexible Panels** - Every panel (Agent, Team, Variables, Edit, Navigator) can be dragged anywhere in the workspace rail, floated as a window, or moved to the other side of the preview. The arrangement is remembered per project, with a default new projects start from (see `docs/flexible-panels.md`)
+- **Flexible Panels** - Every panel (Agent, Team, Variables, Edit, Navigator, Assets) can be dragged anywhere in the workspace rail, floated as a window, or moved to the other side of the preview. The arrangement is remembered per project, with a default new projects start from (see `docs/flexible-panels.md`)
 - **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, each showing its whole page at an honest viewport height, with editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
 - **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
 - **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace

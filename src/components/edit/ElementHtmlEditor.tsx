@@ -89,7 +89,10 @@ export function ElementHtmlEditor({ projectPath, signature }: Props) {
         target
       );
       baselineRef.current = text;
-      showToast(applied > 1 ? `Markup saved in ${applied} places` : 'Markup saved', 'success');
+      showToast(
+        applied.updated > 1 ? `Markup saved in ${applied.updated} places` : 'Markup saved',
+        'success'
+      );
     } catch (e) {
       // A `Validation` rejection is the backend declining by design (drift, or
       // an element it won't guess a write target for) — its reason is already

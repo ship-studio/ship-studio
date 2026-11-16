@@ -16,14 +16,14 @@ import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { IconButton } from '../primitives/IconButton';
 import { ResetIcon, EditIcon } from '@/components/icons';
 import { SearchField } from '../primitives/SearchField';
-import { type FileTreeNode } from '../../lib/code';
+import { type CodeRevealTarget, type FileTreeNode } from '../../lib/code';
 import { useCommands } from '../../commands/useCommands';
 
 interface CodeTabProps {
   projectPath: string;
   onSendToAgent?: (text: string) => void;
   /** Jump-to-code target: open this file and highlight/scroll to the line. */
-  revealTarget?: { file: string; line: number; requestId: number } | null;
+  revealTarget?: CodeRevealTarget | null;
 }
 
 export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabProps) {
@@ -215,6 +215,11 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           revealRequestId={
             revealTarget && revealTarget.file === selectedFilePath && !isLoadingFile
               ? revealTarget.requestId
+              : null
+          }
+          revealRange={
+            revealTarget && revealTarget.file === selectedFilePath && !isLoadingFile
+              ? revealTarget.range
               : null
           }
           isEditing={isEditing}

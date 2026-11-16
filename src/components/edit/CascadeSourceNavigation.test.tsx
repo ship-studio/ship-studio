@@ -105,6 +105,7 @@ function makeElementSettings(): ElementSettings {
     renameAttribute: vi.fn(),
     removeAttribute: vi.fn(),
     canEditAttributes: false,
+    sourceMarkupStatus: 'resolved',
     location: null,
     busy: false,
   };

@@ -167,6 +167,11 @@
   background: var(--surface-selected);
 }
 
+.value-field__option--disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 .value-field__check {
   display: inline-flex;
   align-items: center;

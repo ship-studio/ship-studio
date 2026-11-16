@@ -23,8 +23,10 @@ function send(data: unknown) {
 function nextSelect(): Promise<{
   signature: Record<string, unknown>;
   count: number;
+  selectionId?: string;
   leafText?: boolean;
   affectedNodeIds?: number[];
+  timing?: { scheduledWaitMs?: number; inspectionMs?: number; postedAtEpochMs?: number };
 }> {
   return new Promise((res) => {
     const handler = (e: MessageEvent) => {
@@ -34,8 +36,10 @@ function nextSelect(): Promise<{
           e.data as {
             signature: Record<string, unknown>;
             count: number;
+            selectionId?: string;
             leafText?: boolean;
             affectedNodeIds?: number[];
+            timing?: { scheduledWaitMs?: number; inspectionMs?: number; postedAtEpochMs?: number };
           }
         );
       }
@@ -109,6 +113,95 @@ it('reports a signature on click after activate', async () => {
   ]);
   expect(elementPath.every(({ domPath }) => domPath.length > 0)).toBe(true);
   expect(msg.count).toBe(1);
+});
+
+it('announces the selected element before matching siblings and reading its React source stack', async () => {
+  document.body.innerHTML = '<button class="source-delay">Select me</button>';
+  const button = document.querySelector('button')!;
+  let sourceStackRead = false;
+  let matchingStarted = false;
+  Object.defineProperty(button, '__reactFiber$selection-delay', {
+    configurable: true,
+    get() {
+      sourceStackRead = true;
+      return {
+        _debugStack: {
+          stack:
+            'Error: react-stack-top-frame\n    at Card (http://localhost:5173/src/Card.tsx:42:7)',
+        },
+      };
+    },
+  });
+  const querySelectorAll = document.querySelectorAll.bind(document);
+  const querySpy = vi.spyOn(document, 'querySelectorAll').mockImplementation((selector: string) => {
+    if (selector === '[class]') matchingStarted = true;
+    return querySelectorAll(selector);
+  });
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  const pending = nextMessage<{
+    selectionId: string;
+    domPath: string;
+    nodeId: number;
+    signature: Record<string, unknown>;
+  }>('ss:selectionPending');
+
+  try {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const pendingMessage = await pending;
+    expect(pendingMessage.nodeId).toEqual(expect.any(Number));
+    expect(pendingMessage.signature).toMatchObject({
+      className: 'source-delay',
+      tagName: 'button',
+      domPath: pendingMessage.domPath,
+    });
+    expect(sourceStackRead).toBe(false);
+    expect(matchingStarted).toBe(false);
+
+    const selection = await selected;
+    expect(selection.signature.sourceFile).toBe('http://localhost:5173/src/Card.tsx');
+    expect(sourceStackRead).toBe(true);
+  } finally {
+    send({ type: 'ss:deactivate' });
+    querySpy.mockRestore();
+  }
+});
+
+it('sends the selection before calculating its contrast snapshot', async () => {
+  document.body.innerHTML = '<section class="hero"><p>Readable content</p></section>';
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  const contrastMessages: Array<{
+    requestId: number;
+    selectionId: string;
+    contrastSnapshot: unknown;
+  }> = [];
+  const selectedId = { current: undefined as string | undefined };
+  let resolveContrast!: (message: (typeof contrastMessages)[number]) => void;
+  const contrast = new Promise<(typeof contrastMessages)[number]>((resolve) => {
+    resolveContrast = resolve;
+  });
+  const onContrast = (event: MessageEvent) => {
+    const data = event.data as { type?: string } & (typeof contrastMessages)[number];
+    if (data.type !== 'ss:contrastSnapshot') return;
+    if (data.selectionId === selectedId.current) resolveContrast(data);
+    else contrastMessages.push(data);
+  };
+  window.addEventListener('message', onContrast);
+  document.querySelector('p')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  const selection = await selected;
+  expect(selection.signature.contrastSnapshot).toBeUndefined();
+  selectedId.current = selection.selectionId;
+  const earlierDetails = contrastMessages.find(
+    ({ selectionId: messageSelectionId }) => messageSelectionId === selectedId.current
+  );
+  if (earlierDetails) resolveContrast(earlierDetails);
+  const details = await contrast;
+  window.removeEventListener('message', onContrast);
+  expect(details.requestId).toBe(0);
+  expect(details.selectionId).toBe(selection.selectionId);
+  expect(details.contrastSnapshot).toBeDefined();
 });
 
 it('reports page hover changes so the Elements row can mirror them', () => {
@@ -298,6 +391,17 @@ it('walks up to the nearest classed ancestor when a bare non-text child is click
   expect(msg.signature.tagName).toBe('a');
 });
 
+it('selects a classless CSS-mode element so the tree and CSS panel receive ss:select', async () => {
+  document.body.innerHTML = '<main><div><span></span></div></main>';
+  send({ type: 'ss:activate', cascade: true });
+  const selected = nextSelect();
+  document.querySelector('div')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const msg = await selected;
+  expect(msg.signature.className).toBe('');
+  expect(msg.signature.tagName).toBe('div');
+  expect(msg.signature.domPath).toBeTruthy();
+});
+
 it('selects a classless text leaf directly (so its text is editable)', async () => {
   // A classless heading with text + <br> is a text leaf — clicking selects it
   // directly (not its classed wrapper), flagged leafText so the parent resolves text.
@@ -456,6 +560,32 @@ it('swaps the selected image src on ss:setSrc and clears a stale srcset', async 
   expect(img.getAttribute('srcset')).toBe('');
 });
 
+it('restores the original image attributes after a replacement preview and keeps a commit', async () => {
+  document.body.innerHTML =
+    '<img class="hero" src="/old.png" srcset="/old.png 1x, /old@2x.png 2x" />';
+  send({ type: 'ss:activate' });
+  await flushMessages();
+  const selected = nextSelect();
+  document.querySelector('img')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const selection = await selected;
+  const img = document.querySelector('img')!;
+  const selectionId = selection.selectionId;
+  const domPath = selection.signature.domPath;
+
+  send({ type: 'ss:previewReplacementSrc', selectionId, domPath, value: '/hover.png' });
+  expect(img.getAttribute('src')).toBe('/hover.png');
+  expect(img.getAttribute('srcset')).toBe('');
+  send({ type: 'ss:clearReplacementPreview', selectionId, domPath });
+  expect(img.getAttribute('src')).toBe('/old.png');
+  expect(img.getAttribute('srcset')).toBe('/old.png 1x, /old@2x.png 2x');
+
+  send({ type: 'ss:previewReplacementSrc', selectionId, domPath, value: '/hover.png' });
+  send({ type: 'ss:setSrc', value: '/committed.png' });
+  send({ type: 'ss:clearReplacementPreview', selectionId, domPath });
+  expect(img.getAttribute('src')).toBe('/committed.png');
+  expect(img.getAttribute('srcset')).toBe('');
+});
+
 it('updates direct text without flattening mixed child markup on ss:setText', async () => {
   document.body.innerHTML =
     '<p class="settings-text">Old copy</p><p class="settings-mixed">Keep <span>formatting</span></p>';
@@ -584,6 +714,118 @@ it('emits the matching rules in cascade order with active/overridden flags', asy
   // Devtools-style ordering: the winning rule sorts to the top.
   expect(rules[0].selector).toBe('.btn--primary');
   send({ type: 'ss:deactivate' });
+});
+
+it('delivers the selection before walking stylesheet rules', async () => {
+  document.body.innerHTML =
+    '<style>.cascade-yield{color:red}</style><button class="cascade-yield">Select</button>';
+  send({ type: 'ss:activate', cascade: true });
+  await flushMessages();
+
+  const target = document.querySelector<HTMLButtonElement>('.cascade-yield')!;
+  let selectionDelivered = false;
+  let scannedBeforeSelection = false;
+  const onMessage = (event: MessageEvent) => {
+    if ((event.data as { type?: string })?.type === 'ss:select') selectionDelivered = true;
+  };
+  window.addEventListener('message', onMessage);
+  const originalMatches = target.matches.bind(target);
+  const matches = vi.spyOn(target, 'matches').mockImplementation((selector) => {
+    if (!selectionDelivered) scannedBeforeSelection = true;
+    return originalMatches(selector);
+  });
+  const selected = nextSelect();
+  const cascadeResult = nextCascade();
+
+  try {
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await selected;
+    await cascadeResult;
+
+    expect(matches).toHaveBeenCalled();
+    expect(scannedBeforeSelection).toBe(false);
+  } finally {
+    window.removeEventListener('message', onMessage);
+    matches.mockRestore();
+    send({ type: 'ss:deactivate' });
+  }
+});
+
+it('delivers pending selection, full signature and cascade while rAF callbacks are held', async () => {
+  document.body.innerHTML =
+    '<style>.cascade-passive{color:red}</style>' +
+    '<button class="cascade-passive">Select</button><button class="cascade-passive">Sibling</button>';
+  send({ type: 'ss:activate', cascade: true });
+  await flushMessages();
+
+  const heldFrames: FrameRequestCallback[] = [];
+  const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    heldFrames.push(callback);
+    return 0; // Same behavior as the passive-frame rAF suspension in the preview.
+  });
+  const target = document.querySelector<HTMLButtonElement>('.cascade-passive')!;
+  let sourceStackRead = false;
+  let matchingStarted = false;
+  Object.defineProperty(target, '__reactFiber$selection-delay', {
+    configurable: true,
+    get() {
+      sourceStackRead = true;
+      return {
+        _debugStack: {
+          stack:
+            'Error: react-stack-top-frame\n    at Card (http://localhost:5173/src/Card.tsx:42:7)',
+        },
+      };
+    },
+  });
+  const querySelectorAll = document.querySelectorAll.bind(document);
+  const querySpy = vi.spyOn(document, 'querySelectorAll').mockImplementation((selector: string) => {
+    if (selector === '[class]') matchingStarted = true;
+    return querySelectorAll(selector);
+  });
+  const pendingResult = nextMessage<{
+    selectionId: string;
+    signature: { className: string; tagName: string; domPath: string };
+  }>('ss:selectionPending');
+  const selected = nextSelect();
+  const cascadeResult = nextMessage<{
+    rules: CascadeRule[];
+    timing?: { scheduledToScanMs: number; scanMs: number; postedAtEpochMs: number };
+  }>('ss:cascade');
+
+  try {
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const pending = await pendingResult;
+    expect(pending.selectionId).toBeTruthy();
+    expect(pending.signature).toMatchObject({
+      className: 'cascade-passive',
+      tagName: 'button',
+      domPath: pending.signature.domPath,
+    });
+    expect(sourceStackRead).toBe(false);
+    expect(matchingStarted).toBe(false);
+    expect(heldFrames).toHaveLength(0);
+
+    const selection = await selected;
+    const cascade = await cascadeResult;
+    expect(selection.selectionId).toBe(pending.selectionId);
+    expect(selection.count).toBe(2);
+    expect(selection.signature.sourceFile).toBe('http://localhost:5173/src/Card.tsx');
+    expect(sourceStackRead).toBe(true);
+    expect(document.querySelectorAll('[data-ss-sel]')).toHaveLength(2);
+    expect(selection.timing?.scheduledWaitMs).toEqual(expect.any(Number));
+    expect(selection.timing?.inspectionMs).toEqual(expect.any(Number));
+    expect(selection.timing?.postedAtEpochMs).toEqual(expect.any(Number));
+    expect(cascade.rules.some((rule) => rule.selector === '.cascade-passive')).toBe(true);
+    expect(cascade.timing?.scheduledToScanMs).toEqual(expect.any(Number));
+    expect(cascade.timing?.scanMs).toEqual(expect.any(Number));
+    expect(cascade.timing?.postedAtEpochMs).toEqual(expect.any(Number));
+    expect(heldFrames.length).toBeGreaterThan(0);
+  } finally {
+    rafSpy.mockRestore();
+    querySpy.mockRestore();
+    send({ type: 'ss:deactivate' });
+  }
 });
 
 it('reports changed media activity for the selected element when its viewport resizes', async () => {
@@ -1136,7 +1378,7 @@ it('does not flag decoration when the element draws its own line', async () => {
   expect(inh['text-decoration-line']).toBeUndefined();
 });
 
-it('draws selection immediately and only inspects the latest click after a frame', async () => {
+it('draws selection immediately and cancels stale inspection when a newer click arrives', async () => {
   document.body.innerHTML =
     '<button class="first">First</button><button class="second">Second</button>';
   send({ type: 'ss:activate' });

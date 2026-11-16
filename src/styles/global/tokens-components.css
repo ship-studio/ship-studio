@@ -17,6 +17,12 @@
   --size-preview-breakpoint-menu: 240px;
   --size-preview-breakpoint-divider-height: var(--stroke-1);
 
+  /* Assets panel search and root picker separation. */
+  --assets-panel-search-root-gap: var(--space-06);
+
+  /* Image settings affordance placement. */
+  --settings-image-lock-inset: var(--space-06);
+
   --size-sidebar-project-shortcut: 24px;
   --size-sidebar-project: 214px;
   --size-sidebar-project-row: 46px;
@@ -312,6 +318,9 @@
      the fullscreen rail, but below floating panels. */
   --z-dock-drop-indicator: 940;
   --z-floating-panel: 950;
+  /* Body-portaled popovers owned by a floating panel sit above its highest
+     stack order (48) and below the modal overlay. */
+  --z-floating-panel-popover: calc(var(--z-floating-panel) + 49);
   /* The overlay must paint above portaled menus while remaining below
      notifications and app-level surfaces. */
   --z-drag-sort-overlay: 1110;

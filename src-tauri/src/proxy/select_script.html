@@ -1,6 +1,7 @@
 <script>(function(){
 if(window.__ssSelectInit)return;window.__ssSelectInit=true;
 var active=false,hoverBox=null,selBoxes=[],selectedSet=[],selPrimary=null;
+var replacementSrcPreview=null;
 var contrastObserver=null,contrastLoadHandler=null,contrastResizeHandler=null,contrastRaf=0,contrastSelectionId=null,contrastSelectionSeq=0,contrastSessionId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),contrastSelectedPath=null,lastContrastSignature=null;
 var lastHoverTarget=null,lastHoverNodeId=null;
 
@@ -85,7 +86,7 @@ function ensureHover(){if(!hoverBox||!hoverBox.isConnected)hoverBox=mk('#007DF0'
 
 function ensureSel(n){for(var i=0;i<n;i++){if(!selBoxes[i]||!selBoxes[i].isConnected)selBoxes[i]=mk(SEL_SIBLING_COLOR);}}
 
-function editable(el){while(el&&el!==document.body){if(el.nodeType===1){var c=el.getAttribute&&el.getAttribute('class');if(c&&c.trim())return el;}el=el.parentElement;}return null;}
+function editable(el){while(el&&el!==document.body){if(el.nodeType===1){var c=el.getAttribute&&el.getAttribute('class');if(c&&c.trim())return el;if(cascadeMode&&!el.getAttribute('data-ss-overlay')&&!ssInternalNode(el))return el;}el=el.parentElement;}return null;}
 
 function place(box,el){if(!box)return;placeRect(box,el?el.getBoundingClientRect():null);}
 
@@ -627,13 +628,20 @@ function ssContrastSnapshot(el,cs){var layers=[],node=el,truncated=false,reaches
   if(seen.indexOf(el)<0){inspectPseudo(el,'::before',false);inspectPseudo(el,'::after',false);}
   return{layers:layers,truncated:truncated,fontSizePx:isFinite(baseSize)&&baseSize>0?baseSize:NaN,fontWeight:isFinite(baseWeight)&&baseWeight>0?baseWeight:NaN,hasText:hasText,groupCount:Math.min(Math.max(selectedSet.length,1),10000),hasMixedTextStyle:mixed,strictestTextCategory:strictest};
 }
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el),spacing=cs.getPropertyValue('--spacing').trim();if(!spacing){for(var si=0;si<cs.length;si++){var sn=cs[si];if(/^--[\w-]+-spacing$/.test(sn)){spacing=cs.getPropertyValue(sn).trim();if(spacing)break;}}}return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),elementPath:ssElementPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,contrastSnapshot:ssContrastSnapshot(el,cs),direction:cs.direction,writingMode:cs.writingMode,spacingUnit:spacing||undefined,unlayeredProps:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
+function sig(el,includeContrastSnapshot){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el),spacing=cs.getPropertyValue('--spacing').trim();if(!spacing){for(var si=0;si<cs.length;si++){var sn=cs[si];if(/^--[\w-]+-spacing$/.test(sn)){spacing=cs.getPropertyValue(sn).trim();if(spacing)break;}}}return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),elementPath:ssElementPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,computedBackgroundImage:cs.backgroundImage,computedBackgroundSize:cs.backgroundSize,computedBackgroundPosition:cs.backgroundPosition,computedBackgroundRepeat:cs.backgroundRepeat,computedBackgroundAttachment:cs.backgroundAttachment,contrastSnapshot:includeContrastSnapshot===false?undefined:ssContrastSnapshot(el,cs),direction:cs.direction,writingMode:cs.writingMode,spacingUnit:spacing||undefined,unlayeredProps:cascadeMode?undefined:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),attrAlt:el.getAttribute('alt'),attrWidth:el.getAttribute('width'),attrHeight:el.getAttribute('height'),attrLoading:el.getAttribute('loading'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null,naturalWidth:(el.tagName==='IMG'&&el.naturalWidth>0)?el.naturalWidth:null,naturalHeight:(el.tagName==='IMG'&&el.naturalHeight>0)?el.naturalHeight:null};}
 
 function ssCancelContrastRefresh(){if(contrastRaf)cancelAnimationFrame(contrastRaf);contrastRaf=0;}
 function ssRebindContrastSelection(){if(selPrimary&&selPrimary.isConnected)return true;if(!lastContrastSignature)return false;var replacement=findBySignature(lastContrastSignature);if(!replacement)return false;selPrimary=replacement;selectedSet=matching(replacement);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();ssObserveContrast(replacement);placeSet();return true;}
 function ssScheduleContrastRefresh(){if(contrastRaf||!active||!selPrimary)return;contrastRaf=requestAnimationFrame(function(){contrastRaf=0;if(!active||!ssRebindContrastSelection()||!contrastSelectedPath)return;window.parent.postMessage({type:'ss:contrastDirty',selectionId:contrastSelectionId,domPath:contrastSelectedPath},'*');});}
+function ssRenderedImagePreview(el){if(!el||!el.complete||!el.naturalWidth||!el.naturalHeight)return null;try{var scale=Math.min(1,96/el.naturalWidth,96/el.naturalHeight),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(el.naturalWidth*scale));canvas.height=Math.max(1,Math.round(el.naturalHeight*scale));var context=canvas.getContext('2d');if(!context)return null;context.drawImage(el,0,0,canvas.width,canvas.height);return canvas.toDataURL('image/png');}catch(e){return null;}}
+function ssReportImageState(el){if(!active||!el||el!==selPrimary||(el.tagName||'').toLowerCase()!=='img'||!contrastSelectionId||!contrastSelectedPath)return;window.parent.postMessage({type:'ss:imageState',selectionId:contrastSelectionId,domPath:contrastSelectedPath,currentSrc:el.currentSrc||null,currentPreview:ssRenderedImagePreview(el),naturalWidth:el.complete&&el.naturalWidth>0?el.naturalWidth:null,naturalHeight:el.complete&&el.naturalHeight>0?el.naturalHeight:null},'*');}
+var initialDetailsRaf=0,initialDetailsTimer=0;
+function cancelInitialSelectionDetails(){if(initialDetailsRaf)cancelAnimationFrame(initialDetailsRaf);if(initialDetailsTimer)clearTimeout(initialDetailsTimer);initialDetailsRaf=0;initialDetailsTimer=0;}
+/* Let the parent paint the selected element before walking its text subtree for
+   contrast or serializing a selected image into a data URL. */
+function scheduleInitialSelectionDetails(el,selectionId,domPath){cancelInitialSelectionDetails();initialDetailsRaf=requestAnimationFrame(function(){initialDetailsRaf=0;initialDetailsTimer=setTimeout(function(){initialDetailsTimer=0;if(!active||selPrimary!==el||!el.isConnected||contrastSelectionId!==selectionId||contrastSelectedPath!==domPath)return;try{var cs=getComputedStyle(el);window.parent.postMessage({type:'ss:contrastSnapshot',requestId:0,selectionId:selectionId,domPath:domPath,contrastSnapshot:ssContrastSnapshot(el,cs),computedColor:cs.color,computedBackgroundColor:cs.backgroundColor},'*');}catch(e){}ssReportImageState(el);},0);});}
 function ssDisconnectContrastObserver(){if(contrastObserver){contrastObserver.disconnect();contrastObserver=null;}if(contrastLoadHandler){document.removeEventListener('load',contrastLoadHandler,true);contrastLoadHandler=null;}if(contrastResizeHandler){window.removeEventListener('resize',contrastResizeHandler);contrastResizeHandler=null;}ssCancelContrastRefresh();}
-function ssObserveContrast(el){ssDisconnectContrastObserver();if(!window.MutationObserver||!el)return;contrastObserver=new MutationObserver(function(){ssScheduleContrastRefresh();});var subtree={attributes:true,attributeFilter:['class','style'],childList:true,characterData:true,subtree:true};try{contrastObserver.observe(el,subtree);var parent=el.parentElement,depth=0;while(parent&&depth<32){contrastObserver.observe(parent,{attributes:true,attributeFilter:['class','style'],childList:true});if(parent===document.documentElement)break;parent=parent.parentElement;depth++;}if(document.head)contrastObserver.observe(document.head,{attributes:true,attributeFilter:['href','media','disabled','style'],childList:true,characterData:true,subtree:true});contrastLoadHandler=function(ev){var target=ev.target;if(target&&(target.tagName==='LINK'||target.tagName==='STYLE'))ssScheduleContrastRefresh();};document.addEventListener('load',contrastLoadHandler,true);contrastResizeHandler=function(){ssScheduleContrastRefresh();};window.addEventListener('resize',contrastResizeHandler);}catch(e){ssDisconnectContrastObserver();}}
+function ssObserveContrast(el){ssDisconnectContrastObserver();if(!window.MutationObserver||!el)return;contrastObserver=new MutationObserver(function(){ssScheduleContrastRefresh();});var subtree={attributes:true,attributeFilter:['class','style'],childList:true,characterData:true,subtree:true};try{contrastObserver.observe(el,subtree);var parent=el.parentElement,depth=0;while(parent&&depth<32){contrastObserver.observe(parent,{attributes:true,attributeFilter:['class','style'],childList:true});if(parent===document.documentElement)break;parent=parent.parentElement;depth++;}if(document.head)contrastObserver.observe(document.head,{attributes:true,attributeFilter:['href','media','disabled','style'],childList:true,characterData:true,subtree:true});contrastLoadHandler=function(ev){var target=ev.target;if(target&&target===selPrimary&&(target.tagName||'').toLowerCase()==='img')ssReportImageState(target);if(target&&(target.tagName==='LINK'||target.tagName==='STYLE'))ssScheduleContrastRefresh();};document.addEventListener('load',contrastLoadHandler,true);contrastResizeHandler=function(){ssScheduleContrastRefresh();ssReportImageState(selPrimary);};window.addEventListener('resize',contrastResizeHandler);}catch(e){ssDisconnectContrastObserver();}}
 function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styleEl.id='ss-preview';document.head.appendChild(styleEl);}return styleEl;}
 
 /* Build the preview CSS for one selection from its accumulated decls: base (minPx 0)
@@ -649,9 +657,12 @@ function buildCss(mark){var byMin=pvDecls[mark];if(!byMin)return '';var mins=[];
 
 function rebuildSheet(){var css='';for(var k in pvDecls)css+=buildCss(k);ensureStyle().textContent=css;}
 
+function ssSetSavedAttribute(el,name,value){if(value===null)el.removeAttribute(name);else el.setAttribute(name,value);}
+function ssClearReplacementSrcPreview(restore){var preview=replacementSrcPreview;replacementSrcPreview=null;if(!restore||!preview||!active||!preview.el||!preview.el.isConnected||preview.el!==selPrimary||preview.selectionId!==contrastSelectionId||preview.domPath!==contrastSelectedPath)return;if(preview.el.getAttribute('src')!==preview.appliedSrc)return;ssSetSavedAttribute(preview.el,'src',preview.src);ssSetSavedAttribute(preview.el,'srcset',preview.srcset);ssReportImageState(preview.el);}
+
 /* Discard the current selection's UNCOMMITTED preview (revert class, drop its decls +
    marker). A committed selection is kept as-is — only the live pointer is released. */
-function restoreSel(){cancelSelectionDetails();ssDisconnectContrastObserver();contrastSelectedPath=null;lastContrastSignature=null;if(curMark!==null&&pendingMark===curMark){delete pvDecls[curMark];rebuildSheet();for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);el.removeAttribute('data-ss-sel');}}curMark=null;pendingMark=null;selectedSet=[];selPrimary=null;origClasses=[];}
+function restoreSel(){ssClearReplacementSrcPreview(true);cancelSelectionDetails();cancelInitialSelectionDetails();ssDisconnectContrastObserver();contrastSelectedPath=null;lastContrastSignature=null;if(curMark!==null&&pendingMark===curMark){delete pvDecls[curMark];rebuildSheet();for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);el.removeAttribute('data-ss-sel');}}curMark=null;pendingMark=null;selectedSet=[];selPrimary=null;origClasses=[];}
 
 function snapshotOrig(){origClasses=[];for(var i=0;i<selectedSet.length;i++)origClasses.push(selectedSet[i]?selectedSet[i].getAttribute('class'):null);}
 
@@ -710,7 +721,9 @@ function textTarget(node){var el=(node&&node.nodeType===3)?node.parentElement:no
 
 /* What a single click selects: an image gets picked directly (even classless — the
    panel offers asset replacement, resolved by src value), else the editable-text
-   element (outermost) under the cursor, else the nearest classed ancestor. */
+   element (outermost) under the cursor, else the nearest classed ancestor. CSS mode
+   can also select classless elements because it edits tag selectors and source
+   resolution is independently fail-closed. */
 function pickTarget(node){var el=(node&&node.nodeType===3)?node.parentElement:node;if(el&&el.nodeType===1&&el.tagName==='IMG')return el;return textTarget(node)||editable(el);}
 
 /* Is `el` rendered/owned by React? React tags its host DOM nodes with __reactFiber$…
@@ -917,15 +930,29 @@ function reportHover(el){var id=el?treeIdFor(el):null;if(lastHoverTarget===el&&l
 
 function onMove(e){if(!active||txtEditing||canvasDragPending||canvasDrag)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);reportHover(t);}
 
-/* Let the outline paint before stylesheet/source-signature inspection. A timer
-   queued from rAF runs after that rendering opportunity; rAF alone would still
-   put the expensive work before paint. Cancel both stages on a newer selection. */
-var selectionRaf=0,selectionTimer=0;
-function cancelSelectionDetails(){if(selectionRaf)cancelAnimationFrame(selectionRaf);if(selectionTimer)clearTimeout(selectionTimer);selectionRaf=0;selectionTimer=0;}
-function selectEl(el){reportHover(null);restoreSel();selectedSet=matching(el);selPrimary=el;contrastSelectionId=contrastSessionId+':'+(++contrastSelectionSeq);contrastSelectedPath=ssDomPath(el);curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();ssObserveContrast(el);placeSet();place(hoverBox,null);txtEditable=null;txtPendingDbl=null;
-  selectionRaf=requestAnimationFrame(function(){selectionRaf=0;selectionTimer=setTimeout(function(){selectionTimer=0;if(!active||selPrimary!==el||!el.isConnected)return;
-    var primaryNodeId=treeIdFor(el),affectedNodeIds=[],signature=sig(el);lastContrastSignature=signature;for(var ai=0;ai<selectedSet.length;ai++){var affectedId=treeIdFor(selectedSet[ai]);if(affectedId!==primaryNodeId)affectedNodeIds.push(affectedId);}window.parent.postMessage({type:'ss:select',signature:signature,selectionId:contrastSelectionId,count:selectedSet.length,leafText:isEditableText(el),nodeId:primaryNodeId,affectedNodeIds:affectedNodeIds},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:primaryNodeId},'*');}catch(e){}}
-  },0);});
+/* Queue stylesheet/source-signature inspection as a cancellable task after the
+   pending selection identity and outline. The frame clock may be suspended for
+   passive preview frames, so it must not gate the full selection. */
+var selectionTimer=0;
+function cancelSelectionDetails(){if(selectionTimer)clearTimeout(selectionTimer);selectionTimer=0;}
+/* Queue the cascade scan as a separate timer task so it can yield to message
+   processing without depending on rAF, which passive canvas frames suspend. */
+function scheduleCascade(el,selectionId,nodeId){var scheduledAt=window.performance&&performance.now?performance.now():0;selectionTimer=setTimeout(function(){selectionTimer=0;if(!active||!cascadeMode||selPrimary!==el||!el.isConnected||contrastSelectionId!==selectionId)return;try{var scanStartedAt=window.performance&&performance.now?performance.now():scheduledAt;var rules=cascade(el);var scanFinishedAt=window.performance&&performance.now?performance.now():scanStartedAt;window.parent.postMessage({type:'ss:cascade',rules:rules,nodeId:nodeId,selectionId:selectionId,timing:{scheduledToScanMs:Math.max(0,scanStartedAt-scheduledAt),scanMs:Math.max(0,scanFinishedAt-scanStartedAt),postedAtEpochMs:Date.now()}},'*');}catch(e){}},0);}
+function selectEl(el){reportHover(null);restoreSel();selPrimary=el;contrastSelectionId=contrastSessionId+':'+(++contrastSelectionSeq);contrastSelectedPath=ssDomPath(el);curMark=String(++pvId);selectedSet=[el];el.setAttribute('data-ss-sel',curMark);snapshotOrig();txtEditable=null;txtPendingDbl=null;
+  var selectionId=contrastSelectionId,domPath=contrastSelectedPath,primaryNodeId=treeIdFor(el),className=el.getAttribute('class')||'',tagName=(el.tagName||'').toLowerCase();
+  /* Give the navigator and CSS editor a cheap identity immediately. Matching every
+     same-class node and building the source/style signature below can walk a large
+     page; defer that work to a cancellable task after the pending message. */
+  window.parent.postMessage({type:'ss:selectionPending',selectionId:selectionId,domPath:domPath,nodeId:primaryNodeId,signature:{className:className,tagName:tagName,domPath:domPath,ancestorClasses:[]}},'*');
+  placeSet();place(hoverBox,null);
+  var inspectionScheduledAt=Date.now();selectionTimer=setTimeout(function(){selectionTimer=0;if(!active||selPrimary!==el||!el.isConnected||contrastSelectionId!==selectionId||contrastSelectedPath!==domPath)return;
+    var inspectionStartedAt=Date.now();
+    selectedSet=matching(el);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();ssObserveContrast(el);placeSet();
+    var affectedNodeIds=[],signature=sig(el,false);lastContrastSignature=signature;for(var ai=0;ai<selectedSet.length;ai++){var affectedId=treeIdFor(selectedSet[ai]);if(affectedId!==primaryNodeId)affectedNodeIds.push(affectedId);}var inspectionFinishedAt=Date.now();window.parent.postMessage({type:'ss:select',signature:signature,selectionId:selectionId,count:selectedSet.length,leafText:isEditableText(el),nodeId:primaryNodeId,affectedNodeIds:affectedNodeIds,timing:{scheduledWaitMs:Math.max(0,inspectionStartedAt-inspectionScheduledAt),inspectionMs:Math.max(0,inspectionFinishedAt-inspectionStartedAt),postedAtEpochMs:inspectionFinishedAt}},'*');
+    /* Cascade rows drive the CSS editor. Start their work before the contrast walk,
+       which can visit hundreds of text nodes inside a selected container. */
+    if(cascadeMode)scheduleCascade(el,selectionId,primaryNodeId);scheduleInitialSelectionDetails(el,selectionId,domPath);
+  },0);
 }
 
 /* A viewport resize changes media matches without changing the selection. */
@@ -1760,7 +1787,9 @@ else if(d.type==='ss:splitSelectorListPreview'){splitSelectorListPreview(d.ident
    already happened (host-initiated, like a text commit); HMR re-renders to the same
    value, so this only bridges the gap. srcset is cleared so a framework-generated
    candidate set can't keep showing the old image until then. */
-else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el||el.tagName!=='IMG')continue;el.setAttribute('src',d.value);if(el.hasAttribute('srcset'))el.setAttribute('srcset','');}}placeSet();ssScheduleContrastRefresh();}
+else if(d.type==='ss:previewReplacementSrc'){if(active&&typeof d.value==='string'&&d.value&&d.selectionId===contrastSelectionId&&d.domPath===contrastSelectedPath&&selPrimary&&(selPrimary.tagName||'').toLowerCase()==='img'){if(!replacementSrcPreview||replacementSrcPreview.selectionId!==contrastSelectionId||replacementSrcPreview.domPath!==contrastSelectedPath||replacementSrcPreview.el!==selPrimary){ssClearReplacementSrcPreview(true);replacementSrcPreview={selectionId:contrastSelectionId,domPath:contrastSelectedPath,el:selPrimary,src:selPrimary.getAttribute('src'),srcset:selPrimary.getAttribute('srcset'),appliedSrc:d.value};}else replacementSrcPreview.appliedSrc=d.value;selPrimary.setAttribute('src',d.value);if(selPrimary.hasAttribute('srcset'))selPrimary.setAttribute('srcset','');placeSet();ssReportImageState(selPrimary);ssScheduleContrastRefresh();}}
+else if(d.type==='ss:clearReplacementPreview'){if(d.selectionId===contrastSelectionId&&d.domPath===contrastSelectedPath)ssClearReplacementSrcPreview(true);}
+else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){ssClearReplacementSrcPreview(false);for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el||el.tagName!=='IMG')continue;el.setAttribute('src',d.value);if(el.hasAttribute('srcset'))el.setAttribute('srcset','');}}placeSet();ssScheduleContrastRefresh();}
 
 /* Variables editor live preview: target one source definition only when its stylesheet,
    selector, and declaration identify a unique CSSOM rule. Scoped or ambiguous rules never
