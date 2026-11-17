@@ -703,6 +703,19 @@ export function describeProcessError(
         'The download was cut off partway through — a network blip, a proxy, or a VPN, not a problem with the repository. Git cannot resume a half-received clone, so try again.',
     };
   }
+  // A clone whose HTTPS transfer was reset mid-download. curl reports
+  // "Recv failure: Connection was reset" when the peer — or a firewall,
+  // proxy, or antivirus doing TLS inspection — drops the connection while
+  // receiving data: a transient network condition, not an app defect.
+  // `gh repo clone` wraps git and exits with its own code 1, so nothing
+  // but the wording identifies it. Retrying is the fix (issue #1191).
+  if (lower.includes('recv failure') || lower.includes('connection was reset')) {
+    return {
+      expected: true,
+      message:
+        'The connection to GitHub was reset while downloading the repository. This is usually caused by a brief network hiccup, firewall, or antivirus/proxy interference — check your connection and try again.',
+    };
+  }
   // Node cannot start the package manager at all, because the package
   // manager's own entrypoint is missing a file it requires — a broken or
   // half-upgraded npm install on this machine, nothing to do with the project

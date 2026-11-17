@@ -163,6 +163,27 @@ describe('friendlyProcessError', () => {
     );
   });
 
+  it('maps a curl TLS reset mid-clone to "try again" (issue #1191)', () => {
+    // The reported payload: curl's "Recv failure: Connection was reset"
+    // over HTTPS, wrapped by `gh repo clone` exiting with its own code 1.
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "Cloning into 'grove-sites'...",
+      "fatal: unable to access 'https://github.com/thenine/grove-sites.git/': Recv failure: Connection was reset",
+      'failed to run git: exit status 128',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/reset/i);
+    expect(info.message).toMatch(/try again/i);
+    expect(info.message).not.toContain('Recv failure');
+    expect(info.message).not.toContain('Cloning into');
+    // Each half of the wording identifies it on its own.
+    expect(describeProcessError('Recv failure: Connection was reset').expected).toBe(true);
+    expect(describeProcessError('connection was reset').expected).toBe(true);
+  });
+
   it('names a broken package-manager install rather than dumping Node (issue #903)', () => {
     const raw = [
       'Process exited with code 1',
