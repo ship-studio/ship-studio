@@ -713,7 +713,7 @@ export function describeProcessError(
     return {
       expected: true,
       message:
-        'The connection to GitHub was reset while downloading the repository. This is usually caused by a brief network hiccup, firewall, or antivirus/proxy interference — check your connection and try again.',
+        'The connection to GitHub was reset while downloading. This is usually caused by a brief network hiccup, firewall, or antivirus/proxy interference — check your connection and try again.',
     };
   }
   // Node cannot start the package manager at all, because the package

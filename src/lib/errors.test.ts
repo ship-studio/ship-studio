@@ -182,6 +182,20 @@ describe('friendlyProcessError', () => {
     // Each half of the wording identifies it on its own.
     expect(describeProcessError('Recv failure: Connection was reset').expected).toBe(true);
     expect(describeProcessError('connection was reset').expected).toBe(true);
+    // The same wording can surface from an install tail — a git-hosted
+    // dependency failing to clone during `npm install` — so the message
+    // must stay accurate there too and name no repository download
+    // (CodeRabbit on PR #1192).
+    const installTail = [
+      'Process exited with code 1',
+      '',
+      'npm error code 1',
+      "fatal: unable to access 'https://github.com/org/some-dep.git/': Recv failure: Connection was reset",
+    ].join('\n');
+    const installInfo = describeProcessError(installTail);
+    expect(installInfo.expected).toBe(true);
+    expect(installInfo.message).toMatch(/try again/i);
+    expect(installInfo.message).not.toContain('repository');
   });
 
   it('names a broken package-manager install rather than dumping Node (issue #903)', () => {
