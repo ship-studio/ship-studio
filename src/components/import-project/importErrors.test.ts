@@ -54,6 +54,19 @@ describe('describeImportError', () => {
     expect(info.message).not.toContain('GraphQL');
   });
 
+  it('maps a curl TLS reset mid-clone to a retry hint (issue #1191)', () => {
+    const raw =
+      "Process exited with code 1\n\nCloning into 'grove-sites'...\nfatal: unable to access 'https://github.com/thenine/grove-sites.git/': Recv failure: Connection was reset\nfailed to run git: exit status 128";
+    const info = describeImportError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('reset');
+    expect(info.message).toContain('try again');
+    // The import clone is always from GitHub, so the message names it.
+    expect(info.message).toContain('GitHub');
+    expect(info.message).not.toContain('Recv failure');
+    expect(info.message).not.toContain('Cloning into');
+  });
+
   it('delegates everything else to the shared classifier', () => {
     // Recognized shared branch stays recognized…
     expect(describeImportError('npm error code E401').expected).toBe(true);

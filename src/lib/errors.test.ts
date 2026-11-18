@@ -163,6 +163,58 @@ describe('friendlyProcessError', () => {
     );
   });
 
+  it('maps a curl TLS reset mid-clone to "try again" (issue #1191)', () => {
+    // The reported payload: curl's "Recv failure: Connection was reset"
+    // over HTTPS, wrapped by `gh repo clone` exiting with its own code 1.
+    const raw = [
+      'Process exited with code 1',
+      '',
+      "Cloning into 'grove-sites'...",
+      "fatal: unable to access 'https://github.com/thenine/grove-sites.git/': Recv failure: Connection was reset",
+      'failed to run git: exit status 128',
+    ].join('\n');
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/reset/i);
+    expect(info.message).toMatch(/try again/i);
+    expect(info.message).toContain('GitHub');
+    expect(info.message).not.toContain('Recv failure');
+    expect(info.message).not.toContain('Cloning into');
+    // Each half of the wording identifies it on its own — with no host
+    // named in the output, the message stays host-neutral.
+    expect(describeProcessError('Recv failure: Connection was reset').expected).toBe(true);
+    const bare = describeProcessError('connection was reset');
+    expect(bare.expected).toBe(true);
+    expect(bare.message).not.toContain('GitHub');
+    // The same wording can surface from an install tail — a git-hosted
+    // dependency failing to clone during `npm install` — so the message
+    // must stay accurate there too and name no repository download
+    // (CodeRabbit on PR #1192).
+    const installTail = [
+      'Process exited with code 1',
+      '',
+      'npm error code 1',
+      "fatal: unable to access 'https://github.com/org/some-dep.git/': Recv failure: Connection was reset",
+    ].join('\n');
+    const installInfo = describeProcessError(installTail);
+    expect(installInfo.expected).toBe(true);
+    expect(installInfo.message).toMatch(/try again/i);
+    expect(installInfo.message).toContain('GitHub');
+    expect(installInfo.message).not.toContain('repository');
+    // The same shape from a non-GitHub host: the message must not claim
+    // GitHub (CodeRabbit follow-up on PR #1192).
+    const nonGitHubTail = [
+      'Process exited with code 1',
+      '',
+      'npm error code 1',
+      "fatal: unable to access 'https://gitlab.com/org/some-dep.git/': Recv failure: Connection was reset",
+    ].join('\n');
+    const nonGitHubInfo = describeProcessError(nonGitHubTail);
+    expect(nonGitHubInfo.expected).toBe(true);
+    expect(nonGitHubInfo.message).toMatch(/try again/i);
+    expect(nonGitHubInfo.message).not.toContain('GitHub');
+  });
+
   it('names a broken package-manager install rather than dumping Node (issue #903)', () => {
     const raw = [
       'Process exited with code 1',
