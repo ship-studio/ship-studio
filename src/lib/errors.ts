@@ -709,11 +709,16 @@ export function describeProcessError(
   // receiving data: a transient network condition, not an app defect.
   // `gh repo clone` wraps git and exits with its own code 1, so nothing
   // but the wording identifies it. Retrying is the fix (issue #1191).
+  // Name GitHub only when the output names it: the same wording can
+  // surface from an install tail fetching from any host (a non-GitHub
+  // git dependency, a curl-based install script), where "GitHub" would
+  // be wrong — fall back to host-neutral wording there (CodeRabbit on
+  // PR #1192).
   if (lower.includes('recv failure') || lower.includes('connection was reset')) {
+    const toGitHub = lower.includes('github.com') ? ' to GitHub' : '';
     return {
       expected: true,
-      message:
-        'The connection to GitHub was reset while downloading. This is usually caused by a brief network hiccup, firewall, or antivirus/proxy interference — check your connection and try again.',
+      message: `The connection${toGitHub} was reset while downloading. This is usually caused by a brief network hiccup, firewall, or antivirus/proxy interference — check your connection and try again.`,
     };
   }
   // Node cannot start the package manager at all, because the package

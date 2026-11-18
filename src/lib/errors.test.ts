@@ -177,11 +177,15 @@ describe('friendlyProcessError', () => {
     expect(info.expected).toBe(true);
     expect(info.message).toMatch(/reset/i);
     expect(info.message).toMatch(/try again/i);
+    expect(info.message).toContain('GitHub');
     expect(info.message).not.toContain('Recv failure');
     expect(info.message).not.toContain('Cloning into');
-    // Each half of the wording identifies it on its own.
+    // Each half of the wording identifies it on its own — with no host
+    // named in the output, the message stays host-neutral.
     expect(describeProcessError('Recv failure: Connection was reset').expected).toBe(true);
-    expect(describeProcessError('connection was reset').expected).toBe(true);
+    const bare = describeProcessError('connection was reset');
+    expect(bare.expected).toBe(true);
+    expect(bare.message).not.toContain('GitHub');
     // The same wording can surface from an install tail — a git-hosted
     // dependency failing to clone during `npm install` — so the message
     // must stay accurate there too and name no repository download
@@ -195,7 +199,20 @@ describe('friendlyProcessError', () => {
     const installInfo = describeProcessError(installTail);
     expect(installInfo.expected).toBe(true);
     expect(installInfo.message).toMatch(/try again/i);
+    expect(installInfo.message).toContain('GitHub');
     expect(installInfo.message).not.toContain('repository');
+    // The same shape from a non-GitHub host: the message must not claim
+    // GitHub (CodeRabbit follow-up on PR #1192).
+    const nonGitHubTail = [
+      'Process exited with code 1',
+      '',
+      'npm error code 1',
+      "fatal: unable to access 'https://gitlab.com/org/some-dep.git/': Recv failure: Connection was reset",
+    ].join('\n');
+    const nonGitHubInfo = describeProcessError(nonGitHubTail);
+    expect(nonGitHubInfo.expected).toBe(true);
+    expect(nonGitHubInfo.message).toMatch(/try again/i);
+    expect(nonGitHubInfo.message).not.toContain('GitHub');
   });
 
   it('names a broken package-manager install rather than dumping Node (issue #903)', () => {

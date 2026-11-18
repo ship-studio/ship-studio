@@ -61,6 +61,8 @@ describe('describeImportError', () => {
     expect(info.expected).toBe(true);
     expect(info.message).toContain('reset');
     expect(info.message).toContain('try again');
+    // The import clone is always from GitHub, so the message names it.
+    expect(info.message).toContain('GitHub');
     expect(info.message).not.toContain('Recv failure');
     expect(info.message).not.toContain('Cloning into');
   });
