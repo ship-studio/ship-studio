@@ -9,6 +9,7 @@ import {
   useState,
   type ReactElement,
   type ReactNode,
+  type CSSProperties,
 } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -27,8 +28,12 @@ type TooltipPlacement = 'above' | 'below';
 interface TooltipProps {
   /** Content shown when the trigger is hovered or focused. */
   content: ReactNode;
+  /** Keep the surface open while the pointer or focus moves into its content. */
+  interactive?: boolean;
   /** Optional delay override for contexts that need a faster tooltip. */
   delayMs?: number;
+  /** Preferred placement when there is room. */
+  placement?: TooltipPlacement;
   /** One DOM element. The shared data attribute is applied to that element. */
   children: ReactElement;
 }
@@ -38,7 +43,13 @@ interface TooltipProps {
  * original element means this works for buttons, SVG groups, and compact labels
  * without adding a layout wrapper.
  */
-export function Tooltip({ content, delayMs, children }: TooltipProps) {
+export function Tooltip({
+  content,
+  delayMs,
+  placement,
+  interactive = false,
+  children,
+}: TooltipProps) {
   const contentId = useId();
   const isRichContent = typeof content !== 'string' && typeof content !== 'number';
   const textContent = tooltipText(content);
@@ -55,6 +66,8 @@ export function Tooltip({ content, delayMs, children }: TooltipProps) {
     'data-tooltip-content': textContent,
     'data-tooltip-content-id': isRichContent ? contentId : undefined,
     'data-tooltip-delay': delayMs,
+    'data-tooltip-placement': placement,
+    'data-tooltip-interactive': interactive ? 'true' : undefined,
     'aria-describedby': TOOLTIP_ID,
     title: undefined,
   });
@@ -70,15 +83,19 @@ function tooltipText(content: ReactNode): string {
 interface TooltipPosition {
   top: number;
   left: number;
+  bridgeAnchorLeft: number;
+  bridgeAnchorRight: number;
 }
 
 interface TooltipState {
   content: ReactNode;
+  interactive: boolean;
   text: string;
 }
 
 interface TooltipContent {
   content: ReactNode;
+  interactive: boolean;
   text: string;
 }
 
@@ -108,6 +125,7 @@ function readTooltipContent(anchor: Element): TooltipContent | null {
     return {
       text: explicit,
       content: (contentId && richTooltipContent.get(contentId)) ?? explicit,
+      interactive: anchor.getAttribute('data-tooltip-interactive') === 'true',
     };
   }
   if (!title) return null;
@@ -118,7 +136,7 @@ function readTooltipContent(anchor: Element): TooltipContent | null {
   anchor.setAttribute('data-tooltip-content', title);
   anchor.setAttribute('aria-describedby', TOOLTIP_ID);
   anchor.removeAttribute('title');
-  return { content: title, text: title };
+  return { content: title, interactive: false, text: title };
 }
 
 function readTooltipDelay(anchor: Element): number {
@@ -138,7 +156,12 @@ function promoteTitleAttributes(root: Element) {
 }
 
 function samePosition(a: TooltipPosition | null, b: TooltipPosition) {
-  return a?.top === b.top && a.left === b.left;
+  return (
+    a?.top === b.top &&
+    a.left === b.left &&
+    a.bridgeAnchorLeft === b.bridgeAnchorLeft &&
+    a.bridgeAnchorRight === b.bridgeAnchorRight
+  );
 }
 
 /**
@@ -167,10 +190,19 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
         if (mutation.type === 'attributes' && mutation.target instanceof Element) {
           const content = readTooltipContent(mutation.target);
           if (
-            mutation.attributeName === 'data-tooltip-content' &&
+            (mutation.attributeName === 'data-tooltip-content' ||
+              mutation.attributeName === 'data-tooltip-interactive') &&
             mutation.target === anchorRef.current
           ) {
-            setState(content ? { content: content.content, text: content.text } : null);
+            setState(
+              content
+                ? {
+                    content: content.content,
+                    interactive: content.interactive,
+                    text: content.text,
+                  }
+                : null
+            );
           }
           return;
         }
@@ -185,7 +217,7 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['title', 'data-tooltip-content'],
+      attributeFilter: ['title', 'data-tooltip-content', 'data-tooltip-interactive'],
     });
 
     return () => observer.disconnect();
@@ -200,10 +232,12 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
     const popoverRect = popover.getBoundingClientRect();
     const belowTop = anchorRect.bottom + TOOLTIP_OFFSET;
     const aboveTop = anchorRect.top - TOOLTIP_OFFSET - popoverRect.height;
-    const useBelow =
-      belowTop + popoverRect.height <= window.innerHeight || aboveTop < TOOLTIP_MARGIN;
-    const top = useBelow ? belowTop : aboveTop;
-    const nextPlacement: TooltipPlacement = useBelow ? 'below' : 'above';
+    const belowFits = belowTop + popoverRect.height <= window.innerHeight;
+    const aboveFits = aboveTop >= TOOLTIP_MARGIN;
+    const preferAbove = anchor.getAttribute('data-tooltip-placement') === 'above';
+    const placeAbove = preferAbove ? aboveFits : !belowFits && aboveFits;
+    const top = placeAbove ? aboveTop : belowTop;
+    const nextPlacement: TooltipPlacement = placeAbove ? 'above' : 'below';
     setPlacement((current) => (current === nextPlacement ? current : nextPlacement));
     const left = Math.max(
       TOOLTIP_MARGIN,
@@ -212,7 +246,14 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
         window.innerWidth - popoverRect.width - TOOLTIP_MARGIN
       )
     );
-    const next = { top: Math.max(TOOLTIP_MARGIN, top), left };
+    const bridgeAnchorLeft = Math.max(0, anchorRect.left - left - 1);
+    const bridgeAnchorRight = Math.min(popoverRect.width, anchorRect.right - left + 1);
+    const next = {
+      top: Math.max(TOOLTIP_MARGIN, top),
+      left,
+      bridgeAnchorLeft,
+      bridgeAnchorRight,
+    };
     setPosition((current) => (samePosition(current, next) ? current : next));
   }, []);
 
@@ -227,11 +268,11 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
   const show = useCallback(
     (anchor: Element | null) => {
       clearShowTimer();
+      if (!anchor) return;
       if (exitTimerRef.current !== null) {
         window.clearTimeout(exitTimerRef.current);
         exitTimerRef.current = null;
       }
-      if (!anchor) return;
       const content = readTooltipContent(anchor);
       if (!content) return;
 
@@ -249,7 +290,11 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
           anchorRef.current = anchor;
           setPosition(null);
           setShown(false);
-          setState({ content: currentContent.content, text: currentContent.text });
+          setState({
+            content: currentContent.content,
+            interactive: currentContent.interactive,
+            text: currentContent.text,
+          });
         },
         chained ? 0 : readTooltipDelay(anchor)
       );
@@ -272,6 +317,9 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onPointerOver = (event: PointerEvent) => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) {
+        return;
+      }
       const anchor = tooltipAnchor(event.target);
       if (anchor === anchorRef.current) return;
       show(anchor);
@@ -282,14 +330,30 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
       const related = event.relatedTarget;
       if (related instanceof Node && anchor.contains(related)) return;
       if (tooltipAnchor(related) === anchor) return;
+
+      const interactive = anchor.getAttribute('data-tooltip-interactive') === 'true';
+      const relatedIsPopover =
+        interactive && related instanceof Node && Boolean(popoverRef.current?.contains(related));
+      if (relatedIsPopover) return;
       hide();
     };
-    const onFocusIn = (event: FocusEvent) => show(tooltipAnchor(event.target));
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) {
+        return;
+      }
+      show(tooltipAnchor(event.target));
+    };
     const onFocusOut = (event: FocusEvent) => {
       const anchor = anchorRef.current ?? pendingAnchorRef.current;
+      if (!anchor) return;
+      if (event.relatedTarget instanceof Node && anchor.contains(event.relatedTarget)) return;
+      if (tooltipAnchor(event.relatedTarget) === anchor) return;
+
+      const interactive = anchor.getAttribute('data-tooltip-interactive') === 'true';
       if (
-        !anchor ||
-        (event.relatedTarget instanceof Node && anchor.contains(event.relatedTarget))
+        interactive &&
+        event.relatedTarget instanceof Node &&
+        popoverRef.current?.contains(event.relatedTarget)
       ) {
         return;
       }
@@ -304,9 +368,15 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
         const content = readTooltipContent(anchor);
         setState((current) => {
           if (!content) return null;
-          return current?.text === content.text && current.content === content.content
+          return current?.text === content.text &&
+            current.content === content.content &&
+            current.interactive === content.interactive
             ? current
-            : { content: content.content, text: content.text };
+            : {
+                content: content.content,
+                interactive: content.interactive,
+                text: content.text,
+              };
         });
       });
     };
@@ -367,10 +437,20 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
             ref={popoverRef}
             id={TOOLTIP_ID}
             className="ss-tooltip"
-            role="tooltip"
+            role={state.interactive ? 'group' : 'tooltip'}
+            data-interactive={state.interactive || undefined}
             data-placement={placement}
             data-shown={shown || undefined}
-            style={position ? { top: position.top, left: position.left } : undefined}
+            style={
+              position
+                ? ({
+                    top: position.top,
+                    left: position.left,
+                    '--tooltip-bridge-anchor-left': `${position.bridgeAnchorLeft}px`,
+                    '--tooltip-bridge-anchor-right': `${position.bridgeAnchorRight}px`,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             {state.content}
           </div>,

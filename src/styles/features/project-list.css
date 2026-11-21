@@ -150,96 +150,885 @@
   margin-top: 8px;
 }
 
-/* GitHub Calendar */
-.github-calendar-wrapper {
-  position: relative;
-  margin-bottom: var(--dashboard-section-gap);
-  padding: var(--spacing-lg);
-  background: var(--surface-panel);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  /* Figma-specific one-off: normalize the 155/157px reference to 156px. */
-  min-height: 156px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  display: flex;
-  align-items: center;
-  /* `safe center` keeps the left edge reachable when the calendar overflows;
-     plain `center` clips both edges of centered overflow. */
-  justify-content: safe center;
+/* GitHub activity calendar */
+:root {
+  --github-calendar-cell-size: var(--space-12);
+  --github-calendar-cell-gap: var(--spacing-2xs);
+  --github-calendar-weekday-label-width: calc(var(--font-size-caption) * 2.4);
+  --github-calendar-pr-open-rgb: 39, 146, 255;
+  --github-calendar-commits-rgb: var(--github-calendar-pr-open-rgb);
+  --github-calendar-prs-rgb: var(--accent-warning-rgb);
+  --github-calendar-option-swatch-size: var(--spacing-xs);
+  --github-calendar-idle-metric-opacity: 0.72;
 }
 
-/* The calendar renders as an inline SVG: without display:block it sits on the
-   text baseline, and the phantom descender space pushes the bottom row past
-   the wrapper's clip by a couple of pixels. */
-.github-calendar-wrapper svg {
-  display: block;
+.github-calendar-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-width: 0;
+  margin-bottom: var(--dashboard-section-gap);
+  padding: var(--spacing-lg);
+  padding-block-end: var(--spacing-lg);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.github-calendar-graph-row,
+.github-calendar-content,
+.github-calendar-summary,
+.github-calendar-activity,
+.github-calendar-tabs-row,
+.github-calendar-total,
+.github-calendar-metrics,
+.github-calendar-metric {
+  display: flex;
+}
+
+.github-calendar-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-md);
+  width: 100%;
+  max-width: 100%;
+  margin-inline: auto;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.github-calendar-summary {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  justify-content: center;
+  column-gap: var(--spacing-sm);
+  width: 100%;
+  max-width: 100%;
+  align-self: stretch;
+  margin-inline: auto;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.github-calendar-summary--with-total {
+  flex-direction: column;
+  align-items: center;
+  row-gap: var(--spacing-md);
+}
+
+.github-calendar-activity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-block: var(--spacing-sm);
+  gap: var(--spacing-sm);
+}
+
+.github-calendar-activity > .github-calendar-graph-viewport {
+  width: max-content;
+  max-width: 100%;
+  align-self: center;
+}
+
+.github-calendar-tabs-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+.github-calendar-tabs {
+  display: flex;
+  width: auto;
+  flex-direction: row;
+  align-items: center;
+}
+
+.github-calendar-tabs .tabs__tab.button {
+  width: auto;
+  justify-content: flex-start;
+}
+
+.github-calendar-content[data-layout='wide'] {
+  display: grid;
+  grid-template-columns: minmax(0, 25%) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--spacing-xl);
+}
+
+.github-calendar-content[data-layout='wide'] .github-calendar-summary {
+  grid-column: 1;
+  grid-row: 1;
+  align-items: flex-start;
+  width: auto;
+}
+
+.github-calendar-content[data-layout='wide'] .github-calendar-activity {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.github-calendar-content[data-layout='wide']
+  .github-calendar-activity
+  > .github-calendar-graph-viewport {
+  align-self: flex-end;
+}
+
+.github-calendar-content[data-layout='wide'] .github-calendar-tabs {
+  width: fit-content;
+  flex-direction: row;
+}
+
+.github-calendar-content[data-layout='wide'] .github-calendar-metric {
+  flex-direction: row;
+  align-items: center;
+}
+
+.github-calendar-content[data-layout='wide'] .github-calendar-controls {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.github-calendar-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  width: 100%;
+}
+
+.github-calendar-controls .github-calendar-tabs-row {
+  justify-content: center;
+}
+
+.github-calendar-controls .github-calendar-metrics {
+  width: auto;
+}
+
+.github-calendar-tabs-row {
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.github-calendar-tabs-row > .tabs {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.github-calendar-tabs {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0;
+}
+
+.github-calendar-view-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-tight);
+}
+
+.github-calendar-graph-row {
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.github-calendar-graph-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+}
+
+.github-calendar-graph-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.github-calendar-total {
+  flex: 0 0 calc(var(--spacing-2xl) * 11);
+  width: calc(var(--spacing-2xl) * 11);
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-direction: row;
+  align-items: baseline;
+  min-width: 0;
+  max-width: none;
+  gap: var(--spacing-xs);
+  color: var(--text-primary);
+}
+
+.github-calendar-total strong {
+  color: var(--github-calendar-metric-accent);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-heading);
+}
+
+.github-calendar-total > span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+}
+
+.github-calendar-total--centered {
+  flex: 0 1 auto;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: auto;
+  text-align: center;
+}
+
+.github-calendar-total--centered > span:last-child {
+  white-space: normal;
 }
 
 .github-calendar-hide-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  transition:
-    opacity var(--transition),
-    color var(--transition),
-    background var(--transition);
+  top: var(--spacing-sm);
+  inset-inline-end: var(--spacing-sm);
   z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 0 0 var(--button-height-compact);
+  width: var(--button-height-compact);
+  min-width: var(--button-height-compact);
+  height: var(--button-height-compact);
+  min-height: var(--button-height-compact);
+  opacity: 0;
+  transition: opacity var(--transition-interaction-fast);
 }
 
-.github-calendar-wrapper:hover .github-calendar-hide-btn {
+.github-calendar-wrapper:hover .github-calendar-hide-btn,
+.github-calendar-hide-btn:focus-visible {
   opacity: 1;
 }
 
-.github-calendar-hide-btn:hover {
-  color: var(--text-primary);
-  background: var(--surface-control);
-}
-
-.github-calendar-wrapper::-webkit-scrollbar {
-  display: none;
-}
-
-/* Style month labels */
-.github-calendar-wrapper text {
-  fill: var(--text-muted) !important;
-}
-
-/* Skeleton loader */
-.github-calendar-skeleton {
-  width: 100%;
-}
-
-.github-calendar-skeleton-grid {
+.github-calendar-graph {
   display: grid;
-  grid-template-columns: repeat(53, 12px);
-  grid-template-rows: repeat(7, 12px);
-  gap: 2px;
+  grid-template-columns: var(--github-calendar-weekday-label-width) max-content;
+  column-gap: var(--spacing-xs);
+  width: max-content;
+  max-width: max-content;
+  flex: 0 0 auto;
+}
+
+.github-calendar-graph-viewport .github-calendar-graph {
+  margin-inline-start: auto;
+}
+
+.github-calendar-weekday-labels {
+  display: grid;
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-rows: repeat(7, var(--github-calendar-cell-size));
+  row-gap: var(--github-calendar-cell-gap);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+
+.github-calendar-weekday-labels span {
+  min-height: 0;
+}
+
+.github-calendar-calendar {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+}
+
+.github-calendar-month-labels {
+  display: grid;
+  grid-template-columns: repeat(
+    var(--github-calendar-week-count),
+    var(--github-calendar-cell-size)
+  );
+  column-gap: var(--github-calendar-cell-gap);
+  height: var(--font-size-caption);
+  margin-bottom: var(--spacing-xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+
+.github-calendar-month-label {
+  grid-row: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--transition-interaction-fast);
+}
+
+.github-calendar-month-label:hover {
+  color: var(--text-primary);
+}
+
+.github-calendar-weeks {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--github-calendar-cell-size);
+  column-gap: var(--github-calendar-cell-gap);
+}
+
+.github-calendar-week {
+  display: grid;
+  grid-template-rows: repeat(7, var(--github-calendar-cell-size));
+  row-gap: var(--github-calendar-cell-gap);
+}
+
+.github-calendar-day {
+  width: var(--github-calendar-cell-size);
+  height: var(--github-calendar-cell-size);
+  border-radius: var(--github-calendar-cell-radius);
+}
+
+.github-calendar-day {
+  grid-row: var(--github-calendar-weekday);
+  display: block;
+  color: var(--accent-active);
+  background: var(--surface-control-hover);
+  cursor: default;
+  transition:
+    opacity var(--transition-interaction-fast),
+    box-shadow var(--transition-interaction-fast),
+    transform var(--transition-interaction-fast);
+}
+
+.github-calendar-day[data-level='0'] {
+  background: color-mix(in srgb, var(--mask-opaque) 15%, var(--surface-control));
+}
+
+.github-calendar-day[data-view='contributions'],
+.github-calendar-view-swatch[data-view='contributions'] {
+  --github-calendar-cell-rgb: var(--accent-active-rgb);
+  color: var(--accent-active);
+}
+
+.github-calendar-day[data-view='commits'],
+.github-calendar-view-swatch[data-view='commits'] {
+  --github-calendar-cell-rgb: var(--github-calendar-commits-rgb);
+  color: var(--accent-focus);
+}
+
+.github-calendar-day[data-view='reviews'],
+.github-calendar-view-swatch[data-view='reviews'] {
+  --github-calendar-cell-rgb: var(--github-calendar-reviews-rgb);
+  color: var(--accent-scope-project);
+}
+
+.github-calendar-day[data-view='pullRequests'],
+.github-calendar-view-swatch[data-view='pullRequests'] {
+  --github-calendar-cell-rgb: var(--github-calendar-prs-rgb);
+  color: var(--accent-warning);
+}
+
+.github-calendar-day[data-view='pullRequests'][data-status='open'],
+.github-calendar-day[data-view='pullRequests'][data-status='closed'],
+.github-calendar-day[data-view='pullRequests'][data-status='restricted'] {
+  background-color: var(--surface-control-hover);
+  box-shadow:
+    0 0 var(--spacing-xs) rgba(var(--github-calendar-prs-rgb), 0.32),
+    0 0 var(--spacing-sm) rgba(var(--github-calendar-prs-rgb), 0.14);
+  outline: var(--border-width-default) solid var(--accent-warning);
+  outline-offset: calc(var(--border-width-default) * -1);
+}
+
+.github-calendar-day[data-view='pullRequests'][data-status='closed'] {
+  position: relative;
+  overflow: hidden;
+}
+
+.github-calendar-day[data-view='pullRequests'][data-status='closed']::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 141.42%;
+  height: var(--border-width-default);
+  background: var(--accent-warning);
+  content: '';
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.github-calendar-day[data-view='pullRequests'][data-status='restricted'] {
+  outline-style: dashed;
+}
+
+.github-calendar-day[data-level='1'],
+.github-calendar-view-swatch[data-level='1'] {
+  background: rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.2);
+  box-shadow:
+    0 0 var(--spacing-xs) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.16),
+    0 0 var(--spacing-sm) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.06);
+}
+
+.github-calendar-day[data-level='2'],
+.github-calendar-view-swatch[data-level='2'] {
+  background: rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.38);
+  box-shadow:
+    0 0 var(--spacing-xs) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.24),
+    0 0 var(--spacing-sm) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.1);
+}
+
+.github-calendar-day[data-level='3'],
+.github-calendar-view-swatch[data-level='3'] {
+  background: rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.66);
+  box-shadow:
+    0 0 var(--spacing-xs) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.32),
+    0 0 var(--spacing-sm) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.14);
+}
+
+.github-calendar-day[data-level='4'],
+.github-calendar-view-swatch[data-level='4'] {
+  background: rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.94);
+  box-shadow:
+    0 0 var(--spacing-xs) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.44),
+    0 0 var(--spacing-sm) rgba(var(--github-calendar-cell-rgb, var(--accent-active-rgb)), 0.2);
+}
+
+.github-calendar-view-swatch {
+  flex: 0 0 var(--github-calendar-option-swatch-size);
+  width: var(--github-calendar-option-swatch-size);
+  height: var(--github-calendar-option-swatch-size);
+  border-radius: var(--github-calendar-cell-radius);
+}
+
+.github-calendar-day.is-dimmed {
+  opacity: 0.22;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-calendar-day {
+    transition: none;
+  }
+}
+
+.github-calendar-day.is-highlighted {
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.github-calendar-day.is-month-highlighted {
+  transform: none;
+}
+
+.github-calendar-day.is-hovered {
+  filter: brightness(1.2);
+}
+
+.github-calendar-day:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--spacing-2xs);
+}
+
+.github-calendar-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  width: max-content;
+  max-width: calc(var(--spacing-2xl) * 7);
+}
+
+.github-calendar-tooltip strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-heading);
+}
+
+.github-calendar-tooltip-date {
+  color: var(--text-muted);
+}
+
+.github-calendar-tooltip-date + .github-calendar-tooltip-pr {
+  margin-block-start: var(--spacing-xs);
+}
+
+.github-calendar-tooltip-detail {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  text-wrap: pretty;
+}
+
+.github-calendar-tooltip-pr {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-2xs);
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.github-calendar-tooltip-pr-link {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: var(--spacing-3xs);
+  transition: color var(--transition-interaction-fast);
+}
+
+.github-calendar-tooltip-pr-link:hover {
+  color: var(--text-white);
+}
+
+.github-calendar-tooltip-pr-link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--spacing-3xs);
+}
+
+.github-calendar-tooltip-pr-description {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.github-calendar-tooltip-pr-static {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.github-calendar-tooltip-pr-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  width: max-content;
+  visibility: hidden;
+}
+
+.github-calendar-tooltip-pr-track > span {
+  flex: 0 0 auto;
+}
+
+.github-calendar-tooltip-pr:hover
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-track,
+.github-calendar-tooltip-pr:focus-within
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-track {
+  visibility: visible;
+  animation: github-calendar-pr-marquee var(--github-calendar-pr-marquee-duration) linear 1 forwards;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .github-calendar-tooltip-pr:hover .github-calendar-tooltip-pr-description[data-overflowing],
+  .github-calendar-tooltip-pr:focus-within
+    .github-calendar-tooltip-pr-description[data-overflowing] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      var(--mask-opaque) var(--spacing-xs),
+      var(--mask-opaque) calc(100% - var(--spacing-xs)),
+      transparent
+    );
+  }
+}
+
+.github-calendar-tooltip-pr:hover
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-static,
+.github-calendar-tooltip-pr:focus-within
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-static {
+  visibility: hidden;
+}
+
+@keyframes github-calendar-pr-marquee {
+  to {
+    transform: translateX(calc(0px - var(--github-calendar-pr-marquee-distance)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-calendar-tooltip-pr:hover
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-track,
+  .github-calendar-tooltip-pr:focus-within
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-track {
+    visibility: hidden;
+    animation: none;
+  }
+
+  .github-calendar-tooltip-pr:hover
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-static,
+  .github-calendar-tooltip-pr:focus-within
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-static {
+    visibility: visible;
+  }
+}
+
+.github-calendar-notice {
+  display: block;
+  color: var(--accent-warning);
+  font-size: var(--font-size-caption);
+}
+
+.github-calendar-metrics {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
   justify-content: center;
+  width: 100%;
+  gap: 0;
 }
 
-.github-calendar-skeleton-block {
-  width: 12px;
-  height: 12px;
-  border-radius: var(--radius-4);
+.github-calendar-content[data-view='contributions'],
+.github-calendar-total[data-view='contributions'] {
+  --github-calendar-metric-accent: color-mix(
+    in srgb,
+    var(--accent-active) 80%,
+    var(--surface-panel)
+  );
+}
+
+.github-calendar-content[data-view='commits'],
+.github-calendar-total[data-view='commits'] {
+  --github-calendar-metric-accent: color-mix(
+    in srgb,
+    var(--accent-focus) 80%,
+    var(--surface-panel)
+  );
+}
+
+.github-calendar-content[data-view='pullRequests'],
+.github-calendar-total[data-view='pullRequests'] {
+  --github-calendar-metric-accent: color-mix(
+    in srgb,
+    var(--accent-warning) 80%,
+    var(--surface-panel)
+  );
+}
+
+.github-calendar-content[data-view='reviews'],
+.github-calendar-total[data-view='reviews'] {
+  --github-calendar-metric-accent: color-mix(
+    in srgb,
+    var(--accent-scope-project) 80%,
+    var(--surface-panel)
+  );
+}
+
+.github-calendar-metric {
+  --github-calendar-metric-content-opacity: 1;
+  flex: 0 1 auto;
+  width: fit-content;
+  min-width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  height: auto;
+  min-height: var(--control-height-compact);
+  box-sizing: border-box;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--spacing-xs);
+  padding-block: 0;
+  padding-inline: var(--spacing-sm);
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-primary);
+  text-align: start;
+  white-space: nowrap;
+  transition:
+    background-color var(--transition-interaction-fast),
+    border-color var(--transition-interaction-fast),
+    box-shadow var(--transition-interaction-fast);
+}
+
+.github-calendar-metric--padded {
+  padding-block: var(--spacing-xs);
+}
+
+.github-calendar-total > span {
+  white-space: nowrap;
+}
+
+.github-calendar-metric:hover:not(:disabled):not([aria-pressed='true']) {
+  background: color-mix(in srgb, var(--github-calendar-metric-accent) 12%, transparent);
+}
+
+.github-calendar-metric[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--github-calendar-metric-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--github-calendar-metric-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 var(--border-width-default)
+    color-mix(in srgb, var(--github-calendar-metric-accent) 12%, transparent);
+}
+
+.github-calendar-metrics[data-view='contributions']
+  .github-calendar-metric:not(:hover):not(:focus):not([aria-pressed='true']) {
+  --github-calendar-metric-content-opacity: var(--github-calendar-idle-metric-opacity);
+}
+
+.github-calendar-metric-label {
+  color: var(--github-calendar-metric-accent);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-body);
+  opacity: var(--github-calendar-metric-content-opacity);
+}
+
+.github-calendar-metric-heading {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.github-calendar-metric-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--github-calendar-metric-accent);
+  opacity: var(--github-calendar-metric-content-opacity);
+}
+
+.github-calendar-metric strong {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-body);
+  overflow-wrap: anywhere;
+}
+
+.github-calendar-metric small {
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.github-calendar-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-control);
   background: var(--surface-control);
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
-/* Hide on narrow screens - same breakpoint as changelog */
-@media (max-width: 1100px) {
+.github-calendar-error > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.github-calendar-error strong {
+  color: var(--text-primary);
+}
+
+.github-calendar-error span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  text-wrap: pretty;
+}
+
+.github-calendar-skeleton {
+  display: grid;
+  grid-template-columns: repeat(54, var(--github-calendar-cell-size));
+  grid-template-rows: repeat(7, var(--github-calendar-cell-size));
+  gap: var(--github-calendar-cell-gap);
+  width: max-content;
+  margin-inline: auto;
+}
+
+.github-calendar-skeleton-cell {
+  border-radius: var(--github-calendar-cell-radius);
+  background: var(--surface-control);
+  animation: skeleton-pulse var(--pixel-loader-duration-spark) ease-in-out infinite;
+}
+
+@media (max-width: 560px) {
+  :root {
+    --github-calendar-cell-size: var(--spacing-sm);
+    --github-calendar-weekday-label-width: calc(var(--font-size-caption) * 2.2);
+  }
+
   .github-calendar-wrapper {
-    display: none;
+    padding: var(--spacing-md);
+  }
+
+  .github-calendar-content {
+    gap: var(--spacing-md);
+  }
+
+  .github-calendar-summary {
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    row-gap: var(--spacing-md);
+  }
+
+  .github-calendar-metrics {
+    flex-wrap: wrap;
+  }
+
+  .github-calendar-total {
+    flex-basis: min(calc(var(--spacing-2xl) * 11), 100%);
+    width: min(calc(var(--spacing-2xl) * 11), 100%);
+  }
+
+  .github-calendar-total--centered {
+    flex-basis: auto;
+    width: auto;
+  }
+
+  .github-calendar-metric {
+    flex-basis: auto;
+    width: fit-content;
+  }
+
+  .github-calendar-content[data-layout='wide'] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--spacing-md);
+  }
+
+  .github-calendar-content[data-layout='wide'] .github-calendar-summary {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .github-calendar-content[data-layout='wide'] .github-calendar-activity {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .github-calendar-content[data-layout='wide'] .github-calendar-controls {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
+
+@media (hover: none) {
+  .github-calendar-hide-btn {
+    opacity: 1;
   }
 }

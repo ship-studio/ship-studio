@@ -13,6 +13,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useProjectLifecycle, type UseProjectLifecycleParams } from './useProjectLifecycle';
+import {
+  detectWorkspaces,
+  getAutoAcceptMode,
+  getGenericDevCommand,
+  getWorkspaceSubpath,
+  resolveWorkspacePath,
+  setAutoAcceptMode,
+  setWorkspaceSubpath,
+} from '../lib/project';
+import { getProjectGitHubStatus } from '../lib/github';
+import { isProjectExternal, unregisterExternalProject } from '../lib/external-projects';
+import { registerProjectSession } from '../lib/projectSessions';
+import { assignActiveWorkspaceToNewProject } from '../lib/accounts';
+import { getDefaultAgentId } from '../lib/agent';
+import {
+  clearStoredAutoOpenProject,
+  findAndReservePort,
+  focusWindowByLabel,
+  getProjectWindow,
+  getWindowLabel,
+  markAutoOpenDismissed,
+  setWindowTitle,
+} from '../lib/window';
+import { endProjectSession, startProjectSession } from '../lib/session';
+import { setActiveProject, trackError, trackEvent } from '../lib/analytics';
+import { getProjectId } from '../lib/projectIdentity';
 
 vi.mock('../lib/project', () => ({
   getAutoAcceptMode: vi.fn().mockResolvedValue(false),
@@ -82,9 +108,44 @@ vi.mock('../lib/session', () => ({
   endProjectSession: vi.fn(() => null),
 }));
 
+beforeEach(() => {
+  vi.mocked(getAutoAcceptMode).mockResolvedValue(false);
+  vi.mocked(setAutoAcceptMode).mockResolvedValue(undefined);
+  vi.mocked(detectWorkspaces).mockResolvedValue([]);
+  vi.mocked(getWorkspaceSubpath).mockResolvedValue('');
+  vi.mocked(setWorkspaceSubpath).mockResolvedValue(undefined);
+  vi.mocked(getGenericDevCommand).mockResolvedValue({ custom: null, packageScript: null });
+  vi.mocked(resolveWorkspacePath).mockImplementation((root) => root);
+  vi.mocked(getProjectGitHubStatus).mockResolvedValue({
+    status: 'not-a-repo',
+    github_repo: null,
+    github_url: null,
+    remote_host: null,
+    remote_forge: null,
+  });
+  vi.mocked(unregisterExternalProject).mockResolvedValue(undefined);
+  vi.mocked(isProjectExternal).mockResolvedValue(false);
+  vi.mocked(registerProjectSession).mockResolvedValue(undefined);
+  vi.mocked(assignActiveWorkspaceToNewProject).mockResolvedValue(undefined);
+  vi.mocked(getDefaultAgentId).mockReturnValue('claude-code');
+  vi.mocked(setWindowTitle).mockResolvedValue(undefined);
+  vi.mocked(getWindowLabel).mockReturnValue('main');
+  vi.mocked(findAndReservePort).mockResolvedValue(3000);
+  vi.mocked(getProjectWindow).mockResolvedValue(null);
+  vi.mocked(focusWindowByLabel).mockResolvedValue(undefined);
+  vi.mocked(clearStoredAutoOpenProject).mockImplementation(() => undefined);
+  vi.mocked(markAutoOpenDismissed).mockImplementation(() => undefined);
+  vi.mocked(startProjectSession).mockImplementation(() => undefined);
+  vi.mocked(endProjectSession).mockReturnValue(null);
+  vi.mocked(setActiveProject).mockImplementation(() => undefined);
+  vi.mocked(trackEvent).mockResolvedValue(undefined);
+  vi.mocked(trackError).mockImplementation(() => undefined);
+  vi.mocked(getProjectId).mockReturnValue('proj-id');
+  vi.mocked(invoke).mockResolvedValue(undefined);
+});
+
 import { invoke } from '@tauri-apps/api/core';
 import { registerExternalProject } from '../lib/external-projects';
-import { getGenericDevCommand } from '../lib/project';
 import { logger } from '../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;

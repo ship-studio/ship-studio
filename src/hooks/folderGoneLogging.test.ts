@@ -27,8 +27,13 @@ vi.mock('../lib/agentBridge', async (importOriginal) => ({
   setAgentBridgeAttached: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { listAssets } from '../lib/assets';
-import { getAgentBridgeUrl } from '../lib/agentBridge';
+import { getAssetsRoot, listAssets } from '../lib/assets';
+import {
+  getAgentBridgeUrl,
+  registerPreviewMcpServer,
+  registerSharedPreviewMcpServers,
+  setAgentBridgeAttached,
+} from '../lib/agentBridge';
 import { useAssetManagement } from './useAssetManagement';
 import { useAgentBridge } from './useAgentBridge';
 
@@ -47,6 +52,10 @@ const OUTSIDE_PROJECTS = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(getAssetsRoot).mockResolvedValue('public');
+  vi.mocked(registerPreviewMcpServer).mockResolvedValue(false);
+  vi.mocked(registerSharedPreviewMcpServers).mockResolvedValue(undefined);
+  vi.mocked(setAgentBridgeAttached).mockResolvedValue(undefined);
 });
 
 describe('useAssetManagement loadAssets (issue #972)', () => {

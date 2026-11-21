@@ -91,6 +91,10 @@
   --pixel-loader-delay-quad-tight-inner: 350ms;
   --pixel-loader-delay-quad-tight-outer: 700ms;
 
+  --github-calendar-cell-radius: var(--radius-2);
+  --github-calendar-pr-marquee-pixels-per-second: 48px;
+  --github-calendar-reviews-rgb: 135, 95, 253;
+
   --progress-height: var(--space-04);
   --progress-radius: var(--radius-pill);
   --progress-track: color-mix(in srgb, var(--accent-active) 18%, var(--surface-control));

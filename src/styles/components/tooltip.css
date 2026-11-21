@@ -36,6 +36,39 @@
   transform: none;
 }
 
+.ss-tooltip[data-interactive][data-shown] {
+  pointer-events: auto;
+}
+
+.ss-tooltip[data-interactive][data-shown]::before {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: calc(var(--spacing-xs) * 2);
+  content: '';
+  pointer-events: auto;
+}
+
+.ss-tooltip[data-interactive][data-shown][data-placement='below']::before {
+  bottom: 100%;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    var(--tooltip-bridge-anchor-right) 100%,
+    var(--tooltip-bridge-anchor-left) 100%
+  );
+}
+
+.ss-tooltip[data-interactive][data-shown][data-placement='above']::before {
+  top: 100%;
+  clip-path: polygon(
+    0 100%,
+    100% 100%,
+    var(--tooltip-bridge-anchor-right) 0,
+    var(--tooltip-bridge-anchor-left) 0
+  );
+}
+
 .ss-tooltip__value {
   color: var(--text-muted);
   font-family: var(--font-code);

@@ -1,4 +1,7 @@
 import LoginSvg from '../../assets/icons/login.svg?react';
+import TrendSvg from '../../assets/icons/trend.svg?react';
+import CalendarStreakSvg from '../../assets/icons/calendar-streak.svg?react';
+import CalendarSvg from '../../assets/icons/calendar.svg?react';
 import AddSvg from '../../assets/icons/add.svg?react';
 import PlusSvg from '../../assets/icons/plus.svg?react';
 import PullSvg from '../../assets/icons/pull.svg?react';
@@ -34,6 +37,27 @@ import { createIcon } from './icon-base';
 export const LoginIcon = createIcon(LoginSvg, {
   name: 'LoginIcon',
   source: 'icons/login.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const TrendIcon = createIcon(TrendSvg, {
+  name: 'TrendIcon',
+  source: 'icons/trend.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CalendarStreakIcon = createIcon(CalendarStreakSvg, {
+  name: 'CalendarStreakIcon',
+  source: 'icons/calendar-streak.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CalendarIcon = createIcon(CalendarSvg, {
+  name: 'CalendarIcon',
+  source: 'icons/calendar.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',
