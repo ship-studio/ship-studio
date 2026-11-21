@@ -1199,7 +1199,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 0
     },
     {
       "name": "--github-calendar-reviews-rgb",
@@ -4466,7 +4466,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 12
+      "consumerCount": 13
     },
     {
       "name": "--text-primary",
@@ -5033,7 +5033,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 37
+      "consumerCount": 38
     },
     {
       "name": "--transition-interaction",
@@ -5159,7 +5159,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 41
+      "consumerCount": 42
     },
     {
       "name": "--spacing-2xs",
@@ -5177,7 +5177,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 465
+      "consumerCount": 468
     },
     {
       "name": "--spacing-sm",
@@ -5195,7 +5195,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 414
+      "consumerCount": 413
     },
     {
       "name": "--spacing-lg",
@@ -5285,7 +5285,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 5
     },
     {
       "name": "--tint-subtle",

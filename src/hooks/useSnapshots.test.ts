@@ -24,6 +24,8 @@ const FOLDER_GONE =
 describe('useSnapshots undo/redo failure toasts (#1083)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(snapshots.startWatching).mockResolvedValue(undefined);
+    vi.mocked(snapshots.stopWatching).mockResolvedValue(undefined);
     vi.mocked(snapshots.getStatus).mockResolvedValue({
       watching: true,
       can_undo: true,

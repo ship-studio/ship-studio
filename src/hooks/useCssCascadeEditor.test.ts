@@ -20,7 +20,15 @@ vi.mock('../lib/logger', () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-import { applyCssRuleText, createCssRule, locateCssRules, rowKey } from '../lib/cssCascade';
+import {
+  applyCssRuleText,
+  createCssRule,
+  listCssClasses,
+  listCssSelectors,
+  listCssVariables,
+  locateCssRules,
+  rowKey,
+} from '../lib/cssCascade';
 import { useCssCascadeEditor } from './useCssCascadeEditor';
 
 function identity(
@@ -128,6 +136,9 @@ async function openCascade(rules: MatchedRule[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  vi.mocked(listCssClasses).mockResolvedValue([]);
+  vi.mocked(listCssSelectors).mockResolvedValue([]);
+  vi.mocked(listCssVariables).mockResolvedValue([]);
 });
 
 describe('useCssCascadeEditor source identity refresh', () => {
