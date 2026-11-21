@@ -19,11 +19,14 @@ interface DashboardHeaderProps {
    * unrelated destinations.
    */
   title?: ReactNode;
+  /** Optional content displayed between the mark and the headline. */
+  aboveTitle?: ReactNode;
 }
 
 export function DashboardHeader({
   onHide,
   title = 'What will you Ship today?',
+  aboveTitle,
 }: DashboardHeaderProps) {
   const [clickPulseCount, setClickPulseCount] = useState(0);
   const [isHoverSuppressed, setIsHoverSuppressed] = useState(false);
@@ -60,6 +63,7 @@ export function DashboardHeader({
           }}
         />
       </button>
+      {aboveTitle}
       <h1 className="dashboard-hero-title text-style-h1">{title}</h1>
     </header>
   );

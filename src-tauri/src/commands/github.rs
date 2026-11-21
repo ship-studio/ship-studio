@@ -10,7 +10,10 @@ use crate::types::{
     GitHubCliStatus, GitHubLanguage, GitHubRepo, ProjectGitHubStatus, PushToGitHubOptions,
 };
 use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
+use chrono::{DateTime, Duration as ChronoDuration};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -36,6 +39,203 @@ pub fn invalidate_github_username_cache() {
 /// Default timeout for GitHub CLI commands (15 seconds)
 const GITHUB_CLI_TIMEOUT_SECS: u64 = 15;
 
+/// Maximum repository count requested from GitHub's grouped commit connection.
+/// The connection is a list rather than a paginated connection, so hitting this
+/// limit is reported as partial data instead of silently treating it as total.
+const GITHUB_ACTIVITY_MAX_REPOSITORIES: usize = 100;
+const GITHUB_ACTIVITY_PAGE_SIZE: usize = 100;
+const GITHUB_ACTIVITY_MAX_PAGES: usize = 100;
+const GITHUB_ACTIVITY_COMMIT_WINDOW_DAYS: i64 = 90;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubContributionDay {
+    pub date: String,
+    pub count: u32,
+    pub level: u8,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubCommitContribution {
+    pub occurred_at: String,
+    pub commit_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubPullRequestContribution {
+    pub occurred_at: String,
+    pub status_changed_at: String,
+    pub number: Option<u64>,
+    pub title: Option<String>,
+    pub repository: Option<String>,
+    pub url: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubReviewContribution {
+    pub occurred_at: String,
+    pub state: String,
+    pub number: Option<u64>,
+    pub title: Option<String>,
+    pub repository: Option<String>,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubActivityCompleteness {
+    pub commits: bool,
+    pub pull_requests: bool,
+    pub reviews: bool,
+    pub private_activity_restricted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubActivityResponse {
+    pub username: String,
+    pub contributions: Vec<GitHubContributionDay>,
+    pub commits: Vec<GitHubCommitContribution>,
+    pub pull_requests: Vec<GitHubPullRequestContribution>,
+    pub reviews: Vec<GitHubReviewContribution>,
+    pub completeness: GitHubActivityCompleteness,
+}
+
+const GITHUB_ACTIVITY_QUERY: &str = r#"
+query HomepageActivity($from: DateTime!, $to: DateTime!, $first: Int!) {
+  viewer {
+    login
+    contributionsCollection(from: $from, to: $to) {
+      hasAnyRestrictedContributions
+      contributionCalendar {
+        weeks {
+          contributionDays {
+            date
+            contributionCount
+            contributionLevel
+          }
+        }
+      }
+      pullRequestContributions(first: $first) {
+        nodes {
+          isRestricted
+          occurredAt
+          pullRequest {
+            id
+            number
+            title
+            createdAt
+            state
+            closedAt
+            mergedAt
+            timelineItems(last: 1, itemTypes: [CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT]) {
+              nodes {
+                ... on ClosedEvent { createdAt }
+                ... on MergedEvent { createdAt }
+                ... on ReopenedEvent { createdAt }
+              }
+            }
+            url
+            repository { nameWithOwner }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+      pullRequestReviewContributions(first: $first) {
+        nodes {
+          isRestricted
+          occurredAt
+          pullRequestReview { id state }
+          pullRequest {
+            number
+            title
+            url
+            repository { nameWithOwner }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"#;
+
+const GITHUB_COMMITS_QUERY: &str = r#"
+query HomepageCommitActivity($from: DateTime!, $to: DateTime!, $first: Int!, $maxRepositories: Int!) {
+  viewer {
+    contributionsCollection(from: $from, to: $to) {
+      commitContributionsByRepository(maxRepositories: $maxRepositories) {
+        contributions(first: $first) {
+          nodes { occurredAt commitCount }
+          pageInfo { hasNextPage }
+        }
+      }
+    }
+  }
+}
+"#;
+
+const GITHUB_PULL_REQUESTS_PAGE_QUERY: &str = r#"
+query HomepagePullRequests($from: DateTime!, $to: DateTime!, $first: Int!, $after: String) {
+  viewer {
+    contributionsCollection(from: $from, to: $to) {
+      pullRequestContributions(first: $first, after: $after) {
+        nodes {
+          isRestricted
+          occurredAt
+          pullRequest {
+            id
+            number
+            title
+            createdAt
+            state
+            closedAt
+            mergedAt
+            timelineItems(last: 1, itemTypes: [CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT]) {
+              nodes {
+                ... on ClosedEvent { createdAt }
+                ... on MergedEvent { createdAt }
+                ... on ReopenedEvent { createdAt }
+              }
+            }
+            url
+            repository { nameWithOwner }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"#;
+
+const GITHUB_REVIEWS_PAGE_QUERY: &str = r#"
+query HomepageReviews($from: DateTime!, $to: DateTime!, $first: Int!, $after: String) {
+  viewer {
+    contributionsCollection(from: $from, to: $to) {
+      pullRequestReviewContributions(first: $first, after: $after) {
+        nodes {
+          isRestricted
+          occurredAt
+          pullRequestReview { id state }
+          pullRequest {
+            number
+            title
+            url
+            repository { nameWithOwner }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"#;
+
 /// Run a gh command with a timeout via the shared external_command helper.
 /// Returns CommandError so callers can discriminate timeout vs IO vs process.
 ///
@@ -50,6 +250,554 @@ async fn run_command_with_timeout(
 ) -> Result<std::process::Output, CommandError> {
     let tokio_cmd = tokio::process::Command::from(cmd);
     run_with_timeout(tokio_cmd, label, timeout_secs).await
+}
+
+fn validate_activity_range(from: &str, to: &str) -> Result<(), CommandError> {
+    let from_date = DateTime::parse_from_rfc3339(from).map_err(|_| CommandError::Validation {
+        field: "from".to_string(),
+        reason: "Expected an ISO 8601 timestamp.".to_string(),
+    })?;
+    let to_date = DateTime::parse_from_rfc3339(to).map_err(|_| CommandError::Validation {
+        field: "to".to_string(),
+        reason: "Expected an ISO 8601 timestamp.".to_string(),
+    })?;
+
+    if to_date <= from_date || to_date.signed_duration_since(from_date) > ChronoDuration::days(370)
+    {
+        return Err(CommandError::Validation {
+            field: "range".to_string(),
+            reason: "The activity range must be positive and no longer than 370 days.".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+async fn run_github_graphql(
+    query: &str,
+    from: &str,
+    to: &str,
+    after: Option<&str>,
+) -> Result<Value, CommandError> {
+    let mut cmd = get_gh_command();
+    cmd.args(["api", "graphql", "-f"]);
+    cmd.arg(format!("query={query}"));
+    cmd.args(["-F", &format!("from={from}")]);
+    cmd.args(["-F", &format!("to={to}")]);
+    cmd.args(["-F", &format!("first={GITHUB_ACTIVITY_PAGE_SIZE}")]);
+
+    if query == GITHUB_COMMITS_QUERY {
+        cmd.args([
+            "-F",
+            &format!("maxRepositories={GITHUB_ACTIVITY_MAX_REPOSITORIES}"),
+        ]);
+    }
+    if let Some(cursor) = after {
+        cmd.args(["-f", &format!("after={cursor}")]);
+    }
+
+    let output =
+        match run_command_with_timeout(cmd, "gh api graphql", GITHUB_CLI_TIMEOUT_SECS).await {
+            Err(CommandError::Timeout { .. }) => {
+                return Err(CommandError::expected(GH_TIMEOUT_MESSAGE))
+            }
+            other => other?,
+        };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(error) = gh_auth_error(&stderr) {
+            return Err(error);
+        }
+        if let Some(error) = gh_network_error(&stderr) {
+            return Err(error);
+        }
+        if let Some(error) = gh_common_error(&stderr) {
+            return Err(error);
+        }
+        return Err(CommandError::Process {
+            cmd: "gh api graphql".to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+            stderr: truncate_output(&stderr),
+        });
+    }
+
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        CommandError::expected(format!("GitHub returned invalid activity data: {error}"))
+    })?;
+
+    if let Some(errors) = response.get("errors").and_then(Value::as_array) {
+        if !errors.is_empty() {
+            let message = errors
+                .iter()
+                .filter_map(|error| error.get("message").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("; ");
+            let message = if message.is_empty() {
+                "GitHub could not return the requested activity.".to_string()
+            } else {
+                format!("GitHub could not return the requested activity: {message}")
+            };
+            return Err(CommandError::expected(truncate_output(&message)));
+        }
+    }
+
+    response
+        .get("data")
+        .cloned()
+        .ok_or_else(|| CommandError::expected("GitHub returned no activity data."))
+}
+
+fn activity_collection(data: &Value) -> Result<&Value, CommandError> {
+    data.get("viewer")
+        .and_then(|viewer| viewer.get("contributionsCollection"))
+        .ok_or_else(|| CommandError::expected("GitHub did not return a contribution collection."))
+}
+
+fn required_string<'a>(
+    value: &'a Value,
+    key: &str,
+    context: &str,
+) -> Result<&'a str, CommandError> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| CommandError::expected(format!("GitHub omitted {context} {key}.")))
+}
+
+fn required_array<'a>(
+    value: &'a Value,
+    key: &str,
+    context: &str,
+) -> Result<&'a Vec<Value>, CommandError> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| CommandError::expected(format!("GitHub omitted {context} {key}.")))
+}
+
+fn contribution_level(value: &str) -> u8 {
+    match value {
+        "FIRST_QUARTILE" => 1,
+        "SECOND_QUARTILE" => 2,
+        "THIRD_QUARTILE" => 3,
+        "FOURTH_QUARTILE" => 4,
+        _ => 0,
+    }
+}
+
+fn parse_contribution_days(collection: &Value) -> Result<Vec<GitHubContributionDay>, CommandError> {
+    let calendar = collection.get("contributionCalendar").ok_or_else(|| {
+        CommandError::expected("GitHub did not return its contribution calendar.")
+    })?;
+    let weeks = required_array(calendar, "weeks", "contribution calendar")?;
+    let mut days = Vec::new();
+
+    for week in weeks {
+        for day in required_array(week, "contributionDays", "calendar week")? {
+            let count = day
+                .get("contributionCount")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| CommandError::expected("GitHub returned an invalid daily total."))?;
+            days.push(GitHubContributionDay {
+                date: required_string(day, "date", "contribution day")?.to_string(),
+                count: count.min(u64::from(u32::MAX)) as u32,
+                level: contribution_level(required_string(
+                    day,
+                    "contributionLevel",
+                    "contribution day",
+                )?),
+            });
+        }
+    }
+
+    Ok(days)
+}
+
+fn connection_page_info(connection: &Value) -> Result<(bool, Option<String>), CommandError> {
+    let page_info = connection
+        .get("pageInfo")
+        .ok_or_else(|| CommandError::expected("GitHub omitted activity pagination details."))?;
+    let has_next_page = page_info
+        .get("hasNextPage")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            CommandError::expected("GitHub returned invalid activity pagination details.")
+        })?;
+    let end_cursor = page_info
+        .get("endCursor")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Ok((has_next_page, end_cursor))
+}
+
+fn pull_request_connection(collection: &Value) -> Result<&Value, CommandError> {
+    collection
+        .get("pullRequestContributions")
+        .ok_or_else(|| CommandError::expected("GitHub omitted pull-request contributions."))
+}
+
+fn review_connection(collection: &Value) -> Result<&Value, CommandError> {
+    collection
+        .get("pullRequestReviewContributions")
+        .ok_or_else(|| CommandError::expected("GitHub omitted review contributions."))
+}
+
+fn latest_pull_request_status_changed_at(
+    pull_request: &Value,
+    status: &str,
+    occurred_at: &str,
+) -> String {
+    pull_request
+        .get("timelineItems")
+        .and_then(|timeline| timeline.get("nodes"))
+        .and_then(Value::as_array)
+        .and_then(|nodes| nodes.first())
+        .and_then(|event| event.get("createdAt"))
+        .and_then(Value::as_str)
+        .or_else(|| match status {
+            "merged" => pull_request.get("mergedAt").and_then(Value::as_str),
+            "closed" => pull_request.get("closedAt").and_then(Value::as_str),
+            "open" => pull_request.get("createdAt").and_then(Value::as_str),
+            _ => None,
+        })
+        .unwrap_or(occurred_at)
+        .to_string()
+}
+
+fn parse_pull_request_nodes(
+    connection: &Value,
+    seen: &mut HashSet<String>,
+    private_restricted: &mut bool,
+) -> Result<Vec<GitHubPullRequestContribution>, CommandError> {
+    let mut pull_requests = Vec::new();
+    for contribution in required_array(connection, "nodes", "pull-request contributions")? {
+        let is_restricted = contribution
+            .get("isRestricted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if is_restricted {
+            *private_restricted = true;
+        }
+        let occurred_at =
+            required_string(contribution, "occurredAt", "pull-request contribution")?.to_string();
+        let Some(pull_request) = contribution
+            .get("pullRequest")
+            .filter(|pull_request| !pull_request.is_null())
+        else {
+            *private_restricted = true;
+            pull_requests.push(GitHubPullRequestContribution {
+                status_changed_at: occurred_at.clone(),
+                occurred_at,
+                number: None,
+                title: None,
+                repository: None,
+                url: None,
+                status: "restricted".to_string(),
+            });
+            continue;
+        };
+        let Some(id) = pull_request.get("id").and_then(Value::as_str) else {
+            *private_restricted = true;
+            pull_requests.push(GitHubPullRequestContribution {
+                status_changed_at: occurred_at.clone(),
+                occurred_at,
+                number: pull_request.get("number").and_then(Value::as_u64),
+                title: pull_request
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                repository: None,
+                url: None,
+                status: "restricted".to_string(),
+            });
+            continue;
+        };
+        if !seen.insert(id.to_string()) {
+            continue;
+        }
+        let state = pull_request.get("state").and_then(Value::as_str);
+        let status = if pull_request
+            .get("mergedAt")
+            .is_some_and(|value| !value.is_null())
+        {
+            "merged"
+        } else if state == Some("OPEN") {
+            "open"
+        } else if state == Some("CLOSED") {
+            "closed"
+        } else {
+            *private_restricted = true;
+            "restricted"
+        };
+        let status_changed_at =
+            latest_pull_request_status_changed_at(pull_request, status, &occurred_at);
+        let repository = pull_request
+            .get("repository")
+            .and_then(|repository| repository.get("nameWithOwner"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        pull_requests.push(GitHubPullRequestContribution {
+            occurred_at,
+            status_changed_at,
+            number: pull_request.get("number").and_then(Value::as_u64),
+            title: pull_request
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            repository,
+            url: pull_request
+                .get("url")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            status: status.to_string(),
+        });
+    }
+    Ok(pull_requests)
+}
+
+fn parse_review_nodes(
+    connection: &Value,
+    seen: &mut HashSet<String>,
+    private_restricted: &mut bool,
+) -> Result<Vec<GitHubReviewContribution>, CommandError> {
+    let mut reviews = Vec::new();
+    for contribution in required_array(connection, "nodes", "review contributions")? {
+        let is_restricted = contribution
+            .get("isRestricted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if is_restricted {
+            *private_restricted = true;
+        }
+        let occurred_at =
+            required_string(contribution, "occurredAt", "review contribution")?.to_string();
+        let Some(review) = contribution
+            .get("pullRequestReview")
+            .filter(|review| !review.is_null())
+        else {
+            *private_restricted = true;
+            reviews.push(GitHubReviewContribution {
+                occurred_at,
+                state: "RESTRICTED".to_string(),
+                number: None,
+                title: None,
+                repository: None,
+                url: None,
+            });
+            continue;
+        };
+        if let Some(id) = review.get("id").and_then(Value::as_str) {
+            if !seen.insert(id.to_string()) {
+                continue;
+            }
+        } else {
+            *private_restricted = true;
+        }
+        let state = review
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| {
+                *private_restricted = true;
+                "RESTRICTED"
+            });
+        let pull_request = contribution
+            .get("pullRequest")
+            .filter(|pull_request| !pull_request.is_null());
+        if pull_request.is_none() {
+            *private_restricted = true;
+        }
+        let repository = pull_request
+            .and_then(|pull_request| pull_request.get("repository"))
+            .and_then(|repository| repository.get("nameWithOwner"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        reviews.push(GitHubReviewContribution {
+            occurred_at,
+            state: state.to_string(),
+            number: pull_request
+                .and_then(|pull_request| pull_request.get("number"))
+                .and_then(Value::as_u64),
+            title: pull_request
+                .and_then(|pull_request| pull_request.get("title"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            repository,
+            url: pull_request
+                .and_then(|pull_request| pull_request.get("url"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        });
+    }
+    Ok(reviews)
+}
+
+fn commit_activity_ranges(from: &str, to: &str) -> Result<Vec<(String, String)>, CommandError> {
+    let from_date = DateTime::parse_from_rfc3339(from).map_err(|_| CommandError::Validation {
+        field: "from".to_string(),
+        reason: "Expected an ISO 8601 timestamp.".to_string(),
+    })?;
+    let to_date = DateTime::parse_from_rfc3339(to).map_err(|_| CommandError::Validation {
+        field: "to".to_string(),
+        reason: "Expected an ISO 8601 timestamp.".to_string(),
+    })?;
+    let mut ranges = Vec::new();
+    let mut chunk_start = from_date;
+
+    loop {
+        let candidate_end = chunk_start.clone()
+            + ChronoDuration::days(GITHUB_ACTIVITY_COMMIT_WINDOW_DAYS)
+            - ChronoDuration::milliseconds(1);
+        let chunk_end = if candidate_end < to_date {
+            candidate_end
+        } else {
+            to_date.clone()
+        };
+        ranges.push((chunk_start.to_rfc3339(), chunk_end.to_rfc3339()));
+        if chunk_end >= to_date {
+            break;
+        }
+        chunk_start = chunk_end + ChronoDuration::milliseconds(1);
+    }
+
+    Ok(ranges)
+}
+
+/// Load the authenticated user's GitHub contribution, commit, pull-request,
+/// and review activity for the supplied ISO 8601 range.
+#[tauri::command]
+#[tracing::instrument(skip(from, to))]
+pub async fn get_github_activity(
+    from: String,
+    to: String,
+) -> Result<GitHubActivityResponse, CommandError> {
+    validate_activity_range(&from, &to)?;
+
+    let response = run_github_graphql(GITHUB_ACTIVITY_QUERY, &from, &to, None).await?;
+    let viewer = response
+        .get("viewer")
+        .ok_or_else(|| CommandError::NotAuthenticated {
+            service: "github".to_string(),
+        })?;
+    let username = required_string(viewer, "login", "authenticated GitHub user")?.to_string();
+    let collection = activity_collection(&response)?;
+    let contributions = parse_contribution_days(collection)?;
+
+    let mut commits = Vec::new();
+    let mut commits_complete = true;
+    for (commit_from, commit_to) in commit_activity_ranges(&from, &to)? {
+        let commit_response =
+            run_github_graphql(GITHUB_COMMITS_QUERY, &commit_from, &commit_to, None).await?;
+        let commit_collection = activity_collection(&commit_response)?;
+        let repository_groups = required_array(
+            commit_collection,
+            "commitContributionsByRepository",
+            "commit contributions",
+        )?;
+        if repository_groups.len() >= GITHUB_ACTIVITY_MAX_REPOSITORIES {
+            // This API returns a capped list, not a paginated connection.
+            commits_complete = false;
+        }
+        for repository in repository_groups {
+            let daily_contributions = repository.get("contributions").ok_or_else(|| {
+                CommandError::expected("GitHub omitted daily commit contributions.")
+            })?;
+            let (has_next_page, _) = connection_page_info(daily_contributions)?;
+            if has_next_page {
+                // The 90-day query windows should fit within one 100-node page
+                // per repository. Preserve the partial-data flag if GitHub
+                // applies a tighter result cap than the schema advertises.
+                commits_complete = false;
+            }
+            for contribution in required_array(daily_contributions, "nodes", "daily commits")? {
+                let count = contribution
+                    .get("commitCount")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| {
+                        CommandError::expected("GitHub returned an invalid daily commit count.")
+                    })?;
+                commits.push(GitHubCommitContribution {
+                    occurred_at: required_string(contribution, "occurredAt", "daily commit")?
+                        .to_string(),
+                    commit_count: count.min(u64::from(u32::MAX)) as u32,
+                });
+            }
+        }
+    }
+
+    let mut private_activity_restricted = collection
+        .get("hasAnyRestrictedContributions")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let initial_pull_request_connection = pull_request_connection(collection)?;
+    let mut seen_pull_requests = HashSet::new();
+    let mut pull_requests = parse_pull_request_nodes(
+        initial_pull_request_connection,
+        &mut seen_pull_requests,
+        &mut private_activity_restricted,
+    )?;
+    let (mut pull_requests_have_next, mut pull_requests_cursor) =
+        connection_page_info(initial_pull_request_connection)?;
+    let mut pull_request_pages = 1;
+    while pull_requests_have_next && pull_request_pages < GITHUB_ACTIVITY_MAX_PAGES {
+        let Some(cursor) = pull_requests_cursor.as_deref() else {
+            break;
+        };
+        let page =
+            run_github_graphql(GITHUB_PULL_REQUESTS_PAGE_QUERY, &from, &to, Some(cursor)).await?;
+        let page_connection = pull_request_connection(activity_collection(&page)?)?;
+        pull_requests.extend(parse_pull_request_nodes(
+            page_connection,
+            &mut seen_pull_requests,
+            &mut private_activity_restricted,
+        )?);
+        (pull_requests_have_next, pull_requests_cursor) = connection_page_info(page_connection)?;
+        pull_request_pages += 1;
+    }
+    let pull_requests_complete = !pull_requests_have_next;
+
+    let initial_review_connection = review_connection(collection)?;
+    let mut seen_reviews = HashSet::new();
+    let mut reviews = parse_review_nodes(
+        initial_review_connection,
+        &mut seen_reviews,
+        &mut private_activity_restricted,
+    )?;
+    let (mut reviews_have_next, mut reviews_cursor) =
+        connection_page_info(initial_review_connection)?;
+    let mut review_pages = 1;
+    while reviews_have_next && review_pages < GITHUB_ACTIVITY_MAX_PAGES {
+        let Some(cursor) = reviews_cursor.as_deref() else {
+            break;
+        };
+        let page = run_github_graphql(GITHUB_REVIEWS_PAGE_QUERY, &from, &to, Some(cursor)).await?;
+        let page_connection = review_connection(activity_collection(&page)?)?;
+        reviews.extend(parse_review_nodes(
+            page_connection,
+            &mut seen_reviews,
+            &mut private_activity_restricted,
+        )?);
+        (reviews_have_next, reviews_cursor) = connection_page_info(page_connection)?;
+        review_pages += 1;
+    }
+    let reviews_complete = !reviews_have_next;
+
+    Ok(GitHubActivityResponse {
+        username,
+        contributions,
+        commits,
+        pull_requests,
+        reviews,
+        completeness: GitHubActivityCompleteness {
+            commits: commits_complete,
+            pull_requests: pull_requests_complete,
+            reviews: reviews_complete,
+            private_activity_restricted,
+        },
+    })
 }
 
 /// Returns a Command for gh with extended PATH set, scoped to the globally
@@ -1390,6 +2138,29 @@ mod tests {
     /// `invalidate_github_username_cache` clears the whole cache, so without this
     /// these tests race under cargo's default multi-threaded runner.
     static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn latest_pull_request_status_time_uses_transition_then_creation_fallback() {
+        let reopened_pr = serde_json::json!({
+            "createdAt": "2026-11-18T12:00:00Z",
+            "timelineItems": {
+                "nodes": [{ "createdAt": "2026-11-20T18:00:00Z" }]
+            }
+        });
+        assert_eq!(
+            latest_pull_request_status_changed_at(&reopened_pr, "open", "2026-11-18T12:00:00Z"),
+            "2026-11-20T18:00:00Z"
+        );
+
+        let never_closed_pr = serde_json::json!({
+            "createdAt": "2026-11-18T12:00:00Z",
+            "timelineItems": { "nodes": [] }
+        });
+        assert_eq!(
+            latest_pull_request_status_changed_at(&never_closed_pr, "open", "2026-11-18T12:00:00Z"),
+            "2026-11-18T12:00:00Z"
+        );
+    }
 
     // The #686 contract: ImportProject.tsx special-cases the "took too long"
     // wording to suggest retrying (not re-authenticating), and errors.ts's

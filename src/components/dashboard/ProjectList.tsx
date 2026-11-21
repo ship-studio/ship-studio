@@ -63,7 +63,7 @@ import { ProjectBulkActionsBar } from './ProjectBulkActionsBar';
 import { ProjectBulkActionConfirm } from './ProjectBulkActionConfirm';
 import { DashboardPreferencesCard } from './DashboardPreferencesCard';
 import { DashboardCommunityBanner } from './DashboardCommunityBanner';
-import { GitHubCalendar } from './GitHubCalendar';
+import { GitHubCalendar, type GitHubCalendarSummary } from './GitHubCalendar';
 import { useModal } from '../../contexts/ModalContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { moveProjectToAccount, getProjectAccountId } from '../../lib/accounts';
@@ -160,6 +160,9 @@ export function ProjectList({
   const [projectSettingsTarget, setProjectSettingsTarget] = useState<DashboardProject | null>(null);
   const [projectSettingsPort, setProjectSettingsPort] = useState<number | null>(null);
   const projectSettingsModal = useModal('projectSettings');
+  const [githubActivitySummary, setGitHubActivitySummary] = useState<GitHubCalendarSummary | null>(
+    null
+  );
 
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
@@ -571,7 +574,24 @@ export function ProjectList({
         onDoubleClick={handleDashboardDoubleClick}
       />
       <div className="project-list dashboard">
-        {!dashboardHeaderHidden && <DashboardHeader onHide={hideDashboardHeader} />}
+        {!dashboardHeaderHidden && (
+          <DashboardHeader
+            onHide={hideDashboardHeader}
+            aboveTitle={
+              githubActivitySummary && (
+                <div
+                  className="github-calendar-total github-calendar-total--centered"
+                  data-view={githubActivitySummary.view}
+                  aria-live="polite"
+                >
+                  <span>{githubActivitySummary.lead}</span>
+                  <strong className="tabular-nums">{githubActivitySummary.count}</strong>
+                  <span>{githubActivitySummary.description}</span>
+                </div>
+              )
+            }
+          />
+        )}
 
         {!slackCtaHidden && <DashboardCommunityBanner onHide={hideSlackCta} />}
 
@@ -581,6 +601,8 @@ export function ProjectList({
             isAuthenticated={isGitHubAuthenticated}
             isAuthCheckDone={isAuthCheckDone}
             onHide={hideCalendar}
+            onSummaryChange={setGitHubActivitySummary}
+            showSummaryInCalendar={dashboardHeaderHidden}
           />
         )}
 
