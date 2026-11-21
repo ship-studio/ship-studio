@@ -143,11 +143,10 @@ export const GitHubCalendar = memo(function GitHubCalendar({
 
   useEffect(() => {
     if (!isAuthCheckDone) return;
-    if (!isAuthenticated) {
-      reset();
-      return;
-    }
 
+    // The coarse CLI status probe can time out independently of the activity
+    // request. Let the authenticated activity query decide whether data is
+    // available so a temporary probe failure cannot hide the calendar.
     reset();
     void execute({ from: dateWindow.from, to: dateWindow.to });
     // The username changes when the active GitHub workspace changes. The backend
@@ -161,7 +160,7 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   const summary = useMemo(() => summarizeActivity(days), [days]);
   const displayedSummary = useMemo(
     () =>
-      data && !isLoading && isAuthenticated && isAuthCheckDone && !error
+      data && !isLoading && isAuthCheckDone && !error
         ? {
             lead: view === 'pullRequests' ? 'You opened' : 'You made',
             count: summary.total.toLocaleString(),
@@ -169,7 +168,7 @@ export const GitHubCalendar = memo(function GitHubCalendar({
             view,
           }
         : null,
-    [data, error, isAuthenticated, isAuthCheckDone, isLoading, summary.total, view]
+    [data, error, isAuthCheckDone, isLoading, summary.total, view]
   );
 
   useEffect(() => {
@@ -208,8 +207,6 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   }
 
   const showSkeleton = !isAuthCheckDone || isLoading || (!data && !error);
-
-  if (isAuthCheckDone && !isAuthenticated) return null;
 
   const retry = () => void execute({ from: dateWindow.from, to: dateWindow.to });
 

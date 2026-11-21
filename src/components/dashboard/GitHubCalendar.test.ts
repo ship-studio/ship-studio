@@ -58,6 +58,30 @@ describe('GitHubCalendar', () => {
     expect(busiestDay).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('tries the authoritative activity request and shows its error when the CLI status probe says unauthenticated', () => {
+    const execute = vi.fn();
+    const reset = vi.fn();
+    mocks.useInvoke.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: { message: 'Not authenticated' },
+      execute,
+      reset,
+    });
+
+    render(
+      createElement(GitHubCalendar, {
+        username: null,
+        isAuthenticated: false,
+        isAuthCheckDone: true,
+      })
+    );
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(screen.getByRole('alert')).toHaveTextContent('GitHub activity is unavailable');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
   it('shows rich activity cell details through the shared tooltip portal', () => {
     vi.useFakeTimers();
     const { endDate } = getTrailingDateWindow();

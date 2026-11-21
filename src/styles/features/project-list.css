@@ -645,6 +645,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2xs);
+  width: max-content;
   max-width: calc(var(--spacing-2xl) * 7);
 }
 
@@ -657,10 +658,127 @@
   color: var(--text-muted);
 }
 
+.github-calendar-tooltip-date + .github-calendar-tooltip-pr {
+  margin-block-start: var(--spacing-xs);
+}
+
 .github-calendar-tooltip-detail {
   color: var(--text-secondary);
   font-size: var(--font-size-body-sm);
   text-wrap: pretty;
+}
+
+.github-calendar-tooltip-pr {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-2xs);
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.github-calendar-tooltip-pr-link {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: var(--spacing-3xs);
+  transition: color var(--transition-interaction-fast);
+}
+
+.github-calendar-tooltip-pr-link:hover {
+  color: var(--text-white);
+}
+
+.github-calendar-tooltip-pr-link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--spacing-3xs);
+}
+
+.github-calendar-tooltip-pr-description {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.github-calendar-tooltip-pr-static {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.github-calendar-tooltip-pr-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  width: max-content;
+  visibility: hidden;
+}
+
+.github-calendar-tooltip-pr-track > span {
+  flex: 0 0 auto;
+}
+
+.github-calendar-tooltip-pr:hover
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-track,
+.github-calendar-tooltip-pr:focus-within
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-track {
+  visibility: visible;
+  animation: github-calendar-pr-marquee var(--github-calendar-pr-marquee-duration) linear 1 forwards;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .github-calendar-tooltip-pr:hover .github-calendar-tooltip-pr-description[data-overflowing],
+  .github-calendar-tooltip-pr:focus-within
+    .github-calendar-tooltip-pr-description[data-overflowing] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      var(--mask-opaque) var(--spacing-xs),
+      var(--mask-opaque) calc(100% - var(--spacing-xs)),
+      transparent
+    );
+  }
+}
+
+.github-calendar-tooltip-pr:hover
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-static,
+.github-calendar-tooltip-pr:focus-within
+  .github-calendar-tooltip-pr-description[data-overflowing]
+  .github-calendar-tooltip-pr-static {
+  visibility: hidden;
+}
+
+@keyframes github-calendar-pr-marquee {
+  to {
+    transform: translateX(calc(0px - var(--github-calendar-pr-marquee-distance)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-calendar-tooltip-pr:hover
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-track,
+  .github-calendar-tooltip-pr:focus-within
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-track {
+    visibility: hidden;
+    animation: none;
+  }
+
+  .github-calendar-tooltip-pr:hover
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-static,
+  .github-calendar-tooltip-pr:focus-within
+    .github-calendar-tooltip-pr-description[data-overflowing]
+    .github-calendar-tooltip-pr-static {
+    visibility: visible;
+  }
 }
 
 .github-calendar-notice {

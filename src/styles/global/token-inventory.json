@@ -1193,6 +1193,15 @@
       "consumerCount": 3
     },
     {
+      "name": "--github-calendar-pr-marquee-pixels-per-second",
+      "definitionFile": "src/styles/global/tokens-components.css",
+      "layer": "components",
+      "owner": "global/component",
+      "status": "canonical",
+      "pluginStable": false,
+      "consumerCount": 1
+    },
+    {
       "name": "--github-calendar-reviews-rgb",
       "definitionFile": "src/styles/global/tokens-components.css",
       "layer": "components",
@@ -4466,7 +4475,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 469
+      "consumerCount": 470
     },
     {
       "name": "--text-secondary",
@@ -4610,7 +4619,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 41
+      "consumerCount": 42
     },
     {
       "name": "--focus-ring-width",
@@ -4619,7 +4628,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 24
+      "consumerCount": 25
     },
     {
       "name": "--focus-ring-offset",
@@ -5150,7 +5159,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 40
+      "consumerCount": 41
     },
     {
       "name": "--spacing-2xs",
@@ -5159,7 +5168,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 181
+      "consumerCount": 182
     },
     {
       "name": "--spacing-xs",
@@ -5168,7 +5177,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 464
+      "consumerCount": 465
     },
     {
       "name": "--spacing-sm",
@@ -5186,7 +5195,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 413
+      "consumerCount": 414
     },
     {
       "name": "--spacing-lg",

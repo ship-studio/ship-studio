@@ -92,6 +92,7 @@
   --pixel-loader-delay-quad-tight-outer: 700ms;
 
   --github-calendar-cell-radius: var(--radius-2);
+  --github-calendar-pr-marquee-pixels-per-second: 48px;
   --github-calendar-reviews-rgb: 135, 95, 253;
 
   --progress-height: var(--space-04);
