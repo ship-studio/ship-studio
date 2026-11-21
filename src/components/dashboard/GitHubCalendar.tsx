@@ -22,6 +22,44 @@ import {
 } from './githubCalendarUtils';
 
 type MetricKey = 'current' | 'longest' | 'peak';
+type GitHubCalendarPreferences = { view: ActivityView; selectedMetric: MetricKey | null };
+
+const GITHUB_CALENDAR_PREFERENCES_KEY = 'shipstudio.github-calendar-preferences.v1';
+const DEFAULT_GITHUB_CALENDAR_PREFERENCES: GitHubCalendarPreferences = {
+  view: 'contributions',
+  selectedMetric: null,
+};
+const METRIC_VALUES: readonly MetricKey[] = ['current', 'longest', 'peak'];
+
+function readGitHubCalendarPreferences(): GitHubCalendarPreferences {
+  if (typeof window === 'undefined') return DEFAULT_GITHUB_CALENDAR_PREFERENCES;
+
+  try {
+    const raw = window.localStorage.getItem(GITHUB_CALENDAR_PREFERENCES_KEY);
+    if (!raw) return DEFAULT_GITHUB_CALENDAR_PREFERENCES;
+
+    const stored = JSON.parse(raw) as { view?: unknown; selectedMetric?: unknown };
+    const view = ACTIVITY_VIEWS.find((option) => option.value === stored.view)?.value;
+    return {
+      view: view ?? DEFAULT_GITHUB_CALENDAR_PREFERENCES.view,
+      selectedMetric: METRIC_VALUES.includes(stored.selectedMetric as MetricKey)
+        ? (stored.selectedMetric as MetricKey)
+        : DEFAULT_GITHUB_CALENDAR_PREFERENCES.selectedMetric,
+    };
+  } catch {
+    return DEFAULT_GITHUB_CALENDAR_PREFERENCES;
+  }
+}
+
+function writeGitHubCalendarPreferences(preferences: GitHubCalendarPreferences): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(GITHUB_CALENDAR_PREFERENCES_KEY, JSON.stringify(preferences));
+  } catch {
+    // Keep the in-memory selection usable when browser storage is unavailable.
+  }
+}
 
 function ActivityViewOptionLabel({ view, label }: { view: ActivityView; label: string }) {
   return (
@@ -128,11 +166,16 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   showSummaryInCalendar?: boolean;
 }) {
   const layout: 'centered' | 'wide' = 'centered';
-  const [view, setView] = useState<ActivityView>('contributions');
-  const [selectedMetric, setSelectedMetric] = useState<MetricKey | null>(null);
+  const [preferences, setPreferences] = useState(readGitHubCalendarPreferences);
+  const { view, selectedMetric } = preferences;
   const [hoveredMetric, setHoveredMetric] = useState<MetricKey | null>(null);
   const [focusedMetric, setFocusedMetric] = useState<MetricKey | null>(null);
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    writeGitHubCalendarPreferences(preferences);
+  }, [preferences]);
+
   const todayKey = localIsoDate(new Date());
   const dateWindow = useMemo(() => {
     const [year, month, day] = todayKey.split('-').map(Number);
@@ -211,7 +254,10 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   const retry = () => void execute({ from: dateWindow.from, to: dateWindow.to });
 
   function toggleMetric(metric: MetricKey) {
-    setSelectedMetric((selected) => (selected === metric ? null : metric));
+    setPreferences((current) => ({
+      ...current,
+      selectedMetric: current.selectedMetric === metric ? null : metric,
+    }));
   }
 
   return (
@@ -263,7 +309,9 @@ export const GitHubCalendar = memo(function GitHubCalendar({
                 <Tabs
                   value={view}
                   mode="navigation"
-                  onValueChange={(next) => setView(next as ActivityView)}
+                  onValueChange={(next) =>
+                    setPreferences((current) => ({ ...current, view: next as ActivityView }))
+                  }
                 >
                   <TabsList className="github-calendar-tabs" aria-label="GitHub activity type">
                     {ACTIVITY_VIEWS.map((option) => (
