@@ -786,6 +786,7 @@ pub fn run() {
             commands::plugins::unlink_dev_plugin,
             // GitHub integration
             commands::github::check_github_cli_status,
+            commands::github::get_github_activity,
             commands::github::get_github_username,
             commands::github::get_github_orgs,
             commands::github::get_project_github_status,

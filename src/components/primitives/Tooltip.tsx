@@ -29,6 +29,8 @@ interface TooltipProps {
   content: ReactNode;
   /** Optional delay override for contexts that need a faster tooltip. */
   delayMs?: number;
+  /** Preferred placement when there is room. */
+  placement?: TooltipPlacement;
   /** One DOM element. The shared data attribute is applied to that element. */
   children: ReactElement;
 }
@@ -38,7 +40,7 @@ interface TooltipProps {
  * original element means this works for buttons, SVG groups, and compact labels
  * without adding a layout wrapper.
  */
-export function Tooltip({ content, delayMs, children }: TooltipProps) {
+export function Tooltip({ content, delayMs, placement, children }: TooltipProps) {
   const contentId = useId();
   const isRichContent = typeof content !== 'string' && typeof content !== 'number';
   const textContent = tooltipText(content);
@@ -55,6 +57,7 @@ export function Tooltip({ content, delayMs, children }: TooltipProps) {
     'data-tooltip-content': textContent,
     'data-tooltip-content-id': isRichContent ? contentId : undefined,
     'data-tooltip-delay': delayMs,
+    'data-tooltip-placement': placement,
     'aria-describedby': TOOLTIP_ID,
     title: undefined,
   });
@@ -200,10 +203,12 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
     const popoverRect = popover.getBoundingClientRect();
     const belowTop = anchorRect.bottom + TOOLTIP_OFFSET;
     const aboveTop = anchorRect.top - TOOLTIP_OFFSET - popoverRect.height;
-    const useBelow =
-      belowTop + popoverRect.height <= window.innerHeight || aboveTop < TOOLTIP_MARGIN;
-    const top = useBelow ? belowTop : aboveTop;
-    const nextPlacement: TooltipPlacement = useBelow ? 'below' : 'above';
+    const belowFits = belowTop + popoverRect.height <= window.innerHeight;
+    const aboveFits = aboveTop >= TOOLTIP_MARGIN;
+    const preferAbove = anchor.getAttribute('data-tooltip-placement') === 'above';
+    const placeAbove = preferAbove ? aboveFits : !belowFits && aboveFits;
+    const top = placeAbove ? aboveTop : belowTop;
+    const nextPlacement: TooltipPlacement = placeAbove ? 'above' : 'below';
     setPlacement((current) => (current === nextPlacement ? current : nextPlacement));
     const left = Math.max(
       TOOLTIP_MARGIN,
