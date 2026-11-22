@@ -98,6 +98,8 @@ export function useTeamWorkspace(
   const { showToast } = useOptionalToast();
 
   const [open, setOpen] = useState(() => readStoredOpen(projectPath));
+  const dock = usePanelDock();
+  const { setActivePanel } = dock;
 
   // Read this project. `adopt` is idempotent per path, so a re-render or a
   // returning visit does not re-announce the backlog or drop a pending reply.
@@ -253,6 +255,7 @@ export function useTeamWorkspace(
         when: 'project',
         keywords: ['collaborators', 'multiplayer', 'who', 'together', 'shared'],
         run: () => {
+          setActivePanel('team');
           setTeamTab('updates');
           setOpenPersisted(true);
         },
@@ -265,6 +268,7 @@ export function useTeamWorkspace(
         when: 'project',
         keywords: ['feedback', 'threads', 'replies', 'review', 'notes'],
         run: () => {
+          setActivePanel('team');
           setTeamTab('comments');
           setOpenPersisted(true);
         },
@@ -280,14 +284,13 @@ export function useTeamWorkspace(
         run: () => void sync(true),
       },
     ],
-    [setOpenPersisted]
+    [setActivePanel, setOpenPersisted]
   );
 
   // Docked like every other panel, and remembered the same way: in this
   // project's layout, which also knows *where* in the rail it goes. It stays
   // floating by default, because the panel takes real width from the preview it
   // is about.
-  const dock = usePanelDock();
   const pinned = isDocked(dock.layout, 'team');
   const togglePinned = useCallback(() => dock.setDocked('team', !pinned), [dock, pinned]);
 

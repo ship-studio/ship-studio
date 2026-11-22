@@ -532,11 +532,10 @@ export function WorkspaceHeader({
       />
       {teamPresence}
       {headerExtras}
-      <IconButton
+      <ToggleButton
         variant="ghost"
-        size="compact"
         className="workspace-panel-link-toggle"
-        icon={<ElementLinkIcon size={15} />}
+        leftIcon={<ElementLinkIcon size={16} />}
         onClick={onTogglePanelLinking}
         title={
           panelLinkingEnabled
@@ -544,7 +543,7 @@ export function WorkspaceHeader({
             : 'Show one workspace panel at a time'
         }
         aria-label="Link workspace panels"
-        aria-pressed={panelLinkingEnabled}
+        pressed={panelLinkingEnabled}
         data-panel-linking-toggle
       />
     </div>

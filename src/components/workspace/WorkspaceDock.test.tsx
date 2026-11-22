@@ -5,13 +5,14 @@ import { JSDOM } from 'jsdom';
 import { useEffect, useState } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceDock } from './WorkspaceDock';
+import { WorkspaceLayoutMenu } from './WorkspaceLayoutMenu';
 import { DockablePanel } from '../primitives/DockablePanel';
 import {
   PanelDockProvider,
   usePanelDockBinding,
   usePanelDock,
 } from '../../contexts/PanelDockContext';
-import { type PanelId } from '../../lib/workspaceLayout';
+import { LAYOUT_PRESETS, type PanelId } from '../../lib/workspaceLayout';
 import { readProjectLayout } from '../../lib/workspaceLayoutStore';
 
 const dockStyles = readFileSync(resolve('src/styles/features/workspace/dock.css'), 'utf8');
@@ -40,14 +41,17 @@ function TestPanel({
   panel,
   visible = true,
   defaultWidth,
+  onLinkedClose,
 }: {
   panel: PanelId;
   visible?: boolean;
   defaultWidth?: number;
+  onLinkedClose?: () => void;
 }) {
   const dock = usePanelDockBinding(panel);
   const { layout } = usePanelDock();
   const docked = !layout.floating.includes(panel);
+  const [state, setState] = useState(0);
   useEffect(() => {
     dock?.setDefaultWidth(defaultWidth);
   }, [defaultWidth, dock]);
@@ -56,6 +60,7 @@ function TestPanel({
       dock={dock}
       docked={docked}
       visible={visible}
+      onLinkedClose={onLinkedClose}
       ariaLabel={`${panel} panel`}
       positionKey={`${panel}.pos`}
       sizeKey={`${panel}.size`}
@@ -66,6 +71,14 @@ function TestPanel({
         <header data-dockable-drag-handle data-testid={`${panel}-header`}>
           {panel}
         </header>
+        <span data-testid={`${panel}-open-state`}>{visible ? 'open' : 'closed'}</span>
+        <button
+          type="button"
+          data-testid={`${panel}-state-button`}
+          onClick={() => setState((count) => count + 1)}
+        >
+          State {state}
+        </button>
       </div>
     </DockablePanel>
   );
@@ -138,20 +151,31 @@ function ApplyLayout({ layout }: { layout: unknown }) {
   return null;
 }
 
-function LinkedPanelControls({ onMountEditor }: { onMountEditor: () => void }) {
+function LinkedPanelControls({
+  onMountEditor,
+  onOpenPanel,
+  onToggleFocus,
+}: {
+  onMountEditor: () => void;
+  onOpenPanel: (panel: PanelId) => void;
+  onToggleFocus: () => void;
+}) {
   const dock = usePanelDock();
   return (
     <>
       <button type="button" onClick={() => dock.setSinglePanelModeEnabled(true)}>
         Link panels
       </button>
-      <button type="button" onClick={() => dock.setActivePanel('variables')}>
+      <button type="button" onClick={() => onOpenPanel('agent')}>
+        Select Agent
+      </button>
+      <button type="button" onClick={() => onOpenPanel('variables')}>
         Select Variables
       </button>
-      <button type="button" onClick={() => dock.setActivePanel('navigator')}>
+      <button type="button" onClick={() => onOpenPanel('navigator')}>
         Select Elements
       </button>
-      <button type="button" onClick={() => dock.setActivePanel('team')}>
+      <button type="button" onClick={() => onOpenPanel('team')}>
         Select Team
       </button>
       <button
@@ -166,46 +190,104 @@ function LinkedPanelControls({ onMountEditor }: { onMountEditor: () => void }) {
       <button type="button" onClick={() => dock.setSinglePanelModeEnabled(false)}>
         Unlink panels
       </button>
+      <button type="button" onClick={onToggleFocus}>
+        Toggle Focus
+      </button>
     </>
   );
 }
 
 function linkedRailTree() {
-  return <LinkedPanelWorkspace />;
+  return <LinkedPanelRoot />;
 }
 
-function LinkedPanelWorkspace() {
-  const [editorMounted, setEditorMounted] = useState(false);
+function LinkedPanelRoot() {
+  const [focusMode, setFocusMode] = useState(false);
   return (
-    <PanelDockProvider projectPath={PROJECT}>
-      <LinkedPanelControls onMountEditor={() => setEditorMounted(true)} />
-      <WorkspaceDock focusMode={false} preview={<div data-testid="preview" />}>
-        <TestPanel panel="agent" />
-        <TestPanel panel="navigator" />
-        <ClosableTestPanel panel="variables" />
-        <TestPanel panel="team" />
-        {editorMounted && <TestPanel panel="editor" />}
-      </WorkspaceDock>
+    <PanelDockProvider projectPath={PROJECT} focusMode={focusMode}>
+      <LinkedPanelWorkspace
+        focusMode={focusMode}
+        onToggleFocus={() => setFocusMode((active) => !active)}
+      />
     </PanelDockProvider>
   );
 }
 
-function ClosableTestPanel({ panel }: { panel: PanelId }) {
-  const [visible, setVisible] = useState(true);
-  const { setActivePanel } = usePanelDock();
+function LinkedPanelWorkspace({
+  focusMode,
+  onToggleFocus,
+}: {
+  focusMode: boolean;
+  onToggleFocus: () => void;
+}) {
+  const dock = usePanelDock();
+  const [editorMounted, setEditorMounted] = useState(false);
+  const [openPanels, setOpenPanels] = useState<Record<PanelId, boolean>>({
+    agent: true,
+    navigator: true,
+    variables: true,
+    editor: false,
+    team: true,
+  });
+  const closePanel = (panel: PanelId) =>
+    setOpenPanels((current) => ({ ...current, [panel]: false }));
+  const openPanel = (panel: PanelId) => {
+    dock.setActivePanel(panel);
+    setOpenPanels((current) => ({ ...current, [panel]: true }));
+  };
+  const openEditor = () => {
+    dock.setActivePanel('editor');
+    setEditorMounted(true);
+  };
   return (
     <>
-      <TestPanel panel={panel} visible={visible} />
-      <button type="button" onClick={() => setVisible(false)}>
+      <LinkedPanelControls
+        onMountEditor={openEditor}
+        onOpenPanel={openPanel}
+        onToggleFocus={onToggleFocus}
+      />
+      <WorkspaceLayoutMenu />
+      <WorkspaceDock focusMode={focusMode} preview={<div data-testid="preview" />}>
+        {(['agent', 'navigator', 'team'] as PanelId[]).map((panel) => (
+          <TestPanel
+            key={panel}
+            panel={panel}
+            visible={openPanels[panel]}
+            onLinkedClose={() => closePanel(panel)}
+          />
+        ))}
+        <ClosableTestPanel
+          panel="variables"
+          visible={openPanels.variables}
+          onClose={() => closePanel('variables')}
+          onOpen={() => openPanel('variables')}
+        />
+        {editorMounted && (
+          <TestPanel panel="editor" onLinkedClose={() => setEditorMounted(false)} />
+        )}
+      </WorkspaceDock>
+    </>
+  );
+}
+
+function ClosableTestPanel({
+  panel,
+  visible,
+  onClose,
+  onOpen,
+}: {
+  panel: PanelId;
+  visible: boolean;
+  onClose: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <>
+      <TestPanel panel={panel} visible={visible} onLinkedClose={onClose} />
+      <button type="button" onClick={onClose}>
         Close {panel}
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          setActivePanel(panel);
-          setVisible(true);
-        }}
-      >
+      <button type="button" onClick={onOpen}>
         Open {panel}
       </button>
     </>
@@ -394,6 +476,92 @@ describe('stacked rendering', () => {
 });
 
 describe('linked panel projection', () => {
+  it('keeps one panel open when a linked workspace launches with several open panels', async () => {
+    localStorage.setItem('shipstudio.panels.linked', '1');
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('closed');
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
+    expect(document.querySelector('[data-rail-panel="agent"]')).toBeInTheDocument();
+  });
+
+  it('unlinks with no open panels when the selected panel was closed', async () => {
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Variables' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Close variables' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(0);
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(screen.getByLabelText('team panel')).not.toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('preserves open panels during Preview Focus and closes extras when linked mode resumes', async () => {
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Focus' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Focus' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('closed');
+  });
+
+  it('keeps panel state and preset placement coherent through the Layouts menu', async () => {
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Panel layout' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Focus' }));
+    await act(async () => Promise.resolve());
+
+    const focusPreset = LAYOUT_PRESETS.find((preset) => preset.id === 'focus')!;
+    expect(readProjectLayout(PROJECT)).toEqual(focusPreset.layout);
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
+    await act(async () => Promise.resolve());
+    const teamSurface = screen.getByLabelText('team panel');
+    expect(teamSurface).toHaveClass('dockable-panel__surface--docked');
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '420px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(0);
+    expect(readProjectLayout(PROJECT)).toEqual(focusPreset.layout);
+  });
+
   it('shows one open panel at a shared width without changing saved placements', async () => {
     const layout = v2Layout(
       [
@@ -410,6 +578,9 @@ describe('linked panel projection', () => {
     await act(async () => Promise.resolve());
 
     const savedBeforeLinking = readProjectLayout(PROJECT);
+    const agentStateButton = screen.getByTestId('agent-state-button');
+    fireEvent.click(agentStateButton);
+    expect(agentStateButton).toHaveTextContent('State 1');
     expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(4);
     fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
     await act(async () => Promise.resolve());
@@ -418,6 +589,9 @@ describe('linked panel projection', () => {
     expect(document.querySelector('[data-rail-panel="agent"]')).toBeInTheDocument();
     expect(screen.getByLabelText('agent panel')).not.toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByLabelText('navigator panel')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('closed');
     const column = document.querySelector<HTMLElement>('.workspace-dock__column');
     expect(column).toHaveStyle({ order: '-1', width: '420px' });
 
@@ -425,6 +599,8 @@ describe('linked panel projection', () => {
     await act(async () => Promise.resolve());
     expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
     expect(document.querySelector('[data-rail-panel="variables"]')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('open');
     expect(column).toHaveStyle({ width: '420px' });
 
     const resizeHandle = screen.getByRole('separator', { name: 'Resize Variables column' });
@@ -446,12 +622,15 @@ describe('linked panel projection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close variables' }));
     await act(async () => Promise.resolve());
     expect(screen.getByLabelText('variables panel')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
     expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Elements' }));
     await act(async () => Promise.resolve());
     expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
     expect(document.querySelector('[data-rail-panel="navigator"]')).toBeInTheDocument();
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('open');
     expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
       order: '-1',
       width: '460px',
@@ -461,6 +640,8 @@ describe('linked panel projection', () => {
     await act(async () => Promise.resolve());
     expect(screen.getByLabelText('variables panel')).not.toHaveAttribute('aria-hidden', 'true');
     expect(document.querySelector('[data-rail-panel="variables"]')).toBeInTheDocument();
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('open');
     expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
       order: '-1',
       width: '460px',
@@ -480,6 +661,12 @@ describe('linked panel projection', () => {
     dragHeader('editor', { x: 900, y: 300 });
     expect(readProjectLayout(PROJECT)).toEqual(savedBeforeLinking);
     expect(editorSurface).toHaveClass('dockable-panel__surface--docked');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Agent' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('agent-state-button')).toHaveTextContent('State 1');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
     await act(async () => Promise.resolve());
@@ -503,10 +690,19 @@ describe('linked panel projection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
     await act(async () => Promise.resolve());
-    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(3);
-    expect(editorSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(0);
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
     expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
     expect(readProjectLayout(PROJECT)).toEqual(savedAfterIntentionalFloat);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Elements' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
+    expect(document.querySelector('[data-rail-panel="navigator"]')).toBeInTheDocument();
   });
 });
 

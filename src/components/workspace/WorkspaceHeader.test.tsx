@@ -226,24 +226,51 @@ describe('WorkspaceHeader title bar', () => {
     expect(screen.getByRole('button', { name: 'Push' })).toBeDisabled();
   });
 
-  it('places a ghost panel-link toggle at the end of the workspace panel group', () => {
+  it('uses the same sizing as the other panel controls with the ghost variant', () => {
     const props = headerProps();
     const { container } = render(<TitlebarHarness props={props} />);
     const group = container.querySelector('.workspace-panel-group');
     const button = screen.getByRole('button', { name: 'Link workspace panels' });
 
-    expect(button).toHaveClass(
-      'button--ghost',
-      'button--size-compact',
-      'button--icon-only',
-      'workspace-panel-link-toggle'
-    );
-    expect(button.querySelector('svg')).toBeInTheDocument();
+    expect(button).toHaveClass('button--ghost', 'button--size-default', 'button--has-icon');
+    expect(button).not.toHaveClass('button--icon-only');
+    expect(button).toHaveClass('workspace-panel-link-toggle');
+    expect(button).not.toHaveClass('button--size-compact', 'button--secondary', 'button--default');
+    expect(button.querySelector('svg')).toHaveAttribute('width', '16');
+    expect(screen.getByRole('button', { name: 'Agent' })).toHaveClass('button--size-default');
     expect(button).toHaveAttribute('aria-pressed', 'false');
     expect(group?.lastElementChild).toBe(button);
 
     fireEvent.click(button);
     expect(props.onTogglePanelLinking).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the link control in both toolbars at the narrow 900px and 1024px breakpoints', () => {
+    const compactProps = headerProps();
+    compactProps.compactWorkspaceToolbarEnabled = true;
+    const compact = render(<HeaderHarness props={compactProps} />);
+    const compactButton = screen.getByRole('button', { name: 'Link workspace panels' });
+    expect(compactButton.closest('.workspace-titlebar-tools')).toBeInTheDocument();
+    expect(compactButton.closest('.workspace-panel-group')).toBeInTheDocument();
+    compact.unmount();
+
+    const classicProps = headerProps();
+    classicProps.compactWorkspaceToolbarEnabled = false;
+    const classic = render(<HeaderHarness props={classicProps} />);
+    const classicButton = screen.getByRole('button', { name: 'Link workspace panels' });
+    expect(classicButton.closest('.workspace-header')).toBeInTheDocument();
+    expect(classicButton.closest('.workspace-panel-group')).toBeInTheDocument();
+    classic.unmount();
+
+    expect(workspaceStyles).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.workspace-titlebar-tools[\s\S]*?\.workspace-panel-group[\s\S]*?\.button:not\(\.button--size-compact\)/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.workspace-header\s*\{[^}]*padding-inline:[^}]*\}/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 1100px\)[\s\S]*?\.workspace-header-left \.workspace-panel-group/
+    );
   });
 
   it('gives the classic mode tabs room before they can cover workspace controls', () => {

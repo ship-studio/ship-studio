@@ -509,12 +509,17 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     setWorkspaceTab,
     startDevServer: handleStartDevServer,
   });
+  const closeVariablesPanel = useCallback(
+    () => variables.setVisible(false),
+    [variables.setVisible]
+  );
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
       setIsPreviewHidden(false);
     }
     setIsAgentPanelHidden(!isAgentPanelHidden);
   }, [isAgentPanelHidden, setIsPreviewHidden]);
+  const closeAgentPanel = useCallback(() => setIsAgentPanelHidden(true), []);
   const { activePanel, setActivePanel, singlePanelModeEnabled } = dock;
   const toggleWorkspacePanel = useCallback(
     (panel: 'agent' | 'navigator' | 'variables' | 'team', isOpen: boolean, toggle: () => void) => {
@@ -1026,7 +1031,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                       variablesPanelVisible={variables.open}
                       variablesPanelPinned={variablesPanelDocked}
                       toggleVariablesPanelPinned={toggleVariablesPanelDocked}
-                      closeVariablesPanel={() => variables.setVisible(false)}
+                      closeVariablesPanel={closeVariablesPanel}
                       pluginProject={pluginProject}
                       pluginActions={pluginActions}
                       pluginTheme={pluginTheme}
@@ -1073,6 +1078,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                     agentPanelPinned={agentPanelDocked}
                     toggleAgentPanelPinned={toggleAgentPanelDocked}
                     toggleAgentPanel={toggleAgentPanel}
+                    closeAgentPanel={closeAgentPanel}
                     splitPaneTabIds={splitPaneTabIds}
                     splitPaneSizes={splitPaneSizes}
                     isSplitActive={isSplitActive}

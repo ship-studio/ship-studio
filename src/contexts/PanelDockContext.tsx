@@ -228,6 +228,24 @@ class PresenceStore {
   };
 }
 
+/** Lets linked mode close panels through the state owned by each feature. */
+class PanelCloseHandlers {
+  private handlers = new Map<PanelId, () => void>();
+
+  register = (panel: PanelId, close: () => void): (() => void) => {
+    this.handlers.set(panel, close);
+    return () => {
+      if (this.handlers.get(panel) === close) this.handlers.delete(panel);
+    };
+  };
+
+  closeOthers = (selected: PanelId): void => {
+    for (const [panel, close] of this.handlers) {
+      if (panel !== selected) close();
+    }
+  };
+}
+
 // ============ The context ============
 
 interface PanelDockValue {
@@ -236,7 +254,7 @@ interface PanelDockValue {
   layout: WorkspaceLayout;
   /** Temporary topbar Focus projection; it never changes the saved layout. */
   focusMode: boolean;
-  /** Show at most one open workspace panel without changing their open state. */
+  /** Keep only the selected workspace panel open while linked mode is active. */
   singlePanelModeEnabled: boolean;
   /** The panel currently selected by the single-panel projection. */
   activePanel: PanelId | null;
@@ -276,6 +294,7 @@ interface PanelDockValue {
 
   slots: SlotRegistry;
   presence: PresenceStore;
+  registerPanelCloseHandler: (panel: PanelId, close: () => void) => () => void;
   defaultWidths: DefaultWidthStore;
   /** Reported by `WorkspaceDock` so a drag can be resolved against real geometry. */
   measureRef: React.MutableRefObject<(() => RailGeometry) | null>;
@@ -330,7 +349,7 @@ export function PanelDockProvider({
     'shipstudio.panels.linked',
     false
   );
-  const [activePanel, setActivePanel] = useState<PanelId | null>(null);
+  const [activePanel, setActivePanelState] = useState<PanelId | null>(null);
 
   // Re-read when the project changes, with React's "adjust state during render"
   // pattern rather than an effect: an effect renders one frame of the previous
@@ -340,11 +359,12 @@ export function PanelDockProvider({
     setPathOfLayout(projectPath);
     setLayoutState(layoutScope === 'global' ? readDefaultLayout() : readProjectLayout(projectPath));
     setIsCustomised(layoutScope === 'project' && hasProjectLayout(projectPath));
-    setActivePanel(null);
+    setActivePanelState(null);
   }
 
   const slots = useMemo(() => new SlotRegistry(), []);
   const presence = useMemo(() => new PresenceStore(), []);
+  const closeHandlers = useMemo(() => new PanelCloseHandlers(), []);
   const defaultWidths = useMemo(() => new DefaultWidthStore(), []);
   const drag = useMemo(() => new DragStore(), []);
   const dragDisabledRef = useRef(false);
@@ -354,15 +374,23 @@ export function PanelDockProvider({
     (enabled: boolean) => {
       if (enabled) {
         const present = presence.get();
-        setActivePanel((current) =>
-          current && present.includes(current)
-            ? current
-            : (PANEL_IDS.find((panel) => present.includes(panel)) ?? null)
-        );
+        const selected =
+          activePanel && present.includes(activePanel)
+            ? activePanel
+            : (PANEL_IDS.find((panel) => present.includes(panel)) ?? null);
+        if (selected && !focusMode) closeHandlers.closeOthers(selected);
+        setActivePanelState(selected);
       }
       setSinglePanelModePreference(enabled);
     },
-    [presence, setSinglePanelModePreference]
+    [activePanel, closeHandlers, focusMode, presence, setSinglePanelModePreference]
+  );
+  const setActivePanel = useCallback(
+    (panel: PanelId | null) => {
+      if (singlePanelModeEnabled && !focusMode && panel) closeHandlers.closeOthers(panel);
+      setActivePanelState(panel);
+    },
+    [closeHandlers, focusMode, singlePanelModeEnabled]
   );
   const toggleSinglePanelMode = useCallback(
     () => setSinglePanelMode(!singlePanelModeEnabled),
@@ -650,6 +678,7 @@ export function PanelDockProvider({
       resetToDefault,
       slots,
       presence,
+      registerPanelCloseHandler: closeHandlers.register,
       defaultWidths,
       measureRef,
       drag,
@@ -692,6 +721,7 @@ export function PanelDockProvider({
       resetToDefault,
       slots,
       presence,
+      closeHandlers,
       defaultWidths,
       drag,
       beginDrag,
@@ -763,6 +793,12 @@ export function usePanelDockBinding(
     (present: boolean) => id && presence?.set(id, present),
     [id, presence]
   );
+  const registerPanelCloseHandler = context?.registerPanelCloseHandler;
+  const registerLinkedCloseHandler = useCallback(
+    (close: () => void) =>
+      registerPanelCloseHandler && id ? registerPanelCloseHandler(id, close) : () => undefined,
+    [id, registerPanelCloseHandler]
+  );
   const subscribeGeometry = context?.slots.subscribeGeometry;
   const setDefaultWidth = useCallback(
     (width: number | undefined) => id && context?.defaultWidths.set(id, width),
@@ -800,6 +836,7 @@ export function usePanelDockBinding(
             onDragEnd,
             onDragCancel,
             setPresent,
+            registerLinkedCloseHandler,
             subscribeGeometry,
             setDefaultWidth,
             dockedZIndex,
@@ -815,6 +852,7 @@ export function usePanelDockBinding(
       onDragEnd,
       onDragCancel,
       setPresent,
+      registerLinkedCloseHandler,
       subscribeGeometry,
       setDefaultWidth,
       dockedZIndex,
@@ -845,6 +883,8 @@ export interface PanelDockBinding {
   onDragCancel: () => void;
   /** Claim or release this panel's column. Mounting and `visible` decide it. */
   setPresent: (present: boolean) => void;
+  /** Close this feature's open state when another linked panel is selected. */
+  registerLinkedCloseHandler: (close: () => void) => () => void;
   /** Fires while a neighbour is being resized, so this panel keeps up with it. */
   subscribeGeometry?: (listener: () => void) => () => void;
   /** Ask for a width when the layout has none of its own for this panel. */

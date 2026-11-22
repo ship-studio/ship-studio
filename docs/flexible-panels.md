@@ -196,18 +196,25 @@ preset still writes an ordinary, editable layout.
 ## Linked panel mode
 
 The element-link button beside the workspace panel buttons switches between
-independent panels and a single-panel projection. Agent, Team, Variables, Edit
-and Elements share one dock slot at the far left of the workspace rail. The
-slot stays in the same place regardless of the selected panel's saved column,
-side or docked/floating state. Selecting a floating panel docks it temporarily
-in that shared slot; unlinking restores its saved placement.
+independent panels and linked mode. Agent, Team, Variables, Edit and Elements
+share one dock slot at the far left of the workspace rail. The slot stays in the
+same place regardless of the selected panel's saved column, side or
+docked/floating state. Selecting a floating panel docks it temporarily in that
+shared slot; unlinking restores its saved placement.
 
-The first open panel is selected when there is no current selection. Selecting
-another open panel switches to it; selecting a closed panel opens and selects
-it. Opening a newly mounted panel, such as Edit, selects it as well. Closing the
-selected panel can leave the shared slot empty until another panel is selected
-or opened. Other panels keep their own open state while hidden, so unlinking
-restores them.
+Linked mode keeps one panel open at a time. The first open panel is selected
+when there is no current selection. Selecting another panel closes the previous
+panel through its owning feature and opens the selected one. If several panels
+are open when linked mode starts, the most recently selected panel stays open
+when available. Otherwise, the first open panel stays open. Closing the selected panel leaves the shared
+slot empty. Unlinking leaves the last selected panel open if it is still open,
+or leaves all panels closed if it was closed. Other panels can then be opened
+independently again.
+
+Linked-mode selection does not edit the saved arrangement. The Layouts menu,
+dragging, docking, floating and presets continue to edit the ordinary saved
+layout while the shared slot keeps its width and geometry. When unlinked, the
+open panel returns to its saved placement in that layout.
 
 The shared width is independent of the selected panel and uses the intersection
 of all five panels' width bounds: 320–480px, with a default of 420px. Resizing it
@@ -218,8 +225,9 @@ takes effect when the panels are unlinked. The projection itself does not
 rewrite saved columns or docked widths.
 
 Topbar Focus takes precedence while active and continues to show Agent beside
-the selected Preview or Code surface. The linked-panel preference resumes when
-Focus is left.
+the selected Preview or Code surface. Focus preserves the other panels' open
+states; when Focus is left, linked mode resumes and closes any panels beyond the
+current selection.
 
 ## Presets
 

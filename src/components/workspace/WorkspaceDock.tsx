@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -73,29 +74,38 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
   const present = usePresentPanels();
   const railRef = useRef<HTMLDivElement>(null);
   const [railWidth, setRailWidth] = useState(0);
-  const presentSet = new Set(present);
-  if (focusMode) presentSet.add('agent');
-  const linkedPanelCandidates = PANEL_IDS.filter((panel) => presentSet.has(panel));
+  const presentSet = useMemo(() => {
+    const panels = new Set(present);
+    if (focusMode) panels.add('agent');
+    return panels;
+  }, [focusMode, present]);
+  const linkedPanelCandidates = useMemo(
+    () => PANEL_IDS.filter((panel) => presentSet.has(panel)),
+    [presentSet]
+  );
   const activeLinkedPanel =
-    singlePanelModeEnabled && !focusMode
-      ? activePanel === null
-        ? (linkedPanelCandidates[0] ?? null)
-        : presentSet.has(activePanel)
-          ? activePanel
-          : null
-      : null;
+    singlePanelModeEnabled && !focusMode ? (activePanel ?? linkedPanelCandidates[0] ?? null) : null;
+  const previousFocusMode = useRef(focusMode);
 
   useLayoutEffect(() => {
-    if (
-      !singlePanelModeEnabled ||
-      focusMode ||
-      activePanel !== null ||
-      activeLinkedPanel === null
-    ) {
-      return;
+    const returningFromFocus = previousFocusMode.current && !focusMode;
+    previousFocusMode.current = focusMode;
+    if (!singlePanelModeEnabled || focusMode) return;
+
+    // Resolve the initial linked selection, clear a closed final panel, and
+    // collapse panels restored by Focus. Ordinary feature openings select
+    // themselves after their owner updates its open state.
+    if (activePanel === null) {
+      const first = linkedPanelCandidates[0];
+      if (first) setActivePanel(first);
+    } else if (linkedPanelCandidates.length === 0) {
+      setActivePanel(null);
+    } else if (returningFromFocus) {
+      setActivePanel(
+        linkedPanelCandidates.includes(activePanel) ? activePanel : linkedPanelCandidates[0]
+      );
     }
-    setActivePanel(activeLinkedPanel);
-  }, [activeLinkedPanel, activePanel, focusMode, setActivePanel, singlePanelModeEnabled]);
+  }, [activePanel, focusMode, linkedPanelCandidates, setActivePanel, singlePanelModeEnabled]);
 
   useLayoutEffect(() => {
     setDragDisabled(focusMode || singlePanelModeEnabled);

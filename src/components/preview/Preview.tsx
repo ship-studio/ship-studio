@@ -862,8 +862,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   // Imperative opener for the toolbar's insert palette (Cmd+K "Insert element…").
   const openInsertMenuRef = useRef<(() => void) | null>(null);
-  const toggleActiveEditor =
-    editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
+  const toggleActiveEditor = useCallback(() => {
+    const editModeOn = editorMode === 'css' ? cssEditor.editMode : editor.editMode;
+    if (!editModeOn) dock?.setActivePanel('editor');
+    (editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode)();
+  }, [
+    cssEditor.editMode,
+    cssEditor.toggleEditMode,
+    dock,
+    editor.editMode,
+    editor.toggleEditMode,
+    editorMode,
+  ]);
 
   // Comments bind to the frame the user is actually in, the same one the editor
   // binds to — on a canvas that is the active frame, not the focus frame.
@@ -890,6 +900,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const openCssEditor = useCallback(
     (scope: 'style' | 'settings' | 'animations') => {
       try {
+        dock?.setActivePanel('editor');
         setCssScope(scope);
         if (!cssEditorOn) cssToggleEditMode();
       } catch (err) {
@@ -898,7 +909,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         logger.error('[Preview] openCssEditor failed', { error: detail });
       }
     },
-    [cssEditorOn, cssToggleEditMode, onToast]
+    [cssEditorOn, cssToggleEditMode, dock, onToast]
   );
   useCommands(
     () =>
@@ -2012,6 +2023,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <DockablePanel
             dock={treeDock}
             docked={elementTreePinned}
+            onLinkedClose={onCloseElementTree}
             ariaLabel="Elements panel"
             positionKey="elementTreeFloatingPosition"
             sizeKey="elementTreeFloatingSize"
@@ -2069,6 +2081,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         <DockablePanel
           dock={editorDock}
           docked={editorPinned}
+          onLinkedClose={editor.toggleEditMode}
           ariaLabel="Edit panel"
           positionKey="visualEditorFloatingPosition"
           sizeKey="visualEditorFloatingSize"
@@ -2129,6 +2142,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         <DockablePanel
           dock={editorDock}
           docked={editorPinned}
+          onLinkedClose={cssEditor.toggleEditMode}
           ariaLabel="CSS panel"
           positionKey="cssPanelFloatingPosition"
           sizeKey="cssPanelFloatingSize"
@@ -2178,6 +2192,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <DockablePanel
             dock={variablesDock}
             docked={variablesPanelDocked}
+            onLinkedClose={onCloseVariablesPanel}
             ariaLabel="Variables panel"
             positionKey="variablesPanelFloatingPosition"
             sizeKey="variablesPanelFloatingSize"

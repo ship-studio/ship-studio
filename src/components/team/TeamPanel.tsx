@@ -109,6 +109,7 @@ export function TeamPanel({
          panel that was closed does not leave an empty band of workspace. */
         docked={pinned && !hidden}
         visible={!hidden}
+        onLinkedClose={onClose}
         ariaLabel="Team"
         positionKey="team.panel.position"
         sizeKey="team.panel.size"

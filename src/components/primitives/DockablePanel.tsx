@@ -44,6 +44,8 @@ interface DockablePanelProps {
   keepWithinViewport?: boolean;
   /** Optional layer override for a docked, body-portaled surface. */
   dockedZIndex?: CSSProperties['zIndex'];
+  /** Update the owning feature's open state when another linked panel is selected. */
+  onLinkedClose?: () => void;
   /**
    * Ties this panel to the workspace rail: where its placeholder belongs, and
    * where to report a drag of its header.
@@ -172,6 +174,7 @@ export function DockablePanel({
   resizable = true,
   keepWithinViewport = false,
   dockedZIndex,
+  onLinkedClose,
   dock,
 }: DockablePanelProps) {
   // Focus is a temporary workspace projection. It forces Agent into the rail
@@ -182,9 +185,9 @@ export function DockablePanel({
     : dock?.singlePanelModeEnabled
       ? visible && dock.activePanel === dock.panel
       : visible;
-  // Presence is the feature's own open state, not the linked-mode projection.
-  // Keeping every open panel registered lets the projection switch between
-  // them without closing or remounting their contents.
+  // Presence follows the owning feature's open state. Linked mode closes
+  // sibling features through their registered handlers while this surface and
+  // its children stay mounted, preserving state such as a live terminal.
   const panelPresent = dock?.focusMode ? panelVisible : visible;
   const panelDocked = dock?.focusMode
     ? dock.panel === 'agent' || docked
@@ -306,6 +309,12 @@ export function DockablePanel({
   // moment it closes — a docked panel that is closed must not leave an empty
   // band of workspace behind it.
   const setPresent = dock?.setPresent;
+  const registerLinkedCloseHandler = dock?.registerLinkedCloseHandler;
+  useLayoutEffect(() => {
+    if (!onLinkedClose) return;
+    return registerLinkedCloseHandler?.(onLinkedClose);
+  }, [onLinkedClose, registerLinkedCloseHandler]);
+
   useLayoutEffect(() => {
     if (!setPresent) return;
     setPresent(panelPresent);
