@@ -73,6 +73,12 @@
   gap: var(--spacing-xs);
 }
 
+.workspace-panel-group > .button,
+.workspace-panel-group > .team-presence-wrap > .button,
+.workspace-panel-group > .workspace-plugins-control > .button {
+  padding-inline: var(--spacing-tight);
+}
+
 .workspace-panel-group > .team-presence-wrap {
   order: 1;
 }
@@ -290,14 +296,9 @@
     margin-inline-start: var(--spacing-sm);
   }
 
-  .workspace-titlebar-tools > .workspace-panel-group > .button:not(.button--size-compact),
-  .workspace-titlebar-tools
-    > .workspace-panel-group
-    > .toolbar-dropdown-container
-    > .button:not(.button--size-compact) {
+  .workspace-titlebar-tools > .workspace-panel-group > .button:not(.button--size-compact) {
     width: var(--button-height);
     min-width: var(--button-height);
-    padding-inline: 0;
   }
 
   .workspace-titlebar-tools > .workspace-panel-group > .toolbar-dropdown-container > .button {
