@@ -509,10 +509,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     setWorkspaceTab,
     startDevServer: handleStartDevServer,
   });
-  const closeVariablesPanel = useCallback(
-    () => variables.setVisible(false),
-    [variables.setVisible]
-  );
+  const { setVisible: setVariablesVisible } = variables;
+  const closeVariablesPanel = useCallback(() => setVariablesVisible(false), [setVariablesVisible]);
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
       setIsPreviewHidden(false);

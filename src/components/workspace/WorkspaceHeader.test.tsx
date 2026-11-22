@@ -239,10 +239,23 @@ describe('WorkspaceHeader title bar', () => {
     expect(button.querySelector('svg')).toHaveAttribute('width', '16');
     expect(screen.getByRole('button', { name: 'Agent' })).toHaveClass('button--size-default');
     expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(button.querySelector('svg')).toHaveAttribute(
+      'data-icon-name',
+      'WorkspacePanelUnlinkIcon'
+    );
     expect(group?.lastElementChild).toBe(button);
 
     fireEvent.click(button);
     expect(props.onTogglePanelLinking).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the linked icon when panel linking is pressed', () => {
+    const props = headerProps();
+    props.panelLinkingEnabled = true;
+    render(<TitlebarHarness props={props} />);
+    const button = screen.getByRole('button', { name: 'Link workspace panels' });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(button.querySelector('svg')).toHaveAttribute('data-icon-name', 'ElementLinkIcon');
   });
 
   it('keeps the link control in both toolbars at the narrow 900px and 1024px breakpoints', () => {

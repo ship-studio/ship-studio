@@ -24,6 +24,7 @@ import FolderStackSvg from '../../assets/icons/old-icons/folder-stack.svg?react'
 import SplitViewSvg from '../../assets/icons/old-icons/split-view.svg?react';
 import PanelLayoutSvg from '../../assets/icons/template.svg?react';
 import DragHandleSvg from '../../assets/icons/drag-handle.svg?react';
+import WorkspacePanelUnlinkSvg from '../../assets/icons/workspace-panel-unlink.svg?react';
 import { createIcon } from './icon-base';
 
 export const EyeIcon = createIcon(EyeSvg, {
@@ -43,6 +44,13 @@ export const EyeOffIcon = createIcon(ClosedEyeSvg, {
 export const PanelLeftIcon = createIcon(SidebarSvg, {
   name: 'PanelLeftIcon',
   source: 'icons/sidebar.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const WorkspacePanelUnlinkIcon = createIcon(WorkspacePanelUnlinkSvg, {
+  name: 'WorkspacePanelUnlinkIcon',
+  source: 'icons/workspace-panel-unlink.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',

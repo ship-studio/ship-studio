@@ -41,6 +41,7 @@ import {
   PanelLeftIcon,
   VariablesIcon,
   ActivityIcon,
+  WorkspacePanelUnlinkIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -535,7 +536,13 @@ export function WorkspaceHeader({
       <ToggleButton
         variant="ghost"
         className="workspace-panel-link-toggle"
-        leftIcon={<ElementLinkIcon size={16} />}
+        leftIcon={
+          panelLinkingEnabled ? (
+            <ElementLinkIcon size={16} />
+          ) : (
+            <WorkspacePanelUnlinkIcon size={16} />
+          )
+        }
         onClick={onTogglePanelLinking}
         title={
           panelLinkingEnabled

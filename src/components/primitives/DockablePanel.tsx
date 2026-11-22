@@ -531,32 +531,27 @@ export function DockablePanel({
       ? Math.max(minFloatingSize.height, floatingPanelSize.height)
       : floatingSize.height,
   };
-  const renderedPosition =
+  const renderedLeft =
     handoffWidth === undefined
-      ? position
-      : {
-          ...position,
-          left: Math.max(
-            0,
-            Math.min(
-              position.left,
-              window.innerWidth - renderedFloatingSize.width - VIEWPORT_GUTTER
-            )
-          ),
-        };
+      ? position.left
+      : Math.max(
+          0,
+          Math.min(position.left, window.innerWidth - renderedFloatingSize.width - VIEWPORT_GUTTER)
+        );
   const maxFloatingWidth = Math.max(
     minFloatingSize.width,
-    window.innerWidth - renderedPosition.left - VIEWPORT_GUTTER
+    window.innerWidth - renderedLeft - VIEWPORT_GUTTER
   );
 
   const finishWidthHandoff = useCallback(() => {
     if (!dock?.clearWidthHandoff) return;
-    if (renderedPosition.left !== position.left) {
-      setPosition(renderedPosition);
-      localStorage.setItem(positionKey, JSON.stringify(renderedPosition));
+    if (renderedLeft !== position.left) {
+      const visiblePosition = { left: renderedLeft, top: position.top };
+      setPosition(visiblePosition);
+      localStorage.setItem(positionKey, JSON.stringify(visiblePosition));
     }
     dock.clearWidthHandoff();
-  }, [dock, position.left, positionKey, renderedPosition]);
+  }, [dock, position.left, position.top, positionKey, renderedLeft]);
 
   const resizeFloatingWidth = useCallback(
     (width: number) => {
@@ -618,16 +613,16 @@ export function DockablePanel({
   const handleCornerResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (cornerResizePointerRef.current !== event.pointerId) return;
-      resizeFloatingBoth(event.clientX - renderedPosition.left, event.clientY - position.top);
+      resizeFloatingBoth(event.clientX - renderedLeft, event.clientY - position.top);
     },
-    [position.top, renderedPosition.left, resizeFloatingBoth]
+    [position.top, renderedLeft, resizeFloatingBoth]
   );
 
   const finishCornerResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>, applyFinalPosition = true) => {
       if (cornerResizePointerRef.current !== event.pointerId) return;
       if (applyFinalPosition) {
-        resizeFloatingBoth(event.clientX - renderedPosition.left, event.clientY - position.top);
+        resizeFloatingBoth(event.clientX - renderedLeft, event.clientY - position.top);
       }
       cornerResizePointerRef.current = null;
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
@@ -637,7 +632,7 @@ export function DockablePanel({
       document.body.style.userSelect = '';
       persistFloatingSize(false);
     },
-    [persistFloatingSize, position.top, renderedPosition.left, resizeFloatingBoth]
+    [persistFloatingSize, position.top, renderedLeft, resizeFloatingBoth]
   );
 
   const handleCornerResizeKeyDown = useCallback(
@@ -670,8 +665,8 @@ export function DockablePanel({
   );
 
   const floatingStyle: CSSProperties = {
-    left: renderedPosition.left,
-    top: renderedPosition.top,
+    left: renderedLeft,
+    top: position.top,
     width: renderedFloatingSize.width,
     height: renderedFloatingSize.height,
     zIndex: `calc(var(--z-floating-panel) + ${stackOrder})`,
@@ -749,7 +744,7 @@ export function DockablePanel({
                 max={maxFloatingWidth}
                 label={`Resize ${ariaLabel} width`}
                 className="dockable-panel__resize-handle dockable-panel__resize-handle--width"
-                onResize={(clientX) => resizeFloatingWidth(clientX - renderedPosition.left)}
+                onResize={(clientX) => resizeFloatingWidth(clientX - renderedLeft)}
                 onResizeBy={(delta) => resizeFloatingWidth(renderedFloatingSize.width + delta)}
                 onDragChange={persistFloatingSize}
               />
