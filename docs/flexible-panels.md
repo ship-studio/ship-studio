@@ -4,7 +4,9 @@ Every panel in the workspace can be dragged anywhere, and where you put them is
 remembered per project.
 
 The workspace has six surfaces: **Preview**, **Agent**, **Team**, **Variables**,
-**Edit** (the visual/CSS editor) and **Navigator** (the element tree). Before
+**Edit** (the visual/CSS editor) and **Navigator** (the element tree). The
+toolbar's linked mode groups Agent, Team, Variables and Navigator; Edit remains
+an independent surface. Before
 this, five of them had a *fixed* place — an order somebody chose once, written
 into a CSS grid — and the only thing you could change was whether a panel was
 docked or floating. Two people who work differently could not both be right.
@@ -196,25 +198,41 @@ preset still writes an ordinary, editable layout.
 ## Linked panel mode
 
 The element-link button beside the workspace panel buttons switches between
-independent panels and linked mode. Agent, Team, Variables, Edit and Elements
+independent toolbar panels and linked mode. Agent, Team, Variables and Elements
 share one dock slot at the far left of the workspace rail. The slot stays in the
 same place regardless of the selected panel's saved column, side or
 docked/floating state. Selecting a floating panel docks it temporarily in that
 shared slot; unlinking restores its saved placement.
 
-Linked mode keeps one panel open at a time. The first open panel is selected
-when there is no current selection. Selecting another panel closes the previous
-panel through its owning feature and opens the selected one. If several panels
-are open when linked mode starts, the most recently selected panel stays open
-when available. Otherwise, the first open panel stays open. Closing the selected panel leaves the shared
-slot empty. Unlinking leaves the last selected panel open if it is still open,
-or leaves all panels closed if it was closed. Other panels can then be opened
+Edit is independent of that selection. The visual editor and CSS editor use the
+same `editor` rail id, so opening either while linked keeps the selected toolbar
+panel open and docks Edit immediately to the right of Preview. This temporary
+placement applies even when Edit is normally left of Preview or floating. Its
+right-side resize uses the editor column's saved width, and a resize updates
+that width in the saved layout shown by the Layouts menu. The editor's normal
+docked/floating placement and floating position and size are restored when
+linked mode ends.
+
+Linked mode keeps one toolbar panel open at a time. The first open toolbar
+panel is selected when there is no current selection. Selecting another closes
+the previous panel through its owning feature and opens the selected one. If
+several toolbar panels are open when linked mode starts, the most recently
+selected panel stays open when available. Otherwise, the first open panel stays
+open. Closing the selected panel leaves the shared slot empty. Unlinking leaves
+the last selected toolbar panel open if it is still open, or leaves all toolbar
+panels closed if it was closed. Other toolbar panels can then be opened
 independently again.
 
 Linked-mode selection does not edit the saved arrangement. The Layouts menu,
 dragging, docking, floating and presets continue to edit the ordinary saved
-layout while the shared slot keeps its width and geometry. When unlinked, the
-open panel returns to its saved placement in that layout.
+layout while the shared toolbar slot keeps its width and geometry. The editor's
+temporary right-side slot follows its saved column width and keeps working when
+the Layouts menu changes the saved arrangement. When unlinked, the selected
+toolbar panel and editor return to their saved placements.
+
+Linked mode only changes these rail panels. Assets and Plugin Manager remain
+modal dialogs, and Plugins remains a menu trigger; their existing dismissal
+behavior is unchanged.
 
 The shared slot starts at the currently rendered panel width. With no open
 panel to measure, it uses the saved shared width or a default of 420px. Panel
@@ -230,9 +248,9 @@ preference takes effect when the panels are unlinked. The projection itself
 does not rewrite saved columns or docked widths.
 
 Topbar Focus takes precedence while active and continues to show Agent beside
-the selected Preview or Code surface. Focus preserves the other panels' open
-states; when Focus is left, linked mode resumes and closes any panels beyond the
-current selection.
+the selected Preview or Code surface, hiding both linked toolbar panels and
+Edit until Focus ends. Focus preserves their open states; when Focus is left,
+linked mode resumes and closes any toolbar panels beyond the current selection.
 
 ## Presets
 

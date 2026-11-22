@@ -12,6 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { PanelResizeHandle } from './PanelResizeHandle';
 import type { PanelDockBinding } from '../../contexts/PanelDockContext';
+import { isLinkedPanel } from '../../lib/workspaceLayout';
 
 interface Point {
   left: number;
@@ -180,9 +181,10 @@ export function DockablePanel({
   // Focus is a temporary workspace projection. It forces Agent into the rail
   // and suppresses every other rail-bound portal without changing feature
   // visibility preferences, so the ordinary arrangement returns on exit.
+  const panelLinked = dock?.singlePanelModeEnabled && isLinkedPanel(dock.panel);
   const panelVisible = dock?.focusMode
     ? dock.panel === 'agent'
-    : dock?.singlePanelModeEnabled
+    : panelLinked
       ? visible && dock.activePanel === dock.panel
       : visible;
   // Presence follows the owning feature's open state. Linked mode closes
@@ -326,7 +328,8 @@ export function DockablePanel({
     previousVisible.current = visible;
     const opened =
       visible && (wasVisible === false || (wasVisible === null && dock?.activePanel != null));
-    if (!opened || !dock?.singlePanelModeEnabled || dock.focusMode) return;
+    if (!opened || !dock?.singlePanelModeEnabled || dock.focusMode || !isLinkedPanel(dock.panel))
+      return;
     dock.setActivePanel(dock.panel);
   }, [dock, visible]);
 

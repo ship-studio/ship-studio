@@ -42,7 +42,8 @@ import {
 } from '../lib/dockDrag';
 import {
   PANEL_META,
-  PANEL_IDS,
+  LINKED_PANEL_IDS,
+  isLinkedPanel,
   PREVIEW,
   moveColumn as moveColumnInLayout,
   moveColumnToGap as moveColumnToGapInLayout,
@@ -58,6 +59,7 @@ import {
   setPanelWidth,
   findPanelPlacement,
   type LayoutPreset,
+  type LinkedPanelId,
   type PanelId,
   type RailItem,
   type WorkspaceLayout,
@@ -232,16 +234,16 @@ class PresenceStore {
 
 /** Lets linked mode close panels through the state owned by each feature. */
 class PanelCloseHandlers {
-  private handlers = new Map<PanelId, () => void>();
+  private handlers = new Map<LinkedPanelId, () => void>();
 
-  register = (panel: PanelId, close: () => void): (() => void) => {
+  register = (panel: LinkedPanelId, close: () => void): (() => void) => {
     this.handlers.set(panel, close);
     return () => {
       if (this.handlers.get(panel) === close) this.handlers.delete(panel);
     };
   };
 
-  closeOthers = (selected: PanelId): void => {
+  closeOthers = (selected: LinkedPanelId): void => {
     for (const [panel, close] of this.handlers) {
       if (panel !== selected) close();
     }
@@ -259,8 +261,8 @@ interface PanelDockValue {
   /** Keep only the selected workspace panel open while linked mode is active. */
   singlePanelModeEnabled: boolean;
   /** The panel currently selected by the single-panel projection. */
-  activePanel: PanelId | null;
-  setActivePanel: (panel: PanelId | null) => void;
+  activePanel: LinkedPanelId | null;
+  setActivePanel: (panel: LinkedPanelId | null) => void;
   setSinglePanelModeEnabled: (enabled: boolean) => void;
   toggleSinglePanelMode: () => void;
   /** Temporary rendered width carried across a linked-mode transition. */
@@ -299,7 +301,7 @@ interface PanelDockValue {
 
   slots: SlotRegistry;
   presence: PresenceStore;
-  registerPanelCloseHandler: (panel: PanelId, close: () => void) => () => void;
+  registerPanelCloseHandler: (panel: LinkedPanelId, close: () => void) => () => void;
   defaultWidths: DefaultWidthStore;
   /** Reported by `WorkspaceDock` so a drag can be resolved against real geometry. */
   measureRef: React.MutableRefObject<(() => RailGeometry) | null>;
@@ -385,7 +387,7 @@ export function PanelDockProvider({
     'shipstudio.panels.linked',
     false
   );
-  const [activePanel, setActivePanelState] = useState<PanelId | null>(null);
+  const [activePanel, setActivePanelState] = useState<LinkedPanelId | null>(null);
   const [panelWidthHandoff, setPanelWidthHandoff] = useState<PanelWidthHandoff | null>(null);
 
   // Re-read when the project changes, with React's "adjust state during render"
@@ -417,7 +419,7 @@ export function PanelDockProvider({
         const selected =
           activePanel && present.includes(activePanel)
             ? activePanel
-            : (PANEL_IDS.find((panel) => present.includes(panel)) ?? null);
+            : (LINKED_PANEL_IDS.find((panel) => present.includes(panel)) ?? null);
         if (selected && !focusMode) {
           writeProjectLinkedPanelWidth(projectPath, renderedPanelWidth(selected, layout));
           closeHandlers.closeOthers(selected);
@@ -447,7 +449,7 @@ export function PanelDockProvider({
     ]
   );
   const setActivePanel = useCallback(
-    (panel: PanelId | null) => {
+    (panel: LinkedPanelId | null) => {
       if (singlePanelModeEnabled && !focusMode && panel) closeHandlers.closeOthers(panel);
       setActivePanelState(panel);
     },
@@ -862,7 +864,9 @@ export function usePanelDockBinding(
   const registerPanelCloseHandler = context?.registerPanelCloseHandler;
   const registerLinkedCloseHandler = useCallback(
     (close: () => void) =>
-      registerPanelCloseHandler && id ? registerPanelCloseHandler(id, close) : () => undefined,
+      registerPanelCloseHandler && id && isLinkedPanel(id)
+        ? registerPanelCloseHandler(id, close)
+        : () => undefined,
     [id, registerPanelCloseHandler]
   );
   const subscribeGeometry = context?.slots.subscribeGeometry;
@@ -942,9 +946,9 @@ export interface PanelDockBinding {
   /** Whether linked-panel mode is limiting workspace visibility. */
   singlePanelModeEnabled: boolean;
   /** Which open panel linked-panel mode currently displays. */
-  activePanel: PanelId | null;
+  activePanel: LinkedPanelId | null;
   /** Select this panel while linked-panel mode is on. */
-  setActivePanel: (panel: PanelId | null) => void;
+  setActivePanel: (panel: LinkedPanelId | null) => void;
   /** Temporary rendered width carried back from linked mode. */
   widthHandoff?: number;
   clearWidthHandoff?: () => void;

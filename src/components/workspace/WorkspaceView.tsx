@@ -39,7 +39,7 @@ import { WorkspacePreviewPane } from './WorkspacePreviewPane';
 import { WorkspaceTerminalPane } from './WorkspaceTerminalPane';
 import { PanelDockProvider, usePanelDock } from '../../contexts/PanelDockContext';
 import { useLayoutCommands } from '../../commands/useLayoutCommands';
-import { isDocked } from '../../lib/workspaceLayout';
+import { isDocked, type LinkedPanelId } from '../../lib/workspaceLayout';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { trackEvent } from '../../lib/analytics';
@@ -520,7 +520,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
   const closeAgentPanel = useCallback(() => setIsAgentPanelHidden(true), []);
   const { activePanel, setActivePanel, singlePanelModeEnabled } = dock;
   const toggleWorkspacePanel = useCallback(
-    (panel: 'agent' | 'navigator' | 'variables' | 'team', isOpen: boolean, toggle: () => void) => {
+    (panel: LinkedPanelId, isOpen: boolean, toggle: () => void) => {
       setActivePanel(panel);
       if (singlePanelModeEnabled && activePanel !== panel) {
         if (!isOpen) toggle();

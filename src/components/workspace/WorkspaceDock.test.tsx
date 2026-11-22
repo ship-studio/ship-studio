@@ -12,7 +12,7 @@ import {
   usePanelDockBinding,
   usePanelDock,
 } from '../../contexts/PanelDockContext';
-import { LAYOUT_PRESETS, type PanelId } from '../../lib/workspaceLayout';
+import { LAYOUT_PRESETS, type LinkedPanelId, type PanelId } from '../../lib/workspaceLayout';
 import { readProjectLayout } from '../../lib/workspaceLayoutStore';
 
 const dockStyles = readFileSync(resolve('src/styles/features/workspace/dock.css'), 'utf8');
@@ -157,7 +157,7 @@ function LinkedPanelControls({
   onToggleFocus,
 }: {
   onMountEditor: () => void;
-  onOpenPanel: (panel: PanelId) => void;
+  onOpenPanel: (panel: LinkedPanelId) => void;
   onToggleFocus: () => void;
 }) {
   const dock = usePanelDock();
@@ -231,12 +231,11 @@ function LinkedPanelWorkspace({
   });
   const closePanel = (panel: PanelId) =>
     setOpenPanels((current) => ({ ...current, [panel]: false }));
-  const openPanel = (panel: PanelId) => {
+  const openPanel = (panel: LinkedPanelId) => {
     dock.setActivePanel(panel);
     setOpenPanels((current) => ({ ...current, [panel]: true }));
   };
   const openEditor = () => {
-    dock.setActivePanel('editor');
     setEditorMounted(true);
   };
   return (
@@ -502,6 +501,80 @@ describe('linked panel projection', () => {
     expect(document.querySelector('[data-rail-panel="agent"]')).toBeInTheDocument();
   });
 
+  it('keeps the editor independent on the preview right and restores its floating state', async () => {
+    const layout = v2Layout(
+      [
+        { kind: 'panels', width: 360, panels: [{ panel: 'editor', weight: 1 }] },
+        { kind: 'preview' },
+        { kind: 'panels', width: 430, panels: [{ panel: 'agent', weight: 1 }] },
+      ],
+      ['editor']
+    );
+    localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
+    localStorage.setItem('editor.pos', JSON.stringify({ left: 120, top: 80 }));
+    localStorage.setItem('editor.size', JSON.stringify({ width: 330, height: 500 }));
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Open Editor' }));
+    await act(async () => Promise.resolve());
+
+    const editorSurface = screen.getByLabelText('editor panel');
+    const editorSlot = () => document.querySelector('[data-rail-panel="editor"]');
+    const editorColumn = () => editorSlot()?.closest<HTMLElement>('.workspace-dock__column');
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(editorSurface).toHaveClass('dockable-panel__surface--docked');
+    expect(editorColumn()).toHaveStyle({ order: '2', width: '360px' });
+    expect(editorColumn()?.querySelector('.workspace-dock__resize--right')).toBeInTheDocument();
+    expect(document.querySelector('.workspace-dock__center')).toHaveAttribute(
+      'data-preview-adjacent',
+      'left right'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Variables' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(editorColumn()).toHaveStyle({ order: '2', width: '360px' });
+
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize Edit column' }), {
+      key: 'ArrowRight',
+    });
+    expect(editorColumn()).toHaveStyle({ width: '370px' });
+    expect(
+      JSON.parse(localStorage.getItem(`shipstudio.panels.linked-width:${PROJECT}`) ?? 'null')
+    ).toBe(430);
+    expect(readProjectLayout(PROJECT).floating).toContain('editor');
+    expect(readProjectLayout(PROJECT).columns[0]).toMatchObject({ width: 370 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Focus' }));
+    await act(async () => Promise.resolve());
+    expect(editorSurface).toHaveAttribute('aria-hidden', 'true');
+    expect(editorSlot()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Focus' }));
+    await act(async () => Promise.resolve());
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(editorColumn()).toHaveStyle({ order: '2', width: '370px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close variables' }));
+    await act(async () => Promise.resolve());
+    expect(screen.queryByTestId('variables-open-state')).toHaveTextContent('closed');
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(editorSlot()).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(editorSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(editorSurface).toHaveStyle({ left: '120px', top: '80px', width: '330px' });
+    expect(localStorage.getItem('editor.size')).toBe('{"width":330,"height":500}');
+    expect(readProjectLayout(PROJECT).floating).toContain('editor');
+    expect(readProjectLayout(PROJECT).columns[0]).toMatchObject({ width: 370 });
+  });
+
   it('unlinks with no open panels when the selected panel was closed', async () => {
     render(linkedRailTree());
     await act(async () => Promise.resolve());
@@ -551,6 +624,8 @@ describe('linked panel projection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
     await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Open Editor' }));
+    await act(async () => Promise.resolve());
     fireEvent.click(screen.getByRole('button', { name: 'Panel layout' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Focus' }));
     await act(async () => Promise.resolve());
@@ -559,18 +634,28 @@ describe('linked panel projection', () => {
     expect(readProjectLayout(PROJECT)).toEqual(focusPreset.layout);
     expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
     expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
+    const editorSurface = screen.getByLabelText('editor panel');
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(editorSurface).toHaveClass('dockable-panel__surface--docked');
+    expect(
+      document.querySelector('[data-rail-panel="editor"]')?.closest('.workspace-dock__column')
+    ).toHaveStyle({ order: '2', width: '300px' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
     await act(async () => Promise.resolve());
     const teamSurface = screen.getByLabelText('team panel');
     expect(teamSurface).toHaveClass('dockable-panel__surface--docked');
-    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '420px' });
+    expect(
+      document.querySelector('[data-rail-panel="team"]')?.closest('.workspace-dock__column')
+    ).toHaveStyle({ width: '420px' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
     await act(async () => Promise.resolve());
     expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
     expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
     expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(editorSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
     expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(0);
     expect(readProjectLayout(PROJECT)).toEqual(focusPreset.layout);
   });
@@ -764,9 +849,19 @@ describe('linked panel projection', () => {
     expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
     expect(editorSurface).toHaveClass('dockable-panel__surface--docked');
     expect(document.querySelector('[data-rail-panel="editor"]')).toBeInTheDocument();
-    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
+    expect(screen.getByTestId('variables-open-state')).toHaveTextContent('open');
+    expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
+    expect(
+      document.querySelector('[data-rail-panel="variables"]')?.closest('.workspace-dock__column')
+    ).toHaveStyle({
       order: '-1',
       width: '460px',
+    });
+    expect(
+      document.querySelector('[data-rail-panel="editor"]')?.closest('.workspace-dock__column')
+    ).toHaveStyle({
+      order: '2',
+      width: '560px',
     });
 
     dragHeader('editor', { x: 900, y: 300 });
@@ -778,16 +873,20 @@ describe('linked panel projection', () => {
     expect(screen.getByTestId('agent-open-state')).toHaveTextContent('open');
     expect(screen.getByTestId('agent-state-button')).toHaveTextContent('State 1');
     expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
+    expect(screen.getByLabelText('editor panel')).not.toHaveAttribute('aria-hidden', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
     await act(async () => Promise.resolve());
     const teamSurface = screen.getByLabelText('team panel');
     expect(teamSurface).not.toHaveAttribute('aria-hidden', 'true');
     expect(teamSurface).toHaveClass('dockable-panel__surface--docked');
-    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
+    expect(
+      document.querySelector('[data-rail-panel="team"]')?.closest('.workspace-dock__column')
+    ).toHaveStyle({
       order: '-1',
       width: '460px',
     });
+    expect(screen.getByLabelText('editor panel')).not.toHaveAttribute('aria-hidden', 'true');
     const teamResizeHandle = screen.getByRole('separator', { name: 'Resize Team column' });
     expect(teamResizeHandle).toHaveAttribute('aria-valuemin', '320');
     expect(teamResizeHandle).toHaveAttribute('aria-valuemax', '480');
@@ -807,6 +906,8 @@ describe('linked panel projection', () => {
     expect(screen.getByTestId('variables-open-state')).toHaveTextContent('closed');
     expect(screen.getByTestId('team-open-state')).toHaveTextContent('open');
     expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(screen.getByLabelText('editor panel')).not.toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByLabelText('editor panel')).toHaveClass('dockable-panel__surface--floating');
     expect(readProjectLayout(PROJECT)).toEqual(savedAfterIntentionalFloat);
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Elements' }));

@@ -21,6 +21,7 @@ import {
 import type { RailBounds, RailGeometry, RailPanelRect, RailColumnRect } from '../../lib/dockDrag';
 import {
   PANEL_IDS,
+  LINKED_PANEL_IDS,
   PANEL_META,
   columnWidthOf,
   columnWidthBounds,
@@ -42,7 +43,7 @@ import { focusSplitBounds, focusSplitRatio, focusSplitWidth } from '../../lib/wo
 const MAX_DOCKED_FRACTION = 0.75;
 const LINKED_PANEL_BOUNDS = columnWidthBounds({
   kind: 'panels',
-  panels: PANEL_IDS.map((panel) => ({ panel, weight: 1 })),
+  panels: LINKED_PANEL_IDS.map((panel) => ({ panel, weight: 1 })),
 });
 
 interface WorkspaceDockProps {
@@ -53,9 +54,11 @@ interface WorkspaceDockProps {
 
 interface RenderPanelColumn {
   sourceIndex: number;
+  displayOrder?: number;
   column: PanelColumn;
   panels: PanelPlacement[];
   linkedPanelMode?: boolean;
+  linkedEditorMode?: boolean;
   displaySide?: 'left' | 'right';
 }
 
@@ -80,11 +83,15 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
     return panels;
   }, [focusMode, present]);
   const linkedPanelCandidates = useMemo(
-    () => PANEL_IDS.filter((panel) => presentSet.has(panel)),
+    () => LINKED_PANEL_IDS.filter((panel) => presentSet.has(panel)),
     [presentSet]
   );
   const activeLinkedPanel =
-    singlePanelModeEnabled && !focusMode ? (activePanel ?? linkedPanelCandidates[0] ?? null) : null;
+    singlePanelModeEnabled && !focusMode
+      ? (linkedPanelCandidates.find((panel) => panel === activePanel) ??
+        linkedPanelCandidates[0] ??
+        null)
+      : null;
   const previousFocusMode = useRef(focusMode);
 
   useLayoutEffect(() => {
@@ -137,15 +144,18 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
   }, [slots]);
 
   const renderColumns: (RenderPanelColumn | { sourceIndex: number; preview: true })[] = [];
+  const linkedProjection = singlePanelModeEnabled && !focusMode;
+  const previewSourceIndex = layout.columns.findIndex((column) => column.kind === 'preview');
   const linkedPlacement = activeLinkedPanel
     ? findPanelPlacement(layout, activeLinkedPanel)?.placement
     : undefined;
+  const editorLocation = findPanelPlacement(layout, 'editor');
   for (const [sourceIndex, column] of layout.columns.entries()) {
     if (column.kind === 'preview') {
       renderColumns.push({ sourceIndex, preview: true });
       continue;
     }
-    if (singlePanelModeEnabled && !focusMode) continue;
+    if (linkedProjection) continue;
     if (focusMode && !column.panels.some((placement) => placement.panel === 'agent')) continue;
     const panels = column.panels.filter(
       (placement) =>
@@ -154,16 +164,30 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
     );
     if (panels.length > 0) renderColumns.push({ sourceIndex, column, panels });
   }
-  if (singlePanelModeEnabled && !focusMode && activeLinkedPanel && linkedPlacement) {
+  if (linkedProjection && activeLinkedPanel && linkedPlacement) {
     // Linked mode is a temporary projection: all panels share one stable slot
     // at the far left of the rail, regardless of their saved dock/float state
     // or their position in the ordinary layout.
     renderColumns.unshift({
       sourceIndex: -1,
+      displayOrder: -1,
       column: { kind: 'panels', panels: [linkedPlacement] },
       panels: [linkedPlacement],
       linkedPanelMode: true,
       displaySide: 'left',
+    });
+  }
+  if (linkedProjection && presentSet.has('editor') && editorLocation) {
+    // Edit remains an independent panel in linked mode. Its measured slot is
+    // temporarily placed immediately to the right of Preview, while its saved
+    // column index and width continue to come from the ordinary layout.
+    renderColumns.push({
+      sourceIndex: editorLocation.columnIndex,
+      displayOrder: previewSourceIndex + 1,
+      column: editorLocation.column,
+      panels: [editorLocation.placement],
+      linkedEditorMode: true,
+      displaySide: 'right',
     });
   }
 
@@ -241,7 +265,13 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
   const dockedColumnCount = panelColumns.length;
   const orderedColumns = [...renderColumns].sort((left, right) => {
     const orderOf = (column: (typeof renderColumns)[number]) =>
-      focusMode ? ('preview' in column ? 1 : 0) : column.sourceIndex;
+      focusMode
+        ? 'preview' in column
+          ? 1
+          : 0
+        : 'preview' in column
+          ? column.sourceIndex
+          : (column.displayOrder ?? column.sourceIndex);
     return orderOf(left) - orderOf(right);
   });
   const previewPosition = orderedColumns.findIndex((column) => 'preview' in column);
@@ -273,8 +303,15 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
           this protects an iframe from being physically reparented/reloaded. */}
       {panelColumns.map((column) => (
         <WorkspaceDockColumn
-          key={column.linkedPanelMode ? 'linked-panel-column' : `column-${column.sourceIndex}`}
+          key={
+            column.linkedPanelMode
+              ? 'linked-panel-column'
+              : column.linkedEditorMode
+                ? `linked-editor-column-${column.sourceIndex}`
+                : `column-${column.sourceIndex}`
+          }
           sourceIndex={column.sourceIndex}
+          displayOrder={column.displayOrder}
           column={column.column}
           panels={column.panels}
           dockedColumnCount={dockedColumnCount}
@@ -312,6 +349,7 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
 
 interface WorkspaceDockColumnProps {
   sourceIndex: number;
+  displayOrder?: number;
   column: PanelColumn;
   panels: PanelPlacement[];
   dockedColumnCount: number;
@@ -324,6 +362,7 @@ interface WorkspaceDockColumnProps {
 
 function WorkspaceDockColumn({
   sourceIndex,
+  displayOrder,
   column,
   panels,
   dockedColumnCount,
@@ -599,7 +638,7 @@ function WorkspaceDockColumn({
     );
   };
 
-  const displayOrder = focusMode ? 0 : sourceIndex;
+  const order = focusMode ? 0 : (displayOrder ?? sourceIndex);
 
   return (
     <div
@@ -608,7 +647,7 @@ function WorkspaceDockColumn({
       data-rail-column
       data-column-index={sourceIndex}
       style={{
-        order: displayOrder,
+        order,
         width: renderedWidth,
         minWidth: renderedWidth,
         maxWidth: renderedWidth,
