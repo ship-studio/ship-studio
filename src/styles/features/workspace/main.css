@@ -81,6 +81,10 @@
   order: 2;
 }
 
+.workspace-panel-group > .workspace-panel-link-toggle {
+  order: 3;
+}
+
 .workspace-titlebar-center {
   display: flex;
   align-items: stretch;
@@ -286,8 +290,11 @@
     margin-inline-start: var(--spacing-sm);
   }
 
-  .workspace-titlebar-tools > .workspace-panel-group > .button,
-  .workspace-titlebar-tools > .workspace-panel-group > .toolbar-dropdown-container > .button {
+  .workspace-titlebar-tools > .workspace-panel-group > .button:not(.button--size-compact),
+  .workspace-titlebar-tools
+    > .workspace-panel-group
+    > .toolbar-dropdown-container
+    > .button:not(.button--size-compact) {
     width: var(--button-height);
     min-width: var(--button-height);
     padding-inline: 0;
@@ -352,6 +359,36 @@
 
 .workspace-header-right {
   justify-self: end;
+}
+
+/* The classic toolbar sits below the titlebar, so it needs its own compact
+   breakpoint. At a 220px sidebar and a narrow workspace, retaining text on the
+   three centre modes lets them cover the last panel control in the left group.
+   Keep each mode's icon and active underline while making room for both sides. */
+@media (max-width: 1100px) {
+  .workspace-header .workspace-mode-label {
+    display: none;
+  }
+
+  .workspace-header .workspace-tab.button {
+    gap: 0;
+    padding-inline: var(--spacing-sm);
+  }
+
+  .workspace-header-left .workspace-panel-group {
+    gap: var(--spacing-2xs);
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace-header {
+    gap: var(--spacing-xs);
+    padding-inline: var(--spacing-sm);
+  }
+
+  .workspace-header .workspace-tab.button {
+    padding-inline: var(--spacing-xs);
+  }
 }
 
 @media (max-width: 1600px) {

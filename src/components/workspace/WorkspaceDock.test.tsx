@@ -1,8 +1,8 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceDock } from './WorkspaceDock';
 import { DockablePanel } from '../primitives/DockablePanel';
@@ -136,6 +136,80 @@ function ApplyLayout({ layout }: { layout: unknown }) {
     setLayout(layout as Parameters<typeof setLayout>[0]);
   }, [layout, setLayout]);
   return null;
+}
+
+function LinkedPanelControls({ onMountEditor }: { onMountEditor: () => void }) {
+  const dock = usePanelDock();
+  return (
+    <>
+      <button type="button" onClick={() => dock.setSinglePanelModeEnabled(true)}>
+        Link panels
+      </button>
+      <button type="button" onClick={() => dock.setActivePanel('variables')}>
+        Select Variables
+      </button>
+      <button type="button" onClick={() => dock.setActivePanel('navigator')}>
+        Select Elements
+      </button>
+      <button type="button" onClick={() => dock.setActivePanel('team')}>
+        Select Team
+      </button>
+      <button
+        type="button"
+        onClick={() => dock.setDocked('team', dock.layout.floating.includes('team'))}
+      >
+        Toggle Team pin
+      </button>
+      <button type="button" onClick={onMountEditor}>
+        Open Editor
+      </button>
+      <button type="button" onClick={() => dock.setSinglePanelModeEnabled(false)}>
+        Unlink panels
+      </button>
+    </>
+  );
+}
+
+function linkedRailTree() {
+  return <LinkedPanelWorkspace />;
+}
+
+function LinkedPanelWorkspace() {
+  const [editorMounted, setEditorMounted] = useState(false);
+  return (
+    <PanelDockProvider projectPath={PROJECT}>
+      <LinkedPanelControls onMountEditor={() => setEditorMounted(true)} />
+      <WorkspaceDock focusMode={false} preview={<div data-testid="preview" />}>
+        <TestPanel panel="agent" />
+        <TestPanel panel="navigator" />
+        <ClosableTestPanel panel="variables" />
+        <TestPanel panel="team" />
+        {editorMounted && <TestPanel panel="editor" />}
+      </WorkspaceDock>
+    </PanelDockProvider>
+  );
+}
+
+function ClosableTestPanel({ panel }: { panel: PanelId }) {
+  const [visible, setVisible] = useState(true);
+  const { setActivePanel } = usePanelDock();
+  return (
+    <>
+      <TestPanel panel={panel} visible={visible} />
+      <button type="button" onClick={() => setVisible(false)}>
+        Close {panel}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setActivePanel(panel);
+          setVisible(true);
+        }}
+      >
+        Open {panel}
+      </button>
+    </>
+  );
 }
 
 class TestPointerEvent extends MouseEvent {
@@ -316,6 +390,123 @@ describe('stacked rendering', () => {
         { panel: 'navigator', weight: 0.75 },
       ],
     });
+  });
+});
+
+describe('linked panel projection', () => {
+  it('shows one open panel at a shared width without changing saved placements', async () => {
+    const layout = v2Layout(
+      [
+        { kind: 'panels', width: 470, panels: [{ panel: 'agent', weight: 1 }] },
+        { kind: 'preview' },
+        { kind: 'panels', width: 330, panels: [{ panel: 'navigator', weight: 1 }] },
+        { kind: 'panels', width: 290, panels: [{ panel: 'variables', weight: 1 }] },
+        { kind: 'panels', width: 560, panels: [{ panel: 'editor', weight: 1 }] },
+      ],
+      ['editor']
+    );
+    localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    const savedBeforeLinking = readProjectLayout(PROJECT);
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
+    expect(document.querySelector('[data-rail-panel="agent"]')).toBeInTheDocument();
+    expect(screen.getByLabelText('agent panel')).not.toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByLabelText('navigator panel')).toHaveAttribute('aria-hidden', 'true');
+    const column = document.querySelector<HTMLElement>('.workspace-dock__column');
+    expect(column).toHaveStyle({ order: '-1', width: '420px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Variables' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
+    expect(document.querySelector('[data-rail-panel="variables"]')).toBeInTheDocument();
+    expect(column).toHaveStyle({ width: '420px' });
+
+    const resizeHandle = screen.getByRole('separator', { name: 'Resize Variables column' });
+    expect(resizeHandle).toHaveAttribute('aria-valuemin', '320');
+    expect(resizeHandle).toHaveAttribute('aria-valuemax', '480');
+    fireEvent.pointerDown(resizeHandle, { pointerId: 3, clientX: 420 });
+    fireEvent.pointerMove(resizeHandle, { pointerId: 3, clientX: 450 });
+    fireEvent.pointerUp(resizeHandle, { pointerId: 3, clientX: 450 });
+    expect(column).toHaveStyle({ width: '450px' });
+
+    fireEvent.keyDown(resizeHandle, {
+      key: 'ArrowRight',
+    });
+    expect(column).toHaveStyle({ width: '460px' });
+    expect(
+      JSON.parse(localStorage.getItem(`shipstudio.panels.linked-width:${PROJECT}`) ?? 'null')
+    ).toBe(460);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close variables' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText('variables panel')).toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Elements' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(1);
+    expect(document.querySelector('[data-rail-panel="navigator"]')).toBeInTheDocument();
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
+      order: '-1',
+      width: '460px',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open variables' }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText('variables panel')).not.toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelector('[data-rail-panel="variables"]')).toBeInTheDocument();
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
+      order: '-1',
+      width: '460px',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Editor' }));
+    await act(async () => Promise.resolve());
+    const editorSurface = screen.getByLabelText('editor panel');
+    expect(editorSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(editorSurface).toHaveClass('dockable-panel__surface--docked');
+    expect(document.querySelector('[data-rail-panel="editor"]')).toBeInTheDocument();
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
+      order: '-1',
+      width: '460px',
+    });
+
+    dragHeader('editor', { x: 900, y: 300 });
+    expect(readProjectLayout(PROJECT)).toEqual(savedBeforeLinking);
+    expect(editorSurface).toHaveClass('dockable-panel__surface--docked');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
+    await act(async () => Promise.resolve());
+    const teamSurface = screen.getByLabelText('team panel');
+    expect(teamSurface).not.toHaveAttribute('aria-hidden', 'true');
+    expect(teamSurface).toHaveClass('dockable-panel__surface--docked');
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({
+      order: '-1',
+      width: '460px',
+    });
+    const teamResizeHandle = screen.getByRole('separator', { name: 'Resize Team column' });
+    expect(teamResizeHandle).toHaveAttribute('aria-valuemin', '320');
+    expect(teamResizeHandle).toHaveAttribute('aria-valuemax', '480');
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Team pin' }));
+    await act(async () => Promise.resolve());
+    expect(readProjectLayout(PROJECT).floating).toContain('team');
+    expect(teamSurface).toHaveClass('dockable-panel__surface--docked');
+    const savedAfterIntentionalFloat = readProjectLayout(PROJECT);
+    dragHeader('team', { x: 900, y: 300 });
+    expect(readProjectLayout(PROJECT)).toEqual(savedAfterIntentionalFloat);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelectorAll('[data-rail-panel]')).toHaveLength(3);
+    expect(editorSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(readProjectLayout(PROJECT)).toEqual(savedAfterIntentionalFloat);
   });
 });
 

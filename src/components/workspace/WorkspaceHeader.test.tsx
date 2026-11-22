@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceHeader, WorkspaceTitlebar, type WorkspaceHeaderProps } from './WorkspaceHeader';
 import { openInFinder } from '../../lib/ide';
@@ -14,6 +16,10 @@ vi.mock('../../lib/ide', () => ({
 }));
 
 const projectPath = '/Users/martin/ShipStudio/projects/a-very-long-project-name';
+const workspaceStyles = readFileSync(resolve('src/styles/features/workspace/main.css'), 'utf8');
+const classicToolbarResponsiveStyles = workspaceStyles.slice(
+  workspaceStyles.indexOf('/* The classic toolbar sits below the titlebar')
+);
 
 function headerProps(): WorkspaceHeaderProps {
   return {
@@ -34,6 +40,8 @@ function headerProps(): WorkspaceHeaderProps {
     variablesPanelVisible: false,
     variablesPanelAvailable: true,
     onToggleVariablesPanel: vi.fn(),
+    panelLinkingEnabled: false,
+    onTogglePanelLinking: vi.fn(),
     integrations: {
       github: { cliStatus: { installed: false, authenticated: false }, username: null },
       projectGithub: null,
@@ -216,6 +224,38 @@ describe('WorkspaceHeader title bar', () => {
     expect(screen.getByRole('button', { name: 'Assets' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Branches' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Push' })).toBeDisabled();
+  });
+
+  it('places a ghost panel-link toggle at the end of the workspace panel group', () => {
+    const props = headerProps();
+    const { container } = render(<TitlebarHarness props={props} />);
+    const group = container.querySelector('.workspace-panel-group');
+    const button = screen.getByRole('button', { name: 'Link workspace panels' });
+
+    expect(button).toHaveClass(
+      'button--ghost',
+      'button--size-compact',
+      'button--icon-only',
+      'workspace-panel-link-toggle'
+    );
+    expect(button.querySelector('svg')).toBeInTheDocument();
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(group?.lastElementChild).toBe(button);
+
+    fireEvent.click(button);
+    expect(props.onTogglePanelLinking).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the classic mode tabs room before they can cover workspace controls', () => {
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 1100px\)[\s\S]*?\.workspace-header \.workspace-mode-label\s*\{\s*display: none;/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /\.workspace-header-left \.workspace-panel-group\s*\{\s*gap: var\(--spacing-2xs\);/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.workspace-header\s*\{\s*gap: var\(--spacing-xs\);\s*padding-inline: var\(--spacing-sm\);/
+    );
   });
 
   it('explains that Elements is intentionally hidden while in Focus mode', () => {

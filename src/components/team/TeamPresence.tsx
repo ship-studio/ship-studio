@@ -51,6 +51,7 @@ interface TeamPresenceProps {
    */
   openComments: number;
   panelOpen: boolean;
+  panelSelected?: boolean;
   onTogglePanel: () => void;
   now: number;
 }
@@ -60,10 +61,12 @@ export function TeamPresence({
   unseenCount,
   openComments,
   panelOpen,
+  panelSelected,
   onTogglePanel,
   now,
 }: TeamPresenceProps) {
   const teammates = activeTeammates(members);
+  const panelActive = panelOpen && (panelSelected ?? true);
   const shown = teammates.slice(0, MAX_FACES);
   const overflow = teammates.length - shown.length;
 
@@ -87,9 +90,9 @@ export function TeamPresence({
   return (
     <span className="team-presence-wrap">
       <ToggleButton
-        variant={panelOpen ? 'secondary' : 'default'}
+        variant={panelActive ? 'secondary' : 'default'}
         className="workspace-panel-toggle team-presence"
-        pressed={panelOpen}
+        pressed={panelActive}
         onClick={onTogglePanel}
         title={alone ? aloneTitle(openComments) : summary}
         leftIcon={<CollaboratorsIcon size={16} />}
@@ -100,6 +103,7 @@ export function TeamPresence({
               ? `Team: ${teammates.length} others, ${unseenCount} new`
               : `Team: ${teammates.length} others`
         }
+        data-workspace-panel="team"
       >
         {alone ? (
           // No faces rather than your own: a stack of one is a picture of

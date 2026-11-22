@@ -23,6 +23,7 @@ import {
   PANEL_META,
   columnWidthOf,
   columnWidthBounds,
+  findPanelPlacement,
   isDocked,
   sideOf,
   type PanelColumn,
@@ -31,11 +32,17 @@ import {
 } from '../../lib/workspaceLayout';
 import {
   readProjectFocusSplitRatio,
+  readProjectLinkedPanelWidth,
+  writeProjectLinkedPanelWidth,
   writeProjectFocusSplitRatio,
 } from '../../lib/workspaceLayoutStore';
 import { focusSplitBounds, focusSplitRatio, focusSplitWidth } from '../../lib/workspaceFocusSplit';
 
 const MAX_DOCKED_FRACTION = 0.75;
+const LINKED_PANEL_BOUNDS = columnWidthBounds({
+  kind: 'panels',
+  panels: PANEL_IDS.map((panel) => ({ panel, weight: 1 })),
+});
 
 interface WorkspaceDockProps {
   preview: ReactNode;
@@ -47,21 +54,53 @@ interface RenderPanelColumn {
   sourceIndex: number;
   column: PanelColumn;
   panels: PanelPlacement[];
+  linkedPanelMode?: boolean;
+  displaySide?: 'left' | 'right';
 }
 
 export function WorkspaceDock({ preview, focusMode = false, children }: WorkspaceDockProps) {
-  const { projectPath, layout, measureRef, previewFullscreen, setDragDisabled, slots } =
-    usePanelDock();
+  const {
+    projectPath,
+    layout,
+    measureRef,
+    previewFullscreen,
+    setDragDisabled,
+    slots,
+    singlePanelModeEnabled,
+    activePanel,
+    setActivePanel,
+  } = usePanelDock();
   const present = usePresentPanels();
   const railRef = useRef<HTMLDivElement>(null);
   const [railWidth, setRailWidth] = useState(0);
   const presentSet = new Set(present);
   if (focusMode) presentSet.add('agent');
+  const linkedPanelCandidates = PANEL_IDS.filter((panel) => presentSet.has(panel));
+  const activeLinkedPanel =
+    singlePanelModeEnabled && !focusMode
+      ? activePanel === null
+        ? (linkedPanelCandidates[0] ?? null)
+        : presentSet.has(activePanel)
+          ? activePanel
+          : null
+      : null;
 
   useLayoutEffect(() => {
-    setDragDisabled(focusMode);
+    if (
+      !singlePanelModeEnabled ||
+      focusMode ||
+      activePanel !== null ||
+      activeLinkedPanel === null
+    ) {
+      return;
+    }
+    setActivePanel(activeLinkedPanel);
+  }, [activeLinkedPanel, activePanel, focusMode, setActivePanel, singlePanelModeEnabled]);
+
+  useLayoutEffect(() => {
+    setDragDisabled(focusMode || singlePanelModeEnabled);
     return () => setDragDisabled(false);
-  }, [focusMode, setDragDisabled]);
+  }, [focusMode, setDragDisabled, singlePanelModeEnabled]);
 
   useLayoutEffect(() => {
     const rail = railRef.current;
@@ -88,11 +127,15 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
   }, [slots]);
 
   const renderColumns: (RenderPanelColumn | { sourceIndex: number; preview: true })[] = [];
+  const linkedPlacement = activeLinkedPanel
+    ? findPanelPlacement(layout, activeLinkedPanel)?.placement
+    : undefined;
   for (const [sourceIndex, column] of layout.columns.entries()) {
     if (column.kind === 'preview') {
       renderColumns.push({ sourceIndex, preview: true });
       continue;
     }
+    if (singlePanelModeEnabled && !focusMode) continue;
     if (focusMode && !column.panels.some((placement) => placement.panel === 'agent')) continue;
     const panels = column.panels.filter(
       (placement) =>
@@ -100,6 +143,18 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
         (focusMode ? placement.panel === 'agent' : isDocked(layout, placement.panel))
     );
     if (panels.length > 0) renderColumns.push({ sourceIndex, column, panels });
+  }
+  if (singlePanelModeEnabled && !focusMode && activeLinkedPanel && linkedPlacement) {
+    // Linked mode is a temporary projection: all panels share one stable slot
+    // at the far left of the rail, regardless of their saved dock/float state
+    // or their position in the ordinary layout.
+    renderColumns.unshift({
+      sourceIndex: -1,
+      column: { kind: 'panels', panels: [linkedPlacement] },
+      panels: [linkedPlacement],
+      linkedPanelMode: true,
+      displaySide: 'left',
+    });
   }
 
   useEffect(() => {
@@ -208,12 +263,14 @@ export function WorkspaceDock({ preview, focusMode = false, children }: Workspac
           this protects an iframe from being physically reparented/reloaded. */}
       {panelColumns.map((column) => (
         <WorkspaceDockColumn
-          key={`column-${column.sourceIndex}`}
+          key={column.linkedPanelMode ? 'linked-panel-column' : `column-${column.sourceIndex}`}
           sourceIndex={column.sourceIndex}
           column={column.column}
           panels={column.panels}
           dockedColumnCount={dockedColumnCount}
           focusMode={focusMode}
+          linkedPanelMode={column.linkedPanelMode ?? false}
+          displaySideOverride={column.displaySide}
           focusRailWidth={railWidth}
           projectPath={projectPath}
         />
@@ -249,6 +306,8 @@ interface WorkspaceDockColumnProps {
   panels: PanelPlacement[];
   dockedColumnCount: number;
   focusMode: boolean;
+  linkedPanelMode: boolean;
+  displaySideOverride?: 'left' | 'right';
   focusRailWidth: number;
   projectPath: string;
 }
@@ -259,6 +318,8 @@ function WorkspaceDockColumn({
   panels,
   dockedColumnCount,
   focusMode,
+  linkedPanelMode,
+  displaySideOverride,
   focusRailWidth,
   projectPath,
 }: WorkspaceDockColumnProps) {
@@ -301,18 +362,19 @@ function WorkspaceDockColumn({
     weightsRef.current = next;
   }, [signature]);
 
-  const columnBounds = columnWidthBounds(column);
+  const columnBounds = linkedPanelMode ? LINKED_PANEL_BOUNDS : columnWidthBounds(column);
   const preferredWidth = Math.max(
     columnBounds.defaultWidth,
     ...panels.map(
       (placement) => preferredWidths[placement.panel] ?? PANEL_META[placement.panel].defaultWidth
     )
   );
-  const fallbackWidth = Math.max(
-    columnBounds.minWidth,
-    Math.min(columnBounds.maxWidth, preferredWidth)
-  );
-  const committedWidth = columnWidthOf(layout, sourceIndex, fallbackWidth);
+  const fallbackWidth = linkedPanelMode
+    ? readProjectLinkedPanelWidth(projectPath)
+    : Math.max(columnBounds.minWidth, Math.min(columnBounds.maxWidth, preferredWidth));
+  const committedWidth = linkedPanelMode
+    ? Math.max(columnBounds.minWidth, Math.min(columnBounds.maxWidth, fallbackWidth))
+    : columnWidthOf(layout, sourceIndex, fallbackWidth);
   const [width, setWidth] = useState(committedWidth);
   const widthRef = useRef(committedWidth);
   const resizeStartWidthRef = useRef(committedWidth);
@@ -373,10 +435,15 @@ function WorkspaceDockColumn({
 
   const minWidth = focusMode
     ? focusBounds.minWidth
-    : Math.max(...panels.map((placement) => PANEL_META[placement.panel].minWidth));
+    : linkedPanelMode
+      ? LINKED_PANEL_BOUNDS.minWidth
+      : Math.max(...panels.map((placement) => PANEL_META[placement.panel].minWidth));
   const maxWidthForColumn = focusMode
     ? focusBounds.maxWidth
-    : Math.min(...panels.map((placement) => PANEL_META[placement.panel].maxWidth));
+    : linkedPanelMode
+      ? LINKED_PANEL_BOUNDS.maxWidth
+      : Math.min(...panels.map((placement) => PANEL_META[placement.panel].maxWidth));
+  const displaySide = focusMode ? 'left' : (displaySideOverride ?? sideOf(layout, panels[0].panel));
   const maxWidth = useCallback(() => {
     if (focusMode) return focusBounds.maxWidth;
     const railWidth = railColumnRef.current?.parentElement?.clientWidth ?? 0;
@@ -393,11 +460,10 @@ function WorkspaceDockColumn({
     (clientX: number) => {
       const rect = railColumnRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const displaySide = focusMode ? 'left' : sideOf(layout, panels[0].panel);
       const next = displaySide === 'left' ? clientX - rect.left : rect.right - clientX;
       setLocalWidth(clampWidth(next));
     },
-    [clampWidth, focusMode, layout, panels, setLocalWidth]
+    [clampWidth, displaySide, setLocalWidth]
   );
   const resizeWidthBy = useCallback(
     (delta: number) => {
@@ -407,10 +473,23 @@ function WorkspaceDockColumn({
       setLocalWidth(next);
       if (focusMode) {
         writeProjectFocusSplitRatio(projectPath, focusSplitRatio(next, focusRailWidth));
-        window.dispatchEvent(new Event('resize'));
+      } else if (linkedPanelMode) {
+        writeProjectLinkedPanelWidth(projectPath, next);
+      } else {
+        setColumnWidth(sourceIndex, next);
       }
+      window.dispatchEvent(new Event('resize'));
     },
-    [clampWidth, focusMode, focusRailWidth, projectPath, setLocalWidth]
+    [
+      clampWidth,
+      focusMode,
+      focusRailWidth,
+      linkedPanelMode,
+      projectPath,
+      setColumnWidth,
+      setLocalWidth,
+      sourceIndex,
+    ]
   );
   const commitWidth = useCallback(
     (dragging: boolean) => {
@@ -424,12 +503,13 @@ function WorkspaceDockColumn({
           setFocusRatioOverride({ projectPath, ratio });
           writeProjectFocusSplitRatio(projectPath, ratio);
         }
-      } else {
+      } else if (!linkedPanelMode) {
         setColumnWidth(sourceIndex, widthRef.current);
       }
+      if (linkedPanelMode) writeProjectLinkedPanelWidth(projectPath, widthRef.current);
       window.dispatchEvent(new Event('resize'));
     },
-    [focusMode, focusRailWidth, projectPath, setColumnWidth, sourceIndex]
+    [focusMode, focusRailWidth, linkedPanelMode, projectPath, setColumnWidth, sourceIndex]
   );
 
   const updatePair = useCallback(
@@ -501,7 +581,6 @@ function WorkspaceDockColumn({
     );
   };
 
-  const displaySide = focusMode ? 'left' : sideOf(layout, panels[0].panel);
   const displayOrder = focusMode ? 0 : sourceIndex;
 
   return (

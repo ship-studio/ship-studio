@@ -144,6 +144,8 @@ ratios, per-project Team open state):
 | `shipstudio.layout.default` | The layout new projects start from |
 | `shipstudio.layout.project:<path>` | This project's arrangement, written only once you change something here |
 | `shipstudio.layout.scope` | `project` (default) or `global`, selected in the Panel Layout menu |
+| `shipstudio.panels.linked-width:<path>` | The shared docked width while linked-panel mode is on |
+| `shipstudio.panels.linked` | App-wide preference to show one workspace panel at a time |
 
 Not `.shipstudio/project.json`. That file is inside the repository and is meant
 for things the *project* has — its hosting link. A pane width is something a
@@ -190,6 +192,34 @@ restores the arrangement the user had before entering it.
 
 This is separate from the Panel Layout menu's **Focus** preset below. That
 preset still writes an ordinary, editable layout.
+
+## Linked panel mode
+
+The element-link button beside the workspace panel buttons switches between
+independent panels and a single-panel projection. Agent, Team, Variables, Edit
+and Elements share one dock slot at the far left of the workspace rail. The
+slot stays in the same place regardless of the selected panel's saved column,
+side or docked/floating state. Selecting a floating panel docks it temporarily
+in that shared slot; unlinking restores its saved placement.
+
+The first open panel is selected when there is no current selection. Selecting
+another open panel switches to it; selecting a closed panel opens and selects
+it. Opening a newly mounted panel, such as Edit, selects it as well. Closing the
+selected panel can leave the shared slot empty until another panel is selected
+or opened. Other panels keep their own open state while hidden, so unlinking
+restores them.
+
+The shared width is independent of the selected panel and uses the intersection
+of all five panels' width bounds: 320–480px, with a default of 420px. Resizing it
+saves `shipstudio.panels.linked-width:<path>` for that project. Dragging panel
+headers is disabled while the temporary projection is active. Pin/float
+controls and commands still change the saved layout preference; that preference
+takes effect when the panels are unlinked. The projection itself does not
+rewrite saved columns or docked widths.
+
+Topbar Focus takes precedence while active and continues to show Agent beside
+the selected Preview or Code surface. The linked-panel preference resumes when
+Focus is left.
 
 ## Presets
 

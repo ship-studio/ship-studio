@@ -86,6 +86,10 @@ export function useTeamWorkspace(
     activeAgentId?: number | null;
     /** Why element picking is unavailable right now, if it is. */
     pickerHint?: string | null;
+    /** Routes the toolbar click through the active linked-panel projection. */
+    onPanelToggle?: (isOpen: boolean, toggle: () => void) => void;
+    /** Whether this open panel is the one currently projected into the rail. */
+    panelSelected?: boolean;
   }
 ) {
   const { path: projectPath } = project;
@@ -340,7 +344,10 @@ export function useTeamWorkspace(
         unseenCount={unseenUpdates(snapshot).length}
         openComments={snapshot.threads.filter((thread) => !thread.resolved).length}
         panelOpen={open}
-        onTogglePanel={toggle}
+        panelSelected={handoff?.panelSelected}
+        onTogglePanel={() =>
+          handoff?.onPanelToggle ? handoff.onPanelToggle(open, toggle) : toggle()
+        }
         now={now}
       />
     ),

@@ -21,6 +21,12 @@
   align-items: center;
 }
 
+@media (max-width: 900px) {
+  .workspace-header .team-presence-faces {
+    display: none;
+  }
+}
+
 /* Every face gets the ring, not just the overlapped ones. Ringing only
    `+ .team-avatar` left the first face bare and the rest outlined, which reads
    as one avatar being a different kind of thing to its neighbours. */

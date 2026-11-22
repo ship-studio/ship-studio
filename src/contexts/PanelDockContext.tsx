@@ -42,6 +42,7 @@ import {
 } from '../lib/dockDrag';
 import {
   PANEL_META,
+  PANEL_IDS,
   PREVIEW,
   moveColumn as moveColumnInLayout,
   moveColumnToGap as moveColumnToGapInLayout,
@@ -71,6 +72,7 @@ import {
   writeProjectLayout,
   type LayoutScope,
 } from '../lib/workspaceLayoutStore';
+import { useLocalStorageFlag } from '../hooks/useLocalStorageFlag';
 
 export interface Point {
   x: number;
@@ -234,6 +236,13 @@ interface PanelDockValue {
   layout: WorkspaceLayout;
   /** Temporary topbar Focus projection; it never changes the saved layout. */
   focusMode: boolean;
+  /** Show at most one open workspace panel without changing their open state. */
+  singlePanelModeEnabled: boolean;
+  /** The panel currently selected by the single-panel projection. */
+  activePanel: PanelId | null;
+  setActivePanel: (panel: PanelId | null) => void;
+  setSinglePanelModeEnabled: (enabled: boolean) => void;
+  toggleSinglePanelMode: () => void;
   /** Whether layout edits belong to this project or every project. */
   layoutScope: LayoutScope;
   /** True once this project has an arrangement of its own, rather than following the default. */
@@ -317,6 +326,11 @@ export function PanelDockProvider({
     () => layoutScope === 'project' && hasProjectLayout(projectPath)
   );
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [singlePanelModeEnabled, setSinglePanelModePreference] = useLocalStorageFlag(
+    'shipstudio.panels.linked',
+    false
+  );
+  const [activePanel, setActivePanel] = useState<PanelId | null>(null);
 
   // Re-read when the project changes, with React's "adjust state during render"
   // pattern rather than an effect: an effect renders one frame of the previous
@@ -326,6 +340,7 @@ export function PanelDockProvider({
     setPathOfLayout(projectPath);
     setLayoutState(layoutScope === 'global' ? readDefaultLayout() : readProjectLayout(projectPath));
     setIsCustomised(layoutScope === 'project' && hasProjectLayout(projectPath));
+    setActivePanel(null);
   }
 
   const slots = useMemo(() => new SlotRegistry(), []);
@@ -334,6 +349,25 @@ export function PanelDockProvider({
   const drag = useMemo(() => new DragStore(), []);
   const dragDisabledRef = useRef(false);
   const measureRef = useRef<(() => RailGeometry) | null>(null);
+
+  const setSinglePanelMode = useCallback(
+    (enabled: boolean) => {
+      if (enabled) {
+        const present = presence.get();
+        setActivePanel((current) =>
+          current && present.includes(current)
+            ? current
+            : (PANEL_IDS.find((panel) => present.includes(panel)) ?? null)
+        );
+      }
+      setSinglePanelModePreference(enabled);
+    },
+    [presence, setSinglePanelModePreference]
+  );
+  const toggleSinglePanelMode = useCallback(
+    () => setSinglePanelMode(!singlePanelModeEnabled),
+    [setSinglePanelMode, singlePanelModeEnabled]
+  );
 
   /**
    * Every change goes through here, and every change writes.
@@ -589,6 +623,11 @@ export function PanelDockProvider({
       projectPath,
       layout,
       focusMode,
+      singlePanelModeEnabled,
+      activePanel,
+      setActivePanel,
+      setSinglePanelModeEnabled: setSinglePanelMode,
+      toggleSinglePanelMode,
       layoutScope,
       isCustomised,
       differsFromDefault: !layoutsEqual(layout, defaultLayout),
@@ -626,6 +665,11 @@ export function PanelDockProvider({
       projectPath,
       layout,
       focusMode,
+      singlePanelModeEnabled,
+      activePanel,
+      setActivePanel,
+      setSinglePanelMode,
+      toggleSinglePanelMode,
       layoutScope,
       isCustomised,
       defaultLayout,
@@ -714,9 +758,10 @@ export function usePanelDockBinding(
   const onDragMove = useCallback((point: Point) => context?.updateDrag(point), [context]);
   const onDragEnd = useCallback((point: Point) => context?.endDrag(point) ?? false, [context]);
   const onDragCancel = useCallback(() => context?.cancelDrag(), [context]);
+  const presence = context?.presence;
   const setPresent = useCallback(
-    (present: boolean) => id && context?.presence.set(id, present),
-    [context, id]
+    (present: boolean) => id && presence?.set(id, present),
+    [id, presence]
   );
   const subscribeGeometry = context?.slots.subscribeGeometry;
   const setDefaultWidth = useCallback(
@@ -745,6 +790,9 @@ export function usePanelDockBinding(
         ? {
             panel: id,
             focusMode: context.focusMode,
+            singlePanelModeEnabled: context.singlePanelModeEnabled,
+            activePanel: context.activePanel,
+            setActivePanel: context.setActivePanel,
             slotElement,
             layoutKey,
             onDragStart,
@@ -780,6 +828,12 @@ export interface PanelDockBinding {
   panel: PanelId;
   /** Whether temporary topbar Focus is projecting the workspace rail. */
   focusMode: boolean;
+  /** Whether linked-panel mode is limiting workspace visibility. */
+  singlePanelModeEnabled: boolean;
+  /** Which open panel linked-panel mode currently displays. */
+  activePanel: PanelId | null;
+  /** Select this panel while linked-panel mode is on. */
+  setActivePanel: (panel: PanelId | null) => void;
   /** Where to portal the placeholder, or null to leave it inline. */
   slotElement: HTMLElement | null;
   /** Changes whenever the arrangement does, so a moved slot is re-measured. */

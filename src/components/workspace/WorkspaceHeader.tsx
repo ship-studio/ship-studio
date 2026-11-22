@@ -34,6 +34,7 @@ import {
   AgentsIcon,
   BellIcon,
   ElementsIcon,
+  ElementLinkIcon,
   FolderOpenIcon,
   HomeIcon,
   ImageIcon,
@@ -87,6 +88,8 @@ export interface WorkspaceHeaderProps {
   variablesPanelVisible: boolean;
   variablesPanelAvailable: boolean;
   onToggleVariablesPanel: () => void;
+  panelLinkingEnabled: boolean;
+  onTogglePanelLinking: () => void;
 
   // Extra dropdown node rendered after Assets in the left cluster. Currently
   // used for the Plugins dropdown. Provided as a
@@ -306,6 +309,8 @@ export function WorkspaceHeader({
   variablesPanelVisible,
   variablesPanelAvailable,
   onToggleVariablesPanel,
+  panelLinkingEnabled,
+  onTogglePanelLinking,
   headerExtras,
   teamPresence,
   layoutMenu,
@@ -527,6 +532,21 @@ export function WorkspaceHeader({
       />
       {teamPresence}
       {headerExtras}
+      <IconButton
+        variant="ghost"
+        size="compact"
+        className="workspace-panel-link-toggle"
+        icon={<ElementLinkIcon size={15} />}
+        onClick={onTogglePanelLinking}
+        title={
+          panelLinkingEnabled
+            ? 'Allow multiple workspace panels at once'
+            : 'Show one workspace panel at a time'
+        }
+        aria-label="Link workspace panels"
+        aria-pressed={panelLinkingEnabled}
+        data-panel-linking-toggle
+      />
     </div>
   );
   const projectTitle = (

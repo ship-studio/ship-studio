@@ -515,6 +515,34 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     }
     setIsAgentPanelHidden(!isAgentPanelHidden);
   }, [isAgentPanelHidden, setIsPreviewHidden]);
+  const { activePanel, setActivePanel, singlePanelModeEnabled } = dock;
+  const toggleWorkspacePanel = useCallback(
+    (panel: 'agent' | 'navigator' | 'variables' | 'team', isOpen: boolean, toggle: () => void) => {
+      setActivePanel(panel);
+      if (singlePanelModeEnabled && activePanel !== panel) {
+        if (!isOpen) toggle();
+        return;
+      }
+      toggle();
+    },
+    [activePanel, setActivePanel, singlePanelModeEnabled]
+  );
+  const toggleAgentPanelFromToolbar = useCallback(
+    () => toggleWorkspacePanel('agent', !isAgentPanelHidden, toggleAgentPanel),
+    [isAgentPanelHidden, toggleAgentPanel, toggleWorkspacePanel]
+  );
+  const toggleElementTreeFromToolbar = useCallback(
+    () => toggleWorkspacePanel('navigator', elementTreeVisible, toggleElementTree),
+    [elementTreeVisible, toggleElementTree, toggleWorkspacePanel]
+  );
+  const toggleVariablesPanelFromToolbar = useCallback(
+    () => toggleWorkspacePanel('variables', variables.open, variables.toggle),
+    [toggleWorkspacePanel, variables.open, variables.toggle]
+  );
+  const handleTeamPanelToggle = useCallback(
+    (isOpen: boolean, toggle: () => void) => toggleWorkspacePanel('team', isOpen, toggle),
+    [toggleWorkspacePanel]
+  );
   const handleSelectPreview = useCallback(() => {
     void handleStartDevServer();
   }, [handleStartDevServer]);
@@ -530,8 +558,9 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
   useLayoutCommands();
 
   useWorkspacePanelCommands({
-    isAgentPanelHidden,
-    toggleAgentPanel,
+    isAgentPanelHidden:
+      isAgentPanelHidden || (dock.singlePanelModeEnabled && dock.activePanel !== 'agent'),
+    toggleAgentPanel: toggleAgentPanelFromToolbar,
     agentPanelDocked,
     toggleAgentPanelDocked,
     elementTreeDocked,
@@ -539,8 +568,11 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     variablesPanelDocked,
     toggleVariablesPanelDocked,
     isWebProject,
-    variablesPanelOpen: variables.open,
-    toggleVariablesPanel: variables.toggle,
+    variablesPanelOpen:
+      variables.open && (!dock.singlePanelModeEnabled || dock.activePanel === 'variables'),
+    toggleVariablesPanel: toggleVariablesPanelFromToolbar,
+    panelLinkingEnabled: dock.singlePanelModeEnabled,
+    togglePanelLinking: dock.toggleSinglePanelMode,
     showPreviewLogs,
     togglePreviewLogs,
   });
@@ -666,6 +698,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     setIsPreviewHidden,
     setWorkspaceTab,
     startDevServer: handleStartDevServer,
+    onTeamPanelToggle: handleTeamPanelToggle,
+    teamPanelSelected: !dock.singlePanelModeEnabled || dock.activePanel === 'team',
   });
 
   useWorkspaceTerminalShortcuts({
@@ -736,14 +770,19 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     onOpenAssetsPanel: assetsPanelModal.open,
     assetsPanelVisible: assetsPanelModal.isOpen,
     isFocusMode: isPreviewHidden,
-    elementTreeVisible: elementTreePanelVisible,
+    elementTreeVisible:
+      elementTreePanelVisible && (!dock.singlePanelModeEnabled || dock.activePanel === 'navigator'),
     elementTreeAvailable,
-    onToggleElementTree: toggleElementTree,
-    agentPanelVisible: !isAgentPanelHidden,
-    onToggleAgentPanel: toggleAgentPanel,
-    variablesPanelVisible: variables.open,
+    onToggleElementTree: toggleElementTreeFromToolbar,
+    agentPanelVisible:
+      !isAgentPanelHidden && (!dock.singlePanelModeEnabled || dock.activePanel === 'agent'),
+    onToggleAgentPanel: toggleAgentPanelFromToolbar,
+    variablesPanelVisible:
+      variables.open && (!dock.singlePanelModeEnabled || dock.activePanel === 'variables'),
     variablesPanelAvailable: isWebProject,
-    onToggleVariablesPanel: variables.toggle,
+    onToggleVariablesPanel: toggleVariablesPanelFromToolbar,
+    panelLinkingEnabled: dock.singlePanelModeEnabled,
+    onTogglePanelLinking: dock.toggleSinglePanelMode,
     layoutMenu: <WorkspaceLayoutMenu />,
     teamPresence: team.presence,
     modes: modesNode,
