@@ -56,6 +56,7 @@ import {
   nudgePanel,
   setFloating,
   setPanelWidth,
+  findPanelPlacement,
   type LayoutPreset,
   type PanelId,
   type RailItem,
@@ -70,6 +71,7 @@ import {
   writeDefaultLayout,
   writeLayoutScope,
   writeProjectLayout,
+  writeProjectLinkedPanelWidth,
   type LayoutScope,
 } from '../lib/workspaceLayoutStore';
 import { useLocalStorageFlag } from '../hooks/useLocalStorageFlag';
@@ -261,6 +263,9 @@ interface PanelDockValue {
   setActivePanel: (panel: PanelId | null) => void;
   setSinglePanelModeEnabled: (enabled: boolean) => void;
   toggleSinglePanelMode: () => void;
+  /** Temporary rendered width carried across a linked-mode transition. */
+  panelWidthHandoff: PanelWidthHandoff | null;
+  clearPanelWidthHandoff: () => void;
   /** Whether layout edits belong to this project or every project. */
   layoutScope: LayoutScope;
   /** True once this project has an arrangement of its own, rather than following the default. */
@@ -327,6 +332,37 @@ function columnHint(layout: WorkspaceLayout, columnIndex: number | null): string
   return panel ? `before ${PANEL_META[panel].label}` : 'here';
 }
 
+interface PanelWidthHandoff {
+  projectPath: string;
+  panel: PanelId;
+  width: number;
+}
+
+function renderedPanelWidth(panel: PanelId, layout: WorkspaceLayout): number {
+  if (typeof document !== 'undefined') {
+    const slot = Array.from(document.querySelectorAll<HTMLElement>('[data-rail-panel]')).find(
+      (element) => element.dataset.railPanel === panel
+    );
+    const column = slot?.closest<HTMLElement>('.workspace-dock__column');
+    const surface = Array.from(
+      document.querySelectorAll<HTMLElement>('.dockable-panel__surface[data-panel-id]')
+    ).find((element) => element.dataset.panelId === panel);
+    const isFloating = surface?.classList.contains('dockable-panel__surface--floating');
+    const elements = isFloating ? [surface, column] : [column, surface];
+    for (const element of elements) {
+      if (!element) continue;
+      const measured = element.getBoundingClientRect().width;
+      if (measured > 0 && Number.isFinite(measured)) return Math.round(measured);
+      const styled = Number.parseFloat(element.style.width);
+      if (styled > 0 && Number.isFinite(styled)) return Math.round(styled);
+    }
+  }
+
+  const placement = findPanelPlacement(layout, panel);
+  const savedWidth = placement?.column.width;
+  return savedWidth && savedWidth > 0 ? Math.round(savedWidth) : PANEL_META[panel].defaultWidth;
+}
+
 export function PanelDockProvider({
   projectPath,
   focusMode = false,
@@ -350,6 +386,7 @@ export function PanelDockProvider({
     false
   );
   const [activePanel, setActivePanelState] = useState<PanelId | null>(null);
+  const [panelWidthHandoff, setPanelWidthHandoff] = useState<PanelWidthHandoff | null>(null);
 
   // Re-read when the project changes, with React's "adjust state during render"
   // pattern rather than an effect: an effect renders one frame of the previous
@@ -360,6 +397,7 @@ export function PanelDockProvider({
     setLayoutState(layoutScope === 'global' ? readDefaultLayout() : readProjectLayout(projectPath));
     setIsCustomised(layoutScope === 'project' && hasProjectLayout(projectPath));
     setActivePanelState(null);
+    setPanelWidthHandoff(null);
   }
 
   const slots = useMemo(() => new SlotRegistry(), []);
@@ -370,20 +408,43 @@ export function PanelDockProvider({
   const dragDisabledRef = useRef(false);
   const measureRef = useRef<(() => RailGeometry) | null>(null);
 
+  const clearPanelWidthHandoff = useCallback(() => setPanelWidthHandoff(null), []);
   const setSinglePanelMode = useCallback(
     (enabled: boolean) => {
+      if (enabled === singlePanelModeEnabled) return;
+      const present = presence.get();
       if (enabled) {
-        const present = presence.get();
         const selected =
           activePanel && present.includes(activePanel)
             ? activePanel
             : (PANEL_IDS.find((panel) => present.includes(panel)) ?? null);
-        if (selected && !focusMode) closeHandlers.closeOthers(selected);
+        if (selected && !focusMode) {
+          writeProjectLinkedPanelWidth(projectPath, renderedPanelWidth(selected, layout));
+          closeHandlers.closeOthers(selected);
+        }
+        setPanelWidthHandoff(null);
         setActivePanelState(selected);
+      } else {
+        const selected = activePanel && present.includes(activePanel) ? activePanel : null;
+        if (selected && !focusMode) {
+          const currentWidth = renderedPanelWidth(selected, layout);
+          setPanelWidthHandoff({ projectPath, panel: selected, width: currentWidth });
+        } else {
+          setPanelWidthHandoff(null);
+        }
       }
       setSinglePanelModePreference(enabled);
     },
-    [activePanel, closeHandlers, focusMode, presence, setSinglePanelModePreference]
+    [
+      activePanel,
+      closeHandlers,
+      focusMode,
+      layout,
+      presence,
+      projectPath,
+      setSinglePanelModePreference,
+      singlePanelModeEnabled,
+    ]
   );
   const setActivePanel = useCallback(
     (panel: PanelId | null) => {
@@ -408,6 +469,7 @@ export function PanelDockProvider({
     (next: WorkspaceLayout) => {
       const normalized = normalizeLayout(next);
       if (layoutsEqual(layout, normalized)) return;
+      clearPanelWidthHandoff();
       setLayoutState(normalized);
       if (layoutScope === 'global') {
         writeDefaultLayout(normalized);
@@ -418,7 +480,7 @@ export function PanelDockProvider({
         setIsCustomised(true);
       }
     },
-    [layout, layoutScope, projectPath]
+    [clearPanelWidthHandoff, layout, layoutScope, projectPath]
   );
 
   /**
@@ -656,6 +718,8 @@ export function PanelDockProvider({
       setActivePanel,
       setSinglePanelModeEnabled: setSinglePanelMode,
       toggleSinglePanelMode,
+      panelWidthHandoff,
+      clearPanelWidthHandoff,
       layoutScope,
       isCustomised,
       differsFromDefault: !layoutsEqual(layout, defaultLayout),
@@ -699,6 +763,8 @@ export function PanelDockProvider({
       setActivePanel,
       setSinglePanelMode,
       toggleSinglePanelMode,
+      panelWidthHandoff,
+      clearPanelWidthHandoff,
       layoutScope,
       isCustomised,
       defaultLayout,
@@ -829,6 +895,13 @@ export function usePanelDockBinding(
             singlePanelModeEnabled: context.singlePanelModeEnabled,
             activePanel: context.activePanel,
             setActivePanel: context.setActivePanel,
+            widthHandoff:
+              context.panelWidthHandoff?.projectPath === context.projectPath &&
+              context.panelWidthHandoff.panel === id
+                ? context.panelWidthHandoff.width
+                : undefined,
+            clearWidthHandoff:
+              context.panelWidthHandoff?.panel === id ? context.clearPanelWidthHandoff : undefined,
             slotElement,
             layoutKey,
             onDragStart,
@@ -872,6 +945,9 @@ export interface PanelDockBinding {
   activePanel: PanelId | null;
   /** Select this panel while linked-panel mode is on. */
   setActivePanel: (panel: PanelId | null) => void;
+  /** Temporary rendered width carried back from linked mode. */
+  widthHandoff?: number;
+  clearWidthHandoff?: () => void;
   /** Where to portal the placeholder, or null to leave it inline. */
   slotElement: HTMLElement | null;
   /** Changes whenever the arrangement does, so a moved slot is re-measured. */

@@ -216,13 +216,18 @@ dragging, docking, floating and presets continue to edit the ordinary saved
 layout while the shared slot keeps its width and geometry. When unlinked, the
 open panel returns to its saved placement in that layout.
 
-The shared width is independent of the selected panel and uses the intersection
-of all five panels' width bounds: 320–480px, with a default of 420px. Resizing it
-saves `shipstudio.panels.linked-width:<path>` for that project. Dragging panel
-headers is disabled while the temporary projection is active. Pin/float
-controls and commands still change the saved layout preference; that preference
-takes effect when the panels are unlinked. The projection itself does not
-rewrite saved columns or docked widths.
+The shared slot starts at the currently rendered panel width. With no open
+panel to measure, it uses the saved shared width or a default of 420px. Panel
+switches keep that width, including widths outside the usual 320–480px shared
+resize range. Resizing saves `shipstudio.panels.linked-width:<path>` for that
+project. On unlink, the selected panel carries the shared width into its
+ordinary docked or floating placement.
+These handoffs are temporary and do not rewrite normal saved widths or
+arrangements. An explicit resize after unlink saves the ordinary width as usual.
+Dragging panel headers is disabled while the temporary projection is active.
+Pin/float controls and commands still change the saved layout preference; that
+preference takes effect when the panels are unlinked. The projection itself
+does not rewrite saved columns or docked widths.
 
 Topbar Focus takes precedence while active and continues to show Agent beside
 the selected Preview or Code surface. Focus preserves the other panels' open

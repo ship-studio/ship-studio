@@ -333,7 +333,7 @@ function WorkspaceDockColumn({
   focusRailWidth,
   projectPath,
 }: WorkspaceDockColumnProps) {
-  const { layout, slots, setColumnWidth, setPanelWeights } = usePanelDock();
+  const { layout, slots, setColumnWidth, setPanelWeights, panelWidthHandoff } = usePanelDock();
   const drag = useDockDrag();
   const preferredWidths = {
     agent: useDefaultWidth('agent'),
@@ -379,12 +379,20 @@ function WorkspaceDockColumn({
       (placement) => preferredWidths[placement.panel] ?? PANEL_META[placement.panel].defaultWidth
     )
   );
-  const fallbackWidth = linkedPanelMode
-    ? readProjectLinkedPanelWidth(projectPath)
-    : Math.max(columnBounds.minWidth, Math.min(columnBounds.maxWidth, preferredWidth));
+  const fallbackWidth = Math.max(
+    columnBounds.minWidth,
+    Math.min(columnBounds.maxWidth, preferredWidth)
+  );
+  const hasWidthHandoff =
+    !linkedPanelMode &&
+    !focusMode &&
+    panelWidthHandoff?.projectPath === projectPath &&
+    column.panels.some((placement) => placement.panel === panelWidthHandoff.panel);
   const committedWidth = linkedPanelMode
-    ? Math.max(columnBounds.minWidth, Math.min(columnBounds.maxWidth, fallbackWidth))
-    : columnWidthOf(layout, sourceIndex, fallbackWidth);
+    ? readProjectLinkedPanelWidth(projectPath)
+    : hasWidthHandoff
+      ? panelWidthHandoff.width
+      : columnWidthOf(layout, sourceIndex, fallbackWidth);
   const [width, setWidth] = useState(committedWidth);
   const widthRef = useRef(committedWidth);
   const resizeStartWidthRef = useRef(committedWidth);
@@ -445,13 +453,13 @@ function WorkspaceDockColumn({
 
   const minWidth = focusMode
     ? focusBounds.minWidth
-    : linkedPanelMode
-      ? LINKED_PANEL_BOUNDS.minWidth
+    : linkedPanelMode || hasWidthHandoff
+      ? Math.min(columnBounds.minWidth, committedWidth)
       : Math.max(...panels.map((placement) => PANEL_META[placement.panel].minWidth));
   const maxWidthForColumn = focusMode
     ? focusBounds.maxWidth
-    : linkedPanelMode
-      ? LINKED_PANEL_BOUNDS.maxWidth
+    : linkedPanelMode || hasWidthHandoff
+      ? Math.max(columnBounds.maxWidth, committedWidth)
       : Math.min(...panels.map((placement) => PANEL_META[placement.panel].maxWidth));
   const displaySide = focusMode ? 'left' : (displaySideOverride ?? sideOf(layout, panels[0].panel));
   const maxWidth = useCallback(() => {

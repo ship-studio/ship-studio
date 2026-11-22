@@ -515,10 +515,6 @@ export function DockablePanel({
     [dock]
   );
 
-  const maxFloatingWidth = Math.max(
-    minFloatingSize.width,
-    window.innerWidth - position.left - VIEWPORT_GUTTER
-  );
   const maxFloatingHeight = Math.max(
     minFloatingSize.height,
     window.innerHeight - position.top - VIEWPORT_GUTTER
@@ -526,26 +522,51 @@ export function DockablePanel({
   // Moving a floating panel can place part of it beyond the viewport. Keep its
   // size unchanged in that case; the resize handles are the only interaction
   // that should change the panel dimensions.
+  const handoffWidth = dock?.widthHandoff;
   const renderedFloatingSize = {
     width: resizable
-      ? Math.max(minFloatingSize.width, floatingPanelSize.width)
+      ? (handoffWidth ?? Math.max(minFloatingSize.width, floatingPanelSize.width))
       : floatingSize.width,
     height: resizable
       ? Math.max(minFloatingSize.height, floatingPanelSize.height)
       : floatingSize.height,
   };
+  const renderedPosition =
+    handoffWidth === undefined
+      ? position
+      : {
+          ...position,
+          left: Math.max(
+            0,
+            Math.min(
+              position.left,
+              window.innerWidth - renderedFloatingSize.width - VIEWPORT_GUTTER
+            )
+          ),
+        };
+  const maxFloatingWidth = Math.max(
+    minFloatingSize.width,
+    window.innerWidth - renderedPosition.left - VIEWPORT_GUTTER
+  );
+
+  const finishWidthHandoff = useCallback(() => {
+    if (!dock?.clearWidthHandoff) return;
+    if (renderedPosition.left !== position.left) {
+      setPosition(renderedPosition);
+      localStorage.setItem(positionKey, JSON.stringify(renderedPosition));
+    }
+    dock.clearWidthHandoff();
+  }, [dock, position.left, positionKey, renderedPosition]);
 
   const resizeFloatingWidth = useCallback(
     (width: number) => {
+      finishWidthHandoff();
       updateFloatingSize({
-        width: Math.max(
-          minFloatingSize.width,
-          Math.min(width, window.innerWidth - position.left - VIEWPORT_GUTTER)
-        ),
+        width: Math.max(minFloatingSize.width, Math.min(width, maxFloatingWidth)),
         height: floatingPanelSizeRef.current.height,
       });
     },
-    [minFloatingSize.width, position.left, updateFloatingSize]
+    [finishWidthHandoff, maxFloatingWidth, minFloatingSize.width, updateFloatingSize]
   );
 
   const resizeFloatingHeight = useCallback(
@@ -563,18 +584,16 @@ export function DockablePanel({
 
   const resizeFloatingBoth = useCallback(
     (width: number, height: number) => {
+      finishWidthHandoff();
       updateFloatingSize({
-        width: Math.max(
-          minFloatingSize.width,
-          Math.min(width, window.innerWidth - position.left - VIEWPORT_GUTTER)
-        ),
+        width: Math.max(minFloatingSize.width, Math.min(width, maxFloatingWidth)),
         height: Math.max(
           minFloatingSize.height,
           Math.min(height, window.innerHeight - position.top - VIEWPORT_GUTTER)
         ),
       });
     },
-    [minFloatingSize, position, updateFloatingSize]
+    [finishWidthHandoff, maxFloatingWidth, minFloatingSize, position.top, updateFloatingSize]
   );
 
   const persistFloatingSize = useCallback(
@@ -599,16 +618,16 @@ export function DockablePanel({
   const handleCornerResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (cornerResizePointerRef.current !== event.pointerId) return;
-      resizeFloatingBoth(event.clientX - position.left, event.clientY - position.top);
+      resizeFloatingBoth(event.clientX - renderedPosition.left, event.clientY - position.top);
     },
-    [position, resizeFloatingBoth]
+    [position.top, renderedPosition.left, resizeFloatingBoth]
   );
 
   const finishCornerResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>, applyFinalPosition = true) => {
       if (cornerResizePointerRef.current !== event.pointerId) return;
       if (applyFinalPosition) {
-        resizeFloatingBoth(event.clientX - position.left, event.clientY - position.top);
+        resizeFloatingBoth(event.clientX - renderedPosition.left, event.clientY - position.top);
       }
       cornerResizePointerRef.current = null;
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
@@ -618,7 +637,7 @@ export function DockablePanel({
       document.body.style.userSelect = '';
       persistFloatingSize(false);
     },
-    [persistFloatingSize, position, resizeFloatingBoth]
+    [persistFloatingSize, position.top, renderedPosition.left, resizeFloatingBoth]
   );
 
   const handleCornerResizeKeyDown = useCallback(
@@ -651,8 +670,8 @@ export function DockablePanel({
   );
 
   const floatingStyle: CSSProperties = {
-    left: position.left,
-    top: position.top,
+    left: renderedPosition.left,
+    top: renderedPosition.top,
     width: renderedFloatingSize.width,
     height: renderedFloatingSize.height,
     zIndex: `calc(var(--z-floating-panel) + ${stackOrder})`,
@@ -713,6 +732,7 @@ export function DockablePanel({
           }${surfaceClassName ? ` ${surfaceClassName}` : ''}`}
           style={surfaceStyle}
           aria-label={ariaLabel}
+          data-panel-id={dock?.panel}
           aria-hidden={!panelVisible || awaitingDock}
           inert={!panelVisible || awaitingDock}
           onPointerDown={handlePointerDown}
@@ -729,10 +749,8 @@ export function DockablePanel({
                 max={maxFloatingWidth}
                 label={`Resize ${ariaLabel} width`}
                 className="dockable-panel__resize-handle dockable-panel__resize-handle--width"
-                onResize={(clientX) => resizeFloatingWidth(clientX - position.left)}
-                onResizeBy={(delta) =>
-                  resizeFloatingWidth(floatingPanelSizeRef.current.width + delta)
-                }
+                onResize={(clientX) => resizeFloatingWidth(clientX - renderedPosition.left)}
+                onResizeBy={(delta) => resizeFloatingWidth(renderedFloatingSize.width + delta)}
                 onDragChange={persistFloatingSize}
               />
               <PanelResizeHandle

@@ -320,7 +320,20 @@ beforeEach(() => {
       editor: [900, 1200, 100, 800],
       true: [300, 900, 100, 800],
     };
-    const [left, right, top, bottom] = rects[item ?? ''] ?? [0, 1200, 100, 800];
+    const [initialLeft, initialRight, top, bottom] = rects[item ?? ''] ?? [0, 1200, 100, 800];
+    let left = initialLeft;
+    let right = initialRight;
+    if (element.classList.contains('workspace-dock__column')) {
+      const width = Number.parseFloat(element.style.width);
+      if (width > 0) right = left + width;
+    } else if (element.classList.contains('dockable-panel__surface--floating')) {
+      const width = Number.parseFloat(element.style.width);
+      const position = Number.parseFloat(element.style.left);
+      if (width > 0) {
+        left = Number.isFinite(position) ? position : left;
+        right = left + width;
+      }
+    }
     return {
       left,
       right,
@@ -562,6 +575,104 @@ describe('linked panel projection', () => {
     expect(readProjectLayout(PROJECT)).toEqual(focusPreset.layout);
   });
 
+  it('hands rendered widths across mode changes without rewriting saved panel widths', async () => {
+    const layout = v2Layout([
+      { kind: 'panels', width: 600, panels: [{ panel: 'agent', weight: 1 }] },
+      { kind: 'preview' },
+      { kind: 'panels', width: 280, panels: [{ panel: 'variables', weight: 1 }] },
+      { kind: 'panels', width: 260, panels: [{ panel: 'navigator', weight: 1 }] },
+      { kind: 'panels', width: 520, panels: [{ panel: 'editor', weight: 1 }] },
+      { kind: 'panels', width: 420, panels: [{ panel: 'team', weight: 1 }] },
+    ]);
+    localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+
+    const savedLayout = readProjectLayout(PROJECT);
+    const columnFor = (panel: PanelId) =>
+      document
+        .querySelector<HTMLElement>(`[data-rail-panel="${panel}"]`)
+        ?.closest<HTMLElement>('.workspace-dock__column');
+    expect(columnFor('agent')).toHaveStyle({ width: '600px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '600px' });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(columnFor('agent')).toHaveStyle({ width: '600px' });
+    expect(readProjectLayout(PROJECT)).toEqual(savedLayout);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Variables' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '280px' });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(columnFor('variables')).toHaveStyle({ width: '280px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Agent' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('button', { name: 'Select Variables' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '600px' });
+
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize Variables column' }), {
+      key: 'ArrowLeft',
+    });
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '590px' });
+    fireEvent.click(screen.getByRole('button', { name: 'Select Elements' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '590px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(columnFor('navigator')).toHaveStyle({ width: '590px' });
+    expect(readProjectLayout(PROJECT)).toEqual(savedLayout);
+  });
+
+  it('carries linked resizing to a normally floating panel without saving its floating width', async () => {
+    const layout = v2Layout(
+      [
+        { kind: 'panels', width: 420, panels: [{ panel: 'agent', weight: 1 }] },
+        { kind: 'preview' },
+        { kind: 'panels', width: 300, panels: [{ panel: 'team', weight: 1 }] },
+      ],
+      ['team']
+    );
+    localStorage.setItem(`shipstudio.layout.project:${PROJECT}`, JSON.stringify(layout));
+    localStorage.setItem('team.size', JSON.stringify({ width: 300, height: 400 }));
+    render(linkedRailTree());
+    await act(async () => Promise.resolve());
+    const savedLayout = readProjectLayout(PROJECT);
+    const teamSurface = screen.getByLabelText('team panel');
+    fireEvent.click(screen.getByRole('button', { name: 'Select Team' }));
+    await act(async () => Promise.resolve());
+    expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(teamSurface).toHaveStyle({ width: '300px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link panels' }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '300px' });
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize Team column' }), {
+      key: 'ArrowRight',
+    });
+    expect(document.querySelector('.workspace-dock__column')).toHaveStyle({ width: '310px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink panels' }));
+    await act(async () => Promise.resolve());
+    expect(teamSurface).toHaveClass('dockable-panel__surface--floating');
+    expect(teamSurface).toHaveStyle({ width: '310px' });
+    expect(JSON.parse(localStorage.getItem('team.size') ?? 'null')).toEqual({
+      width: 300,
+      height: 400,
+    });
+    expect(readProjectLayout(PROJECT)).toEqual(savedLayout);
+  });
+
   it('shows one open panel at a shared width without changing saved placements', async () => {
     const layout = v2Layout(
       [
@@ -593,7 +704,7 @@ describe('linked panel projection', () => {
     expect(screen.getByTestId('navigator-open-state')).toHaveTextContent('closed');
     expect(screen.getByTestId('team-open-state')).toHaveTextContent('closed');
     const column = document.querySelector<HTMLElement>('.workspace-dock__column');
-    expect(column).toHaveStyle({ order: '-1', width: '420px' });
+    expect(column).toHaveStyle({ order: '-1', width: '470px' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Variables' }));
     await act(async () => Promise.resolve());
@@ -601,7 +712,7 @@ describe('linked panel projection', () => {
     expect(document.querySelector('[data-rail-panel="variables"]')).toBeInTheDocument();
     expect(screen.getByTestId('agent-open-state')).toHaveTextContent('closed');
     expect(screen.getByTestId('variables-open-state')).toHaveTextContent('open');
-    expect(column).toHaveStyle({ width: '420px' });
+    expect(column).toHaveStyle({ width: '470px' });
 
     const resizeHandle = screen.getByRole('separator', { name: 'Resize Variables column' });
     expect(resizeHandle).toHaveAttribute('aria-valuemin', '320');
