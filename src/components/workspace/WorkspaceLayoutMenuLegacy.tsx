@@ -12,6 +12,7 @@
 
 import { ChevronIcon, DragHandleIcon, PanelLayoutIcon, PinIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
+import { ToggleButton } from '../primitives/ToggleButton';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
 import { DragSortHandle, DragSortItem, DragSortScope } from '../primitives/DragSort';
@@ -207,6 +208,8 @@ export function WorkspaceLayoutMenuLegacy() {
   const {
     layout,
     layoutScope,
+    singlePanelModeEnabled,
+    toggleSinglePanelMode,
     isCustomised,
     differsFromDefault,
     nudge,
@@ -265,6 +268,16 @@ export function WorkspaceLayoutMenuLegacy() {
         onMove={commitProjectedOrder}
       >
         <WorkspaceLayoutScopeSelector />
+        <ToggleButton
+          variant="secondary"
+          size="default"
+          width="fill"
+          pressed={singlePanelModeEnabled}
+          aria-label="Link workspace panels"
+          onClick={toggleSinglePanelMode}
+        >
+          {singlePanelModeEnabled ? 'Linked mode' : 'Unlinked mode'}
+        </ToggleButton>
         <DropdownDivider />
         <div className="workspace-layout-menu__section">Panels</div>
         {menuLayout.order.map((item, itemIndex) => {
@@ -335,7 +348,7 @@ export function WorkspaceLayoutMenuLegacy() {
               <Button
                 key={preset.id}
                 variant="default"
-                size="compact"
+                size="default"
                 title={preset.description}
                 onClick={() => applyPreset(preset)}
               >

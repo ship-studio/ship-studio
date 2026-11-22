@@ -136,7 +136,10 @@ describe('the menu', () => {
 
     expect(screen.getByText('Panel Layout')).toHaveClass('workspace-layout-menu__title');
     for (const preset of LAYOUT_PRESETS) {
-      expect(screen.getByRole('button', { name: preset.label })).toHaveClass('button--default');
+      expect(screen.getByRole('button', { name: preset.label })).toHaveClass(
+        'button--default',
+        'button--size-default'
+      );
     }
   });
 
@@ -1290,5 +1293,21 @@ describe('the layout persistence scope selector', () => {
     );
     expect(screen.queryByRole('menuitem', { name: /Save as my default/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /Reset this project/ })).not.toBeInTheDocument();
+  });
+});
+
+describe.each(['legacy', 'new'] as const)('the %s linked mode control', (implementation) => {
+  it('shows its pressed state and toggles shared panel dock state without closing the menu', async () => {
+    localStorage.setItem(WORKSPACE_LAYOUT_MENU_IMPLEMENTATION_KEY, implementation);
+    const user = await openMenu();
+    const toggle = screen.getByRole('button', { name: 'Link workspace panels' });
+
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Panel Layout')).toBeInTheDocument();
+    expect(toggle).toHaveTextContent('Linked mode');
+    expect(screen.getByText('Focus')).toBeInTheDocument();
   });
 });

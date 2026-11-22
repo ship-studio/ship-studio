@@ -19,6 +19,7 @@ import {
 } from '@/components/icons';
 import { Fragment, useEffect, useSyncExternalStore } from 'react';
 import { Button } from '../primitives/Button';
+import { ToggleButton } from '../primitives/ToggleButton';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -563,6 +564,8 @@ export function WorkspaceLayoutMenuNew() {
   const {
     layout,
     layoutScope,
+    singlePanelModeEnabled,
+    toggleSinglePanelMode,
     isCustomised,
     differsFromDefault,
     applyPreset,
@@ -794,6 +797,16 @@ export function WorkspaceLayoutMenuNew() {
         onMove={onDragMove}
       >
         <WorkspaceLayoutScopeSelector />
+        <ToggleButton
+          variant="secondary"
+          size="default"
+          width="fill"
+          pressed={singlePanelModeEnabled}
+          aria-label="Link workspace panels"
+          onClick={toggleSinglePanelMode}
+        >
+          {singlePanelModeEnabled ? 'Linked mode' : 'Unlinked mode'}
+        </ToggleButton>
         <DropdownDivider />
         <div className="workspace-layout-menu__scroll-body" data-layout-scroll-body="true">
           <div
@@ -866,7 +879,7 @@ export function WorkspaceLayoutMenuNew() {
               <Button
                 key={preset.id}
                 variant="default"
-                size="compact"
+                size="default"
                 title={preset.description}
                 onClick={() => applyPreset(preset)}
                 className="workspace-layout-menu__hit-target"
