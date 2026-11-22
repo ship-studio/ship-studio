@@ -1775,7 +1775,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 14
+      "consumerCount": 15
     },
     {
       "name": "--button-text-hover",

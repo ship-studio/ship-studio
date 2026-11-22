@@ -91,6 +91,12 @@
   order: 3;
 }
 
+/* The linked icon communicates the mode while the button is idle. */
+.workspace-panel-link-toggle.button--ghost[aria-pressed='true']:not(:hover) {
+  background: transparent;
+  color: var(--button-text-default);
+}
+
 .workspace-titlebar-center {
   display: flex;
   align-items: stretch;
