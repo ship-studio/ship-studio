@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { StrictMode, useSyncExternalStore } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { DragSortHandle, DragSortItem, DragSortScope, DragSortTarget } from './DragSort';
-import { useDragSortContext } from '../../contexts/DragSortContext';
+import { useDragSortContext } from '../../contexts/dragSortContextValue';
 
 function pointer(type: string, x: number, y: number, pointerId = 1) {
   const event = new Event(type, { bubbles: true, cancelable: true });

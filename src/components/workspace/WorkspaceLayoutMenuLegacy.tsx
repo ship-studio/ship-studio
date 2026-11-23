@@ -12,12 +12,12 @@
 
 import { ChevronIcon, DragHandleIcon, PanelLayoutIcon, PinIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
-import { ToggleButton } from '../primitives/ToggleButton';
 import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
 import { DragSortHandle, DragSortItem, DragSortScope } from '../primitives/DragSort';
 import { usePanelDock } from '../../contexts/PanelDockContext';
 import { WorkspaceLayoutScopeSelector } from './WorkspaceLayoutScopeSelector';
+import { WorkspaceLayoutMenuSlides } from './WorkspaceLayoutMenuSlides';
 import {
   LAYOUT_PRESETS,
   PANEL_META,
@@ -208,8 +208,6 @@ export function WorkspaceLayoutMenuLegacy() {
   const {
     layout,
     layoutScope,
-    singlePanelModeEnabled,
-    toggleSinglePanelMode,
     isCustomised,
     differsFromDefault,
     nudge,
@@ -246,7 +244,7 @@ export function WorkspaceLayoutMenuLegacy() {
     <Dropdown
       portal
       align="right"
-      menuClassName="workspace-layout-menu"
+      menuClassName="workspace-layout-menu workspace-layout-menu--spatial workspace-layout-menu--legacy"
       trigger={(p) => (
         <MenuButton
           variant="ghost"
@@ -268,72 +266,66 @@ export function WorkspaceLayoutMenuLegacy() {
         onMove={commitProjectedOrder}
       >
         <WorkspaceLayoutScopeSelector />
-        <ToggleButton
-          variant="secondary"
-          size="default"
-          width="fill"
-          pressed={singlePanelModeEnabled}
-          aria-label="Link workspace panels"
-          onClick={toggleSinglePanelMode}
-        >
-          {singlePanelModeEnabled ? 'Linked mode' : 'Unlinked mode'}
-        </ToggleButton>
         <DropdownDivider />
-        <div className="workspace-layout-menu__section">Panels</div>
-        {menuLayout.order.map((item, itemIndex) => {
-          if (item === PREVIEW) {
-            return (
-              <DragSortItem
-                key={item}
-                id={item}
-                index={itemIndex}
-                label="Preview"
-                disabled
-                className={`workspace-layout-menu__row workspace-layout-menu__row--preview${
-                  showSideDivider ? ' is-boundary' : ''
-                }`}
-              >
-                <span className="workspace-layout-menu__preview-label">Preview</span>
-              </DragSortItem>
-            );
-          }
-          const panel = item;
-          const at = menuLayout.order.indexOf(panel);
-          const docked = !menuLayout.floating.includes(panel);
-          return (
-            <DragSortItem
-              key={panel}
-              id={panel}
-              index={itemIndex}
-              label={PANEL_META[panel].label}
-              disabled={hasStackedColumns}
-              className="workspace-layout-menu__row"
-              overlay={
-                <PanelLayoutRowOverlay
-                  panel={panel}
-                  docked={docked}
-                  at={at}
-                  previewAt={previewAt}
-                  lastIndex={menuLayout.order.length - 1}
-                  reorderable={false}
-                />
+        <WorkspaceLayoutMenuSlides>
+          <div className="workspace-layout-menu__scroll-body" data-layout-scroll-body="true">
+            <div className="workspace-layout-menu__section">Panels</div>
+            {menuLayout.order.map((item, itemIndex) => {
+              if (item === PREVIEW) {
+                return (
+                  <DragSortItem
+                    key={item}
+                    id={item}
+                    index={itemIndex}
+                    label="Preview"
+                    disabled
+                    className={`workspace-layout-menu__row workspace-layout-menu__row--preview${
+                      showSideDivider ? ' is-boundary' : ''
+                    }`}
+                  >
+                    <span className="workspace-layout-menu__preview-label">Preview</span>
+                  </DragSortItem>
+                );
               }
-            >
-              <DragSortHandle label={`Move ${PANEL_META[panel].label} panel`} />
-              <PanelLayoutRowContent
-                panel={panel}
-                docked={docked}
-                at={at}
-                previewAt={previewAt}
-                lastIndex={menuLayout.order.length - 1}
-                interactive
-                reorderable={!hasStackedColumns}
-                onToggleDock={() => setDocked(panel, !docked)}
-                onNudge={(delta) => nudge(panel, delta)}
-              />
-            </DragSortItem>
-          );
-        })}
+              const panel = item;
+              const at = menuLayout.order.indexOf(panel);
+              const docked = !menuLayout.floating.includes(panel);
+              return (
+                <DragSortItem
+                  key={panel}
+                  id={panel}
+                  index={itemIndex}
+                  label={PANEL_META[panel].label}
+                  disabled={hasStackedColumns}
+                  className="workspace-layout-menu__row"
+                  overlay={
+                    <PanelLayoutRowOverlay
+                      panel={panel}
+                      docked={docked}
+                      at={at}
+                      previewAt={previewAt}
+                      lastIndex={menuLayout.order.length - 1}
+                      reorderable={false}
+                    />
+                  }
+                >
+                  <DragSortHandle label={`Move ${PANEL_META[panel].label} panel`} />
+                  <PanelLayoutRowContent
+                    panel={panel}
+                    docked={docked}
+                    at={at}
+                    previewAt={previewAt}
+                    lastIndex={menuLayout.order.length - 1}
+                    interactive
+                    reorderable={!hasStackedColumns}
+                    onToggleDock={() => setDocked(panel, !docked)}
+                    onNudge={(delta) => nudge(panel, delta)}
+                  />
+                </DragSortItem>
+              );
+            })}
+          </div>
+        </WorkspaceLayoutMenuSlides>
 
         <div className="workspace-layout-menu__footer" data-layout-footer="true">
           <DropdownDivider />

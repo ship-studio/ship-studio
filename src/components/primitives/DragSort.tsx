@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { DragHandleIcon } from '@/components/icons';
-import { useDragSortContext } from '../../contexts/DragSortContext';
+import { useDragSortContext } from '../../contexts/dragSortContextValue';
 import {
   DragSortItemContext,
   useDragSortItem,

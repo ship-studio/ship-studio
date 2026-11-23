@@ -223,12 +223,12 @@ the last selected toolbar panel open if it is still open, or leaves all toolbar
 panels closed if it was closed. Other toolbar panels can then be opened
 independently again.
 
-Linked-mode selection does not edit the saved arrangement. The Layouts menu,
-dragging, docking, floating and presets continue to edit the ordinary saved
-layout while the shared toolbar slot keeps its width and geometry. The editor's
-temporary right-side slot follows its saved column width and keeps working when
-the Layouts menu changes the saved arrangement. When unlinked, the selected
-toolbar panel and editor return to their saved placements.
+The Link button in the Panel Layout menu slides between the saved arrangement
+and the active linked layout. Unlinking brings back the editable saved
+arrangement. Presets and layout scope remain available in both modes. The
+editor's temporary right-side slot follows its saved column width. When
+unlinked, the selected toolbar panel and editor return to their saved
+placements.
 
 Linked mode only changes these rail panels. Assets and Plugin Manager remain
 modal dialogs, and Plugins remains a menu trigger; their existing dismissal

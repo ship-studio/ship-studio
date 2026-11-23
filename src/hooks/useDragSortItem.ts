@@ -9,7 +9,7 @@ import {
   type ReactNode,
   type RefCallback,
 } from 'react';
-import { useDragSortContext } from '../contexts/DragSortContext';
+import { useDragSortContext } from '../contexts/dragSortContextValue';
 import type { DragSortActivation, DragSortId } from '../lib/drag-sort/types';
 
 export interface UseDragSortItemOptions {

@@ -5015,7 +5015,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 59
+      "consumerCount": 60
     },
     {
       "name": "--transition-interaction-slow",
@@ -5150,7 +5150,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 453
+      "consumerCount": 454
     },
     {
       "name": "--spacing-sm",
@@ -5204,7 +5204,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 15
+      "consumerCount": 16
     },
     {
       "name": "--radius-control",

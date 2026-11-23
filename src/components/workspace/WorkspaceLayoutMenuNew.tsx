@@ -19,7 +19,6 @@ import {
 } from '@/components/icons';
 import { Fragment, useEffect, useSyncExternalStore } from 'react';
 import { Button } from '../primitives/Button';
-import { ToggleButton } from '../primitives/ToggleButton';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -31,9 +30,10 @@ import { Dropdown, DropdownDivider, DropdownItem } from '../primitives/Dropdown'
 import { IconButton } from '../primitives/IconButton';
 import { MenuButton } from '../primitives/MenuButton';
 import { DragSortHandle, DragSortItem, DragSortScope } from '../primitives/DragSort';
-import { useDragSortContext } from '../../contexts/DragSortContext';
+import { useDragSortContext } from '../../contexts/dragSortContextValue';
 import { usePanelDock } from '../../contexts/PanelDockContext';
 import { WorkspaceLayoutScopeSelector } from './WorkspaceLayoutScopeSelector';
+import { WorkspaceLayoutMenuSlides } from './WorkspaceLayoutMenuSlides';
 import type { DragSortSnapshot } from '../../lib/drag-sort/types';
 import {
   LAYOUT_PRESETS,
@@ -564,8 +564,6 @@ export function WorkspaceLayoutMenuNew() {
   const {
     layout,
     layoutScope,
-    singlePanelModeEnabled,
-    toggleSinglePanelMode,
     isCustomised,
     differsFromDefault,
     applyPreset,
@@ -797,79 +795,71 @@ export function WorkspaceLayoutMenuNew() {
         onMove={onDragMove}
       >
         <WorkspaceLayoutScopeSelector />
-        <ToggleButton
-          variant="secondary"
-          size="default"
-          width="fill"
-          pressed={singlePanelModeEnabled}
-          aria-label="Link workspace panels"
-          onClick={toggleSinglePanelMode}
-        >
-          {singlePanelModeEnabled ? 'Linked mode' : 'Unlinked mode'}
-        </ToggleButton>
         <DropdownDivider />
-        <div className="workspace-layout-menu__scroll-body" data-layout-scroll-body="true">
-          <div
-            className="workspace-layout-menu__canvas"
-            data-layout-outline="true"
-            role="group"
-            aria-label="Workspace columns"
-          >
-            {renderSide('left', leftColumns)}
-            {preview && (
-              <DragSortItem
-                key={preview.id}
-                id={PREVIEW}
-                group={COLUMN_SORT_GROUP}
-                index={columnSortIds.indexOf(PREVIEW)}
-                label="Preview"
-                disabled
-                targetDisabled
-                className="workspace-layout-menu__column workspace-layout-menu__column--preview"
-                data-layout-preview-divider="true"
-                aria-label="Preview divider"
-              >
-                <span className="workspace-layout-menu__preview-label">Preview</span>
-              </DragSortItem>
-            )}
-            {renderSide('right', rightColumns)}
-          </div>
+        <WorkspaceLayoutMenuSlides>
+          <div className="workspace-layout-menu__scroll-body" data-layout-scroll-body="true">
+            <div
+              className="workspace-layout-menu__canvas"
+              data-layout-outline="true"
+              role="group"
+              aria-label="Workspace columns"
+            >
+              {renderSide('left', leftColumns)}
+              {preview && (
+                <DragSortItem
+                  key={preview.id}
+                  id={PREVIEW}
+                  group={COLUMN_SORT_GROUP}
+                  index={columnSortIds.indexOf(PREVIEW)}
+                  label="Preview"
+                  disabled
+                  targetDisabled
+                  className="workspace-layout-menu__column workspace-layout-menu__column--preview"
+                  data-layout-preview-divider="true"
+                  aria-label="Preview divider"
+                >
+                  <span className="workspace-layout-menu__preview-label">Preview</span>
+                </DragSortItem>
+              )}
+              {renderSide('right', rightColumns)}
+            </div>
 
-          <div className="workspace-layout-menu__section">Floating</div>
-          <div className="workspace-layout-menu__floating" aria-label="Floating panels">
-            {floating.length === 0 ? (
-              <span className="workspace-layout-menu__empty">No floating panels</span>
-            ) : (
-              floating.map((panel) => {
-                const sourceIndex = layout.columns.findIndex(
-                  (column) =>
-                    column.kind === 'panels' &&
-                    column.panels.some((placement) => placement.panel === panel)
-                );
-                const source = panelColumnFromModel(layout, sourceIndex) ?? {
-                  id: `floating-${panel}`,
-                  sourceIndex: -1,
-                  preview: false,
-                  panels: [panel],
-                };
-                return (
-                  <PanelTile
-                    key={`floating-${panel}`}
-                    panel={panel}
-                    column={source}
-                    layout={layout}
-                    index={0}
-                    sortIndex={panelSortIndex(panel)}
-                    columns={columns}
-                    floatingPanels={floating}
-                    floating
-                    onAction={action}
-                  />
-                );
-              })
-            )}
+            <div className="workspace-layout-menu__section">Floating</div>
+            <div className="workspace-layout-menu__floating" aria-label="Floating panels">
+              {floating.length === 0 ? (
+                <span className="workspace-layout-menu__empty">No floating panels</span>
+              ) : (
+                floating.map((panel) => {
+                  const sourceIndex = layout.columns.findIndex(
+                    (column) =>
+                      column.kind === 'panels' &&
+                      column.panels.some((placement) => placement.panel === panel)
+                  );
+                  const source = panelColumnFromModel(layout, sourceIndex) ?? {
+                    id: `floating-${panel}`,
+                    sourceIndex: -1,
+                    preview: false,
+                    panels: [panel],
+                  };
+                  return (
+                    <PanelTile
+                      key={`floating-${panel}`}
+                      panel={panel}
+                      column={source}
+                      layout={layout}
+                      index={0}
+                      sortIndex={panelSortIndex(panel)}
+                      columns={columns}
+                      floatingPanels={floating}
+                      floating
+                      onAction={action}
+                    />
+                  );
+                })
+              )}
+            </div>
           </div>
-        </div>
+        </WorkspaceLayoutMenuSlides>
 
         <div className="workspace-layout-menu__footer" data-layout-footer="true">
           <DropdownDivider />
