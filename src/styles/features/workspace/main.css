@@ -73,12 +73,28 @@
   gap: var(--spacing-xs);
 }
 
+.workspace-panel-group > .button,
+.workspace-panel-group > .team-presence-wrap > .button,
+.workspace-panel-group > .workspace-plugins-control > .button {
+  padding-inline: var(--spacing-tight);
+}
+
 .workspace-panel-group > .team-presence-wrap {
   order: 1;
 }
 
 .workspace-panel-group > .workspace-plugins-control {
   order: 2;
+}
+
+.workspace-panel-group > .workspace-panel-link-toggle {
+  order: 3;
+}
+
+/* The linked icon communicates the mode while the button is idle. */
+.workspace-panel-link-toggle.button--ghost[aria-pressed='true']:not(:hover) {
+  background: transparent;
+  color: var(--button-text-default);
 }
 
 .workspace-titlebar-center {
@@ -286,11 +302,9 @@
     margin-inline-start: var(--spacing-sm);
   }
 
-  .workspace-titlebar-tools > .workspace-panel-group > .button,
-  .workspace-titlebar-tools > .workspace-panel-group > .toolbar-dropdown-container > .button {
+  .workspace-titlebar-tools > .workspace-panel-group > .button:not(.button--size-compact) {
     width: var(--button-height);
     min-width: var(--button-height);
-    padding-inline: 0;
   }
 
   .workspace-titlebar-tools > .workspace-panel-group > .toolbar-dropdown-container > .button {
@@ -352,6 +366,36 @@
 
 .workspace-header-right {
   justify-self: end;
+}
+
+/* The classic toolbar sits below the titlebar, so it needs its own compact
+   breakpoint. At a 220px sidebar and a narrow workspace, retaining text on the
+   three centre modes lets them cover the last panel control in the left group.
+   Keep each mode's icon and active underline while making room for both sides. */
+@media (max-width: 1100px) {
+  .workspace-header .workspace-mode-label {
+    display: none;
+  }
+
+  .workspace-header .workspace-tab.button {
+    gap: 0;
+    padding-inline: var(--spacing-sm);
+  }
+
+  .workspace-header-left .workspace-panel-group {
+    gap: var(--spacing-2xs);
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace-header {
+    gap: var(--spacing-xs);
+    padding-inline: var(--spacing-sm);
+  }
+
+  .workspace-header .workspace-tab.button {
+    padding-inline: var(--spacing-xs);
+  }
 }
 
 @media (max-width: 1600px) {

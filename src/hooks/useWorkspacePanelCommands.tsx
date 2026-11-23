@@ -1,4 +1,4 @@
-import { VariablesIcon } from '@/components/icons';
+import { ElementLinkIcon, VariablesIcon } from '@/components/icons';
 import { useCommands } from '../commands/useCommands';
 
 interface Params {
@@ -13,6 +13,8 @@ interface Params {
   isWebProject: boolean;
   variablesPanelOpen: boolean;
   toggleVariablesPanel: () => void;
+  panelLinkingEnabled: boolean;
+  togglePanelLinking: () => void;
   showPreviewLogs: boolean;
   togglePreviewLogs: () => void;
 }
@@ -30,6 +32,8 @@ export function useWorkspacePanelCommands({
   isWebProject,
   variablesPanelOpen,
   toggleVariablesPanel,
+  panelLinkingEnabled,
+  togglePanelLinking,
   showPreviewLogs,
   togglePreviewLogs,
 }: Params): void {
@@ -85,6 +89,15 @@ export function useWorkspacePanelCommands({
         keywords: ['preview', 'browser tools', 'logs', 'console', 'network'],
         run: togglePreviewLogs,
       },
+      {
+        id: 'workspace.togglePanelLinking',
+        title: panelLinkingEnabled ? 'Allow multiple workspace panels' : 'Link workspace panels',
+        icon: <ElementLinkIcon size={14} />,
+        category: 'action',
+        when: 'project',
+        keywords: ['panel', 'single', 'multiple', 'link', 'unlink', 'layout'],
+        run: togglePanelLinking,
+      },
     ],
     [
       isAgentPanelHidden,
@@ -98,6 +111,8 @@ export function useWorkspacePanelCommands({
       isWebProject,
       variablesPanelOpen,
       toggleVariablesPanel,
+      panelLinkingEnabled,
+      togglePanelLinking,
       showPreviewLogs,
       togglePreviewLogs,
     ]

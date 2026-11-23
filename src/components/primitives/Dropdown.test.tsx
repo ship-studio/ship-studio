@@ -3,6 +3,12 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
 import { Dropdown, DropdownItem } from './Dropdown';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from './ContextMenu';
 
 function TestTrigger(props: ComponentProps<'button'>) {
   return <button type="button" {...props} />;
@@ -143,6 +149,174 @@ describe('Dropdown', () => {
 
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('closes on another unrelated portaled dropdown menu, not its own', () => {
+    const firstOpenChange = vi.fn();
+    const secondOpenChange = vi.fn();
+    render(
+      <>
+        <Dropdown
+          open
+          onOpenChange={firstOpenChange}
+          portal
+          trigger={(props) => <TestTrigger {...props}>First portal menu</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>First portal item</DropdownItem>
+        </Dropdown>
+        <Dropdown
+          open
+          onOpenChange={secondOpenChange}
+          portal
+          trigger={(props) => <TestTrigger {...props}>Second portal menu</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>Second portal item</DropdownItem>
+        </Dropdown>
+      </>
+    );
+
+    fireEvent.mouseDown(screen.getByRole('menuitem', { name: 'First portal item' }));
+
+    expect(firstOpenChange).not.toHaveBeenCalled();
+    expect(secondOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('handles Escape only in the dropdown whose trigger or menu has focus', () => {
+    const firstOpenChange = vi.fn();
+    const secondOpenChange = vi.fn();
+    render(
+      <>
+        <Dropdown
+          open
+          onOpenChange={firstOpenChange}
+          portal
+          trigger={(props) => <TestTrigger {...props}>First focused menu</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>First focused item</DropdownItem>
+        </Dropdown>
+        <Dropdown
+          open
+          onOpenChange={secondOpenChange}
+          portal
+          trigger={(props) => <TestTrigger {...props}>Second focused menu</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>Second focused item</DropdownItem>
+        </Dropdown>
+      </>
+    );
+
+    const secondTrigger = screen.getByRole('button', { name: 'Second focused menu' });
+    secondTrigger.focus();
+    fireEvent.keyDown(secondTrigger, { key: 'Escape' });
+
+    expect(firstOpenChange).not.toHaveBeenCalled();
+    expect(secondOpenChange).toHaveBeenCalledWith(false);
+    expect(secondTrigger).toHaveFocus();
+  });
+
+  it('keeps a parent dropdown open while interacting with nested portaled menus', async () => {
+    const user = userEvent.setup();
+    const onChildSelect = vi.fn();
+    render(
+      <Dropdown portal trigger={(props) => <TestTrigger {...props}>Parent menu</TestTrigger>}>
+        <Dropdown portal trigger={(props) => <TestTrigger {...props}>Nested menu</TestTrigger>}>
+          <DropdownItem onSelect={onChildSelect}>Nested action</DropdownItem>
+        </Dropdown>
+        <DropdownItem onSelect={vi.fn()}>Parent action</DropdownItem>
+      </Dropdown>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Parent menu' }));
+    await user.click(screen.getByRole('button', { name: 'Nested menu' }));
+    const nestedAction = screen.getByRole('menuitem', { name: 'Nested action' });
+
+    fireEvent.keyDown(nestedAction, { key: 'Escape' });
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('menuitem', { name: 'Parent action' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Nested menu' }));
+    const reopenedNestedAction = screen.getByRole('menuitem', { name: 'Nested action' });
+    fireEvent.mouseDown(reopenedNestedAction);
+    expect(screen.getAllByRole('menu')).toHaveLength(2);
+
+    fireEvent.click(reopenedNestedAction);
+    expect(onChildSelect).toHaveBeenCalledOnce();
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+  });
+
+  it('keeps a parent dropdown open while selecting from a nested context menu', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <Dropdown
+        portal
+        trigger={(props) => <TestTrigger {...props}>Parent context menu</TestTrigger>}
+      >
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <button type="button">Nested context trigger</button>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={onSelect}>Context action</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+        <DropdownItem onSelect={vi.fn()}>Parent context action</DropdownItem>
+      </Dropdown>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Parent context menu' }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Nested context trigger' }));
+    const contextAction = screen.getByRole('menuitem', { name: 'Context action' });
+
+    fireEvent.mouseDown(contextAction);
+    expect(screen.getAllByRole('menu')).toHaveLength(2);
+
+    fireEvent.click(contextAction);
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(screen.getByRole('menuitem', { name: 'Parent context action' })).toBeInTheDocument();
+  });
+
+  it('dismisses when focus enters an embedded iframe without stealing its focus', () => {
+    render(
+      <>
+        <Dropdown
+          portal
+          trigger={(props) => <TestTrigger {...props}>Open before preview</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>Preview menu item</DropdownItem>
+        </Dropdown>
+        <iframe title="Preview fixture" sandbox="" srcDoc="<button>Preview action</button>" />
+      </>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open before preview' }));
+    const iframe = screen.getByTitle('Preview fixture');
+    act(() => iframe.focus());
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(iframe).toHaveFocus();
+  });
+
+  it('keeps an open dropdown when a modal focus trap encounters an iframe', () => {
+    render(
+      <>
+        <Dropdown
+          portal
+          trigger={(props) => <TestTrigger {...props}>Open behind dialog</TestTrigger>}
+        >
+          <DropdownItem onSelect={vi.fn()}>Dialog menu item</DropdownItem>
+        </Dropdown>
+        <div data-modal-root="true">
+          <div data-modal-id="dialog">Dialog content</div>
+        </div>
+        <iframe title="Modal preview fixture" sandbox="" />
+      </>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open behind dialog' }));
+    fireEvent.focusIn(screen.getByTitle('Modal preview fixture'));
+
+    expect(screen.getByRole('menuitem', { name: 'Dialog menu item' })).toBeInTheDocument();
   });
 
   it('supports an anchored dialog popover with normal tab controls and Escape focus return', async () => {

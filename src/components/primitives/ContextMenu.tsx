@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useDropdownNestedMenuRegistration } from './Dropdown';
 
 interface ContextMenuPosition {
   align?: 'left' | 'right';
@@ -216,7 +217,13 @@ export function ContextMenuContent({
 }: ContextMenuContentProps) {
   const { close, isOpen, position } = useContextMenuContext('ContextMenuContent');
   const menuRef = useRef<HTMLDivElement>(null);
+  const registerNestedMenu = useDropdownNestedMenuRegistration();
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null);
+
+  useEffect(() => {
+    if (!position || !registerNestedMenu || !menuRef.current) return;
+    return registerNestedMenu(menuRef);
+  }, [position, registerNestedMenu]);
 
   const reposition = useCallback(() => {
     if (!position || !menuRef.current) return;

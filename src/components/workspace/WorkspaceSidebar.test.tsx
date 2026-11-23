@@ -207,12 +207,13 @@ describe('WorkspaceSidebar project activity indicator', () => {
   });
 
   it('dismisses the Settings drawer with Escape and an outside click', async () => {
+    const user = userEvent.setup();
     render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
     const trigger = screen.getByRole('button', { name: 'Settings & Help' });
 
     fireEvent.click(trigger);
     await screen.findByRole('menu');
-    fireEvent.keyDown(window, { key: 'Escape' });
+    await user.keyboard('{Escape}');
 
     await waitFor(() => {
       expect(trigger).toHaveAttribute('aria-expanded', 'false');

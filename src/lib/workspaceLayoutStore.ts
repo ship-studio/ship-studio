@@ -39,6 +39,8 @@ import { DEFAULT_FOCUS_SPLIT_RATIO } from './workspaceFocusSplit';
 const DEFAULT_KEY = 'shipstudio.layout.default';
 const PROJECT_PREFIX = 'shipstudio.layout.project:';
 const FOCUS_SPLIT_PREFIX = 'shipstudio.focus.split:';
+const LINKED_PANEL_WIDTH_PREFIX = 'shipstudio.panels.linked-width:';
+const DEFAULT_LINKED_PANEL_WIDTH = 420;
 /** The one app-level preference controlling whether edits are shared. */
 export const LAYOUT_SCOPE_KEY = 'shipstudio.layout.scope';
 /** Set once the one-time read of the pre-rail per-panel flags has happened. */
@@ -101,6 +103,10 @@ function projectKey(projectPath: string): string {
 
 function focusSplitKey(projectPath: string): string {
   return `${FOCUS_SPLIT_PREFIX}${projectPath}`;
+}
+
+function linkedPanelWidthKey(projectPath: string): string {
+  return `${LINKED_PANEL_WIDTH_PREFIX}${projectPath}`;
 }
 
 // ============ Migration from the pre-rail preferences ============
@@ -236,6 +242,20 @@ export function readProjectFocusSplitRatio(projectPath: string): number {
 export function writeProjectFocusSplitRatio(projectPath: string, ratio: number): void {
   if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) return;
   write(focusSplitKey(projectPath), ratio);
+}
+
+/** The shared docked width used while the workspace panels are linked. */
+export function readProjectLinkedPanelWidth(projectPath: string): number {
+  const width = read(linkedPanelWidthKey(projectPath));
+  return typeof width === 'number' && Number.isFinite(width) && width > 0
+    ? Math.round(width)
+    : DEFAULT_LINKED_PANEL_WIDTH;
+}
+
+/** Save a linked-mode width separately from each panel's saved layout width. */
+export function writeProjectLinkedPanelWidth(projectPath: string, width: number): void {
+  if (!Number.isFinite(width) || width <= 0) return;
+  write(linkedPanelWidthKey(projectPath), Math.round(width));
 }
 
 /**

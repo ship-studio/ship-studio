@@ -18,6 +18,15 @@ export const LAYOUT_VERSION = 2 as const;
 /** A panel that can be arranged. Preview is the unstackable centre surface. */
 export type PanelId = 'agent' | 'navigator' | 'variables' | 'editor' | 'team';
 
+/** Panels controlled by linked mode's adjacent workspace toolbar buttons. */
+export const LINKED_PANEL_IDS = ['agent', 'navigator', 'variables', 'team'] as const;
+export type LinkedPanelId = (typeof LINKED_PANEL_IDS)[number];
+
+/** Whether this panel participates in linked toolbar-panel selection. */
+export function isLinkedPanel(panel: PanelId): panel is LinkedPanelId {
+  return (LINKED_PANEL_IDS as readonly PanelId[]).includes(panel);
+}
+
 export const PREVIEW = 'preview' as const;
 
 export type RailItem = PanelId | typeof PREVIEW;

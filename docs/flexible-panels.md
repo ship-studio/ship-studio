@@ -4,7 +4,9 @@ Every panel in the workspace can be dragged anywhere, and where you put them is
 remembered per project.
 
 The workspace has six surfaces: **Preview**, **Agent**, **Team**, **Variables**,
-**Edit** (the visual/CSS editor) and **Navigator** (the element tree). Before
+**Edit** (the visual/CSS editor) and **Navigator** (the element tree). The
+toolbar's linked mode groups Agent, Team, Variables and Navigator; Edit remains
+an independent surface. Before
 this, five of them had a *fixed* place — an order somebody chose once, written
 into a CSS grid — and the only thing you could change was whether a panel was
 docked or floating. Two people who work differently could not both be right.
@@ -144,6 +146,8 @@ ratios, per-project Team open state):
 | `shipstudio.layout.default` | The layout new projects start from |
 | `shipstudio.layout.project:<path>` | This project's arrangement, written only once you change something here |
 | `shipstudio.layout.scope` | `project` (default) or `global`, selected in the Panel Layout menu |
+| `shipstudio.panels.linked-width:<path>` | The shared docked width while linked-panel mode is on |
+| `shipstudio.panels.linked` | App-wide preference to show one workspace panel at a time |
 
 Not `.shipstudio/project.json`. That file is inside the repository and is meant
 for things the *project* has — its hosting link. A pane width is something a
@@ -190,6 +194,63 @@ restores the arrangement the user had before entering it.
 
 This is separate from the Panel Layout menu's **Focus** preset below. That
 preset still writes an ordinary, editable layout.
+
+## Linked panel mode
+
+The element-link button beside the workspace panel buttons switches between
+independent toolbar panels and linked mode. Agent, Team, Variables and Elements
+share one dock slot at the far left of the workspace rail. The slot stays in the
+same place regardless of the selected panel's saved column, side or
+docked/floating state. Selecting a floating panel docks it temporarily in that
+shared slot; unlinking restores its saved placement.
+
+Edit is independent of that selection. The visual editor and CSS editor use the
+same `editor` rail id, so opening either while linked keeps the selected toolbar
+panel open and docks Edit immediately to the right of Preview. This temporary
+placement applies even when Edit is normally left of Preview or floating. Its
+right-side resize uses the editor column's saved width, and a resize updates
+that width in the saved layout shown by the Layouts menu. The editor's normal
+docked/floating placement and floating position and size are restored when
+linked mode ends.
+
+Linked mode keeps one toolbar panel open at a time. The first open toolbar
+panel is selected when there is no current selection. Selecting another closes
+the previous panel through its owning feature and opens the selected one. If
+several toolbar panels are open when linked mode starts, the most recently
+selected panel stays open when available. Otherwise, the first open panel stays
+open. Closing the selected panel leaves the shared slot empty. Unlinking leaves
+the last selected toolbar panel open if it is still open, or leaves all toolbar
+panels closed if it was closed. Other toolbar panels can then be opened
+independently again.
+
+The Link button in the Panel Layout menu slides between the saved arrangement
+and the active linked layout. Unlinking brings back the editable saved
+arrangement. Presets and layout scope remain available in both modes. The
+editor's temporary right-side slot follows its saved column width. When
+unlinked, the selected toolbar panel and editor return to their saved
+placements.
+
+Linked mode only changes these rail panels. Assets and Plugin Manager remain
+modal dialogs, and Plugins remains a menu trigger; their existing dismissal
+behavior is unchanged.
+
+The shared slot starts at the currently rendered panel width. With no open
+panel to measure, it uses the saved shared width or a default of 420px. Panel
+switches keep that width, including widths outside the usual 320–480px shared
+resize range. Resizing saves `shipstudio.panels.linked-width:<path>` for that
+project. On unlink, the selected panel carries the shared width into its
+ordinary docked or floating placement.
+These handoffs are temporary and do not rewrite normal saved widths or
+arrangements. An explicit resize after unlink saves the ordinary width as usual.
+Dragging panel headers is disabled while the temporary projection is active.
+Pin/float controls and commands still change the saved layout preference; that
+preference takes effect when the panels are unlinked. The projection itself
+does not rewrite saved columns or docked widths.
+
+Topbar Focus takes precedence while active and continues to show Agent beside
+the selected Preview or Code surface, hiding both linked toolbar panels and
+Edit until Focus ends. Focus preserves their open states; when Focus is left,
+linked mode resumes and closes any toolbar panels beyond the current selection.
 
 ## Presets
 

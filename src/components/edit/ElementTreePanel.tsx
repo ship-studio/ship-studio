@@ -66,7 +66,7 @@ import {
 } from '../../lib/edit-structure';
 import { kbd } from '../../lib/shortcuts';
 import { DragSortItem, DragSortScope } from '../primitives/DragSort';
-import { useDragSortContext } from '../../contexts/DragSortContext';
+import { useDragSortContext } from '../../contexts/dragSortContextValue';
 import type {
   DragSortMove,
   DragSortPlacement,

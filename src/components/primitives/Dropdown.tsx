@@ -4,12 +4,14 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type RefObject,
   type Ref,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -20,7 +22,11 @@ const TYPEAHEAD_TIMEOUT_MS = 500;
 const HOVER_CLOSE_DELAY_MS = 120;
 
 function getMenuItems(menu: HTMLDivElement | null): HTMLElement[] {
-  return menu ? Array.from(menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR)) : [];
+  return menu
+    ? Array.from(menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR)).filter(
+        (item) => !item.closest('[hidden], [inert], [aria-hidden="true"]')
+      )
+    : [];
 }
 
 function isEnabledMenuItem(item: HTMLElement): boolean {
@@ -82,7 +88,17 @@ interface DropdownBaseProps {
 type DropdownProps = DropdownBaseProps &
   ({ presentation: 'popover'; ariaLabel: string } | { presentation?: 'menu'; ariaLabel?: string });
 
-const DropdownContext = createContext<{ close: () => void } | null>(null);
+interface DropdownContextValue {
+  close: () => void;
+  registerNestedMenu: (menuRef: RefObject<HTMLElement | null>) => () => void;
+}
+
+const DropdownContext = createContext<DropdownContextValue | null>(null);
+
+/** Lets portaled child menus register as inside the nearest dropdown boundary. */
+export function useDropdownNestedMenuRegistration() {
+  return useContext(DropdownContext)?.registerNestedMenu ?? null;
+}
 
 /**
  * Canonical dropdown menu: open/close state, click-outside, ESC, alignment,
@@ -120,7 +136,9 @@ export function Dropdown({
   }
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
+  const registerWithParent = useContext(DropdownContext)?.registerNestedMenu;
   const [portalPos, setPortalPos] = useState<CSSProperties | null>(null);
+  const [nestedMenuRefs, setNestedMenuRefs] = useState<RefObject<HTMLElement | null>[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -140,6 +158,18 @@ export function Dropdown({
     [controlledOpen, onOpenChange]
   );
 
+  const registerNestedMenu = useCallback(
+    (nestedMenuRef: RefObject<HTMLElement | null>) => {
+      const unregisterFromParent = registerWithParent?.(nestedMenuRef);
+      setNestedMenuRefs((current) => [...current, nestedMenuRef]);
+      return () => {
+        unregisterFromParent?.();
+        setNestedMenuRefs((current) => current.filter((item) => item !== nestedMenuRef));
+      };
+    },
+    [registerWithParent]
+  );
+
   const cancelHoverClose = useCallback(() => {
     if (hoverCloseTimerRef.current !== null) {
       window.clearTimeout(hoverCloseTimerRef.current);
@@ -149,6 +179,7 @@ export function Dropdown({
 
   const close = useCallback(() => {
     cancelHoverClose();
+    restoreFocusOnCloseRef.current = true;
     setOpen(false);
   }, [cancelHoverClose, setOpen]);
 
@@ -193,14 +224,16 @@ export function Dropdown({
     setOpen(false);
   }, [cancelHoverClose, setOpen]);
 
-  // The portaled menu isn't a DOM descendant of the container; exclude it so
-  // clicks inside the menu don't count as "outside".
-  useClickOutside(
-    containerRef,
-    closeFromOutsidePointer,
-    isOpen,
-    portal ? '.ss-dropdown__menu, .ss-context-menu' : '.ss-context-menu'
-  );
+  // A portaled menu isn't a DOM descendant of the trigger container. Keep the
+  // boundary scoped to this dropdown and any registered nested child menus;
+  // unrelated portaled menus must still count as outside clicks.
+  const insideRefs = useMemo(() => [menuRef, ...nestedMenuRefs], [nestedMenuRefs]);
+  useClickOutside(containerRef, closeFromOutsidePointer, isOpen, undefined, insideRefs);
+
+  useEffect(() => {
+    if (!isOpen || !registerWithParent || !menuRef.current) return;
+    return registerWithParent(menuRef);
+  }, [isOpen, registerWithParent]);
 
   const focusMenuItem = useCallback((item: HTMLElement | null) => {
     const items = getMenuItems(menuRef.current);
@@ -352,22 +385,20 @@ export function Dropdown({
     if (fallbackMatch) focusMenuItem(fallbackMatch);
   };
 
+  const handleDropdownKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!isOpen || event.key !== 'Escape' || event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (!containerRef.current?.contains(target) && !menuRef.current?.contains(target)) return;
+
+    // Only the dropdown that owns the focused trigger/menu handles Escape.
+    // A nested child handles it first and marks the event as claimed.
+    event.preventDefault();
+    close();
+  };
+
   useLayoutEffect(() => {
-    if (!isOpen) return;
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        // Claim the key so an enclosing dialog doesn't also close on it.
-        e.preventDefault();
-        close();
-        triggerRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handler);
-
-    if (!portal) {
-      return () => window.removeEventListener('keydown', handler);
-    }
+    if (!isOpen || !portal) return;
 
     // Fixed positioning escapes ancestor overflow:hidden; re-anchor on
     // scroll/resize so the menu tracks the trigger through layout changes.
@@ -395,11 +426,10 @@ export function Dropdown({
     window.addEventListener('scroll', anchor, true);
     window.addEventListener('resize', anchor);
     return () => {
-      window.removeEventListener('keydown', handler);
       window.removeEventListener('scroll', anchor, true);
       window.removeEventListener('resize', anchor);
     };
-  }, [isOpen, portal, align, side, close]);
+  }, [isOpen, portal, align, side]);
 
   const menu = isOpen ? (
     <div
@@ -443,7 +473,9 @@ export function Dropdown({
           />
         </div>
       )}
-      <DropdownContext.Provider value={{ close }}>{children}</DropdownContext.Provider>
+      <DropdownContext.Provider value={{ close, registerNestedMenu }}>
+        {children}
+      </DropdownContext.Provider>
     </div>
   ) : null;
 
@@ -453,6 +485,7 @@ export function Dropdown({
         .filter(Boolean)
         .join(' ')}
       ref={containerRef}
+      onKeyDown={handleDropdownKeyDown}
       onMouseEnter={openOnHover ? openFromHover : undefined}
       onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
     >

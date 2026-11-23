@@ -71,7 +71,10 @@ async function openMenu(layout?: unknown) {
 
 /** The row for one panel, so its controls can be reached by name. */
 function row(label: string) {
-  return screen.getByText(label).closest('.workspace-layout-menu__row') as HTMLElement;
+  const savedSlide = document.querySelector<HTMLElement>('[data-layout-slide="saved"]');
+  return within(savedSlide ?? document.body)
+    .getByText(label)
+    .closest('.workspace-layout-menu__row') as HTMLElement;
 }
 
 function pointer(type: string, x: number, y: number, pointerId = 1) {
@@ -136,7 +139,10 @@ describe('the menu', () => {
 
     expect(screen.getByText('Panel Layout')).toHaveClass('workspace-layout-menu__title');
     for (const preset of LAYOUT_PRESETS) {
-      expect(screen.getByRole('button', { name: preset.label })).toHaveClass('button--default');
+      expect(screen.getByRole('button', { name: preset.label })).toHaveClass(
+        'button--default',
+        'button--size-default'
+      );
     }
   });
 
@@ -446,8 +452,8 @@ describe('the spatial implementation switch', () => {
     expect(canvas.querySelectorAll('[data-layout-new-column]')).toHaveLength(0);
     expect(screen.queryByText('New left column')).not.toBeInTheDocument();
     expect(screen.queryByText('New right column')).not.toBeInTheDocument();
-    expect(screen.getByText('Left')).toBeInTheDocument();
-    expect(screen.getByText('Right')).toBeInTheDocument();
+    expect(within(canvas).getByText('Left')).toBeInTheDocument();
+    expect(within(canvas).getByText('Right')).toBeInTheDocument();
     expect(canvas.querySelector('[data-layout-preview-divider="true"]')).toBeInTheDocument();
     expect(canvas.querySelector('[data-model-column-index="0"]')).toBeNull();
     const cards = [...canvas.querySelectorAll<HTMLElement>('[data-layout-column-card]')];
@@ -1290,5 +1296,66 @@ describe('the layout persistence scope selector', () => {
     );
     expect(screen.queryByRole('menuitem', { name: /Save as my default/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /Reset this project/ })).not.toBeInTheDocument();
+  });
+});
+
+describe.each(['legacy', 'new'] as const)('the %s linked mode control', (implementation) => {
+  it('shows its pressed state and toggles shared panel dock state without closing the menu', async () => {
+    localStorage.setItem(WORKSPACE_LAYOUT_MENU_IMPLEMENTATION_KEY, implementation);
+    const user = await openMenu();
+    const toggle = screen.getByRole('button', { name: 'Linked mode' });
+    const scopeTabs = screen.getByRole('tablist', { name: 'Layout applies to' });
+    const savedSlide = document.querySelector('[data-layout-slide="saved"]') as HTMLElement;
+    const linkedSlide = document.querySelector('[data-layout-slide="linked"]') as HTMLElement;
+
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveClass('button--ghost', 'button--size-default', 'button--has-icon');
+    expect(toggle).not.toHaveClass('button--icon-only');
+    expect(document.querySelector('[data-layout-active-slide]')).toHaveAttribute(
+      'data-layout-active-slide',
+      'saved'
+    );
+    expect(savedSlide).toHaveAttribute('aria-hidden', 'false');
+    expect(savedSlide).not.toHaveAttribute('inert');
+    expect(linkedSlide).toHaveAttribute('aria-hidden', 'true');
+    expect(linkedSlide).toHaveAttribute('inert');
+    expect(toggle).toHaveAttribute('title', 'Link toolbar panels');
+    expect(toggle.querySelector('svg')).toHaveAttribute(
+      'data-icon-name',
+      'WorkspacePanelUnlinkIcon'
+    );
+    expect(toggle.parentElement).toContainElement(scopeTabs);
+    expect(screen.queryByRole('group', { name: 'Active linked layout' })).not.toBeInTheDocument();
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(document.querySelector('[data-layout-active-slide]')).toHaveAttribute(
+      'data-layout-active-slide',
+      'linked'
+    );
+    expect(savedSlide).toHaveAttribute('aria-hidden', 'true');
+    expect(savedSlide).toHaveAttribute('inert');
+    expect(linkedSlide).toHaveAttribute('aria-hidden', 'false');
+    expect(linkedSlide).not.toHaveAttribute('inert');
+    expect(screen.queryByRole('group', { name: 'Workspace columns' })).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute('title', 'Unlink toolbar panels');
+    expect(toggle.querySelector('svg')).toHaveAttribute('data-icon-name', 'ElementLinkIcon');
+    const linkedLayout = screen.getByRole('group', { name: 'Active linked layout' });
+    expect(linkedLayout).toHaveClass('workspace-layout-menu__canvas');
+    expect(linkedLayout.querySelectorAll('.workspace-layout-menu__side')).toHaveLength(2);
+    expect(
+      linkedLayout.querySelector('.workspace-layout-menu__column--preview')
+    ).toBeInTheDocument();
+    expect(within(linkedLayout).getByText('Linked panels')).toBeInTheDocument();
+    expect(within(linkedLayout).getByText('Preview')).toBeInTheDocument();
+    expect(within(linkedLayout).getByText('Editor')).toBeInTheDocument();
+    expect(
+      within(linkedLayout).getByText('Saved layout is available when unlinked')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Panel Layout')).toBeInTheDocument();
+    expect(screen.getByText('Focus')).toBeInTheDocument();
+    await user.click(toggle);
+    expect(linkedSlide).toHaveAttribute('aria-hidden', 'true');
+    expect(linkedSlide).toHaveAttribute('inert');
   });
 });

@@ -862,8 +862,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   // Imperative opener for the toolbar's insert palette (Cmd+K "Insert element…").
   const openInsertMenuRef = useRef<(() => void) | null>(null);
-  const toggleActiveEditor =
-    editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
+  const toggleActiveEditor = useCallback(() => {
+    (editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode)();
+  }, [cssEditor.toggleEditMode, editor.toggleEditMode, editorMode]);
 
   // Comments bind to the frame the user is actually in, the same one the editor
   // binds to — on a canvas that is the active frame, not the focus frame.
@@ -2012,6 +2013,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <DockablePanel
             dock={treeDock}
             docked={elementTreePinned}
+            onLinkedClose={onCloseElementTree}
             ariaLabel="Elements panel"
             positionKey="elementTreeFloatingPosition"
             sizeKey="elementTreeFloatingSize"
@@ -2178,6 +2180,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <DockablePanel
             dock={variablesDock}
             docked={variablesPanelDocked}
+            onLinkedClose={onCloseVariablesPanel}
             ariaLabel="Variables panel"
             positionKey="variablesPanelFloatingPosition"
             sizeKey="variablesPanelFloatingSize"

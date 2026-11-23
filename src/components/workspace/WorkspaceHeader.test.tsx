@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceHeader, WorkspaceTitlebar, type WorkspaceHeaderProps } from './WorkspaceHeader';
 import { openInFinder } from '../../lib/ide';
@@ -14,6 +16,10 @@ vi.mock('../../lib/ide', () => ({
 }));
 
 const projectPath = '/Users/martin/ShipStudio/projects/a-very-long-project-name';
+const workspaceStyles = readFileSync(resolve('src/styles/features/workspace/main.css'), 'utf8');
+const classicToolbarResponsiveStyles = workspaceStyles.slice(
+  workspaceStyles.indexOf('/* The classic toolbar sits below the titlebar')
+);
 
 function headerProps(): WorkspaceHeaderProps {
   return {
@@ -34,6 +40,8 @@ function headerProps(): WorkspaceHeaderProps {
     variablesPanelVisible: false,
     variablesPanelAvailable: true,
     onToggleVariablesPanel: vi.fn(),
+    panelLinkingEnabled: false,
+    onTogglePanelLinking: vi.fn(),
     integrations: {
       github: { cliStatus: { installed: false, authenticated: false }, username: null },
       projectGithub: null,
@@ -216,6 +224,78 @@ describe('WorkspaceHeader title bar', () => {
     expect(screen.getByRole('button', { name: 'Assets' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Branches' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Push' })).toBeDisabled();
+  });
+
+  it('uses the same sizing as the other panel controls with the ghost variant', () => {
+    const props = headerProps();
+    const { container } = render(<TitlebarHarness props={props} />);
+    const group = container.querySelector('.workspace-panel-group');
+    const button = screen.getByRole('button', { name: 'Link workspace panels' });
+
+    expect(button).toHaveClass('button--ghost', 'button--size-default', 'button--has-icon');
+    expect(button).not.toHaveClass('button--icon-only');
+    expect(button).toHaveClass('workspace-panel-link-toggle');
+    expect(button).not.toHaveClass('button--size-compact', 'button--secondary', 'button--default');
+    expect(button.querySelector('svg')).toHaveAttribute('width', '16');
+    expect(screen.getByRole('button', { name: 'Agent' })).toHaveClass('button--size-default');
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(button.querySelector('svg')).toHaveAttribute(
+      'data-icon-name',
+      'WorkspacePanelUnlinkIcon'
+    );
+    expect(group?.lastElementChild).toBe(button);
+
+    fireEvent.click(button);
+    expect(props.onTogglePanelLinking).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the linked icon when panel linking is pressed', () => {
+    const props = headerProps();
+    props.panelLinkingEnabled = true;
+    render(<TitlebarHarness props={props} />);
+    const button = screen.getByRole('button', { name: 'Link workspace panels' });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(button.querySelector('svg')).toHaveAttribute('data-icon-name', 'ElementLinkIcon');
+  });
+
+  it('keeps the link control in both toolbars at the narrow 900px and 1024px breakpoints', () => {
+    const compactProps = headerProps();
+    compactProps.compactWorkspaceToolbarEnabled = true;
+    const compact = render(<HeaderHarness props={compactProps} />);
+    const compactButton = screen.getByRole('button', { name: 'Link workspace panels' });
+    expect(compactButton.closest('.workspace-titlebar-tools')).toBeInTheDocument();
+    expect(compactButton.closest('.workspace-panel-group')).toBeInTheDocument();
+    compact.unmount();
+
+    const classicProps = headerProps();
+    classicProps.compactWorkspaceToolbarEnabled = false;
+    const classic = render(<HeaderHarness props={classicProps} />);
+    const classicButton = screen.getByRole('button', { name: 'Link workspace panels' });
+    expect(classicButton.closest('.workspace-header')).toBeInTheDocument();
+    expect(classicButton.closest('.workspace-panel-group')).toBeInTheDocument();
+    classic.unmount();
+
+    expect(workspaceStyles).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.workspace-titlebar-tools[\s\S]*?\.workspace-panel-group[\s\S]*?\.button:not\(\.button--size-compact\)/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.workspace-header\s*\{[^}]*padding-inline:[^}]*\}/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 1100px\)[\s\S]*?\.workspace-header-left \.workspace-panel-group/
+    );
+  });
+
+  it('gives the classic mode tabs room before they can cover workspace controls', () => {
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 1100px\)[\s\S]*?\.workspace-header \.workspace-mode-label\s*\{\s*display: none;/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /\.workspace-header-left \.workspace-panel-group\s*\{\s*gap: var\(--spacing-2xs\);/
+    );
+    expect(classicToolbarResponsiveStyles).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.workspace-header\s*\{\s*gap: var\(--spacing-xs\);\s*padding-inline: var\(--spacing-sm\);/
+    );
   });
 
   it('explains that Elements is intentionally hidden while in Focus mode', () => {

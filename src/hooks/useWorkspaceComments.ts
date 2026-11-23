@@ -25,6 +25,8 @@ interface Params {
   setIsPreviewHidden: (hidden: boolean) => void;
   setWorkspaceTab: (tab: 'preview' | 'code' | 'branches' | 'prs') => void;
   startDevServer: () => Promise<void> | void;
+  onTeamPanelToggle?: (isOpen: boolean, toggle: () => void) => void;
+  teamPanelSelected?: boolean;
 }
 
 export function useWorkspaceComments({
@@ -36,6 +38,8 @@ export function useWorkspaceComments({
   setIsPreviewHidden,
   setWorkspaceTab,
   startDevServer,
+  onTeamPanelToggle,
+  teamPanelSelected,
 }: Params) {
   // Said once, where the list is, rather than left to be inferred from a list
   // that never grows.
@@ -44,7 +48,13 @@ export function useWorkspaceComments({
     : !previewRunning
       ? 'Start the preview to comment on an element. Comments you already left are here.'
       : null;
-  const team = useTeamWorkspace(project, { agents, activeAgentId, pickerHint });
+  const team = useTeamWorkspace(project, {
+    agents,
+    activeAgentId,
+    pickerHint,
+    onPanelToggle: onTeamPanelToggle,
+    panelSelected: teamPanelSelected,
+  });
   const active = team.commentsActive;
   const wasActive = useRef(false);
 

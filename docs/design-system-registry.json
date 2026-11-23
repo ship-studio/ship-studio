@@ -227,7 +227,8 @@
         "DropdownTriggerProps",
         "Dropdown",
         "DropdownItem",
-        "DropdownDivider"
+        "DropdownDivider",
+        "useDropdownNestedMenuRegistration"
       ],
       "purpose": "Accessible menu trigger, menu items, dividers, keyboard navigation, typeahead, dismissal, and optional portal positioning.",
       "owner": "primitives/menus",

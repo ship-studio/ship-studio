@@ -76,6 +76,7 @@ export interface WorkspaceTerminalPaneProps {
   agentPanelPinned: boolean;
   toggleAgentPanelPinned: () => void;
   toggleAgentPanel: () => void;
+  closeAgentPanel: () => void;
   splitPaneTabIds: number[] | null;
   splitPaneSizes: number[] | null;
   isSplitActive: boolean;
@@ -143,6 +144,7 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
     agentPanelPinned,
     toggleAgentPanelPinned,
     toggleAgentPanel,
+    closeAgentPanel,
     splitPaneTabIds,
     splitPaneSizes,
     isSplitActive,
@@ -186,6 +188,7 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
       dock={dock}
       docked={agentPanelPinned || isPreviewHidden}
       visible={!isAgentPanelHidden}
+      onLinkedClose={closeAgentPanel}
       ariaLabel="Agent panel"
       positionKey="agentPanelFloatingPosition"
       sizeKey="agentPanelFloatingSize"

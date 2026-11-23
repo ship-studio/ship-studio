@@ -12,6 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { PanelResizeHandle } from './PanelResizeHandle';
 import type { PanelDockBinding } from '../../contexts/PanelDockContext';
+import { isLinkedPanel } from '../../lib/workspaceLayout';
 
 interface Point {
   left: number;
@@ -44,6 +45,8 @@ interface DockablePanelProps {
   keepWithinViewport?: boolean;
   /** Optional layer override for a docked, body-portaled surface. */
   dockedZIndex?: CSSProperties['zIndex'];
+  /** Update the owning feature's open state when another linked panel is selected. */
+  onLinkedClose?: () => void;
   /**
    * Ties this panel to the workspace rail: where its placeholder belongs, and
    * where to report a drag of its header.
@@ -172,12 +175,29 @@ export function DockablePanel({
   resizable = true,
   keepWithinViewport = false,
   dockedZIndex,
+  onLinkedClose,
   dock,
 }: DockablePanelProps) {
   // Focus is a temporary workspace projection. It forces Agent into the rail
   // and suppresses every other rail-bound portal without changing feature
   // visibility preferences, so the ordinary arrangement returns on exit.
-  const panelVisible = dock?.focusMode ? dock.panel === 'agent' : visible;
+  const panelLinked = dock?.singlePanelModeEnabled && isLinkedPanel(dock.panel);
+  const panelVisible = dock?.focusMode
+    ? dock.panel === 'agent'
+    : panelLinked
+      ? visible && dock.activePanel === dock.panel
+      : visible;
+  // Presence follows the owning feature's open state. Linked mode closes
+  // sibling features through their registered handlers while this surface and
+  // its children stay mounted, preserving state such as a live terminal.
+  const panelPresent = dock?.focusMode ? panelVisible : visible;
+  const panelDocked = dock?.focusMode
+    ? dock.panel === 'agent' || docked
+    : dock?.singlePanelModeEnabled
+      ? true
+      : docked;
+  const projectionDocked = panelDocked && !docked;
+  const previousVisible = useRef<boolean | null>(visible ? null : false);
   const internalPlaceholderRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [initialSavedSize] = useState(() => readSize(sizeKey));
@@ -230,12 +250,12 @@ export function DockablePanel({
           width: rect.width,
           height: rect.height,
         });
-        if (!savedSizeRef.current) {
+        if (!savedSizeRef.current && !projectionDocked) {
           updateFloatingSize({ width: rect.width, height: rect.height });
         }
       }
     },
-    [placeholderRef, updateFloatingSize]
+    [placeholderRef, projectionDocked, updateFloatingSize]
   );
 
   const measureDock = useCallback(() => {
@@ -247,10 +267,10 @@ export function DockablePanel({
       width: rect.width,
       height: rect.height,
     });
-    if (docked && !savedSizeRef.current) {
+    if (panelDocked && !savedSizeRef.current && !projectionDocked) {
       updateFloatingSize({ width: rect.width, height: rect.height });
     }
-  }, [docked, updateFloatingSize]);
+  }, [panelDocked, projectionDocked, updateFloatingSize]);
 
   useLayoutEffect(() => {
     const placeholder = internalPlaceholderRef.current;
@@ -282,33 +302,49 @@ export function DockablePanel({
   useEffect(() => subscribeGeometry?.(measureDock), [subscribeGeometry, measureDock]);
 
   useEffect(() => {
-    if (!docked) return;
+    if (!panelDocked) return;
     const animationFrame = requestAnimationFrame(measureDock);
     return () => cancelAnimationFrame(animationFrame);
-  }, [docked, measureDock]);
+  }, [panelDocked, measureDock]);
 
   // Claim a column while this panel exists and is showing, and give it back the
   // moment it closes — a docked panel that is closed must not leave an empty
   // band of workspace behind it.
   const setPresent = dock?.setPresent;
+  const registerLinkedCloseHandler = dock?.registerLinkedCloseHandler;
+  useLayoutEffect(() => {
+    if (!onLinkedClose) return;
+    return registerLinkedCloseHandler?.(onLinkedClose);
+  }, [onLinkedClose, registerLinkedCloseHandler]);
+
   useLayoutEffect(() => {
     if (!setPresent) return;
-    setPresent(panelVisible);
+    setPresent(panelPresent);
     return () => setPresent(false);
-  }, [setPresent, panelVisible]);
+  }, [setPresent, panelPresent]);
 
   useEffect(() => {
-    if (docked || savedSizeRef.current) return;
+    const wasVisible = previousVisible.current;
+    previousVisible.current = visible;
+    const opened =
+      visible && (wasVisible === false || (wasVisible === null && dock?.activePanel != null));
+    if (!opened || !dock?.singlePanelModeEnabled || dock.focusMode || !isLinkedPanel(dock.panel))
+      return;
+    dock.setActivePanel(dock.panel);
+  }, [dock, visible]);
+
+  useEffect(() => {
+    if (panelDocked || savedSizeRef.current) return;
     const initialSize = floatingPanelSizeRef.current;
     savedSizeRef.current = initialSize;
     localStorage.setItem(sizeKey, JSON.stringify(initialSize));
-  }, [docked, sizeKey]);
+  }, [panelDocked, sizeKey]);
 
   useEffect(() => {
-    if (!docked && savedSizeRef.current) {
+    if (!panelDocked && savedSizeRef.current) {
       localStorage.setItem(sizeKey, JSON.stringify(floatingPanelSize));
     }
-  }, [docked, floatingPanelSize, sizeKey]);
+  }, [panelDocked, floatingPanelSize, sizeKey]);
 
   useEffect(() => {
     const handleResize = () =>
@@ -331,7 +367,11 @@ export function DockablePanel({
       // events through the component tree even though the surfaces are DOM
       // siblings, so only the closest surface may claim this gesture.
       if (target.closest('.dockable-panel__surface') !== event.currentTarget) return;
-      if (!docked) bringToFront();
+      // Focus and linked mode temporarily project a panel into the rail. Header
+      // movement must not alter either its saved layout or its floating return
+      // position while that projection is active.
+      if (dock?.focusMode || dock?.singlePanelModeEnabled) return;
+      if (!panelDocked) bringToFront();
       if (!target.closest('[data-dockable-drag-handle]')) return;
       if (target.closest('button, a, input, select, [role="button"], [role="tablist"]')) return;
 
@@ -346,7 +386,7 @@ export function DockablePanel({
         moved: false,
       };
 
-      if (docked) {
+      if (panelDocked) {
         if (!dock) return;
         const rect = surfaceRef.current?.getBoundingClientRect();
         if (!rect) return;
@@ -370,7 +410,7 @@ export function DockablePanel({
       surfaceRef.current?.setPointerCapture?.(event.pointerId);
       event.preventDefault();
     },
-    [bringToFront, dock, docked]
+    [bringToFront, dock, panelDocked]
   );
 
   const handlePointerMove = useCallback(
@@ -478,10 +518,6 @@ export function DockablePanel({
     [dock]
   );
 
-  const maxFloatingWidth = Math.max(
-    minFloatingSize.width,
-    window.innerWidth - position.left - VIEWPORT_GUTTER
-  );
   const maxFloatingHeight = Math.max(
     minFloatingSize.height,
     window.innerHeight - position.top - VIEWPORT_GUTTER
@@ -489,26 +525,46 @@ export function DockablePanel({
   // Moving a floating panel can place part of it beyond the viewport. Keep its
   // size unchanged in that case; the resize handles are the only interaction
   // that should change the panel dimensions.
+  const handoffWidth = dock?.widthHandoff;
   const renderedFloatingSize = {
     width: resizable
-      ? Math.max(minFloatingSize.width, floatingPanelSize.width)
+      ? (handoffWidth ?? Math.max(minFloatingSize.width, floatingPanelSize.width))
       : floatingSize.width,
     height: resizable
       ? Math.max(minFloatingSize.height, floatingPanelSize.height)
       : floatingSize.height,
   };
+  const renderedLeft =
+    handoffWidth === undefined
+      ? position.left
+      : Math.max(
+          0,
+          Math.min(position.left, window.innerWidth - renderedFloatingSize.width - VIEWPORT_GUTTER)
+        );
+  const maxFloatingWidth = Math.max(
+    minFloatingSize.width,
+    window.innerWidth - renderedLeft - VIEWPORT_GUTTER
+  );
+
+  const finishWidthHandoff = useCallback(() => {
+    if (!dock?.clearWidthHandoff) return;
+    if (renderedLeft !== position.left) {
+      const visiblePosition = { left: renderedLeft, top: position.top };
+      setPosition(visiblePosition);
+      localStorage.setItem(positionKey, JSON.stringify(visiblePosition));
+    }
+    dock.clearWidthHandoff();
+  }, [dock, position.left, position.top, positionKey, renderedLeft]);
 
   const resizeFloatingWidth = useCallback(
     (width: number) => {
+      finishWidthHandoff();
       updateFloatingSize({
-        width: Math.max(
-          minFloatingSize.width,
-          Math.min(width, window.innerWidth - position.left - VIEWPORT_GUTTER)
-        ),
+        width: Math.max(minFloatingSize.width, Math.min(width, maxFloatingWidth)),
         height: floatingPanelSizeRef.current.height,
       });
     },
-    [minFloatingSize.width, position.left, updateFloatingSize]
+    [finishWidthHandoff, maxFloatingWidth, minFloatingSize.width, updateFloatingSize]
   );
 
   const resizeFloatingHeight = useCallback(
@@ -526,18 +582,16 @@ export function DockablePanel({
 
   const resizeFloatingBoth = useCallback(
     (width: number, height: number) => {
+      finishWidthHandoff();
       updateFloatingSize({
-        width: Math.max(
-          minFloatingSize.width,
-          Math.min(width, window.innerWidth - position.left - VIEWPORT_GUTTER)
-        ),
+        width: Math.max(minFloatingSize.width, Math.min(width, maxFloatingWidth)),
         height: Math.max(
           minFloatingSize.height,
           Math.min(height, window.innerHeight - position.top - VIEWPORT_GUTTER)
         ),
       });
     },
-    [minFloatingSize, position, updateFloatingSize]
+    [finishWidthHandoff, maxFloatingWidth, minFloatingSize, position.top, updateFloatingSize]
   );
 
   const persistFloatingSize = useCallback(
@@ -562,16 +616,16 @@ export function DockablePanel({
   const handleCornerResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (cornerResizePointerRef.current !== event.pointerId) return;
-      resizeFloatingBoth(event.clientX - position.left, event.clientY - position.top);
+      resizeFloatingBoth(event.clientX - renderedLeft, event.clientY - position.top);
     },
-    [position, resizeFloatingBoth]
+    [position.top, renderedLeft, resizeFloatingBoth]
   );
 
   const finishCornerResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>, applyFinalPosition = true) => {
       if (cornerResizePointerRef.current !== event.pointerId) return;
       if (applyFinalPosition) {
-        resizeFloatingBoth(event.clientX - position.left, event.clientY - position.top);
+        resizeFloatingBoth(event.clientX - renderedLeft, event.clientY - position.top);
       }
       cornerResizePointerRef.current = null;
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
@@ -581,7 +635,7 @@ export function DockablePanel({
       document.body.style.userSelect = '';
       persistFloatingSize(false);
     },
-    [persistFloatingSize, position, resizeFloatingBoth]
+    [persistFloatingSize, position.top, renderedLeft, resizeFloatingBoth]
   );
 
   const handleCornerResizeKeyDown = useCallback(
@@ -614,7 +668,7 @@ export function DockablePanel({
   );
 
   const floatingStyle: CSSProperties = {
-    left: position.left,
+    left: renderedLeft,
     top: position.top,
     width: renderedFloatingSize.width,
     height: renderedFloatingSize.height,
@@ -623,7 +677,7 @@ export function DockablePanel({
   // Keep layer ownership tied to the panel's actual presentation state.
   // Feature classes such as `--preview` must never promote a docked panel
   // above a floating one merely because both surfaces share that feature.
-  const surfaceStyle: CSSProperties = docked
+  const surfaceStyle: CSSProperties = panelDocked
     ? draggingFromDock
       ? {
           left: position.left,
@@ -638,13 +692,13 @@ export function DockablePanel({
   // at its natural size in the corner. That never happened while placeholders
   // were inline (the ref callback measures in the same commit); it can happen
   // for a rail slot, which is only created once this panel says it wants one.
-  const awaitingDock = docked && dockStyle === undefined;
+  const awaitingDock = panelDocked && dockStyle === undefined;
 
   const placeholder = (
     <div
       ref={assignPlaceholderRef}
       className={`dockable-panel__placeholder dockable-panel__placeholder--${
-        docked ? 'docked' : 'floating'
+        panelDocked ? 'docked' : 'floating'
       }${placeholderClassName ? ` ${placeholderClassName}` : ''}`}
       aria-hidden
     />
@@ -654,7 +708,7 @@ export function DockablePanel({
   // removed, so rendering this fallback in the rail would leave an empty
   // flex-item-sized gap behind it. Standalone panels still keep their inline
   // placeholder, and floating panels keep theirs hidden by CSS.
-  const shouldRenderPlaceholder = !docked || !dock || Boolean(dock.slotElement);
+  const shouldRenderPlaceholder = !panelDocked || !dock || Boolean(dock.slotElement);
 
   return (
     <>
@@ -670,12 +724,13 @@ export function DockablePanel({
         <div
           ref={surfaceRef}
           className={`dockable-panel__surface ${
-            docked ? 'dockable-panel__surface--docked' : 'dockable-panel__surface--floating'
+            panelDocked ? 'dockable-panel__surface--docked' : 'dockable-panel__surface--floating'
           }${draggingFromDock ? ' dockable-panel__surface--dragging' : ''}${
             !panelVisible || awaitingDock ? ' is-hidden' : ''
           }${surfaceClassName ? ` ${surfaceClassName}` : ''}`}
           style={surfaceStyle}
           aria-label={ariaLabel}
+          data-panel-id={dock?.panel}
           aria-hidden={!panelVisible || awaitingDock}
           inert={!panelVisible || awaitingDock}
           onPointerDown={handlePointerDown}
@@ -684,7 +739,7 @@ export function DockablePanel({
           onPointerCancel={handlePointerCancel}
         >
           {children}
-          {!docked && resizable && (
+          {!panelDocked && resizable && (
             <>
               <PanelResizeHandle
                 value={renderedFloatingSize.width}
@@ -692,10 +747,8 @@ export function DockablePanel({
                 max={maxFloatingWidth}
                 label={`Resize ${ariaLabel} width`}
                 className="dockable-panel__resize-handle dockable-panel__resize-handle--width"
-                onResize={(clientX) => resizeFloatingWidth(clientX - position.left)}
-                onResizeBy={(delta) =>
-                  resizeFloatingWidth(floatingPanelSizeRef.current.width + delta)
-                }
+                onResize={(clientX) => resizeFloatingWidth(clientX - renderedLeft)}
+                onResizeBy={(delta) => resizeFloatingWidth(renderedFloatingSize.width + delta)}
                 onDragChange={persistFloatingSize}
               />
               <PanelResizeHandle
