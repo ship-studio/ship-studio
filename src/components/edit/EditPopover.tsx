@@ -24,6 +24,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { DockablePanel } from '../primitives/DockablePanel';
+import { PanelErrorBoundary } from '../primitives/PanelErrorBoundary';
 import { ColorPicker } from './ColorPicker';
 import { CssValueText } from './CssValueText';
 import {
@@ -274,6 +275,10 @@ export function EditPopover({
   };
 
   if (!pos) return null;
+  const closePicker = () => {
+    onClose();
+    anchor?.focus({ preventScroll: true });
+  };
   const editor = isColor ? (
     <DockablePanel
       docked={false}
@@ -287,24 +292,23 @@ export function EditPopover({
       surfaceClassName="ss-color-picker__floating-surface"
     >
       <div ref={popRef} className="ss-color-picker__floating-content">
-        <ColorPicker
-          value={pickerValue}
-          authoredValue={colorText}
-          variables={variables}
-          variableSelector={variableSelector}
-          projectPath={projectPath}
-          contrastContext={contrastContext}
-          onHeightChange={setPickerHeight}
-          onChange={(c) => {
-            const next = `${c}${importantSuffix}`;
-            setText(next);
-            onCommit(next); // live-apply as you drag
-          }}
-          onClose={() => {
-            onClose();
-            anchor?.focus({ preventScroll: true });
-          }}
-        />
+        <PanelErrorBoundary panel="color-picker" label="Color picker" onDismiss={closePicker}>
+          <ColorPicker
+            value={pickerValue}
+            authoredValue={colorText}
+            variables={variables}
+            variableSelector={variableSelector}
+            projectPath={projectPath}
+            contrastContext={contrastContext}
+            onHeightChange={setPickerHeight}
+            onChange={(c) => {
+              const next = `${c}${importantSuffix}`;
+              setText(next);
+              onCommit(next); // live-apply as you drag
+            }}
+            onClose={closePicker}
+          />
+        </PanelErrorBoundary>
       </div>
     </DockablePanel>
   ) : (

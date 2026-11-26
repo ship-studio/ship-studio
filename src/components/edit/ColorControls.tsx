@@ -33,6 +33,7 @@ import {
 import { ColorPicker } from './ColorPicker';
 import { ResettableLabel } from './ResettableLabel';
 import { DockablePanel } from '../primitives/DockablePanel';
+import { PanelErrorBoundary } from '../primitives/PanelErrorBoundary';
 import { ValueField, type ValueFieldVariable } from '../primitives/ValueField';
 import { toCss, toFormat, type ColorFormat } from '../../lib/color';
 import { resolveColorVariable, type ColorContrastContext } from '../../lib/colorContrast';
@@ -218,6 +219,11 @@ export function ColorField({
     return toCss(raw) ? toFormat(raw, format) : raw;
   }, [computedRaw, explicit, format]);
 
+  const closePicker = () => {
+    setOpen(false);
+    triggerRef.current?.focus({ preventScroll: true });
+  };
+
   return (
     <div className="ss-edit-panel__control">
       <ResettableLabel
@@ -275,19 +281,18 @@ export function ColorField({
           surfaceClassName="ss-color-picker__floating-surface"
         >
           <div ref={popRef} className="ss-color-picker__floating-content">
-            <ColorPicker
-              value={seed}
-              authoredValue={explicit ?? undefined}
-              variables={variables}
-              projectPath={projectPath}
-              contrastContext={contrastContext}
-              onHeightChange={setPickerHeight}
-              onChange={handlePick}
-              onClose={() => {
-                setOpen(false);
-                triggerRef.current?.focus({ preventScroll: true });
-              }}
-            />
+            <PanelErrorBoundary panel="color-picker" label="Color picker" onDismiss={closePicker}>
+              <ColorPicker
+                value={seed}
+                authoredValue={explicit ?? undefined}
+                variables={variables}
+                projectPath={projectPath}
+                contrastContext={contrastContext}
+                onHeightChange={setPickerHeight}
+                onChange={handlePick}
+                onClose={closePicker}
+              />
+            </PanelErrorBoundary>
           </div>
         </DockablePanel>
       )}

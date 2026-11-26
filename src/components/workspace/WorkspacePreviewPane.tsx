@@ -23,6 +23,7 @@ import { PluginSlot } from '../plugins/PluginSlot';
 import { Preview, type InspectTab, type PreviewHandle } from '../preview/Preview';
 import { DeviceMirror } from '../preview/DeviceMirror';
 import { ShopifySetup } from '../shopify/ShopifySetup';
+import { PanelErrorBoundary } from '../primitives/PanelErrorBoundary';
 
 /** Props for the web preview, mobile mirror, and code-side workspace pane. */
 export interface WorkspacePreviewPaneProps {
@@ -192,122 +193,132 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
 
       {/* Tab content */}
       {workspaceTab === 'preview' && previewSurfaceVisible && isWebProject && shopify.showGate && (
-        <ShopifySetup
-          key={currentProject.path}
-          projectPath={currentProject.path}
-          onSendToAgent={sendToClaude}
-          onReady={shopify.markReady}
-          onConnected={shopify.connect}
-        />
+        <PanelErrorBoundary key={currentProject.path} panel="shopify-setup" label="Shopify setup">
+          <ShopifySetup
+            key={currentProject.path}
+            projectPath={currentProject.path}
+            onSendToAgent={sendToClaude}
+            onReady={shopify.markReady}
+            onConnected={shopify.connect}
+          />
+        </PanelErrorBoundary>
       )}
       {workspaceTab === 'preview' && previewSurfaceVisible && !shopify.showGate && (
-        <div style={{ flex: 1, display: 'flex' }}>
-          <Preview
-            key={`${currentProject.path}-${devServerPort}`}
-            ref={previewRef}
-            commentBranch={currentBranch}
-            commentAgents={props.commentAgents}
-            activeCommentAgentId={props.activeCommentAgentId}
-            commentsOpen={props.commentsOpen}
-            port={devServerPort}
-            projectPath={currentProject.path}
-            isStaticProject={projectType === 'statichtml'}
-            previewConnectionEnabled={previewConnectionEnabled}
-            serverAlreadyRunning={serverAlreadyRunning}
-            serverInstanceId={serverInstanceId}
-            projectType={projectType}
-            onServerReady={handlePreviewReady}
-            onPageChange={setCurrentPreviewPage}
-            isCropMode={isCropMode}
-            onCropStart={handleCropStart}
-            onCropComplete={handleCropComplete}
-            onCropCancel={handleCropCancel}
-            isBranchSwitching={isBranchSwitching}
-            isDevServerRestarting={isRestartingDevServer}
-            onSendToClaude={sendToClaude}
-            showLogs={showPreviewLogs}
-            onToggleLogs={togglePreviewLogs}
-            devServerOutput={devServerOutput}
-            devServerOutputVersion={devServerOutputVersion}
-            onDevServerInput={onDevServerInput}
-            onDevServerResize={onDevServerResize}
-            inspectTab={inspectTab}
-            onInspectTabChange={setInspectTab}
-            healthPanelRef={healthPanelRef}
-            onHealthOutput={handleHealthOutput}
-            needsInstall={needsInstall}
-            devServerUnexpectedExit={devServerUnexpectedExit}
-            onRestartDevServer={() => void handleRestartDevServer()}
-            onRunInstall={onRunInstall}
-            onOpenInCode={openInCode}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            undoTitle={undoTitle}
-            redoTitle={redoTitle}
-            onUndo={() => void undoSnapshot()}
-            onRedo={() => void redoSnapshot()}
-            elementTreeVisible={elementTreeVisible}
-            elementTreePinned={elementTreePinned}
-            onToggleElementTreePin={toggleElementTreePinned}
-            onCloseElementTree={closeElementTree}
-            onElementTreeAvailabilityChange={setElementTreePreviewAvailable}
-            variablesPanelVisible={variablesPanelVisible}
-            variablesPanelPinned={variablesPanelPinned}
-            onToggleVariablesPanelPin={toggleVariablesPanelPinned}
-            onCloseVariablesPanel={closeVariablesPanel}
-            previewPlugins={
-              previewSlotPlugins.length > 0 ? (
-                <PluginSlot
-                  name="preview"
-                  plugins={previewSlotPlugins}
-                  project={pluginProject}
-                  actions={pluginActions}
-                  theme={pluginTheme}
-                />
-              ) : null
-            }
-          />
-        </div>
+        <PanelErrorBoundary key={currentProject.path} panel="preview" label="Preview">
+          <div style={{ flex: 1, display: 'flex' }}>
+            <Preview
+              key={`${currentProject.path}-${devServerPort}`}
+              ref={previewRef}
+              commentBranch={currentBranch}
+              commentAgents={props.commentAgents}
+              activeCommentAgentId={props.activeCommentAgentId}
+              commentsOpen={props.commentsOpen}
+              port={devServerPort}
+              projectPath={currentProject.path}
+              isStaticProject={projectType === 'statichtml'}
+              previewConnectionEnabled={previewConnectionEnabled}
+              serverAlreadyRunning={serverAlreadyRunning}
+              serverInstanceId={serverInstanceId}
+              projectType={projectType}
+              onServerReady={handlePreviewReady}
+              onPageChange={setCurrentPreviewPage}
+              isCropMode={isCropMode}
+              onCropStart={handleCropStart}
+              onCropComplete={handleCropComplete}
+              onCropCancel={handleCropCancel}
+              isBranchSwitching={isBranchSwitching}
+              isDevServerRestarting={isRestartingDevServer}
+              onSendToClaude={sendToClaude}
+              showLogs={showPreviewLogs}
+              onToggleLogs={togglePreviewLogs}
+              devServerOutput={devServerOutput}
+              devServerOutputVersion={devServerOutputVersion}
+              onDevServerInput={onDevServerInput}
+              onDevServerResize={onDevServerResize}
+              inspectTab={inspectTab}
+              onInspectTabChange={setInspectTab}
+              healthPanelRef={healthPanelRef}
+              onHealthOutput={handleHealthOutput}
+              needsInstall={needsInstall}
+              devServerUnexpectedExit={devServerUnexpectedExit}
+              onRestartDevServer={() => void handleRestartDevServer()}
+              onRunInstall={onRunInstall}
+              onOpenInCode={openInCode}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              undoTitle={undoTitle}
+              redoTitle={redoTitle}
+              onUndo={() => void undoSnapshot()}
+              onRedo={() => void redoSnapshot()}
+              elementTreeVisible={elementTreeVisible}
+              elementTreePinned={elementTreePinned}
+              onToggleElementTreePin={toggleElementTreePinned}
+              onCloseElementTree={closeElementTree}
+              onElementTreeAvailabilityChange={setElementTreePreviewAvailable}
+              variablesPanelVisible={variablesPanelVisible}
+              variablesPanelPinned={variablesPanelPinned}
+              onToggleVariablesPanelPin={toggleVariablesPanelPinned}
+              onCloseVariablesPanel={closeVariablesPanel}
+              previewPlugins={
+                previewSlotPlugins.length > 0 ? (
+                  <PluginSlot
+                    name="preview"
+                    plugins={previewSlotPlugins}
+                    project={pluginProject}
+                    actions={pluginActions}
+                    theme={pluginTheme}
+                  />
+                ) : null
+              }
+            />
+          </div>
+        </PanelErrorBoundary>
       )}
       {workspaceTab === 'preview' && mobilePreviewAvailable && (
-        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <DeviceMirror
-            key={currentProject.path}
-            projectName={currentProject.name}
-            projectPath={currentProject.path}
-            onSendToAgent={sendToClaude}
-          />
-        </div>
+        <PanelErrorBoundary key={currentProject.path} panel="device-mirror" label="Device preview">
+          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+            <DeviceMirror
+              key={currentProject.path}
+              projectName={currentProject.name}
+              projectPath={currentProject.path}
+              onSendToAgent={sendToClaude}
+            />
+          </div>
+        </PanelErrorBoundary>
       )}
       {workspaceTab === 'code' && (
-        <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-          <CodeTab
-            projectPath={currentProject.path}
-            onSendToAgent={sendToClaude}
-            revealTarget={codeTarget}
-          />
-        </div>
+        <PanelErrorBoundary key={currentProject.path} panel="code" label="Code">
+          <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+            <CodeTab
+              projectPath={currentProject.path}
+              onSendToAgent={sendToClaude}
+              revealTarget={codeTarget}
+            />
+          </div>
+        </PanelErrorBoundary>
       )}
-      <BranchPRTabContainer
-        workspaceTab={workspaceTab}
-        setWorkspaceTab={setWorkspaceTab}
-        hasPreview={hasPreview}
-        projectTypeResolved={projectTypeResolved}
-        integrations={integrations}
-        branches={branches}
-        openPRs={openPRs}
-        currentBranch={currentBranch}
-        projectPath={currentProject.path}
-        handleBranchSwitch={handleBranchSwitch}
-        handleRestartDevServer={handleBranchRestartDevServer}
-        setShowSubmitReview={setShowSubmitReview}
-        fetchBranchInfo={fetchBranchInfo}
-        handleResolveConflicts={handleResolveConflicts}
-        handleGitHubConnect={handleGitHubConnect}
-        onSendToAgent={sendToClaude}
-        createBranchRequest={createBranchRequest}
-        {...worktreeProps}
-      />
+      <PanelErrorBoundary key={currentProject.path} panel="branches" label="Branches">
+        <BranchPRTabContainer
+          workspaceTab={workspaceTab}
+          setWorkspaceTab={setWorkspaceTab}
+          hasPreview={hasPreview}
+          projectTypeResolved={projectTypeResolved}
+          integrations={integrations}
+          branches={branches}
+          openPRs={openPRs}
+          currentBranch={currentBranch}
+          projectPath={currentProject.path}
+          handleBranchSwitch={handleBranchSwitch}
+          handleRestartDevServer={handleBranchRestartDevServer}
+          setShowSubmitReview={setShowSubmitReview}
+          fetchBranchInfo={fetchBranchInfo}
+          handleResolveConflicts={handleResolveConflicts}
+          handleGitHubConnect={handleGitHubConnect}
+          onSendToAgent={sendToClaude}
+          createBranchRequest={createBranchRequest}
+          {...worktreeProps}
+        />
+      </PanelErrorBoundary>
     </div>
   );
 }

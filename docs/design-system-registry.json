@@ -488,6 +488,36 @@
       "lifecycle": "canonical"
     },
     {
+      "name": "PanelErrorBoundary",
+      "file": "src/components/primitives/PanelErrorBoundary.tsx",
+      "exports": [
+        "PanelErrorBoundary"
+      ],
+      "purpose": "Contains a render crash to one panel, modal or tool with a local Retry, and reports it tagged with the surface it came from.",
+      "owner": "primitives/status",
+      "props": [
+        "panel",
+        "label",
+        "onDismiss",
+        "children"
+      ],
+      "variants": [
+        "retry only",
+        "retry and close"
+      ],
+      "states": [
+        "healthy",
+        "crashed"
+      ],
+      "accessibility": "The fallback uses role=alert so the crash is announced, and its Retry and Close actions are ordinary Buttons.",
+      "style": "src/styles/components/error-boundary.css",
+      "example": "docs/error-reporting.md",
+      "tests": [
+        "src/components/primitives/PanelErrorBoundary.test.tsx"
+      ],
+      "lifecycle": "canonical"
+    },
+    {
       "name": "PanelResizeHandle",
       "file": "src/components/primitives/PanelResizeHandle.tsx",
       "exports": [

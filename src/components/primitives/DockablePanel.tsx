@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { PanelResizeHandle } from './PanelResizeHandle';
+import { PanelErrorBoundary } from './PanelErrorBoundary';
 import type { PanelDockBinding } from '../../contexts/PanelDockContext';
 
 interface Point {
@@ -683,7 +684,12 @@ export function DockablePanel({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
         >
-          {children}
+          {/* Every rail panel and floating tool contains its own render crash.
+              The boundary sits inside the portal, so the surface keeps its
+              geometry and resize handles while its contents are replaced. */}
+          <PanelErrorBoundary panel={dock?.panel ?? ariaLabel} label={ariaLabel}>
+            {children}
+          </PanelErrorBoundary>
           {!docked && resizable && (
             <>
               <PanelResizeHandle

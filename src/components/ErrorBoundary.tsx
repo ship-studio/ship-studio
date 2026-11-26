@@ -1,8 +1,7 @@
 import { Component, ReactNode } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { logger } from '../lib/logger';
-import { lookupBlobOwner, markPluginCrashed } from '../lib/plugin-loader';
-import { uninstallPlugin } from '../lib/plugins';
+import { reportRenderCrash } from '../lib/renderCrash';
 import { Button } from './primitives/Button';
 import { InfoIcon } from '@/components/icons';
 import { asCommandError, formatCommandError } from '../lib/errors';
@@ -27,28 +26,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    logger.logError(
-      error,
-      { componentStack: errorInfo.componentStack ?? undefined },
-      'frontend-crash'
-    );
-
-    // The logError above also reports the crash to the admin agent
-    // (logger forwards error-level logs — see docs/error-reporting.md).
-
-    // Auto-remove crashing plugins so they don't crash again on Continue
-    const stack = error.stack ?? '';
-    const blobMatch = /blob:[^\s:)]+/.exec(stack);
-
-    if (blobMatch) {
-      const owner = lookupBlobOwner(blobMatch[0]);
-      if (owner) {
-        markPluginCrashed(owner.pluginId);
-        void uninstallPlugin(owner.projectPath, owner.pluginId).catch((e) =>
-          console.error(`Failed to auto-remove plugin "${owner.pluginId}":`, e)
-        );
-      }
-    }
+    // Reports to the admin agent and auto-removes a crashing plugin. Most
+    // surfaces have a PanelErrorBoundary of their own, so reaching this one
+    // means the crash was outside every panel.
+    reportRenderCrash(error, errorInfo);
   }
 
   /** Check if the error likely originated from a plugin */

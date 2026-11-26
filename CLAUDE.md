@@ -520,6 +520,15 @@ import { ModalFrame } from './primitives/ModalFrame';
 
 For toggling state, pair with `useModalState()` from `src/hooks/useModalState.ts`.
 
+### Render crashes → contained by `<PanelErrorBoundary>`
+
+`DockablePanel` and `ModalFrame` already include one, so panels and modals get it
+for free. A new independently-failing surface that is neither (a workspace tab, a
+floating tool inside another panel) wraps itself in
+`<PanelErrorBoundary panel="stable-id" label="What the user calls it">` from
+`src/components/primitives/`. It reports through the same path as the top-level
+boundary, tagged with `panel`. See [docs/error-reporting.md](docs/error-reporting.md).
+
 ### Loading spinner → use `<Spinner>` from `src/components/primitives/Spinner.tsx`
 
 Don't hand-roll `border-top-color` + `animation: spin` divs — there used to be 16 per-feature copies.

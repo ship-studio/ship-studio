@@ -35,7 +35,7 @@ per-site wiring. Coverage comes from choke points, not scattered calls:
 | Rust panics | panic hook in `error_reporting.rs` (chained in front of Sentry's) | `panic-<file>:<line>:<col>` |
 | Unexpected command failures sent to the UI | `CommandError`'s `Serialize` impl (`errors.rs`) — fires when the rejection crosses IPC; expected states and validation feedback are excluded | `cmderr-<variant>-<cmd/field>` |
 | Any backend `tracing::error!` | `AdminAgentLayer` tracing layer, attached in `logging::init_logging()` | `rs-<file>:<line>` (callsite) |
-| Frontend crashes (ErrorBoundary) | `logger.logError` → forwarding | message-based |
+| Frontend crashes (ErrorBoundary, PanelErrorBoundary) | `reportRenderCrash` (`src/lib/renderCrash.ts`) → `logger.logError` → forwarding; a panel crash adds `panel` to the context | message-based |
 | Any `logger.error` / `logger.logError` | forwarding inside `Logger.log()` | message-based |
 | Uncaught JS errors / unhandled rejections | `window` handlers in `main.tsx` | message-based |
 | Error toasts (user-visible failures) | `showToast(…, 'error')` in `useToasts` | message-based |
@@ -137,6 +137,15 @@ crash/error kind, scrubbed source and summary, plus an optional endpoint-returne
 validated GitHub issue URL. The `crash` kind is reserved for Rust panics and
 the explicit React ErrorBoundary `frontend-crash` source; other report sources
 remain `error`.
+
+Render crashes are contained per surface. `PanelErrorBoundary` is built into
+`DockablePanel` (every rail panel and floating tool) and `ModalFrame` (every
+modal body), and wraps each workspace tab's content and the colour picker. A
+crash there replaces only that surface with a local Retry, and reports through
+the same `frontend-crash` path with `panel` set (`variables`, `color-picker`,
+`modal:Settings`, …), so a report says which screen it came from. Only a crash
+outside every panel reaches the top-level `ErrorBoundary`. Like it, the panel
+fallback never claims the crash was sent.
 
 ## The secret
 

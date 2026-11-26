@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { CloseIcon } from '@/components/icons';
 import { IconButton } from './IconButton';
+import { PanelErrorBoundary } from './PanelErrorBoundary';
 
 interface ModalFrameBaseProps {
   isOpen: boolean;
@@ -423,6 +424,7 @@ export function ModalFrame({
   if (!isOpen || !portalRoot) return null;
 
   const hasTitle = title !== undefined && title !== null;
+  const modalName = ariaLabel ?? (typeof title === 'string' ? title : undefined);
   const dialog = (
     <div
       ref={overlayRef}
@@ -471,7 +473,16 @@ export function ModalFrame({
             )}
           </div>
         )}
-        {children}
+        {/* A crash in the body stays in this dialog. The header (and its close
+            control) is outside the boundary, and Close is offered as well for
+            dialogs without one. */}
+        <PanelErrorBoundary
+          panel={`modal:${modalName ?? 'untitled'}`}
+          label={modalName ? `“${modalName}”` : 'This dialog'}
+          onDismiss={() => onCloseRef.current()}
+        >
+          {children}
+        </PanelErrorBoundary>
       </div>
     </div>
   );
