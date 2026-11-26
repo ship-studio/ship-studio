@@ -8,6 +8,7 @@ import { hostingConnectScenarios } from './hostingConnect';
 import { issueReportScenarios } from './issueReports';
 import { layoutScenarios } from './layout';
 import { migrationScenarios } from './migration';
+import { pagesScenarios } from './pages';
 import { remoteScenarios } from './remote';
 import { teamScenarios } from './team';
 
@@ -19,6 +20,7 @@ export const scenarios: Scenario[] = [
   ...issueReportScenarios,
   ...layoutScenarios,
   ...migrationScenarios,
+  ...pagesScenarios,
   ...remoteScenarios,
   ...teamScenarios,
 ];

@@ -815,6 +815,22 @@ pub(crate) fn astro_locale_prefixes(workspace: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Every configured Astro locale code, including the default locale. Page
+/// mutations use this to refuse language-prefixed paths even when Astro is
+/// configured to omit the default prefix in generated URLs.
+pub(crate) fn astro_all_locale_prefixes(workspace: &Path) -> Vec<String> {
+    let Some(config_path) = find_config_file(workspace, ASTRO_CONFIG_NAMES) else {
+        return Vec::new();
+    };
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return Vec::new();
+    };
+    let Some(block) = parse_i18n_block(&content) else {
+        return Vec::new();
+    };
+    block.locales
+}
+
 /// Next.js i18n routing doesn't work with `output: 'export'` (static export
 /// bypasses the routing layer entirely).
 fn nextjs_uses_static_export(content: &str) -> bool {

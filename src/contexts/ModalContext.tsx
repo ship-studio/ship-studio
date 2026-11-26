@@ -47,6 +47,7 @@ export type ModalId =
   | 'worktreeCreate'
   | 'siteUrlImport'
   | 'migrationFidelity'
+  | 'pagesPanelEditor'
   | 'remoteAccess';
 
 interface ModalContextValue {

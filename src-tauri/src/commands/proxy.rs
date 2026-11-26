@@ -31,7 +31,7 @@ pub async fn stop_preview_proxy(
     Ok(())
 }
 
-/// Probe the dev server's root and return its real HTTP status code.
+/// Probe the dev server's root or a specified route for its real HTTP status.
 ///
 /// The webview can't do this itself: a cross-origin fetch to localhost needs
 /// `mode: 'no-cors'`, whose opaque response hides the status — so a wedged
@@ -41,7 +41,11 @@ pub async fn stop_preview_proxy(
 /// stack are reached, and GET (not HEAD, which dev servers often reject).
 #[tauri::command]
 #[tracing::instrument]
-pub async fn probe_preview_status(port: u16, timeout_ms: u64) -> Result<Option<u16>, CommandError> {
+pub async fn probe_preview_status(
+    port: u16,
+    timeout_ms: u64,
+    path: Option<String>,
+) -> Result<Option<u16>, CommandError> {
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -51,7 +55,28 @@ pub async fn probe_preview_status(port: u16, timeout_ms: u64) -> Result<Option<u
             message: format!("probe client: {e}"),
         })?;
 
-    match client.get(format!("http://localhost:{port}/")).send().await {
+    let path = path.unwrap_or_else(|| "/".to_string());
+    if !path.starts_with('/')
+        || path.starts_with("//")
+        || path
+            .chars()
+            .any(|character| matches!(character, '#' | '?' | '\\'))
+        || path.chars().any(char::is_whitespace)
+        || path
+            .split('/')
+            .any(|segment| segment == "." || segment == "..")
+    {
+        return Err(CommandError::Validation {
+            field: "path".to_string(),
+            reason: "Expected a safe absolute route path".to_string(),
+        });
+    }
+    match client
+        .get(format!("http://localhost:{port}{path}"))
+        .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
+        .send()
+        .await
+    {
         Ok(resp) => Ok(Some(resp.status().as_u16())),
         Err(_) => Ok(None),
     }

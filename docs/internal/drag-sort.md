@@ -70,6 +70,8 @@ or added to this project.
    Enter lifts it; arrows move the projected target along the list axis; Home
    and End choose the first and last valid position; Space or Enter drops;
    Escape cancels.
+   A feature may reserve Enter for an activation surface's normal button
+   action; Space remains available to lift and drop the item.
 2. Tree items additionally use Left and Right for before/inside/after where
    valid. Invalid positions are skipped rather than announced as successful.
 3. Focus remains on the activation surface throughout and is restored after

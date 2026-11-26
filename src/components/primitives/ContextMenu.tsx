@@ -19,6 +19,8 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { ChevronRightIcon } from '@/components/icons';
+import { useDropdownNestedMenuRegistration } from './Dropdown';
 
 interface ContextMenuPosition {
   align?: 'left' | 'right';
@@ -31,6 +33,15 @@ interface ContextMenuState {
   openAt: (position: ContextMenuPosition) => void;
   position: ContextMenuPosition | null;
   isOpen: boolean;
+  submenu: { id: string; x: number; y: number; left: number; focusFirst: boolean } | null;
+  openSubmenu: (
+    id: string,
+    position: { x: number; y: number; left: number },
+    focusFirst?: boolean
+  ) => void;
+  closeSubmenu: (id?: string) => void;
+  scheduleCloseSubmenu: (id: string) => void;
+  cancelCloseSubmenu: () => void;
 }
 
 const ContextMenuContext = createContext<ContextMenuState | null>(null);
@@ -39,6 +50,7 @@ let activeContextMenu: { id: string; close: (immediate?: boolean) => void } | nu
 
 const EDGE_GUTTER = 8;
 const CONTEXT_MENU_EXIT_DURATION_MS = 150;
+const SUBMENU_CLOSE_DELAY_MS = 120;
 
 function useContextMenuContext(component: string): ContextMenuState {
   const context = useContext(ContextMenuContext);
@@ -60,12 +72,49 @@ export interface ContextMenuProps {
 export function ContextMenu({ children }: ContextMenuProps) {
   const id = useId();
   const [menu, setMenu] = useState<{ position: ContextMenuPosition; isOpen: boolean } | null>(null);
+  const [submenu, setSubmenu] = useState<ContextMenuState['submenu']>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const position = menu?.position ?? null;
   const isOpen = menu?.isOpen ?? false;
 
+  const cancelCloseSubmenu = useCallback(() => {
+    if (submenuCloseTimerRef.current !== null) {
+      clearTimeout(submenuCloseTimerRef.current);
+      submenuCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const openSubmenu = useCallback(
+    (submenuId: string, anchor: { x: number; y: number; left: number }, focusFirst = false) => {
+      cancelCloseSubmenu();
+      setSubmenu({ id: submenuId, ...anchor, focusFirst });
+    },
+    [cancelCloseSubmenu]
+  );
+
+  const closeSubmenu = useCallback(
+    (submenuId?: string) => {
+      cancelCloseSubmenu();
+      setSubmenu((current) => (submenuId && current?.id !== submenuId ? current : null));
+    },
+    [cancelCloseSubmenu]
+  );
+
+  const scheduleCloseSubmenu = useCallback(
+    (submenuId: string) => {
+      cancelCloseSubmenu();
+      submenuCloseTimerRef.current = setTimeout(() => {
+        setSubmenu((current) => (current?.id === submenuId ? null : current));
+        submenuCloseTimerRef.current = null;
+      }, SUBMENU_CLOSE_DELAY_MS);
+    },
+    [cancelCloseSubmenu]
+  );
+
   const close = useCallback(
     (immediate = false) => {
+      closeSubmenu();
       if (closeTimerRef.current !== null) {
         clearTimeout(closeTimerRef.current);
         closeTimerRef.current = null;
@@ -83,12 +132,13 @@ export function ContextMenu({ children }: ContextMenuProps) {
 
       if (activeContextMenu?.id === id) activeContextMenu = null;
     },
-    [id, menu]
+    [closeSubmenu, id, menu]
   );
 
   const openAt = useCallback(
     (nextPosition: ContextMenuPosition) => {
       activeContextMenu?.close(true);
+      closeSubmenu();
       if (closeTimerRef.current !== null) {
         clearTimeout(closeTimerRef.current);
         closeTimerRef.current = null;
@@ -96,12 +146,13 @@ export function ContextMenu({ children }: ContextMenuProps) {
       activeContextMenu = { id, close };
       setMenu({ position: nextPosition, isOpen: true });
     },
-    [close, id]
+    [close, closeSubmenu, id]
   );
 
   useEffect(
     () => () => {
       if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
+      if (submenuCloseTimerRef.current !== null) clearTimeout(submenuCloseTimerRef.current);
       if (activeContextMenu?.id === id) activeContextMenu = null;
     },
     [id]
@@ -124,7 +175,19 @@ export function ContextMenu({ children }: ContextMenuProps) {
   }, [close, isOpen]);
 
   return (
-    <ContextMenuContext.Provider value={{ close, openAt, position, isOpen }}>
+    <ContextMenuContext.Provider
+      value={{
+        close,
+        openAt,
+        position,
+        isOpen,
+        submenu,
+        openSubmenu,
+        closeSubmenu,
+        scheduleCloseSubmenu,
+        cancelCloseSubmenu,
+      }}
+    >
       {children}
     </ContextMenuContext.Provider>
   );
@@ -216,7 +279,13 @@ export function ContextMenuContent({
 }: ContextMenuContentProps) {
   const { close, isOpen, position } = useContextMenuContext('ContextMenuContent');
   const menuRef = useRef<HTMLDivElement>(null);
+  const registerNestedMenu = useDropdownNestedMenuRegistration();
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null);
+
+  useEffect(() => {
+    if (!position || !registerNestedMenu || !menuRef.current) return;
+    return registerNestedMenu(menuRef);
+  }, [position, registerNestedMenu]);
 
   const reposition = useCallback(() => {
     if (!position || !menuRef.current) return;
@@ -385,5 +454,153 @@ export function ContextMenuShortcut({
     <span {...props} className={['ss-context-menu__shortcut', className].filter(Boolean).join(' ')}>
       {children}
     </span>
+  );
+}
+
+/** Hoverable, keyboard-accessible side menu that shares its parent context menu layer. */
+export function ContextMenuSubmenu({
+  label,
+  icon,
+  children,
+  disabled = false,
+}: {
+  label: string;
+  icon?: ReactNode;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  const { submenu, openSubmenu, closeSubmenu, scheduleCloseSubmenu, cancelCloseSubmenu } =
+    useContextMenuContext('ContextMenuSubmenu');
+  const id = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const isOpen = submenu?.id === id;
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+
+  const open = (focusFirst = false) => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    openSubmenu(id, { x: rect.right, y: rect.top, left: rect.left }, focusFirst);
+  };
+
+  const reposition = useCallback(() => {
+    if (!isOpen || !submenu || !contentRef.current) return;
+    const rect = contentRef.current.getBoundingClientRect();
+    const right = submenu.x + 6;
+    const left =
+      right + rect.width <= window.innerWidth - EDGE_GUTTER ? right : submenu.left - rect.width - 6;
+    setMenuPosition({
+      x: clampPosition(left, rect.width, window.innerWidth),
+      y: clampPosition(submenu.y, rect.height, window.innerHeight),
+    });
+  }, [isOpen, submenu]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    reposition();
+    if (submenu?.focusFirst) {
+      contentRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')
+        ?.focus({ preventScroll: true });
+    }
+  }, [isOpen, reposition, submenu?.focusFirst]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener('resize', reposition);
+    return () => window.removeEventListener('resize', reposition);
+  }, [isOpen, reposition]);
+
+  const getItems = () =>
+    Array.from(
+      contentRef.current?.querySelectorAll<HTMLElement>(
+        '[role="menuitem"]:not([aria-disabled="true"])'
+      ) ?? []
+    );
+
+  const handleSubmenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSubmenu(id);
+      triggerRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const item = target.closest<HTMLElement>('[role="menuitem"]');
+      if (!item || item.getAttribute('aria-disabled') === 'true') return;
+      event.preventDefault();
+      event.stopPropagation();
+      item.click();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = getItems();
+    if (items.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    const nextIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        className="ss-context-menu__item ss-context-menu__submenu-trigger"
+        disabled={disabled}
+        aria-disabled={disabled || undefined}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-controls={`${id}-menu`}
+        onMouseEnter={() => !disabled && open()}
+        onMouseLeave={() => scheduleCloseSubmenu(id)}
+        onClick={(event) => (isOpen ? closeSubmenu(id) : open(event.detail === 0))}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowRight' || disabled) return;
+          event.preventDefault();
+          event.stopPropagation();
+          open(true);
+        }}
+      >
+        {icon}
+        <span>{label}</span>
+        <ChevronRightIcon size={14} aria-hidden="true" />
+      </button>
+      {isOpen &&
+        submenu &&
+        createPortal(
+          <div
+            id={`${id}-menu`}
+            ref={contentRef}
+            className="ss-context-menu ss-context-menu__submenu"
+            data-context-menu-content
+            data-state="open"
+            role="menu"
+            aria-label={`${label} destinations`}
+            tabIndex={-1}
+            style={{
+              left: menuPosition?.x ?? submenu.x,
+              top: menuPosition?.y ?? submenu.y,
+            }}
+            onMouseEnter={cancelCloseSubmenu}
+            onMouseLeave={() => scheduleCloseSubmenu(id)}
+            onKeyDown={handleSubmenuKeyDown}
+          >
+            {children}
+          </div>,
+          document.body
+        )}
+    </>
   );
 }

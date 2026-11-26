@@ -1149,6 +1149,12 @@
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
     },
     {
+      "path": "src/styles/features/pages-panel.css",
+      "token": "--space-02",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
       "path": "src/styles/features/plugins.css",
       "token": "--font-weight-medium",
       "count": 1,
@@ -1161,21 +1167,15 @@
       "reason": "Transitional migration-alias consumer; replace with the canonical semantic role."
     },
     {
-      "path": "src/styles/features/preview.css",
-      "token": "--font-size-11",
-      "count": 1,
-      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
-    },
-    {
-      "path": "src/styles/features/preview.css",
+      "path": "src/styles/features/preview-address-bar.css",
       "token": "--font-weight-medium",
-      "count": 1,
+      "count": 2,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {
-      "path": "src/styles/features/preview.css",
-      "token": "--space-02",
-      "count": 1,
+      "path": "src/styles/features/preview-address-bar.css",
+      "token": "--font-weight-semibold",
+      "count": 2,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {
@@ -1193,7 +1193,7 @@
     {
       "path": "src/styles/features/preview.css",
       "token": "--stroke-1",
-      "count": 2,
+      "count": 1,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
     },
     {

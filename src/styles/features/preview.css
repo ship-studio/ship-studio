@@ -84,144 +84,7 @@
   cursor: ew-resize;
 }
 
-/* Page Switcher */
-.page-switcher {
-  position: relative;
-}
-
-.page-switcher-trigger {
-  font-family: var(--font-code);
-  /* Lets the trigger follow its shrinking flex parent instead of forcing the
-     toolbar wider than its column. */
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.page-switcher-trigger svg {
-  color: var(--text-muted);
-}
-
-.page-route {
-  max-width: 200px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.page-route-context {
-  padding-left: var(--space-02);
-  border-left: var(--stroke-1) solid var(--border-default);
-  color: var(--text-muted);
-  font-family: var(--font-ui);
-  font-size: var(--font-size-11);
-  font-weight: var(--font-weight-medium);
-}
-
-.page-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  min-width: 220px;
-  max-width: 300px;
-  background: var(--surface-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-md);
-  z-index: var(--z-dropdown);
-  overflow: hidden;
-}
-
-.page-search-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3xs);
-  padding-right: var(--spacing-2xs);
-  background: var(--surface-control);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.page-search-row .page-search {
-  flex: 1;
-  min-width: 0;
-  border-bottom: none;
-}
-
-.page-search-edit {
-  flex-shrink: 0;
-  color: var(--text-muted);
-}
-
-.page-route-suffix {
-  color: var(--text-muted);
-}
-
-.page-search {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--surface-control);
-  border: none;
-  border-bottom: 1px solid var(--border-default);
-  color: var(--text-primary);
-  font-size: var(--font-size-body-lg);
-  outline: none;
-}
-
-.page-search::placeholder {
-  color: var(--text-muted);
-}
-
-.page-list {
-  max-height: 240px;
-  overflow-y: auto;
-  /* Custom, theme-matched scrollbar — never the device's white default. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-default) transparent;
-}
-.page-list::-webkit-scrollbar {
-  width: 10px;
-}
-.page-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.page-list::-webkit-scrollbar-thumb {
-  background: var(--border-default);
-  border-radius: 999px;
-  border: 2px solid var(--surface-panel);
-}
-.page-list::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-
-.page-list-empty {
-  padding: 16px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: var(--font-size-body-lg);
-}
-
-.page-dropdown .ss-dropdown__item {
-  align-items: baseline;
-  font-family: var(--font-code);
-}
-
-.page-item-hint {
-  font-family: inherit;
-  font-size: var(--font-size-body-sm);
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-.preview-url {
-  font-family: var(--font-code);
-  font-size: var(--font-size-body-md);
-  color: var(--text-muted);
-}
-
-/* Refresh + fullscreen + tree toggle — matched icon buttons */
-.preview-refresh,
+/* Fullscreen + tree toggle — matched icon buttons */
 .preview-fullscreen-btn,
 .preview-tree-btn {
   display: flex;
@@ -239,7 +102,6 @@
     color var(--transition);
 }
 
-.preview-refresh:hover:not(:disabled),
 .preview-fullscreen-btn:hover:not(:disabled),
 .preview-tree-btn:hover:not(:disabled) {
   background: var(--surface-control);
@@ -248,7 +110,6 @@
 
 /* Disabled (e.g. undo/redo with nothing to restore, or no git repo) — grayed
    and non-interactive, matching the docked toolbar's icon buttons. */
-.preview-refresh:disabled,
 .preview-fullscreen-btn:disabled,
 .preview-tree-btn:disabled {
   opacity: 0.4;
@@ -472,6 +333,23 @@
   overflow: hidden;
   padding: 0;
   position: relative;
+}
+
+/* Empty-state surfaces fill the viewport. The centered alignment above is for
+   preview frames; without this override, their panel background only paints
+   behind the content and leaves the viewport background visible above/below. */
+.preview-viewport > .preview-status,
+.preview-viewport > .preview-install-prompt {
+  align-self: stretch;
+}
+
+.preview-external-frame {
+  align-self: stretch;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--surface-control);
 }
 
 /* Keep the breadcrumb in the viewport layout rather than floating it over the
@@ -1069,6 +947,95 @@
   box-shadow: var(--shadow-md);
   z-index: var(--z-dropdown);
   overflow: hidden;
+}
+
+.template-entry-picker {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.button.template-entry-picker__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  max-width: var(--size-preview-address-bar-max-width);
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--variable-text);
+  background: var(--preview-template-picker-surface);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button.template-entry-picker__trigger:hover,
+.button.template-entry-picker__trigger[aria-expanded='true'] {
+  border-color: var(--variable-text);
+  color: var(--variable-text);
+  background: var(--preview-template-picker-surface);
+}
+
+.template-entry-picker__template,
+.template-entry-picker__current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-entry-picker__template {
+  color: var(--variable-text);
+}
+
+.template-entry-picker__current {
+  color: var(--variable-text);
+}
+
+.template-entry-picker__trigger svg {
+  flex: 0 0 auto;
+  color: var(--variable-text);
+}
+
+.ss-dropdown__menu.template-entry-picker__menu {
+  z-index: var(--z-floating-panel-popover);
+}
+
+.template-entry-picker__heading,
+.template-entry-picker__status {
+  display: grid;
+  gap: var(--spacing-2xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.template-entry-picker__heading strong {
+  color: var(--variable-text);
+  text-transform: capitalize;
+}
+
+.template-entry-picker__menu .ss-dropdown__item--active {
+  color: var(--variable-text);
+}
+
+.template-entry-picker__heading span,
+.template-entry-picker__item-route {
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-caption);
+}
+
+.template-entry-picker__item-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-entry-picker__status--error {
+  color: var(--accent-error);
 }
 
 .locale-item {

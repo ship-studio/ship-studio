@@ -16,6 +16,13 @@
   --size-preview-breakpoints-min-width: 69px;
   --size-preview-breakpoint-menu: 240px;
   --size-preview-breakpoint-divider-height: var(--stroke-1);
+  --size-preview-address-bar-max-width: 420px;
+  --size-preview-address-bar-min-input-width: 20ch;
+  --size-preview-navigation-group-max-width: calc(
+    var(--size-preview-address-bar-max-width) + var(--size-control-standard) +
+      var(--size-control-standard) + var(--button-gap) + var(--button-gap)
+  );
+  --preview-template-picker-surface: #362e4d;
 
   --size-sidebar-project-shortcut: 24px;
   --size-sidebar-project: 214px;

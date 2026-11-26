@@ -24,7 +24,9 @@ import {
 } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
-import { setTerminalState } from '../../lib/project';
+import { probePreviewRoute, setTerminalState } from '../../lib/project';
+import { isDynamicPageRoute } from '../../lib/projectPages';
+import { waitForPreviewRoute } from '../../lib/previewRouteReadiness';
 import type { InspectTab } from '../preview/Preview';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
@@ -37,6 +39,7 @@ import { WorkspaceDock } from './WorkspaceDock';
 import { WorkspaceLayoutMenu } from './WorkspaceLayoutMenu';
 import { WorkspacePreviewPane } from './WorkspacePreviewPane';
 import { WorkspaceTerminalPane } from './WorkspaceTerminalPane';
+import { WorkspacePagesDockPanel } from './WorkspacePagesDockPanel';
 import { PanelDockProvider, usePanelDock } from '../../contexts/PanelDockContext';
 import { useLayoutCommands } from '../../commands/useLayoutCommands';
 import { isDocked } from '../../lib/workspaceLayout';
@@ -57,6 +60,7 @@ import { useWorkspaceShortcutControls } from '../../hooks/useWorkspaceShortcutCo
 import { useWorkspacePanelCommands } from '../../hooks/useWorkspacePanelCommands';
 import { useWorkspaceComments } from '../../hooks/useWorkspaceComments';
 import { useWorkspaceVariablesPanel } from '../../hooks/useWorkspaceVariablesPanel';
+import { useWorkspacePreviewPanel } from '../../hooks/useWorkspacePreviewPanel';
 import { useWorkspaceTerminalShortcuts } from '../../hooks/useWorkspaceTerminalShortcuts';
 import '../../styles/features/notifications.css';
 
@@ -345,6 +349,34 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     handleSaveDevCommand,
   } = lifecycle;
 
+  const [previewRouteState, setPreviewRouteState] = useState({
+    projectPath: currentProject.path,
+    route: '/',
+  });
+  if (previewRouteState.projectPath !== currentProject.path) {
+    setPreviewRouteState({ projectPath: currentProject.path, route: '/' });
+  }
+  const currentPreviewRoute =
+    previewRouteState.projectPath === currentProject.path ? previewRouteState.route : '/';
+  const [templateRouteState, setTemplateRouteState] = useState<{
+    projectPath: string;
+    route: string | null;
+  }>({ projectPath: currentProject.path, route: null });
+  if (templateRouteState.projectPath !== currentProject.path) {
+    setTemplateRouteState({ projectPath: currentProject.path, route: null });
+  }
+  const selectedTemplateRoute =
+    templateRouteState.projectPath === currentProject.path ? templateRouteState.route : null;
+  const [templatePickerRequest, setTemplatePickerRequest] = useState(0);
+  const duplicateNavigationRequestRef = useRef(0);
+  const handleCanonicalPreviewPageChange = useCallback(
+    (route: string) => {
+      duplicateNavigationRequestRef.current += 1;
+      setPreviewRouteState({ projectPath: currentProject.path, route });
+    },
+    [currentProject.path]
+  );
+
   // The header's quick Branches menu runs the same switch as the Branches tab:
   // a real checkout first, and only then the UI sync (#1012).
   const refreshBranches = useCallback(
@@ -509,6 +541,80 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     setWorkspaceTab,
     startDevServer: handleStartDevServer,
   });
+  const pages = useWorkspacePreviewPanel({
+    isWebProject,
+    workspaceTab,
+    isPreviewHidden,
+    projectPath: currentProject.path,
+    setIsPreviewHidden,
+    setWorkspaceTab,
+    startDevServer: handleStartDevServer,
+  });
+  const pagesPanelDocked = isDocked(dock.layout, 'pages');
+  const togglePagesPanelDocked = useCallback(
+    () => dock.setDocked('pages', !pagesPanelDocked),
+    [dock, pagesPanelDocked]
+  );
+  const openPageInPreview = useCallback(
+    (route: string) => {
+      if (isDynamicPageRoute(route)) {
+        duplicateNavigationRequestRef.current += 1;
+        setTemplatePickerRequest((request) => request + 1);
+        setTemplateRouteState({ projectPath: currentProject.path, route });
+        setIsPreviewHidden(false);
+        setWorkspaceTab('preview');
+        void Promise.resolve(handleStartDevServer()).catch(() => undefined);
+        return;
+      }
+      setTemplateRouteState({ projectPath: currentProject.path, route: null });
+      duplicateNavigationRequestRef.current += 1;
+      setIsPreviewHidden(false);
+      setWorkspaceTab('preview');
+      void Promise.resolve(handleStartDevServer()).catch(() => undefined);
+      previewRef.current?.navigateToPage(route);
+    },
+    [currentProject.path, handleStartDevServer, previewRef, setIsPreviewHidden, setWorkspaceTab]
+  );
+  const duplicatePreviewContextRef = useRef({
+    projectPath: currentProject.path,
+    port: devServerPort,
+    running: hasDevServer,
+  });
+  duplicatePreviewContextRef.current = {
+    projectPath: currentProject.path,
+    port: devServerPort,
+    running: hasDevServer,
+  };
+  const openDuplicatedPageWhenReady = useCallback(
+    async (route: string): Promise<'opened' | 'not-ready' | 'cancelled'> => {
+      const requestId = ++duplicateNavigationRequestRef.current;
+      const initial = duplicatePreviewContextRef.current;
+      if (!initial.running) return 'not-ready';
+      const preview = previewRef.current;
+      if (!preview) return 'cancelled';
+      const targetPath = preview.resolvePageRoute(route);
+      const ready = await waitForPreviewRoute(
+        () => probePreviewRoute(initial.port, targetPath, 1_250),
+        () => {
+          const latest = duplicatePreviewContextRef.current;
+          const current = previewRef.current;
+          return (
+            duplicateNavigationRequestRef.current === requestId &&
+            latest.projectPath === initial.projectPath &&
+            latest.port === initial.port &&
+            latest.running &&
+            current !== null &&
+            current.previewAddress === preview.previewAddress &&
+            current.resolvePageRoute(route) === targetPath
+          );
+        }
+      );
+      if (ready !== 'ready') return ready;
+      openPageInPreview(route);
+      return 'opened';
+    },
+    [openPageInPreview, previewRef]
+  );
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
       setIsPreviewHidden(false);
@@ -541,6 +647,10 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     isWebProject,
     variablesPanelOpen: variables.open,
     toggleVariablesPanel: variables.toggle,
+    pagesPanelDocked,
+    togglePagesPanelDocked,
+    pagesPanelOpen: pages.open,
+    togglePagesPanel: pages.toggle,
     showPreviewLogs,
     togglePreviewLogs,
   });
@@ -744,6 +854,9 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     variablesPanelVisible: variables.open,
     variablesPanelAvailable: isWebProject,
     onToggleVariablesPanel: variables.toggle,
+    pagesPanelVisible: pages.open,
+    pagesPanelAvailable: isWebProject,
+    onTogglePagesPanel: pages.toggle,
     layoutMenu: <WorkspaceLayoutMenu />,
     teamPresence: team.presence,
     modes: modesNode,
@@ -948,6 +1061,9 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                       isWebProject={isWebProject}
                       mobilePreviewAvailable={mobilePreviewAvailable}
                       setCurrentPreviewPage={setCurrentPreviewPage}
+                      onCanonicalPageChange={handleCanonicalPreviewPageChange}
+                      templateRoute={selectedTemplateRoute}
+                      templatePickerRequest={templatePickerRequest}
                       devServerPort={devServerPort}
                       handlePreviewReady={handlePreviewReady}
                       isCropMode={isCropMode}
@@ -1068,6 +1184,19 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                     pluginTheme={pluginTheme}
                   />
                   {team.panel}
+                  <WorkspacePagesDockPanel
+                    projectPath={currentProject.path}
+                    projectType={projectType}
+                    currentRoute={currentPreviewRoute}
+                    selectedTemplateRoute={selectedTemplateRoute}
+                    visible={pages.open}
+                    docked={pagesPanelDocked}
+                    onToggleDocked={togglePagesPanelDocked}
+                    onClose={() => pages.setVisible(false)}
+                    onOpenPage={openPageInPreview}
+                    onOpenSourceFile={(filePath) => openInCode(filePath, 1)}
+                    onOpenDuplicatedPage={openDuplicatedPageWhenReady}
+                  />
                 </WorkspaceDock>
               </div>
             </div>

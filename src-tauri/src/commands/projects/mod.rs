@@ -13,7 +13,9 @@
 mod detection;
 mod dev_server;
 mod metadata;
+mod pages;
 mod pins;
+mod preview_urls;
 mod sessions;
 mod templates;
 mod ui_state;
@@ -22,7 +24,9 @@ mod window_registry;
 pub use detection::*;
 pub use dev_server::*;
 pub use metadata::*;
+pub use pages::*;
 pub use pins::*;
+pub use preview_urls::*;
 pub use sessions::*;
 pub use templates::*;
 pub use ui_state::*;
@@ -942,7 +946,13 @@ fn list_pages_in(root: &Path) -> Result<Vec<PageInfo>, CommandError> {
             Ok(Vec::new())
         }
         ProjectType::Nuxt => {
-            let pages_dir = project.join("pages");
+            // Nuxt 4 moved the application source under app/, including pages.
+            let nuxt4_pages = project.join("app").join("pages");
+            let pages_dir = if nuxt4_pages.is_dir() {
+                nuxt4_pages
+            } else {
+                project.join("pages")
+            };
             if pages_dir.exists() {
                 let mut pages = detection::scan_nuxt_pages(&pages_dir, &pages_dir)?;
                 detection::sort_pages(&mut pages);
@@ -963,30 +973,24 @@ fn list_pages_in(root: &Path) -> Result<Vec<PageInfo>, CommandError> {
         // Router project is NOT a Next.js app router and must not be scanned.
         ProjectType::Reactnative | ProjectType::Flutter => Ok(Vec::new()),
         _ => {
-            // Default to Next.js: App Router first (app/ or src/app/), then
-            // the Pages Router (pages/ or src/pages/) — projects with routes
-            // only under src/pages/ used to come back empty ("No pages
-            // found").
+            // Next.js projects may use both routers during a migration. Keep
+            // App Router entries first when routes collide, then append any
+            // distinct Pages Router routes.
+            let mut pages = Vec::new();
             for app_dir in [project.join("app"), project.join("src").join("app")] {
                 if app_dir.exists() {
-                    let mut pages = detection::scan_nextjs_pages(&app_dir, &app_dir)?;
-                    detection::sort_pages(&mut pages);
-                    // Stripping the [locale] segment can alias routes (e.g. a
-                    // stray app/page.tsx next to app/[locale]/page.tsx) —
-                    // list each once.
-                    pages.dedup_by(|a, b| a.route == b.route);
-                    return Ok(pages);
+                    pages.extend(detection::scan_nextjs_pages(&app_dir, &app_dir)?);
                 }
             }
             for pages_dir in [project.join("pages"), project.join("src").join("pages")] {
                 if pages_dir.exists() {
-                    let mut pages = detection::scan_nextjs_pages_router(&pages_dir, &pages_dir)?;
-                    detection::sort_pages(&mut pages);
-                    pages.dedup_by(|a, b| a.route == b.route);
-                    return Ok(pages);
+                    pages.extend(detection::scan_nextjs_pages_router(&pages_dir, &pages_dir)?);
                 }
             }
-            Ok(Vec::new())
+            detection::sort_pages(&mut pages);
+            let mut seen = std::collections::HashSet::new();
+            pages.retain(|page| seen.insert(page.route.clone()));
+            Ok(pages)
         }
     }
 }

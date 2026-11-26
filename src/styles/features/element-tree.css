@@ -27,6 +27,7 @@
 }
 
 .ss-tree-panel__title {
+  margin-right: auto;
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;

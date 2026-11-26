@@ -278,7 +278,7 @@ describe('running one', () => {
 
     run('layout.saveDefault');
     expect(readDefaultLayout().floating).toEqual(
-      expect.arrayContaining(['navigator', 'variables', 'editor', 'team'])
+      expect.arrayContaining(['navigator', 'pages', 'variables', 'editor', 'team'])
     );
 
     view.rerender();

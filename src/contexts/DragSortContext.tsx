@@ -228,8 +228,8 @@ function DragSortFeedback({
   return (
     <>
       <div id={instructionsId} className="drag-sort__instructions">
-        {label}: press Space or Enter to lift, use the arrow keys to move, then press Space or Enter
-        to drop. Press Escape to cancel.
+        {label}: press Space, or Enter when it is not the control's normal action, to lift. Use the
+        arrow keys to move, then press Space or Enter to drop. Press Escape to cancel.
       </div>
       <div className="drag-sort__live-region" role="status" aria-live="polite" aria-atomic="true">
         {snapshot.announcement}

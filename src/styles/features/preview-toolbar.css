@@ -21,7 +21,7 @@
   align-items: center;
   gap: var(--button-gap);
   height: var(--preview-toolbar-h);
-  padding: 9px 12px;
+  padding: 0 var(--spacing-md);
   background: var(--surface-panel);
   border-bottom: 1px solid var(--border-default);
   overflow: visible;
@@ -39,58 +39,47 @@
 /* Toolbar controls are fixed-size chrome and must never shrink below their
    content: a shrunk flex item with `overflow: visible` is what let the
    breakpoint tabs and the dimensions readout paint on top of the Edit
-   toggle once a pinned panel narrowed the column. The page switcher is the
-   one flexible item — it absorbs the slack and truncates its route. */
+   toggle once a pinned panel narrowed the column. */
 .preview-toolbar > * {
   flex: 0 0 auto;
 }
 
-.preview-toolbar > .page-switcher {
-  flex: 0 1 auto;
+/* Equal side tracks keep the viewport controls centered on the toolbar. */
+.preview-toolbar:has(> .preview-toolbar-navigation) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.preview-toolbar-navigation,
+.preview-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--button-gap);
   min-width: 0;
 }
 
-/*
- * Toolbar layout mirrors the visual hierarchy of the reference:
- * navigation left, viewport controls centered between flexible gutters,
- * and preview actions right. `order` changes presentation only — control
- * behavior and mounting remain untouched.
- */
-.preview-toolbar > .locale-switcher,
-.preview-toolbar > .page-switcher {
-  order: 1;
+.preview-toolbar-navigation {
+  grid-column: 1;
+  grid-row: 1;
 }
 
-.preview-toolbar > .preview-refresh {
-  order: 9;
-  margin-left: auto;
+.preview-toolbar-navigation > .locale-switcher {
+  flex: 0 0 auto;
 }
 
-.preview-toolbar > .preview-history-btn {
-  order: 1;
-}
-
-.preview-toolbar > .preview-breakpoints {
-  order: 10;
-}
-
-.preview-toolbar > .preview-fullscreen-btn:not(.preview-history-btn) {
-  order: 12;
-}
-
-/* The overflow button only exists for panes too narrow for the icon strip; at
-   every other width the strip IS the control and a second one would be two
-   ways to do the same thing sitting next to each other. */
-
-.preview-toolbar > .preview-tree-btn {
-  order: 13;
+.preview-toolbar-center {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: var(--button-gap);
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .preview-toolbar-actions {
-  order: 20;
-  display: flex;
-  align-items: center;
-  margin-left: auto;
+  grid-column: 3;
+  grid-row: 1;
+  justify-content: flex-end;
 }
 
 .preview-toolbar-control-group {
@@ -137,17 +126,17 @@
 /* Density tiers for the toolbar itself (see `container-name: preview-toolbar`
    above). Each tier drops the lowest-priority control that still has another
    way in, so the row degrades in a defined order instead of overlapping.
-   Order of sacrifice: breakpoint icon strip → undo/redo → open-in-browser and
-   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen,
-   and the dimensions readout survive at every width — its popover is how you
-   reach the breakpoints, canvas included, once the icon strip is gone. */
+   Order of sacrifice: breakpoint icon strip → undo/redo → locale switcher.
+   Edit, Inspect, the address controls, fullscreen, and dimensions survive at
+   every width — its popover is how you reach the breakpoints, canvas included,
+   once the icon strip is gone. */
 @container preview-toolbar (max-width: 820px) {
   /* The icon strip is the cheapest thing to drop — but it is a *choice*, not a
      decoration, so it is replaced rather than removed: the size popover carries
      the same viewport list, canvas included. With nothing left inside it, the
      group's pill chrome would read as an empty box around a lone button, so the
      border goes with the strip. */
-  .preview-toolbar > .preview-breakpoints:not(:has(.preview-size-wrap)) {
+  .preview-toolbar-center > .preview-breakpoints:not(:has(.preview-size-wrap)) {
     display: none;
   }
 
@@ -161,16 +150,15 @@
 
 @container preview-toolbar (max-width: 660px) {
   /* Undo/redo keep their ⌘Z / ⌘⇧Z shortcuts. */
-  .preview-toolbar > .preview-history-btn {
+  .preview-navigation-group > .preview-history-btn {
     display: none;
   }
 }
 
 @container preview-toolbar (max-width: 520px) {
-  /* Last resort before controls would collide. Both come back as soon as the
-     pane widens or the pinned panel is narrowed/unpinned. */
-  .preview-toolbar > .locale-switcher,
-  .preview-toolbar-control-group > .preview-browser-control {
+  /* The locale switcher returns as soon as the pane widens or the pinned panel
+     is narrowed or unpinned. */
+  .preview-toolbar-navigation > .locale-switcher {
     display: none;
   }
 }

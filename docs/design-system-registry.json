@@ -142,7 +142,8 @@
         "ContextMenuSeparator",
         "ContextMenuGroup",
         "ContextMenuLabel",
-        "ContextMenuShortcut"
+        "ContextMenuShortcut",
+        "ContextMenuSubmenu"
       ],
       "purpose": "Native context-menu state, portaled positioning, dismissal, and keyboard-operable menu items.",
       "owner": "primitives/menus",
@@ -227,7 +228,8 @@
         "DropdownTriggerProps",
         "Dropdown",
         "DropdownItem",
-        "DropdownDivider"
+        "DropdownDivider",
+        "useDropdownNestedMenuRegistration"
       ],
       "purpose": "Accessible menu trigger, menu items, dividers, keyboard navigation, typeahead, dismissal, and optional portal positioning.",
       "owner": "primitives/menus",
@@ -842,7 +844,7 @@
         "TextAreaProps",
         "TextArea"
       ],
-      "purpose": "Shared native text inputs \u2014 single-line TextField and multi-line TextArea \u2014 with compact, code, multiline, invalid, disabled, focus, placeholder, and optional suffix contracts.",
+      "purpose": "Shared native text inputs — single-line TextField and multi-line TextArea — with compact, code, multiline, invalid, disabled, focus, placeholder, and optional suffix contracts.",
       "owner": "primitives/forms",
       "props": [
         "invalid",

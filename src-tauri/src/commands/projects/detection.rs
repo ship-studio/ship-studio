@@ -747,7 +747,11 @@ fn scan_astro_pages_at(
                 || file_name.ends_with(".mdx")
             {
                 let relative = path.strip_prefix(base_dir).unwrap_or(&path);
-                let relative_str = relative.to_string_lossy();
+                // Routes are URL paths on every platform, even though filesystem
+                // paths use backslashes on Windows.
+                let relative_str = relative
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
 
                 // Convert file path to route
                 let route = if file_name == "index.astro"
@@ -758,7 +762,10 @@ fn scan_astro_pages_at(
                     let parent = relative.parent();
                     match parent {
                         Some(p) if p.as_os_str().is_empty() => "/".to_string(),
-                        Some(p) => format!("/{}", p.to_string_lossy()),
+                        Some(p) => format!(
+                            "/{}",
+                            p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
+                        ),
                         None => "/".to_string(),
                     }
                 } else {

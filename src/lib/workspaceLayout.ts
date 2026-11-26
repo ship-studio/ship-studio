@@ -16,7 +16,7 @@
 export const LAYOUT_VERSION = 2 as const;
 
 /** A panel that can be arranged. Preview is the unstackable centre surface. */
-export type PanelId = 'agent' | 'navigator' | 'variables' | 'editor' | 'team';
+export type PanelId = 'agent' | 'navigator' | 'pages' | 'variables' | 'editor' | 'team';
 
 export const PREVIEW = 'preview' as const;
 
@@ -76,6 +76,7 @@ export const PANEL_META: Record<PanelId, PanelMeta> = {
     defaultWidth: 240,
     minHeight: 160,
   },
+  pages: { label: 'Pages', minWidth: 260, maxWidth: 600, defaultWidth: 360, minHeight: 200 },
   variables: {
     label: 'Variables',
     minWidth: 180,
@@ -110,6 +111,7 @@ export const DEFAULT_LAYOUT: WorkspaceLayout = {
     { kind: 'panels', panels: [{ panel: 'agent', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'variables', weight: 1 }] },
     { kind: 'panels', panels: [{ panel: 'navigator', weight: 1 }] },
+    { kind: 'panels', panels: [{ panel: 'pages', weight: 1 }] },
     { kind: 'preview' },
     { kind: 'panels', panels: [{ panel: 'editor', weight: 1 }] },
   ],
@@ -857,6 +859,7 @@ export function layoutFromLegacyPreferences(prefs: LegacyPanelPreferences): Work
   const pinned: Record<PanelId, boolean> = {
     agent: prefs.agentPinned,
     navigator: prefs.navigatorPinned,
+    pages: false,
     variables: prefs.variablesPinned,
     editor: prefs.editorPinned,
     team: prefs.teamPinned,

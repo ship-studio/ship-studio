@@ -42,6 +42,9 @@ export interface WorkspacePreviewPaneProps {
   isWebProject: boolean;
   mobilePreviewAvailable: boolean;
   setCurrentPreviewPage: (page: string) => void;
+  onCanonicalPageChange: (page: string) => void;
+  templateRoute: string | null;
+  templatePickerRequest: number;
   devServerPort: number;
   handlePreviewReady: () => void;
   isCropMode: boolean;
@@ -118,6 +121,9 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
     isWebProject,
     mobilePreviewAvailable,
     setCurrentPreviewPage,
+    onCanonicalPageChange,
+    templateRoute,
+    templatePickerRequest,
     devServerPort,
     handlePreviewReady,
     isCropMode,
@@ -218,6 +224,9 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
             projectType={projectType}
             onServerReady={handlePreviewReady}
             onPageChange={setCurrentPreviewPage}
+            onCanonicalPageChange={onCanonicalPageChange}
+            templateRoute={templateRoute}
+            templatePickerRequest={templatePickerRequest}
             isCropMode={isCropMode}
             onCropStart={handleCropStart}
             onCropComplete={handleCropComplete}

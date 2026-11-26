@@ -24,7 +24,6 @@ import {
 import {
   CheckIcon,
   ChevronRightIcon,
-  CloseIcon,
   ContractVerticalIcon,
   ContrastIcon,
   CopyIcon,
@@ -32,7 +31,6 @@ import {
   DuplicateIcon,
   ExpandVerticalIcon,
   FontIcon,
-  PinIcon,
   PasteIcon,
   PlusIcon,
   TagIconsIcon,
@@ -55,6 +53,7 @@ import {
 import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
 import { IconButton } from '../primitives/IconButton';
 import { ToggleButton } from '../primitives/ToggleButton';
+import { DockablePanelHeader } from '../workspace/DockablePanelHeader';
 import { Tooltip } from '../primitives/Tooltip';
 import type { ElementTreeNode } from '../../hooks/useElementTree';
 import type { ElementSignature } from '../../lib/edit';
@@ -951,35 +950,17 @@ export function ElementTreePanel({
     <div ref={panelRef} className={panelClassName} data-testid="element-tree-panel">
       {structure ? (
         <Tabs value={visibleView} onValueChange={(next) => selectView(next as 'visual' | 'code')}>
-          <div className="ss-tree-panel__header" data-dockable-drag-handle>
-            <span className="ss-tree-panel__title workspace-panel-title">Elements</span>
+          <DockablePanelHeader
+            title="Elements"
+            pinned={pinned}
+            onTogglePin={onTogglePin}
+            onClose={onClose}
+          >
             <TabsList className="ss-tree-panel__modes" aria-label="Elements view">
               <TabsTab value="visual">Visual</TabsTab>
               <TabsTab value="code">Code</TabsTab>
             </TabsList>
-            {onTogglePin && (
-              <ToggleButton
-                variant="ghost"
-                size="compact"
-                className="button--icon-only panel-pin-toggle"
-                onClick={onTogglePin}
-                title={pinned ? 'Unpin — float over the workspace' : 'Pin to the window'}
-                aria-label={pinned ? 'Unpin Elements panel' : 'Pin Elements panel to the window'}
-                pressed={pinned}
-                leftIcon={<PinIcon size={13} />}
-              />
-            )}
-            {onClose && (
-              <IconButton
-                variant="ghost"
-                size="compact"
-                onClick={onClose}
-                title="Close Elements panel"
-                aria-label="Close Elements panel"
-                icon={<CloseIcon size={14} />}
-              />
-            )}
-          </div>
+          </DockablePanelHeader>
           {panelControls}
           <TabsPanel value={visibleView} className="ss-tree-panel__active-view">
             {visibleView === 'visual' ? (
@@ -1035,31 +1016,12 @@ export function ElementTreePanel({
         </Tabs>
       ) : (
         <>
-          <div className="ss-tree-panel__header" data-dockable-drag-handle>
-            <span className="ss-tree-panel__title workspace-panel-title">Elements</span>
-            {onTogglePin && (
-              <ToggleButton
-                variant="ghost"
-                size="compact"
-                className="button--icon-only panel-pin-toggle"
-                onClick={onTogglePin}
-                title={pinned ? 'Unpin — float over the workspace' : 'Pin to the window'}
-                aria-label={pinned ? 'Unpin Elements panel' : 'Pin Elements panel to the window'}
-                pressed={pinned}
-                leftIcon={<PinIcon size={13} />}
-              />
-            )}
-            {onClose && (
-              <IconButton
-                variant="ghost"
-                size="compact"
-                onClick={onClose}
-                title="Close Elements panel"
-                aria-label="Close Elements panel"
-                icon={<CloseIcon size={14} />}
-              />
-            )}
-          </div>
+          <DockablePanelHeader
+            title="Elements"
+            pinned={pinned}
+            onTogglePin={onTogglePin}
+            onClose={onClose}
+          />
           {panelControls}
           <div className="ss-tree-panel__body" ref={bodyRef} onMouseLeave={() => onHover(null)}>
             {tree ? (

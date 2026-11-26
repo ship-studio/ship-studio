@@ -238,7 +238,7 @@ describe('the menu', () => {
 
     const saved = readProjectLayout(PROJECT);
     expect(saved.floating).toEqual(
-      expect.arrayContaining(['navigator', 'variables', 'editor', 'team'])
+      expect.arrayContaining(['navigator', 'pages', 'variables', 'editor', 'team'])
     );
     expect(saved.floating).not.toContain('agent');
   });

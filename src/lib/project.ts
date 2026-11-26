@@ -41,6 +41,24 @@ export interface Project {
   thumbnail: string | null;
 }
 
+export interface TemplatePageEntry {
+  route: string;
+  label: string;
+}
+
+export interface TemplatePageEntries {
+  entries: TemplatePageEntry[];
+  error: string | null;
+}
+
+/** Read concrete paths from the selected Astro page's getStaticPaths function. */
+export async function listTemplatePageEntries(
+  projectPath: string,
+  route: string
+): Promise<TemplatePageEntries> {
+  return invoke<TemplatePageEntries>('list_template_page_entries', { projectPath, route });
+}
+
 /**
  * Extended project information for the dashboard view.
  * Includes git status and metadata.
@@ -914,6 +932,51 @@ export async function getDevServerPort(projectPath: string): Promise<number | nu
  */
 export async function setDevServerPort(projectPath: string, port: number): Promise<void> {
   return invoke<void>('set_dev_server_port', { projectPath, port });
+}
+
+/** Probe the actual status code for a route on a running preview server. */
+export async function probePreviewRoute(
+  port: number,
+  route: string,
+  timeoutMs: number
+): Promise<number | null> {
+  return invoke<number | null>('probe_preview_status', { port, path: route, timeoutMs });
+}
+
+/**
+ * Get the explicitly saved external preview URLs for a project.
+ * @param projectPath - Absolute path to the project directory
+ */
+export async function getPreviewUrls(projectPath: string): Promise<string[]> {
+  return invoke<string[]>('get_preview_urls', { projectPath });
+}
+
+/**
+ * Save an HTTP(S) preview URL. The backend normalizes it and returns the
+ * authoritative list, including any duplicate or built-in local no-op.
+ * @param projectPath - Absolute path to the project directory
+ * @param url - Absolute HTTP(S) URL
+ */
+export async function savePreviewUrl(projectPath: string, url: string): Promise<string[]> {
+  return invoke<string[]>('save_preview_url', { projectPath, url });
+}
+
+/**
+ * Remove a saved preview URL using normalized URL equality.
+ * @param projectPath - Absolute path to the project directory
+ * @param url - URL to remove
+ */
+export async function removePreviewUrl(projectPath: string, url: string): Promise<string[]> {
+  return invoke<string[]>('remove_preview_url', { projectPath, url });
+}
+
+/** Replace a saved preview URL in place, preserving its position in the list. */
+export async function editPreviewUrl(
+  projectPath: string,
+  oldUrl: string,
+  newUrl: string
+): Promise<string[]> {
+  return invoke<string[]>('replace_preview_url', { projectPath, oldUrl, newUrl });
 }
 
 /**

@@ -1,7 +1,10 @@
 /* eslint-disable react-hooks/refs -- callback refs and manager bindings are intentionally rendered by this primitive. */
 
 import {
+  Children,
+  cloneElement,
   forwardRef,
+  isValidElement,
   useCallback,
   useRef,
   type ButtonHTMLAttributes,
@@ -10,7 +13,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactElement,
   type ReactNode,
+  type Ref,
 } from 'react';
 import { DragHandleIcon } from '@/components/icons';
 import { useDragSortContext } from '../../contexts/DragSortContext';
@@ -204,13 +209,27 @@ export function DragSortItem({
 }
 
 export interface DragSortHandleProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /** Attach drag-sort behaviour to an existing button without adding a nested button. */
+  asChild?: boolean;
+  /** Label for a standalone handle, or override for an asChild button. */
   label?: string;
-  /** Override the default move label when a feature has a more specific copy. */
+  /** Instructions announced while this handle is focused. */
   describedBy?: string;
+  /** Reserve Enter for the child button's normal action; Space still reorders. */
+  keyboardActivation?: 'space' | 'space-or-enter';
   /** Keep the handle mounted, but reveal it when the row is hovered or keyboard-focused. */
   visibility?: 'always' | 'hover';
   /** For grouped rows, reveal from the immediate row instead of the whole item. */
   revealOn?: 'item' | 'row';
+}
+
+type DragSortHandleChildProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
+};
+
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === 'function') ref(value);
+  else if (ref) (ref as { current: T | null }).current = value;
 }
 
 export const DragSortHandle = forwardRef<HTMLButtonElement, DragSortHandleProps>(
@@ -218,6 +237,8 @@ export const DragSortHandle = forwardRef<HTMLButtonElement, DragSortHandleProps>
     {
       label,
       describedBy,
+      asChild = false,
+      keyboardActivation = 'space-or-enter',
       visibility = 'always',
       revealOn = 'item',
       className,
@@ -230,6 +251,18 @@ export const DragSortHandle = forwardRef<HTMLButtonElement, DragSortHandleProps>
   ) {
     const item = useDragSortItemContext();
     const { instructionsId, manager } = useDragSortContext();
+    const child = asChild
+      ? (Children.only(children) as ReactElement<DragSortHandleChildProps>)
+      : null;
+    const childRef = child?.props.ref;
+    const setHandleRef = useCallback(
+      (node: HTMLButtonElement | null) => {
+        item.handleRef(node);
+        assignRef(childRef, node);
+        assignRef(ref, node);
+      },
+      [childRef, item, ref]
+    );
     const onPointer = useCallback(
       (event: ReactPointerEvent<HTMLButtonElement>) => {
         onPointerDown?.(event);
@@ -241,23 +274,61 @@ export const DragSortHandle = forwardRef<HTMLButtonElement, DragSortHandleProps>
     const onKey = useCallback(
       (event: ReactKeyboardEvent<HTMLButtonElement>) => {
         onKeyDown?.(event);
-        if (!event.defaultPrevented) manager.keyDown(item.id, event.nativeEvent);
+        const active = Object.is(manager.getSnapshot().activeId, item.id);
+        if (
+          !event.defaultPrevented &&
+          !(keyboardActivation === 'space' && event.key === 'Enter' && !active)
+        ) {
+          manager.keyDown(item.id, event.nativeEvent);
+        }
       },
-      [item.id, manager, onKeyDown]
+      [item.id, keyboardActivation, manager, onKeyDown]
     );
     const accessibleLabel = label ?? `Move ${manager.getItem(item.id)?.label ?? String(item.id)}`;
+    const handleClassName = ['drag-sort__handle', className].filter(Boolean).join(' ');
+    const visibilityProps = {
+      'data-drag-sort-handle-visibility': visibility === 'hover' ? 'hover' : undefined,
+      'data-drag-sort-handle-reveal-on': visibility === 'hover' ? revealOn : undefined,
+    };
+
+    if (asChild) {
+      if (!child || !isValidElement(child)) {
+        throw new Error('DragSortHandle with asChild requires a valid button element');
+      }
+      const childProps = child.props;
+      return cloneElement(child, {
+        ...rest,
+        ...visibilityProps,
+        className: [childProps.className, handleClassName].filter(Boolean).join(' '),
+        type: childProps.type ?? 'button',
+        // A disabled sortable item may still own an enabled action button.
+        // The manager guards the drag gesture; the child retains its own
+        // disabled state independently.
+        disabled: childProps.disabled ?? rest.disabled,
+        'aria-label': childProps['aria-label'] ?? (label ? accessibleLabel : undefined),
+        'aria-describedby':
+          childProps['aria-describedby'] ??
+          describedBy ??
+          (item.disabled ? undefined : instructionsId),
+        onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
+          childProps.onPointerDown?.(event);
+          onPointer(event);
+        },
+        onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+          childProps.onKeyDown?.(event);
+          onKey(event);
+        },
+        ref: setHandleRef,
+      });
+    }
+
     return (
       <button
         {...rest}
-        ref={(node) => {
-          item.handleRef(node);
-          if (typeof ref === 'function') ref(node);
-          else if (ref) ref.current = node;
-        }}
+        ref={setHandleRef}
         type="button"
-        className={['drag-sort__handle', className].filter(Boolean).join(' ')}
-        data-drag-sort-handle-visibility={visibility === 'hover' ? 'hover' : undefined}
-        data-drag-sort-handle-reveal-on={visibility === 'hover' ? revealOn : undefined}
+        className={handleClassName}
+        {...visibilityProps}
         aria-label={accessibleLabel}
         aria-describedby={describedBy ?? instructionsId}
         disabled={rest.disabled ?? item.disabled}

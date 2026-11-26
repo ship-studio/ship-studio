@@ -5,10 +5,9 @@
  * page list loading, navigation event listening, and cache busting.
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useClickOutside } from './useClickOutside';
 import { useCopyToClipboard } from './useCopyToClipboard';
 import {
   decideIframeWatchdogArm,
@@ -147,8 +146,6 @@ export function usePreviewConnection({
   const [currentSuffix, setCurrentSuffix] = useState('');
   const currentLocation = `${currentPage}${currentSuffix}`;
   const [iframePath, setIframePath] = useState('/');
-  const [showPageDropdown, setShowPageDropdown] = useState(false);
-  const [pageSearch, setPageSearch] = useState('');
   const [proxyPort, setProxyPort] = useState<number | null>(null);
   // Bumped to request an imperative iframe reload (Preview watches it). The
   // iframe URL used to carry a `?_cb=<ts>&shipstudio=1` cache-buster instead,
@@ -198,8 +195,6 @@ export function usePreviewConnection({
   // otherwise the fetch and its 30s abort timer leak until they fire on a
   // controller nobody is listening to anymore.
   const readyProbeControllerRef = useRef<AbortController | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   // Blank-iframe watchdog: has the current navigation proven life yet, and the
   // pending "no proof arrived" timer. Refs (not state) so the message handler
   // and timer callbacks always see the live values without re-subscribing.
@@ -243,8 +238,6 @@ export function usePreviewConnection({
     setCurrentSuffix('');
     setIframePath('/');
     setPages([]);
-    setShowPageDropdown(false);
-    setPageSearch('');
     setReloadToken(0);
     setIframeBlank(false);
     setServerStale(false);
@@ -388,20 +381,6 @@ export function usePreviewConnection({
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [serverReady, projectPath, loadPages]);
-
-  // Close dropdown when clicking outside
-  const closePageDropdown = useCallback(() => {
-    setShowPageDropdown(false);
-    setPageSearch('');
-  }, []);
-  useClickOutside(dropdownRef, closePageDropdown, showPageDropdown);
-
-  // Focus search input when dropdown opens
-  useEffect(() => {
-    if (showPageDropdown && searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
-  }, [showPageDropdown]);
 
   // Notify parent when server becomes ready
   useEffect(() => {
@@ -732,6 +711,7 @@ export function usePreviewConnection({
       try {
         status = await invoke<number | null>('probe_preview_status', {
           port,
+          path: '/',
           timeoutMs: HEALTH_CHECK_TIMEOUT_MS,
         });
       } catch {
@@ -823,8 +803,6 @@ export function usePreviewConnection({
       const target = `${pathname}${suffix}`;
       setCurrentPage(pathname);
       setCurrentSuffix(suffix);
-      setShowPageDropdown(false);
-      setPageSearch('');
       if (iframePath === target) {
         // Re-selecting the visible page acts as a refresh.
         setReloadToken((t) => t + 1);
@@ -864,11 +842,6 @@ export function usePreviewConnection({
     void trackEvent('preview_connect_stopped', { retry_count: retryCountRef.current });
   }, []);
 
-  const filteredPages = useMemo(
-    () => pages.filter((page) => page.route.toLowerCase().includes(pageSearch.toLowerCase())),
-    [pages, pageSearch]
-  );
-
   return {
     // Server state
     isLoading,
@@ -890,15 +863,7 @@ export function usePreviewConnection({
     currentLocation,
     iframePath,
     setIframePath,
-    showPageDropdown,
-    setShowPageDropdown,
-    pageSearch,
-    setPageSearch,
-    filteredPages,
-
-    // Refs (for rendering)
-    dropdownRef,
-    searchInputRef,
+    pages,
 
     // Handlers
     handleRefresh,

@@ -267,6 +267,7 @@ function WorkspaceDockColumn({
   const preferredWidths = {
     agent: useDefaultWidth('agent'),
     navigator: useDefaultWidth('navigator'),
+    pages: useDefaultWidth('pages'),
     variables: useDefaultWidth('variables'),
     editor: useDefaultWidth('editor'),
     team: useDefaultWidth('team'),
