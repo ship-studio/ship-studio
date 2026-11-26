@@ -81,6 +81,31 @@ describe('ColorPicker', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  // #1211 / #1212: the Variables tab runs every custom property on the page
+  // through the color parser to find the colors. culori throws (rather than
+  // returning undefined) on a function carrying a length, so one
+  // `--lift: translateY(-4px)` crashed the whole app when a swatch was opened.
+  it('lists color variables when the project also defines non-color function values', () => {
+    render(
+      <ColorPicker
+        value="#336699"
+        variables={[
+          { name: '--brand', value: '#336699' },
+          { name: '--lift', value: 'translateY(-4px)' },
+          { name: '--soft', value: 'blur(4px)' },
+          { name: '--bad-rgb', value: 'rgb(10px 0 0)' },
+        ]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Variables' }));
+    expect(screen.getByRole('option', { name: /--brand/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /--lift/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /--soft/ })).not.toBeInTheDocument();
+  });
+
   it('searches project color variables and commits their authored var() value', () => {
     const onChange = vi.fn();
     render(

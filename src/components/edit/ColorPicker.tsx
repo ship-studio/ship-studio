@@ -16,7 +16,8 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { converter, parse } from 'culori';
+import { converter } from 'culori';
+import { parseColor } from '../../lib/parseColor';
 import { HsvaColorPicker, type HsvaColor } from 'react-colorful';
 import { useCommands } from '../../commands/useCommands';
 import { useAsyncState } from '../../hooks/useAsyncState';
@@ -172,7 +173,7 @@ function resolveContrastColor(
     : trimmed;
   // Preserve fractional computed RGB channels. Canonicalizing through toCss()
   // rounds them to integer channels before WCAG luminance is calculated.
-  return resolved && parse(resolved) ? resolved : null;
+  return resolved && parseColor(resolved) ? resolved : null;
 }
 
 const round = (number: number, places = 0) => {
@@ -208,7 +209,7 @@ function rgbObjectToCss(color: { r?: number; g?: number; b?: number; alpha?: num
 }
 
 function currentColor(value: string) {
-  return parse(value) ?? parse('#000000')!;
+  return parseColor(value) ?? parseColor('#000000')!;
 }
 
 function hslChannelValues(value: string): HslChannelValues {

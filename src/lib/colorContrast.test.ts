@@ -225,3 +225,12 @@ describe('color contrast calculations', () => {
     );
   });
 });
+
+// #1211: culori throws on function values carrying a length; contrast must
+// treat them as "unknown", not crash the picker that renders the ratio.
+describe('contrastRatio with non-color function values', () => {
+  it('returns null instead of throwing', () => {
+    expect(contrastRatio('translateY(-4px)', '#ffffff')).toBeNull();
+    expect(contrastRatio('#000000', 'blur(4px)')).toBeNull();
+  });
+});

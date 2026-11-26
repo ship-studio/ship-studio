@@ -134,6 +134,28 @@ export default tseslint.config(
     },
   },
   {
+    // culori's `parse` throws on some non-color input; everything goes through
+    // the wrapper. The components block below repeats this path because a later
+    // block's `no-restricted-imports` replaces this one for the files it matches.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/lib/parseColor.ts', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'warn',
+        {
+          paths: [
+            {
+              name: 'culori',
+              importNames: ['parse'],
+              message:
+                "Use `parseColor` from src/lib/parseColor.ts. culori's `parse` throws on values like `translateY(-4px)` instead of returning undefined (#1211).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Components specifically — also block direct `invoke` usage (force `useInvoke`).
     files: ['src/components/**/*.{ts,tsx}'],
     ignores: [
@@ -159,6 +181,12 @@ export default tseslint.config(
               importNames: ['invoke'],
               message:
                 'Components should use `useInvoke` from src/hooks/useInvoke.ts (handles loading/error state + structured logging). Direct `invoke` is OK in src/lib/* wrappers and primitives. See CLAUDE.md → How to Do Things → Calling Tauri commands.',
+            },
+            {
+              name: 'culori',
+              importNames: ['parse'],
+              message:
+                "Use `parseColor` from src/lib/parseColor.ts. culori's `parse` throws on values like `translateY(-4px)` instead of returning undefined (#1211).",
             },
           ],
         },

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { converter, parse } from 'culori';
+import { converter } from 'culori';
+import { parseColor } from '../../lib/parseColor';
 
 const toRgb = converter('rgb');
 const MAX_SAMPLE_SPACING = 1.25;
@@ -57,7 +58,7 @@ function relativeLuminance({ r, g, b }: RgbColor): number {
 }
 
 function parseOpaqueBackground(backgroundColor: string): RgbColor | null {
-  const parsed = parse(backgroundColor);
+  const parsed = parseColor(backgroundColor);
   if (!parsed) return null;
   const rgb = toRgb(parsed);
   if (!rgb) return null;

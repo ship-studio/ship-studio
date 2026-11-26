@@ -5,7 +5,8 @@
  * source already uses.
  */
 
-import { converter, formatHex, formatHex8, formatHsl, formatRgb, parse } from 'culori';
+import { converter, formatHex, formatHex8, formatHsl, formatRgb } from 'culori';
+import { parseColor } from './parseColor';
 
 export type ColorFormat = 'hex' | 'rgb' | 'hsl' | 'hsb' | 'oklch';
 
@@ -67,14 +68,14 @@ function rgbaFromRgb(color: { r?: number; g?: number; b?: number; alpha?: number
 /** Normalize any CSS color string to 6-digit hex, or null if unparseable
  *  (e.g. a `var(--x)` reference the picker can't resolve to a swatch). */
 export function toHex(color: string): string | null {
-  const c = parse(color);
+  const c = parseColor(color);
   return c ? formatHex(c) : null;
 }
 
 /** Hex for a color, or null if unparseable OR fully transparent (so an unset/
  *  transparent computed background doesn't seed a misleading black swatch). */
 export function visibleHex(color: string): string | null {
-  const c = parse(color);
+  const c = parseColor(color);
   if (!c || c.alpha === 0) return null;
   return formatHex(c);
 }
@@ -82,13 +83,13 @@ export function visibleHex(color: string): string | null {
 /** Whether a parseable CSS color has any transparency. Unresolved values such
  *  as `var(--x)` return false because their rendered alpha is not known here. */
 export function hasColorTransparency(color: string): boolean {
-  const c = parse(color);
+  const c = parseColor(color);
   return Boolean(c && (c.alpha ?? 1) < 1);
 }
 
 /** Any CSS color → react-colorful's {r,g,b,a}, falling back to opaque black. */
 export function toRgba(color: string): Rgba {
-  const c = parse(color);
+  const c = parseColor(color);
   if (!c) return { r: 0, g: 0, b: 0, a: 1 };
   return rgbaFromRgb(toRgb(c));
 }
@@ -148,13 +149,13 @@ export function rgbaToCss({ r, g, b, a }: Rgba): string {
 /** Normalize a typed/parsed color to a canonical `rgb()/rgba()` string (alpha
  *  preserved), or null if it can't be parsed. */
 export function toCss(color: string): string | null {
-  return parse(color) ? rgbaToCss(toRgba(color)) : null;
+  return parseColor(color) ? rgbaToCss(toRgba(color)) : null;
 }
 
 /** Format any CSS color into the given format, alpha-aware. Returns the input
  *  unchanged if it can't be parsed, so partial typing never wipes the picker. */
 export function toFormat(color: string, fmt: ColorFormat): string {
-  const c = parse(color);
+  const c = parseColor(color);
   if (!c) return color;
   const a = c.alpha;
   if (fmt === 'hex') return hasAlpha(a) ? formatHex8(c) : formatHex(c);

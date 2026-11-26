@@ -1,6 +1,7 @@
 /** WCAG contrast helpers and the rendered-style snapshot used by color pickers. */
 
-import { converter, parse } from 'culori';
+import { converter } from 'culori';
+import { parseColor } from './parseColor';
 
 export type ContrastCategory = 'normal-text' | 'large-text' | 'graphics';
 export type ContrastLevel = 'AA' | 'AAA';
@@ -56,7 +57,7 @@ interface RgbColor {
 }
 
 function parseRgb(value: string): RgbColor | null {
-  const parsed = parse(value);
+  const parsed = parseColor(value);
   if (!parsed) return null;
   const rgb = toRgb(parsed);
   const channels = [rgb.r, rgb.g, rgb.b, rgb.alpha ?? 1];

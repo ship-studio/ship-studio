@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  hasColorTransparency,
   hsvaToCss,
   hsvaToRgba,
   rgbaToHsva,
@@ -115,5 +116,21 @@ describe('toFormat', () => {
 
   it('appends rounded alpha in oklch when translucent', () => {
     expect(toFormat('rgba(255, 0, 0, 0.5)', 'oklch')).toContain(' / 0.5)');
+  });
+});
+
+// #1211: culori 4.0.2 throws on function values that carry a non-angle length.
+// Every helper here is called on arbitrary custom-property values, so each must
+// answer "not a color" instead.
+describe('non-color function values', () => {
+  const values = ['translateY(-4px)', 'blur(4px)', 'rgb(10px 0 0)', 'scale(1) translate(1rem)'];
+
+  it.each(values)('%s is not a color', (value) => {
+    expect(toCss(value)).toBeNull();
+    expect(toHex(value)).toBeNull();
+    expect(visibleHex(value)).toBeNull();
+    expect(hasColorTransparency(value)).toBe(false);
+    expect(toRgba(value)).toEqual({ r: 0, g: 0, b: 0, a: 1 });
+    expect(toFormat(value, 'hex')).toBe(value);
   });
 });
