@@ -45,7 +45,7 @@ function readOrder(layout: unknown): string[] {
           : placement && typeof placement === 'object'
             ? (placement as { panel?: unknown }).panel
             : undefined;
-      return typeof panel === 'string' ? [panel] : [];
+      return typeof panel === 'string' && panel !== 'pages' ? [panel] : [];
     });
   });
 }
@@ -190,6 +190,7 @@ describe('the menu', () => {
     });
 
     await user.click(within(row('Agent')).getByRole('button', { name: 'Move Agent right' }));
+    await user.click(within(row('Agent')).getByRole('button', { name: 'Move Agent right' }));
 
     expect(within(row('Agent')).getByText('Right')).toBeInTheDocument();
     const saved = readOrder(readProjectLayout(PROJECT));
@@ -250,8 +251,8 @@ describe('the menu', () => {
       mockMenuRects();
       const handle = within(row('Agent')).getByRole('button', { name: 'Move Agent panel' });
       fireEvent(handle, pointer('pointerdown', 10, 40));
-      fireEvent(window, pointer('pointermove', 10, 140));
-      fireEvent(window, pointer('pointerup', 10, 140));
+      fireEvent(window, pointer('pointermove', 10, 170));
+      fireEvent(window, pointer('pointerup', 10, 170));
       await act(() => vi.advanceTimersByTime(250));
 
       expect(readOrder(readProjectLayout(PROJECT))).toEqual([
@@ -396,7 +397,7 @@ describe('the spatial implementation switch', () => {
         { kind: 'preview' },
         { kind: 'panels', panels: [{ panel: 'editor', weight: 1 }] },
       ],
-      floating: ['agent'],
+      floating: ['agent', 'pages'],
     };
   }
 
@@ -438,7 +439,7 @@ describe('the spatial implementation switch', () => {
         { kind: 'preview' },
         { kind: 'panels', panels: [{ panel: 'editor', weight: 1 }] },
       ],
-      floating: ['agent', 'team', 'variables'],
+      floating: ['agent', 'team', 'variables', 'pages'],
     });
 
     const canvas = screen.getByRole('group', { name: 'Workspace columns' });
@@ -1149,12 +1150,12 @@ describe('the spatial implementation switch', () => {
     localStorage.removeItem(WORKSPACE_LAYOUT_MENU_IMPLEMENTATION_KEY);
     await openMenu({
       ...floatingStacked(),
-      floating: ['agent'],
+      floating: ['agent', 'pages'],
     });
 
-    const ids = [...document.querySelectorAll<HTMLElement>('[data-drag-sort-item]')].map((item) =>
-      item.getAttribute('data-drag-sort-id')
-    );
+    const ids = [...document.querySelectorAll<HTMLElement>('[data-drag-sort-item]')]
+      .map((item) => item.getAttribute('data-drag-sort-id'))
+      .filter((id) => !id?.includes('-pages'));
     expect(ids).toEqual([
       'workspace-layout-side-left',
       'workspace-layout-column-team',

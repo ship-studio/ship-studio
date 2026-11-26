@@ -788,7 +788,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
         singleton('editor'),
         singleton('team'),
       ],
-      floating: ['navigator', 'variables', 'editor', 'team'],
+      floating: ['navigator', 'pages', 'variables', 'editor', 'team'],
     }),
   },
   {
@@ -805,7 +805,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
         singleton('agent'),
         singleton('team'),
       ],
-      floating: ['team'],
+      floating: ['pages', 'team'],
     }),
   },
   {
@@ -822,7 +822,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
         singleton('variables'),
         singleton('editor'),
       ],
-      floating: ['navigator', 'variables', 'editor'],
+      floating: ['navigator', 'pages', 'variables', 'editor'],
     }),
   },
   {
@@ -838,7 +838,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
         { kind: 'preview' },
         singleton('editor'),
       ],
-      floating: ['team', 'variables', 'editor'],
+      floating: ['pages', 'team', 'variables', 'editor'],
     }),
   },
 ];
