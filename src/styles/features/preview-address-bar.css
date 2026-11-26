@@ -171,7 +171,7 @@
 }
 
 .ss-dropdown__menu.preview-address-bar__menu {
-  z-index: var(--z-floating-panel-popover);
+  z-index: var(--z-floating-panel);
 }
 
 .preview-address-bar__menu-heading {

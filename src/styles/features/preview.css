@@ -999,7 +999,7 @@
 }
 
 .ss-dropdown__menu.template-entry-picker__menu {
-  z-index: var(--z-floating-panel-popover);
+  z-index: var(--z-floating-panel);
 }
 
 .template-entry-picker__heading,
