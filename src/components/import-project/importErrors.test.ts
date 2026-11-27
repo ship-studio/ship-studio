@@ -62,4 +62,18 @@ describe('describeImportError', () => {
     expect(unknown.expected).toBe(false);
     expect(unknown.message).toContain('something went sideways');
   });
+
+  it('treats a node binary that cannot link its libraries as expected (issue #1214)', () => {
+    const raw = [
+      'Process exited with code -1',
+      '',
+      'dyld[32663]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib',
+      '  Referenced from: <ED8994AB-E473-395E-AA5F-2CA06BB902F2> /opt/homebrew/Cellar/node/25.9.0_2/bin/node',
+      "  Reason: tried: '/opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib' (no such file)",
+      'Process was terminated by signal 6 (SIGABRT)',
+    ].join('\n');
+    const info = describeImportError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('brew reinstall node');
+  });
 });

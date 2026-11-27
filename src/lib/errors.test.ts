@@ -9,6 +9,7 @@ import {
   isAgentNotInstalledError,
   isExpectedCommandError,
   isExpectedProjectImportRefusal,
+  isBrokenNodeLoaderError,
   isExpectedRenameRefusal,
   isMergeConflictError,
   isMissingUpstreamError,
@@ -1107,5 +1108,60 @@ describe('isRecognizedGitFailure — trusts the backend flag and switch_branch w
     expect(isRecognizedGitFailure('error: you need to resolve your current index first')).toBe(
       true
     );
+  });
+});
+
+describe('describeProcessError — broken Node binary (issue #1214, #645)', () => {
+  // The exact dump from #1214: llhttp upgraded under a node that wasn't relinked.
+  const llhttp = [
+    'Process exited with code -1',
+    '',
+    'dyld[32663]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib',
+    '  Referenced from: <ED8994AB-E473-395E-AA5F-2CA06BB902F2> /opt/homebrew/Cellar/node/25.9.0_2/bin/node',
+    "  Reason: tried: '/opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib' (no such file), '/opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib' (no such file), '/opt/homebrew/Cellar/llhttp/9.4.3/lib/libllhttp.9.3.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/Cellar/llhttp/9.4.3/lib/libllhttp.9.3.dylib' (no such file), '/opt/homebrew/Cellar/llhttp/9.4.3/lib/libllhttp.9.3.dylib' (no such file)",
+    'Process was terminated by signal 6 (SIGABRT)',
+  ].join('\n');
+
+  it('classifies the #1214 llhttp dump as expected, with Homebrew guidance', () => {
+    const info = describeProcessError(llhttp);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('brew reinstall node');
+    expect(info.message).not.toContain('dyld[');
+  });
+
+  it("classifies #645's icu4c shape (older dyld, no UUID) as expected", () => {
+    const raw =
+      'dyld[54199]: Library not loaded: /opt/homebrew/opt/icu4c/lib/libicui18n.74.dylib\n' +
+      '  Referenced from: /opt/homebrew/Cellar/node/22.9.0/bin/node\n' +
+      "  Reason: tried: '/opt/homebrew/opt/icu4c/lib/libicui18n.74.dylib' (no such file)";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('brew reinstall node');
+  });
+
+  it("classifies Linux's loader failure, without Homebrew advice", () => {
+    const info = describeProcessError(
+      'node: error while loading shared libraries: libicui18n.so.74: cannot open shared object file: No such file or directory'
+    );
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('Reinstall Node.js');
+    expect(info.message).not.toContain('brew');
+  });
+
+  it("still reports a project's native addon failing to load", () => {
+    // Node runs fine; the project's own compiled dependency is the problem.
+    const raw =
+      'Error: dlopen(/Users/me/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node, 0x0001): Library not loaded: /opt/homebrew/opt/sqlite/lib/libsqlite3.0.dylib\n' +
+      '  Referenced from: <0D1C4E2A-1111-3333-AAAA-0123456789AB> /Users/me/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node\n' +
+      "  Reason: tried: '/opt/homebrew/opt/sqlite/lib/libsqlite3.0.dylib' (no such file)";
+    expect(isBrokenNodeLoaderError(raw)).toBe(false);
+    expect(describeProcessError(raw).expected).toBe(false);
+  });
+
+  it('still reports a real install failure', () => {
+    const raw =
+      'Process exited with code 1\n\nnpm error code 1\nnpm error path /Users/me/app/node_modules/sharp\nnpm error command failed\nnpm error gyp ERR! build error';
+    expect(isBrokenNodeLoaderError(raw)).toBe(false);
+    expect(describeProcessError(raw).expected).toBe(false);
   });
 });

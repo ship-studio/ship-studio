@@ -517,6 +517,27 @@ const PROCESS_EXIT_MESSAGES: Record<number, string> = {
   128: "Git authentication failed. Make sure you're signed into GitHub.",
 };
 
+/**
+ * True when output shows the `node` binary itself failing at the dynamic-linker
+ * level: macOS dyld's "Library not loaded … Referenced from: …/node", or
+ * Linux's "node: error while loading shared libraries". The classic cause is
+ * Homebrew upgrading a library (icu4c, llhttp) without relinking `node`, so
+ * every node/npm invocation dies before running anything (issues #645, #1214).
+ * TS twin of `is_broken_loader_error` in the Rust Playwright runner.
+ *
+ * Only the *node* binary counts. A project's native addon failing to load
+ * (`dlopen(…/better_sqlite3.node): Library not loaded`) names the addon as the
+ * referencing image, and that is a real failure in the project — it must still
+ * report.
+ */
+export function isBrokenNodeLoaderError(output: string): boolean {
+  if (/library not loaded/i.test(output)) {
+    // Referenced from: [<UUID>] /path/to/bin/node
+    return /^\s*Referenced from:\s*(?:<[^>\n]*>\s*)?\S*[\\/]node[^\S\n]*$/im.test(output);
+  }
+  return /(?:^|[\\/\s])node: error while loading shared libraries/m.test(output);
+}
+
 /** Result of {@link describeProcessError}. */
 export interface ProcessErrorInfo {
   /** User-facing, actionable message. */
@@ -719,6 +740,17 @@ export function describeProcessError(
     return {
       expected: true,
       message: `The package manager at ${brokenToolInstall[1]} is broken — its own program files are missing, so it can't start. Reinstall Node.js (or that package manager) on this computer, then try again.`,
+    };
+  }
+  // The Node binary itself can't start: the dynamic linker can't find a
+  // shared library it was built against (issue #1214, and #645 on the Rust
+  // side). Checked before the exit-code table — node dies with SIGABRT, so the
+  // exit code says nothing.
+  if (isBrokenNodeLoaderError(msg)) {
+    const homebrew = /\/(?:opt\/homebrew|usr\/local)\/(?:Cellar|opt)\//.test(msg);
+    return {
+      expected: true,
+      message: `Node.js on this computer is broken — it can't start because a library it depends on is missing${homebrew ? ' (usually left behind by a Homebrew upgrade). Open a terminal and run `brew reinstall node`' : '. Reinstall Node.js'}, then try again.`,
     };
   }
   // pnpm 9 and earlier require a `packages:` field in any pnpm-workspace.yaml.
