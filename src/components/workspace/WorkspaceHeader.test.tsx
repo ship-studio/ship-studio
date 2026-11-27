@@ -34,6 +34,9 @@ function headerProps(): WorkspaceHeaderProps {
     variablesPanelVisible: false,
     variablesPanelAvailable: true,
     onToggleVariablesPanel: vi.fn(),
+    pagesPanelVisible: false,
+    pagesPanelAvailable: true,
+    onTogglePagesPanel: vi.fn(),
     integrations: {
       github: { cliStatus: { installed: false, authenticated: false }, username: null },
       projectGithub: null,

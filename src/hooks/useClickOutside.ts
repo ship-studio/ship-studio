@@ -29,13 +29,15 @@ export function useClickOutside<T extends HTMLElement>(
   ref: RefObject<T | null>,
   callback: () => void,
   enabled = true,
-  excludeSelector?: string
+  excludeSelector?: string,
+  excludeRefs: readonly RefObject<HTMLElement | null>[] = []
 ): void {
   useEffect(() => {
     if (!enabled) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
+      if (excludeRefs.some((excluded) => excluded.current?.contains(target))) return;
       if (ref.current && !ref.current.contains(target)) {
         // A modal is a layer *above* whatever is watching for outside clicks,
         // not a sibling of it. ModalFrame already marks every other body child
@@ -58,5 +60,5 @@ export function useClickOutside<T extends HTMLElement>(
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [ref, callback, enabled, excludeSelector]);
+  }, [ref, callback, enabled, excludeSelector, excludeRefs]);
 }

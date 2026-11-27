@@ -68,6 +68,20 @@
   padding-inline-start: var(--spacing-xl);
 }
 
+.ss-context-menu__submenu-trigger {
+  justify-content: space-between;
+  text-align: start;
+}
+
+.ss-context-menu__submenu-trigger > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.ss-context-menu__submenu-trigger > svg {
+  flex: none;
+}
+
 .ss-context-menu__item:disabled,
 .ss-context-menu__item[aria-disabled='true'] {
   opacity: var(--button-disabled-opacity);

@@ -141,6 +141,9 @@ export const workspaceCommands: CommandMap = {
   get_system_env: {},
 
   // ---- preview -----------------------------------------------------------
+  list_pages: [],
+  get_preview_urls: [],
+  replace_preview_url: [],
   check_browser_availability: [
     { id: 'chrome', name: 'Google Chrome' },
     { id: 'safari', name: 'Safari' },

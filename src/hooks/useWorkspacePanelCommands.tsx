@@ -1,4 +1,4 @@
-import { VariablesIcon } from '@/components/icons';
+import { FileIcon, VariablesIcon } from '@/components/icons';
 import { useCommands } from '../commands/useCommands';
 
 interface Params {
@@ -13,6 +13,10 @@ interface Params {
   isWebProject: boolean;
   variablesPanelOpen: boolean;
   toggleVariablesPanel: () => void;
+  pagesPanelDocked: boolean;
+  togglePagesPanelDocked: () => void;
+  pagesPanelOpen: boolean;
+  togglePagesPanel: () => void;
   showPreviewLogs: boolean;
   togglePreviewLogs: () => void;
 }
@@ -30,6 +34,10 @@ export function useWorkspacePanelCommands({
   isWebProject,
   variablesPanelOpen,
   toggleVariablesPanel,
+  pagesPanelDocked,
+  togglePagesPanelDocked,
+  pagesPanelOpen,
+  togglePagesPanel,
   showPreviewLogs,
   togglePreviewLogs,
 }: Params): void {
@@ -78,6 +86,24 @@ export function useWorkspacePanelCommands({
         run: toggleVariablesPanel,
       },
       {
+        id: 'workspace.togglePagesPanelPin',
+        title: pagesPanelDocked ? 'Float Pages panel' : 'Dock Pages panel',
+        icon: <FileIcon size={14} />,
+        category: 'action',
+        when: ({ kind }) => kind === 'project' && isWebProject,
+        keywords: ['pages', 'routes', 'pin', 'float', 'dock'],
+        run: togglePagesPanelDocked,
+      },
+      {
+        id: 'workspace.togglePagesPanel',
+        title: pagesPanelOpen ? 'Hide Pages panel' : 'Show Pages panel',
+        icon: <FileIcon size={14} />,
+        category: 'action',
+        when: ({ kind }) => kind === 'project' && isWebProject,
+        keywords: ['pages', 'routes', 'navigation'],
+        run: togglePagesPanel,
+      },
+      {
         id: 'workspace.toggleInspector',
         title: showPreviewLogs ? 'Hide Inspector' : 'Show Inspector',
         category: 'action',
@@ -98,6 +124,10 @@ export function useWorkspacePanelCommands({
       isWebProject,
       variablesPanelOpen,
       toggleVariablesPanel,
+      pagesPanelDocked,
+      togglePagesPanelDocked,
+      pagesPanelOpen,
+      togglePagesPanel,
       showPreviewLogs,
       togglePreviewLogs,
     ]

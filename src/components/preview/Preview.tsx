@@ -27,12 +27,21 @@ import { useAgentBridge } from '../../hooks/useAgentBridge';
 import { AgentActivityOverlay } from './AgentActivityOverlay';
 import { PreviewSizeControl } from './PreviewSizeControl';
 import { PreviewCanvas, type CanvasZoom } from './PreviewCanvas';
+import { PreviewAddressBar } from './PreviewAddressBar';
+import { TemplateEntryPicker } from './TemplateEntryPicker';
+import { ExternalPreviewFrame } from './ExternalPreviewFrame';
+import { useAsyncState } from '../../hooks/useAsyncState';
+import {
+  getDevServerPort,
+  getPreviewUrls,
+  editPreviewUrl,
+  removePreviewUrl,
+  savePreviewUrl,
+} from '../../lib/project';
 import { usePreviewCapture } from '../../hooks/usePreviewCapture';
 import { usePreviewEditorFrame } from '../../hooks/usePreviewEditorFrame';
 import { DEFAULT_DEVICE_HEIGHT, DEVICE_HEIGHTS, type CanvasFrame } from '../../lib/previewCanvas';
 import { Button } from '../primitives/Button';
-import { MenuButton } from '../primitives/MenuButton';
-import { IconButton } from '../primitives/IconButton';
 import { parsePreviewAddress } from '../../lib/previewUrl';
 import { ToggleButton } from '../primitives/ToggleButton';
 import {
@@ -73,9 +82,7 @@ import { useElementBreadcrumbVisibility } from '../../hooks/useElementBreadcrumb
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
 import {
   ContractDiagonalIcon,
-  ChevronIcon,
   DesktopIcon,
-  EditFieldIcon,
   EditIcon,
   ExpandDiagonalIcon,
   FullBreakpointIcon,
@@ -84,12 +91,10 @@ import {
   MobileIcon,
   PackageIcon,
   RedoIcon,
-  ResetIcon,
   TabletIcon,
   TerminalIcon,
   UndoIcon,
 } from '@/components/icons';
-import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { DockablePanel } from '../primitives/DockablePanel';
@@ -108,6 +113,20 @@ import type { ProjectType } from '../../lib/static-server';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { isEditorFramework, resolveEditorMode } from '../../lib/editorGate';
 import { Tooltip } from '../primitives/Tooltip';
+
+const isLoopbackHost = (hostname: string) =>
+  hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+
+function parseExternalPreviewUrl(value: string): URL {
+  const url = new URL(value.trim());
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Enter an HTTP or HTTPS URL.');
+  }
+  if (url.username || url.password) {
+    throw new Error('URLs with a username or password are not supported.');
+  }
+  return url;
+}
 
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
   if (type === 'full') return <FullBreakpointIcon />;
@@ -179,6 +198,11 @@ interface PreviewProps {
   onServerReady?: () => void;
   /** Callback fired when user navigates to a different page */
   onPageChange?: (page: string) => void;
+  /** Callback with the route normalized to the default locale for Pages. */
+  onCanonicalPageChange?: (page: string) => void;
+  /** Dynamic Astro page pattern currently selected in the Pages panel. */
+  templateRoute?: string | null;
+  templatePickerRequest?: number;
   /** Whether crop selection mode is active */
   isCropMode?: boolean;
   /** Callback fired when user starts selecting a crop region */
@@ -283,6 +307,14 @@ export interface PreviewHandle {
   isCapturing: () => boolean;
   /** Force refresh the preview iframe */
   refresh: () => void;
+  /** Navigate to a page route while preserving the currently selected locale. */
+  navigateToPage: (route: string) => void;
+  /** Return from an external preview to the current local preview route. */
+  returnToLocalPreview: () => void;
+  /** Resolve the exact preview path used by navigateToPage for this route. */
+  resolvePageRoute: (route: string) => string;
+  /** Address last rendered by the preview toolbar. */
+  previewAddress: string | null;
   /** Check if the dev server is ready and responding */
   isServerReady: () => boolean;
   /** Toggle the active visual editor from a workspace-level shortcut. */
@@ -320,6 +352,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     projectPath,
     onServerReady,
     onPageChange,
+    onCanonicalPageChange,
+    templateRoute = null,
+    templatePickerRequest = 0,
     isCropMode,
     onCropStart,
     onCropComplete,
@@ -388,6 +423,153 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onSendToClaude,
     onToast,
   });
+  const {
+    currentLocation,
+    currentPage: previewPage,
+    handlePageSelect,
+    handleRefresh,
+    serverReady,
+  } = conn;
+
+  const savedPreviewUrls = useAsyncState(() => getPreviewUrls(projectPath), { initial: [] });
+  const configuredPort = useAsyncState(async () => ({ port: await getDevServerPort(projectPath) }));
+  const setSavedPreviewUrls = savedPreviewUrls.setData;
+  const loadSavedPreviewUrls = savedPreviewUrls.execute;
+  const loadConfiguredPort = configuredPort.execute;
+  const [externalPreviewUrl, setExternalPreviewUrl] = useState<string | null>(null);
+  const [externalReloadToken, setExternalReloadToken] = useState(0);
+  const [lastReadyAddress, setLastReadyAddress] = useState<string | null>(null);
+  useEffect(() => {
+    void loadSavedPreviewUrls();
+    void loadConfiguredPort();
+  }, [loadConfiguredPort, loadSavedPreviewUrls, projectPath]);
+
+  const localPreviewAddress = `http://localhost:${port}${currentLocation === '/' ? '' : currentLocation}`;
+  useEffect(() => {
+    if (serverReady) setLastReadyAddress(localPreviewAddress);
+  }, [localPreviewAddress, serverReady]);
+
+  const defaultPreviewUrl = useMemo(() => {
+    const configured = configuredPort.data?.port;
+    if (configured != null) return `http://localhost:${configured}/`;
+    // When the project has no saved port preference, only show a built-in URL
+    // after the actual server address has answered the preview health check.
+    if (!configuredPort.data || !lastReadyAddress) return null;
+    try {
+      return `${new URL(lastReadyAddress).origin}/`;
+    } catch {
+      return null;
+    }
+  }, [configuredPort.data, lastReadyAddress]);
+
+  const previewAddress =
+    externalPreviewUrl ??
+    (serverReady ? localPreviewAddress : (lastReadyAddress ?? defaultPreviewUrl));
+  const handleRefreshAddress = useCallback(() => {
+    if (externalPreviewUrl) {
+      setExternalReloadToken((token) => token + 1);
+      return;
+    }
+    handleRefresh();
+  }, [externalPreviewUrl, handleRefresh]);
+
+  const saveAddress = useCallback(
+    async (url: string) => {
+      try {
+        const result = await savePreviewUrl(projectPath, url);
+        setSavedPreviewUrls(result);
+      } catch (error) {
+        throw new Error(formatCommandError(asCommandError(error)));
+      }
+    },
+    [projectPath, setSavedPreviewUrls]
+  );
+  const removeAddress = useCallback(
+    async (url: string) => {
+      try {
+        const result = await removePreviewUrl(projectPath, url);
+        setSavedPreviewUrls(result);
+      } catch (error) {
+        throw new Error(formatCommandError(asCommandError(error)));
+      }
+    },
+    [projectPath, setSavedPreviewUrls]
+  );
+  const editAddress = useCallback(
+    async (oldUrl: string, newUrl: string) => {
+      try {
+        const result = await editPreviewUrl(projectPath, oldUrl, newUrl);
+        setSavedPreviewUrls(result);
+      } catch (error) {
+        throw new Error(formatCommandError(asCommandError(error)));
+      }
+    },
+    [projectPath, setSavedPreviewUrls]
+  );
+  const navigatePreviewAddress = useCallback(
+    (input: string) => {
+      const localLocation = parsePreviewAddress(input, previewPage);
+      const isFullUrl = /^https?:\/\//i.test(input.trim());
+      if (localLocation && !isFullUrl) {
+        setExternalPreviewUrl(null);
+        handlePageSelect(localLocation);
+        return;
+      }
+      const url = parseExternalPreviewUrl(input);
+      const targetPort = Number(url.port || (url.protocol === 'http:' ? '80' : '443'));
+      const sameLocalServer =
+        url.protocol === 'http:' && isLoopbackHost(url.hostname) && targetPort === port;
+      if (sameLocalServer) {
+        setExternalPreviewUrl(null);
+        handlePageSelect(`${url.pathname}${url.search}${url.hash}`);
+        void trackEvent('preview_url_entered', {
+          has_query: url.search.length > 0,
+          has_hash: url.hash.length > 0,
+          $screen_name: 'Workspace',
+        });
+        return;
+      }
+      setExternalPreviewUrl(url.href);
+      setExternalReloadToken((token) => token + 1);
+      void trackEvent('preview_url_entered', {
+        has_query: url.search.length > 0,
+        has_hash: url.hash.length > 0,
+        $screen_name: 'Workspace',
+      });
+    },
+    [handlePageSelect, port, previewPage]
+  );
+
+  const addressBar = (
+    <PreviewAddressBar
+      value={previewAddress}
+      savedUrls={savedPreviewUrls.data ?? []}
+      defaultUrl={defaultPreviewUrl}
+      onNavigate={navigatePreviewAddress}
+      onSave={saveAddress}
+      onRemove={removeAddress}
+      onEdit={editAddress}
+      onRefresh={handleRefreshAddress}
+      browserAction={
+        <BrowserDropdown
+          url={previewAddress ?? ''}
+          className="preview-address-bar__browser-action"
+          buttonClassName="preview-address-bar__open-browser"
+          buttonVariant="ghost"
+          buttonSize="compact"
+          iconSize={14}
+          disabled={!previewAddress}
+          onDefaultOpenError={(error) =>
+            showToast(`Couldn't open the preview in your browser: ${String(error)}`, 'error')
+          }
+          iconOnly
+        />
+      }
+      isLoading={savedPreviewUrls.isLoading}
+      error={savedPreviewUrls.error?.message ?? configuredPort.error?.message ?? null}
+    />
+  );
+  const addressBarSlot = <div className="preview-address-bar-slot">{addressBar}</div>;
 
   // The managed dev-server process is known-dead (the exit watcher saw it die
   // and no respawn has happened since). Static projects are excluded — they
@@ -491,7 +673,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     currentUrl: conn.serverReady ? conn.currentUrl : null,
     serverReady: conn.serverReady,
     currentPath: conn.currentPage,
-    pages: conn.filteredPages.map((p) => p.route),
+    pages: conn.pages.map((p) => p.route),
     navigate: conn.handlePageSelect,
     reload: conn.handleRefresh,
     setViewport: (value) => {
@@ -646,62 +828,57 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // qualifies for (Tailwind vs code-first CSS) is decided by the pure gate in
   // `lib/editorGate.ts` — the two are mutually exclusive.
   const qualifiedEditorMode = resolveEditorMode({ projectType, tailwindActive, viteUsesReact });
-  const editorEnabled = conn.serverReady && qualifiedEditorMode === 'tailwind';
+  const editorEnabled =
+    !externalPreviewUrl && conn.serverReady && qualifiedEditorMode === 'tailwind';
 
   // Locale config reported by the locale switcher (null when the project has
   // fewer than 2 configured languages). Used to keep page selection inside
   // the language currently being previewed.
   const [localeConfig, setLocaleConfig] = useState<PreviewLocaleConfig | null>(null);
-  // What the search field holds, read as an address (`/path?q`, `?q`, `#h`, or
-  // a pasted localhost URL). Null means it's just a page search.
-  const typedAddress = parsePreviewAddress(conn.pageSearch, conn.currentPage);
-  // Every route starts with "/", so "/bl" is still a page search: while it
-  // matches listed pages, Enter keeps picking the first of them and the
-  // "Go to" row sits below them. A query, hash or pasted URL is unambiguous.
-  const typedIsPageSearch =
-    typedAddress !== null && !/[?#]/.test(typedAddress) && conn.filteredPages.length > 0;
-  const showGoToRow =
-    typedAddress !== null && !conn.filteredPages.some((page) => page.route === typedAddress);
-  const currentSuffix = conn.currentLocation.slice(conn.currentPage.length);
-  const goToTypedAddress = () => {
-    if (!typedAddress) return;
-    conn.handlePageSelect(typedAddress);
-    void trackEvent('preview_url_entered', {
-      has_query: typedAddress.includes('?'),
-      has_hash: typedAddress.includes('#'),
-      $screen_name: 'Workspace',
-    });
-  };
-  const goToRow = typedAddress && (
-    <DropdownItem onSelect={goToTypedAddress}>
-      <span className="page-item-hint">Go to</span>
-      <span className="page-item-route">{typedAddress}</span>
-    </DropdownItem>
-  );
-  // Seed the field with the full current URL so a query param can be tweaked
-  // rather than retyped.
-  const editCurrentAddress = () => {
-    conn.setPageSearch(conn.currentLocation);
-    requestAnimationFrame(() => {
-      const input = conn.searchInputRef.current;
-      if (!input) return;
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    });
-  };
-
-  const selectPageKeepingLocale = (route: string) => {
-    if (localeConfig) {
-      const active = pathLocale(conn.currentPage, localeConfig.locales, localeConfig.defaultLocale);
-      if (active && active !== localeConfig.defaultLocale) {
-        conn.handlePageSelect(
-          switchPathLocale(route, active, localeConfig.locales, localeConfig.defaultLocale)
+  const canonicalizePageRoute = useCallback(
+    (route: string) => {
+      if (!localeConfig) return route;
+      if (localeConfig.defaultLocale !== null) {
+        return switchPathLocale(
+          route,
+          localeConfig.defaultLocale,
+          localeConfig.locales,
+          localeConfig.defaultLocale
         );
-        return;
       }
-    }
-    conn.handlePageSelect(route);
-  };
+      const segments = route.replace(/^\/+/, '').split('/').filter(Boolean);
+      if (!localeConfig.locales.includes(segments[0] ?? '')) return route;
+      const routeSegments = segments.slice(1);
+      return routeSegments.length === 0 ? '/' : `/${routeSegments.join('/')}`;
+    },
+    [localeConfig]
+  );
+  const canonicalCurrentPage = useMemo(
+    () => canonicalizePageRoute(conn.currentPage),
+    [canonicalizePageRoute, conn.currentPage]
+  );
+  useEffect(() => {
+    onCanonicalPageChange?.(canonicalCurrentPage);
+  }, [canonicalCurrentPage, onCanonicalPageChange]);
+  const resolvePageRouteKeepingLocale = useCallback(
+    (route: string) => {
+      if (localeConfig) {
+        const active = pathLocale(previewPage, localeConfig.locales, localeConfig.defaultLocale);
+        if (active && active !== localeConfig.defaultLocale) {
+          return switchPathLocale(route, active, localeConfig.locales, localeConfig.defaultLocale);
+        }
+      }
+      return route;
+    },
+    [localeConfig, previewPage]
+  );
+  const selectPageKeepingLocale = useCallback(
+    (route: string) => {
+      setExternalPreviewUrl(null);
+      handlePageSelect(resolvePageRouteKeepingLocale(route));
+    },
+    [handlePageSelect, resolvePageRouteKeepingLocale]
+  );
 
   // The project's Tailwind breakpoints (Base + detected), and the layer edits
   // currently target — DERIVED from the live canvas width (never set on its own,
@@ -768,7 +945,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // For Next.js this covers global stylesheets (e.g. app/globals.css); CSS-Module
   // rules can't be mapped back (hashed class names) and render read-only with an
   // explanation.
-  const cssEditorEnabled = conn.serverReady && qualifiedEditorMode === 'css';
+  const cssEditorEnabled = !externalPreviewUrl && conn.serverReady && qualifiedEditorMode === 'css';
   const cssEditor = useCssCascadeEditor({
     iframeRef: editorFrameRef,
     projectPath,
@@ -776,6 +953,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     cssModulesHint: projectType === 'nextjs',
     onToast,
   });
+  const { editMode: visualEditMode, toggleEditMode: toggleVisualEditMode } = editor;
+  const { editMode: cssEditMode, toggleEditMode: toggleCssEditMode } = cssEditor;
+  useEffect(() => {
+    if (!externalPreviewUrl) return;
+    if (visualEditMode) toggleVisualEditMode();
+    if (cssEditMode) toggleCssEditMode();
+  }, [externalPreviewUrl, visualEditMode, toggleVisualEditMode, cssEditMode, toggleCssEditMode]);
   // Settings tab (element tag/classes/attributes) — shares the cascade selection.
   const elementSettings = useElementSettings({
     iframeRef: editorFrameRef,
@@ -942,7 +1126,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         id: 'preview.breakpointCanvas',
         title: canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint',
         category: 'action' as const,
-        when: 'project' as const,
+        when: ({ kind }) => kind === 'project' && !externalPreviewUrl,
         keywords: [
           'breakpoint',
           'canvas',
@@ -1086,7 +1270,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         id: 'preview.setSize',
         title: 'Set exact preview size…',
         category: 'action' as const,
-        when: 'project' as const,
+        when: ({ kind }) => kind === 'project' && !externalPreviewUrl,
         keywords: [
           'viewport',
           'width',
@@ -1099,7 +1283,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         run: () => setSizePopoverSignal((s) => s + 1),
       },
     ],
-    []
+    [externalPreviewUrl]
   );
 
   // Element tree (navigator) — available throughout Preview mode. Structural
@@ -1198,6 +1382,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // Uses currentPage (tracked via proxy) so it refreshes the actual visible page,
   // not the stale iframe src attribute (which doesn't update on client-side navigation).
   const refresh = useCallback(() => {
+    if (externalPreviewUrl) {
+      setExternalReloadToken((token) => token + 1);
+      return;
+    }
     if (iframeRef.current && conn.serverReady) {
       conn.setIframePath(conn.currentLocation);
       const refreshUrl = `${conn.baseUrl}${conn.currentLocation === '/' ? '' : conn.currentLocation}`;
@@ -1209,7 +1397,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       }, 100);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- specific conn properties are listed; conn object changes on every render
-  }, [conn.serverReady, conn.baseUrl, conn.currentLocation, conn.setIframePath]);
+  }, [
+    conn.serverReady,
+    conn.baseUrl,
+    conn.currentLocation,
+    conn.setIframePath,
+    externalPreviewUrl,
+  ]);
 
   // Imperative reload requests from the connection hook (toolbar refresh on the
   // current page, static-project file changes). Token 0 is the "no reload
@@ -1229,6 +1423,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       captureFullPage: capture.captureFullPage,
       isCapturing: () => capture.isCapturing,
       refresh,
+      navigateToPage: selectPageKeepingLocale,
+      returnToLocalPreview: () => setExternalPreviewUrl(null),
+      resolvePageRoute: resolvePageRouteKeepingLocale,
+      previewAddress,
       isServerReady: () => conn.serverReady,
       toggleEditMode: toggleActiveEditor,
     }),
@@ -1237,6 +1435,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       capture.captureFullPage,
       capture.isCapturing,
       refresh,
+      selectPageKeepingLocale,
+      setExternalPreviewUrl,
+      resolvePageRouteKeepingLocale,
+      previewAddress,
       conn.serverReady,
       toggleActiveEditor,
     ]
@@ -1340,7 +1542,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         ]
     : [];
   const breadcrumbVisible =
-    !canvasMode && elementBreadcrumbEnabled && activeEditMode && breadcrumbPath.length > 0;
+    !externalPreviewUrl &&
+    !canvasMode &&
+    elementBreadcrumbEnabled &&
+    activeEditMode &&
+    breadcrumbPath.length > 0;
   const selectBreadcrumbItem = useCallback(
     (item: (typeof breadcrumbPath)[number]) => {
       if (!item.domPath) return;
@@ -1362,45 +1568,65 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   if (needsInstall) {
     return (
-      <div className="preview-install-prompt">
-        <div className="preview-install-icon" aria-hidden>
-          <PackageIcon size={32} />
+      <div className="preview-container">
+        <div className="preview-toolbar">{addressBarSlot}</div>
+        <div className="preview-viewport">
+          {externalPreviewUrl ? (
+            <ExternalPreviewFrame url={externalPreviewUrl} reloadToken={externalReloadToken} />
+          ) : (
+            <div className="preview-install-prompt">
+              <div className="preview-install-icon" aria-hidden>
+                <PackageIcon size={32} />
+              </div>
+              <h3>Dependencies not installed</h3>
+              <p className="text-style-hint">
+                This project hasn't run <code>{needsInstall.packageManager} install</code> yet.
+              </p>
+              <Button variant="primary" onClick={onRunInstall} disabled={!onRunInstall}>
+                Install with {needsInstall.packageManager}
+              </Button>
+            </div>
+          )}
         </div>
-        <h3>Dependencies not installed</h3>
-        <p className="text-style-hint">
-          This project hasn't run <code>{needsInstall.packageManager} install</code> yet.
-        </p>
-        <Button variant="primary" onClick={onRunInstall} disabled={!onRunInstall}>
-          Install with {needsInstall.packageManager}
-        </Button>
       </div>
     );
   }
 
   if (conn.isLoading || conn.isStopped || conn.hasError) {
     return (
-      <>
-        <DevServerStatus
-          // A known-dead process escalates straight to the error card — polling
-          // a port nothing listens on can only end in the same place, minutes
-          // later, so don't make the user sit through the retry loop.
-          phase={
-            conn.isStopped ? 'stopped' : conn.hasError || serverProcessGone ? 'error' : 'loading'
-          }
-          isStaticProject={isStaticProject}
-          port={port}
-          retryCount={conn.retryCount}
-          maxRetries={SERVER_MAX_RETRIES}
-          devServerOutput={devServerOutput}
-          onStop={conn.stopConnecting}
-          onRetry={conn.handleRetry}
-          processExited={serverProcessGone || conn.serverStale}
-          exitCode={devServerUnexpectedExit?.exitCode ?? null}
-          onRestartServer={onRestartDevServer}
-          onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
-          onInput={onDevServerInput}
-        />
-      </>
+      <div className="preview-container">
+        <div className="preview-toolbar">{addressBarSlot}</div>
+        <div className="preview-viewport">
+          {externalPreviewUrl ? (
+            <ExternalPreviewFrame url={externalPreviewUrl} reloadToken={externalReloadToken} />
+          ) : (
+            <DevServerStatus
+              // A known-dead process escalates straight to the error card — polling
+              // a port nothing listens on can only end in the same place, minutes
+              // later, so don't make the user sit through the retry loop.
+              phase={
+                conn.isStopped
+                  ? 'stopped'
+                  : conn.hasError || serverProcessGone
+                    ? 'error'
+                    : 'loading'
+              }
+              isStaticProject={isStaticProject}
+              port={port}
+              retryCount={conn.retryCount}
+              maxRetries={SERVER_MAX_RETRIES}
+              devServerOutput={devServerOutput}
+              onStop={conn.stopConnecting}
+              onRetry={conn.handleRetry}
+              processExited={serverProcessGone || conn.serverStale}
+              exitCode={devServerUnexpectedExit?.exitCode ?? null}
+              onRestartServer={onRestartDevServer}
+              onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
+              onInput={onDevServerInput}
+            />
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -1437,9 +1663,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     // `.preview-toolbar { grid-column }` rules go.
     <div
       className="preview-container"
-      data-logs={showLogs ? 'open' : 'closed'}
+      data-logs={showLogs && !externalPreviewUrl ? 'open' : 'closed'}
       style={
-        showLogs && inspectPanelHeight !== null
+        showLogs && !externalPreviewUrl && inspectPanelHeight !== null
           ? {
               gridTemplateRows: `auto minmax(0, 1fr) var(--handle-size) ${inspectPanelHeight}px`,
             }
@@ -1455,9 +1681,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 className="preview-edit-control"
                 variant={activeEditMode ? 'secondary' : 'default'}
                 onClick={toggleActiveEditor}
-                title="Toggle visual editor"
+                title={
+                  externalPreviewUrl
+                    ? 'Visual editing is unavailable for external previews.'
+                    : 'Toggle visual editor'
+                }
                 pressed={activeEditMode}
                 aria-label="Edit"
+                disabled={Boolean(externalPreviewUrl)}
               >
                 <EditIcon size={13} />
                 <span
@@ -1468,12 +1699,19 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             ) : (
               // Preview-capable but not editable: show the toggle grayed out with a
               // shared tooltip explaining why visual editing is unavailable.
-              <Tooltip content="Visual editing is unavailable for this project. Supported projects can be edited by clicking elements in the preview.">
+              <Tooltip
+                content={
+                  externalPreviewUrl
+                    ? 'Visual editing is unavailable for external previews.'
+                    : 'Visual editing is unavailable for this project. Supported projects can be edited by clicking elements in the preview.'
+                }
+              >
                 <span className="preview-edit-toggle-wrap preview-edit-control">
                   <Button
                     type="button"
                     className="preview-edit-toggle--disabled"
                     aria-disabled="true"
+                    disabled
                     tabIndex={-1}
                     aria-label="Edit"
                   >
@@ -1493,6 +1731,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 title={showLogs ? 'Hide inspector' : 'Show inspector'}
                 aria-label={showLogs ? 'Hide inspector' : 'Show inspector'}
                 leftIcon={<TerminalIcon size={14} />}
+                disabled={Boolean(externalPreviewUrl)}
               >
                 <span
                   className={`preview-logs-toggle-switch ${showLogs ? 'is-on' : ''}`}
@@ -1502,245 +1741,162 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             )}
 
             {previewPlugins && <div className="preview-toolbar-plugins">{previewPlugins}</div>}
+          </div>
+        </div>
 
-            {conn.serverReady && conn.externalUrl && (
-              <BrowserDropdown
-                url={conn.externalUrl}
-                className="preview-browser-control"
-                buttonClassName="preview-browser-control"
-                iconOnly
+        <div className="preview-toolbar-navigation">
+          {/* Locale Switcher — only for projects with 2+ configured languages */}
+          <PreviewLocaleSwitcher
+            projectPath={projectPath}
+            currentPage={conn.currentPage}
+            onNavigate={conn.handlePageSelect}
+            onConfigChange={setLocaleConfig}
+            disabled={Boolean(externalPreviewUrl)}
+          />
+
+          <div className="preview-navigation-group">
+            {addressBar}
+
+            {!externalPreviewUrl && (
+              <TemplateEntryPicker
+                key={`${projectPath}:${templateRoute}:${templatePickerRequest}`}
+                projectPath={projectPath}
+                templateRoute={templateRoute}
+                currentPage={canonicalCurrentPage}
+                canonicalizeRoute={canonicalizePageRoute}
+                onNavigate={selectPageKeepingLocale}
               />
+            )}
+
+            {onUndo && (
+              <button
+                type="button"
+                className="preview-fullscreen-btn preview-history-btn"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title={undoTitle ?? `Undo last change (${kbd('mod', 'Z')})`}
+                aria-label="Undo"
+              >
+                <UndoIcon size={14} />
+              </button>
+            )}
+            {onRedo && (
+              <button
+                type="button"
+                className="preview-fullscreen-btn preview-history-btn"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title={redoTitle ?? `Redo (${kbd('mod', 'shift', 'Z')})`}
+                aria-label="Redo"
+              >
+                <RedoIcon size={14} />
+              </button>
             )}
           </div>
         </div>
 
-        {/* Locale Switcher — only for projects with 2+ configured languages */}
-        <PreviewLocaleSwitcher
-          projectPath={projectPath}
-          currentPage={conn.currentPage}
-          onNavigate={conn.handlePageSelect}
-          onConfigChange={setLocaleConfig}
-        />
-
-        {/* Page Switcher */}
-        <div className="page-switcher" data-education-id="page-switcher">
-          {/* Controlled rather than uncontrolled: selecting a page with Enter
-              from the search field has to close the menu, and the only handle
-              on an uncontrolled Dropdown's open state is DropdownItem's own
-              click. `showPageDropdown` was already being mirrored here — now
-              it's the source of truth, so Enter and Escape can act on it. */}
-          <Dropdown
-            menuClassName="page-dropdown"
-            open={conn.showPageDropdown}
-            onOpenChange={(open) => {
-              conn.setShowPageDropdown(open);
-              if (!open) conn.setPageSearch('');
-            }}
-            trigger={(triggerProps) => (
-              <MenuButton
-                {...triggerProps}
-                expanded={triggerProps['aria-expanded']}
-                variant="default"
-                className="page-switcher-trigger"
-                rightIcon={<ChevronIcon size={12} />}
-              >
-                <span className="page-route">
-                  {conn.currentPage}
-                  {currentSuffix && <span className="page-route-suffix">{currentSuffix}</span>}
-                </span>
-                {conn.currentPage === '/' && !currentSuffix && (
-                  <span className="page-route-context">Home</span>
-                )}
-              </MenuButton>
-            )}
-          >
-            <div className="page-search-row">
-              <input
-                ref={conn.searchInputRef}
-                type="text"
-                className="page-search"
-                placeholder="Search pages or type a URL…"
-                aria-label="Search pages or type a URL"
-                value={conn.pageSearch}
-                onChange={(e) => conn.setPageSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && typedAddress && !typedIsPageSearch) {
-                    e.preventDefault();
-                    goToTypedAddress();
+        <div className="preview-toolbar-center">
+          <div className="preview-breakpoints" data-education-id="breakpoints">
+            <div className="preview-breakpoints__inner">
+              <Tabs
+                // "Every breakpoint" is one of the viewport choices, not a mode on
+                // top of one: it lives in the same segmented control so exactly one
+                // thing is ever selected. Highlighting a device tab AND the canvas
+                // button at the same time reads as two active states.
+                value={canvasMode ? CANVAS_TAB : resize.getActiveBreakpoint()}
+                mode="navigation"
+                onValueChange={(value) => {
+                  if (value === CANVAS_TAB) {
+                    setCanvasEnabled(true);
                     return;
                   }
-                  if (e.key === 'Enter' && conn.filteredPages.length > 0) {
-                    e.preventDefault();
-                    selectPageKeepingLocale(conn.filteredPages[0].route);
-                    conn.setShowPageDropdown(false);
-                    conn.setPageSearch('');
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    conn.setShowPageDropdown(false);
-                    conn.setPageSearch('');
-                  }
+                  setCanvasEnabled(false);
+                  resize.handleBreakpointClick(value as Breakpoint);
                 }}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-              />
-              <IconButton
-                variant="ghost"
-                size="compact"
-                className="page-search-edit"
-                icon={<EditFieldIcon size={14} />}
-                aria-label="Edit current URL"
-                title="Edit current URL"
-                onClick={editCurrentAddress}
-              />
-            </div>
-            <div className="page-list">
-              {showGoToRow && !typedIsPageSearch && goToRow}
-              {conn.filteredPages.length === 0
-                ? !typedAddress && <div className="page-list-empty">No pages found</div>
-                : conn.filteredPages.map((page) => (
-                    <DropdownItem
-                      key={page.route}
-                      active={page.route === conn.currentPage}
-                      onSelect={() => selectPageKeepingLocale(page.route)}
+                className="preview-breakpoint-tabs"
+              >
+                <TabsList aria-label="Preview viewport sizes">
+                  {PREVIEW_BREAKPOINTS.map((bp) => (
+                    <TabsTab
+                      key={bp}
+                      // The per-breakpoint modifier drives the responsive toolbar
+                      // rules that hide these progressively as the pane narrows.
+                      className={`preview-breakpoint-tab preview-breakpoint-tab--${bp} button--icon-only`}
+                      value={bp}
+                      size="default"
+                      aria-label={BREAKPOINTS[bp].label}
+                      title={`${BREAKPOINTS[bp].label} (${BREAKPOINTS[bp].width})`}
+                      disabled={Boolean(externalPreviewUrl)}
                     >
-                      <span className="page-item-route">{page.route}</span>
-                      {page.route === '/' && <span className="page-item-hint">Home</span>}
-                    </DropdownItem>
+                      <BreakpointIcon type={bp} />
+                    </TabsTab>
                   ))}
-              {showGoToRow && typedIsPageSearch && goToRow}
-            </div>
-          </Dropdown>
-        </div>
-
-        {onUndo && (
-          <button
-            type="button"
-            className="preview-fullscreen-btn preview-history-btn"
-            onClick={onUndo}
-            disabled={!canUndo}
-            title={undoTitle ?? `Undo last change (${kbd('mod', 'Z')})`}
-            aria-label="Undo"
-          >
-            <UndoIcon size={14} />
-          </button>
-        )}
-        {onRedo && (
-          <button
-            type="button"
-            className="preview-fullscreen-btn preview-history-btn"
-            onClick={onRedo}
-            disabled={!canRedo}
-            title={redoTitle ?? `Redo (${kbd('mod', 'shift', 'Z')})`}
-            aria-label="Redo"
-          >
-            <RedoIcon size={14} />
-          </button>
-        )}
-
-        <button
-          className="preview-refresh"
-          onClick={conn.handleRefresh}
-          title="Refresh preview"
-          data-education-id="preview-refresh"
-        >
-          <ResetIcon size={14} />
-        </button>
-
-        <button
-          type="button"
-          className="preview-fullscreen-btn"
-          onClick={() => setIsFullscreen((f) => !f)}
-          title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
-          aria-pressed={isFullscreen}
-        >
-          {isFullscreen ? <ContractDiagonalIcon size={14} /> : <ExpandDiagonalIcon size={14} />}
-        </button>
-
-        <div className="preview-breakpoints" data-education-id="breakpoints">
-          <div className="preview-breakpoints__inner">
-            <Tabs
-              // "Every breakpoint" is one of the viewport choices, not a mode on
-              // top of one: it lives in the same segmented control so exactly one
-              // thing is ever selected. Highlighting a device tab AND the canvas
-              // button at the same time reads as two active states.
-              value={canvasMode ? CANVAS_TAB : resize.getActiveBreakpoint()}
-              mode="navigation"
-              onValueChange={(value) => {
-                if (value === CANVAS_TAB) {
-                  setCanvasEnabled(true);
-                  return;
-                }
-                setCanvasEnabled(false);
-                resize.handleBreakpointClick(value as Breakpoint);
-              }}
-              className="preview-breakpoint-tabs"
-            >
-              <TabsList aria-label="Preview viewport sizes">
-                {PREVIEW_BREAKPOINTS.map((bp) => (
                   <TabsTab
-                    key={bp}
-                    // The per-breakpoint modifier drives the responsive toolbar
-                    // rules that hide these progressively as the pane narrows.
-                    className={`preview-breakpoint-tab preview-breakpoint-tab--${bp} button--icon-only`}
-                    value={bp}
+                    value={CANVAS_TAB}
+                    className="preview-breakpoint-tab preview-breakpoint-tab--canvas button--icon-only"
                     size="default"
-                    aria-label={BREAKPOINTS[bp].label}
-                    title={`${BREAKPOINTS[bp].label} (${BREAKPOINTS[bp].width})`}
+                    data-education-id="breakpoint-canvas"
+                    aria-label="Every breakpoint"
+                    title="Every breakpoint, side by side"
+                    disabled={Boolean(externalPreviewUrl)}
                   >
-                    <BreakpointIcon type={bp} />
+                    <GridIcon size={14} />
                   </TabsTab>
-                ))}
-                <TabsTab
-                  value={CANVAS_TAB}
-                  className="preview-breakpoint-tab preview-breakpoint-tab--canvas button--icon-only"
-                  size="default"
-                  data-education-id="breakpoint-canvas"
-                  aria-label="Every breakpoint"
-                  title="Every breakpoint, side by side"
-                >
-                  <GridIcon size={14} />
-                </TabsTab>
-              </TabsList>
-            </Tabs>
+                </TabsList>
+              </Tabs>
 
-            {!canvasMode &&
-              iframeSize &&
-              iframeSize.w > 0 &&
-              iframeSize.h > 0 &&
-              (() => {
-                // The wrapper reports its VISUAL box; when the frame is scaled to
-                // fit, the page actually lays out at the true (unscaled) size —
-                // that's the honest number to show (and to let the user set).
-                const w = Math.round(iframeSize.w / resize.previewScale);
-                const h = Math.round(iframeSize.h / resize.previewScale);
-                return (
-                  <PreviewSizeControl
-                    width={w}
-                    height={h}
-                    hasCustomHeight={resize.customHeight !== null}
-                    scalePercent={
-                      resize.previewScale < 1 ? Math.round(resize.previewScale * 100) : null
-                    }
-                    onApply={resize.previewAtSize}
-                    onFit={() => resize.handleBreakpointClick('full')}
-                    openSignal={sizePopoverSignal}
-                    activeBreakpoint={canvasMode ? CANVAS_TAB : resize.getActiveBreakpoint()}
-                    breakpointOptions={PREVIEW_BREAKPOINT_OPTIONS}
-                    onBreakpointChange={(value) => {
-                      if (value === CANVAS_TAB) {
-                        setCanvasEnabled(true);
-                        return;
+              {!canvasMode &&
+                (externalPreviewUrl || (iframeSize && iframeSize.w > 0 && iframeSize.h > 0)) &&
+                (() => {
+                  // The wrapper reports its VISUAL box; when the frame is scaled to
+                  // fit, the page actually lays out at the true (unscaled) size —
+                  // that's the honest number to show (and to let the user set).
+                  const w = externalPreviewUrl
+                    ? resize.viewportWidth > 0
+                      ? Math.round(resize.viewportWidth)
+                      : null
+                    : Math.round(iframeSize!.w / resize.previewScale);
+                  const h = externalPreviewUrl
+                    ? null
+                    : Math.round(iframeSize!.h / resize.previewScale);
+                  return (
+                    <PreviewSizeControl
+                      width={w}
+                      height={h}
+                      hasCustomHeight={resize.customHeight !== null}
+                      scalePercent={
+                        !externalPreviewUrl && resize.previewScale < 1
+                          ? Math.round(resize.previewScale * 100)
+                          : null
                       }
-                      setCanvasEnabled(false);
-                      resize.handleBreakpointClick(value as Breakpoint);
-                    }}
-                  />
-                );
-              })()}
+                      onApply={resize.previewAtSize}
+                      onFit={() => resize.handleBreakpointClick('full')}
+                      openSignal={sizePopoverSignal}
+                      activeBreakpoint={canvasMode ? CANVAS_TAB : resize.getActiveBreakpoint()}
+                      breakpointOptions={PREVIEW_BREAKPOINT_OPTIONS}
+                      onBreakpointChange={(value) => {
+                        if (value === CANVAS_TAB) {
+                          setCanvasEnabled(true);
+                          return;
+                        }
+                        setCanvasEnabled(false);
+                        resize.handleBreakpointClick(value as Breakpoint);
+                      }}
+                      disabled={Boolean(externalPreviewUrl)}
+                    />
+                  );
+                })()}
+            </div>
           </div>
+          <button
+            type="button"
+            className="preview-fullscreen-btn"
+            onClick={() => setIsFullscreen((f) => !f)}
+            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
+            aria-pressed={isFullscreen}
+          >
+            {isFullscreen ? <ContractDiagonalIcon size={14} /> : <ExpandDiagonalIcon size={14} />}
+          </button>
         </div>
       </div>
       <div
@@ -1756,7 +1912,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             }`}
           />
         )}
-        {canvasMode ? (
+        {externalPreviewUrl ? (
+          <ExternalPreviewFrame
+            url={externalPreviewUrl}
+            reloadToken={externalReloadToken}
+            visible={
+              !isBranchSwitching &&
+              !isDevServerRestarting &&
+              !resize.isResizing &&
+              !resize.isVerticalResizing
+            }
+          />
+        ) : canvasMode ? (
           <>
             {blankPageOverlay}
             <PreviewCanvas
@@ -1973,7 +2140,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <PreviewBreadcrumb path={breadcrumbPath} onSelect={selectBreadcrumbItem} />
         )}
       </div>
-      {showLogs && (
+      {showLogs && !externalPreviewUrl && (
         <PanelResizeHandle
           value={
             inspectPanelHeight ??
@@ -1994,7 +2161,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       {isInspectResizing && <div className="panel-resize-overlay" />}
       <InspectPanel
         ref={inspectPanelRef}
-        hidden={!showLogs}
+        hidden={!showLogs || Boolean(externalPreviewUrl)}
         projectPath={projectPath}
         devServerOutput={devServerOutput}
         devServerOutputVersion={devServerOutputVersion}

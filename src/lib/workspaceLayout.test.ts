@@ -60,7 +60,7 @@ describe('normalizeLayout', () => {
     expect(result.version).toBe(2);
     expect(
       result.columns.map((column) => (column.kind === 'preview' ? PREVIEW : column.panels[0].panel))
-    ).toEqual(['editor', 'agent', PREVIEW, 'navigator', 'variables', 'team']);
+    ).toEqual(['pages', 'editor', 'agent', PREVIEW, 'navigator', 'variables', 'team']);
     expect(findPanelPlacement(result, 'agent')?.column.width).toBe(600);
     expect(findPanelPlacement(result, 'navigator')?.column.width).toBe(
       PANEL_META.navigator.maxWidth

@@ -6,9 +6,11 @@
 //! - `preview` — preview webview creation, navigation, resize, scroll, and JS evaluation
 //! - `screenshots` — project thumbnails, Playwright captures, image comparison, cropping, and stitching
 
+mod external_preview;
 mod preview;
 mod screenshots;
 
+pub use external_preview::*;
 pub use preview::*;
 pub use screenshots::*;
 

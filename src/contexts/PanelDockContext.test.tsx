@@ -160,8 +160,15 @@ describe('persistence and presets', () => {
         <Probe />
       </PanelDockProvider>
     );
-    expect(seen[seen.length - 1].columns[0].kind).toBe('preview');
-    expect(seen.slice(previous).every((layout) => layout.columns[0].kind === 'preview')).toBe(true);
+    const firstNonPagesColumn = (layout: WorkspaceLayout) =>
+      layout.columns.find(
+        (column) =>
+          column.kind === 'preview' || column.panels.some((item) => item.panel !== 'pages')
+      );
+    expect(firstNonPagesColumn(seen[seen.length - 1])?.kind).toBe('preview');
+    expect(
+      seen.slice(previous).every((layout) => firstNonPagesColumn(layout)?.kind === 'preview')
+    ).toBe(true);
   });
 
   it('promotes the visible project layout when entering global scope and restores it', () => {

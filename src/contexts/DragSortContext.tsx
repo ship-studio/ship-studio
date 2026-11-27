@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useId,
   useMemo,
@@ -10,6 +8,12 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  DragSortContext,
+  type DragSortContextValue,
+  useDragSortContext,
+  useOptionalDragSortContext,
+} from './dragSortContextValue';
 import { DragSortManager, type DragSortManagerOptions } from '../lib/drag-sort/manager';
 
 export interface DragSortScopeProps extends DragSortManagerOptions {
@@ -21,14 +25,6 @@ export interface DragSortScopeProps extends DragSortManagerOptions {
   /** Add a presentation class to the projected insertion gap. */
   placeholderClassName?: string;
 }
-
-export interface DragSortContextValue {
-  manager: DragSortManager;
-  instructionsId: string;
-  label: string;
-}
-
-const DragSortContext = createContext<DragSortContextValue | null>(null);
 
 export function DragSortScope({
   children,
@@ -228,8 +224,8 @@ function DragSortFeedback({
   return (
     <>
       <div id={instructionsId} className="drag-sort__instructions">
-        {label}: press Space or Enter to lift, use the arrow keys to move, then press Space or Enter
-        to drop. Press Escape to cancel.
+        {label}: press Space, or Enter when it is not the control's normal action, to lift. Use the
+        arrow keys to move, then press Space or Enter to drop. Press Escape to cancel.
       </div>
       <div className="drag-sort__live-region" role="status" aria-live="polite" aria-atomic="true">
         {snapshot.announcement}
@@ -240,12 +236,4 @@ function DragSortFeedback({
   );
 }
 
-export function useDragSortContext(): DragSortContextValue {
-  const value = useContext(DragSortContext);
-  if (!value) throw new Error('useDragSortContext must be used inside a DragSortScope');
-  return value;
-}
-
-export function useOptionalDragSortContext(): DragSortContextValue | null {
-  return useContext(DragSortContext);
-}
+export { useDragSortContext, useOptionalDragSortContext };

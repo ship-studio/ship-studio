@@ -24,7 +24,7 @@ import { BrowserInfo, checkBrowserAvailability, openUrlInBrowser } from '../../l
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { isResourcePressureError } from '../../lib/errorReporting';
-import { Button, type ButtonVariant } from '../primitives/Button';
+import { Button, type ButtonSize, type ButtonVariant } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 
 interface BrowserDropdownProps {
@@ -32,6 +32,10 @@ interface BrowserDropdownProps {
   className?: string;
   buttonClassName?: string;
   buttonVariant?: ButtonVariant;
+  buttonSize?: ButtonSize;
+  iconSize?: number;
+  disabled?: boolean;
+  onDefaultOpenError?: (error: unknown) => void;
   /** When true, shows only the icon without text */
   iconOnly?: boolean;
 }
@@ -50,6 +54,10 @@ export function BrowserDropdown({
   className = '',
   buttonClassName = '',
   buttonVariant = 'default',
+  buttonSize,
+  iconSize: customIconSize,
+  disabled = false,
+  onDefaultOpenError,
   iconOnly = false,
 }: BrowserDropdownProps) {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -123,10 +131,14 @@ export function BrowserDropdown({
   }, [showDropdown]);
 
   const handleDefaultOpen = () => {
-    void openUrl(url);
+    if (disabled) return;
+    const opening = openUrl(url);
+    if (onDefaultOpenError) void opening.catch(onDefaultOpenError);
+    else void opening;
   };
 
   const handleBrowserOpen = async (browserId: string) => {
+    if (disabled) return;
     setOpeningBrowser(browserId);
     try {
       await openUrlInBrowser(url, browserId);
@@ -148,7 +160,7 @@ export function BrowserDropdown({
     return <IconComponent size={14} />;
   };
 
-  const iconSize = iconOnly ? 12 : 14;
+  const iconSize = customIconSize ?? (iconOnly ? 12 : 14);
 
   // If no browsers detected, show simple button
   if (browsers.length === 0) {
@@ -157,8 +169,10 @@ export function BrowserDropdown({
         <IconButton
           className={buttonClassName}
           variant={buttonVariant}
+          size={buttonSize}
           icon={<ExternalLinkIcon size={iconSize} />}
           onClick={handleDefaultOpen}
+          disabled={disabled}
           title="Open in Browser"
           aria-label="Open in Browser"
         />
@@ -168,7 +182,9 @@ export function BrowserDropdown({
       <Button
         className={buttonClassName}
         variant={buttonVariant}
+        size={buttonSize}
         onClick={handleDefaultOpen}
+        disabled={disabled}
         title="Open in Browser"
         leftIcon={<ExternalLinkIcon size={iconSize} />}
       >
@@ -180,7 +196,7 @@ export function BrowserDropdown({
   return (
     <div
       className={`browser-dropdown-container ${className}`}
-      onMouseEnter={openNow}
+      onMouseEnter={disabled ? undefined : openNow}
       onMouseLeave={scheduleClose}
     >
       {iconOnly ? (
@@ -188,8 +204,10 @@ export function BrowserDropdown({
           ref={triggerRef}
           className={`${buttonClassName} browser-dropdown-trigger`}
           variant={buttonVariant}
+          size={buttonSize}
           icon={<ExternalLinkIcon size={iconSize} />}
           onClick={handleDefaultOpen}
+          disabled={disabled}
           title="Open in Browser (click for default, hover for options)"
           aria-label="Open in Browser"
           aria-haspopup="menu"
@@ -200,7 +218,9 @@ export function BrowserDropdown({
           ref={triggerRef}
           className={`${buttonClassName} browser-dropdown-trigger`}
           variant={buttonVariant}
+          size={buttonSize}
           onClick={handleDefaultOpen}
+          disabled={disabled}
           title="Open in Browser (click for default, hover for options)"
           aria-haspopup="menu"
           aria-expanded={showDropdown}

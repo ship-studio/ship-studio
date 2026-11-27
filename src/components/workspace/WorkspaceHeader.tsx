@@ -34,6 +34,7 @@ import {
   AgentsIcon,
   BellIcon,
   ElementsIcon,
+  FileIcon,
   FolderOpenIcon,
   HomeIcon,
   ImageIcon,
@@ -87,6 +88,9 @@ export interface WorkspaceHeaderProps {
   variablesPanelVisible: boolean;
   variablesPanelAvailable: boolean;
   onToggleVariablesPanel: () => void;
+  pagesPanelVisible: boolean;
+  pagesPanelAvailable: boolean;
+  onTogglePagesPanel: () => void;
 
   // Extra dropdown node rendered after Assets in the left cluster. Currently
   // used for the Plugins dropdown. Provided as a
@@ -306,6 +310,9 @@ export function WorkspaceHeader({
   variablesPanelVisible,
   variablesPanelAvailable,
   onToggleVariablesPanel,
+  pagesPanelVisible,
+  pagesPanelAvailable,
+  onTogglePagesPanel,
   headerExtras,
   teamPresence,
   layoutMenu,
@@ -515,6 +522,17 @@ export function WorkspaceHeader({
         leftIcon={<VariablesIcon size={16} />}
         aria-label="Variables"
         data-workspace-panel="variables"
+      />
+      <ToggleButton
+        variant={pagesPanelVisible ? 'secondary' : 'default'}
+        className="workspace-panel-toggle"
+        pressed={pagesPanelVisible}
+        onClick={onTogglePagesPanel}
+        disabled={!pagesPanelAvailable}
+        title={pagesPanelAvailable ? 'Pages' : 'Pages are available for web projects'}
+        leftIcon={<FileIcon size={16} />}
+        aria-label="Pages"
+        data-workspace-panel="pages"
       />
       <Button
         onClick={onOpenAssetsPanel}

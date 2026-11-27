@@ -27,6 +27,8 @@ interface PreviewLocaleSwitcherProps {
   onNavigate: (route: string) => void;
   /** Reports the loaded config so the parent can keep page selection locale-aware. */
   onConfigChange?: (config: PreviewLocaleConfig | null) => void;
+  /** Keeps the configured locale visible while an external preview is active. */
+  disabled?: boolean;
 }
 
 export function PreviewLocaleSwitcher({
@@ -34,6 +36,7 @@ export function PreviewLocaleSwitcher({
   currentPage,
   onNavigate,
   onConfigChange,
+  disabled = false,
 }: PreviewLocaleSwitcherProps) {
   const [config, setConfig] = useState<PreviewLocaleConfig | null>(null);
   const [open, setOpen] = useState(false);
@@ -114,6 +117,7 @@ export function PreviewLocaleSwitcher({
   const active = pathLocale(currentPage, config.locales, config.defaultLocale);
 
   const selectLocale = (code: string) => {
+    if (disabled) return;
     setOpen(false);
     if (code === active) return;
     onNavigate(switchPathLocale(currentPage, code, config.locales, config.defaultLocale));
@@ -125,7 +129,10 @@ export function PreviewLocaleSwitcher({
         type="button"
         className="locale-switcher-btn"
         title="View in another language"
+        disabled={disabled}
+        aria-disabled={disabled}
         onClick={() => {
+          if (disabled) return;
           if (!open) void refresh();
           setOpen(!open);
         }}
@@ -133,7 +140,7 @@ export function PreviewLocaleSwitcher({
         <GlobeIcon size={12} />
         <span className="locale-switcher-code">{(active ?? '–').toUpperCase()}</span>
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="locale-dropdown">
           {config.locales.map((code) => (
             <button

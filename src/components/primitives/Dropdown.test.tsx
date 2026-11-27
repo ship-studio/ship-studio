@@ -145,6 +145,20 @@ describe('Dropdown', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('dismisses a focused hover-open menu when Escape is dispatched on window', () => {
+    render(
+      <Dropdown openOnHover trigger={(props) => <TestTrigger {...props}>Hover menu</TestTrigger>}>
+        <DropdownItem onSelect={vi.fn()}>Hover item</DropdownItem>
+      </Dropdown>
+    );
+    const trigger = screen.getByRole('button', { name: 'Hover menu' });
+    fireEvent.mouseEnter(trigger.parentElement!);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('supports an anchored dialog popover with normal tab controls and Escape focus return', async () => {
     const user = userEvent.setup();
     render(

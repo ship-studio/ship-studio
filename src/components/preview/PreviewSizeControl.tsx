@@ -26,9 +26,9 @@ export interface PreviewBreakpointOption {
 
 interface PreviewSizeControlProps {
   /** True (unscaled) width the page is laid out at. */
-  width: number;
+  width: number | null;
   /** True (unscaled) height. */
-  height: number;
+  height: number | null;
   /** Whether the user has pinned a custom height (vs auto). */
   hasCustomHeight: boolean;
   /** Visual scale percentage when the frame is shrunk to fit, or null at 1:1. */
@@ -45,6 +45,8 @@ interface PreviewSizeControlProps {
   activeBreakpoint?: string;
   /** Select a breakpoint from the compact size popover. */
   onBreakpointChange?: (value: string) => void;
+  /** Shows the current viewport controls without allowing local-frame changes. */
+  disabled?: boolean;
 }
 
 export function PreviewSizeControl({
@@ -58,6 +60,7 @@ export function PreviewSizeControl({
   breakpointOptions,
   activeBreakpoint,
   onBreakpointChange,
+  disabled = false,
 }: PreviewSizeControlProps) {
   const [open, setOpen] = useState(false);
   const [widthText, setWidthText] = useState('');
@@ -68,26 +71,27 @@ export function PreviewSizeControl({
 
   // Seed the inputs from the live size each time the popover opens.
   const openPopover = useCallback(() => {
-    setWidthText(String(width));
-    setHeightText(hasCustomHeight ? String(height) : '');
-    widthDraftRef.current = String(width);
-    heightDraftRef.current = hasCustomHeight ? String(height) : '';
+    setWidthText(String(width ?? ''));
+    setHeightText(hasCustomHeight ? String(height ?? '') : '');
+    widthDraftRef.current = String(width ?? '');
+    heightDraftRef.current = hasCustomHeight ? String(height ?? '') : '';
     setOpen(true);
   }, [hasCustomHeight, height, width]);
 
   // External open requests (the Cmd+K "Set exact preview size…" command).
   const seenSignalRef = useRef(openSignal);
   useEffect(() => {
+    if (disabled) return;
     if (openSignal === seenSignalRef.current) return;
     seenSignalRef.current = openSignal;
     if (openSignal > 0 && !open) {
       const timeoutId = window.setTimeout(openPopover, 0);
       return () => window.clearTimeout(timeoutId);
     }
-  }, [open, openPopover, openSignal]);
+  }, [disabled, open, openPopover, openSignal]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || disabled) return;
     const onDown = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
     };
@@ -100,7 +104,15 @@ export function PreviewSizeControl({
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [disabled, open]);
+
+  // Close the popover when its owning preview becomes unavailable.
+  useEffect(() => {
+    if (disabled) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronize transient UI with an external availability change.
+      setOpen(false);
+    }
+  }, [disabled]);
 
   const apply = () => {
     const w = Math.round(Number(widthDraftRef.current));
@@ -157,7 +169,10 @@ export function PreviewSizeControl({
   };
 
   const hasBreakpointOptions = Boolean(breakpointOptions?.length && onBreakpointChange);
-  const sizeButtonLabel = `Set preview size: ${width} × ${height}`;
+  const sizeButtonLabel =
+    width === null || height === null
+      ? 'Preview size unavailable for this destination'
+      : `Set preview size: ${width} × ${height}`;
 
   return (
     <span className="preview-size-wrap" ref={wrapRef}>
@@ -170,18 +185,23 @@ export function PreviewSizeControl({
         type="button"
         variant="default"
         className="preview-dimensions"
-        title="Set preview size or choose a breakpoint"
+        title={
+          disabled
+            ? 'Viewport sizing is unavailable for external previews'
+            : 'Set preview size or choose a breakpoint'
+        }
         aria-label={sizeButtonLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={togglePopover}
+        disabled={disabled}
       >
         <MoreHorizontalIcon size={14} className="preview-dimensions-dots" />
         <span className="preview-dimensions-label">
-          {width} × {height}
+          {width ?? '—'} × {height ?? '—'}
         </span>
       </Button>
-      {open && (
+      {open && !disabled && (
         <div className="preview-size-popover" role="dialog" aria-labelledby="preview-size-title">
           <h2 id="preview-size-title" className="preview-size-title">
             Preview size
@@ -209,6 +229,7 @@ export function PreviewSizeControl({
                     leftIcon={option.icon}
                     aria-pressed={option.value === activeBreakpoint}
                     title={`${option.label} (${option.width})`}
+                    disabled={disabled}
                     onClick={() => {
                       onBreakpointChange?.(option.value);
                       setOpen(false);
