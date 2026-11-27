@@ -540,6 +540,9 @@ where
 ///   repairing (issues #842, #1108).
 /// - A corrupted `.git/index` (`bad signature` / `index file corrupt`) —
 ///   rebuildable from HEAD without touching the working files (issue #1142).
+/// - An ignore-rules file git can't read (`cannot use <path> as an exclude
+///   file`) — `.git/info/exclude` or `core.excludesFile` being a folder
+///   (issue #1215).
 ///
 /// Matching is case-insensitive: git's wording varies in capitalization
 /// across versions and platforms (e.g. xcode-select actually prints "No
@@ -631,6 +634,35 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
              available offline) and try again — if it persists, run `git fsck` in the project \
              folder to check for damage.",
         ));
+    }
+    // An ignore-patterns file git is told to read can't be read as a file
+    // (issue #1215). Reproduced with git 2.54: this dies only when the path
+    // is a directory (or a symlink to one) — git opens it, then the read
+    // fails. An empty, garbage, unreadable (chmod 000: just a warning) or
+    // dangling-symlink `info/exclude` does NOT produce it. Git's dir.c also
+    // dies this way on any failed read, so a cloud placeholder that won't
+    // download fits too. The same message names `core.excludesFile` when that
+    // setting points at a folder, so the guidance follows the path git names.
+    if lower.contains("as an exclude file") && lower.contains("cannot use") {
+        let path = stderr
+            .find("cannot use ")
+            .zip(stderr.find(" as an exclude file"))
+            .and_then(|(start, end)| stderr.get(start + "cannot use ".len()..end))
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
+        let named = path.map(|p| format!(" (`{p}`)")).unwrap_or_default();
+        let fix = if path.is_some_and(|p| !p.replace('\\', "/").ends_with("info/exclude")) {
+            "That path comes from your git `core.excludesFile` setting: point it at a file \
+             (`git config --global core.excludesFile <file>`) or unset it, then try again."
+        } else {
+            "In the project folder, delete `.git/info/exclude` (whatever is there) and, if you \
+             like, recreate it as an empty file, then try again — it only holds optional local \
+             ignore rules."
+        };
+        return Some(crate::errors::CommandError::expected(format!(
+            "Git couldn't read its ignore-rules file{named} — that path is a folder instead of a \
+             file, or the file couldn't be read from disk. {fix}"
+        )));
     }
     if lower.contains("unable to read current working directory")
         && lower.contains("operation not permitted")
@@ -2523,6 +2555,82 @@ mod tests {
             );
             // And packed-refs merely being mentioned isn't the signature.
             assert!(git_environment_gap("Updating .git/packed-refs").is_none());
+            // An exclude file merely being mentioned isn't the #1215 abort.
+            assert!(git_environment_gap(
+                "warning: unable to access '.git/info/exclude': Permission denied"
+            )
+            .is_none());
+        }
+
+        /// The exact message from issue #1215.
+        #[test]
+        fn classifies_unusable_info_exclude_issue_1215() {
+            let stderr = "fatal: cannot use .git/info/exclude as an exclude file";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("`.git/info/exclude`"), "got: {msg}");
+            assert!(msg.contains("folder instead of a file"), "got: {msg}");
+            assert!(msg.contains("delete `.git/info/exclude`"), "got: {msg}");
+            assert!(!msg.contains("core.excludesFile"), "got: {msg}");
+        }
+
+        /// Git prints the same message for a `core.excludesFile` that points at
+        /// a folder — deleting `.git/info/exclude` would not help there.
+        #[test]
+        fn names_core_excludes_file_when_git_does() {
+            let stderr = "fatal: cannot use /Users/me/.gitignore_global as an exclude file";
+            let msg = git_environment_gap(stderr)
+                .expect("must classify")
+                .to_string();
+            assert!(msg.contains("`/Users/me/.gitignore_global`"), "got: {msg}");
+            assert!(msg.contains("core.excludesFile"), "got: {msg}");
+            assert!(!msg.contains("delete `.git/info/exclude`"), "got: {msg}");
+        }
+
+        fn git_in(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+            std::process::Command::new("git")
+                .current_dir(dir)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("HOME", dir)
+                .args(args)
+                .output()
+                .expect("git runs")
+        }
+
+        /// Real git, real failure: `.git/info/exclude` replaced by a folder is
+        /// the condition that produces #1215's message (an empty, unreadable or
+        /// dangling-symlink file does not).
+        #[test]
+        fn real_git_status_with_exclude_folder_classifies() {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let repo = tmp.path();
+            assert!(git_in(repo, &["init", "-q"]).status.success());
+            let exclude = repo.join(".git/info/exclude");
+            let _ = std::fs::remove_file(&exclude);
+            std::fs::create_dir_all(&exclude).expect("mkdir");
+            let out = git_in(repo, &["status", "--porcelain"]);
+            assert!(!out.status.success());
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(stderr.contains("as an exclude file"), "stderr: {stderr}");
+            let err = git_environment_gap(&stderr).expect("must classify");
+            assert!(err.to_string().contains("info/exclude"), "got: {err}");
+        }
+
+        /// A real git failure unrelated to exclude files must keep reporting.
+        #[test]
+        fn real_unrelated_git_failure_stays_unclassified() {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let repo = tmp.path();
+            assert!(git_in(repo, &["init", "-q"]).status.success());
+            let out = git_in(repo, &["rev-parse", "--verify", "no-such-ref"]);
+            assert!(!out.status.success());
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(!stderr.trim().is_empty());
+            assert!(git_environment_gap(&stderr).is_none(), "stderr: {stderr}");
         }
     }
 
