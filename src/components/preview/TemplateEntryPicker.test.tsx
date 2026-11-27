@@ -45,7 +45,7 @@ describe('TemplateEntryPicker', () => {
     expect(listTemplatePageEntries).toHaveBeenCalledWith('/project', '/work/:slug');
   });
 
-  it('navigates to the first returned route when the current path is outside the template', async () => {
+  it('selects the first entry when the template is opened from another page', async () => {
     vi.mocked(listTemplatePageEntries).mockResolvedValue({
       entries: [
         { route: '/work/glow', label: 'Glow' },
@@ -64,10 +64,67 @@ describe('TemplateEntryPicker', () => {
       />
     );
 
+    await waitFor(() => expect(listTemplatePageEntries).toHaveBeenCalled());
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('/work/glow'));
     expect(container.querySelector('.template-entry-picker__trigger')).toHaveAttribute(
       'aria-expanded',
       'false'
     );
+  });
+
+  it('does not auto-select an entry after the user navigates while entries load', async () => {
+    let resolveEntries!: (value: {
+      entries: { route: string; label: string }[];
+      error: null;
+    }) => void;
+    vi.mocked(listTemplatePageEntries).mockReturnValue(
+      new Promise((resolve) => {
+        resolveEntries = resolve;
+      })
+    );
+    const onNavigate = vi.fn();
+    const view = render(
+      <TemplateEntryPicker
+        projectPath="/project"
+        templateRoute="/work/:slug"
+        currentPage="/about"
+        onNavigate={onNavigate}
+      />
+    );
+    view.rerender(
+      <TemplateEntryPicker
+        projectPath="/project"
+        templateRoute="/work/:slug"
+        currentPage="/contact"
+        onNavigate={onNavigate}
+      />
+    );
+    resolveEntries({ entries: [{ route: '/work/glow', label: 'Glow' }], error: null });
+    await waitFor(() => expect(listTemplatePageEntries).toHaveBeenCalled());
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('matches a localized concrete entry against the canonical current route', async () => {
+    vi.mocked(listTemplatePageEntries).mockResolvedValue({
+      entries: [
+        { route: '/fr/work/kinetic', label: 'Kinetic' },
+        { route: '/fr/work/glow', label: 'Glow' },
+      ],
+      error: null,
+    });
+    const onNavigate = vi.fn();
+    const { container } = render(
+      <TemplateEntryPicker
+        projectPath="/project"
+        templateRoute="/work/:slug"
+        currentPage="/work/glow"
+        canonicalizeRoute={(route) => route.replace(/^\/fr(?=\/)/, '')}
+        onNavigate={onNavigate}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByText('Glow')).toBeInTheDocument());
+    expect(container.querySelector('.template-entry-picker__current')).toHaveTextContent('Glow');
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 });

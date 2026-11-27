@@ -83,7 +83,7 @@ export function normalizeProjectPagesState(value: unknown): ProjectPagesState {
   const sortMode = VALID_SORT_MODES.has(value.sortMode as PageSortMode)
     ? (value.sortMode as PageSortMode)
     : 'manual';
-  const folders = Array.isArray(value.folders)
+  const rawFolders = Array.isArray(value.folders)
     ? value.folders.flatMap((item) => {
         if (!isRecord(item) || typeof item.id !== 'string' || typeof item.name !== 'string') {
           return [];
@@ -98,6 +98,9 @@ export function normalizeProjectPagesState(value: unknown): ProjectPagesState {
         ];
       })
     : [];
+  const folders = rawFolders.filter(
+    (folder, index) => rawFolders.findIndex((candidate) => candidate.id === folder.id) === index
+  );
   const folderIds = new Set(folders.map((folder) => folder.id));
   const normalizedFolders = folders.map((folder) => ({
     ...folder,
@@ -137,14 +140,10 @@ export function reconcilePageInventory(
   // removes its preference in `removePagePreference`.
   const pages = { ...state.pages };
   const folders = state.folders.map((folder) => ({ ...folder }));
-  const usedOrderByParent = new Map<string | null, number>();
-
   for (const page of inventory) {
     if (pages[page.route]) continue;
     const parentFolderId = ensureRouteFolders(page.route, folders, pages);
-    const order =
-      usedOrderByParent.get(parentFolderId) ?? nextOrder(folders, pages, parentFolderId);
-    usedOrderByParent.set(parentFolderId, order + 1);
+    const order = nextOrder(folders, pages, parentFolderId);
     pages[page.route] = { displayName: null, parentFolderId, order, lastUsedAt: null };
   }
 

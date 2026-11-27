@@ -54,6 +54,7 @@ import {
   FolderPlusIcon,
   HomeIcon,
   PlusIcon,
+  SettingsIcon,
   SortVerticalDownIcon,
 } from '@/components/icons';
 import '../../styles/features/pages-panel.css';
@@ -65,19 +66,30 @@ type PageMutation =
   | { kind: 'delete'; route: string }
   | { kind: 'homepage'; route: string };
 
+interface PageMutationResult {
+  committed: boolean;
+  pages: PageRouteInfo[] | null;
+  refreshError: string | null;
+}
+
 type PagePanelDialog =
   | { kind: 'create-page'; route: string; displayName: string; formError: string | null }
   | { kind: 'duplicate-page'; page: PageRouteInfo; newRoute: string; formError: string | null }
   | { kind: 'create-folder'; name: string; parentFolderId: string | null; formError: string | null }
   | { kind: 'rename-page'; page: PageRouteInfo; name: string }
   | { kind: 'settings'; page: PageRouteInfo; route: string; name: string; formError: string | null }
-  | { kind: 'rename-folder'; folder: PageFolder; name: string }
+  | { kind: 'rename-folder'; folder: PageFolder; name: string; formError: string | null }
   | { kind: 'delete-page'; page: PageRouteInfo }
   | { kind: 'delete-folder'; folder: PageFolder };
 
 interface ScopedPageState {
   key: string;
   state: ProjectPagesState;
+}
+
+interface ScopedPageInventory {
+  projectPath: string;
+  pages: PageRouteInfo[];
 }
 
 export interface PagesPanelProps {
@@ -123,7 +135,14 @@ export function PagesPanel({
   const [query, setQuery] = useState('');
   const [workspaceResolvedPath, setWorkspaceResolvedPath] = useState<string | null>(null);
   const [scopedState, setScopedState] = useState<ScopedPageState | null>(null);
+  const scopedStateRef = useRef<ScopedPageState | null>(null);
+  const [scopedInventory, setScopedInventory] = useState<ScopedPageInventory | null>(null);
+  const inventoryRequestId = useRef(0);
+  const inventoryRef = useRef<ScopedPageInventory | null>(null);
   const lastVisitedRef = useRef<string | null>(null);
+  const mutationInFlight = useRef(false);
+  const activeProjectPath = useRef(projectPath);
+  activeProjectPath.current = projectPath;
   const fetchWorkspaceIdentity = useCallback(
     async (path: string) => ({ subpath: await getWorkspaceSubpath(path) }),
     []
@@ -131,18 +150,15 @@ export function PagesPanel({
   const workspaceRequest = useAsyncState(fetchWorkspaceIdentity);
   const workspaceRequestId = useRef(0);
   const pageInventory = useInvoke<PageRouteInfo[]>('list_pages');
-  const mutation = useInvoke<PageRouteInfo[]>('mutate_project_page');
+  const mutation = useInvoke<PageMutationResult>('mutate_project_page');
   const {
     execute: executeWorkspace,
     error: workspaceError,
     data: workspaceData,
   } = workspaceRequest;
-  const {
-    data: inventoryData,
-    execute: executePageInventory,
-    error: inventoryError,
-  } = pageInventory;
+  const { execute: executePageInventory, error: inventoryError } = pageInventory;
   const { setData: setInventoryData } = pageInventory;
+  const inventoryData = scopedInventory?.projectPath === projectPath ? scopedInventory.pages : null;
   const {
     execute: executeMutation,
     reset: resetMutation,
@@ -187,26 +203,31 @@ export function PagesPanel({
   const updatePreferences = useCallback(
     (update: (state: ProjectPagesState) => ProjectPagesState) => {
       if (!storageKey) return;
-      setScopedState((current) => {
-        const currentState =
-          current?.key === storageKey ? current.state : loadProjectPagesState(storageKey);
-        const stateWithCurrentInventory =
-          inventoryData === null
-            ? currentState
-            : reconcilePageInventory(currentState, inventoryData);
-        const nextState = update(stateWithCurrentInventory);
-        saveProjectPagesState(storageKey, nextState);
-        return { key: storageKey, state: nextState };
-      });
+      const current = scopedStateRef.current;
+      const currentState =
+        current?.key === storageKey ? current.state : loadProjectPagesState(storageKey);
+      const inventory =
+        inventoryRef.current?.projectPath === projectPath ? inventoryRef.current.pages : null;
+      const nextState = update(
+        inventory ? reconcilePageInventory(currentState, inventory) : currentState
+      );
+      const next = { key: storageKey, state: nextState };
+      scopedStateRef.current = next;
+      setScopedState(next);
+      saveProjectPagesState(storageKey, nextState);
     },
-    [inventoryData, storageKey]
+    [projectPath, storageKey]
   );
 
   useEffect(() => {
     if (!storageKey) return;
     let active = true;
     queueMicrotask(() => {
-      if (active) setScopedState({ key: storageKey, state: loadProjectPagesState(storageKey) });
+      if (active) {
+        const next = { key: storageKey, state: loadProjectPagesState(storageKey) };
+        scopedStateRef.current = next;
+        setScopedState(next);
+      }
     });
     return () => {
       active = false;
@@ -214,7 +235,18 @@ export function PagesPanel({
   }, [storageKey]);
 
   useEffect(() => {
-    void executePageInventory({ projectPath });
+    const requestId = ++inventoryRequestId.current;
+    let active = true;
+    void executePageInventory({ projectPath }).then((result) => {
+      if (!active || requestId !== inventoryRequestId.current || !result) return;
+      const inventory = { projectPath, pages: result };
+      inventoryRef.current = inventory;
+      setScopedInventory(inventory);
+    });
+    return () => {
+      active = false;
+      inventoryRequestId.current += 1;
+    };
   }, [executePageInventory, projectPath]);
 
   const inventoryReady = inventoryData !== null;
@@ -288,6 +320,7 @@ export function PagesPanel({
 
   const applyMutation = useCallback(
     async (nextMutation: PageMutation): Promise<boolean> => {
+      if (mutationInFlight.current) return false;
       if (!sourceMutationEnabled) {
         showError('Source page actions are currently available for Astro projects.');
         return false;
@@ -296,25 +329,62 @@ export function PagesPanel({
         showError('Dynamic route patterns cannot be changed from this panel.');
         return false;
       }
-      const result = await executeMutation({ projectPath, mutation: nextMutation });
-      if (!result) return false;
-      setInventoryData(result);
-      updatePreferences((current) => {
-        let next = current;
-        if (nextMutation.kind === 'move') {
-          next = renamePageRoutePreference(next, nextMutation.route, nextMutation.newRoute);
-        } else if (nextMutation.kind === 'homepage') {
-          next = swapPageRoutePreferences(next, '/', nextMutation.route);
-        } else if (nextMutation.kind === 'delete') {
-          next = removePagePreference(next, nextMutation.route);
+      mutationInFlight.current = true;
+      try {
+        const result = await executeMutation({ projectPath, mutation: nextMutation });
+        if (activeProjectPath.current !== projectPath) return false;
+        if (!result?.committed) return false;
+        if (result.pages) {
+          setInventoryData(result.pages);
+          const inventory = { projectPath, pages: result.pages };
+          inventoryRef.current = inventory;
+          setScopedInventory(inventory);
+        } else if (nextMutation.kind === 'delete' || nextMutation.kind === 'move') {
+          const stalePages =
+            scopedInventory?.projectPath === projectPath ? scopedInventory.pages : null;
+          if (stalePages) {
+            const updatedPages = stalePages.filter((page) => page.route !== nextMutation.route);
+            setInventoryData(updatedPages);
+            const inventory = { projectPath, pages: updatedPages };
+            inventoryRef.current = inventory;
+            setScopedInventory(inventory);
+          }
         }
-        return reconcilePageInventory(next, result);
-      });
-      return true;
+        updatePreferences((current) => {
+          let next = current;
+          if (nextMutation.kind === 'create' || nextMutation.kind === 'duplicate') {
+            const route =
+              nextMutation.kind === 'create' ? nextMutation.route : nextMutation.newRoute;
+            if (!next.pages[route]) {
+              next = {
+                ...next,
+                pages: {
+                  ...next.pages,
+                  [route]: { displayName: null, parentFolderId: null, order: 0, lastUsedAt: null },
+                },
+              };
+            }
+          } else if (nextMutation.kind === 'move') {
+            next = renamePageRoutePreference(next, nextMutation.route, nextMutation.newRoute);
+          } else if (nextMutation.kind === 'homepage') {
+            next = swapPageRoutePreferences(next, '/', nextMutation.route);
+          } else if (nextMutation.kind === 'delete') {
+            next = removePagePreference(next, nextMutation.route);
+          }
+          return result.pages ? reconcilePageInventory(next, result.pages) : next;
+        });
+        if (result.refreshError) {
+          showError('The page change was saved, but the Pages list could not be refreshed.');
+        }
+        return true;
+      } finally {
+        mutationInFlight.current = false;
+      }
     },
     [
       executeMutation,
       projectPath,
+      scopedInventory,
       setInventoryData,
       showError,
       sourceMutationEnabled,
@@ -367,7 +437,8 @@ export function PagesPanel({
 
   const openFolderAction = useCallback(
     (folder: PageFolder, action: FolderPanelAction) => {
-      if (action === 'rename') openDialog({ kind: 'rename-folder', folder, name: folder.name });
+      if (action === 'rename')
+        openDialog({ kind: 'rename-folder', folder, name: folder.name, formError: null });
       else if (action === 'delete') openDialog({ kind: 'delete-folder', folder });
     },
     [openDialog]
@@ -420,8 +491,44 @@ export function PagesPanel({
             },
           ]
         : []),
+      ...(currentRoute && pages.some((page) => page.route === currentRoute)
+        ? [
+            {
+              id: 'pages.settings.current',
+              title: 'Page settings…',
+              icon: <SettingsIcon size={14} />,
+              category: 'project' as const,
+              when: 'project' as const,
+              keywords: ['page', 'route', 'rename', 'url'],
+              run: () => {
+                const page = pages.find((item) => item.route === currentRoute);
+                if (page) openPageAction(page, 'settings');
+              },
+            },
+            {
+              id: 'pages.source.current',
+              title: 'Open current page source',
+              icon: <FileTextIcon size={14} />,
+              category: 'project' as const,
+              when: 'project' as const,
+              keywords: ['pages', 'code', 'source'],
+              run: () => {
+                const page = pages.find((item) => item.route === currentRoute);
+                if (page) openSourceFile(page.file_path);
+              },
+            },
+          ]
+        : []),
     ],
-    [openDialog, sourceMutationEnabled, storageKey]
+    [
+      currentRoute,
+      openDialog,
+      openPageAction,
+      openSourceFile,
+      pages,
+      sourceMutationEnabled,
+      storageKey,
+    ]
   );
 
   const selectSortMode = (sortMode: PageSortMode) => {
@@ -544,7 +651,10 @@ export function PagesPanel({
 
   const handleSaveFolderName = () => {
     if (dialog?.kind !== 'rename-folder') return;
-    if (!dialog.name.trim() || /[\\/]/.test(dialog.name)) return;
+    if (!dialog.name.trim() || /[\\/]/.test(dialog.name)) {
+      setDialog({ ...dialog, formError: 'Enter a folder name without / or \\.' });
+      return;
+    }
     updatePreferences((current) => renamePageFolder(current, dialog.folder.id, dialog.name));
     closeDialog();
   };
@@ -1011,7 +1121,7 @@ function renderDialogContent({
         <TextField
           autoFocus
           value={dialog.name}
-          onChange={(event) => setDialog({ ...dialog, name: event.target.value })}
+          onChange={(event) => setDialog({ ...dialog, name: event.target.value, formError: null })}
         />
       </label>
     );

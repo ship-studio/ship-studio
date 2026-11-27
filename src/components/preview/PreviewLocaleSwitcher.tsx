@@ -117,6 +117,7 @@ export function PreviewLocaleSwitcher({
   const active = pathLocale(currentPage, config.locales, config.defaultLocale);
 
   const selectLocale = (code: string) => {
+    if (disabled) return;
     setOpen(false);
     if (code === active) return;
     onNavigate(switchPathLocale(currentPage, code, config.locales, config.defaultLocale));
@@ -139,7 +140,7 @@ export function PreviewLocaleSwitcher({
         <GlobeIcon size={12} />
         <span className="locale-switcher-code">{(active ?? '–').toUpperCase()}</span>
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="locale-dropdown">
           {config.locales.map((code) => (
             <button

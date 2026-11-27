@@ -77,10 +77,42 @@ try {
       const hasPageParameter = isCatchallPage || routePattern.includes('[page]');
       if (!hasPageParameter) throw new Error('Astro pagination requires a [page] or [...page] route parameter.');
       const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
-      return Array.from({ length: Math.min(pageCount, 500) }, (_, index) => ({
-        params: { ...(options.params || {}), page: isCatchallPage && index === 0 ? undefined : String(index + 1) },
-        props: options.props || {},
-      }));
+      const configBase = config.base === '/' ? '' : String(config.base || '').replace(/\/$/, '');
+      const pageUrl = (number) => {
+        let route = routePattern;
+        if (isCatchallPage && number === 1) route = route.replace('/[...page]', '');
+        else route = route.replace(isCatchallPage ? '[...page]' : '[page]', String(number));
+        route = `${configBase}${route}` || '/';
+        if (config.trailingSlash === 'always' && route !== '/' && !route.endsWith('/')) route += '/';
+        if (config.trailingSlash === 'never' && route.length > 1) route = route.replace(/\/$/, '');
+        return route;
+      };
+      return Array.from({ length: Math.min(pageCount, 500) }, (_, index) => {
+        const start = index * pageSize;
+        const pageData = data.slice(start, start + pageSize);
+        const currentPage = index + 1;
+        const lastPage = pageCount;
+        const page = {
+          data: pageData,
+          start,
+          end: pageData.length ? start + pageData.length - 1 : -1,
+          size: pageSize,
+          total: data.length,
+          currentPage,
+          lastPage,
+          url: {
+            current: pageUrl(currentPage),
+            prev: currentPage > 1 ? pageUrl(currentPage - 1) : undefined,
+            next: currentPage < lastPage ? pageUrl(currentPage + 1) : undefined,
+            first: pageUrl(1),
+            last: pageUrl(lastPage),
+          },
+        };
+        return {
+          params: { ...(options.params || {}), page: isCatchallPage && index === 0 ? undefined : String(currentPage) },
+          props: { ...(options.props || {}), page },
+        };
+      });
     };
     let timeout;
     const paths = await Promise.race([
@@ -147,6 +179,14 @@ pub struct TemplatePageEntry {
 pub struct TemplatePageEntries {
     pub entries: Vec<TemplatePageEntry>,
     pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageMutationResult {
+    pub committed: bool,
+    pub pages: Option<Vec<PageInfo>>,
+    pub refresh_error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -217,7 +257,7 @@ pub async fn list_template_page_entries(
             )
         }
         ProjectType::Nuxt => {
-            let dir = nuxt_pages_root(&workspace);
+            let dir = super::nuxt_pages_root(&workspace);
             let root = canonical_pages_root(&dir, &file, "Nuxt")?;
             (
                 TEMPLATE_ENTRIES_NUXT_NODE,
@@ -255,11 +295,8 @@ pub async fn list_template_page_entries(
     let output = run_with_timeout(tokio::process::Command::from(command), runner_name, 30).await?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let payload = stdout
-        .rsplit("__SHIPSTUDIO_TEMPLATE_ENTRIES__")
-        .next()
-        .unwrap_or("")
         .lines()
-        .next()
+        .find_map(|line| line.strip_prefix("__SHIPSTUDIO_TEMPLATE_ENTRIES__"))
         .unwrap_or("")
         .trim();
     let mut result: TemplatePageEntries =
@@ -297,15 +334,6 @@ fn canonical_pages_root(dir: &Path, file: &Path, framework: &str) -> Result<Path
         )));
     }
     Ok(root)
-}
-
-fn nuxt_pages_root(workspace: &Path) -> PathBuf {
-    let nuxt4 = workspace.join("app/pages");
-    if nuxt4.is_dir() {
-        nuxt4
-    } else {
-        workspace.join("pages")
-    }
 }
 
 fn next_pages_root(workspace: &Path, file: &Path) -> Option<PathBuf> {
@@ -478,7 +506,7 @@ pub enum PageMutation {
 pub async fn mutate_project_page(
     project_path: String,
     mutation: PageMutation,
-) -> Result<Vec<PageInfo>, CommandError> {
+) -> Result<PageMutationResult, CommandError> {
     let _guard = PAGE_MUTATION_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -504,7 +532,21 @@ pub async fn mutate_project_page(
         mutation,
     )?;
 
-    list_pages_in(&root)
+    match list_pages_in(&root) {
+        Ok(pages) => Ok(PageMutationResult {
+            committed: true,
+            pages: Some(pages),
+            refresh_error: None,
+        }),
+        Err(error) => {
+            tracing::warn!(error = %error, "Astro page mutation committed but page inventory refresh failed");
+            Ok(PageMutationResult {
+                committed: true,
+                pages: None,
+                refresh_error: Some(error.to_string()),
+            })
+        }
+    }
 }
 
 fn mutate_project_page_in(
@@ -1001,6 +1043,12 @@ fn swap_page_files(
             rollback_source = ?rollback_source,
             "Astro homepage swap failed and source rollback was attempted"
         );
+        if rollback_source.is_err() {
+            return Err(CommandError::expected(format!(
+                "Could not complete the homepage swap or restore the selected page. Its source is preserved at `{}`; move it back to `{}` after resolving the filesystem issue.",
+                temporary.display(), source.display()
+            )));
+        }
         return Err(classify_fs_error(
             "swap the Astro homepage",
             incumbent,
@@ -1016,6 +1064,27 @@ fn swap_page_files(
             rollback_source = ?rollback_source,
             "Astro homepage swap failed and rollback was attempted"
         );
+        if rollback_incumbent.is_err() || rollback_source.is_err() {
+            let mut recovery = Vec::new();
+            if rollback_incumbent.is_err() {
+                recovery.push(format!(
+                    "restore the current homepage from `{}` to `{}`",
+                    incumbent_destination.display(),
+                    incumbent.display()
+                ));
+            }
+            if rollback_source.is_err() {
+                recovery.push(format!(
+                    "restore the selected page from `{}` to `{}`",
+                    temporary.display(),
+                    source.display()
+                ));
+            }
+            return Err(CommandError::expected(format!(
+                "The homepage swap failed and automatic rollback was incomplete. The page files remain at their recorded paths; {}.",
+                recovery.join("; ")
+            )));
+        }
         return Err(classify_fs_error(
             "finish the Astro homepage swap",
             source_destination,

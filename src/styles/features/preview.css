@@ -344,12 +344,32 @@
 }
 
 .preview-external-frame {
+  position: relative;
+  overflow: hidden;
   align-self: stretch;
   flex: 1;
   width: 100%;
   height: 100%;
   border: 0;
   background: var(--surface-control);
+}
+
+.preview-external-frame__fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.preview-external-frame__notice {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: var(--z-preview-toolbar);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+  font-size: var(--font-size-caption);
 }
 
 /* Keep the breadcrumb in the viewport layout rather than floating it over the

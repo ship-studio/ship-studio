@@ -403,6 +403,23 @@ export function Dropdown({
     close();
   };
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleWindowEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const active = document.activeElement;
+      const ownsFocus =
+        (active instanceof Node && containerRef.current?.contains(active)) ||
+        (active instanceof Node && menuRef.current?.contains(active)) ||
+        nestedMenuRefs.some((ref) => active instanceof Node && ref.current?.contains(active));
+      if (!ownsFocus && !openOnHover) return;
+      event.preventDefault();
+      close();
+    };
+    window.addEventListener('keydown', handleWindowEscape);
+    return () => window.removeEventListener('keydown', handleWindowEscape);
+  }, [close, isOpen, nestedMenuRefs, openOnHover]);
+
   useLayoutEffect(() => {
     if (!isOpen || !portal) return;
 

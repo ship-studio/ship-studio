@@ -18,6 +18,39 @@ function routeIdFromFile(rootPath, sourceFile) {
   return relative === '.' ? '/' : `/${relative.split(path.sep).join('/')}`;
 }
 
+async function loadKitConfig(kitRoot, viteConfig, projectRoot) {
+  const modulePaths = [
+    path.join(kitRoot, 'src', 'core', 'config', 'index.js'),
+    path.join(kitRoot, 'src', 'api', 'load_config', 'index.js'),
+  ];
+  for (const modulePath of modulePaths) {
+    if (!fs.existsSync(modulePath)) continue;
+    try {
+      const loaded = await import(pathToFileURL(modulePath).href);
+      const api = { ...loaded.default, ...loaded };
+      if (typeof api.extract_svelte_config === 'function') {
+        return api.extract_svelte_config(viteConfig);
+      }
+      if (typeof api.load_config === 'function') {
+        return await api.load_config(projectRoot);
+      }
+    } catch {
+      // Older Kit releases expose load_config from a different internal module.
+    }
+  }
+  throw new Error('The installed SvelteKit version does not expose a supported config loader.');
+}
+
+function normalizeBase(base) {
+  if (typeof base !== 'string' || !base || base === '/') return '';
+  const trimmed = base.replace(/^\/+|\/+$/g, '');
+  return trimmed ? `/${trimmed}` : '';
+}
+
+function addBase(route, base) {
+  return base ? `${base}${route === '/' ? '/' : route}` : route;
+}
+
 const output = (payload) => {
   process.stdout.write(`\n__SHIPSTUDIO_TEMPLATE_ENTRIES__${JSON.stringify(payload)}`);
 };
@@ -60,8 +93,7 @@ function toRoute(routeId, values, base, trailingSlash, params) {
   if (!parseRouteId(routeId).pattern.test(route)) return null;
   if (params.some((param) => !Object.hasOwn(values, param.name) && !param.optional && !param.rest))
     return null;
-  const prefix = typeof base === 'string' && base !== '/' ? base.replace(/\/$/, '') : '';
-  if (prefix && route !== prefix && !route.startsWith(`${prefix}/`)) route = `${prefix}${route}`;
+  route = addBase(route, base);
   if (trailingSlash === 'always' && route !== '/' && !route.endsWith('/')) route += '/';
   if (trailingSlash === 'never' && route.length > 1) route = route.replace(/\/$/, '');
   return route || '/';
@@ -90,9 +122,6 @@ try {
   ({ parse_route_id: parseRouteId } = await import(
     pathToFileURL(path.join(kitRoot, 'src/utils/routing.js')).href
   ));
-  const { extract_svelte_config: extractSvelteConfig } = await import(
-    pathToFileURL(path.join(kitRoot, 'src/core/config/index.js')).href
-  );
   server = await vite.createServer({
     // Let Vite discover vite.config.ts, .mts, .js, etc. and load the project's
     // real plugins, aliases, and SSR configuration.
@@ -115,7 +144,7 @@ try {
     if (!fs.existsSync(candidate)) continue;
     try {
       const loaded = await server.ssrLoadModule(candidate);
-      if (Object.prototype.hasOwnProperty.call(loaded, 'entries')) modules.push(loaded);
+      modules.push({ ...loaded, __shipStudioFile: candidate });
     } catch (error) {
       throw new Error(
         `Could not load ${suffix} for this SvelteKit route. Check the page module and its dependencies.`
@@ -123,11 +152,14 @@ try {
     }
   }
 
-  const config = extractSvelteConfig(server.config);
+  const config = await loadKitConfig(kitRoot, server.config, root);
   const routeId = routeIdFromFile(root, file);
   const parsedRoute = parseRouteId(routeId);
-  const base = config.paths?.base || '';
-  let trailingSlash = 'never';
+  const base = normalizeBase(config.paths?.base || config.kit?.paths?.base || '');
+  let trailingSlash =
+    ['always', 'never', 'ignore'].find((mode) => mode === config.trailingSlash) ||
+    ['always', 'never', 'ignore'].find((mode) => mode === config.kit?.trailingSlash) ||
+    'never';
   const entries = [];
   const seen = new Set();
   const add = (route, label) => {
@@ -143,9 +175,42 @@ try {
     entries.push({ route, label: String(label || route).slice(0, 120) });
   };
 
+  const routeDirectory = path.resolve(path.dirname(file));
+  const relativeRouteDirectory = path.relative(sourceRoutes, routeDirectory);
+  const routeDirectories = [sourceRoutes];
+  if (relativeRouteDirectory && relativeRouteDirectory !== '.') {
+    let current = sourceRoutes;
+    for (const part of relativeRouteDirectory.split(path.sep)) {
+      current = path.join(current, part);
+      routeDirectories.push(current);
+    }
+  }
+  for (const directory of routeDirectories) {
+    const isPageDirectory = directory === routeDirectory;
+    const stems = isPageDirectory ? ['+page'] : ['+layout'];
+    for (const stem of stems) {
+      for (const suffix of ['.server.ts', '.server.js', '.server.mjs', '.ts', '.js', '.mjs']) {
+        const candidate = path.join(directory, `${stem}${suffix}`);
+        if (!fs.existsSync(candidate)) continue;
+        const loaded = modules.find((mod) => mod.__shipStudioFile === candidate);
+        let routeModule = loaded;
+        if (!routeModule) {
+          try {
+            routeModule = await server.ssrLoadModule(candidate);
+          } catch {
+            throw new Error(
+              `Could not load ${path.basename(candidate)} to resolve this SvelteKit route's options.`
+            );
+          }
+        }
+        if (['always', 'never', 'ignore'].includes(routeModule.trailingSlash)) {
+          trailingSlash = routeModule.trailingSlash;
+        }
+      }
+    }
+  }
+
   for (const mod of modules) {
-    if (['always', 'never', 'ignore'].includes(mod.trailingSlash))
-      trailingSlash = mod.trailingSlash;
     let values = mod.entries;
     if (typeof values === 'function') {
       let timer;
@@ -183,18 +248,12 @@ try {
 
   // Concrete prerender entries are useful for routes whose page does not export
   // entries. Include only paths matching this page's route pattern.
-  for (const candidate of config.prerender?.entries || []) {
+  for (const candidate of config.prerender?.entries || config.kit?.prerender?.entries || []) {
     if (typeof candidate !== 'string' || !candidate.startsWith('/') || candidate.startsWith('//'))
       continue;
-    const noBase =
-      base && (candidate === base || candidate.startsWith(`${base}/`))
-        ? candidate.slice(base.length) || '/'
-        : candidate;
+    const noBase = candidate;
     if (!parsedRoute.pattern.test(noBase)) continue;
-    let route =
-      base && candidate !== base && !candidate.startsWith(`${base}/`)
-        ? `${base.replace(/\/$/, '')}${candidate}`
-        : candidate;
+    let route = addBase(candidate, base);
     if (trailingSlash === 'always' && route !== '/' && !route.endsWith('/')) route += '/';
     if (trailingSlash === 'never' && route.length > 1) route = route.replace(/\/$/, '');
     add(route, noBase.split('/').filter(Boolean).at(-1) || route);

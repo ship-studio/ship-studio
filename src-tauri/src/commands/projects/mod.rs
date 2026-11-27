@@ -41,6 +41,7 @@ use crate::utils::{
 };
 use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 // ============ Helper Functions ============
@@ -946,13 +947,7 @@ fn list_pages_in(root: &Path) -> Result<Vec<PageInfo>, CommandError> {
             Ok(Vec::new())
         }
         ProjectType::Nuxt => {
-            // Nuxt 4 moved the application source under app/, including pages.
-            let nuxt4_pages = project.join("app").join("pages");
-            let pages_dir = if nuxt4_pages.is_dir() {
-                nuxt4_pages
-            } else {
-                project.join("pages")
-            };
+            let pages_dir = nuxt_pages_root(&project);
             if pages_dir.exists() {
                 let mut pages = detection::scan_nuxt_pages(&pages_dir, &pages_dir)?;
                 detection::sort_pages(&mut pages);
@@ -993,6 +988,47 @@ fn list_pages_in(root: &Path) -> Result<Vec<PageInfo>, CommandError> {
             Ok(pages)
         }
     }
+}
+
+/// Resolve Nuxt's pages directory using a literal `srcDir` when configured.
+/// Nuxt 4 defaults to `app/`; Nuxt 3 defaults to the workspace root.
+pub(crate) fn nuxt_pages_root(project: &Path) -> PathBuf {
+    let configured_src_dir = [
+        "nuxt.config.ts",
+        "nuxt.config.js",
+        "nuxt.config.mjs",
+        "nuxt.config.cjs",
+    ]
+    .iter()
+    .filter_map(|name| fs::read_to_string(project.join(name)).ok())
+    .find_map(|source| {
+        let value_index = crate::commands::i18n::find_key_value(&source, "srcDir", Some(1))?;
+        let value = source[value_index..].trim_start();
+        let quote = value.chars().next()?;
+        if !matches!(quote, '\'' | '"' | '`') {
+            return None;
+        }
+        let end = value[1..].find(quote)? + 1;
+        let literal = &value[1..end];
+        (!literal.contains("${") && !literal.is_empty()).then(|| literal.to_string())
+    });
+    let source_dir = if let Some(configured) = configured_src_dir {
+        let path = Path::new(&configured);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            project.join("__invalid_nuxt_src_dir__")
+        } else {
+            project.join(path)
+        }
+    } else if project.join("app").is_dir() {
+        project.join("app")
+    } else {
+        project.to_path_buf()
+    };
+    source_dir.join("pages")
 }
 
 /// Opens a folder in Finder (macOS)
@@ -2680,5 +2716,34 @@ mod list_pages_tests {
         );
 
         assert_eq!(routes_of(root), vec!["/".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod nuxt_pages_root_tests {
+    use super::nuxt_pages_root;
+    use std::fs;
+
+    #[test]
+    fn nuxt_literal_src_dir_overrides_competing_default_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("app/pages")).unwrap();
+        fs::create_dir_all(temp.path().join("pages")).unwrap();
+        fs::write(
+            temp.path().join("nuxt.config.ts"),
+            "// srcDir: 'app'\nexport default defineNuxtConfig({ srcDir: '.', })",
+        )
+        .unwrap();
+
+        assert_eq!(nuxt_pages_root(temp.path()), temp.path().join("pages"));
+    }
+
+    #[test]
+    fn nuxt4_default_uses_app_pages_when_both_roots_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("app/pages")).unwrap();
+        fs::create_dir_all(temp.path().join("pages")).unwrap();
+
+        assert_eq!(nuxt_pages_root(temp.path()), temp.path().join("app/pages"));
     }
 }

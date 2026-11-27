@@ -184,6 +184,39 @@ fn is_builtin_local_url(url: &str, port: Option<u16>) -> bool {
     })
 }
 
+fn replace_saved_url(
+    urls: &mut Vec<String>,
+    old_normalized: &str,
+    new_normalized: &str,
+    builtin_port: Option<u16>,
+) -> Result<(), CommandError> {
+    let Some(index) = urls.iter().position(|saved| saved == old_normalized) else {
+        return Err(CommandError::Validation {
+            field: "oldUrl".to_string(),
+            reason: "This saved preview URL no longer exists".to_string(),
+        });
+    };
+    if new_normalized == old_normalized {
+        return Ok(());
+    }
+    if is_builtin_local_url(new_normalized, builtin_port) {
+        urls.remove(index);
+        return Ok(());
+    }
+    if urls
+        .iter()
+        .enumerate()
+        .any(|(i, saved)| i != index && saved == new_normalized)
+    {
+        return Err(CommandError::Validation {
+            field: "newUrl".to_string(),
+            reason: "That preview URL is already saved".to_string(),
+        });
+    }
+    urls[index] = new_normalized.to_string();
+    Ok(())
+}
+
 /// Read the saved HTTP(S) preview URLs for a project.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
@@ -261,27 +294,36 @@ pub async fn replace_preview_url(
 
     let path = preview_urls_path(&project);
     let mut urls = read_preview_urls(&path)?;
-    let Some(index) = urls.iter().position(|saved| saved == &old_normalized) else {
-        return Err(CommandError::Validation {
-            field: "oldUrl".to_string(),
-            reason: "This saved preview URL no longer exists".to_string(),
-        });
-    };
     if new_normalized == old_normalized {
         return Ok(urls);
     }
-    if urls
-        .iter()
-        .enumerate()
-        .any(|(i, saved)| i != index && saved == &new_normalized)
-    {
-        return Err(CommandError::Validation {
-            field: "newUrl".to_string(),
-            reason: "That preview URL is already saved".to_string(),
-        });
-    }
-
-    urls[index] = new_normalized;
+    replace_saved_url(
+        &mut urls,
+        &old_normalized,
+        &new_normalized,
+        configured_port(&project)?,
+    )?;
     write_preview_urls(&path, &urls)?;
     Ok(urls)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replacing_with_the_builtin_local_url_removes_the_saved_custom_url() {
+        let mut urls = vec![
+            "https://example.com/preview".to_string(),
+            "https://another.example/".to_string(),
+        ];
+        replace_saved_url(
+            &mut urls,
+            "https://example.com/preview",
+            "http://localhost:5173/",
+            Some(5173),
+        )
+        .unwrap();
+        assert_eq!(urls, vec!["https://another.example/"]);
+    }
 }

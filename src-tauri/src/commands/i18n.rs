@@ -233,7 +233,7 @@ fn find_in_code(src: &str, scan: &SourceScan, pat: &str) -> Option<usize> {
 /// recognized); `required_depth` restricts matches to keys of the object at
 /// that brace depth — pass `Some(1)` to skip identical keys nested deeper
 /// (e.g. `defaultLocale` inside Next.js `domains` entries).
-fn find_key_value(src: &str, key: &str, required_depth: Option<u32>) -> Option<usize> {
+pub(crate) fn find_key_value(src: &str, key: &str, required_depth: Option<u32>) -> Option<usize> {
     let scan = scan_source(src);
     let bytes = src.as_bytes();
     let mut from = 0;
@@ -440,6 +440,7 @@ fn parse_default_locale(src: &str) -> Option<String> {
 /// Parsed pieces of an existing `i18n: { ... }` block.
 struct I18nBlock {
     locales: Vec<String>,
+    locale_prefixes: Vec<String>,
     has_non_string_locales: bool,
     default_locale: Option<String>,
 }
@@ -452,12 +453,29 @@ fn parse_i18n_block(content: &str) -> Option<I18nBlock> {
     let end = match_delim(content, val_idx)?;
     let block = &content[val_idx..=end];
     let (locales, has_non_string_locales) = parse_locales_array(block);
+    let locale_prefixes = parse_locale_prefixes(block);
 
     Some(I18nBlock {
         locales,
+        locale_prefixes,
         has_non_string_locales,
         default_locale: parse_default_locale(block),
     })
+}
+
+/// Literal URL prefixes from Astro's `i18n.prefixes` map. Both locale keys
+/// and custom path values are retained as guarded route segments.
+fn parse_locale_prefixes(src: &str) -> Vec<String> {
+    let Some(index) = find_key_value(src, "prefixes", Some(1)) else {
+        return Vec::new();
+    };
+    if src.as_bytes().get(index) != Some(&b'{') {
+        return Vec::new();
+    }
+    let Some(end) = match_delim(src, index) else {
+        return Vec::new();
+    };
+    extract_string_items(&src[index + 1..end]).0
 }
 
 // ============ Config writing (pure string helpers) ============
@@ -828,7 +846,11 @@ pub(crate) fn astro_all_locale_prefixes(workspace: &Path) -> Vec<String> {
     let Some(block) = parse_i18n_block(&content) else {
         return Vec::new();
     };
-    block.locales
+    let mut prefixes = block.locales;
+    prefixes.extend(block.locale_prefixes);
+    prefixes.sort();
+    prefixes.dedup();
+    prefixes
 }
 
 /// Next.js i18n routing doesn't work with `output: 'export'` (static export
@@ -1572,6 +1594,21 @@ export const routing = defineRouting({
             "export default defineConfig({\n  i18n: {\n    locales: ['en', 'fr', 'de'],\n    defaultLocale: 'en',\n  },\n});\n",
         );
         assert_eq!(astro_locale_prefixes(tmp.path()), vec!["fr", "de"]);
+    }
+
+    #[test]
+    fn astro_mutation_prefixes_include_custom_locale_paths_and_default_locale() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            &tmp,
+            "astro.config.mjs",
+            "export default defineConfig({ i18n: { locales: ['en', 'fr'], defaultLocale: 'en', prefixes: { en: 'english', fr: 'francais' } } });",
+        );
+        let prefixes = astro_all_locale_prefixes(tmp.path());
+        assert!(prefixes.contains(&"en".to_string()));
+        assert!(prefixes.contains(&"fr".to_string()));
+        assert!(prefixes.contains(&"english".to_string()));
+        assert!(prefixes.contains(&"francais".to_string()));
     }
 
     #[test]

@@ -227,9 +227,12 @@ type DragSortHandleChildProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   ref?: Ref<HTMLButtonElement>;
 };
 
-function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
-  if (typeof ref === 'function') ref(value);
-  else if (ref) (ref as { current: T | null }).current = value;
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null): (() => void) | undefined {
+  if (typeof ref === 'function') {
+    const cleanup = ref(value);
+    return typeof cleanup === 'function' ? cleanup : undefined;
+  } else if (ref) (ref as { current: T | null }).current = value;
+  return undefined;
 }
 
 export const DragSortHandle = forwardRef<HTMLButtonElement, DragSortHandleProps>(
@@ -257,9 +260,18 @@ export const DragSortHandle = forwardRef<HTMLButtonElement, DragSortHandleProps>
     const childRef = child?.props.ref;
     const setHandleRef = useCallback(
       (node: HTMLButtonElement | null) => {
-        item.handleRef(node);
-        assignRef(childRef, node);
-        assignRef(ref, node);
+        const itemCleanup = assignRef(item.handleRef, node);
+        const childCleanup = assignRef(childRef, node);
+        const forwardedCleanup = assignRef(ref, node);
+        if (node === null) return;
+        return () => {
+          if (itemCleanup) itemCleanup();
+          else assignRef(item.handleRef, null);
+          if (childCleanup) childCleanup();
+          else assignRef(childRef, null);
+          if (forwardedCleanup) forwardedCleanup();
+          else assignRef(ref, null);
+        };
       },
       [childRef, item, ref]
     );

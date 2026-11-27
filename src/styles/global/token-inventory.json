@@ -2738,7 +2738,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--z-workspace-header",
@@ -2774,7 +2774,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 8
+      "consumerCount": 10
     },
     {
       "name": "--z-drag-sort-overlay",
@@ -4376,7 +4376,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 13
+      "consumerCount": 14
     },
     {
       "name": "--tracking-micro",
@@ -4403,7 +4403,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 243
+      "consumerCount": 244
     },
     {
       "name": "--surface-control",
@@ -4493,7 +4493,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 418
+      "consumerCount": 419
     },
     {
       "name": "--text-muted",
@@ -4556,7 +4556,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 109
+      "consumerCount": 110
     },
     {
       "name": "--border-strong",
@@ -4583,7 +4583,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 193
+      "consumerCount": 194
     },
     {
       "name": "--border-width-emphasis",
@@ -5195,7 +5195,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 557
+      "consumerCount": 558
     },
     {
       "name": "--spacing-md",
@@ -5204,7 +5204,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 410
+      "consumerCount": 411
     },
     {
       "name": "--spacing-lg",

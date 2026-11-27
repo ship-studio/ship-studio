@@ -8,10 +8,13 @@ import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Button } from '../primitives/Button';
 import { ChevronIcon } from '@/components/icons';
 
+const identityRoute = (route: string) => route;
+
 interface TemplateEntryPickerProps {
   projectPath: string;
   templateRoute: string | null;
   currentPage: string;
+  canonicalizeRoute?: (route: string) => string;
   onNavigate: (route: string) => void;
 }
 
@@ -19,6 +22,7 @@ export function TemplateEntryPicker({
   projectPath,
   templateRoute,
   currentPage,
+  canonicalizeRoute = identityRoute,
   onNavigate,
 }: TemplateEntryPickerProps) {
   const entries = useAsyncState(listTemplatePageEntries);
@@ -26,6 +30,7 @@ export function TemplateEntryPicker({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const selectionRouteRef = useRef(currentPage);
+  const navigationOccurredRef = useRef(false);
   const autoNavigationConsumedRef = useRef(false);
 
   useCommands(
@@ -46,15 +51,29 @@ export function TemplateEntryPicker({
   }, [loadEntries, projectPath, templateRoute]);
 
   useEffect(() => {
+    if (currentPage !== selectionRouteRef.current) navigationOccurredRef.current = true;
+  }, [currentPage]);
+
+  useEffect(() => {
     if (!templateRoute || entries.isLoading || entries.error || !entries.data || entries.data.error)
       return;
     if (autoNavigationConsumedRef.current) return;
     autoNavigationConsumedRef.current = true;
-    if (currentPage !== selectionRouteRef.current) return;
-    const target =
-      entries.data.entries.find((entry) => entry.route === currentPage) ?? entries.data.entries[0];
-    if (target && target.route !== currentPage) onNavigate(target.route);
-  }, [currentPage, entries.data, entries.error, entries.isLoading, onNavigate, templateRoute]);
+    if (navigationOccurredRef.current || currentPage !== selectionRouteRef.current) return;
+    const matchingEntry = entries.data.entries.find(
+      (entry) => canonicalizeRoute(entry.route) === currentPage
+    );
+    const target = matchingEntry ?? entries.data.entries[0];
+    if (target && canonicalizeRoute(target.route) !== currentPage) onNavigate(target.route);
+  }, [
+    canonicalizeRoute,
+    currentPage,
+    entries.data,
+    entries.error,
+    entries.isLoading,
+    onNavigate,
+    templateRoute,
+  ]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -65,7 +84,9 @@ export function TemplateEntryPicker({
 
   if (!templateRoute) return null;
 
-  const current = entries.data?.entries.find((entry) => entry.route === currentPage);
+  const current = entries.data?.entries.find(
+    (entry) => canonicalizeRoute(entry.route) === currentPage
+  );
   const segments = templateRoute.split('/').filter(Boolean);
   const heading = segments[segments.length - 1] ?? templateRoute;
   const entryLabel =
@@ -95,7 +116,7 @@ export function TemplateEntryPicker({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (next && !entries.data && !entries.isLoading)
+        if (next && (!entries.data || entries.error || entries.data.error) && !entries.isLoading)
           void entries.execute(projectPath, templateRoute);
       }}
       trigger={(triggerProps) => (
@@ -134,7 +155,7 @@ export function TemplateEntryPicker({
         <DropdownItem
           key={entry.route}
           onSelect={() => onNavigate(entry.route)}
-          active={entry.route === currentPage}
+          active={canonicalizeRoute(entry.route) === currentPage}
         >
           <span className="template-entry-picker__item-label">{entry.label}</span>
           <span className="template-entry-picker__item-route">{entry.route}</span>

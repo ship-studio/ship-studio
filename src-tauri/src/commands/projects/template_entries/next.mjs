@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { realpathSync, readFileSync } from 'node:fs';
+import { existsSync, realpathSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
@@ -17,6 +17,8 @@ function emit(entries = [], error) {
 
 function safeError(error) {
   const message = error instanceof Error ? error.message : String(error || '');
+  if (/require Node\.js 22\.15/.test(message))
+    return 'Next.js dynamic entries require Node.js 22.15 or newer. Update Node.js and try again.';
   // Avoid surfacing stack traces, file paths, env values, or framework internals.
   if (/timeout|timed out/i.test(message)) return 'Dynamic entry discovery took too long.';
   if (/not found|cannot find|module/i.test(message))
@@ -34,6 +36,77 @@ function routeParameters(route) {
       optional: Boolean(match[1]),
     })
   );
+}
+
+function parseJsonc(source) {
+  let output = '';
+  let quote = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (quote) {
+      output += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quote = false;
+    } else if (char === '"') {
+      quote = true;
+      output += char;
+    } else if (char === '/' && next === '/') {
+      while (index < source.length && source[index] !== '\n') index += 1;
+      output += '\n';
+    } else if (char === '/' && next === '*') {
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) index += 1;
+      index += 1;
+    } else {
+      output += char;
+    }
+  }
+  return JSON.parse(output.replace(/,\s*([}\]])/g, '$1'));
+}
+
+function readTsconfig(configPath, seen = new Set()) {
+  const absolute = path.resolve(configPath);
+  if (seen.has(absolute)) return {};
+  seen.add(absolute);
+  const config = parseJsonc(readFileSync(absolute, 'utf8'));
+  let parentPath = null;
+  if (config.extends) {
+    const extended = config.extends.endsWith('.json') ? config.extends : `${config.extends}.json`;
+    if (extended.startsWith('.') || path.isAbsolute(extended)) {
+      parentPath = path.resolve(path.dirname(absolute), extended);
+    } else {
+      try {
+        parentPath = require.resolve(extended, { paths: [path.dirname(absolute)] });
+      } catch {}
+    }
+  }
+  const parent = parentPath && existsSync(parentPath) ? readTsconfig(parentPath, seen) : {};
+  const compilerOptions = config.compilerOptions || {};
+  const baseUrl = path.resolve(
+    path.dirname(absolute),
+    compilerOptions.baseUrl || parent.compilerOptions?.baseUrl || '.'
+  );
+  const localPaths = Object.fromEntries(
+    Object.entries(compilerOptions.paths || {}).map(([pattern, candidates]) => [
+      pattern,
+      (Array.isArray(candidates) ? candidates : [candidates]).map((candidate) =>
+        path.resolve(baseUrl, candidate)
+      ),
+    ])
+  );
+  return {
+    ...parent,
+    ...config,
+    compilerOptions: {
+      ...(parent.compilerOptions || {}),
+      ...compilerOptions,
+      baseUrl,
+      paths: { ...(parent.compilerOptions?.paths || {}), ...localPaths },
+    },
+  };
 }
 
 function withTimeout(operation, milliseconds = 22000) {
@@ -57,6 +130,18 @@ function findRouterRoot(routeFile, routerName) {
     directory = parent;
   }
   return null;
+}
+
+function activeRouterForFile(routeFile) {
+  const candidates = [
+    { router: 'app', directory: path.join(root, 'app') },
+    { router: 'app', directory: path.join(root, 'src', 'app') },
+    { router: 'pages', directory: path.join(root, 'pages') },
+    { router: 'pages', directory: path.join(root, 'src', 'pages') },
+  ]
+    .filter(({ directory }) => existsSync(directory) && routeFile.startsWith(`${directory}${path.sep}`))
+    .sort((a, b) => b.directory.length - a.directory.length);
+  return candidates[0] || null;
 }
 
 function routePatternForFile(routeFile, routerName) {
@@ -99,7 +184,7 @@ function concretize(routePattern, params, basePath, trailingSlash) {
         ? String(value).split('/')
         : [String(value)];
     if (
-      !values.length ||
+      (!values.length && !part.optional) ||
       values.some(
         (segment) => !segment || segment === '.' || segment === '..' || /[\\/?#]/.test(segment)
       )
@@ -202,11 +287,15 @@ async function loadConfig() {
   nextConfig = await loadNextConfig('phase-development-server', root);
   try {
     const configPath = path.join(root, 'tsconfig.json');
-    aliasEntries = readAliases(JSON.parse(readFileSync(configPath, 'utf8')));
+    aliasEntries = readAliases(readTsconfig(configPath));
   } catch {}
 }
 
 async function installLoader() {
+  const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+  if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 15)) {
+    throw new Error('Next.js dynamic entries require Node.js 22.15 or newer for the TypeScript loader.');
+  }
   try {
     const typescript = await import(pathToFileURL(require.resolve('typescript')).href);
     transpile = (source, options) => ({
@@ -294,7 +383,12 @@ function mayExportStaticParams(routeFile) {
 async function evaluatePagesRouter(routePattern) {
   const module = await importRoute(file);
   if (typeof module.getStaticPaths !== 'function') throw new Error('No getStaticPaths export');
-  const result = await withTimeout(() => module.getStaticPaths({}));
+  const result = await withTimeout(() =>
+    module.getStaticPaths({
+      locales: nextConfig.i18n?.locales,
+      defaultLocale: nextConfig.i18n?.defaultLocale,
+    })
+  );
   const paths = Array.isArray(result) ? result : result?.paths;
   if (!Array.isArray(paths)) throw new Error('Invalid paths result');
   const entries = [];
@@ -403,7 +497,9 @@ try {
   if (!rootArg || !fileArg || !displayRoute) throw new Error('Missing route inputs');
   await loadConfig();
   if (!(await installLoader())) throw new Error('TypeScript loader unavailable');
-  const isPagesRouter = Boolean(findRouterRoot(file, 'pages'));
+  const activeRouter = activeRouterForFile(file);
+  if (!activeRouter) throw new Error('Could not determine the active Next.js router root');
+  const isPagesRouter = activeRouter.router === 'pages';
   const routePattern = routePatternForFile(file, isPagesRouter ? 'pages' : 'app');
   const entries = isPagesRouter
     ? await evaluatePagesRouter(routePattern)

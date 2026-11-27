@@ -558,6 +558,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
   const openPageInPreview = useCallback(
     (route: string) => {
       if (isDynamicPageRoute(route)) {
+        previewRef.current?.returnToLocalPreview();
         duplicateNavigationRequestRef.current += 1;
         setTemplatePickerRequest((request) => request + 1);
         setTemplateRouteState({ projectPath: currentProject.path, route });

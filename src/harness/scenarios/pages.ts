@@ -6,7 +6,7 @@ import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
 export const pagesScenarios: Scenario[] = [
   {
     id: 'pages-populated',
-    command: 'pages.toggle',
+    command: 'workspace.togglePagesPanel',
     requires: '[data-testid="pages-panel"] [data-page-route="/about"]',
     clipSelector: '[data-testid="pages-panel"]',
     title: 'Pages — routes from the active project',

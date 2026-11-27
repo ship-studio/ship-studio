@@ -309,6 +309,8 @@ export interface PreviewHandle {
   refresh: () => void;
   /** Navigate to a page route while preserving the currently selected locale. */
   navigateToPage: (route: string) => void;
+  /** Return from an external preview to the current local preview route. */
+  returnToLocalPreview: () => void;
   /** Resolve the exact preview path used by navigateToPage for this route. */
   resolvePageRoute: (route: string) => string;
   /** Address last rendered by the preview toolbar. */
@@ -516,9 +518,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       const url = parseExternalPreviewUrl(input);
       const targetPort = Number(url.port || (url.protocol === 'http:' ? '80' : '443'));
       const sameLocalServer =
-        url.protocol === 'http:' &&
-        isLoopbackHost(url.hostname) &&
-        (targetPort === port || targetPort === configuredPort.data?.port);
+        url.protocol === 'http:' && isLoopbackHost(url.hostname) && targetPort === port;
       if (sameLocalServer) {
         setExternalPreviewUrl(null);
         handlePageSelect(`${url.pathname}${url.search}${url.hash}`);
@@ -537,7 +537,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         $screen_name: 'Workspace',
       });
     },
-    [configuredPort.data?.port, handlePageSelect, port, previewPage]
+    [handlePageSelect, port, previewPage]
   );
 
   const addressBar = (
@@ -835,21 +835,28 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // fewer than 2 configured languages). Used to keep page selection inside
   // the language currently being previewed.
   const [localeConfig, setLocaleConfig] = useState<PreviewLocaleConfig | null>(null);
-  const canonicalCurrentPage = useMemo(() => {
-    if (!localeConfig) return conn.currentPage;
-    if (localeConfig.defaultLocale !== null) {
-      return switchPathLocale(
-        conn.currentPage,
-        localeConfig.defaultLocale,
-        localeConfig.locales,
-        localeConfig.defaultLocale
-      );
-    }
-    const segments = conn.currentPage.replace(/^\/+/, '').split('/').filter(Boolean);
-    if (!localeConfig.locales.includes(segments[0] ?? '')) return conn.currentPage;
-    const routeSegments = segments.slice(1);
-    return routeSegments.length === 0 ? '/' : `/${routeSegments.join('/')}`;
-  }, [conn.currentPage, localeConfig]);
+  const canonicalizePageRoute = useCallback(
+    (route: string) => {
+      if (!localeConfig) return route;
+      if (localeConfig.defaultLocale !== null) {
+        return switchPathLocale(
+          route,
+          localeConfig.defaultLocale,
+          localeConfig.locales,
+          localeConfig.defaultLocale
+        );
+      }
+      const segments = route.replace(/^\/+/, '').split('/').filter(Boolean);
+      if (!localeConfig.locales.includes(segments[0] ?? '')) return route;
+      const routeSegments = segments.slice(1);
+      return routeSegments.length === 0 ? '/' : `/${routeSegments.join('/')}`;
+    },
+    [localeConfig]
+  );
+  const canonicalCurrentPage = useMemo(
+    () => canonicalizePageRoute(conn.currentPage),
+    [canonicalizePageRoute, conn.currentPage]
+  );
   useEffect(() => {
     onCanonicalPageChange?.(canonicalCurrentPage);
   }, [canonicalCurrentPage, onCanonicalPageChange]);
@@ -1119,7 +1126,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         id: 'preview.breakpointCanvas',
         title: canvasMode ? 'Focus a single breakpoint' : 'Show every breakpoint',
         category: 'action' as const,
-        when: 'project' as const,
+        when: ({ kind }) => kind === 'project' && !externalPreviewUrl,
         keywords: [
           'breakpoint',
           'canvas',
@@ -1263,7 +1270,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         id: 'preview.setSize',
         title: 'Set exact preview size…',
         category: 'action' as const,
-        when: 'project' as const,
+        when: ({ kind }) => kind === 'project' && !externalPreviewUrl,
         keywords: [
           'viewport',
           'width',
@@ -1276,7 +1283,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         run: () => setSizePopoverSignal((s) => s + 1),
       },
     ],
-    []
+    [externalPreviewUrl]
   );
 
   // Element tree (navigator) — available throughout Preview mode. Structural
@@ -1417,6 +1424,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       isCapturing: () => capture.isCapturing,
       refresh,
       navigateToPage: selectPageKeepingLocale,
+      returnToLocalPreview: () => setExternalPreviewUrl(null),
       resolvePageRoute: resolvePageRouteKeepingLocale,
       previewAddress,
       isServerReady: () => conn.serverReady,
@@ -1428,6 +1436,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       capture.isCapturing,
       refresh,
       selectPageKeepingLocale,
+      setExternalPreviewUrl,
       resolvePageRouteKeepingLocale,
       previewAddress,
       conn.serverReady,
@@ -1654,9 +1663,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     // `.preview-toolbar { grid-column }` rules go.
     <div
       className="preview-container"
-      data-logs={showLogs ? 'open' : 'closed'}
+      data-logs={showLogs && !externalPreviewUrl ? 'open' : 'closed'}
       style={
-        showLogs && inspectPanelHeight !== null
+        showLogs && !externalPreviewUrl && inspectPanelHeight !== null
           ? {
               gridTemplateRows: `auto minmax(0, 1fr) var(--handle-size) ${inspectPanelHeight}px`,
             }
@@ -1753,7 +1762,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 key={`${projectPath}:${templateRoute}:${templatePickerRequest}`}
                 projectPath={projectPath}
                 templateRoute={templateRoute}
-                currentPage={conn.currentPage}
+                currentPage={canonicalCurrentPage}
+                canonicalizeRoute={canonicalizePageRoute}
                 onNavigate={selectPageKeepingLocale}
               />
             )}
@@ -1903,7 +1913,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           />
         )}
         {externalPreviewUrl ? (
-          <ExternalPreviewFrame url={externalPreviewUrl} reloadToken={externalReloadToken} />
+          <ExternalPreviewFrame
+            url={externalPreviewUrl}
+            reloadToken={externalReloadToken}
+            visible={
+              !isBranchSwitching &&
+              !isDevServerRestarting &&
+              !resize.isResizing &&
+              !resize.isVerticalResizing
+            }
+          />
         ) : canvasMode ? (
           <>
             {blankPageOverlay}

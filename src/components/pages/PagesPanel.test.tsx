@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest';
 import { ModalProvider } from '../../contexts/ModalContext';
 import { projectPagesStorageKey, type ProjectPagesState } from '../../lib/projectPages';
-import { mockInvokeResponse } from '../../test/setup';
+import { getInvokeCalls, mockInvokeResponse } from '../../test/setup';
 import { PagesPanel } from './PagesPanel';
 
 function pointer(type: string, x: number, y: number, pointerId = 1) {
@@ -17,6 +17,52 @@ function pointer(type: string, x: number, y: number, pointerId = 1) {
 }
 
 describe('PagesPanel sorting', () => {
+  it('moves down relative to the next visible sibling when a saved route is absent', async () => {
+    const projectPath = '/tmp/pages-panel-visible-sibling';
+    const storageKey = projectPagesStorageKey(projectPath, '');
+    const savedState: ProjectPagesState = {
+      version: 1,
+      sortMode: 'manual',
+      pages: {
+        '/alpha': { displayName: null, parentFolderId: null, order: 0, lastUsedAt: null },
+        '/hidden': { displayName: null, parentFolderId: null, order: 1, lastUsedAt: null },
+        '/beta': { displayName: null, parentFolderId: null, order: 2, lastUsedAt: null },
+      },
+      folders: [],
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(savedState));
+    mockInvokeResponse('list_pages', [
+      { route: '/alpha', file_path: '/repo/src/pages/alpha.astro' },
+      { route: '/beta', file_path: '/repo/src/pages/beta.astro' },
+    ]);
+    render(
+      <ModalProvider>
+        <PagesPanel
+          projectPath={projectPath}
+          workspaceKey=""
+          projectType="astro"
+          onOpenPage={vi.fn()}
+          onOpenSourceFile={vi.fn()}
+          onOpenDuplicatedPage={vi.fn().mockResolvedValue('opened')}
+          pinned
+          onTogglePin={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </ModalProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings for Alpha' }));
+    fireEvent.click(await screen.findByText('Move down'));
+    await waitFor(() => {
+      const saved = JSON.parse(
+        window.localStorage.getItem(storageKey) ?? 'null'
+      ) as ProjectPagesState | null;
+      expect(saved?.pages['/alpha']?.order).toBe(2);
+      expect(saved?.pages['/beta']?.order).toBe(1);
+      expect(saved?.pages['/hidden']?.order).toBe(0);
+    });
+  });
+
   it('reorders a newly discovered route and persists the visible order after a drop', async () => {
     const projectPath = '/tmp/pages-panel-order-regression';
     const storageKey = projectPagesStorageKey(projectPath, '');
@@ -119,12 +165,12 @@ describe('PagesPanel dynamic templates', () => {
         '/about': { displayName: null, parentFolderId: null, order: 1, lastUsedAt: null },
         '/work/:slug': {
           displayName: null,
-          parentFolderId: 'route:/work',
+          parentFolderId: 'custom-work',
           order: 0,
           lastUsedAt: null,
         },
       },
-      folders: [{ id: 'route:/work', name: 'Work', parentFolderId: null, order: 0 }],
+      folders: [{ id: 'custom-work', name: 'Client work', parentFolderId: null, order: 0 }],
     };
     window.localStorage.setItem(storageKey, JSON.stringify(savedState));
     mockInvokeResponse('list_pages', [
@@ -155,7 +201,7 @@ describe('PagesPanel dynamic templates', () => {
       expect(page).not.toBeNull();
       return page as HTMLElement;
     });
-    const folder = container.querySelector('[data-folder-id="route:/work"]');
+    const folder = container.querySelector('[data-folder-id="custom-work"]');
     expect(folder?.contains(template)).toBe(true);
     expect(template.querySelector('.pages-tree__sortable-row')?.getAttribute('style')).toContain(
       '--pages-tree-depth: 1'
@@ -163,5 +209,45 @@ describe('PagesPanel dynamic templates', () => {
     const activeRows = container.querySelectorAll('.pages-row--active');
     expect(activeRows).toHaveLength(1);
     expect(activeRows[0]?.closest('[data-page-route]')).toBe(template);
+  });
+
+  it('keeps the custom page name when a committed create cannot refresh inventory', async () => {
+    const projectPath = '/tmp/pages-panel-committed-create';
+    const storageKey = projectPagesStorageKey(projectPath, '');
+    mockInvokeResponse('list_pages', []);
+    mockInvokeResponse('mutate_project_page', {
+      committed: true,
+      pages: null,
+      refreshError: 'scan failed',
+    });
+
+    render(
+      <ModalProvider>
+        <PagesPanel
+          projectPath={projectPath}
+          workspaceKey=""
+          projectType="astro"
+          onOpenPage={vi.fn()}
+          onOpenSourceFile={vi.fn()}
+          onOpenDuplicatedPage={vi.fn().mockResolvedValue('opened')}
+          pinned
+          onTogglePin={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </ModalProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add page' }));
+    fireEvent.change(screen.getByPlaceholderText('about'), { target: { value: 'about' } });
+    fireEvent.change(screen.getByPlaceholderText('About'), { target: { value: 'About us' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create page' }));
+
+    await waitFor(() => {
+      expect(getInvokeCalls('mutate_project_page')).toHaveLength(1);
+      const saved = JSON.parse(
+        window.localStorage.getItem(storageKey) ?? 'null'
+      ) as ProjectPagesState | null;
+      expect(saved?.pages['/about']?.displayName).toBe('About us');
+    });
   });
 });

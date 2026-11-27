@@ -471,6 +471,7 @@ export function ContextMenuSubmenu({
 }) {
   const { submenu, openSubmenu, closeSubmenu, scheduleCloseSubmenu, cancelCloseSubmenu } =
     useContextMenuContext('ContextMenuSubmenu');
+  const registerNestedMenu = useDropdownNestedMenuRegistration();
   const id = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -510,6 +511,16 @@ export function ContextMenuSubmenu({
     window.addEventListener('resize', reposition);
     return () => window.removeEventListener('resize', reposition);
   }, [isOpen, reposition]);
+
+  useEffect(() => {
+    if (!isOpen || !registerNestedMenu || !contentRef.current) return;
+    return registerNestedMenu(contentRef);
+  }, [isOpen, registerNestedMenu]);
+
+  const scheduleCloseUnlessKeyboardFocused = () => {
+    if (contentRef.current?.contains(document.activeElement)) return;
+    scheduleCloseSubmenu(id);
+  };
 
   const getItems = () =>
     Array.from(
@@ -564,7 +575,7 @@ export function ContextMenuSubmenu({
         aria-expanded={isOpen}
         aria-controls={`${id}-menu`}
         onMouseEnter={() => !disabled && open()}
-        onMouseLeave={() => scheduleCloseSubmenu(id)}
+        onMouseLeave={scheduleCloseUnlessKeyboardFocused}
         onClick={(event) => (isOpen ? closeSubmenu(id) : open(event.detail === 0))}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowRight' || disabled) return;
@@ -594,7 +605,7 @@ export function ContextMenuSubmenu({
               top: menuPosition?.y ?? submenu.y,
             }}
             onMouseEnter={cancelCloseSubmenu}
-            onMouseLeave={() => scheduleCloseSubmenu(id)}
+            onMouseLeave={scheduleCloseUnlessKeyboardFocused}
             onKeyDown={handleSubmenuKeyDown}
           >
             {children}

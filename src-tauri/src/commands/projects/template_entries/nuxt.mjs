@@ -35,6 +35,11 @@ try {
   });
   await nuxt.ready();
   const nitroConfig = nuxt.options.nitro || {};
+  const pagesRoot = path.resolve(nuxt.options.srcDir || root, 'pages');
+  const relativePage = path.relative(pagesRoot, path.resolve(file));
+  if (relativePage.startsWith('..') || path.isAbsolute(relativePage)) {
+    throw new Error('This Nuxt page is outside the configured srcDir pages directory.');
+  }
   const base = String(nuxt.options.app?.baseURL || nitroConfig.baseURL || '/');
   const basePath = base === '/' ? '' : `/${base.split('/').filter(Boolean).join('/')}`;
   // Rust derives this from the canonical source path, preserving Nuxt catch-all syntax.
@@ -86,9 +91,15 @@ try {
           valid = false;
           break;
         }
-        const segments = match[2]
-          ? concrete.slice(i).map((segment) => decodeURIComponent(segment))
-          : [decodeURIComponent(concrete[i] || '')];
+        let segments;
+        try {
+          segments = match[2]
+            ? concrete.slice(i).map((segment) => decodeURIComponent(segment))
+            : [decodeURIComponent(concrete[i] || '')];
+        } catch {
+          valid = false;
+          break;
+        }
         if (segments.some((value) => !safeSegment(value))) valid = false;
         else labels.push(segments.join('/'));
         if (match[2]) {

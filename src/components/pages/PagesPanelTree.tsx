@@ -11,6 +11,7 @@ import {
   type PageEntryRef,
   type PageFolder,
   type PageRouteInfo,
+  type PageTreeEntry,
   type ProjectPagesState,
 } from '../../lib/projectPages';
 import type {
@@ -92,6 +93,21 @@ function groupForParent(parentFolderId: string | null): string {
 
 function sameEntry(first: PageEntryRef, second: PageEntryRef): boolean {
   return first.kind === second.kind && first.id === second.id;
+}
+
+function fullIndexForVisibleInsert(
+  fullSiblings: readonly PageTreeEntry[],
+  visibleSiblings: readonly PageTreeEntry[],
+  visibleIndex: number
+): number {
+  const boundedIndex = Math.max(0, Math.min(visibleIndex, visibleSiblings.length));
+  if (boundedIndex === visibleSiblings.length) return fullSiblings.length;
+  const target = visibleSiblings[boundedIndex];
+  if (!target) return fullSiblings.length;
+  const fullIndex = fullSiblings.findIndex(
+    (item) => item.kind === target.kind && item.id === target.id
+  );
+  return fullIndex < 0 ? fullSiblings.length : fullIndex;
 }
 
 function isInsideFolder(state: ProjectPagesState, entry: PageEntryRef, folderId: string): boolean {
@@ -201,17 +217,26 @@ export function PagesPanelTree(props: Props) {
       return;
     }
     const destinationFolderId = parentFolderForEntry(props.state, target);
-    const siblings = siblingEntries(props.state, destinationFolderId, 'manual').filter(
+    const visibleSiblings = visibleSiblingEntries(destinationFolderId).filter(
       (sibling) => !sameEntry(sibling, active)
     );
-    const targetIndex = siblings.findIndex((sibling) => sameEntry(sibling, target));
+    const targetIndex = visibleSiblings.findIndex((sibling) => sameEntry(sibling, target));
     if (targetIndex < 0) return;
+    const visibleInsertIndex = targetIndex + (move.to.placement === 'after' ? 1 : 0);
+    const fullSiblings = siblingEntries(props.state, destinationFolderId, 'manual').filter(
+      (sibling) => !sameEntry(sibling, active)
+    );
     props.onMoveEntry(
       active,
       destinationFolderId,
-      targetIndex + (move.to.placement === 'after' ? 1 : 0)
+      fullIndexForVisibleInsert(fullSiblings, visibleSiblings, visibleInsertIndex)
     );
   };
+
+  const visibleSiblingEntries = (parentFolderId: string | null) =>
+    siblingEntries(props.state, parentFolderId, 'manual').filter(
+      (entry) => entry.kind === 'folder' || pagesByRoute.has(entry.id)
+    );
 
   const isPartOfMovedFolder = (activeId: string | number, itemId: string | number) => {
     const active = entryFromDragSortId(activeId);
@@ -234,42 +259,15 @@ export function PagesPanelTree(props: Props) {
   };
 
   const renderMoveSubmenu = (entry: PageEntryRef, label: string) => {
-    const currentParent = parentFolderForEntry(props.state, entry);
-    const destinations: { id: string | null; label: string }[] = [];
-    if (currentParent !== null && canMovePageEntry(props.state, entry, null)) {
-      destinations.push({ id: null, label: 'Root' });
-    }
-    for (const folder of orderedPageFolders(props.state)) {
-      if (folder.id === currentParent || !canMovePageEntry(props.state, entry, folder.id)) continue;
-      destinations.push({ id: folder.id, label: pageFolderPath(props.state, folder) });
-    }
-
     return (
-      <ContextMenuSubmenu
-        label={label}
-        icon={<MoveToFolderIcon size={14} />}
-        disabled={destinations.length === 0}
-      >
-        {destinations.map((destination) => (
-          <ContextMenuItem
-            key={destination.id ?? 'root'}
-            onSelect={() =>
-              props.onMoveEntry(
-                entry,
-                destination.id,
-                siblingEntries(props.state, destination.id, 'manual').length
-              )
-            }
-          >
-            {destination.label}
-          </ContextMenuItem>
-        ))}
+      <ContextMenuSubmenu label={label} icon={<MoveToFolderIcon size={14} />}>
+        <MoveDestinationItems state={props.state} entry={entry} onMoveEntry={props.onMoveEntry} />
       </ContextMenuSubmenu>
     );
   };
 
   const renderBranch = (parentFolderId: string | null, depth: number): ReactNode => {
-    const entries = siblingEntries(props.state, parentFolderId);
+    const entries = visibleSiblingEntries(parentFolderId);
     return entries.map((entry, index) => {
       const ref: PageEntryRef = { kind: entry.kind, id: entry.id };
 
@@ -298,13 +296,37 @@ export function PagesPanelTree(props: Props) {
               </ContextMenuItem>
               {renderMoveSubmenu(ref, 'Move folder…')}
               {!searching && props.state.sortMode === 'manual' && index > 0 && (
-                <ContextMenuItem onSelect={() => props.onMoveEntry(ref, parentFolderId, index - 1)}>
+                <ContextMenuItem
+                  onSelect={() => {
+                    const full = siblingEntries(props.state, parentFolderId, 'manual').filter(
+                      (item) => !sameEntry(item, ref)
+                    );
+                    const visible = entries.filter((item) => !sameEntry(item, ref));
+                    props.onMoveEntry(
+                      ref,
+                      parentFolderId,
+                      fullIndexForVisibleInsert(full, visible, Math.max(0, index - 1))
+                    );
+                  }}
+                >
                   <ArrowUpIcon size={14} />
                   Move up
                 </ContextMenuItem>
               )}
               {!searching && props.state.sortMode === 'manual' && index < entries.length - 1 && (
-                <ContextMenuItem onSelect={() => props.onMoveEntry(ref, parentFolderId, index + 1)}>
+                <ContextMenuItem
+                  onSelect={() => {
+                    const full = siblingEntries(props.state, parentFolderId, 'manual').filter(
+                      (item) => !sameEntry(item, ref)
+                    );
+                    const visible = entries.filter((item) => !sameEntry(item, ref));
+                    props.onMoveEntry(
+                      ref,
+                      parentFolderId,
+                      fullIndexForVisibleInsert(full, visible, index + 1)
+                    );
+                  }}
+                >
                   <ArrowDownIcon size={14} />
                   Move down
                 </ContextMenuItem>
@@ -409,7 +431,19 @@ export function PagesPanelTree(props: Props) {
                 siblings={entries.map((item) => item.id)}
                 onOpen={props.onOpenPage}
                 onAction={props.onPageAction}
-                onMove={(targetParent, index) => props.onMoveEntry(ref, targetParent, index)}
+                onMove={(targetParent, index) => {
+                  const full = siblingEntries(props.state, targetParent, 'manual').filter(
+                    (item) => !sameEntry(item, ref)
+                  );
+                  const visible = visibleSiblingEntries(targetParent).filter(
+                    (item) => !sameEntry(item, ref)
+                  );
+                  props.onMoveEntry(
+                    ref,
+                    targetParent,
+                    fullIndexForVisibleInsert(full, visible, index)
+                  );
+                }}
               />
             </DragSortTarget>
           </DragSortItem>
@@ -444,6 +478,40 @@ export function PagesPanelTree(props: Props) {
       </div>
     </DragSortScope>
   );
+}
+
+function MoveDestinationItems({
+  state,
+  entry,
+  onMoveEntry,
+}: {
+  state: ProjectPagesState;
+  entry: PageEntryRef;
+  onMoveEntry: Props['onMoveEntry'];
+}) {
+  const currentParent = parentFolderForEntry(state, entry);
+  const destinations: { id: string | null; label: string }[] = [];
+  if (currentParent !== null && canMovePageEntry(state, entry, null)) {
+    destinations.push({ id: null, label: 'Root' });
+  }
+  for (const folder of orderedPageFolders(state)) {
+    if (folder.id === currentParent || !canMovePageEntry(state, entry, folder.id)) continue;
+    destinations.push({ id: folder.id, label: pageFolderPath(state, folder) });
+  }
+  if (!destinations.length) {
+    return <ContextMenuItem disabled>No other folders</ContextMenuItem>;
+  }
+  return destinations.map((destination) => (
+    <ContextMenuItem
+      key={destination.id ?? 'root'}
+      onSelect={() => {
+        const siblings = siblingEntries(state, destination.id, 'manual');
+        onMoveEntry(entry, destination.id, siblings.length);
+      }}
+    >
+      {destination.label}
+    </ContextMenuItem>
+  ));
 }
 
 function RootDropTarget({ state }: { state: ProjectPagesState }) {
